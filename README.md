@@ -23,19 +23,23 @@ on your machine. When you connect from the web or a mobile app, remote request
 and response content is end-to-end encrypted between the approved device and
 your desktop.
 
-## About this repository
+## Download
 
-This repo hosts **releases and issue tracking**. The Operon application itself is
-closed source, so you won't find the app code here.
+**Desktop — macOS** (Apple Silicon & Intel), from the
+[latest release](https://github.com/Nickqiaoo/Operon/releases/latest). Windows and
+Linux are not available.
 
-Parts of the stack are open source and can be read or self-hosted:
+**Mobile** — the agent keeps running on your Mac, and the phone reaches the same
+session — approve a diff or steer a run from anywhere.
 
-| Component | What it does | License |
-|---|---|---|
-| [operon-diff-worker](https://github.com/Nickqiaoo/operon-diff-worker) | Cloudflare Worker that renders diffs | Apache-2.0 |
+- **iOS** — on the App Store:
 
-Remote clients connect through Operon's Broker. The Broker only routes encrypted
-traffic and does not hold the content-encryption keys.
+  <a href="https://apps.apple.com/us/app/operon-ai/id6797370866"><img src="./app-store-badge.svg" alt="Download on the App Store" height="44" /></a>
+
+- **Android** — a signed APK from [operon.chatcode.top](https://operon.chatcode.top)
+
+There is also a web client and Telegram and Slack bridges if you'd rather not
+install anything.
 
 ## Multiple agents, working together
 
@@ -80,24 +84,6 @@ Grok · OpenCode · any custom agent speaking ACP
 
 Bring your own subscription or API key for whichever you use.
 
-## Download
-
-**Desktop — macOS** (Apple Silicon & Intel), from the
-[latest release](https://github.com/Nickqiaoo/Operon/releases/latest). Windows and
-Linux are not available.
-
-**Mobile** — the agent keeps running on your Mac, and the phone reaches the same
-session — approve a diff or steer a run from anywhere.
-
-- **iOS** — on the App Store:
-
-  <a href="https://apps.apple.com/us/app/operon-ai/id6797370866"><img src="./app-store-badge.svg" alt="Download on the App Store" height="44" /></a>
-
-- **Android** — a signed APK from [operon.chatcode.top](https://operon.chatcode.top)
-
-There is also a web client and Telegram and Slack bridges if you'd rather not
-install anything.
-
 ## Documentation
 
 Full documentation is at **[operon.chatcode.top/docs](https://operon.chatcode.top/docs)**.
@@ -119,3 +105,17 @@ Release notes are attached to each [release](https://github.com/Nickqiaoo/Operon
 
 Found a bug or have a feature request?
 [Open an issue](https://github.com/Nickqiaoo/Operon/issues).
+
+## About this repository
+
+This repo hosts **releases and issue tracking**. The Operon application itself is
+closed source, so you won't find the app code here.
+
+Parts of the stack are open source and can be read or self-hosted:
+
+| Component | What it does | License |
+|---|---|---|
+| [operon-diff-worker](https://github.com/Nickqiaoo/operon-diff-worker) | Cloudflare Worker that renders diffs | Apache-2.0 |
+
+Remote clients connect through Operon's Broker. The Broker only routes encrypted
+traffic and does not hold the content-encryption keys.
