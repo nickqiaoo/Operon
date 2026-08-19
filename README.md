@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/Nickqiaoo/Operon/releases/latest"><img src="https://img.shields.io/github/v/release/Nickqiaoo/Operon?include_prereleases&label=download&color=blue" alt="Latest Release" /></a>
   <a href="https://github.com/Nickqiaoo/Operon/releases"><img src="https://img.shields.io/github/downloads/Nickqiaoo/Operon/total?color=green" alt="Downloads" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Android-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20iOS%20%7C%20Android-lightgrey" alt="Platform" />
   <img src="https://img.shields.io/badge/price-free-brightgreen" alt="Free" />
 </p>
 
@@ -86,11 +86,17 @@ Bring your own subscription or API key for whichever you use.
 [latest release](https://github.com/Nickqiaoo/Operon/releases/latest). Windows and
 Linux are not available.
 
-**Mobile** — an Android app ships as a signed APK from
-[operon.chatcode.top](https://operon.chatcode.top); **iOS is in development**. The
-agent keeps running on your Mac, and the phone reaches the same session — approve
-a diff or steer a run from anywhere. There is also a web client and Telegram and
-Slack bridges if you'd rather not install anything.
+**Mobile** — the agent keeps running on your Mac, and the phone reaches the same
+session — approve a diff or steer a run from anywhere.
+
+- **iOS** — on the App Store:
+
+  <a href="https://apps.apple.com/us/app/operon-ai/id6797370866"><img src="./app-store-badge.svg" alt="Download on the App Store" height="44" /></a>
+
+- **Android** — a signed APK from [operon.chatcode.top](https://operon.chatcode.top)
+
+There is also a web client and Telegram and Slack bridges if you'd rather not
+install anything.
 
 ## Documentation
 
