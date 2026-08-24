@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPERON Brand Style Guide</title>
+<style>
+  @font-face {
+    font-family: 'General Sans';
+    src: url('./src/fonts/GeneralSans-Semibold.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --page-bg: #f7f8fb;
+    --card-bg: #ffffff;
+    --text-primary: #1a1b23;
+    --text-secondary: #687084;
+    --text-tertiary: #9b9db5;
+    --border: #dfe3eb;
+    --section-gap: 80px;
+  }
+
+  body {
+    font-family: "SF Pro Text", "SF Pro Display", "Helvetica Neue", -apple-system, sans-serif;
+    background: var(--page-bg);
+    color: var(--text-primary);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .guide {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 60px 40px 120px;
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+    padding: 80px 0 100px;
+    position: relative;
+  }
+
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 2px;
+    background: linear-gradient(135deg, #6358DC, #8B7DF0);
+    border-radius: 1px;
+  }
+
+  .header-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .header-logo svg {
+    width: 48px;
+    height: 48px;
+  }
+
+  .header h1 {
+    font-family: 'General Sans', sans-serif;
+    font-size: 42px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-primary);
+  }
+
+  .header p {
+    font-size: 18px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-weight: 300;
+    letter-spacing: 0.02em;
+  }
+
+  .header .subtitle {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-top: 24px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 500;
+  }
+
+  /* ── Section ── */
+  .section {
+    margin-top: var(--section-gap);
+  }
+
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    margin-bottom: 32px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+    max-width: 640px;
+    line-height: 1.7;
+  }
+
+  /* ── Color Swatches ── */
+  .color-group {
+    margin-bottom: 48px;
+  }
+
+  .color-group-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+  }
+
+  .colors {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+  }
+
+  .color-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .color-swatch {
+    height: 80px;
+    position: relative;
+  }
+
+  .color-swatch.small {
+    height: 56px;
+  }
+
+  .color-info {
+    padding: 12px 14px;
+  }
+
+  .color-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .color-value {
+    font-size: 11px;
+    font-family: "SF Mono", "Menlo", monospace;
+    color: var(--text-tertiary);
+  }
+
+  .color-token {
+    font-size: 10px;
+    font-family: "SF Mono", "Menlo", monospace;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+    opacity: 0.7;
+  }
+
+  /* ── Gradient Cards ── */
+  .gradients {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .gradient-card {
+    border-radius: 16px;
+    height: 120px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .gradient-label {
+    position: absolute;
+    bottom: 14px;
+    left: 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+
+  .gradient-label.dark-text {
+    color: var(--text-primary);
+    text-shadow: none;
+  }
+
+  .gradient-token {
+    position: absolute;
+    bottom: 14px;
+    right: 16px;
+    font-size: 10px;
+    font-family: "SF Mono", monospace;
+    color: rgba(255,255,255,0.7);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+
+  .gradient-token.dark-text {
+    color: var(--text-tertiary);
+    text-shadow: none;
+  }
+
+  /* ── Typography ── */
+  .type-specimens {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 40px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .type-meta {
+    width: 200px;
+    flex-shrink: 0;
+  }
+
+  .type-meta-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .type-meta-detail {
+    font-size: 11px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    line-height: 1.6;
+  }
+
+  .type-sample {
+    flex: 1;
+  }
+
+  .type-sample.logo-font {
+    font-family: 'General Sans', sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .type-sample.body-font {
+    font-family: "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+  }
+
+  .type-sample.mono-font {
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  }
+
+  /* ── Shadows ── */
+  .shadows {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 24px;
+  }
+
+  .shadow-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 32px 24px;
+    text-align: center;
+  }
+
+  .shadow-name {
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 16px;
+    color: var(--text-primary);
+  }
+
+  .shadow-token {
+    font-size: 10px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+
+  /* ── Radius ── */
+  .radii {
+    display: flex;
+    gap: 32px;
+    align-items: flex-end;
+  }
+
+  .radius-item {
+    text-align: center;
+  }
+
+  .radius-box {
+    width: 80px;
+    height: 80px;
+    background: #334155;
+    margin: 0 auto 12px;
+  }
+
+  .radius-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .radius-value {
+    font-size: 11px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  /* ── Spacing ── */
+  .spacing-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .spacing-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .spacing-bar {
+    height: 24px;
+    background: rgba(51,65,85,0.12);
+    border-radius: 4px;
+    border: 1px solid rgba(51,65,85,0.08);
+  }
+
+  .spacing-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    width: 40px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .spacing-value {
+    font-size: 11px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-tertiary);
+    width: 50px;
+    flex-shrink: 0;
+  }
+
+  /* ── Dark mode preview ── */
+  .dark-preview {
+    background: #0b0b0d;
+    border-radius: 20px;
+    padding: 40px;
+    margin-top: 48px;
+    border: 1px solid #2b2b31;
+  }
+
+  .dark-preview .color-group-title {
+    color: #f0f0f2;
+  }
+
+  .dark-preview .color-card {
+    background: #161618;
+    border-color: #2b2b31;
+  }
+
+  .dark-preview .color-name {
+    color: #f0f0f2;
+  }
+
+  .dark-preview .color-value {
+    color: #aaaab2;
+  }
+
+  /* ── Component Previews ── */
+  .component-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+  }
+
+  .component-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .component-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+
+  .btn-brand {
+    background: linear-gradient(135deg, #6358DC, #8B7DF0);
+    color: white;
+    box-shadow: 0 4px 14px -2px rgba(99,88,220,0.3);
+  }
+
+  .btn-tint {
+    background: #334155;
+    color: white;
+  }
+
+  .btn-primary {
+    background: #1a1b23;
+    color: white;
+  }
+
+  .btn-secondary {
+    background: #eeeff5;
+    color: #1a1b23;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: #6b7085;
+    border: 1px solid var(--border);
+  }
+
+  .btn-destructive {
+    background: #ef4444;
+    color: white;
+  }
+
+  .btn-sm {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .badge-brand {
+    background: rgba(99,88,220,0.08);
+    color: #6358DC;
+  }
+
+  .badge-tint {
+    background: rgba(51,65,85,0.08);
+    color: #334155;
+  }
+
+  .badge-warm {
+    background: rgba(229,132,92,0.1);
+    color: #E5845C;
+  }
+
+  .badge-green {
+    background: rgba(61,184,122,0.1);
+    color: #3DB87A;
+  }
+
+  .badge-secondary {
+    background: #eeeff5;
+    color: #6b7085;
+  }
+
+  .input-preview {
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    background: var(--card-bg);
+    outline: none;
+    font-family: inherit;
+    width: 100%;
+    max-width: 280px;
+  }
+
+  .input-preview:focus {
+    border-color: rgba(51,65,85,0.3);
+    box-shadow: 0 0 0 3px rgba(51,65,85,0.08);
+  }
+
+  .input-preview::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .tab-bar {
+    display: flex;
+    gap: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+
+  .tab-item {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    padding-bottom: 10px;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+
+  .tab-item.active {
+    color: var(--text-primary);
+    border-bottom-color: #334155;
+  }
+
+  /* ── Icon grid ── */
+  .icon-meaning {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .icon-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .icon-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+<div class="guide">
+
+  <!-- ══════════ HEADER ══════════ -->
+  <div class="header">
+    <div class="header-logo">
+      <svg viewBox="60 90 900 850" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#6358DC" d="M312.607 320.213c7.186-11.909 22.72-15.771 34.696-8.626l120.42 71.849C475.34 387.981 480 396.167 480 405s-4.66 17.019-12.277 21.564l-120.42 71.849c-11.976 7.145-27.51 3.283-34.696-8.626s-3.301-27.357 8.674-34.502L405.559 405l-84.278-50.285c-11.975-7.145-15.859-22.593-8.674-34.502M714.859 631C728.744 631 740 642.193 740 656s-11.256 25-25.141 25H595.141C581.256 681 570 669.807 570 656s11.256-25 25.141-25z"/>
+        <path fill="#6358DC" d="M836 512c0-178.94-145.06-324-324-324S188 333.06 188 512s145.06 324 324 324v96C280.04 932 92 743.96 92 512S280.04 92 512 92s420 188.04 420 420-188.04 420-420 420v-96c178.94 0 324-145.06 324-324"/>
+        <path fill="#6358DC" d="M380.374 146c129.287 0 234.094 104.902 234.094 234.306 0 64.118-25.736 122.214-67.426 164.521-25.545 25.077-41.574 60.224-41.574 98.867 0 76.315 61.81 138.18 138.056 138.18 38.607 0 73.511-15.863 98.566-41.431l67.91 67.97C767.564 851.376 708.652 878 643.524 878 514.237 878 409.43 773.098 409.43 643.694c0-65.187 26.778-124.365 69.702-166.839 24.311-24.909 39.298-58.976 39.298-96.549 0-76.315-61.81-138.18-138.056-138.18-37.538 0-71.576 14.998-96.462 39.331L216 213.484C258.268 171.756 316.315 146 380.374 146"/>
+      </svg>
+    </div>
+    <h1>OPERON</h1>
+    <p>One Interface. Every Agent.</p>
+    <div class="subtitle">Brand Style Guide &mdash; v2.1 · synced with globals.css 2026-07</div>
+  </div>
+
+  <!-- ══════════ 1. BRAND COLORS (Logo Only) ══════════ -->
+  <div class="section">
+    <div class="section-title">01 &mdash; Brand Colors (Logo Identity)</div>
+    <div class="section-desc">
+      The OPERON brand is anchored by a vibrant purple, used exclusively for the logo and brand identity marks.
+      Brand colors do NOT appear in UI interaction elements.
+    </div>
+
+    <div class="color-group">
+      <div class="color-group-title">Brand (Logo Only)</div>
+      <div class="colors">
+        <div class="color-card">
+          <div class="color-swatch" style="background: #6358DC;"></div>
+          <div class="color-info">
+            <div class="color-name">Brand</div>
+            <div class="color-value">#6358DC</div>
+            <div class="color-token">--color-brand</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #7B72E4;"></div>
+          <div class="color-info">
+            <div class="color-name">Brand Soft</div>
+            <div class="color-value">#7B72E4</div>
+            <div class="color-token">--color-brand-soft</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(99,88,220,0.08); border-bottom: 1px solid var(--border);"></div>
+          <div class="color-info">
+            <div class="color-name">Brand Muted</div>
+            <div class="color-value">rgba(99,88,220,0.08)</div>
+            <div class="color-token">--color-brand-muted</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: linear-gradient(135deg, #6358DC 0%, #8B7DF0 100%);"></div>
+          <div class="color-info">
+            <div class="color-name">Brand Gradient</div>
+            <div class="color-value">#6358DC &rarr; #8B7DF0</div>
+            <div class="color-token">--gradient-brand</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 2. UI TINT COLORS ══════════ -->
+  <div class="section">
+    <div class="section-title">02 &mdash; UI Tint Colors (Interaction Accent)</div>
+    <div class="section-desc">
+      Tint is the UI interaction accent &mdash; used for active tab indicators, focus rings, selected states,
+      hover effects, and all interactive feedback. Neutral gray tones keep the interface professional and
+      free from "AI product" aesthetics. To re-theme the UI, only change the <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">--color-tint</code> variables.
+    </div>
+
+    <div class="color-group">
+      <div class="color-group-title">Light Mode</div>
+      <div class="colors">
+        <div class="color-card">
+          <div class="color-swatch" style="background: #334155;"></div>
+          <div class="color-info">
+            <div class="color-name">Tint</div>
+            <div class="color-value">#334155</div>
+            <div class="color-token">--color-tint</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #475569;"></div>
+          <div class="color-info">
+            <div class="color-name">Tint Soft</div>
+            <div class="color-value">#475569</div>
+            <div class="color-token">--color-tint-soft</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(51,65,85,0.08); border-bottom: 1px solid var(--border);"></div>
+          <div class="color-info">
+            <div class="color-name">Tint Muted</div>
+            <div class="color-value">rgba(51,65,85,0.08)</div>
+            <div class="color-token">--color-tint-muted</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #ffffff;"></div>
+          <div class="color-info">
+            <div class="color-name">Tint Foreground</div>
+            <div class="color-value">#FFFFFF</div>
+            <div class="color-token">--color-tint-fg</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dark-preview">
+      <div class="color-group" style="margin-bottom: 0;">
+        <div class="color-group-title">Dark Mode</div>
+        <div class="colors">
+          <div class="color-card">
+            <div class="color-swatch" style="background: #d4d4d8;"></div>
+            <div class="color-info">
+              <div class="color-name">Tint</div>
+              <div class="color-value">#D4D4D8</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #a1a1aa;"></div>
+            <div class="color-info">
+              <div class="color-name">Tint Soft</div>
+              <div class="color-value">#A1A1AA</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: rgba(212,212,216,0.10); border-bottom: 1px solid #27272a;"></div>
+            <div class="color-info">
+              <div class="color-name">Tint Muted</div>
+              <div class="color-value">rgba(212,212,216,0.10)</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #09090b;"></div>
+            <div class="color-info">
+              <div class="color-name">Tint Foreground</div>
+              <div class="color-value">#09090B</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 3. ACCENT COLORS ══════════ -->
+  <div class="section">
+    <div class="section-title">03 &mdash; Accent Colors</div>
+    <div class="section-desc">
+      Extended accent palette for alerts, success states, and destructive actions.
+    </div>
+
+    <div class="color-group">
+      <div class="colors">
+        <div class="color-card">
+          <div class="color-swatch" style="background: #E5845C;"></div>
+          <div class="color-info">
+            <div class="color-name">Accent Warm</div>
+            <div class="color-value">#E5845C</div>
+            <div class="color-token">--color-accent-warm</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #3DB87A;"></div>
+          <div class="color-info">
+            <div class="color-name">Accent Green</div>
+            <div class="color-value">#3DB87A</div>
+            <div class="color-token">--color-accent-green</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #ef4444;"></div>
+          <div class="color-info">
+            <div class="color-name">Destructive</div>
+            <div class="color-value">#EF4444</div>
+            <div class="color-token">--color-destructive</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 4. NEUTRAL PALETTE ══════════ -->
+  <div class="section">
+    <div class="section-title">04 &mdash; Neutral Palette</div>
+    <div class="section-desc">
+      Light mode sits on a cool-grey canvas (#F7F8FB) &mdash; never pure white &mdash; so cards
+      can establish hierarchy through surface steps (canvas &rarr; muted &rarr; popover white)
+      instead of heavy shadows. Dark mode uses near-black with a subtle cool undertone.
+    </div>
+
+    <div class="color-group">
+      <div class="color-group-title">Light Mode</div>
+      <div class="colors">
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #f7f8fb;"></div>
+          <div class="color-info">
+            <div class="color-name">Background</div>
+            <div class="color-value">#F7F8FB</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #edf0f5;"></div>
+          <div class="color-info">
+            <div class="color-name">Muted</div>
+            <div class="color-value">#EDF0F5</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #f2f3f6;"></div>
+          <div class="color-info">
+            <div class="color-name">Sidebar</div>
+            <div class="color-value">#F2F3F6</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #dfe3eb;"></div>
+          <div class="color-info">
+            <div class="color-name">Border</div>
+            <div class="color-value">#DFE3EB</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #dfe3eb;"></div>
+          <div class="color-info">
+            <div class="color-name">Sidebar Border</div>
+            <div class="color-value">#DFE3EB</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #eef1f7;"></div>
+          <div class="color-info">
+            <div class="color-name">Secondary</div>
+            <div class="color-value">#EEF1F7</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #ffffff; border-bottom: 1px solid #dfe3eb;"></div>
+          <div class="color-info">
+            <div class="color-name">Popover / Card</div>
+            <div class="color-value">#FFFFFF</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #1a1b23; "></div>
+          <div class="color-info">
+            <div class="color-name">Foreground</div>
+            <div class="color-value">#1A1B23</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch small" style="background: #687084;"></div>
+          <div class="color-info">
+            <div class="color-name">Muted Foreground</div>
+            <div class="color-value">#687084</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dark-preview">
+      <div class="color-group" style="margin-bottom: 0;">
+        <div class="color-group-title">Dark Mode</div>
+        <div class="colors">
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #0b0b0d;"></div>
+            <div class="color-info">
+              <div class="color-name">Background</div>
+              <div class="color-value">#0B0B0D</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #1b1b1f;"></div>
+            <div class="color-info">
+              <div class="color-name">Muted</div>
+              <div class="color-value">#1B1B1F</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #151517;"></div>
+            <div class="color-info">
+              <div class="color-name">Sidebar</div>
+              <div class="color-value">#151517</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #2b2b31;"></div>
+            <div class="color-info">
+              <div class="color-name">Border</div>
+              <div class="color-value">#2B2B31</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #161618;"></div>
+            <div class="color-info">
+              <div class="color-name">Popover</div>
+              <div class="color-value">#161618</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #f0f0f2;"></div>
+            <div class="color-info">
+              <div class="color-name">Foreground</div>
+              <div class="color-value">#F0F0F2</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch small" style="background: #aaaab2;"></div>
+            <div class="color-info">
+              <div class="color-name">Muted Foreground</div>
+              <div class="color-value">#AAAAB2</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 5. GRADIENTS ══════════ -->
+  <div class="section">
+    <div class="section-title">05 &mdash; Gradients</div>
+    <div class="gradients">
+      <div class="gradient-card" style="background: linear-gradient(135deg, #6358DC 0%, #8B7DF0 100%);">
+        <div class="gradient-label">Brand Gradient</div>
+        <div class="gradient-token">--gradient-brand</div>
+      </div>
+      <div class="gradient-card" style="background: linear-gradient(180deg, #f1f5f9 0%, #fafbfc 100%);">
+        <div class="gradient-label dark-text">Surface</div>
+        <div class="gradient-token dark-text">--gradient-surface</div>
+      </div>
+      <div class="gradient-card" style="background: radial-gradient(ellipse at center, rgba(55,65,81,0.04) 0%, #f7f8fb 70%);">
+        <div class="gradient-label dark-text">Glow</div>
+        <div class="gradient-token dark-text">--gradient-glow</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 6. TYPOGRAPHY ══════════ -->
+  <div class="section">
+    <div class="section-title">06 &mdash; Typography</div>
+
+    <div class="type-specimens">
+      <div class="type-row">
+        <div class="type-meta">
+          <div class="type-meta-name">Logo / Display</div>
+          <div class="type-meta-detail">
+            General Sans Semibold<br>
+            Weight: 600<br>
+            Tracking: 0.04em<br>
+            Transform: uppercase
+          </div>
+        </div>
+        <div class="type-sample logo-font" style="font-size: 36px; text-transform: uppercase;">
+          OPERON
+        </div>
+      </div>
+
+      <div class="type-row">
+        <div class="type-meta">
+          <div class="type-meta-name">Heading</div>
+          <div class="type-meta-detail">
+            SF Pro Display<br>
+            Weight: 600<br>
+            Size: 20&ndash;32px
+          </div>
+        </div>
+        <div class="type-sample body-font" style="font-size: 28px; font-weight: 600;">
+          One Interface. Every Agent.
+        </div>
+      </div>
+
+      <div class="type-row">
+        <div class="type-meta">
+          <div class="type-meta-name">Body</div>
+          <div class="type-meta-detail">
+            SF Pro Text<br>
+            Weight: 400 / 500<br>
+            Size: 13&ndash;14px<br>
+            Line-height: 1.6
+          </div>
+        </div>
+        <div class="type-sample body-font" style="font-size: 14px; line-height: 1.6; max-width: 480px; color: var(--text-secondary);">
+          OPERON unifies every AI agent behind a single, elegant developer interface. Manage workspaces, run workflows, and collaborate with models seamlessly.
+        </div>
+      </div>
+
+      <div class="type-row">
+        <div class="type-meta">
+          <div class="type-meta-name">Section Label</div>
+          <div class="type-meta-detail">
+            SF Pro Text<br>
+            Weight: 500<br>
+            Size: 11px<br>
+            Tracking: 0.14em<br>
+            Transform: uppercase
+          </div>
+        </div>
+        <div class="type-sample body-font" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 500; color: var(--text-tertiary);">
+          Workspaces
+        </div>
+      </div>
+
+      <div class="type-row">
+        <div class="type-meta">
+          <div class="type-meta-name">Code / Mono</div>
+          <div class="type-meta-detail">
+            SF Mono<br>
+            Fallback: Menlo, Monaco<br>
+            Size: 12&ndash;13px
+          </div>
+        </div>
+        <div class="type-sample mono-font" style="font-size: 13px; color: var(--text-secondary);">
+          const agent = await operon.spawn("claude-code")
+        </div>
+      </div>
+
+      <div class="type-row" style="border-bottom: none;">
+        <div class="type-meta">
+          <div class="type-meta-name">UI Small</div>
+          <div class="type-meta-detail">
+            SF Pro Text<br>
+            Weight: 500<br>
+            Size: 12px
+          </div>
+        </div>
+        <div class="type-sample body-font" style="font-size: 12px; font-weight: 500; color: var(--text-secondary);">
+          All files &nbsp;&bull;&nbsp; Changes (3) &nbsp;&bull;&nbsp; 2m ago
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 7. SHADOWS ══════════ -->
+  <div class="section">
+    <div class="section-title">07 &mdash; Elevation &amp; Shadows</div>
+    <div class="section-desc">
+      Exactly five semantic elevations &mdash; Tailwind's default <code>shadow-sm/md/lg/xl</code>
+      scale is disabled at build level. Light mode uses short, slate-tinted shadows that only
+      draw the edge; each token carries its own deeper dark-mode value, so components never
+      write <code>dark:shadow-[...]</code>. Never hand-write a new shadow literal &mdash; tune
+      the <code>--elevation-*</code> tokens instead.
+    </div>
+
+    <div class="shadows">
+      <div class="shadow-card" style="box-shadow: 0 1px 2px rgba(15,23,42,0.05); border: 1px solid rgba(223,227,235,0.6);">
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #edf0f5; margin: 0 auto;"></div>
+        <div class="shadow-name">Card &mdash; <code>shadow-card</code></div>
+        <div class="shadow-token">--elevation-card · resting cards, chips, form controls</div>
+      </div>
+      <div class="shadow-card" style="box-shadow: 0 10px 24px -22px rgba(15,23,42,0.24); border: 1px solid rgba(223,227,235,0.6);">
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #edf0f5; margin: 0 auto;"></div>
+        <div class="shadow-name">Input &mdash; <code>shadow-input</code></div>
+        <div class="shadow-token">--elevation-input · chat composer, diff cards</div>
+      </div>
+      <div class="shadow-card" style="box-shadow: 0 12px 28px -18px rgba(15,23,42,0.22), 0 0 0 1px rgba(15,23,42,0.02);">
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #edf0f5; margin: 0 auto;"></div>
+        <div class="shadow-name">Float &mdash; <code>shadow-float</code></div>
+        <div class="shadow-token">--elevation-float · menus, popovers, toasts, drag</div>
+      </div>
+      <div class="shadow-card" style="box-shadow: 0 24px 80px -24px rgba(15,23,42,0.32), 0 8px 28px -12px rgba(15,23,42,0.22);">
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #edf0f5; margin: 0 auto;"></div>
+        <div class="shadow-name">Modal &mdash; <code>shadow-modal</code></div>
+        <div class="shadow-token">--elevation-modal · dialogs</div>
+      </div>
+      <div class="shadow-card" style="box-shadow: -12px 0 32px -24px rgba(15,23,42,0.45); border: 1px solid rgba(223,227,235,0.6);">
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #edf0f5; margin: 0 auto;"></div>
+        <div class="shadow-name">Drawer &mdash; <code>shadow-drawer</code></div>
+        <div class="shadow-token">--elevation-drawer · right slide-in panels (directional)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 8. BORDER RADIUS ══════════ -->
+  <div class="section">
+    <div class="section-title">08 &mdash; Border Radius</div>
+
+    <div class="radii">
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius: 4px;"></div>
+        <div class="radius-label">Small</div>
+        <div class="radius-value">4px</div>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius: 6px;"></div>
+        <div class="radius-label">Medium</div>
+        <div class="radius-value">6px</div>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius: 8px;"></div>
+        <div class="radius-label">Default</div>
+        <div class="radius-value">8px</div>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius: 12px;"></div>
+        <div class="radius-label">Large</div>
+        <div class="radius-value">12px</div>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius: 16px;"></div>
+        <div class="radius-label">XL</div>
+        <div class="radius-value">16px</div>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius: 999px;"></div>
+        <div class="radius-label">Full</div>
+        <div class="radius-value">999px</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 9. SPACING ══════════ -->
+  <div class="section">
+    <div class="section-title">09 &mdash; Spacing Scale</div>
+
+    <div class="spacing-rows">
+      <div class="spacing-row">
+        <div class="spacing-label">4px</div>
+        <div class="spacing-bar" style="width: 16px;"></div>
+        <div class="spacing-value">space-1</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">8px</div>
+        <div class="spacing-bar" style="width: 32px;"></div>
+        <div class="spacing-value">space-2</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">12px</div>
+        <div class="spacing-bar" style="width: 48px;"></div>
+        <div class="spacing-value">space-3</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">16px</div>
+        <div class="spacing-bar" style="width: 64px;"></div>
+        <div class="spacing-value">space-4</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">24px</div>
+        <div class="spacing-bar" style="width: 96px;"></div>
+        <div class="spacing-value">space-6</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">32px</div>
+        <div class="spacing-bar" style="width: 128px;"></div>
+        <div class="spacing-value">space-8</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">40px</div>
+        <div class="spacing-bar" style="width: 160px;"></div>
+        <div class="spacing-value">space-10</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">64px</div>
+        <div class="spacing-bar" style="width: 256px;"></div>
+        <div class="spacing-value">space-16</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 10. COMPONENTS ══════════ -->
+  <div class="section">
+    <div class="section-title">10 &mdash; Component Preview</div>
+
+    <div class="component-grid">
+      <!-- Buttons -->
+      <div class="component-card">
+        <div class="component-label">Buttons</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+          <button class="btn btn-tint">Tint Action</button>
+          <button class="btn btn-primary">Primary</button>
+          <button class="btn btn-secondary">Secondary</button>
+          <button class="btn btn-ghost">Ghost</button>
+          <button class="btn btn-destructive">Delete</button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+          <button class="btn btn-brand btn-sm">Brand (Logo CTA)</button>
+          <button class="btn btn-tint btn-sm">Small Tint</button>
+          <button class="btn btn-secondary btn-sm">Small</button>
+        </div>
+      </div>
+
+      <!-- Badges -->
+      <div class="component-card">
+        <div class="component-label">Badges</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+          <span class="badge badge-tint">Tint</span>
+          <span class="badge badge-brand">Brand</span>
+          <span class="badge badge-warm">3 Notifications</span>
+          <span class="badge badge-green">Active</span>
+          <span class="badge badge-secondary">Secondary</span>
+          <span class="badge" style="background: rgba(239,68,68,0.1); color: #ef4444;">Error</span>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="component-card">
+        <div class="component-label">Input</div>
+        <input type="text" class="input-preview" placeholder="Search files...">
+        <div style="font-size: 11px; color: var(--text-tertiary);">
+          Focus ring uses tint color at 8% opacity
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="component-card">
+        <div class="component-label">Tabs</div>
+        <div class="tab-bar">
+          <div class="tab-item active">All files</div>
+          <div class="tab-item">Changes <span class="badge badge-secondary" style="margin-left: 4px; font-size: 10px; padding: 1px 6px;">3</span></div>
+          <div class="tab-item">History</div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-tertiary);">
+          Active indicator uses tint color (neutral gray)
+        </div>
+      </div>
+
+      <!-- Status Colors -->
+      <div class="component-card">
+        <div class="component-label">Status Indicators</div>
+        <div class="icon-meaning">
+          <div class="icon-item">
+            <div class="icon-dot" style="background: #334155;"></div>
+            Active
+          </div>
+          <div class="icon-item">
+            <div class="icon-dot" style="background: #3DB87A;"></div>
+            Success
+          </div>
+          <div class="icon-item">
+            <div class="icon-dot" style="background: #E5845C;"></div>
+            Warning
+          </div>
+          <div class="icon-item">
+            <div class="icon-dot" style="background: #ef4444;"></div>
+            Error
+          </div>
+          <div class="icon-item">
+            <div class="icon-dot" style="background: #9b9db5;"></div>
+            Inactive
+          </div>
+          <div class="icon-item">
+            <div class="icon-dot" style="background: #6358DC;"></div>
+            Brand
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Usage -->
+      <div class="component-card">
+        <div class="component-label">Semantic Usage</div>
+        <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 4px; border-radius: 2px; background: #334155; flex-shrink: 0;"></div>
+            <span style="color: var(--text-secondary);">Active tab, focused input, selected item (tint)</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 4px; border-radius: 2px; background: #6358DC; flex-shrink: 0;"></div>
+            <span style="color: var(--text-secondary);">Logo, brand identity marks only (brand)</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 4px; border-radius: 2px; background: #E5845C; flex-shrink: 0;"></div>
+            <span style="color: var(--text-secondary);">Notification count, pending action</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 4px; border-radius: 2px; background: #3DB87A; flex-shrink: 0;"></div>
+            <span style="color: var(--text-secondary);">Diff additions, success state</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 4px; border-radius: 2px; background: #ef4444; flex-shrink: 0;"></div>
+            <span style="color: var(--text-secondary);">Diff deletions, destructive action</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 11. DESIGN PRINCIPLES ══════════ -->
+  <div class="section">
+    <div class="section-title">11 &mdash; Design Principles</div>
+
+    <div class="component-grid">
+      <div class="component-card">
+        <div class="component-label">Brand vs Tint</div>
+        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.7;">
+          <strong>Brand</strong> (<code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">--color-brand</code>, purple) is reserved exclusively for the logo SVG.
+          <strong>Tint</strong> (<code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">--color-tint</code>, neutral gray) is used for all UI interaction: active indicators,
+          focus rings, selected states, and hover feedback. To re-theme the UI, change only the 4 tint variables.
+        </div>
+      </div>
+      <div class="component-card">
+        <div class="component-label">Borders</div>
+        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.7;">
+          One color, three steps. All borders use <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">--color-border</code> with a fixed opacity ladder:
+          <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">/40</code> quiet separators &middot;
+          <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">/50</code> default structure &middot;
+          <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">/60</code> card &amp; popover edges.
+          Dark mode drops to <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">dark:/35</code>.
+          Full opacity only for hover/focus emphasis. Never black borders, never freeform steps.
+        </div>
+      </div>
+      <div class="component-card">
+        <div class="component-label">Surfaces</div>
+        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.7;">
+          Hierarchy comes from surface steps, not shadow weight:
+          canvas <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">#f7f8fb</code> &rarr;
+          muted <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">#edf0f5</code> &rarr;
+          popover white. Sidebar sits on <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">--color-sidebar: #f2f3f6</code>.
+          Inside dialogs, form fields recess via <code style="font-size: 12px; background: #edf0f5; padding: 2px 6px; border-radius: 4px;">--color-dialog-field</code> (2% foreground mix &mdash; a whisper, not a slab).
+        </div>
+      </div>
+      <div class="component-card">
+        <div class="component-label">Motion</div>
+        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.7;">
+          App entrance: 520ms ease-out with translateY(10px).<br>
+          Panel stagger: 560ms ease-out, 60ms delay increments.<br>
+          Terminal toggle: 200ms ease-in-out.<br>
+          Hover transitions: 150ms default.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

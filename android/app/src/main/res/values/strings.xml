@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Operon</string>
+    <string name="title_activity_main">Operon</string>
+    <string name="package_name">top.chatcode.operon.app</string>
+    <string name="custom_url_scheme">top.chatcode.operon.app</string>
+</resources>

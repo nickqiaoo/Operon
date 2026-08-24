@@ -1,0 +1,69 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macOS because that is what the product runs on. On a Linux runner ~105 of these tests
+    # skip themselves — the darwin-only ones, everything needing a real Chrome, and everything
+    # needing the Swift service — which is 10% of the suite, and precisely the part closest to
+    # the shipped app. A green tick there covered the code least likely to break.
+    name: Test (macos)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          SKIP_ELECTRON_REBUILD: '1'
+
+      - name: Rebuild better-sqlite3 for system Node
+        run: npm rebuild better-sqlite3
+
+      # Produces native/computer-use/.build/debug/operon-computer-use. Several suites probe for
+      # that binary and skip without it, so building here is what turns them on.
+      - name: Build the Swift computer-use service
+        working-directory: native/computer-use
+        run: swift build
+
+      - name: Test the Swift computer-use service
+        working-directory: native/computer-use
+        run: swift test
+
+      # The runner image ships Chrome, but assert it rather than assume: without it the browser
+      # suites would quietly skip and the run would still be green.
+      - name: Verify Chrome is present
+        run: |
+          if [ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+            echo "Chrome missing from the runner image; installing"
+            brew install --cask google-chrome
+          fi
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+
+      - name: Run vitest
+        run: npm test
+
+      # What is still skipped, and why, so the number cannot drift unnoticed. The desktop
+      # computer-use suites stay off on purpose: they drive AppKit through the accessibility
+      # APIs, which needs a permission grant no CI runner can give.
+      - name: Report skipped suites
+        if: always()
+        run: |
+          echo "Intentionally not run here:"
+          echo "  packages/computer-use/desktop-*.e2e — needs Accessibility permission (OPERON_RUN_COMPUTER_USE_*)"
+          echo "  e2e/ Playwright specs — UI suite, run locally with npm run test:e2e:ci"

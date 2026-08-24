@@ -1,0 +1,147 @@
+import type {
+  CollabAgentToolCall,
+  CommandExecution,
+  FileChange,
+  McpToolCall,
+  WebSearch,
+} from './sdk/protocol/index.js'
+import { safeJsonStringify } from './message-mapper.js'
+
+export interface ToolInfo {
+  toolName: string
+  input: string
+  dynamic?: boolean
+}
+
+type ToolItem = CommandExecution | FileChange | McpToolCall | WebSearch | CollabAgentToolCall
+
+const TOOL_TYPES = new Set(['commandexecution', 'filechange', 'mcptoolcall', 'websearch', 'collabagenttoolcall'])
+
+function normalizeToolType(type: string): string {
+  return type.toLowerCase()
+}
+
+function isCommandExecution(item: ToolItem): item is CommandExecution {
+  return normalizeToolType(item.type) === 'commandexecution'
+}
+
+function isFileChange(item: ToolItem): item is FileChange {
+  return normalizeToolType(item.type) === 'filechange'
+}
+
+function isMcpToolCall(item: ToolItem): item is McpToolCall {
+  return normalizeToolType(item.type) === 'mcptoolcall'
+}
+
+function isWebSearch(item: ToolItem): item is WebSearch {
+  return normalizeToolType(item.type) === 'websearch'
+}
+
+function isCollabAgentToolCall(item: ToolItem): item is CollabAgentToolCall {
+  return normalizeToolType(item.type) === 'collabagenttoolcall'
+}
+
+export function isToolItem(item: { type: string }): item is ToolItem {
+  return TOOL_TYPES.has(normalizeToolType(item.type))
+}
+
+export function resolveToolName(item: ToolItem): { toolName: string; dynamic?: boolean } {
+  if (isCommandExecution(item)) return { toolName: 'exec', dynamic: true }
+  if (isFileChange(item)) return { toolName: 'patch', dynamic: true }
+  if (isWebSearch(item)) return { toolName: 'web_search', dynamic: true }
+  if (isMcpToolCall(item)) return { toolName: `mcp__${item.server}__${item.tool}`, dynamic: true }
+  if (isCollabAgentToolCall(item)) return { toolName: 'codex_collab_agent', dynamic: true }
+  return { toolName: 'tool' }
+}
+
+function buildToolInputPayload(item: ToolItem): unknown {
+  if (isCommandExecution(item)) {
+    return { command: item.command, cwd: item.cwd, status: item.status }
+  }
+  if (isFileChange(item)) {
+    return { changes: item.changes, status: item.status }
+  }
+  if (isMcpToolCall(item)) {
+    return { server: item.server, tool: item.tool, arguments: item.arguments, status: item.status }
+  }
+  if (isWebSearch(item)) {
+    return { query: item.query }
+  }
+  if (isCollabAgentToolCall(item)) {
+    const payload: Record<string, unknown> = { tool: item.tool, status: item.status }
+    if (item.prompt) payload.prompt = item.prompt
+    if (item.agentId) payload.agentId = item.agentId
+    if (item.agentsStates) payload.agentsStates = item.agentsStates
+    return payload
+  }
+  return undefined
+}
+
+export function buildToolResultPayload(item: ToolItem): {
+  result: Record<string, unknown>
+  isError?: boolean
+} {
+  if (isCommandExecution(item)) {
+    const result: Record<string, unknown> = {
+      command: item.command,
+      cwd: item.cwd,
+      status: item.status,
+    }
+    if (item.aggregatedOutput !== undefined) result.aggregatedOutput = item.aggregatedOutput
+    if (item.exitCode !== undefined) result.exitCode = item.exitCode
+    if (item.durationMs !== undefined) result.durationMs = item.durationMs
+    if (item.processId !== undefined) result.processId = item.processId
+    const isError = item.exitCode !== undefined && item.exitCode !== 0
+    return { result, ...(isError ? { isError: true } : {}) }
+  }
+
+  if (isFileChange(item)) {
+    return { result: { changes: item.changes, status: item.status } }
+  }
+
+  if (isMcpToolCall(item)) {
+    const result: Record<string, unknown> = {
+      server: item.server,
+      tool: item.tool,
+      status: item.status,
+    }
+    if (item.result !== undefined) result.result = item.result
+    if (item.error !== undefined) result.error = item.error
+    if (item.durationMs !== undefined) result.durationMs = item.durationMs
+    return { result, ...(item.error ? { isError: true } : {}) }
+  }
+
+  if (isWebSearch(item)) {
+    return { result: { query: item.query } }
+  }
+
+  const result: Record<string, unknown> = {
+    tool: item.tool,
+    status: item.status,
+  }
+  if (item.prompt) result.prompt = item.prompt
+  if (item.agentId) result.agentId = item.agentId
+  if (item.agentsStates) result.agentsStates = item.agentsStates
+  if (item.result !== undefined) result.result = item.result
+  if (item.error !== undefined) result.error = item.error
+  if (item.durationMs !== undefined) result.durationMs = item.durationMs
+  return { result, ...(item.error ? { isError: true } : {}) }
+}
+
+export class ToolTracker {
+  private activeTools = new Map<string, ToolInfo>()
+
+  start(item: ToolItem): ToolInfo {
+    const { toolName, dynamic } = resolveToolName(item)
+    const input = safeJsonStringify(buildToolInputPayload(item))
+    const info: ToolInfo = { toolName, input, dynamic }
+    this.activeTools.set(item.id, info)
+    return info
+  }
+
+  complete(itemId: string): ToolInfo | undefined {
+    const info = this.activeTools.get(itemId)
+    this.activeTools.delete(itemId)
+    return info
+  }
+}

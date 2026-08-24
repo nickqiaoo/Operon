@@ -1,0 +1,46 @@
+# External alert delivery. Copy to contactpoints.yml, fill in ONE block, drop the
+# others, then restart grafana:  docker restart operon-monitoring-grafana-1
+#
+# Telegram is the least friction — Grafana has a native integration (bot token + chat
+# id, no payload templating). Feishu / WeChat Work expect their own JSON shape, so the
+# generic webhook needs a message template (see the webhook block).
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: operon-im
+    receivers:
+      # --- Option A: Telegram (recommended, native) --------------------------
+      - uid: operon-telegram
+        type: telegram
+        settings:
+          bottoken: "REPLACE_WITH_BOT_TOKEN"
+          chatid: "REPLACE_WITH_CHAT_ID"        # e.g. -1001234567890 for a group
+          message: |
+            {{ .CommonLabels.severity }} — {{ .CommonAnnotations.summary }}
+            {{ range .Alerts }}• {{ .Labels.alertname }} ({{ .Status }})
+            {{ end }}
+
+      # --- Option B: generic webhook (Feishu / WeChat Work need a template) ---
+      # - uid: operon-webhook
+      #   type: webhook
+      #   settings:
+      #     url: "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx"
+      #     httpMethod: "POST"
+      #     # Feishu text-bot shape; for signed bots add the sign secret via a proxy.
+      #     # Grafana's webhook posts its own JSON by default — Feishu ignores it, so
+      #     # either use a tiny transform relay or Grafana's message templating.
+
+# After adding a contact point, route alerts to it with a notification policy:
+# (uncomment and put in policies.yml, or set the default receiver in the UI)
+#
+# policies.yml:
+#   apiVersion: 1
+#   policies:
+#     - orgId: 1
+#       receiver: operon-im
+#       group_by: ['alertname']
+#       group_wait: 30s
+#       group_interval: 5m
+#       repeat_interval: 4h

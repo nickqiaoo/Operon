@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApY+ZAmLUc5CMBDNzElFi69hKQy50DhAmVflSfC+OlbcRi75/BBhLnOYB4/eugV7WoEc97LiUMGMZmiR7HJoe05v4ofyGGHNfnloOJKrvwOwIcr2TPvVeb/RcxWPi7HuChk+o4+CUeJuljBTko3Pfh8KZK2glNZCGS07x7Eg9Nzr35RBSeRR+lKyQ+4LWJ5iu3jEpgKLg+2YFbzhSiKzkwkOeDDo/vqSOgEP51GcMRo2tWt++IVE2CeK60gAi7yJ4rVbeL8j/DINt1W05RVJNLF1ADlrz6RlbliuLCx/mq515apuFQWqvlAYV7takf7dA5rCLDHwvVpgy2EfCcLXZQQIDAQAB",
+  "name": "Operon Browser Use",
+  "description": "Lets Operon drive this browser: open and navigate tabs, inspect pages, and complete tasks you ask an agent to do.",
+  "version": "0.1.1",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Operon Browser Use",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self';"
+  },
+  "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": ["images/cursor-chat.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "permissions": [
+    "alarms",
+    "debugger",
+    "downloads",
+    "downloads.ui",
+    "history",
+    "nativeMessaging",
+    "scripting",
+    "storage",
+    "tabGroups",
+    "tabs"
+  ]
+}

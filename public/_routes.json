@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": [
+    "/assets/*",
+    "/sw.js",
+    "/workbox-*.js",
+    "/sw-cache-cleanup.js",
+    "/pwa-recover",
+    "/pwa-recover.html",
+    "/manifest.webmanifest",
+    "/favicon.svg",
+    "/apple-touch-icon.png",
+    "/pwa-*.png",
+    "/404.html"
+  ]
+}

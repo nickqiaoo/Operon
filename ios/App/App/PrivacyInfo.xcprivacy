@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Privacy manifest — required for App Store submission since spring 2024.
+
+	  Two things must stay true of this file:
+	    1. It has to agree with the App Store Connect privacy questionnaire.
+	       A mismatch is a rejection.
+	    2. Every "required reason" API the app or its pods touch must be listed
+	       with an approved reason code, or the upload is rejected outright.
+
+	  What operon actually sends anywhere:
+
+	    1. The account identity used to sign in (so the broker knows which
+	       machines are yours) and an APNs device token. Conversation content is
+	       tunnelled to the user's own machine and is not retained by the service.
+	    2. Product analytics via PostHog — the app ships the same bundle as the
+	       browser client, and `initAnalytics()` in src/main.tsx runs on every
+	       target. This is anonymous: `identifyUser()` exists but is never called,
+	       so the analytics id is never joined to the signed-in account.
+
+	  No email address is collected. Sign in with Apple is requested with no
+	  scope, and the GitHub token carries only `read:user`, so an account is
+	  keyed on the provider's opaque subject and nothing else. See
+	  Store.UpsertUser in the broker for why the two sign-in methods are
+	  deliberately left as separate accounts rather than linked by address.
+
+	  Keep this file, the App Store Connect questionnaire, and the policy at
+	  operon.chatcode.top/privacy saying the same thing. If analytics is ever
+	  disabled for this target, delete the analytics entries below that cover it.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<dict>
+			<!-- The account id and the APNs device token. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- PostHog's generated distinct_id, kept in localStorage. Not linked:
+			     it is never associated with the signed-in account. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Which screens were opened, a chat was created, a message was sent,
+			     and masked interaction diagnostics such as clicks and heatmaps.
+			     Page URLs have query parameters and fragments removed; autocapture
+			     strips all element text and attributes before sending. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- `app_crash` and PostHog exception events: message, stack, and source
+			     location from component errors and unhandled runtime failures. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCrashData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Web Vitals only. Network timing, request bodies, console logs, and
+			     session replay are disabled in the client configuration. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePerformanceData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+	</array>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!-- Capacitor and WKWebView keep app state in UserDefaults. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- The web view reads timestamps of files inside the app container
+			     (the bundled web assets). -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- WebKit checks available space before writing its caches. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

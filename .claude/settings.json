@@ -1,0 +1,4 @@
+{
+  "permissions": { "allow": ["Bash(npx vite:*)"] },
+  "worktree": { "bgIsolation": "none" }
+}

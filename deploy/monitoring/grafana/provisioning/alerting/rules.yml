@@ -1,0 +1,229 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: operon-broker
+    folder: Operon Alerts
+    interval: 1m
+    rules:
+      # --- Broker instance down ------------------------------------------------
+      - uid: operon-broker-down
+        title: Broker instance down
+        condition: C
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "A broker instance is down (up{job=broker} < 1)."
+        noDataState: NoData
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: min(up{job="broker"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last }
+                  type: query
+
+      # --- 5xx error ratio > 5% ------------------------------------------------
+      - uid: operon-broker-5xx
+        title: Broker 5xx ratio high
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Broker 5xx responses exceed 5% of requests over 5m."
+        noDataState: OK
+        execErrState: OK
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: sum(rate(operon_broker_http_requests_total{code=~"5.."}[5m])) / sum(rate(operon_broker_http_requests_total[5m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last }
+                  type: query
+
+      # --- Host memory available low (< 150MB) ---------------------------------
+      - uid: operon-host-mem-low
+        title: Host memory available low
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Host MemAvailable below 150MB for 5m — OOM risk."
+        noDataState: NoData
+        execErrState: OK
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: node_memory_MemAvailable_bytes
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { type: lt, params: [157286400] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last }
+                  type: query
+
+      # --- Host swap used high (> 1GB of 2GB) ----------------------------------
+      - uid: operon-host-swap-high
+        title: Host swap usage high
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Host swap used exceeds 1GB — memory pressure."
+        noDataState: OK
+        execErrState: OK
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { type: gt, params: [1073741824] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last }
+                  type: query
+
+      # --- Host disk usage high (> 90%) ----------------------------------------
+      - uid: operon-host-disk-high
+        title: Host disk usage high
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Root filesystem above 90% used."
+        noDataState: OK
+        execErrState: OK
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: max(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { type: gt, params: [0.9] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last }
+                  type: query
+
+      # --- Broker stuck draining ----------------------------------------------
+      - uid: operon-broker-draining
+        title: Broker stuck draining
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "A broker instance has been draining for 10m+."
+        noDataState: OK
+        execErrState: OK
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: max(operon_broker_draining)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last }
+                  type: query

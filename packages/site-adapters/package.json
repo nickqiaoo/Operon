@@ -1,0 +1,27 @@
+{
+  "name": "@operon/site-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic site adapters for Operon (OpenCLI-style web commands over Chrome Use / public APIs).",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./bilibili": "./bilibili/index.ts",
+    "./zhihu": "./zhihu/index.ts",
+    "./hackernews": "./hackernews/index.ts",
+    "./v2ex": "./v2ex/index.ts",
+    "./reddit": "./reddit/index.ts",
+    "./twitter": "./twitter/index.ts",
+    "./github": "./github/index.ts",
+    "./youtube": "./youtube/index.ts",
+    "./wikipedia": "./wikipedia/index.ts",
+    "./arxiv": "./arxiv/index.ts",
+    "./stackoverflow": "./stackoverflow/index.ts",
+    "./bluesky": "./bluesky/index.ts",
+    "./producthunt": "./producthunt/index.ts"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  }
+}

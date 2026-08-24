@@ -1,0 +1,125 @@
+# dependencies
+/node_modules
+
+# build output
+/.build
+/dist
+
+# native node-gyp build artifacts (.o/.node/.d/Makefile/config.gypi/*.mk …)
+native/*/build/
+/extraResources
+/.ov-build-venv
+/.ov-pyinstaller-dist
+/.ov-pyinstaller-build
+/dist-electron
+/release
+
+# next.js (legacy)
+/.next/
+/out/
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+
+# vercel (legacy)
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# electron
+*.dmg
+*.zip
+*.AppImage
+*.deb
+*.exe
+*.msi
+
+# IDE
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+
+playwright-report/
+test-results/
+.mcp.json
+.codex/
+playwright
+reverse-engineering/
+feature/
+.claude/settings.local.json
+# Runtime lock written by the scheduler: a session id, a pid and a start time from
+# whichever machine last ran it. Not source, and meaningless to anyone else.
+.claude/scheduled_tasks.lock
+agents.md
+claude.md
+.wrangler/
+slock*
+*.pem
+# private keys that don't end in .pem: TLS origin keys, Apple auth keys
+*.key
+*.p8
+# Every credential lives here, whatever its extension. The patterns above only
+# catch the shapes we happen to use today; a token in a .json or .txt would slip
+# past them, and one committed key is not something you can take back.
+secrets/
+# Internal engineering docs. Deliberately not published: they carry deployment
+# detail, review-process notes and design history that only mean anything to
+# whoever runs the infrastructure. Product documentation lives in `web/doc/`, and
+# the model-facing SDK docs live in `packages/browser-use/docs/`.
+/docs/
+# Per-machine CLI state and runtime artifacts the app writes into the workspace.
+# Neither is source, and both carry local absolute paths.
+/.antigravitycli/
+/.operon/
+# Local research scratch. Referenced by no build or test, and carries absolute
+# paths from whichever machine produced it.
+/native/computer-use/tools/
+codex-learn/
+# web-target build output
+dist-web/
+codex-chat-ui/
+.build/
+/dist-operon-runtime/
+/packages/browser-use/vendor/codex-browser-client/
+/packages/computer-use/vendor/oai-sky/
+/packages/computer-use/assets/sky.bundle.mjs
+# The differential and oracle suites that measure us against those references. Without the
+# reference there is no yardstick, so they cannot run anywhere this repository is cloned; they
+# stay local alongside the vendored clients they need.
+/packages/browser-use/sdk-differential.test.ts
+/packages/browser-use/wire-oracle.test.ts
+/packages/browser-use/iab-oracle.test.ts
+/packages/computer-use/sky-differential.test.ts
+/packages/computer-use/sky-wire-oracle.test.ts
+
+# Android signing. The real key lives outside the repo
+# (~/.operon-android-keys), but a stray copy here must never be committed —
+# losing control of it means someone else can sign updates as this app.
+*.jks
+*.keystore
+keystore.properties
+
+# Built APKs served from the landing page. Rebuild with
+# `npm run android:sync && (cd android && ./gradlew assembleRelease)` and copy
+# the result into web/public/download/ before deploying — a 7MB binary per
+# release does not belong in git history.
+web/public/download/*.apk
+
+# Isolated worktrees created by workflow sub-agents that declare
+# `isolation: 'worktree'` (operon-agents/agent/worktree.ts). A worktree is a full
+# checkout, so an abandoned one — cleanup deliberately keeps any that the agent
+# left dirty, so the work is recoverable — would otherwise show up as untracked.
+# Scoped to this subdirectory on purpose: `.operon/changes/` holds tracked SDD
+# artifacts, so the parent must stay visible to git.
+/.operon/worktrees/

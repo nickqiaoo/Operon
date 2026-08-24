@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0-beta.3",
+  "github": {
+    "owner": "Nickqiaoo",
+    "repo": "Operon",
+    "tagPrefix": "v"
+  },
+  "files": {
+    "mac-arm64": "Operon-1.0.0-beta.3-arm64.dmg",
+    "mac-x64": "Operon-1.0.0-beta.3.dmg"
+  },
+  "fallbacks": {
+    "mac": "mac-arm64"
+  },
+  "defaultTarget": "mac-arm64"
+}

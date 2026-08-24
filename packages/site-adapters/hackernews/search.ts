@@ -1,0 +1,47 @@
+import { defineCommand } from "../define.ts"
+
+export const search = defineCommand({
+  site: "hackernews",
+  name: "search",
+  description: "Search Hacker News stories",
+  domain: "news.ycombinator.com",
+  access: "read",
+  strategy: "public",
+  browser: false,
+  args: [
+    { name: "query", required: true, positional: true, help: "Search query" },
+    { name: "limit", type: "int", default: 20, help: "Number of results" },
+    {
+      name: "sort",
+      default: "relevance",
+      help: "Sort by relevance or date",
+      choices: ["relevance", "date"],
+    },
+  ],
+  columns: ["rank", "id", "title", "score", "author", "comments", "url"],
+  pipeline: [
+    {
+      fetch: {
+        url: "${{ args.sort === 'date' ? 'https://hn.algolia.com/api/v1/search_by_date' : 'https://hn.algolia.com/api/v1/search' }}",
+        params: {
+          query: "${{ args.query }}",
+          tags: "story",
+          hitsPerPage: "${{ args.limit }}",
+        },
+      },
+    },
+    { select: "hits" },
+    {
+      map: {
+        rank: "${{ index + 1 }}",
+        id: "${{ item.objectID }}",
+        title: "${{ item.title }}",
+        score: "${{ item.points }}",
+        author: "${{ item.author }}",
+        comments: "${{ item.num_comments }}",
+        url: "${{ item.url }}",
+      },
+    },
+    { limit: "${{ args.limit }}" },
+  ],
+})

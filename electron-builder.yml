@@ -1,0 +1,104 @@
+appId: top.chatcode.operon
+productName: Operon
+copyright: Copyright © 2026 OPERON
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - server/src/storage/migrations/**/*.sql
+  - package.json
+  - "!**/*.ts"
+  - "!**/*.map"
+  # Exclude dev/doc files from workspace provider packages (symlinks bypass top-level exclude)
+  - "!**/AGENTS.md"
+  - "!**/CONTRIBUTING.md"
+  - "!**/CHANGELOG.md"
+  - "!**/eslint.config.js"
+  - "!**/tsconfig.json"
+  - "!**/tsconfig.*.json"
+  - "!**/.prettierrc"
+  - "!**/bun.lock"
+  - "!**/pnpm-lock.yaml"
+  - "!**/run-all-examples.sh"
+  - "!node_modules/ai-sdk-provider-*/docs/**"
+  # Capacitor is mobile-only and now lives in devDependencies, so electron-builder
+  # already prunes it. Kept as a belt-and-braces guard: its packages carry Gradle
+  # build output (~2700 .xml.flat files) that codesign walks file-by-file, which
+  # once turned `signing` into a multi-hour step.
+  - "!node_modules/@capacitor/**"
+  # The Claude Code CLI is NOT bundled — `getClaudeCliPath()` resolves it from the
+  # user's PATH (or an explicit Settings path) and throws when absent, so nothing
+  # ever executes this 245M platform binary. npm installs it anyway as an
+  # optionalDependency of @anthropic-ai/claude-agent-sdk, and electron-builder's
+  # unpackDetector then hoists it out of the asar as "executable code" — 245M of
+  # dead weight walked by codesign and uploaded to Apple on every notarize.
+  # Only the platform packages are excluded; the SDK's JS (sdk.mjs, bridge.mjs)
+  # stays in the asar and is what we actually import.
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+  # Same deal for Copilot: resolveCopilotCliPath() takes the CLI off the user's
+  # PATH, so these 289M platform packages (a 148M native binary, an 87M
+  # runtime.node, and a pile of tree-sitter wasm) are never spawned.
+  # @github/copilot-sdk and the small @github/copilot loader stay — only the
+  # platform builds go.
+  - "!node_modules/@github/copilot-darwin-*/**"
+  - "!node_modules/@github/copilot-linux*/**"
+  - "!node_modules/@github/copilot-win32-*/**"
+
+extraResources:
+  - from: dist-operon-runtime
+    to: operon-runtime
+    filter:
+      - "**/*"
+
+asar: true
+npmRebuild: false
+asarUnpack:
+  # Only unpack packages that need real filesystem access (native .node / wasm / vendor binaries)
+  - "**/*.node"
+  - "**/*.wasm"
+  - "**/prebuilds/**"
+  # vec0 is a loadable SQLite extension opened through dlopen, which cannot
+  # read inside the asar. None of the globs above match a bare .dylib/.dll/.so.
+  - "node_modules/sqlite-vec-*/**"
+  - "node_modules/@lydell/node-pty-*/spawn-helper"
+  - "node_modules/@anthropic-ai/claude-agent-sdk/vendor/**"
+  # gemini-cli-core only needs its bundled browser MCP launcher outside asar,
+  # because it is executed by a plain `node` child process.
+  - "node_modules/@google/gemini-cli-core/dist/bundled/**"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  icon: src/assets/icon/macos15-legacy/operon-legacy.icns
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+
+dmg:
+  sign: false
+  contents:
+    - x: 410
+      y: 150
+      type: link
+      path: /Applications
+    - x: 130
+      y: 150
+      type: file
+
+afterPack: scripts/after-pack.mjs
+
+publish:
+  provider: github
+  owner: Nickqiaoo
+  repo: Operon

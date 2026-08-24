@@ -1,0 +1,22 @@
+{
+  "id": "operon-adapter",
+  "providers": ["operon"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "serverUrl": {
+        "type": "string",
+        "description": "URL of the Operon desktop app server (default: http://localhost:3000)"
+      },
+      "sessionStorePath": {
+        "type": "string",
+        "description": "Path to the persistent Operon session store (default: ~/.openclaw/plugins/operon-adapter/sessions.json)"
+      },
+      "defaultWorkspace": {
+        "type": "string",
+        "description": "Default working directory for AI chat sessions"
+      }
+    }
+  }
+}

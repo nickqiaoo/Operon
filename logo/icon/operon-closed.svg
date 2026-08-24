@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Operon icon">
+
+  <!-- macOS squircle background -->
+  <path
+    d="M512 0
+       C962 0 1024 62 1024 512
+       C1024 962 962 1024 512 1024
+       C62 1024 0 962 0 512
+       C0 62 62 0 512 0 Z"
+    fill="#F6F6FA"
+  />
+
+  <defs>
+  <linearGradient id="helixGrad" x1="176" y1="176" x2="848" y2="848" gradientUnits="userSpaceOnUse">
+    <stop offset="0%" stop-color="#9D92F5"/>
+    <stop offset="48%" stop-color="#7B72E4"/>
+    <stop offset="100%" stop-color="#5249C7"/>
+  </linearGradient>
+</defs>
+
+<!-- Background circle ring to close gaps -->
+<circle
+  cx="512" cy="512" r="336"
+  fill="none"
+  stroke="url(#helixGrad)"
+  stroke-width="72"
+/>
+
+<!-- Strand 1 -->
+<path
+  d="M 512 176
+     C 700 176 848 324 848 512
+     C 848 620 790 710 700 760
+     C 620 804 530 780 480 720
+     C 420 648 440 560 512 512"
+  fill="none"
+  stroke="url(#helixGrad)"
+  stroke-width="72"
+  stroke-linecap="round"
+/>
+
+<!-- Strand 2 -->
+<path
+  d="M 512 848
+     C 324 848 176 700 176 512
+     C 176 404 234 314 324 264
+     C 404 220 494 244 544 304
+     C 604 376 584 464 512 512"
+  fill="none"
+  stroke="url(#helixGrad)"
+  stroke-width="72"
+  stroke-linecap="round"
+/>
+
+  <!-- ">" chevron -->
+  <path
+    d="M 370 360 L 470 420 L 370 480"
+    fill="none"
+    stroke="#6358DC"
+    stroke-width="42"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- "_" underscore -->
+  <path
+    d="M 580 620 L 680 620"
+    fill="none"
+    stroke="#6358DC"
+    stroke-width="42"
+    stroke-linecap="round"
+  />
+
+</svg>

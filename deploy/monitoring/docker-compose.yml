@@ -1,0 +1,93 @@
+# operon monitoring stack — VictoriaMetrics (metrics) + Loki (logs) + Grafana (UI),
+# sized for the small Tencent host. All services attach to the EXISTING broker
+# network (operon-broker_internal, external) so VictoriaMetrics can scrape the two
+# broker instances at their static IPs (172.30.81.11/12:8080/metrics).
+#
+#   cd ~/operon-broker/monitoring
+#   docker compose up -d
+#
+# Grafana is published only on 127.0.0.1:3000 and reached through the host nginx at
+# https://app.operon.teslawrap.top/monitor/ . mem_limit caps keep the stack bounded
+# on a 1.7G box (real usage is well under the caps; a 2G swapfile covers spikes).
+
+name: operon-monitoring
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.115.0
+    restart: unless-stopped
+    command:
+      - -retentionPeriod=30d
+      - -promscrape.config=/etc/vm/scrape.yml
+      - -memory.allowedPercent=40
+      - -selfScrapeInterval=30s
+    volumes:
+      - ./scrape.yml:/etc/vm/scrape.yml:ro
+      - vmdata:/victoria-metrics-data
+    mem_limit: 128m
+    networks: [monnet]
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|run|var/lib/docker)($|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 48m
+    networks: [monnet]
+
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./loki.yml:/etc/loki/config.yml:ro
+      - lokidata:/loki
+    mem_limit: 192m
+    networks: [monnet]
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    mem_limit: 80m
+    networks: [monnet]
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-operon-monitor}"
+      GF_SERVER_ROOT_URL: "https://app.operon.teslawrap.top/monitor/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_LOG_LEVEL: "warn"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    mem_limit: 192m
+    depends_on: [victoriametrics, loki]
+    networks: [monnet]
+
+networks:
+  monnet:
+    name: operon-broker_internal
+    external: true
+
+volumes:
+  vmdata:
+  lokidata:
+  grafanadata:

@@ -1,0 +1,1168 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'General Sans';
+  src: url('../fonts/GeneralSans-Semibold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+.logo {
+  font-family: 'General Sans', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+@theme {
+  --color-canvas: #ffffff;
+  --color-canvas-muted: #edf0f5;
+  --color-background: #ffffff;
+  --color-foreground: #1a1b23;
+  --color-muted: #edf0f5;
+  --color-muted-foreground: #687084;
+  --color-accent: #eef1f7;
+  --color-accent-foreground: #111827;
+  --color-border: #dfe3eb;
+  --color-primary: #1a1b23;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #eef1f7;
+  --color-secondary-foreground: #1a1b23;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1a1b23;
+  /* Modal surfaces sit one level above menus and the app canvas. */
+  --color-dialog: var(--color-popover);
+  --color-dialog-foreground: var(--color-popover-foreground);
+  /* Recessed form fields inside dialogs: a whisper darker than the white
+     dialog surface. 2% foreground is enough — 4% read as heavy grey slabs. */
+  --color-dialog-field: color-mix(in srgb, var(--color-background) 98%, var(--color-foreground) 2%);
+  --color-floating: var(--color-popover);
+  --color-floating-foreground: var(--color-popover-foreground);
+  --color-ring: #9b9db5;
+
+  /* The rail sits one step BELOW the reading surface — mirror image of the dark
+     theme, where it sits one step above. Either way the content (chat, diff,
+     editor) is the extreme of the scale and the surrounding chrome steps off
+     it: white canvas, faintly grey rails. Two calibrations, both measured off
+     Codex: the step is TINY (5/255 — Codex runs 3) and the grey is NEUTRAL,
+     not the cool blue-grey the rest of the light palette uses. A bigger step
+     turns the two rails into a frame wrapped around the page; a cool tint at
+     this lightness reads as "the sidebar is slightly blue", not as depth. */
+  --color-sidebar: #fafafa;
+  --color-sidebar-foreground: #1a1b23;
+  --color-sidebar-border: #dfe3eb;
+
+  --color-brand: #6358DC;
+  --color-brand-soft: #7B72E4;
+  --color-brand-muted: rgba(99, 88, 220, 0.08);
+  --color-brand-fg: #ffffff;
+
+  --color-tint: #334155;
+  --color-tint-soft: #475569;
+  --color-tint-muted: rgba(51, 65, 85, 0.08);
+  --color-tint-fg: #ffffff;
+
+  --color-accent-warm: #E5845C;
+  --color-accent-green: #3DB87A;
+
+  /* Status colours at *label* contrast — for text, thin borders and tinted
+     backgrounds on badges, stat tiles and the approve/deny button pair.
+     Deliberately separate from --color-accent-green / --color-destructive:
+     those are tuned to be filled and carry white text, so reused as text on our
+     own canvas they only reach ~2.4:1, under the 4.5:1 a label has to clear.
+     Each is darkened for light mode and lightened for dark mode, so one class
+     works in both — which is why no `dark:` variant belongs at the call site.
+     Usage: text-status-ok, bg-status-ok/10, border-status-ok/15. */
+  --color-status-ok: #047857;
+  --color-status-warn: #b45309;
+  --color-status-error: #b91c1c;
+  --color-status-info: #0369a1;
+
+  /* Dialog/drawer scrim. Light mode keeps the cool slate tint the rest of the
+     light palette uses — a neutral black veil reads warmer than the canvas it
+     covers. Carries its own dark value so call sites need no `dark:` variant. */
+  --color-scrim: rgba(2, 6, 23, 0.35);
+
+  /* Inline links & clickable references (file citations). Reads as a link by
+     color alone — no resting underline. */
+  --color-link: #2563eb;
+
+  --gradient-brand: linear-gradient(135deg, #6358DC 0%, #8B7DF0 100%);
+  --gradient-surface: linear-gradient(180deg, #f1f5f9 0%, #fafbfc 100%);
+  --gradient-glow: radial-gradient(ellipse at center, rgba(55, 65, 81, 0.04) 0%, transparent 70%);
+
+  --radius: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+
+  /* Wipe Tailwind's default shadow scale (shadow-xs..2xl). Elevation must come
+     from the semantic tokens mapped below, so every surface floats by the same
+     physics. If a class like `shadow-lg` stops rendering, that's the system
+     telling you to pick a semantic elevation instead. */
+  --shadow-*: initial;
+}
+
+/* Semantic elevation ladder — the only box-shadows allowed in the app.
+   Utilities: shadow-card / shadow-input / shadow-float / shadow-modal /
+   shadow-drawer / shadow-tab.
+   Runtime values live in --elevation-* (:root and .dark below) so light and
+   dark get separately tuned shadows through a single class. */
+@theme inline {
+  --shadow-card: var(--elevation-card);
+  --shadow-input: var(--elevation-input);
+  --shadow-float: var(--elevation-float);
+  --shadow-modal: var(--elevation-modal);
+  --shadow-drawer: var(--elevation-drawer);
+  --shadow-tab: var(--elevation-tab);
+}
+
+.dark {
+  --color-canvas: #09090b;
+  --color-canvas-muted: #111113;
+  --color-background: #0b0b0d;
+  --color-foreground: #f0f0f2;
+  --color-muted: #1b1b1f;
+  --color-muted-foreground: #aaaab2;
+  --color-accent: #202024;
+  --color-accent-foreground: #f0f0f2;
+  --color-border: #2b2b31;
+  --color-primary: #fafafa;
+  --color-primary-foreground: #09090b;
+  --color-secondary: #202024;
+  --color-secondary-foreground: #f0f0f2;
+  --color-destructive: #991b1b;
+  --color-destructive-foreground: #fecaca;
+  --color-popover: #1a1a1e;
+  --color-popover-foreground: #f0f0f2;
+  --color-dialog: color-mix(in srgb, var(--color-background) 92%, var(--color-foreground) 8%);
+  --color-dialog-foreground: var(--color-popover-foreground);
+  --color-dialog-field: color-mix(in srgb, var(--color-background) 97%, var(--color-foreground) 3%);
+  --color-floating: color-mix(in srgb, var(--color-dialog) 94%, var(--color-foreground) 6%);
+  --color-floating-foreground: var(--color-popover-foreground);
+  --color-ring: #5f5f68;
+
+  /* The rail sits one step ABOVE the canvas: the reading surface stays the darkest
+     thing on screen, and the chrome around it lifts off it. Matches Codex. Light mode
+     still tracks `background` — at that end a rail with its own grey reads as a frame
+     around the content. */
+  --color-sidebar: #141417;
+  --color-sidebar-foreground: #ececef;
+  --color-sidebar-border: #2a2a2f;
+
+  --color-brand: #8B7DF0;
+  --color-brand-soft: #9D92F5;
+  --color-brand-muted: rgba(139, 125, 240, 0.10);
+  --color-brand-fg: #ffffff;
+
+  --color-tint: #d4d4d8;
+  --color-tint-soft: #a1a1aa;
+  --color-tint-muted: rgba(212, 212, 216, 0.10);
+  --color-tint-fg: #09090b;
+
+  --color-accent-warm: #F09570;
+  --color-accent-green: #4FCC8E;
+  --color-status-ok: #6ee7b7;
+  --color-status-warn: #fcd34d;
+  --color-status-error: #fca5a5;
+  --color-status-info: #7dd3fc;
+  --color-scrim: rgba(0, 0, 0, 0.7);
+  --color-link: #82aaff;
+
+  --gradient-brand: linear-gradient(135deg, #6358DC 0%, #9D92F5 100%);
+  --gradient-surface: linear-gradient(180deg, #18181b 0%, #0c0c0e 100%);
+  --gradient-glow: radial-gradient(ellipse at center, rgba(139, 125, 240, 0.04) 0%, transparent 70%);
+}
+
+/* Dialog hierarchy: recessed form controls, raised dialog, then floating menus. */
+[data-slot="dialog-content"] :is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"],
+  [data-slot="model-selector-trigger"],
+  input:not([type]),
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="url"],
+  input[type="number"],
+  input[type="time"],
+  textarea
+) {
+  background-color: var(--color-dialog-field);
+  border-color: color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+[data-slot="dialog-content"] :is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"],
+  [data-slot="model-selector-trigger"],
+  input:not([type]),
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="url"],
+  input[type="number"],
+  input[type="time"],
+  textarea
+):hover {
+  background-color: color-mix(in srgb, var(--color-dialog-field) 98%, var(--color-foreground) 2%);
+}
+
+:root {
+  --code-bg: var(--color-background);
+  --code-fg: var(--color-foreground);
+  --code-muted: var(--color-muted-foreground);
+  --code-gutter: var(--color-muted);
+  --code-border: var(--color-border);
+  --code-selection: var(--color-accent);
+  --code-line: var(--color-accent);
+  --code-caret: var(--color-foreground);
+  --code-syntax-keyword: #1f6a82;
+  --code-syntax-string: #b2532f;
+  --code-syntax-number: #8e6a2b;
+  --code-syntax-comment: #7b6f60;
+  --code-syntax-function: #2a5d9a;
+  --code-syntax-type: #2f6f50;
+  --code-syntax-variable: #6d4d2a;
+  --code-syntax-operator: #6b5a46;
+  --code-syntax-constant: #b15c45;
+  --code-syntax-meta: #6a7368;
+  --code-syntax-invalid: #b3472b;
+  --code-diff-added: #2f8f5b;
+  --code-diff-removed: #c2573c;
+  --code-diff-meta: #3f6b8f;
+  --code-diff-hunk: #7b6f60;
+
+  /* Scrollbar defaults (Light) */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+}
+
+.dark {
+  /* Scrollbar defaults (Dark) */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+
+  /* App default dark code theme */
+  --code-bg: #111114;
+  --code-fg: #d6deeb;
+  --code-muted: #6f7d8f;
+  --code-gutter: #111114;
+  --code-border: #27272a;
+  --code-selection: #25324a;
+  --code-line: #171923;
+  --code-caret: #c8d3f5;
+  --code-syntax-keyword: #c792ea;
+  --code-syntax-string: #c3e88d;
+  --code-syntax-number: #f78c6c;
+  --code-syntax-comment: #637777;
+  --code-syntax-function: #82aaff;
+  --code-syntax-type: #7fdbca;
+  --code-syntax-variable: #d6deeb;
+  --code-syntax-operator: #89ddff;
+  --code-syntax-constant: #ffcb6b;
+  --code-syntax-meta: #f07178;
+  --code-syntax-invalid: #ff5370;
+  --code-diff-added: #c3e88d;
+  --code-diff-removed: #ff5370;
+  --code-diff-meta: #82aaff;
+  --code-diff-hunk: #637777;
+}
+
+:root[data-code-theme="light"] {
+  --code-bg: #fbf9f4;
+  --code-fg: #221d16;
+  --code-muted: #8a8074;
+  --code-gutter: #f0e9dd;
+  --code-border: #e0d5c6;
+  --code-selection: #e7dccb;
+  --code-line: #efe6d7;
+  --code-caret: #2b251f;
+  --code-syntax-keyword: #1f6a82;
+  --code-syntax-string: #b2532f;
+  --code-syntax-number: #8e6a2b;
+  --code-syntax-comment: #7b6f60;
+  --code-syntax-function: #2a5d9a;
+  --code-syntax-type: #2f6f50;
+  --code-syntax-variable: #6d4d2a;
+  --code-syntax-operator: #6b5a46;
+  --code-syntax-constant: #b15c45;
+  --code-syntax-meta: #6a7368;
+  --code-syntax-invalid: #b3472b;
+  --code-diff-added: #2f8f5b;
+  --code-diff-removed: #c2573c;
+  --code-diff-meta: #3f6b8f;
+  --code-diff-hunk: #7b6f60;
+}
+
+/* Global themed scrollbar for all elements */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Device-emulation viewport resize grips (browser tab). Drawn as DOM children
+   of the body-level webview container by DeviceResizeController. */
+.device-resize-handle {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.device-resize-handle--ew { cursor: ew-resize; }
+.device-resize-handle--ns { cursor: ns-resize; }
+.device-resize-handle--nesw { cursor: nesw-resize; }
+.device-resize-handle--nwse { cursor: nwse-resize; }
+.device-resize-grip {
+  background: rgba(127, 127, 140, 0.55);
+  border-radius: 999px;
+  transition: background 0.12s ease;
+}
+.device-resize-handle:hover .device-resize-grip {
+  background: var(--color-brand);
+}
+.device-resize-grip--v { width: 4px; height: 36px; }
+.device-resize-grip--h { width: 36px; height: 4px; }
+.device-resize-grip--c { width: 8px; height: 8px; border-radius: 2px; }
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Overlay (non-reserving) thin scrollbar via the standard properties. A webkit
+   `::-webkit-scrollbar { width }` would instead reserve a permanent gutter that
+   pushes the diff content away from the right edge; the overlay bar keeps the
+   content flush and auto-hides at rest (thumb fades in on hover/scroll). */
+.code-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+
+.code-scrollbar:hover,
+.code-scrollbar:focus,
+.code-scrollbar:focus-within {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.code-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+
+.code-scrollbar:hover::-webkit-scrollbar-thumb,
+.code-scrollbar:focus::-webkit-scrollbar-thumb,
+.code-scrollbar:focus-within::-webkit-scrollbar-thumb,
+.code-scrollbar::-webkit-scrollbar-thumb:hover,
+.code-scrollbar::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb);
+}
+
+:root[data-code-theme="dark"] {
+  --code-bg: #1e1e1e;
+  --code-fg: #d4d4d4;
+  --code-muted: #808080;
+  --code-gutter: #1e1e1e;
+  --code-border: #333333;
+  --code-selection: #264f78;
+  --code-line: #2a2d2e;
+  --code-caret: #d4d4d4;
+  --code-syntax-keyword: #569cd6;
+  --code-syntax-string: #ce9178;
+  --code-syntax-number: #b5cea8;
+  --code-syntax-comment: #6a9955;
+  --code-syntax-function: #dcdcaa;
+  --code-syntax-type: #4ec9b0;
+  --code-syntax-variable: #9cdcfe;
+  --code-syntax-operator: #d4d4d4;
+  --code-syntax-constant: #569cd6;
+  --code-syntax-meta: #c586c0;
+  --code-syntax-invalid: #f44747;
+  --code-diff-added: #3fb950;
+  --code-diff-removed: #f85149;
+  --code-diff-meta: #c9d1d9;
+  --code-diff-hunk: #6e7681;
+}
+
+:root[data-code-theme="dracula"] {
+  --code-bg: #282a36;
+  --code-fg: #f8f8f2;
+  --code-muted: #6272a4;
+  --code-gutter: #282a36;
+  --code-border: #44475a;
+  --code-selection: #44475a;
+  --code-line: #44475a;
+  --code-caret: #f8f8f2;
+  --code-syntax-keyword: #ff79c6;
+  --code-syntax-string: #f1fa8c;
+  --code-syntax-number: #bd93f9;
+  --code-syntax-comment: #6272a4;
+  --code-syntax-function: #50fa7b;
+  --code-syntax-type: #8be9fd;
+  --code-syntax-variable: #f8f8f2;
+  --code-syntax-operator: #ff79c6;
+  --code-syntax-constant: #bd93f9;
+  --code-syntax-meta: #f8f8f2;
+  --code-syntax-invalid: #ff5555;
+  --code-diff-added: #50fa7b;
+  --code-diff-removed: #ff5555;
+  --code-diff-meta: #6272a4;
+  --code-diff-hunk: #6272a4;
+}
+
+:root[data-code-theme="monokai"] {
+  --code-bg: #272822;
+  --code-fg: #f8f8f2;
+  --code-muted: #75715e;
+  --code-gutter: #272822;
+  --code-border: #3e3d32;
+  --code-selection: #49483e;
+  --code-line: #3e3d32;
+  --code-caret: #f8f8f2;
+  --code-syntax-keyword: #f92672;
+  --code-syntax-string: #e6db74;
+  --code-syntax-number: #ae81ff;
+  --code-syntax-comment: #75715e;
+  --code-syntax-function: #a6e22e;
+  --code-syntax-type: #66d9ef;
+  --code-syntax-variable: #f8f8f2;
+  --code-syntax-operator: #f92672;
+  --code-syntax-constant: #ae81ff;
+  --code-syntax-meta: #f8f8f2;
+  --code-syntax-invalid: #f92672;
+  --code-diff-added: #a6e22e;
+  --code-diff-removed: #f92672;
+  --code-diff-meta: #75715e;
+  --code-diff-hunk: #75715e;
+}
+
+:root[data-code-theme="github-light"] {
+  --code-bg: #ffffff;
+  --code-fg: #24292e;
+  --code-muted: #6a737d;
+  --code-gutter: #ffffff;
+  --code-border: #e1e4e8;
+  --code-selection: #c8c8fa;
+  --code-line: #f6f8fa;
+  --code-caret: #24292e;
+  --code-syntax-keyword: #d73a49;
+  --code-syntax-string: #032f62;
+  --code-syntax-number: #005cc5;
+  --code-syntax-comment: #6a737d;
+  --code-syntax-function: #6f42c1;
+  --code-syntax-type: #005cc5;
+  --code-syntax-variable: #e36209;
+  --code-syntax-operator: #d73a49;
+  --code-syntax-constant: #005cc5;
+  --code-syntax-meta: #6a737d;
+  --code-syntax-invalid: #cb2431;
+  --code-diff-added: #22863a;
+  --code-diff-removed: #d73a49;
+  --code-diff-meta: #005cc5;
+  --code-diff-hunk: #005cc5;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  /* Elevation ladder. Light mode: short, cool-grey (slate-tinted) shadows that
+     only draw the edge — structure comes from surface greys and borders, never
+     from big grey haze. Values originate from the blessed hand-tuned surfaces
+     (board card, chat composer, dialog) and are now the single source. */
+  --elevation-card: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --elevation-input: 0 10px 24px -22px rgba(15, 23, 42, 0.24);
+  --elevation-float:
+    0 12px 28px -18px rgba(15, 23, 42, 0.22),
+    0 0 0 1px rgba(15, 23, 42, 0.02);
+  --elevation-modal:
+    0 24px 80px -24px rgba(15, 23, 42, 0.32),
+    0 8px 28px -12px rgba(15, 23, 42, 0.22);
+  --elevation-drawer: -12px 0 32px -24px rgba(15, 23, 42, 0.45);
+  /* Active panel tab. The leading inset ring is the sanctioned "shadow draws the
+     border" trick — a real border would shift the tab's box by a pixel against
+     its inactive siblings. */
+  --elevation-tab: inset 0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 12px -4px rgba(0, 0, 0, 0.12);
+}
+
+:root {
+  /* Height of the on-screen keyboard. MobileApp overwrites this on
+     <html> while a phone keyboard is up (the shell itself keeps its full
+     closed height and treats the keyboard as an overlay), so any composer can
+     lift itself clear of the keyboard with `var(--keyboard-height)`. Declared
+     here so desktop — where nothing ever sets it — reads a plain 0px. */
+  --keyboard-height: 0px;
+}
+
+.dark {
+  /* Dark mode: deeper black shadows are needed to lift surfaces off the dark
+     canvas; a faint white hairline replaces the slate outline. */
+  --elevation-card: 0 12px 30px -24px rgba(0, 0, 0, 0.9);
+  --elevation-input: 0 18px 44px -34px rgba(0, 0, 0, 0.9);
+  --elevation-float:
+    0 24px 48px -16px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  --elevation-modal:
+    0 28px 90px -24px rgba(0, 0, 0, 0.82),
+    0 10px 32px -16px rgba(0, 0, 0, 0.68);
+  --elevation-drawer: -16px 0 40px -28px rgba(0, 0, 0, 0.8);
+  --elevation-tab: inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 4px 12px -4px rgba(0, 0, 0, 0.5);
+}
+
+body {
+  font-family: "SF Pro Text", "SF Pro Display", "Avenir Next", "Helvetica Neue", sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--color-canvas);
+  color: var(--color-foreground);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: "SF Mono", "Menlo", "Monaco", ui-monospace, monospace;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.heading-section {
+  @apply text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium;
+}
+
+.code-editor .cm-content,
+.code-editor .cm-content *,
+.code-editor .cm-line,
+.code-editor .cm-line * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Prose styles for markdown */
+.prose {
+  line-height: 1.65;
+}
+
+.prose a {
+  color: var(--color-link);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+
+.prose a:hover {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-link) 40%, transparent);
+}
+
+.prose pre {
+  background-color: var(--color-muted);
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* Inside streamdown code blocks, pre should be clean */
+.prose [data-streamdown="code-block-body"] pre {
+  background-color: transparent;
+  border-radius: 0;
+}
+
+.prose code {
+  background-color: var(--color-muted);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+
+.prose pre code {
+  background: none;
+  padding: 0;
+}
+
+.prose pre::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.prose pre::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.prose pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Streamdown (Shiki) code blocks: ensure dark theme tokens use dark colors */
+.dark [data-streamdown="code-block-body"] span {
+  color: var(--shiki-dark, currentColor) !important;
+}
+
+/* Streamdown code block: clean single-container look */
+[data-streamdown="code-block"] {
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden;
+  background-color: var(--color-muted) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Code block header: compact with subtle separator */
+[data-streamdown="code-block-header"] {
+  height: auto !important;
+  padding: 0.375rem 0.75rem !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+/* Code block body: remove inner border, flush with container */
+[data-streamdown="code-block-body"] {
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  background-color: transparent !important;
+}
+
+[data-streamdown="code-block-body"] pre {
+  padding: 0.75rem !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Code block actions: soften border and reduce whitespace */
+[data-streamdown="code-block-actions"] {
+  border-color: var(--color-border) !important;
+  background-color: color-mix(in srgb, var(--color-muted) 80%, transparent) !important;
+}
+
+/* Fix actions overlay position with the new compact header */
+[data-streamdown="code-block"] > div:has([data-streamdown="code-block-actions"]) {
+  margin-top: -1.75rem !important;
+  height: 1.75rem !important;
+  top: 0.25rem !important;
+  padding-right: 0.5rem;
+}
+
+/* Code block header: flex layout to accommodate copy button */
+[data-streamdown="code-block-header"] {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Code block copy button */
+[data-code-copy-btn] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border-radius: 0.375rem;
+  color: var(--color-muted-foreground);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+[data-streamdown="code-block"]:hover [data-code-copy-btn] {
+  opacity: 1;
+}
+
+[data-code-copy-btn]:hover {
+  color: var(--color-foreground);
+  background-color: color-mix(in srgb, var(--color-foreground) 10%, transparent);
+}
+
+[data-code-copy-btn] .check-icon {
+  display: none;
+  color: var(--color-success, #22c55e);
+}
+
+[data-code-copy-btn] .copy-icon {
+  display: block;
+}
+
+[data-code-copy-btn][data-copied] .copy-icon {
+  display: none;
+}
+
+[data-code-copy-btn][data-copied] .check-icon {
+  display: block;
+}
+
+[data-code-copy-btn][data-copied] {
+  opacity: 1;
+}
+
+
+/* Panels now use utility classes for a flat design */
+
+@keyframes app-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-app-in {
+  animation: app-in 520ms ease-out;
+}
+
+.animate-panel-in {
+  animation: panel-in 560ms ease-out;
+  animation-fill-mode: both;
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Indeterminate sweep for the global request indicator (RequestProgressBar).
+   Indeterminate rather than a percentage: we know requests are outstanding,
+   never how far along they are. */
+@keyframes request-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.animate-request-progress {
+  animation: request-progress 1100ms ease-in-out infinite;
+}
+
+.animate-shimmer-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(96, 165, 250, 0.12) 30%,
+    rgba(96, 165, 250, 0.25) 50%,
+    rgba(96, 165, 250, 0.12) 70%,
+    transparent 100%
+  );
+  border-radius: inherit;
+  animation: shimmer-sweep 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.panel-delay-1 {
+  animation-delay: 60ms;
+}
+
+.panel-delay-2 {
+  animation-delay: 120ms;
+}
+
+.panel-delay-3 {
+  animation-delay: 180ms;
+}
+
+/* Inset the terminal grid from the panel edge — text flush against the frame
+   reads as clipped. FitAddon subtracts this padding when it computes cols/rows
+   (it reads the .xterm element's own padding), so the grid stays exact. The
+   padding box shows the container behind it, which TerminalInstance paints with
+   the active terminal theme's background so the inset matches the terminal —
+   not the app canvas. */
+[data-terminal-instance-id] .xterm {
+  padding: 8px 12px;
+}
+
+/* xterm.css hardcodes `.xterm-viewport { background-color: #000 }`, and the
+   viewport is `position: absolute; inset: 0` — which resolves against the
+   PADDING box, so it covers the inset above while .xterm-screen only fills the
+   content box. Left alone that paints the inset pure black. Transparent lets
+   the container's themed background show through instead. */
+[data-terminal-instance-id] .xterm-viewport {
+  background-color: transparent;
+}
+
+.terminal-panel .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.terminal-panel .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.terminal-panel .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.code-editor .cm-scroller {
+  scrollbar-width: none;
+}
+
+.code-editor .cm-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.code-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+:root[data-code-theme="dracula"] {
+  --code-bg: #282a36;
+  --code-fg: #f8f8f2;
+  --code-muted: #6272a4;
+  --code-gutter: #282a36;
+  --code-border: #44475a;
+  --code-selection: #44475a;
+  --code-line: #44475a;
+  --code-caret: #f8f8f2;
+  --code-syntax-keyword: #ff79c6;
+  --code-syntax-string: #f1fa8c;
+  --code-syntax-number: #bd93f9;
+  --code-syntax-comment: #6272a4;
+  --code-syntax-function: #50fa7b;
+  --code-syntax-type: #8be9fd;
+  --code-syntax-variable: #f8f8f2;
+  --code-syntax-operator: #ff79c6;
+  --code-syntax-constant: #bd93f9;
+  --code-syntax-meta: #f8f8f2;
+  --code-syntax-invalid: #ff5555;
+  --code-diff-added: #50fa7b;
+  --code-diff-removed: #ff5555;
+  --code-diff-meta: #6272a4;
+  --code-diff-hunk: #6272a4;
+}
+
+:root[data-code-theme="monokai"] {
+  --code-bg: #272822;
+  --code-fg: #f8f8f2;
+  --code-muted: #75715e;
+  --code-gutter: #272822;
+  --code-border: #3e3d32;
+  --code-selection: #49483e;
+  --code-line: #3e3d32;
+  --code-caret: #f8f8f2;
+  --code-syntax-keyword: #f92672;
+  --code-syntax-string: #e6db74;
+  --code-syntax-number: #ae81ff;
+  --code-syntax-comment: #75715e;
+  --code-syntax-function: #a6e22e;
+  --code-syntax-type: #66d9ef;
+  --code-syntax-variable: #f8f8f2;
+  --code-syntax-operator: #f92672;
+  --code-syntax-constant: #ae81ff;
+  --code-syntax-meta: #f8f8f2;
+  --code-syntax-invalid: #f92672;
+  --code-diff-added: #a6e22e;
+  --code-diff-removed: #f92672;
+  --code-diff-meta: #75715e;
+  --code-diff-hunk: #75715e;
+}
+
+:root[data-code-theme="github-light"] {
+  --code-bg: #ffffff;
+  --code-fg: #24292e;
+  --code-muted: #6a737d;
+  --code-gutter: #ffffff;
+  --code-border: #e1e4e8;
+  --code-selection: #c8c8fa;
+  --code-line: #f6f8fa;
+  --code-caret: #24292e;
+  --code-syntax-keyword: #d73a49;
+  --code-syntax-string: #032f62;
+  --code-syntax-number: #005cc5;
+  --code-syntax-comment: #6a737d;
+  --code-syntax-function: #6f42c1;
+  --code-syntax-type: #005cc5;
+  --code-syntax-variable: #e36209;
+  --code-syntax-operator: #d73a49;
+  --code-syntax-constant: #005cc5;
+  --code-syntax-meta: #6a737d;
+  --code-syntax-invalid: #cb2431;
+  --code-diff-added: #22863a;
+  --code-diff-removed: #d73a49;
+  --code-diff-meta: #005cc5;
+  --code-diff-hunk: #005cc5;
+}
+
+:root[data-code-theme="github-dark"] {
+  --code-bg: #24292e;
+  --code-fg: #d1d5da;
+  --code-muted: #959da5;
+  --code-gutter: #24292e;
+  --code-border: #444d56;
+  --code-selection: #39414a;
+  --code-line: #2b3036;
+  --code-caret: #d1d5da;
+  --code-syntax-keyword: #f97583;
+  --code-syntax-string: #9ecbff;
+  --code-syntax-number: #79b8ff;
+  --code-syntax-comment: #6a737d;
+  --code-syntax-function: #b392f0;
+  --code-syntax-type: #79b8ff;
+  --code-syntax-variable: #ffab70;
+  --code-syntax-operator: #f97583;
+  --code-syntax-constant: #79b8ff;
+  --code-syntax-meta: #6a737d;
+  --code-syntax-invalid: #f97583;
+  --code-diff-added: #28a745;
+  --code-diff-removed: #d73a49;
+  --code-diff-meta: #79b8ff;
+  --code-diff-hunk: #79b8ff;
+}
+
+:root[data-code-theme="solarized-light"] {
+  --code-bg: #fdf6e3;
+  --code-fg: #657b83;
+  --code-muted: #93a1a1;
+  --code-gutter: #fdf6e3;
+  --code-border: #eee8d5;
+  --code-selection: #eee8d5;
+  --code-line: #eee8d5;
+  --code-caret: #657b83;
+  --code-syntax-keyword: #859900;
+  --code-syntax-string: #2aa198;
+  --code-syntax-number: #d33682;
+  --code-syntax-comment: #93a1a1;
+  --code-syntax-function: #268bd2;
+  --code-syntax-type: #b58900;
+  --code-syntax-variable: #268bd2;
+  --code-syntax-operator: #859900;
+  --code-syntax-constant: #cb4b16;
+  --code-syntax-meta: #93a1a1;
+  --code-syntax-invalid: #dc322f;
+  --code-diff-added: #859900;
+  --code-diff-removed: #dc322f;
+  --code-diff-meta: #268bd2;
+  --code-diff-hunk: #268bd2;
+}
+
+:root[data-code-theme="solarized-dark"] {
+  --code-bg: #002b36;
+  --code-fg: #839496;
+  --code-muted: #586e75;
+  --code-gutter: #002b36;
+  --code-border: #073642;
+  --code-selection: #073642;
+  --code-line: #073642;
+  --code-caret: #839496;
+  --code-syntax-keyword: #859900;
+  --code-syntax-string: #2aa198;
+  --code-syntax-number: #d33682;
+  --code-syntax-comment: #586e75;
+  --code-syntax-function: #268bd2;
+  --code-syntax-type: #b58900;
+  --code-syntax-variable: #268bd2;
+  --code-syntax-operator: #859900;
+  --code-syntax-constant: #cb4b16;
+  --code-syntax-meta: #586e75;
+  --code-syntax-invalid: #dc322f;
+  --code-diff-added: #859900;
+  --code-diff-removed: #dc322f;
+  --code-diff-meta: #268bd2;
+  --code-diff-hunk: #268bd2;
+}
+
+/*
+ * Fallback overrides for @pierre/diffs:
+ * keep built-in pierre-light/dark syntax theme, but pin diff surfaces/colors
+ * so older Chromium runtimes don't degrade to flat white.
+ */
+.pierre-diff-file-view {
+  border: 0;
+  background-color: #f8fafc;
+
+  --diffs-font-size: 12px;
+  --diffs-line-height: 18px;
+  --diffs-gap-block: 4px;
+  --diffs-light-bg: #f8fafc;
+  --diffs-gap-style: 1px solid #eef2f7;
+  --diffs-bg-context-override: #f8fafc;
+  --diffs-bg-context-gutter-override: #f1f5f9;
+  --diffs-bg-separator-override: #eef2f7;
+  --diffs-bg-hover-override: #f1f5f9;
+  --diffs-fg-number-override: #6b7280;
+
+  /* Pierre 1.2.x derives the row fill by mixing a small amount of the
+     *saturated* base color into the surface (--diffs-bg). So we set only the
+     saturated base (--diffs-*-color-override) and let it compute the tint.
+     Do NOT set --diffs-bg-*-override to a pre-diluted near-white here: 1.2.x
+     mixes it again and the result washes out to invisible. */
+  --diffs-addition-color-override: #3f9348;
+  --diffs-bg-addition-emphasis-override: rgba(63, 147, 72, 0.18);
+
+  --diffs-deletion-color-override: #c84d4d;
+  --diffs-bg-deletion-emphasis-override: rgba(200, 77, 77, 0.16);
+}
+
+.dark .pierre-diff-file-view {
+  /* Sit the diff surface on the app background (#0c0c0e) instead of a blue-grey
+     slate, so the card blends into the surrounding panel like codex's. Context
+     rows / gutter share the base; separator + hover are a faint NEUTRAL lift so
+     the unmodified-lines pill stays visible without reading as grey/blue. */
+  background-color: var(--color-background);
+
+  --diffs-font-size: 12px;
+  --diffs-line-height: 18px;
+  --diffs-gap-block: 4px;
+  --diffs-dark-bg: var(--color-background);
+  --diffs-gap-style: 1px solid #1c1c20;
+  --diffs-bg-context-override: var(--color-background);
+  --diffs-bg-context-gutter-override: var(--color-background);
+  --diffs-bg-separator-override: #1a1a1e;
+  --diffs-bg-hover-override: #161619;
+  --diffs-fg-number-override: #6b7280;
+
+  /* See light block: only the saturated base is set; 1.2.x mixes the fill. */
+  --diffs-addition-color-override: #77b985;
+  --diffs-bg-addition-emphasis-override: rgba(119, 185, 133, 0.32);
+
+  --diffs-deletion-color-override: #d17979;
+  --diffs-bg-deletion-emphasis-override: rgba(209, 121, 121, 0.3);
+}
+
+.pierre-file-preview-view {
+  --diffs-font-size: 11px;
+  --diffs-line-height: 17px;
+}
+
+/* ── Sonner toast overrides ── */
+[data-sonner-toaster] {
+  --normal-bg: var(--color-popover);
+  --normal-text: var(--color-foreground);
+  --normal-border: var(--color-border);
+  font-family: "SF Pro Text", "SF Pro Display", "Avenir Next", "Helvetica Neue", sans-serif;
+}
+
+[data-sonner-toast] {
+  border-radius: var(--radius) !important;
+  box-shadow: var(--elevation-float) !important;
+  border-color: var(--color-border) !important;
+  backdrop-filter: blur(12px);
+}
+
+[data-sonner-toast] [data-button] {
+  background-color: var(--color-brand) !important;
+  color: var(--color-brand-fg) !important;
+  border-radius: var(--radius-sm) !important;
+  font-weight: 500 !important;
+  transition: opacity 0.15s ease;
+}
+
+[data-sonner-toast] [data-button]:hover {
+  opacity: 0.9;
+}
+
+[data-sonner-toast] [data-close-button] {
+  border-color: var(--color-border) !important;
+  background-color: var(--color-popover) !important;
+  color: var(--color-muted-foreground) !important;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background-color: var(--color-muted) !important;
+  color: var(--color-foreground) !important;
+}
+
+@keyframes logo-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-logo-spin {
+  animation: logo-spin 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  transform-origin: center;
+  will-change: transform;
+}

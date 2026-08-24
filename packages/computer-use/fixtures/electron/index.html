@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Operon CUA Electron Fixture</title>
+    <style>
+      :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #182033; background: #f7f9fc; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 28px; }
+      h1 { margin: 0 0 22px; font-size: 24px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+      .panel { display: grid; gap: 8px; align-content: start; }
+      label { color: #647087; font-size: 12px; font-weight: 600; }
+      input, textarea, button { font: inherit; border: 1px solid #d6ddea; border-radius: 8px; background: white; }
+      input, textarea { width: 100%; padding: 9px 11px; }
+      button { padding: 9px 14px; color: #23446c; background: #eef5ff; cursor: default; }
+      .row { display: flex; gap: 10px; }
+      #scroll { height: 180px; overflow: auto; padding: 10px; border: 1px solid #d6ddea; border-radius: 8px; background: white; }
+      #drag { height: 92px; border: 1px solid #abc0dd; border-radius: 8px; background: #eef5ff; }
+      #selectable { height: 118px; resize: none; }
+    </style>
+  </head>
+  <body>
+    <h1 id="fixture-title">Computer Use Electron E2E Fixture</h1>
+    <main class="grid">
+      <section class="panel">
+        <div class="row">
+          <button id="fixture-increment" type="button">Increment</button>
+          <button id="fixture-coordinate" type="button">Coordinate Click</button>
+        </div>
+        <label for="fixture-input">Set Value / Type Text</label>
+        <input id="fixture-input" aria-label="Fixture Input" placeholder="Editable input" />
+        <label for="fixture-key-capture">Press Key</label>
+        <input id="fixture-key-capture" aria-label="Fixture Key Capture" placeholder="Keyboard capture" />
+        <label for="fixture-search">Search Autosubmit</label>
+        <input id="fixture-search" type="search" aria-label="Fixture Search" placeholder="Search fixture" />
+      </section>
+      <section class="panel">
+        <label for="fixture-scroll">Scrollable Content</label>
+        <div id="fixture-scroll" role="region" aria-label="Fixture Scroll">
+          <div style="height: 720px">Scrollable content starts here.<br />Scroll to reach the bottom marker.<div style="margin-top: 640px">Bottom marker</div></div>
+        </div>
+        <label for="fixture-drag">Drag Pad</label>
+        <div id="fixture-drag" role="group" aria-label="Fixture Drag Pad"></div>
+        <label for="fixture-selectable">Select Text</label>
+        <textarea id="fixture-selectable" aria-label="Fixture Selectable">alpha target omega | alpha second omega</textarea>
+      </section>
+    </main>
+    <script>
+      const state = {
+        incrementCount: 0,
+        coordinateCount: 0,
+        inputValue: "",
+        keyValue: "",
+        keyDownCount: 0,
+        lastKey: "",
+        searchValue: "",
+        searchSubmitCount: 0,
+        scrollOffsetY: 0,
+        dragCount: 0,
+        dragStart: null,
+        dragEnd: null,
+        focusedId: "",
+        selectedStart: 0,
+        selectedEnd: 0,
+        selectedText: "",
+        windowWidth: 0,
+        windowHeight: 0,
+        elementFrames: {},
+      };
+
+      const byId = (id) => document.getElementById(id);
+      const trackedIds = [
+        "fixture-increment",
+        "fixture-coordinate",
+        "fixture-input",
+        "fixture-key-capture",
+        "fixture-search",
+        "fixture-scroll",
+        "fixture-drag",
+        "fixture-selectable",
+      ];
+
+      function snapshot() {
+        const selectable = byId("fixture-selectable");
+        state.inputValue = byId("fixture-input").value;
+        state.keyValue = byId("fixture-key-capture").value;
+        state.searchValue = byId("fixture-search").value;
+        state.scrollOffsetY = byId("fixture-scroll").scrollTop;
+        state.focusedId = document.activeElement?.id ?? "";
+        state.selectedStart = selectable.selectionStart;
+        state.selectedEnd = selectable.selectionEnd;
+        state.selectedText = selectable.value.slice(selectable.selectionStart, selectable.selectionEnd);
+        const titleBarHeight = Math.max(0, window.outerHeight - window.innerHeight);
+        state.windowWidth = window.outerWidth;
+        state.windowHeight = window.outerHeight;
+        const scale = window.devicePixelRatio || 1;
+        state.elementFrames = Object.fromEntries(trackedIds.map((id) => {
+          const rect = byId(id).getBoundingClientRect();
+          return [id, {
+            x: rect.x * scale,
+            y: (rect.y + titleBarHeight) * scale,
+            width: rect.width * scale,
+            height: rect.height * scale,
+          }];
+        }));
+        window.fixtureBridge.report(state);
+      }
+
+      byId("fixture-increment").addEventListener("click", () => { state.incrementCount += 1; snapshot(); });
+      byId("fixture-coordinate").addEventListener("click", () => { state.coordinateCount += 1; snapshot(); });
+      document.addEventListener("keydown", (event) => {
+        state.keyDownCount += 1;
+        state.lastKey = event.key;
+        snapshot();
+      });
+      byId("fixture-search").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") state.searchSubmitCount += 1;
+        snapshot();
+      });
+      byId("fixture-scroll").addEventListener("scroll", snapshot);
+
+      const drag = byId("fixture-drag");
+      drag.addEventListener("pointerdown", (event) => {
+        state.dragStart = { x: event.offsetX, y: event.offsetY };
+      });
+      drag.addEventListener("pointerup", (event) => {
+        state.dragEnd = { x: event.offsetX, y: event.offsetY };
+        state.dragCount += 1;
+        snapshot();
+      });
+
+      document.addEventListener("focusin", snapshot);
+      document.addEventListener("input", snapshot);
+      document.addEventListener("selectionchange", snapshot);
+      window.addEventListener("load", () => {
+        byId("fixture-input").focus({ preventScroll: true });
+        snapshot();
+      });
+      setInterval(snapshot, 50);
+    </script>
+  </body>
+</html>

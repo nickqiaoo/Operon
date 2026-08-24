@@ -1,0 +1,3 @@
+/operon-broker
+*.exe
+/broker-data/

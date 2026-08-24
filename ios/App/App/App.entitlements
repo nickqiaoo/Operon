@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Push notifications. `development` is the sandbox APNs environment used by
+	  debug builds; Xcode rewrites this to `production` when it archives for the
+	  App Store, so this value does not need editing.
+
+	  This entitlement only signs if the App ID has the Push Notifications
+	  capability enabled in the Apple developer portal. Until that is done the
+	  build fails to sign — see docs/ios-app/handoff.md.
+	-->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

@@ -1,0 +1,21 @@
+{
+  "name": "@operon/browser-use",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Operon Browser Use — browser control over a local domain socket. IAB backend on Electron webview + CDP; Chrome backend via extension + native host. Reuses @operon/computer-use's node_repl runtime. Framework-agnostic.",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --dir . --exclude '**/sdk-locator-real.test.ts' && vitest run --dir . sdk-locator-real.test.ts"
+  },
+  "dependencies": {
+    "@operon/computer-use": "*",
+    "playwright-core": "1.58.2"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@xui/tunnel-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "operon local tunnel agent — dials the cloud broker and forwards requests to the local backend",
+  "bin": {
+    "operon-tunnel": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

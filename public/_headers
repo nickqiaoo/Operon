@@ -1,0 +1,19 @@
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/pwa-recover
+  Cache-Control: no-cache, no-store, must-revalidate
+  Clear-Site-Data: "cache"
+
+/pwa-recover.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Clear-Site-Data: "cache"
+
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/sw-cache-cleanup.js
+  Cache-Control: no-cache, no-store, must-revalidate

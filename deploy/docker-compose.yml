@@ -1,0 +1,101 @@
+# Local multi-instance operon-broker cluster for integration testing:
+#
+#   client ─▶ openresty (:8080) ─▶ broker1 / broker2  (routed by Redis directory)
+#                                        │
+#                          postgres (identity) + redis (routes + OAuth state)
+#
+# OpenResty reads route:node:* / route:conn:* from Redis (published by whichever
+# broker owns a node) and routes straight to that instance — including the agent
+# SSE/POST tunnel and terminal WebSocket. Both brokers share one JWT signing key so
+# tokens minted by one verify on the other.
+#
+#   docker compose -f deploy/docker-compose.yml up --build
+#   curl -s localhost:8080/health           # -> {"status":"ok"} (via either broker)
+#   # point a node at  BROKER_URL=http://localhost:8080  and the web app at the same.
+
+name: operon-broker-cluster
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: operon
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: operon
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operon"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Generate one shared JWT signing key into the volume before the brokers start.
+  keygen:
+    image: alpine:3.20
+    volumes:
+      - jwtkey:/shared
+    command:
+      - sh
+      - -c
+      - "apk add --no-cache openssl >/dev/null && [ -f /shared/jwt-key.pem ] || openssl genrsa -out /shared/jwt-key.pem 2048"
+
+  broker1:
+    build: ../broker
+    environment:
+      LISTEN_ADDR: ":8080"
+      DATABASE_URL: "postgres://operon:dev@postgres:5432/operon?sslmode=disable"
+      REDIS_URL: "redis://redis:6379"
+      INSTANCE_ADDR: "http://broker1:8080" # peer URL OpenResty dials (published to Redis)
+      JWT_KEY_PATH: "/shared/jwt-key.pem"
+      PUBLIC_URL: "http://localhost:8080"
+      ADMIN_TOKEN: "dev-admin"
+    volumes:
+      - jwtkey:/shared
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      keygen: { condition: service_completed_successfully }
+
+  broker2:
+    build: ../broker
+    environment:
+      LISTEN_ADDR: ":8080"
+      DATABASE_URL: "postgres://operon:dev@postgres:5432/operon?sslmode=disable"
+      REDIS_URL: "redis://redis:6379"
+      INSTANCE_ADDR: "http://broker2:8080"
+      JWT_KEY_PATH: "/shared/jwt-key.pem"
+      PUBLIC_URL: "http://localhost:8080"
+      ADMIN_TOKEN: "dev-admin"
+    volumes:
+      - jwtkey:/shared
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      keygen: { condition: service_completed_successfully }
+
+  openresty:
+    image: openresty/openresty:alpine
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      BROKER_BACKENDS: "broker1:8080,broker2:8080"
+      DNS_RESOLVER: "127.0.0.11" # Docker embedded DNS
+    volumes:
+      - ./openresty/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./openresty/lua:/etc/openresty/lua:ro
+    depends_on:
+      - broker1
+      - broker2
+      - redis
+
+volumes:
+  jwtkey:

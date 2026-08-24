@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Operon icon">
+  <!-- macOS squircle: n=4 superellipse approximated with cubic bezier curves -->
+  <path d="M32 0 C61.09 0 64 2.91 64 32 C64 61.09 61.09 64 32 64 C2.91 64 0 61.09 0 32 C0 2.91 2.91 0 32 0 Z" fill="#0F1115"/>
+
+  <g fill="none" stroke="#6358DC" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M52.2 19.86a23.57 23.57 0 1 1 -8.06 -8.06" stroke-width="6.57"/>
+    <path d="M46.29 32a14.29 14.29 0 0 1 -14.29 14.29 14.29 14.29 0 0 1 -14.29 -14.29 14.29 14.29 0 0 1 28.57 0" stroke-width="7.71"/>
+  </g>
+</svg>

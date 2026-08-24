@@ -1,0 +1,47 @@
+# Promtail reads the systemd journal (the host's docker log driver is journald, so
+# container stdout lands in the journal, not in json log files). Docker's journald
+# driver stamps each entry with CONTAINER_NAME / IMAGE_NAME, which we lift into labels.
+server:
+  http_listen_port: 9080
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: journal
+    journal:
+      path: /var/log/journal
+      max_age: 12h
+      labels:
+        job: journal
+    relabel_configs:
+      # Only keep entries that come from a docker container.
+      - source_labels: ['__journal_container_name']
+        regex: '.+'
+        action: keep
+      - source_labels: ['__journal_container_name']
+        target_label: container
+      - source_labels: ['__journal_image_name']
+        target_label: image
+      - source_labels: ['__journal__systemd_unit']
+        target_label: unit
+      - source_labels: ['__journal_priority_keyword']
+        target_label: level
+    pipeline_stages:
+      # broker containers emit JSON slog — lift the app-level ("INFO"/"WARN"/"ERROR")
+      # onto the `level` label so it can be filtered from the dropdown and Grafana
+      # colours log lines by it. Only broker streams match; other containers keep the
+      # journal-priority level. Non-JSON broker lines (e.g. a panic on stderr) fail the
+      # json stage and keep their journal level, so stderr errors still read as errors.
+      - match:
+          selector: '{container=~"operon-broker-broker.*"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+            - labels:
+                level:

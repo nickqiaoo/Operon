@@ -1,0 +1,19 @@
+{
+  "name": "@operon/computer-use",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "operon Computer Use — codex-compatible node_repl runtime + @oai/sky over a domain socket to the native mac engine. Framework-agnostic; plug in via ComputerUseIntegration.",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "*",
+    "smol-toml": "^1.6.0",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  }
+}

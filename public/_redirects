@@ -1,0 +1,13 @@
+# Recovery bridge for PWA clients whose cached HTML predates the current
+# deployment. These exact hashed modules let the old app boot once, install the
+# new network-navigation service worker, and then update normally.
+/assets/index-Csgbg3oh.js  https://64df2e35.operon-app.pages.dev/assets/index-Csgbg3oh.js  302
+/assets/MobileTurnDiffReview-C-_0xqoj.js  https://64df2e35.operon-app.pages.dev/assets/MobileTurnDiffReview-C-_0xqoj.js  302
+/assets/index-CIZXm4if.js  https://dd0bb2a3.operon-app.pages.dev/assets/index-CIZXm4if.js  302
+/assets/MobileTurnDiffReview-B1I92Lqa.js  https://dd0bb2a3.operon-app.pages.dev/assets/MobileTurnDiffReview-B1I92Lqa.js  302
+/assets/index-CaEAtlB2.js  https://21f4caec.operon-app.pages.dev/assets/index-CaEAtlB2.js  302
+/assets/MobileTurnDiffReview-CjPZfFsL.js  https://21f4caec.operon-app.pages.dev/assets/MobileTurnDiffReview-CjPZfFsL.js  302
+/assets/index-DjLML4Ut.js  https://e1c675e2.operon-app.pages.dev/assets/index-DjLML4Ut.js  302
+/assets/MobileTurnDiffReview-DrA8VxmE.js  https://e1c675e2.operon-app.pages.dev/assets/MobileTurnDiffReview-DrA8VxmE.js  302
+/assets/index-38F6bQS3.js  https://d6f691a0.operon-app.pages.dev/assets/index-38F6bQS3.js  302
+/assets/MobileTurnDiffReview-Cgx1uifa.js  https://d6f691a0.operon-app.pages.dev/assets/MobileTurnDiffReview-Cgx1uifa.js  302

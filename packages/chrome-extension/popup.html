@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Operon Browser Use</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <img src="icons/icon-128.png" width="32" height="32" alt="" class="app-icon" />
+        <div class="title-block">
+          <h1>Operon Browser Use</h1>
+          <p class="subtitle">Chrome automation bridge</p>
+        </div>
+        <span class="version-pill" id="extension-version" aria-label="Extension version"></span>
+      </header>
+
+      <section class="panel" aria-labelledby="connection-title">
+        <div class="section-heading">
+          <span class="eyebrow" id="connection-title">Connection</span>
+          <span class="status-pill" id="status-pill">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="status-label">Checking</span>
+          </span>
+        </div>
+        <p class="status-message" id="status-message">Checking native host...</p>
+        <dl class="status-details">
+          <div>
+            <dt>Native host</dt>
+            <dd id="host-name">com.operon.browser_use.extension</dd>
+          </div>
+          <div>
+            <dt>Last checked</dt>
+            <dd id="last-checked">Now</dd>
+          </div>
+        </dl>
+        <p class="error-message" id="error-message" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="setup-title">
+        <div class="section-heading">
+          <span class="eyebrow" id="setup-title">Setup</span>
+        </div>
+        <p class="repo-copy" id="setup-copy">
+          This extension only works alongside the Operon desktop app, which installs the
+          native host it connects to. If the connection is down, open Operon and turn on
+          Browser Use under Settings &rsaquo; Chrome.
+        </p>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

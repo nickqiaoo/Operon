@@ -1,0 +1,31 @@
+{
+  "name": "operon-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw Operon adapter plugin — bridges Operon AI providers into OpenClaw channels",
+  "keywords": [
+    "ai",
+    "claude",
+    "gemini",
+    "openclaw",
+    "openclaw-plugin",
+    "operon"
+  ],
+  "license": "MIT",
+  "files": [
+    "*.ts",
+    "openclaw.plugin.json"
+  ],
+  "type": "module",
+  "dependencies": {
+    "ai": "^6.0.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": ">=0.60.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
