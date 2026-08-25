@@ -11,9 +11,11 @@ import { getInFlightCount, subscribeInFlight } from "@/lib/request-progress"
 const SHOW_AFTER_MS = 300
 
 /**
- * Thin indeterminate bar pinned to the top of the window while API requests are
- * outstanding. Deliberately global and content-free: individual surfaces still
- * own their skeletons, this only answers "is the app talking to the server".
+ * Thin indeterminate bar pinned to the top of the window while a tracked load is
+ * outstanding — today only opening a conversation and waiting for its
+ * transcript. Content-free by design: it answers "did my click land, is
+ * something coming", nothing more. See `request-progress.ts` before adding a
+ * call site; a bar that is on for every background poll says nothing.
  */
 export function RequestProgressBar() {
   const inFlight = useSyncExternalStore(subscribeInFlight, getInFlightCount, getInFlightCount)

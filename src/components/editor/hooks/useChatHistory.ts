@@ -1,4 +1,5 @@
 import { api } from "@/lib/api";
+import { trackRequest } from "@/lib/request-progress";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
 
@@ -90,8 +91,11 @@ export function useChatHistory(
       return;
     }
 
-    api
-      .chatHistoryGet(dbChatId, { limit: CHAT_PAGE_SIZE })
+    // The one load the global progress bar exists for: the transcript area is
+    // blank until this returns, and on web it is a WAN round trip. `loadMore`
+    // below is deliberately not tracked — it renders its own inline spinner and
+    // the messages already on screen keep the surface readable.
+    trackRequest(() => api.chatHistoryGet(dbChatId, { limit: CHAT_PAGE_SIZE }))
       .then(async (result) => {
         if (!active) return;
         const rawMessages: UIMessage[] = result?.messages ?? [];

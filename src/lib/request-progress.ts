@@ -1,13 +1,15 @@
 /**
- * Count of API requests currently in flight, so the shell can show that
- * *something* is loading even when the surface that asked for it has no
- * spinner of its own.
+ * Count of the loads that are worth a top-of-window progress bar, so the shell
+ * can show that *something* is loading even when the surface that asked for it
+ * has no spinner of its own.
  *
- * Instrumented at `request()` / `softRequest()` rather than at a fetch patch on
- * purpose: those two funnel every JSON call in `api.ts`, while the streaming
- * paths (chat SSE, terminal WS, inbox/task event streams) build their URLs from
- * `getBaseUrl()` and fetch directly — a long-lived stream must not pin the
- * indicator on for its whole life.
+ * Opt-in, one call site at a time — NOT wired into `request()` / `softRequest()`
+ * in `api.ts`. Instrumenting those meant every background poll (chat previews,
+ * usage probes, git status, inbox counts) lit the bar, so it was on more or less
+ * permanently and stopped carrying any information. Wrap a call here only when
+ * the user just did something and is staring at an empty surface until it
+ * returns — today that is opening a conversation and waiting for its transcript.
+ * Background refreshes and long-lived streams must stay out.
  */
 
 let inFlight = 0

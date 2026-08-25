@@ -12,7 +12,6 @@ import type {
   AgentBinding,
 } from '../types/channel.js'
 import { getUserId, getSelectedNodeId } from './web-auth.js'
-import { trackRequest } from './request-progress.js'
 import type { Notification, UnreadCounts } from '@/types/notification'
 import type {
   Task,
@@ -129,22 +128,20 @@ export function getBaseUrlSync(): string | null {
  * "Request failed".
  */
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  return trackRequest(async () => {
-    const baseUrl = await getBaseUrl()
-    const res = await fetch(`${baseUrl}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...apiAuthHeaders(),
-        ...(options?.headers as Record<string, string> | undefined),
-      },
-    })
-    if (!res.ok) {
-      const err = asRecord(await res.json().catch(() => null))
-      throw new Error(errorMessage(err, `${res.status} ${res.statusText}`))
-    }
-    return res.json() as Promise<T>
+  const baseUrl = await getBaseUrl()
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...apiAuthHeaders(),
+      ...(options?.headers as Record<string, string> | undefined),
+    },
   })
+  if (!res.ok) {
+    const err = asRecord(await res.json().catch(() => null))
+    throw new Error(errorMessage(err, `${res.status} ${res.statusText}`))
+  }
+  return res.json() as Promise<T>
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {

@@ -1,6 +1,5 @@
 import * as httpClient from './api-client.js'
 import { apiAuthHeaders, asRecord, getBaseUrl, request, withApiTokenQuery } from './api-client.js'
-import { trackRequest } from './request-progress.js'
 import * as terminalWs from './terminal-ws.js'
 import type { CronjobTask, CronjobUpsertInput, CronjobExecutionHistoryItem } from '@/types/cronjob'
 import type {
@@ -118,22 +117,20 @@ function patch<T>(path: string, body: unknown): Promise<T> {
  * caller as `undefined` and defeat the point of checking `.error`.
  */
 async function softRequest<T>(path: string, options?: RequestInit): Promise<T> {
-  return trackRequest(async () => {
-    const baseUrl = await getBaseUrl()
-    const res = await fetch(`${baseUrl}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...apiAuthHeaders(),
-        ...(options?.headers as Record<string, string> | undefined),
-      },
-    })
-    const body = asRecord(await res.json().catch(() => null))
-    if (body === null) {
-      throw new Error(res.ok ? `Malformed response from ${path}` : `${res.status} ${res.statusText}`)
-    }
-    return body as T
+  const baseUrl = await getBaseUrl()
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...apiAuthHeaders(),
+      ...(options?.headers as Record<string, string> | undefined),
+    },
   })
+  const body = asRecord(await res.json().catch(() => null))
+  if (body === null) {
+    throw new Error(res.ok ? `Malformed response from ${path}` : `${res.status} ${res.statusText}`)
+  }
+  return body as T
 }
 
 function softGet<T>(path: string): Promise<T> {
@@ -417,6 +414,8 @@ export const api = {
   aiWorkflowStop: (runId: string) =>
     post<{ stopped: boolean }>(`/ai/workflow/run/${encodeURIComponent(runId)}/stop`, {}),
   aiWorkflowFeedUrl: async (limit = 30) => `${await getBaseUrl()}/ai/workflow/feed?limit=${limit}`,
+  /** Presence for every chat on one stream — see `lib/live-turn-events.ts`. */
+  aiLiveStatusStreamUrl: async () => `${await getBaseUrl()}/ai/chat/live-status`,
   /** `since` resumes an interrupted connection; omit it to replay the run's whole log. */
   aiWorkflowRunFeedUrl: async (runId: string, since?: number) => {
     const baseUrl = await getBaseUrl()
