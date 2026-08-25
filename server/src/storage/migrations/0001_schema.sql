@@ -501,16 +501,16 @@ ON tasks(project_id, archived_at);
 CREATE TABLE IF NOT EXISTS task_artifacts (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id          INTEGER NOT NULL,                  -- logical ref: tasks(id)
-  kind             TEXT    NOT NULL                   -- the gate reads status only, never the body
+  kind             TEXT    NOT NULL                   -- 门禁只读 status,不读正文
     CHECK(kind IN ('spec', 'plan', 'acceptance', 'spec_delta')),
   status           TEXT    NOT NULL DEFAULT 'draft'
     CHECK(status IN ('draft', 'approved')),
-  approved_by_type TEXT                               -- 'human' | 'agent'; NULL = unsigned
+  approved_by_type TEXT                               -- 'human' | 'agent'; NULL = 未签
     CHECK(approved_by_type IN ('human', 'agent')),
-  approved_by      INTEGER,                            -- actor id (agents(id) / user id); NULL = unsigned
+  approved_by      INTEGER,                            -- actor id(agents(id) / user id);NULL = 未签
   approved_at      INTEGER,
-  content_ref      TEXT,                               -- file path on the change branch; NULL until materialised
-  content_sha      TEXT,                               -- git blob sha at signing time (drift detection)
+  content_ref      TEXT,                               -- change 分支上的文件路径;物化前为 NULL
+  content_sha      TEXT,                               -- 签收那刻的 git blob sha(drift 检测)
   updated_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   UNIQUE (task_id, kind)
 );
