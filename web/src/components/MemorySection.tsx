@@ -1,179 +1,59 @@
+import { SectionShell } from './SectionShell'
+import { Reveal } from './Reveal'
+import { SectionTitle, Lead, FeatureList, SplitLayout } from './SectionType'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
+
+const ACCENT = '#ec4899'
+
+const FEATURES = [
+  {
+    title: 'Auto Extraction',
+    desc: 'The AI proactively learns and stores valuable information from conversations.',
+  },
+  {
+    title: 'Semantic Search',
+    desc: 'Find memories by meaning with vector embeddings, not keyword matching.',
+  },
+  {
+    title: 'Smart Deduplication',
+    desc: 'Vector similarity prevents duplicate memories without needing an LLM call.',
+  },
+  {
+    title: 'Context Injection',
+    desc: 'Profile and preferences are automatically included in every conversation.',
+  },
+]
 
 export function MemorySection() {
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
-  const scrollableViewport = mobile || compactViewport
 
   return (
-    <section
-      style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background */}
-      <div
-        style={{
-          position: 'absolute',
-          width: 800,
-          height: 800,
-          borderRadius: '50%',
-          top: '40%',
-          left: '20%',
-          transform: 'translate(-50%, -50%)',
-          background: 'radial-gradient(circle, rgba(236,72,153,0.05) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
+    <SectionShell id="memory" accent={ACCENT} glow="left">
+      <SplitLayout
+        copyWidth={430}
+        copy={
+          <Reveal>
+            <SectionTitle>
+              Every conversation
+              <br />
+              <span style={{ color: 'rgba(236,72,153,0.8)' }}>builds on the last.</span>
+            </SectionTitle>
+            <Lead>
+              A persistent, semantic memory system that learns from every conversation. Preferences,
+              patterns, and context, always available.
+            </Lead>
+            <FeatureList items={FEATURES} accent={ACCENT} />
+          </Reveal>
+        }
+        visual={
+          mobile ? null : (
+            <Reveal delay={45}>
+              <MemoryMock />
+            </Reveal>
+          )
+        }
       />
-      <div
-        style={{
-          position: 'absolute',
-          width: 600,
-          height: 600,
-          borderRadius: '50%',
-          bottom: '10%',
-          right: '10%',
-          background: 'radial-gradient(circle, rgba(168,85,247,0.04) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
-
-      {/* Content */}
-      <div
-        data-scrollable
-        style={{
-          display: 'flex',
-          flexDirection: mobile ? 'column' : 'row',
-          alignItems: mobile ? 'stretch' : compactViewport ? 'flex-start' : 'center',
-          gap: mobile ? 24 : 80,
-          width: '90vw',
-          maxWidth: 1400,
-          ...(scrollableViewport
-            ? {
-                height: '100%',
-                paddingTop: mobile ? 72 : 96,
-                paddingBottom: mobile ? 24 : 56,
-                overflow: 'auto',
-              }
-            : {}),
-        }}
-      >
-        {/* Left: text */}
-        <div style={{ width: mobile ? '100%' : 420, flexShrink: 0 }}>
-          <p
-            style={{
-              fontSize: 12,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.3)',
-              marginBottom: mobile ? 10 : 16,
-              fontWeight: 500,
-            }}
-          >
-            Memory
-          </p>
-          <h2
-            style={{
-              fontSize: mobile ? 32 : 52,
-              fontWeight: 600,
-              color: 'rgba(255,255,255,0.92)',
-              lineHeight: 1.1,
-              letterSpacing: '-0.025em',
-              marginBottom: mobile ? 14 : 24,
-            }}
-          >
-            Every conversation
-            <br />
-            <span style={{ color: 'rgba(236,72,153,0.7)' }}>builds on the last.</span>
-          </h2>
-
-          <p
-            style={{
-              fontSize: mobile ? 14 : 19,
-              lineHeight: 1.75,
-              color: 'rgba(255,255,255,0.38)',
-              fontWeight: 300,
-              marginBottom: mobile ? 20 : 44,
-            }}
-          >
-            A persistent, semantic memory system that learns from every
-            conversation. Preferences, patterns, and context — always
-            available.
-          </p>
-          {/* Feature list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 14 : 20 }}>
-            {[
-              {
-                title: 'Auto Extraction',
-                desc: 'The AI proactively learns and stores valuable information from conversations.',
-              },
-              {
-                title: 'Semantic Search',
-                desc: 'Find memories by meaning with vector embeddings, not keyword matching.',
-              },
-              {
-                title: 'Smart Deduplication',
-                desc: 'Vector similarity prevents duplicate memories without needing an LLM call.',
-              },
-              {
-                title: 'Context Injection',
-                desc: 'Profile and preferences are automatically included in every conversation.',
-              },
-            ].map((item, i) => (
-              <div key={i} style={{ display: 'flex', gap: mobile ? 10 : 16 }}>
-                <div
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: '#ec4899',
-                    opacity: 0.5,
-                    marginTop: 8,
-                    flexShrink: 0,
-                  }}
-                />
-                <div>
-                  <div
-                    style={{
-                      fontSize: mobile ? 14 : 16,
-                      fontWeight: 500,
-                      color: 'rgba(255,255,255,0.8)',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {item.title}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: mobile ? 12 : 14,
-                      lineHeight: 1.6,
-                      color: 'rgba(255,255,255,0.35)',
-                      fontWeight: 300,
-                    }}
-                  >
-                    {item.desc}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Right: memory UI mock */}
-        {!mobile && (
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <MemoryMock />
-          </div>
-        )}
-      </div>
-    </section>
+    </SectionShell>
   )
 }
 
@@ -219,18 +99,8 @@ function MemoryMock() {
         { title: 'DAG Execution', preview: 'Use Promise.race for wait-for-any, not Promise.all for batch waiting...', time: '2w ago' },
       ],
     },
-    {
-      name: 'Entities',
-      color: '#ec4899',
-      count: 9,
-      memories: [],
-    },
-    {
-      name: 'Events',
-      color: '#06b6d4',
-      count: 4,
-      memories: [],
-    },
+    { name: 'Entities', color: '#ec4899', count: 9, memories: [] },
+    { name: 'Events', color: '#06b6d4', count: 4, memories: [] },
   ]
 
   const selectedCat = categories[1] // Preferences selected
@@ -239,11 +109,11 @@ function MemoryMock() {
     <div
       style={{
         width: '100%',
-        borderRadius: 20,
+        borderRadius: 18,
         overflow: 'hidden',
         background: '#0d1117',
         border: '1px solid rgba(255,255,255,0.06)',
-        boxShadow: '0 40px 100px rgba(0,0,0,0.5)',
+        boxShadow: '0 30px 80px rgba(0,0,0,0.45)',
       }}
     >
       {/* Title bar */}
@@ -267,11 +137,12 @@ function MemoryMock() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', height: 480 }}>
+      <div style={{ display: 'flex', height: 440 }}>
         {/* Left: category list */}
         <div
           style={{
-            width: 200,
+            width: 190,
+            flexShrink: 0,
             borderRight: '1px solid rgba(255,255,255,0.05)',
             padding: 16,
             display: 'flex',
@@ -279,7 +150,6 @@ function MemoryMock() {
             gap: 4,
           }}
         >
-          {/* Search bar */}
           <div
             style={{
               padding: '10px 12px',
@@ -306,7 +176,6 @@ function MemoryMock() {
                   padding: '10px 12px',
                   borderRadius: 10,
                   background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
-                  transition: 'background 0.3s',
                 }}
               >
                 <div
@@ -343,8 +212,7 @@ function MemoryMock() {
         </div>
 
         {/* Right: memory list */}
-        <div style={{ flex: 1, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Category header */}
+        <div style={{ flex: 1, minWidth: 0, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <div
               style={{
@@ -355,7 +223,7 @@ function MemoryMock() {
                 opacity: 0.7,
               }}
             />
-            <span style={{ fontSize: 16, fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
+            <span style={{ fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
               {selectedCat.name}
             </span>
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', marginLeft: 4 }}>
@@ -363,13 +231,12 @@ function MemoryMock() {
             </span>
           </div>
 
-          {/* Memory cards */}
-          {selectedCat.memories.map((mem, i) => (
+          {selectedCat.memories.map((mem) => (
             <div
-              key={i}
+              key={mem.title}
               style={{
-                padding: '18px 20px',
-                borderRadius: 14,
+                padding: '16px 18px',
+                borderRadius: 13,
                 background: 'rgba(255,255,255,0.025)',
                 border: '1px solid rgba(255,255,255,0.04)',
               }}
@@ -386,12 +253,11 @@ function MemoryMock() {
             </div>
           ))}
 
-          {/* Embedding visualization */}
           <div
             style={{
               marginTop: 'auto',
-              padding: '16px 20px',
-              borderRadius: 14,
+              padding: '16px 18px',
+              borderRadius: 13,
               background: 'rgba(236,72,153,0.04)',
               border: '1px solid rgba(236,72,153,0.08)',
             }}
@@ -408,9 +274,9 @@ function MemoryMock() {
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {['0.847', '0.234', '-0.591', '0.103', '0.672', '-0.338', '0.455', '...'].map((v, i) => (
+              {['0.847', '0.234', '-0.591', '0.103', '0.672', '-0.338', '0.455', '...'].map((v) => (
                 <span
-                  key={i}
+                  key={v}
                   style={{
                     fontSize: 11,
                     fontFamily: 'monospace',

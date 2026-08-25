@@ -1,284 +1,199 @@
-import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
+import { SectionShell } from './SectionShell'
+import { Reveal } from './Reveal'
+import { SectionTitle, Lead } from './SectionType'
 import { getDownloadHref, redirectToDownload } from '../lib/download'
-import { Footer } from './Footer'
 import { SocialLinks } from './SocialLinks'
+import { useIsMobile } from '../hooks/useIsMobile'
 import appStoreBadge from '../assets/app-store-badge.svg'
 
 export function ComingSoonSection() {
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
-  const scrollableViewport = mobile || compactViewport
   const downloadHref = getDownloadHref('bottom_cta')
   const appUrl = import.meta.env.VITE_APP_URL ?? 'https://app.operon.chatcode.top/'
 
   return (
-    <section
-      style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background glow */}
-      <div
-        style={{
-          position: 'absolute',
-          width: 900,
-          height: 900,
-          borderRadius: '50%',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          background: 'radial-gradient(circle, rgba(139,92,246,0.05) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
-
-      <div data-scrollable style={{
-        width: '90vw',
-        maxWidth: 720,
-        ...(scrollableViewport
-          ? {
-              height: '100%',
-              paddingTop: mobile ? 52 : 96,
-              paddingBottom: mobile ? 0 : 56,
-              overflow: 'auto',
-              ...(mobile
-                ? {
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }
-                : {}),
-            }
-          : {}),
-      }}>
-        <div
-          style={mobile
-            ? {
-                flex: '1 0 auto',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                paddingTop: 24,
-                paddingBottom: 32,
-              }
-            : undefined}
-        >
-          {/* Headline */}
-          <div style={{ textAlign: 'center', marginBottom: mobile ? 36 : 56 }}>
-            <h2
-              style={{
-                fontSize: mobile ? 36 : 60,
-                fontWeight: 600,
-                color: 'rgba(255,255,255,0.92)',
-                lineHeight: 1.1,
-                letterSpacing: '-0.025em',
-                marginBottom: mobile ? 14 : 22,
-              }}
-            >
-              Ready when you are.
-            </h2>
-            <p
-              style={{
-                fontSize: mobile ? 14 : 19,
-                lineHeight: 1.7,
-                color: 'rgba(255,255,255,0.35)',
-                fontWeight: 300,
-                maxWidth: 520,
-                margin: '0 auto',
-              }}
-            >
-              Install Operon and start running agents in minutes.
-            </p>
-          </div>
-
-          {/* CTAs */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: mobile ? 10 : 12,
-                flexWrap: 'wrap',
-                maxWidth: '100%',
-              }}
-            >
-              <a
-                href={downloadHref}
-                onClick={(event) => {
-                  window.gtag?.('event', 'click_download', { event_category: 'engagement', event_label: 'bottom_cta' })
-                  event.preventDefault()
-                  void redirectToDownload('bottom_cta')
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 10,
-                  minWidth: mobile ? 148 : 184,
-                  padding: mobile ? '14px 22px' : '16px 34px',
-                  borderRadius: 14,
-                  background: 'rgba(255,255,255,0.1)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  color: '#fff',
-                  fontSize: mobile ? 15 : 16,
-                  fontWeight: 600,
-                  letterSpacing: '-0.01em',
-                  textDecoration: 'none',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s',
-                  whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'
-                  e.currentTarget.style.transform = 'translateY(-2px)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
-                  e.currentTarget.style.transform = 'translateY(0)'
-                }}
-              >
-                <DownloadIcon />
-                Download
-              </a>
-
-              <a
-                href={appUrl}
-                onClick={() => {
-                  window.gtag?.('event', 'click_open_app', { event_category: 'engagement', event_label: 'bottom_cta' })
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 10,
-                  minWidth: mobile ? 148 : 184,
-                  padding: mobile ? '14px 22px' : '16px 34px',
-                  borderRadius: 14,
-                  background: '#fff',
-                  border: '1px solid #fff',
-                  color: '#050505',
-                  fontSize: mobile ? 15 : 16,
-                  fontWeight: 700,
-                  letterSpacing: '-0.01em',
-                  textDecoration: 'none',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s',
-                  whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.86)'
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.86)'
-                  e.currentTarget.style.transform = 'translateY(-2px)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = '#fff'
-                  e.currentTarget.style.borderColor = '#fff'
-                  e.currentTarget.style.transform = 'translateY(0)'
-                }}
-              >
-                Open app
-                <OpenAppIcon />
-              </a>
-            </div>
-
-            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)', fontWeight: 300 }}>
-              Available for macOS
-            </span>
-
-            {/*
-              Mobile clients. The iOS app is on the App Store, while Android
-              ships as a signed APK served from this site.
-            */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: mobile ? 12 : 18,
-                flexWrap: 'wrap',
-                paddingTop: 4,
-              }}
-            >
-              <a
-                href={ANDROID_APK_URL}
-                onClick={() => {
-                  window.gtag?.('event', 'click_download_android', {
-                    event_category: 'engagement',
-                    event_label: 'bottom_cta',
-                  })
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  fontSize: 13,
-                  color: 'rgba(255,255,255,0.5)',
-                  textDecoration: 'none',
-                  transition: 'color 0.25s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = 'rgba(255,255,255,0.85)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'rgba(255,255,255,0.5)'
-                }}
-              >
-                <AndroidIcon />
-                Download for Android (APK)
-              </a>
-
-              {/* Official Apple badge; per Apple guidelines it must not be restyled. */}
-              <a
-                href={IOS_APP_STORE_URL}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => {
-                  window.gtag?.('event', 'click_download_ios', {
-                    event_category: 'engagement',
-                    event_label: 'bottom_cta',
-                  })
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  transition: 'opacity 0.25s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.opacity = '0.85'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.opacity = '1'
-                }}
-              >
-                <img
-                  src={appStoreBadge}
-                  alt="Download on the App Store"
-                  style={{ height: 40, display: 'block' }}
-                />
-              </a>
-            </div>
-
-            {mobile && <SocialLinks variant="cta" />}
-          </div>
+    <SectionShell id="download" accent="#8b5cf6" glow="center" maxWidth={720}>
+      <Reveal>
+        <div style={{ textAlign: 'center', marginBottom: mobile ? 34 : 48 }}>
+          <SectionTitle align="center">Ready when you are.</SectionTitle>
+          <Lead align="center" maxWidth={520}>
+            Install Operon and start running agents in minutes.
+          </Lead>
         </div>
 
-        {/* Footer inline on mobile */}
-        {mobile && (
-          <div style={{ marginTop: 'auto', flexShrink: 0 }}>
-            <Footer />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: mobile ? 10 : 12,
+              flexWrap: 'wrap',
+              maxWidth: '100%',
+            }}
+          >
+            <a
+              href={downloadHref}
+              onClick={(event) => {
+                window.gtag?.('event', 'click_download', { event_category: 'engagement', event_label: 'bottom_cta' })
+                event.preventDefault()
+                void redirectToDownload('bottom_cta')
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                minWidth: mobile ? 148 : 184,
+                padding: mobile ? '14px 22px' : '16px 34px',
+                borderRadius: 14,
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                color: '#fff',
+                fontSize: mobile ? 15 : 16,
+                fontWeight: 600,
+                letterSpacing: '-0.01em',
+                textDecoration: 'none',
+                cursor: 'pointer',
+                transition: 'all 0.3s',
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }}
+            >
+              <DownloadIcon />
+              Download
+            </a>
+
+            <a
+              href={appUrl}
+              onClick={() => {
+                window.gtag?.('event', 'click_open_app', { event_category: 'engagement', event_label: 'bottom_cta' })
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                minWidth: mobile ? 148 : 184,
+                padding: mobile ? '14px 22px' : '16px 34px',
+                borderRadius: 14,
+                background: '#fff',
+                border: '1px solid #fff',
+                color: '#050505',
+                fontSize: mobile ? 15 : 16,
+                fontWeight: 700,
+                letterSpacing: '-0.01em',
+                textDecoration: 'none',
+                cursor: 'pointer',
+                transition: 'all 0.3s',
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.86)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.86)'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = '#fff'
+                e.currentTarget.style.borderColor = '#fff'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }}
+            >
+              Open app
+              <OpenAppIcon />
+            </a>
           </div>
-        )}
-      </div>
-    </section>
+
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)', fontWeight: 300 }}>
+            Available for macOS
+          </span>
+
+          {/*
+            Mobile clients. The iOS app is on the App Store, while Android
+            ships as a signed APK served from this site.
+          */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: mobile ? 12 : 18,
+              flexWrap: 'wrap',
+              paddingTop: 4,
+            }}
+          >
+            <a
+              href={ANDROID_APK_URL}
+              onClick={() => {
+                window.gtag?.('event', 'click_download_android', {
+                  event_category: 'engagement',
+                  event_label: 'bottom_cta',
+                })
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                fontSize: 13,
+                color: 'rgba(255,255,255,0.5)',
+                textDecoration: 'none',
+                transition: 'color 0.25s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'rgba(255,255,255,0.85)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'rgba(255,255,255,0.5)'
+              }}
+            >
+              <AndroidIcon />
+              Download for Android (APK)
+            </a>
+
+            {/* Official Apple badge; per Apple guidelines it must not be restyled. */}
+            <a
+              href={IOS_APP_STORE_URL}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => {
+                window.gtag?.('event', 'click_download_ios', {
+                  event_category: 'engagement',
+                  event_label: 'bottom_cta',
+                })
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                transition: 'opacity 0.25s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '0.85'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '1'
+              }}
+            >
+              <img
+                src={appStoreBadge}
+                alt="Download on the App Store"
+                style={{ height: 40, display: 'block' }}
+              />
+            </a>
+          </div>
+
+          {mobile && <SocialLinks variant="cta" />}
+        </div>
+      </Reveal>
+    </SectionShell>
   )
 }
 

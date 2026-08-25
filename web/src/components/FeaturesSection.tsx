@@ -1,148 +1,92 @@
+import { SectionShell } from './SectionShell'
+import { Reveal } from './Reveal'
+import { SectionTitle } from './SectionType'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
+
+const FEATURES = [
+  {
+    icon: <ClockIcon />,
+    title: 'Scheduled Tasks',
+    description:
+      'Set up cron jobs to run AI prompts or entire workflows on a schedule. Daily, weekly, or interval-based, fully automated.',
+    color: '#f59e0b',
+  },
+  {
+    icon: <SendIcon />,
+    title: 'Send to Agent',
+    description:
+      'Forward any message to a different model or chat tab with one click. Compare answers or delegate follow-ups instantly.',
+    color: '#3b82f6',
+  },
+  {
+    icon: <CodeSendIcon />,
+    title: 'Code to Chat',
+    description:
+      'Select code in the file preview and send it directly to any open agent tab. Includes file path and line numbers as context.',
+    color: '#10b981',
+  },
+  {
+    icon: <SkillIcon />,
+    title: 'Skills',
+    description:
+      'Pluggable instruction packs that extend agent capabilities. Install from GitHub or create your own. They load on demand.',
+    color: '#8b5cf6',
+  },
+  {
+    icon: <ServerIcon />,
+    title: 'Context Window',
+    description:
+      'Visualize context window usage in real time. Track token consumption and remaining capacity during conversations.',
+    color: '#ec4899',
+  },
+  {
+    icon: <ShieldIcon />,
+    title: 'Permission Control',
+    description:
+      'Fine-grained approval gates for file writes, command execution, and destructive actions. You stay in control.',
+    color: '#06b6d4',
+  },
+]
+
+const FEATURE_SPANS = [5, 3, 4, 4, 5, 3] as const
 
 export function FeaturesSection() {
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
-  const scrollableViewport = mobile || compactViewport
-  const features = [
-    {
-      icon: <ClockIcon />,
-      title: 'Scheduled Tasks',
-      description:
-        'Set up cron jobs to run AI prompts or entire workflows on a schedule. Daily, weekly, or interval-based — fully automated.',
-      color: '#f59e0b',
-    },
-    {
-      icon: <SendIcon />,
-      title: 'Send to Agent',
-      description:
-        'Forward any message to a different model or chat tab with one click. Compare answers or delegate follow-ups instantly.',
-      color: '#3b82f6',
-    },
-    {
-      icon: <CodeSendIcon />,
-      title: 'Code to Chat',
-      description:
-        'Select code in the file preview and send it directly to any open agent tab. Includes file path and line numbers as context.',
-      color: '#10b981',
-    },
-    {
-      icon: <SkillIcon />,
-      title: 'Skills',
-      description:
-        'Pluggable instruction packs that extend agent capabilities. Install from GitHub or create your own — loaded on demand.',
-      color: '#8b5cf6',
-    },
-    {
-      icon: <ServerIcon />,
-      title: 'Context Window',
-      description:
-        'Visualize context window usage in real time. Track token consumption and remaining capacity during conversations.',
-      color: '#ec4899',
-    },
-    {
-      icon: <ShieldIcon />,
-      title: 'Permission Control',
-      description:
-        'Fine-grained approval gates for file writes, command execution, and destructive actions. You stay in control.',
-      color: '#06b6d4',
-    },
-  ]
 
   return (
-    <section
-      style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background */}
-      <div
-        style={{
-          position: 'absolute',
-          width: 900,
-          height: 900,
-          borderRadius: '50%',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          background: 'radial-gradient(circle, rgba(99,102,241,0.04) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
-
-      <div
-        data-scrollable
-        style={{
-          width: '90vw',
-          maxWidth: 1200,
-          ...(scrollableViewport
-            ? {
-                height: '100%',
-                paddingTop: mobile ? 72 : 96,
-                paddingBottom: mobile ? 24 : 56,
-                overflow: 'auto',
-              }
-            : {}),
-        }}
-      >
-        {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: mobile ? 32 : 80 }}>
-          <p
-            style={{
-              fontSize: 12,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.3)',
-              marginBottom: mobile ? 10 : 16,
-              fontWeight: 500,
-            }}
-          >
-            And more
-          </p>
-          <h2
-            style={{
-              fontSize: mobile ? 32 : 52,
-              fontWeight: 600,
-              color: 'rgba(255,255,255,0.92)',
-              lineHeight: 1.1,
-              letterSpacing: '-0.025em',
-            }}
-          >
+    <SectionShell id="more" accent="#6366f1" glow="center" maxWidth={1280}>
+      <Reveal>
+        <div style={{ textAlign: 'center', marginBottom: mobile ? 34 : 54 }}>
+          <SectionTitle align="center">
             Small things.
             <br />
-            <span style={{ color: 'rgba(255,255,255,0.35)' }}>Big difference.</span>
-          </h2>
+            <span style={{ color: 'rgba(255,255,255,0.38)' }}>Big difference.</span>
+          </SectionTitle>
         </div>
 
-        {/* Feature grid: 3×2 */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: mobile ? '1fr' : 'repeat(3, 1fr)',
-            gap: mobile ? 12 : 20,
+            gridTemplateColumns: mobile ? '1fr' : 'repeat(12, minmax(0, 1fr))',
+            gap: mobile ? 12 : 18,
           }}
         >
-          {features.map((feature, i) => (
+          {FEATURES.map((feature, i) => (
             <div
-              key={i}
+              key={feature.title}
               style={{
-                padding: mobile ? '20px 18px' : '36px 32px',
-                borderRadius: 20,
-                background: '#0d1117',
-                border: '1px solid rgba(255,255,255,0.05)',
+                height: '100%',
+                gridColumn: mobile ? undefined : `span ${FEATURE_SPANS[i]}`,
+                padding: mobile ? '20px 18px' : '30px 28px',
+                borderRadius: 18,
+                background: `linear-gradient(135deg, ${feature.color}0d, rgba(13,17,23,0.78) 48%)`,
+                border: `1px solid ${feature.color}18`,
                 position: 'relative',
                 overflow: 'hidden',
               }}
             >
-              {/* Subtle corner glow */}
               <div
+                aria-hidden
                 style={{
                   position: 'absolute',
                   top: -40,
@@ -151,49 +95,46 @@ export function FeaturesSection() {
                   height: 120,
                   borderRadius: '50%',
                   background: feature.color,
-                  opacity: 0.04,
+                  opacity: 0.05,
                   filter: 'blur(40px)',
                   pointerEvents: 'none',
                 }}
               />
 
-              {/* Icon */}
               <div
                 style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 14,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 13,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   background: `${feature.color}12`,
                   border: `1px solid ${feature.color}20`,
-                  marginBottom: 24,
+                  marginBottom: mobile ? 16 : 22,
                   color: feature.color,
                 }}
               >
                 {feature.icon}
               </div>
 
-              {/* Title */}
               <h3
                 style={{
-                  fontSize: 20,
+                  fontSize: mobile ? 17 : 19,
                   fontWeight: 600,
                   color: 'rgba(255,255,255,0.88)',
-                  marginBottom: 12,
+                  marginBottom: 10,
                   letterSpacing: '-0.01em',
                 }}
               >
                 {feature.title}
               </h3>
 
-              {/* Description */}
               <p
                 style={{
-                  fontSize: 15,
-                  lineHeight: 1.7,
-                  color: 'rgba(255,255,255,0.35)',
+                  fontSize: mobile ? 13.5 : 14.5,
+                  lineHeight: 1.68,
+                  color: 'rgba(255,255,255,0.38)',
                   fontWeight: 300,
                 }}
               >
@@ -202,8 +143,8 @@ export function FeaturesSection() {
             </div>
           ))}
         </div>
-      </div>
-    </section>
+      </Reveal>
+    </SectionShell>
   )
 }
 

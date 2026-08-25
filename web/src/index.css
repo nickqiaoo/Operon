@@ -18,20 +18,23 @@
   box-sizing: border-box;
 }
 
-html, body {
-  height: 100%;
-}
-
-html.no-scroll, html.no-scroll body {
-  overflow: hidden;
+html {
+  /* Anchor jumps land below the fixed navbar instead of under it. */
+  scroll-padding-top: 88px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
+  min-height: 100%;
   font-family: var(--font-sans);
   background: #000;
   color: #fff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Section glows are wider than the viewport on purpose; without this they
+     would create a horizontal scrollbar on narrow screens. */
+  overflow-x: hidden;
 }
 
 ::-webkit-scrollbar {
@@ -41,4 +44,37 @@ body {
 body {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/*
+ * Scroll-in reveal. The page is one continuous scroll, so sections need their
+ * own entrance rhythm — this replaces the page-flip animation that used to
+ * provide it. `Reveal` toggles data-visible from an IntersectionObserver.
+ */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 0.56s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.56s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal[data-visible='true'] {
+  opacity: 1;
+  transform: none;
+  will-change: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .reveal,
+  .reveal[data-visible='true'] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

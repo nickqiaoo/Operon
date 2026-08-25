@@ -1,178 +1,55 @@
+import { SectionShell } from './SectionShell'
+import { Reveal } from './Reveal'
+import { Eyebrow, SectionTitle, Lead, FeatureList } from './SectionType'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
 
 const ACCENT = '#06b6d4'
 
+const FEATURES = [
+  {
+    title: 'In-app Browser',
+    desc: 'A browser panel next to your chat. Agents navigate, click, type, and screenshot it, including your localhost dev server. You can pin comments on elements and send them back as context.',
+  },
+  {
+    title: 'Chrome Extension',
+    desc: 'Drive your own Chrome, with your real logins, cookies, and history. Agents can claim a tab you already have open instead of starting from a signed-out session.',
+  },
+  {
+    title: 'Computer Use',
+    desc: 'Read and operate native Mac app UI through the accessibility tree. Clicks land in background windows, so an agent can work while you keep using your machine.',
+  },
+]
+
 export function BrowserComputerSection() {
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
-  const scrollableViewport = mobile || compactViewport
 
   return (
-    <section
-      style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background */}
-      <div
-        style={{
-          position: 'absolute',
-          width: 800,
-          height: 800,
-          borderRadius: '50%',
-          top: '35%',
-          right: '15%',
-          transform: 'translate(50%, -50%)',
-          background: 'radial-gradient(circle, rgba(6,182,212,0.05) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          width: 600,
-          height: 600,
-          borderRadius: '50%',
-          bottom: '5%',
-          left: '5%',
-          background: 'radial-gradient(circle, rgba(59,130,246,0.04) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
-
-      {/* Content */}
-      <div
-        data-scrollable
-        style={{
-          display: 'flex',
-          flexDirection: mobile ? 'column' : 'row',
-          alignItems: mobile ? 'stretch' : compactViewport ? 'flex-start' : 'center',
-          gap: mobile ? 24 : 80,
-          width: '90vw',
-          maxWidth: 1400,
-          ...(scrollableViewport
-            ? {
-                height: '100%',
-                paddingTop: mobile ? 72 : 96,
-                paddingBottom: mobile ? 24 : 56,
-                overflow: 'auto',
-              }
-            : {}),
-        }}
-      >
-        {/* Left: text */}
-        <div style={{ width: mobile ? '100%' : 420, flexShrink: 0 }}>
-          <p
-            style={{
-              fontSize: 12,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.3)',
-              marginBottom: mobile ? 10 : 16,
-              fontWeight: 500,
-            }}
-          >
-            Browser & Computer Use
-          </p>
-          <h2
-            style={{
-              fontSize: mobile ? 32 : 52,
-              fontWeight: 600,
-              color: 'rgba(255,255,255,0.92)',
-              lineHeight: 1.1,
-              letterSpacing: '-0.025em',
-              marginBottom: mobile ? 14 : 24,
-            }}
-          >
+    <SectionShell id="automation" accent={ACCENT} glow="center" maxWidth={1180}>
+      <Reveal>
+        <div style={{ maxWidth: 720 }}>
+          <Eyebrow>Browser &amp; Computer Use</Eyebrow>
+          <SectionTitle>
             Your agents
             <br />
-            <span style={{ color: 'rgba(6,182,212,0.7)' }}>have hands.</span>
-          </h2>
-
-          <p
-            style={{
-              fontSize: mobile ? 14 : 19,
-              lineHeight: 1.75,
-              color: 'rgba(255,255,255,0.38)',
-              fontWeight: 300,
-              marginBottom: mobile ? 20 : 44,
-            }}
-          >
-            Not just a browser panel to look at. Operon agents drive an in-app
-            browser, your real Chrome, and native Mac apps — clicking, typing,
-            and checking their own work.
-          </p>
-
-          {/* Feature list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 14 : 20 }}>
-            {[
-              {
-                title: 'In-app Browser',
-                desc: 'A browser panel next to your chat. Agents navigate, click, type, and screenshot it — including your localhost dev server. You can pin comments on elements and send them back as context.',
-              },
-              {
-                title: 'Chrome Extension',
-                desc: 'Drive your own Chrome, with your real logins, cookies, and history. Agents can claim a tab you already have open instead of starting from a signed-out session.',
-              },
-              {
-                title: 'Computer Use',
-                desc: 'Read and operate native Mac app UI through the accessibility tree. Clicks land in background windows, so an agent can work while you keep using your machine.',
-              },
-            ].map((item, i) => (
-              <div key={i} style={{ display: 'flex', gap: mobile ? 10 : 16 }}>
-                <div
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: ACCENT,
-                    opacity: 0.5,
-                    marginTop: 8,
-                    flexShrink: 0,
-                  }}
-                />
-                <div>
-                  <div
-                    style={{
-                      fontSize: mobile ? 14 : 16,
-                      fontWeight: 500,
-                      color: 'rgba(255,255,255,0.8)',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {item.title}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: mobile ? 12 : 14,
-                      lineHeight: 1.6,
-                      color: 'rgba(255,255,255,0.35)',
-                      fontWeight: 300,
-                    }}
-                  >
-                    {item.desc}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+            <span style={{ color: 'rgba(6,182,212,0.8)' }}>have hands.</span>
+          </SectionTitle>
+          <Lead>
+            Not just a browser panel to look at. Operon agents drive an in-app browser, your real
+            Chrome, and native Mac apps, clicking, typing, and checking their own work.
+          </Lead>
         </div>
 
-        {/* Right: automation mock */}
         {!mobile && (
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ marginTop: 8 }}>
             <AutomationMock />
           </div>
         )}
-      </div>
-    </section>
+
+        <div style={{ maxWidth: 980, marginTop: mobile ? 4 : 34 }}>
+          <FeatureList items={FEATURES} accent={ACCENT} columns={2} />
+        </div>
+      </Reveal>
+    </SectionShell>
   )
 }
 

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { ZoomableImage } from './ImageZoom'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
 import screenshot1 from '../assets/screenshot1.png'
 import screenshot2 from '../assets/screenshot2.png'
 
@@ -52,13 +51,18 @@ function usePrefersReducedMotion() {
 }
 
 /**
- * Desktop: expanded = true means text is huge and the screenshot stage sits below the fold.
- *          expanded = false means text fades and the stage moves into the hero.
- * Mobile: static layout with logo/text above the screenshot stage.
+ * The hero used to be a two-state machine: `expanded` showed huge type with the
+ * screenshot parked below the fold, and the first scroll gesture collapsed the
+ * type and pulled the screenshot up — which meant the very first swipe on a
+ * phone appeared to do nothing but shuffle the hero. It is one settled layout
+ * now; scrolling just scrolls.
+ *
+ * Height is `100svh`, not `100dvh`. `dvh` tracks the collapsing address bar in
+ * an in-app browser, so anything sized by it resizes mid-scroll. `svh` is the
+ * small (address-bar-visible) height and stays put.
  */
-export function HeroSection({ expanded }: { expanded: boolean }) {
+export function HeroSection() {
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
   const prefersReducedMotion = usePrefersReducedMotion()
   const manualPauseUntil = useRef(0)
   const [activeShotId, setActiveShotId] = useState<HeroShotId>('graphicalUi')
@@ -84,200 +88,71 @@ export function HeroSection({ expanded }: { expanded: boolean }) {
     setActiveShotId(id)
   }
 
-  if (mobile) {
-    return (
-      <div className="relative h-full w-full overflow-hidden flex flex-col items-center justify-center">
-        {/* Background gradient glow */}
-        <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.25 }}>
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[300px] rounded-full bg-indigo-600/30 blur-[100px]" />
-          <div className="absolute top-1/3 left-1/3 w-[200px] h-[200px] rounded-full bg-purple-600/20 blur-[80px]" />
-        </div>
-
-        {/* Grid */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-                              linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)`,
-            backgroundSize: '40px 40px',
-          }}
-        />
-
-        {/* Logo + text: main visual, vertically centered */}
-        <div className="relative z-10 flex flex-col items-center text-center px-6">
-          <svg
-            width="48"
-            height="48"
-            viewBox="0 0 1024 1024"
-            xmlns="http://www.w3.org/2000/svg"
-            style={{ marginBottom: 20 }}
-          >
-            <path fill="#6358DC" d="M312.607 320.213c7.186-11.909 22.72-15.771 34.696-8.626l120.42 71.849C475.34 387.981 480 396.167 480 405s-4.66 17.019-12.277 21.564l-120.42 71.849c-11.976 7.145-27.51 3.283-34.696-8.626s-3.301-27.357 8.674-34.502L405.559 405l-84.278-50.285c-11.975-7.145-15.859-22.593-8.674-34.502M714.859 631C728.744 631 740 642.193 740 656s-11.256 25-25.141 25H595.141C581.256 681 570 669.807 570 656s11.256-25 25.141-25z"/>
-            <path fill="#6358DC" d="M836 512c0-178.94-145.06-324-324-324S188 333.06 188 512s145.06 324 324 324v96C280.04 932 92 743.96 92 512S280.04 92 512 92s420 188.04 420 420-188.04 420-420 420v-96c178.94 0 324-145.06 324-324"/>
-            <path fill="#6358DC" d="M380.374 146c129.287 0 234.094 104.902 234.094 234.306 0 64.118-25.736 122.214-67.426 164.521-25.545 25.077-41.574 60.224-41.574 98.867 0 76.315 61.81 138.18 138.056 138.18 38.607 0 73.511-15.863 98.566-41.431l67.91 67.97C767.564 851.376 708.652 878 643.524 878 514.237 878 409.43 773.098 409.43 643.694c0-65.187 26.778-124.365 69.702-166.839 24.311-24.909 39.298-58.976 39.298-96.549 0-76.315-61.81-138.18-138.056-138.18-37.538 0-71.576 14.998-96.462 39.331L216 213.484C258.268 171.756 316.315 146 380.374 146"/>
-          </svg>
-
-          <h1
-            style={{
-              fontFamily: "'General Sans', sans-serif",
-              fontSize: 'clamp(64px, 18vw, 100px)',
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-              lineHeight: 0.9,
-              textTransform: 'uppercase',
-              marginBottom: 14,
-            }}
-          >
-            <span className="bg-gradient-to-b from-white via-white to-white/40 bg-clip-text text-transparent">
-              OPERON
-            </span>
-          </h1>
-
-          <p
-            style={{
-              fontSize: 16,
-              color: 'rgba(255,255,255,0.4)',
-              fontWeight: 300,
-              letterSpacing: '0.02em',
-              marginBottom: 36,
-            }}
-          >
-            One Interface. Every Agent.
-          </p>
-
-          {/* Screenshot stage below text */}
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 360,
-              position: 'relative',
-              height: 190,
-              perspective: 900,
-              transformStyle: 'preserve-3d',
-            }}
-          >
-            <div
-              className="absolute -inset-6 rounded-2xl bg-indigo-500/10 blur-2xl"
-              style={{ opacity: 0.5 }}
-            />
-            {HERO_SHOTS.map((shot) => {
-              const isActive = activeShotId === shot.id
-              return (
-                <div
-                  key={shot.id}
-                  style={getDeckCardStyle({
-                    isActive,
-                    compact: true,
-                  })}
-                >
-                  <ZoomableImage
-                    src={shot.src}
-                    alt={shot.alt}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      objectPosition: shot.objectPosition,
-                    }}
-                  />
-                </div>
-              )
-            })}
-            <ShotSwitch
-              activeShotId={activeShotId}
-              onSelect={handleSelectShot}
-              compact
-            />
-          </div>
-        </div>
-
-        {/* Scroll indicator */}
-        <div
-          className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
-          style={{ pointerEvents: 'none', zIndex: 20 }}
-        >
-          <span className="text-[9px] text-white/20 uppercase tracking-[0.2em] font-medium">Scroll</span>
-          <div className="w-4 h-6 rounded-full border border-white/10 flex items-start justify-center p-0.5">
-            <div className="w-0.5 h-1.5 rounded-full bg-white/30 animate-bounce" />
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Desktop version with expand/collapse animation
   return (
-    <div className="relative h-full w-full overflow-hidden flex flex-col items-center justify-center">
-      {/* Background gradient glow */}
+    <section
+      style={{
+        position: 'relative',
+        minHeight: '100svh',
+        width: '100%',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        // Phones fit the whole hero on one screen, so centre it. Desktop
+        // cannot (the product shot would shrink to a thumbnail), so there the
+        // wordmark block claims the fold and the shot breaks it deliberately.
+        justifyContent: mobile ? 'center' : 'flex-start',
+        paddingTop: mobile ? 52 : 64,
+        paddingBottom: mobile ? 52 : 56,
+        paddingInline: mobile ? 20 : 48,
+      }}
+    >
+      {/* Local glow — the ambient layer lives in SiteBackground */}
       <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ opacity: expanded ? 0.2 : 0.3, transition: 'opacity 1s' }}
-      >
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] rounded-full bg-indigo-600/30 blur-[150px]" />
-        <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] rounded-full bg-purple-600/20 blur-[120px]" />
-        <div className="absolute top-1/2 right-1/4 w-[300px] h-[300px] rounded-full bg-blue-600/15 blur-[100px]" />
-      </div>
-
-      {/* Grid */}
-      <div
-        className="absolute inset-0 pointer-events-none"
+        aria-hidden
         style={{
-          backgroundImage: `linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-                            linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)`,
-          backgroundSize: '60px 60px',
+          position: 'absolute',
+          top: '38%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: mobile ? 420 : 900,
+          height: mobile ? 320 : 620,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(124,58,237,0.14) 0%, transparent 68%)',
+          filter: 'blur(80px)',
+          pointerEvents: 'none',
         }}
       />
 
-      {/* Floating particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {[...Array(6)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 rounded-full bg-indigo-400/30"
-            style={{
-              left: `${15 + i * 15}%`,
-              top: `${20 + (i % 3) * 25}%`,
-              animation: `hero-float ${3 + i * 0.5}s ease-in-out infinite alternate`,
-              animationDelay: `${i * 0.3}s`,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Text: huge when expanded, smaller when collapsed */}
+      {/*
+        Wordmark block. It takes roughly the upper third of the desktop hero,
+        leaving enough room for the product shot to establish the UI before
+        the next chapter enters. Mobile keeps the whole group vertically
+        centred inside one stable viewport.
+      */}
       <div
-        className="relative z-10 text-center px-6"
         style={{
-          transform: expanded
-            ? 'translateY(-20px) scale(1)'
-            : 'translateY(-60px) scale(0.7)',
-          opacity: expanded ? 1 : 0,
-          transition: 'transform 1s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.65s ease-out',
-          pointerEvents: expanded ? 'auto' : 'none',
+          position: 'relative',
+          zIndex: 1,
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          minHeight: mobile ? undefined : 'calc(37svh - 64px)',
+          paddingBottom: mobile ? 34 : 30,
         }}
       >
-        {/* Logo icon */}
-        <svg
-          width={compactViewport ? 56 : 64}
-          height={compactViewport ? 56 : 64}
-          viewBox="0 0 1024 1024"
-          xmlns="http://www.w3.org/2000/svg"
-          style={{ margin: '0 auto 28px', display: 'block' }}
-        >
-          <path fill="#6358DC" d="M312.607 320.213c7.186-11.909 22.72-15.771 34.696-8.626l120.42 71.849C475.34 387.981 480 396.167 480 405s-4.66 17.019-12.277 21.564l-120.42 71.849c-11.976 7.145-27.51 3.283-34.696-8.626s-3.301-27.357 8.674-34.502L405.559 405l-84.278-50.285c-11.975-7.145-15.859-22.593-8.674-34.502M714.859 631C728.744 631 740 642.193 740 656s-11.256 25-25.141 25H595.141C581.256 681 570 669.807 570 656s11.256-25 25.141-25z"/>
-          <path fill="#6358DC" d="M836 512c0-178.94-145.06-324-324-324S188 333.06 188 512s145.06 324 324 324v96C280.04 932 92 743.96 92 512S280.04 92 512 92s420 188.04 420 420-188.04 420-420 420v-96c178.94 0 324-145.06 324-324"/>
-          <path fill="#6358DC" d="M380.374 146c129.287 0 234.094 104.902 234.094 234.306 0 64.118-25.736 122.214-67.426 164.521-25.545 25.077-41.574 60.224-41.574 98.867 0 76.315 61.81 138.18 138.056 138.18 38.607 0 73.511-15.863 98.566-41.431l67.91 67.97C767.564 851.376 708.652 878 643.524 878 514.237 878 409.43 773.098 409.43 643.694c0-65.187 26.778-124.365 69.702-166.839 24.311-24.909 39.298-58.976 39.298-96.549 0-76.315-61.81-138.18-138.056-138.18-37.538 0-71.576 14.998-96.462 39.331L216 213.484C258.268 171.756 316.315 146 380.374 146"/>
-        </svg>
+        <OperonGlyph size={mobile ? 44 : 60} />
 
         <h1
           style={{
             fontFamily: "'General Sans', sans-serif",
-            fontSize: compactViewport ? 'clamp(72px, 12vw, 128px)' : 'clamp(80px, 15vw, 180px)',
+            fontSize: mobile ? 'clamp(54px, 15vw, 88px)' : 'clamp(64px, 7.6vw, 118px)',
             fontWeight: 600,
             letterSpacing: '0.04em',
             lineHeight: 0.9,
             textTransform: 'uppercase',
-            marginBottom: 20,
+            marginBottom: mobile ? 16 : 22,
           }}
         >
           <span className="bg-gradient-to-b from-white via-white to-white/40 bg-clip-text text-transparent">
@@ -287,8 +162,8 @@ export function HeroSection({ expanded }: { expanded: boolean }) {
 
         <p
           style={{
-            fontSize: 'clamp(18px, 2.5vw, 28px)',
-            color: 'rgba(255,255,255,0.4)',
+            fontSize: mobile ? 15 : 'clamp(18px, 1.9vw, 24px)',
+            color: 'rgba(255,255,255,0.42)',
             fontWeight: 300,
             letterSpacing: '0.02em',
           }}
@@ -297,128 +172,87 @@ export function HeroSection({ expanded }: { expanded: boolean }) {
         </p>
       </div>
 
-      {/* Screenshot stage: one large surface with switchable views */}
+      {/* Screenshot stage */}
       <div
-        className="absolute z-10"
         style={{
-          left: '50%',
-          top: '50%',
-          width: expanded ? (compactViewport ? '74vw' : '82vw') : compactViewport ? '76vw' : '86vw',
-          maxWidth: expanded ? (compactViewport ? 960 : 1120) : compactViewport ? 1040 : 1320,
-          transform: expanded
-            ? compactViewport
-              ? 'translate(-50%, 44%) scale(0.92)'
-              : 'translate(-50%, 40%) scale(0.98)'
-            : compactViewport
-              ? 'translate(-50%, -48%) scale(0.94)'
-              : 'translate(-50%, -50%) scale(1)',
-          transition:
-            'transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), width 1.2s cubic-bezier(0.16, 1, 0.3, 1), max-width 1.2s cubic-bezier(0.16, 1, 0.3, 1)',
-          willChange: 'transform',
+          position: 'relative',
+          zIndex: 1,
+          width: '100%',
+          maxWidth: mobile ? 440 : 980,
         }}
       >
-        {/* Glow behind screenshots */}
         <div
-          className="absolute -inset-10 rounded-3xl bg-indigo-500/10 blur-3xl"
-          style={{
-            opacity: expanded ? 0.4 : 0.6,
-            transition: 'opacity 1s',
-          }}
+          aria-hidden
+          className="absolute -inset-6 rounded-3xl bg-indigo-500/10 blur-3xl"
+          style={{ opacity: 0.55 }}
         />
         <div
           style={{
             position: 'relative',
             aspectRatio: '14 / 9',
-            perspective: 1600,
+            perspective: mobile ? 900 : 1600,
             transformStyle: 'preserve-3d',
           }}
         >
-          {HERO_SHOTS.map((shot) => {
-            const isActive = activeShotId === shot.id
-            return (
-              <div
-                key={shot.id}
-                style={getDeckCardStyle({
-                  isActive,
-                  expanded,
-                })}
-              >
-                <ZoomableImage
-                  src={shot.src}
-                  alt={shot.alt}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    objectPosition: shot.objectPosition,
-                  }}
-                />
-              </div>
-            )
-          })}
+          {HERO_SHOTS.map((shot) => (
+            <div key={shot.id} style={getDeckCardStyle({ isActive: activeShotId === shot.id, compact: mobile })}>
+              <ZoomableImage
+                src={shot.src}
+                alt={shot.alt}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: shot.objectPosition,
+                }}
+              />
+            </div>
+          ))}
         </div>
+
         <div
           style={{
             position: 'absolute',
             left: '50%',
-            bottom: expanded ? -56 : 18,
+            bottom: mobile ? 12 : 18,
             transform: 'translateX(-50%)',
-            opacity: expanded ? 0 : 1,
-            transition: 'opacity 0.45s ease-out, bottom 1s cubic-bezier(0.16, 1, 0.3, 1)',
-            pointerEvents: expanded ? 'none' : 'auto',
+            zIndex: 8,
           }}
         >
-          <ShotSwitch
-            activeShotId={activeShotId}
-            onSelect={handleSelectShot}
-          />
+          <ShotSwitch activeShotId={activeShotId} onSelect={handleSelectShot} compact={mobile} />
         </div>
       </div>
-
-      {/* Scroll indicator: only when expanded */}
-      <div
-        className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3"
-        style={{
-          opacity: expanded ? 1 : 0,
-          transition: 'opacity 0.5s',
-          pointerEvents: 'none',
-        }}
-      >
-        <span className="text-[10px] text-white/20 uppercase tracking-[0.2em] font-medium">Scroll</span>
-        <div className="w-5 h-8 rounded-full border border-white/10 flex items-start justify-center p-1">
-          <div className="w-1 h-2 rounded-full bg-white/30 animate-bounce" />
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes hero-float {
-          from { transform: translateY(0) translateX(0); opacity: 0.3; }
-          to { transform: translateY(-20px) translateX(10px); opacity: 0.6; }
-        }
-      `}</style>
-    </div>
+    </section>
   )
 }
 
-function getDeckCardStyle({
-  isActive,
-  compact = false,
-  expanded = false,
-}: {
-  isActive: boolean
-  compact?: boolean
-  expanded?: boolean
-}): CSSProperties {
+function OperonGlyph({ size }: { size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ margin: `0 auto ${size < 50 ? 20 : 28}px`, display: 'block' }}
+    >
+      <path fill="#6358DC" d="M312.607 320.213c7.186-11.909 22.72-15.771 34.696-8.626l120.42 71.849C475.34 387.981 480 396.167 480 405s-4.66 17.019-12.277 21.564l-120.42 71.849c-11.976 7.145-27.51 3.283-34.696-8.626s-3.301-27.357 8.674-34.502L405.559 405l-84.278-50.285c-11.975-7.145-15.859-22.593-8.674-34.502M714.859 631C728.744 631 740 642.193 740 656s-11.256 25-25.141 25H595.141C581.256 681 570 669.807 570 656s11.256-25 25.141-25z"/>
+      <path fill="#6358DC" d="M836 512c0-178.94-145.06-324-324-324S188 333.06 188 512s145.06 324 324 324v96C280.04 932 92 743.96 92 512S280.04 92 512 92s420 188.04 420 420-188.04 420-420 420v-96c178.94 0 324-145.06 324-324"/>
+      <path fill="#6358DC" d="M380.374 146c129.287 0 234.094 104.902 234.094 234.306 0 64.118-25.736 122.214-67.426 164.521-25.545 25.077-41.574 60.224-41.574 98.867 0 76.315 61.81 138.18 138.056 138.18 38.607 0 73.511-15.863 98.566-41.431l67.91 67.97C767.564 851.376 708.652 878 643.524 878 514.237 878 409.43 773.098 409.43 643.694c0-65.187 26.778-124.365 69.702-166.839 24.311-24.909 39.298-58.976 39.298-96.549 0-76.315-61.81-138.18-138.056-138.18-37.538 0-71.576 14.998-96.462 39.331L216 213.484C258.268 171.756 316.315 146 380.374 146"/>
+    </svg>
+  )
+}
+
+function getDeckCardStyle({ isActive, compact }: { isActive: boolean; compact: boolean }): CSSProperties {
   const restingTransform = compact
-    ? 'translate3d(28px, 16px, -44px) rotateY(-7deg) rotateZ(2.2deg) scale(0.95)'
-    : 'translate3d(86px, 32px, -100px) rotateX(1.5deg) rotateY(-8deg) rotateZ(2.4deg) scale(0.965)'
+    ? 'translate3d(24px, 14px, -40px) rotateY(-7deg) rotateZ(2deg) scale(0.95)'
+    : 'translate3d(80px, 30px, -100px) rotateX(1.5deg) rotateY(-8deg) rotateZ(2.4deg) scale(0.965)'
 
   return {
     position: 'absolute',
     inset: 0,
     zIndex: isActive ? 3 : 2,
     overflow: 'hidden',
-    borderRadius: compact ? 12 : expanded ? 16 : 14,
+    borderRadius: compact ? 12 : 16,
     border: isActive ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.14)',
     background: 'rgba(8,8,14,0.94)',
     boxShadow: isActive
@@ -428,17 +262,14 @@ function getDeckCardStyle({
       : compact
         ? '0 16px 42px rgba(0,0,0,0.36)'
         : '0 30px 80px rgba(0,0,0,0.36)',
-    opacity: isActive ? 1 : expanded ? 0.44 : 0.72,
+    opacity: isActive ? 1 : 0.6,
     filter: isActive ? 'none' : 'saturate(0.86) brightness(0.78)',
-    transform: isActive
-      ? 'translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1)'
-      : restingTransform,
+    transform: isActive ? 'translate3d(0, 0, 0) scale(1)' : restingTransform,
     transformOrigin: isActive ? 'center center' : '72% 54%',
     transformStyle: 'preserve-3d',
     pointerEvents: isActive ? 'auto' : 'none',
-    willChange: 'transform, opacity, filter',
     transition:
-      'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s ease-out, filter 0.45s ease-out, box-shadow 0.78s cubic-bezier(0.16, 1, 0.3, 1), border-radius 1.2s cubic-bezier(0.16, 1, 0.3, 1)',
+      'transform 0.78s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s ease-out, filter 0.45s ease-out, box-shadow 0.78s cubic-bezier(0.16, 1, 0.3, 1)',
   }
 }
 
@@ -456,10 +287,6 @@ function ShotSwitch({
       role="tablist"
       aria-label="Hero screenshot view"
       style={{
-        position: compact ? 'absolute' : 'relative',
-        left: compact ? '50%' : undefined,
-        bottom: compact ? 10 : undefined,
-        transform: compact ? 'translateX(-50%)' : undefined,
         display: 'flex',
         alignItems: 'center',
         gap: 4,
@@ -470,7 +297,6 @@ function ShotSwitch({
         backdropFilter: 'blur(18px)',
         WebkitBackdropFilter: 'blur(18px)',
         boxShadow: '0 18px 50px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.08)',
-        zIndex: 8,
       }}
     >
       {HERO_SHOTS.map((shot) => {
@@ -486,19 +312,19 @@ function ShotSwitch({
               onSelect(shot.id)
             }}
             style={{
-              height: compact ? 26 : 32,
-              minWidth: compact ? 92 : 78,
+              height: compact ? 28 : 32,
+              minWidth: compact ? 84 : 78,
               border: 0,
               borderRadius: 999,
-              padding: compact ? '0 12px' : '0 16px',
+              padding: compact ? '0 14px' : '0 16px',
               background: isActive ? 'rgba(255,255,255,0.92)' : 'transparent',
               color: isActive ? 'rgba(8,8,12,0.92)' : 'rgba(255,255,255,0.58)',
-              fontSize: compact ? 11 : 13,
+              fontSize: compact ? 12 : 13,
               fontWeight: 600,
               lineHeight: 1,
               whiteSpace: 'nowrap',
               cursor: 'pointer',
-              transition: 'background 0.22s ease, color 0.22s ease, transform 0.22s ease',
+              transition: 'background 0.22s ease, color 0.22s ease',
             }}
           >
             {shot.label}

@@ -1,45 +1,39 @@
 import { useIsMobile } from '../hooks/useIsMobile'
 
+/**
+ * Sits at the end of the document now. It used to be `position: fixed` on
+ * desktop — necessary when the body could not scroll, but on a continuous page
+ * a permanently pinned footer just eats vertical space on every screen.
+ */
 export function Footer() {
   const mobile = useIsMobile()
 
   return (
     <footer
       style={{
-        ...(mobile
-          ? {}
-          : {
-              position: 'fixed',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              zIndex: 100,
-              background: 'rgba(0,0,0,0.6)',
-              backdropFilter: 'blur(20px)',
-            }),
-        borderTop: '1px solid rgba(255,255,255,0.04)',
-        padding: mobile ? '16px 0 calc(16px + env(safe-area-inset-bottom))' : '16px 40px',
+        borderTop: '1px solid rgba(255,255,255,0.05)',
+        // Extra room on the right: the fixed back-to-top button parks in that
+        // corner and would otherwise sit on top of the Terms link.
+        padding: mobile
+          ? '20px 72px calc(20px + env(safe-area-inset-bottom)) 20px'
+          : '22px 96px 22px 40px',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: mobile ? 'space-between' : undefined,
-        gap: mobile ? 18 : undefined,
-        width: mobile ? '100%' : undefined,
+        justifyContent: 'space-between',
+        gap: 18,
+        flexWrap: 'wrap',
       }}
     >
-      {/* Left: copyright */}
       <div
         style={{
           fontSize: 12,
           color: 'rgba(255,255,255,0.25)',
           fontWeight: 400,
-          flex: mobile ? '0 0 auto' : 1,
-          whiteSpace: 'nowrap',
         }}
       >
         {mobile ? '© 2026 Operon.' : '© 2026 Operon. All rights reserved.'}
       </div>
 
-      {/* Center: links */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
         {[
           { label: 'Privacy', href: '/privacy' },
@@ -64,8 +58,6 @@ export function Footer() {
           </a>
         ))}
       </div>
-
-      {!mobile && <div style={{ flex: 1 }} />}
     </footer>
   )
 }

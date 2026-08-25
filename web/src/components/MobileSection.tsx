@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
 import { ZoomableImage } from './ImageZoom'
+import { SectionShell } from './SectionShell'
+import { Reveal } from './Reveal'
+import { SectionTitle, Lead, FeatureChips, SplitLayout } from './SectionType'
+import { useIsMobile } from '../hooks/useIsMobile'
 import tgImg from '../assets/tg.PNG'
 import tgDiffImg from '../assets/tgdiff.PNG'
 import slack1Img from '../assets/slack1.png'
@@ -100,320 +102,185 @@ export function MobileSection() {
   const [activeId, setActiveId] = useState<Channel['id']>('web-app')
   const active = CHANNELS.find((c) => c.id === activeId) ?? CHANNELS[0]
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
-  const scrollableViewport = mobile || compactViewport
 
   return (
-    <section
-      style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background glow */}
-      <div
-        style={{
-          position: 'absolute',
-          width: 800,
-          height: 800,
-          borderRadius: '50%',
-          top: '50%',
-          left: '30%',
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: active.accent,
-          opacity: 0.05,
-          filter: 'blur(200px)',
-          transition: 'background-color 0.6s',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          width: 600,
-          height: 600,
-          borderRadius: '50%',
-          bottom: '20%',
-          right: '20%',
-          background: 'radial-gradient(circle, rgba(99,102,241,0.04) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
+    <SectionShell id="clients" accent={active.accent} glow="left">
+      <SplitLayout
+        copyWidth={420}
+        gap={64}
+        divider
+        copy={
+          <Reveal>
+            <SectionTitle>
+              Code from anywhere.
+              <br />
+              <span style={{ color: `${active.accent}cc`, transition: 'color 0.4s' }}>
+                Same UI, same features.
+              </span>
+            </SectionTitle>
+            <Lead>
+              Use the full Web App or a native client from anywhere. Remote content stays
+              end-to-end encrypted between each paired device and your desktop. Messaging channels
+              handle lightweight workflows.
+            </Lead>
 
-      {/* Content */}
-      <div
-        data-scrollable
-        style={{
-          display: 'flex',
-          flexDirection: mobile ? 'column' : 'row',
-          alignItems: mobile ? 'stretch' : compactViewport ? 'flex-start' : 'center',
-          gap: mobile ? 24 : 80,
-          width: '90vw',
-          maxWidth: 1400,
-          ...(scrollableViewport
-            ? {
-                height: '100%',
-                paddingTop: mobile ? 72 : 96,
-                paddingBottom: mobile ? 24 : 56,
-                overflow: 'auto',
-              }
-            : {}),
-        }}
-      >
-        {/* Left: heading + channel tabs */}
-        <div style={{ width: mobile ? '100%' : 460, flexShrink: 0 }}>
-          <p
-            style={{
-              fontSize: 12,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.3)',
-              marginBottom: mobile ? 10 : 16,
-              fontWeight: 500,
-            }}
-          >
-            Web App, Native Mobile & Messaging
-          </p>
-          <h2
-            style={{
-              fontSize: mobile ? 30 : 50,
-              fontWeight: 600,
-              color: 'rgba(255,255,255,0.92)',
-              lineHeight: 1.1,
-              letterSpacing: '-0.025em',
-              marginBottom: mobile ? 14 : 24,
-            }}
-          >
-            Code from anywhere.
-            <br />
-            <span style={{ color: `${active.accent}cc`, transition: 'color 0.4s' }}>
-              Same UI, same features.
-            </span>
-          </h2>
-
-          <p
-            style={{
-              fontSize: mobile ? 14 : 19,
-              lineHeight: 1.75,
-              color: 'rgba(255,255,255,0.4)',
-              fontWeight: 300,
-              marginBottom: mobile ? 20 : 36,
-            }}
-          >
-            Use the full Web App or a native client from anywhere. Remote content
-            stays end-to-end encrypted between each paired device and your desktop.
-            Messaging channels handle lightweight workflows.
-          </p>
-
-          {/* Tabs */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: mobile ? 'row' : 'column',
-              gap: mobile ? 8 : 6,
-              ...(mobile ? { overflowX: 'auto', paddingBottom: 8 } : {}),
-            }}
-          >
-            {CHANNELS.map((c) => {
-              const isActive = c.id === activeId
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => setActiveId(c.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 14,
-                    padding: '12px 16px',
-                    borderRadius: mobile ? 12 : 16,
-                    background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'background 0.4s',
-                    flexShrink: 0,
-                    ...(mobile ? { minWidth: 'fit-content' } : {}),
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: isActive ? `${c.accent}26` : 'rgba(255,255,255,0.03)',
-                      flexShrink: 0,
-                      transition: 'background 0.4s',
-                    }}
-                  >
-                    <ChannelIcon id={c.id} color={isActive ? c.accent : 'rgba(255,255,255,0.3)'} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: mobile ? 14 : 16,
-                        fontWeight: 500,
-                        color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)',
-                        whiteSpace: 'nowrap',
-                        transition: 'color 0.4s',
-                      }}
-                    >
-                      {c.name}
-                    </div>
-                    {!mobile && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: isActive ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)',
-                          transition: 'color 0.4s',
-                          marginTop: 2,
-                        }}
-                      >
-                        {c.label}
-                      </div>
-                    )}
-                  </div>
-                  {isActive && !mobile && (
-                    <div
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        backgroundColor: c.accent,
-                        opacity: 0.7,
-                      }}
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Divider */}
-        {!mobile && (
-          <div style={{ width: 1, height: 480, background: 'rgba(255,255,255,0.06)', flexShrink: 0 }} />
-        )}
-
-        {/* Right: active channel detail */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-            <h3
+            <div
               style={{
-                fontSize: mobile ? 24 : 34,
-                fontWeight: 600,
-                color: 'rgba(255,255,255,0.92)',
-                letterSpacing: '-0.025em',
+                display: 'flex',
+                flexDirection: mobile ? 'row' : 'column',
+                gap: mobile ? 8 : 4,
+                ...(mobile
+                  ? { overflowX: 'auto', paddingBottom: 8, marginInline: -20, paddingInline: 20 }
+                  : {}),
               }}
             >
-              {active.name}
-            </h3>
-            <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)' }}>{active.label}</span>
-          </div>
-
-          <p
-            style={{
-              fontSize: mobile ? 14 : 16,
-              lineHeight: 1.7,
-              color: 'rgba(255,255,255,0.45)',
-              fontWeight: 300,
-            }}
-          >
-            {active.description}
-          </p>
-
-          {/* Product screenshots */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: mobile ? 'flex-start' : 'center',
-              gap: mobile ? 12 : 24,
-              ...(mobile ? { overflowX: 'auto', paddingBottom: 4 } : {}),
-            }}
-          >
-            {active.shots.map((shot, i) => (
-              shot.frame === 'desktop' ? (
-                <DesktopFrame key={`${active.id}-${i}`} mobile={mobile}>
-                  <ZoomableImage
-                    src={shot.src}
-                    alt={shot.alt}
+              {CHANNELS.map((c) => {
+                const isActive = c.id === activeId
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setActiveId(c.id)}
+                    aria-pressed={isActive}
                     style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      objectPosition: 'top',
+                      display: 'flex',
+                      alignItems: 'center',
+                      textAlign: 'left',
+                      gap: 13,
+                      padding: '11px 15px',
+                      borderRadius: 12,
+                      border: 0,
+                      background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
+                      cursor: 'pointer',
+                      transition: 'background 0.4s',
+                      flexShrink: 0,
+                      fontFamily: 'inherit',
+                      ...(mobile ? { minWidth: 'fit-content' } : { width: '100%' }),
                     }}
-                  />
-                </DesktopFrame>
-              ) : (
-                <PhoneFrame key={`${active.id}-${i}`} mobile={mobile}>
-                  <ZoomableImage
-                    src={shot.src}
-                    alt={shot.alt}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      objectPosition: 'top',
-                    }}
-                  />
-                </PhoneFrame>
-              )
-            ))}
-          </div>
+                  >
+                    <div
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isActive ? `${c.accent}26` : 'rgba(255,255,255,0.03)',
+                        flexShrink: 0,
+                        transition: 'background 0.4s',
+                      }}
+                    >
+                      <ChannelIcon id={c.id} color={isActive ? c.accent : 'rgba(255,255,255,0.3)'} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: mobile ? 13 : 15,
+                          fontWeight: 500,
+                          color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.28)',
+                          whiteSpace: 'nowrap',
+                          transition: 'color 0.4s',
+                        }}
+                      >
+                        {c.name}
+                      </div>
+                      {!mobile && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: isActive ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.14)',
+                            transition: 'color 0.4s',
+                            marginTop: 2,
+                          }}
+                        >
+                          {c.label}
+                        </div>
+                      )}
+                    </div>
+                    {isActive && !mobile && (
+                      <div
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          backgroundColor: c.accent,
+                          opacity: 0.7,
+                        }}
+                      />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </Reveal>
+        }
+        visual={
+          <Reveal delay={45}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 16 : 20 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                <h3
+                  style={{
+                    fontSize: mobile ? 22 : 30,
+                    fontWeight: 600,
+                    color: 'rgba(255,255,255,0.92)',
+                    letterSpacing: '-0.025em',
+                  }}
+                >
+                  {active.name}
+                </h3>
+                <span style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.3)' }}>{active.label}</span>
+              </div>
 
-          {/* Feature bullets */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: mobile ? '1fr' : '1fr 1fr',
-              gap: mobile ? 8 : 12,
-            }}
-          >
-            {active.features.map((feature, i) => (
+              <p
+                style={{
+                  fontSize: mobile ? 14 : 15.5,
+                  lineHeight: 1.7,
+                  color: 'rgba(255,255,255,0.45)',
+                  fontWeight: 300,
+                }}
+              >
+                {active.description}
+              </p>
+
               <div
-                key={i}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: mobile ? 10 : 14,
-                  padding: mobile ? '12px 14px' : '14px 20px',
-                  borderRadius: mobile ? 10 : 14,
-                  background: 'rgba(255,255,255,0.025)',
-                  border: '1px solid rgba(255,255,255,0.04)',
+                  justifyContent: mobile ? 'flex-start' : 'center',
+                  gap: mobile ? 12 : 22,
+                  ...(mobile
+                    ? { overflowX: 'auto', paddingBottom: 4, marginInline: -20, paddingInline: 20 }
+                    : {}),
                 }}
               >
-                <div
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: active.accent,
-                    opacity: 0.5,
-                    flexShrink: 0,
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: mobile ? 13 : 14,
-                    color: 'rgba(255,255,255,0.5)',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {feature}
-                </span>
+                {active.shots.map((shot, i) =>
+                  shot.frame === 'desktop' ? (
+                    <DesktopFrame key={`${active.id}-${i}`} mobile={mobile}>
+                      <ZoomableImage
+                        src={shot.src}
+                        alt={shot.alt}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                      />
+                    </DesktopFrame>
+                  ) : (
+                    <PhoneFrame key={`${active.id}-${i}`} mobile={mobile}>
+                      <ZoomableImage
+                        src={shot.src}
+                        alt={shot.alt}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                      />
+                    </PhoneFrame>
+                  )
+                )}
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
+
+              <FeatureChips items={active.features} accent={active.accent} />
+            </div>
+          </Reveal>
+        }
+      />
+    </SectionShell>
   )
 }
 

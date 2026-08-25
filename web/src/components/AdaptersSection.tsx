@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { SectionShell } from './SectionShell'
+import { Reveal } from './Reveal'
+import { Eyebrow, SectionTitle, Lead, FeatureChips, SplitLayout } from './SectionType'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useIsCompactViewport } from '../hooks/useIsCompactViewport'
 import claudeIcon from '../assets/claude.svg'
 import openaiIcon from '../assets/openai.svg'
 import googleIcon from '../assets/google.svg'
@@ -30,7 +32,7 @@ const adapters: Adapter[] = [
     label: 'Native · Multi-provider',
     native: true,
     description:
-      "Operon's own agent — not a wrapper around someone else's CLI. An AI SDK agent loop that aggregates 8+ model providers behind a single built-in tool system, with skills, MCP, and memory baked in. Mix and match models without leaving Operon.",
+      "Operon's own agent, not a wrapper around someone else's CLI. An AI SDK agent loop that aggregates 8+ model providers behind a single built-in tool system, with skills, MCP, and memory baked in. Mix and match models without leaving Operon.",
     features: [
       'Aggregates 8+ providers',
       'Built-in tool system',
@@ -92,7 +94,7 @@ const adapters: Adapter[] = [
     icon: copilotIcon,
     label: 'GitHub',
     description:
-      'Built on the Copilot SDK. Three modes — Interactive (per-action approval), Plan, and Autopilot (autonomous) — with configurable reasoning effort and a live, plan-specific model list.',
+      'Built on the Copilot SDK. Three modes: Interactive (per-action approval), Plan, and Autopilot (autonomous), with configurable reasoning effort and a live, plan-specific model list.',
     features: [
       'Interactive · Plan · Autopilot',
       'Configurable reasoning effort',
@@ -137,7 +139,7 @@ const adapters: Adapter[] = [
     icon: kimiIcon,
     label: 'Moonshot',
     description:
-      "Coding agent built on Moonshot's Kimi model. Three modes — Default, Plan, and Full Access (auto-approves actions) — plus slash commands like /compact, with rich UI rendering for all tool calls.",
+      "Coding agent built on Moonshot's Kimi model. Three modes: Default, Plan, and Full Access (auto-approves actions), plus slash commands like /compact, with rich UI rendering for all tool calls.",
     features: [
       'Default · Plan · Full Access',
       'Slash commands (/compact)',
@@ -154,324 +156,214 @@ export function AdaptersSection() {
   const [activeIndex, setActiveIndex] = useState(0)
   const active = adapters[activeIndex]
   const mobile = useIsMobile()
-  const compactViewport = useIsCompactViewport()
-  const scrollableViewport = mobile || compactViewport
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background glow */}
-      <div
-        style={{
-          position: 'absolute',
-          width: 800,
-          height: 800,
-          borderRadius: '50%',
-          top: '50%',
-          left: '55%',
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: active.accent,
-          opacity: 0.05,
-          filter: 'blur(200px)',
-          transition: 'background-color 0.6s',
-          pointerEvents: 'none',
-        }}
-      />
+    <SectionShell id="agents" accent={active.accent} glow="right">
+      <SplitLayout
+        copyWidth={400}
+        gap={64}
+        divider
+        copy={
+          <Reveal>
+            <Eyebrow>Agents</Eyebrow>
+            <SectionTitle>
+              An agent of our own.
+              <br />
+              <span style={{ color: `${active.accent}cc`, transition: 'color 0.4s' }}>
+                And every CLI you use.
+              </span>
+            </SectionTitle>
 
-      {/* Content */}
-      <div
-        data-scrollable
-        style={{
-          display: 'flex',
-          flexDirection: mobile ? 'column' : 'row',
-          alignItems: mobile ? 'stretch' : 'flex-start',
-          gap: mobile ? 24 : 80,
-          width: '90vw',
-          maxWidth: 1400,
-          ...(scrollableViewport
-            ? {
-                height: '100%',
-                paddingTop: mobile ? 72 : 96,
-                paddingBottom: mobile ? 24 : 56,
-                overflow: 'auto',
-              }
-            : { minHeight: 480 }),
-        }}
-      >
-        {/* Left: heading + adapter tabs */}
-        <div style={{ width: mobile ? '100%' : 380, flexShrink: 0 }}>
-          <p
-            style={{
-              fontSize: 12,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.3)',
-              marginBottom: mobile ? 10 : 16,
-              fontWeight: 500,
-            }}
-          >
-            Agents
-          </p>
-          <h2
-            style={{
-              fontSize: mobile ? 32 : 52,
-              fontWeight: 600,
-              color: 'rgba(255,255,255,0.92)',
-              lineHeight: 1.1,
-              letterSpacing: '-0.025em',
-              marginBottom: mobile ? 20 : 32,
-            }}
-          >
-            An agent of our own.
-            <br />
-            <span style={{ color: `${active.accent}cc`, transition: 'color 0.4s' }}>And every CLI you use.</span>
-          </h2>
-
-          {/* Adapter tabs - horizontal scroll on mobile */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: mobile ? 'row' : 'column',
-              gap: mobile ? 8 : 3,
-              ...(mobile ? { overflowX: 'auto', paddingBottom: 8 } : {}),
-            }}
-          >
-            {adapters.map((adapter, i) => {
-              const isActive = i === activeIndex
-              return (
-                <div
-                  key={adapter.id}
-                  onClick={() => setActiveIndex(i)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: mobile ? 10 : 16,
-                    padding: mobile ? '10px 14px' : '9px 16px',
-                    borderRadius: mobile ? 12 : 14,
-                    background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'background 0.4s',
-                    flexShrink: 0,
-                    ...(mobile ? { minWidth: 'fit-content' } : {}),
-                  }}
-                >
-                  <div
-                    style={{
-                      width: mobile ? 32 : 38,
-                      height: mobile ? 32 : 38,
-                      borderRadius: mobile ? 8 : 10,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-                      flexShrink: 0,
-                      transition: 'background 0.4s',
-                    }}
-                  >
-                    <img
-                      src={adapter.icon}
-                      alt=""
-                      style={{
-                        width: mobile ? 16 : 19,
-                        height: mobile ? 16 : 19,
-                        filter: iconFilter(adapter.id),
-                        opacity: isActive ? 0.9 : 0.25,
-                        transition: 'opacity 0.4s',
-                      }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: mobile ? 13 : 16,
-                        fontWeight: 500,
-                        color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)',
-                        transition: 'color 0.4s',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {adapter.name}
-                    </div>
-                    {!mobile && (
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: isActive ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.1)',
-                          transition: 'color 0.4s',
-                          marginTop: 2,
-                        }}
-                      >
-                        {adapter.label}
-                      </div>
-                    )}
-                  </div>
-                  {isActive && !mobile && (
-                    <div
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        backgroundColor: active.accent,
-                        opacity: 0.7,
-                      }}
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Divider */}
-        {!mobile && (
-          <div style={{ width: 1, alignSelf: 'stretch', minHeight: 480, background: 'rgba(255,255,255,0.06)', flexShrink: 0 }} />
-        )}
-
-        {/* Right: active adapter detail — stretched to the row height and vertically centered so it stays visually balanced with the taller left column instead of leaving the bottom empty */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            alignSelf: mobile ? 'auto' : 'stretch',
-            ...(mobile
-              ? {}
-              : { display: 'flex', flexDirection: 'column', justifyContent: 'center' }),
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 14 : 20, marginBottom: mobile ? 16 : 32 }}>
+            {/* Adapter picker — a horizontal rail on mobile, a list on desktop */}
             <div
               style={{
-                width: mobile ? 44 : 64,
-                height: mobile ? 44 : 64,
-                borderRadius: mobile ? 12 : 18,
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: `${active.accent}18`,
-                border: `1px solid ${active.accent}30`,
-                transition: 'all 0.4s',
-                flexShrink: 0,
+                flexDirection: mobile ? 'row' : 'column',
+                gap: mobile ? 8 : 3,
+                ...(mobile
+                  ? { overflowX: 'auto', paddingBottom: 8, marginInline: -20, paddingInline: 20 }
+                  : {}),
               }}
             >
-              <img
-                src={active.icon}
-                alt=""
-                style={{
-                  width: mobile ? 22 : 32,
-                  height: mobile ? 22 : 32,
-                  filter: iconFilter(active.id),
-                  opacity: 0.85,
-                }}
-              />
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <h3
-                  style={{
-                    fontSize: mobile ? 24 : 44,
-                    fontWeight: 600,
-                    color: 'rgba(255,255,255,0.92)',
-                    letterSpacing: '-0.025em',
-                    lineHeight: 1.1,
-                  }}
-                >
-                  {active.name}
-                </h3>
-                {active.native && (
-                  <span
+              {adapters.map((adapter, i) => {
+                const isActive = i === activeIndex
+                return (
+                  <button
+                    key={adapter.id}
+                    type="button"
+                    onClick={() => setActiveIndex(i)}
+                    aria-pressed={isActive}
                     style={{
-                      display: 'inline-flex',
+                      display: 'flex',
                       alignItems: 'center',
-                      gap: 6,
-                      padding: '3px 10px',
-                      borderRadius: 999,
-                      background: `${active.accent}18`,
-                      border: `1px solid ${active.accent}40`,
+                      textAlign: 'left',
+                      gap: mobile ? 10 : 14,
+                      padding: mobile ? '10px 14px' : '9px 14px',
+                      borderRadius: 12,
+                      border: 0,
+                      background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
+                      cursor: 'pointer',
+                      transition: 'background 0.4s',
+                      flexShrink: 0,
+                      fontFamily: 'inherit',
+                      ...(mobile ? { minWidth: 'fit-content' } : { width: '100%' }),
                     }}
                   >
-                    <span
+                    <div
                       style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        backgroundColor: active.accent,
-                        opacity: 0.9,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontSize: 10,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.12em',
-                        color: 'rgba(255,255,255,0.7)',
-                        fontWeight: 600,
+                        width: mobile ? 32 : 36,
+                        height: mobile ? 32 : 36,
+                        borderRadius: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                        flexShrink: 0,
+                        transition: 'background 0.4s',
                       }}
                     >
-                      Native
-                    </span>
-                  </span>
-                )}
-              </div>
-              <p style={{ fontSize: mobile ? 12 : 15, color: 'rgba(255,255,255,0.3)', marginTop: mobile ? 2 : 6 }}>
-                {active.label}
-              </p>
+                      <img
+                        src={adapter.icon}
+                        alt=""
+                        style={{
+                          width: mobile ? 16 : 18,
+                          height: mobile ? 16 : 18,
+                          filter: iconFilter(adapter.id),
+                          opacity: isActive ? 0.9 : 0.25,
+                          transition: 'opacity 0.4s',
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: mobile ? 13 : 15,
+                          fontWeight: 500,
+                          color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.28)',
+                          transition: 'color 0.4s',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {adapter.name}
+                      </div>
+                      {!mobile && (
+                        <div
+                          style={{
+                            fontSize: 12.5,
+                            color: isActive ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.12)',
+                            transition: 'color 0.4s',
+                            marginTop: 2,
+                          }}
+                        >
+                          {adapter.label}
+                        </div>
+                      )}
+                    </div>
+                    {isActive && !mobile && (
+                      <div
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          backgroundColor: active.accent,
+                          opacity: 0.7,
+                        }}
+                      />
+                    )}
+                  </button>
+                )
+              })}
             </div>
-          </div>
-
-          <p
-            style={{
-              fontSize: mobile ? 14 : 20,
-              lineHeight: 1.7,
-              color: 'rgba(255,255,255,0.4)',
-              fontWeight: 300,
-              marginBottom: mobile ? 20 : 40,
-            }}
-          >
-            {active.description}
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 8 : 14 }}>
-            {active.features.map((feature, i) => (
+          </Reveal>
+        }
+        visual={
+          <Reveal delay={45}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 14 : 18, marginBottom: mobile ? 16 : 26 }}>
               <div
-                key={i}
                 style={{
+                  width: mobile ? 44 : 58,
+                  height: mobile ? 44 : 58,
+                  borderRadius: mobile ? 12 : 16,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: mobile ? 10 : 14,
-                  padding: mobile ? '12px 14px' : '18px 22px',
-                  borderRadius: mobile ? 10 : 16,
-                  background: 'rgba(255,255,255,0.025)',
-                  border: '1px solid rgba(255,255,255,0.04)',
+                  justifyContent: 'center',
+                  backgroundColor: `${active.accent}18`,
+                  border: `1px solid ${active.accent}30`,
+                  transition: 'all 0.4s',
+                  flexShrink: 0,
                 }}
               >
-                <div
+                <img
+                  src={active.icon}
+                  alt=""
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: active.accent,
-                    opacity: 0.5,
-                    flexShrink: 0,
+                    width: mobile ? 22 : 28,
+                    height: mobile ? 22 : 28,
+                    filter: iconFilter(active.id),
+                    opacity: 0.85,
                   }}
                 />
-                <span style={{ fontSize: mobile ? 13 : 15, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
-                  {feature}
-                </span>
               </div>
-            ))}
-          </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <h3
+                    style={{
+                      fontSize: mobile ? 24 : 34,
+                      fontWeight: 600,
+                      color: 'rgba(255,255,255,0.92)',
+                      letterSpacing: '-0.025em',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {active.name}
+                  </h3>
+                  {active.native && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '3px 10px',
+                        borderRadius: 999,
+                        background: `${active.accent}18`,
+                        border: `1px solid ${active.accent}40`,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          backgroundColor: active.accent,
+                          opacity: 0.9,
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 10,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.12em',
+                          color: 'rgba(255,255,255,0.7)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Native
+                      </span>
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: mobile ? 12 : 14, color: 'rgba(255,255,255,0.3)', marginTop: mobile ? 2 : 5 }}>
+                  {active.label}
+                </p>
+              </div>
+            </div>
 
-        </div>
-      </div>
-    </div>
+            <Lead>{active.description}</Lead>
+
+            <FeatureChips items={active.features} accent={active.accent} />
+          </Reveal>
+        }
+      />
+    </SectionShell>
   )
 }
