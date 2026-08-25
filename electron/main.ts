@@ -621,6 +621,29 @@ if (process.env.VITE_DEV_SERVER_URL) {
   app.commandLine.appendSwitch('remote-debugging-port', '9223')
 }
 
+/**
+ * Lift Chromium's 6-sockets-per-origin cap for the local API.
+ *
+ * The renderer talks to one origin — `http://127.0.0.1:<port>/api` — over plain
+ * HTTP/1.1, so it gets 6 sockets and no multiplexing. Anything holding a
+ * connection open (an SSE subscription, a generating turn's response) spends one
+ * for its whole life, and once 6 were spent every further request queued in the
+ * socket pool behind connections that never close: the app looked frozen, not
+ * slow.
+ *
+ * Two measured facts, so nobody re-derives them (harness: hanging requests to a
+ * loopback HTTP/1.1 server that counts its own accepted sockets):
+ *   - `--max-connections-per-host` does NOTHING here. 32, 99 and 256 all still
+ *     capped at exactly 6 — it is parsed by Chrome-browser-layer code Electron
+ *     does not ship. `hasSwitch()` returning true means nothing.
+ *   - `--ignore-connections-limit` works: 40 of 40 and 120 of 120 opened.
+ *
+ * The value is matched as a plain host string with no loopback equivalence —
+ * listing only `127.0.0.1` leaves requests to `localhost` still capped at 6 — so
+ * both are listed. Must be set before `app` is ready.
+ */
+app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost')
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,

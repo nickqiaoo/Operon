@@ -3,7 +3,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalRespons
 import { useChat } from '@ai-sdk/react'
 import { apiAuthHeaders, getBaseUrl } from '@/lib/api-client'
 import { api } from '@/lib/api'
-import { subscribeSse } from '@/lib/sse'
+import { subscribeChatPresence } from '@/lib/live-turn-events'
 import { useEditorStore } from '@/stores/editor-store'
 import { normalizeOutboundMessagePaths } from '../utils/chatMetadata'
 import { mergeServerTail, TAIL_SYNC_SIZE } from '../utils/merge-server-tail'
@@ -11,14 +11,6 @@ import { normalizeHistoryMessages } from './useChatHistory'
 import { trackEvent } from '@/lib/analytics'
 
 const IS_WEB = __APP_TARGET__ === 'web'
-
-/** Presence frame from GET /api/ai/chat/live-status/:chatId. */
-interface LiveTurnStatus {
-  chatId: number
-  active: boolean
-  turnId: string | null
-  startedAt: number | null
-}
 
 // A dropped tunnel/stream connection surfaces as a fetch TypeError whose message
 // varies by engine — WebKit "Load failed", Chromium "Failed to fetch", plus the
@@ -503,9 +495,11 @@ export function useChatRuntime({
     const id = dbChatId
     if (id === undefined || id <= 0) return
     setLiveTurnActive(null)
-    const subscription = subscribeSse<LiveTurnStatus>({
-      url: async () => `${await getBaseUrl()}/ai/chat/live-status/${id}`,
-      onEvent: (event) => {
+    // Presence for every chat arrives on ONE shared stream — this used to open an
+    // SSE connection per conversation, and those are what exhausted the
+    // renderer's 6-socket-per-origin budget. See `lib/live-turn-events.ts`.
+    const unsubscribe = subscribeChatPresence(id, {
+      onStatus: (event) => {
         // The node's own view of this chat, snapshot on connect and updated on
         // every turn start/end. Recorded before the attach logic below bails out,
         // which it does for turns this surface already holds.
@@ -541,10 +535,10 @@ export function useChatRuntime({
       // Presence never answered (offline, tunnel down): report "no live turn" so
       // consumers fall back to local status instead of waiting forever. A drop
       // *after* an answer keeps it — losing the connection mid-turn is not
-      // evidence the turn ended, and subscribeSse reconnects with the truth.
+      // evidence the turn ended, and the shared stream reconnects with the truth.
       onError: () => setLiveTurnActive((prev) => (prev === null ? false : prev)),
     })
-    return () => subscription.close()
+    return unsubscribe
   }, [dbChatId]) // refs are stable
 
   // Settle a parked turn. By now our own stream has ended, so the ambiguity above

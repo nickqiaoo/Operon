@@ -61,6 +61,8 @@ export {
   getLiveTurn,
   getLiveTurnStatus,
   subscribeLiveTurnPresence,
+  subscribeAllLiveTurnPresence,
+  listActiveLiveTurnStatuses,
   type LiveTurnStatus,
 } from './ai/live-turn-hub.js'
 

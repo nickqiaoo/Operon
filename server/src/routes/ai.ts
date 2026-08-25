@@ -79,10 +79,59 @@ export function aiRoutes(storage: SddStorage) {
     return new Response(turn.toReadableStream(c.req.raw.signal), { status: 200, headers })
   })
 
-  // GET /api/ai/chat/live-status/:chatId — presence SSE. Pushes a snapshot on
-  // connect and one event per turn start/end, so a surface that had this chat
-  // open when someone else started a turn knows to attach. Registered before
-  // any other /chat/:param route so 'live-status' is never read as an argument.
+  // GET /api/ai/chat/live-status — presence for EVERY chat, on one stream.
+  //
+  // Replaces one SSE per open conversation. The renderer reaches this server at
+  // http://127.0.0.1:<port> over plain HTTP/1.1, where a browser allows 6 sockets
+  // per origin and never multiplexes; a stream that stays open spends one for its
+  // whole life, so a handful of open tabs filled the pool and every later request
+  // — sending a message included — queued behind connections that never close.
+  //
+  // Registered before the /:chatId form so 'live-status' with no argument is not
+  // read as a chat id.
+  router.get('/chat/live-status', (c) => {
+    return streamSSE(c, async (stream) => {
+      let closed = false
+      let wake: () => void = () => {}
+      const untilClosed = new Promise<void>((resolve) => {
+        wake = resolve
+      })
+      const close = (): void => {
+        closed = true
+        wake()
+      }
+      stream.onAbort(close)
+
+      // Subscribe BEFORE the snapshot, not after: a turn starting between the two
+      // would otherwise fall through both — absent from the snapshot that was
+      // already serialized, and not yet reaching a listener. The overlap can only
+      // duplicate an event, and clients are idempotent on turnId; the gap cannot
+      // be recovered at all.
+      const unsub = aiService.subscribeAllLiveTurnPresence((status) => {
+        if (closed) return
+        stream.writeSSE({ data: JSON.stringify({ type: 'presence', status }) }).catch(close)
+      })
+
+      // Every chat currently running a turn. A chat missing from this list has no
+      // live turn, which is how one stream answers for conversations the client
+      // never named.
+      await stream
+        .writeSSE({
+          data: JSON.stringify({ type: 'sync', statuses: aiService.listActiveLiveTurnStatuses() }),
+        })
+        .catch(close)
+      await untilClosed
+      unsub()
+    })
+  })
+
+  // GET /api/ai/chat/live-status/:chatId — the single-chat form of the stream
+  // above. SUPERSEDED: the app now subscribes to every chat at once, because one
+  // connection per open conversation exhausted the renderer's 6-socket budget.
+  // Kept for clients built before that change (a web build still cached in a
+  // browser reaches this node through the broker) — nothing in `src/` calls it.
+  // Registered before any other /chat/:param route so 'live-status' is never
+  // read as an argument.
   router.get('/chat/live-status/:chatId', (c) => {
     const chatId = parseInt(c.req.param('chatId'), 10)
     return streamSSE(c, async (stream) => {

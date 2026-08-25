@@ -156,6 +156,12 @@ export class LiveTurn {
 
 const turns = new Map<number, LiveTurn>()
 const presence = new Map<number, Set<PresenceListener>>()
+/**
+ * Listeners that want EVERY chat's presence, not one chat's. The client keeps a
+ * single stream for all conversations rather than one per open tab — see
+ * `src/lib/live-turn-events.ts` for why that mattered.
+ */
+const allPresence = new Set<PresenceListener>()
 
 /**
  * Open a live window for a new turn on `chatId`. A new turn supersedes the
@@ -203,11 +209,32 @@ export function subscribeLiveTurnPresence(chatId: number, listener: PresenceList
   }
 }
 
+/** Notify a listener about turn start/end on ANY chat. */
+export function subscribeAllLiveTurnPresence(listener: PresenceListener): () => void {
+  allPresence.add(listener)
+  return () => {
+    allPresence.delete(listener)
+  }
+}
+
+/**
+ * Every chat with a turn running right now. Sent as the connect-time snapshot of
+ * the all-chats stream: a chat absent from this list has no live turn, which is
+ * what lets one stream answer for conversations it was never told about.
+ */
+export function listActiveLiveTurnStatuses(): LiveTurnStatus[] {
+  const statuses: LiveTurnStatus[] = []
+  for (const [chatId, turn] of turns) {
+    if (!turn.isDone) statuses.push(getLiveTurnStatus(chatId))
+  }
+  return statuses
+}
+
 export function emitPresence(chatId: number): void {
   const listeners = presence.get(chatId)
-  if (!listeners || listeners.size === 0) return
+  if ((!listeners || listeners.size === 0) && allPresence.size === 0) return
   const status = getLiveTurnStatus(chatId)
-  for (const listener of listeners) {
+  const notify = (listener: PresenceListener): void => {
     try {
       listener(status)
     } catch (err) {
@@ -217,6 +244,8 @@ export function emitPresence(chatId: number): void {
       })
     }
   }
+  if (listeners) for (const listener of listeners) notify(listener)
+  for (const listener of allPresence) notify(listener)
 }
 
 /**
