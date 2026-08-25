@@ -1,6 +1,6 @@
 {
   "name": "operon",
-  "version": "1.3.26",
+  "version": "1.3.27",
   "author": "nickqiao",
   "description": "AI Vibe Coding Tool",
   "main": "dist-electron/main.js",
@@ -101,8 +101,8 @@
     "marked": "^17.0.5",
     "nanoid": "^5.1.6",
     "nunjucks": "^3.2.4",
-    "operon-agents": "^0.1.0-alpha.0",
-    "operon-agents-core": "^0.1.0-alpha.0",
+    "operon-agents": "^0.1.0-alpha.2",
+    "operon-agents-core": "^0.1.0-alpha.2",
     "posthog-node": "^5.28.0",
     "react-intl": "^10.1.11",
     "remark-breaks": "^4.0.0",

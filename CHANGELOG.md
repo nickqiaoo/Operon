@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.27] - 2026-08-25
+
+### Changed
+
+- Fixed chats becoming unresponsive when several conversations are open.
+- The top loading bar now shows only while a conversation's history is loading.
+- Fixed some MCP tool calls failing.
+- Fixed auto approval staying off after a temporary model error.
+- Fixed a crash caused by tool scripts that exit early.
+
 ## [1.3.26] - 2026-08-24
 
 ### Changed
