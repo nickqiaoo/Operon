@@ -1,6 +1,6 @@
 {
   "name": "operon",
-  "version": "1.3.27",
+  "version": "1.3.28",
   "author": "nickqiao",
   "description": "AI Vibe Coding Tool",
   "main": "dist-electron/main.js",

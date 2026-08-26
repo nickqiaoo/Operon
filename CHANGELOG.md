@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.28] - 2026-08-26
+
+### Changed
+
+- The conversation now has a scrollbar.
+- Added a rail beside the conversation with one mark per question — click one to jump back to it.
+- The chat input no longer draws a border when focused, or changes color with the mode.
+- Softened the shadow around the chat input.
+- Fixed buttons having no visible hover state in dark mode.
+- Tightened the button row at the bottom of dialogs.
+- The update dialog no longer uses the brand color.
+
 ## [1.3.27] - 2026-08-25
 
 ### Changed
