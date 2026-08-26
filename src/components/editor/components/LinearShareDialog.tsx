@@ -324,16 +324,18 @@ export function LinearShareDialog({ open, onOpenChange, messageText }: LinearSha
           </div>
         )}
 
-        <DialogFooter className="border-t border-border/40 pt-4">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
+        <DialogFooter>
+          <Button size="sm" variant="ghost" className="h-8" onClick={() => onOpenChange(false)} disabled={submitting}>
             <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
           </Button>
           <Button
+            size="sm"
             variant="secondary"
+            className="h-8 gap-1.5"
             onClick={handleSubmit}
             disabled={submitting || loading || !!loadError || !teamId || !title.trim()}
           >
-            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             <FormattedMessage id="editor.linear.createIssue" defaultMessage="Create Issue" />
           </Button>
         </DialogFooter>

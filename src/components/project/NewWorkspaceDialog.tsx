@@ -100,11 +100,11 @@ export function NewWorkspaceDialog({ open, onOpenChange, project, onConfirm }: N
                     </div>
                 </div>
                 <DialogFooter>
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
+                    <Button size="sm" variant="ghost" className="h-8" onClick={() => onOpenChange(false)} disabled={isCreating}>
                         <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
                     </Button>
-                    <Button variant="secondary" onClick={handleConfirm} disabled={!branchName.trim() || isCreating}>
-                        {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={handleConfirm} disabled={!branchName.trim() || isCreating}>
+                        {isCreating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                         <FormattedMessage id="workspace.new.create" defaultMessage="Create Workspace" />
                     </Button>
                 </DialogFooter>

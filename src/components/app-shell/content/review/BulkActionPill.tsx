@@ -89,7 +89,7 @@ export function RevertAllConfirmDialog({
             />
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="border-t border-border/40 pt-4">
+        <DialogFooter>
           <Button size="sm" variant="ghost" className="h-8" onClick={() => onOpenChange(false)}>
             <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
           </Button>

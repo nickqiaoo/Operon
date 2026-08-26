@@ -92,12 +92,29 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * The action row, divided from the dialog body by a full-bleed rule.
+ *
+ * Two details do the work. The rule runs edge to edge instead of stopping
+ * inside the padding: an inset line ends in mid-air just left of the buttons,
+ * which frames the empty stretch there instead of closing it off. And the row
+ * is tight — the old inset-line-plus-`p-6` version stacked ~76px of chrome
+ * under the content, enough that the emptiness beside the buttons became the
+ * loudest thing in a short dialog.
+ *
+ * No fill: the row is part of the dialog surface, and tinting it only trades
+ * one kind of visual noise for another.
+ *
+ * The negative margins assume DialogContent's default `p-6`; a dialog that
+ * changes that padding (e.g. `p-0`) neutralizes them with `mx-0 mb-0` and sets
+ * its own `px-*`.
+ */
 function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "-mx-6 -mb-6 flex shrink-0 flex-col-reverse gap-2 border-t border-border/40 px-6 py-3.5 sm:flex-row sm:items-center sm:justify-end",
         className
       )}
       {...props}

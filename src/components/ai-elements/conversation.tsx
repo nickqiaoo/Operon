@@ -38,7 +38,7 @@ export const ConversationContent = ({
   const content = typeof children === "function" ? children(context) : children;
 
   return (
-    <div ref={scrollRef} className="h-full w-full overflow-y-auto scrollbar-none">
+    <div ref={scrollRef} className="h-full w-full overflow-y-auto code-scrollbar">
       <div
         ref={contentRef}
         data-testid="message-list"

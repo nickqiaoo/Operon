@@ -1,6 +1,6 @@
 'use client';
 
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
 import { Layers } from 'lucide-react';
@@ -21,6 +21,7 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
+import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavigator';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import {
   PromptInputProvider,
@@ -186,7 +187,7 @@ function ChatPanelContent({
   const {
     model, setModel, availableModels, selectedModel,
     modeOptions, currentMode, setMode, serviceTierOptions, currentServiceTier, toggleFastMode, thinkingEffortOptions,
-    modeBorderClass, modeButtonClass, cycleMode, slashCommands, supportsInjection, supportsGoal,
+    modeButtonClass, cycleMode, slashCommands, supportsInjection, supportsGoal,
     supportsDynamicSwitch, supportsContextUsage,
   } = modelManagement;
   const { sendToAvailableModels, loadGlobalModels } = useSendToModels({
@@ -230,6 +231,9 @@ function ChatPanelContent({
   });
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+
+  // One rail tick per prompt, with the reply's opening line for the hover card.
+  const navigatorEntries = useMemo(() => buildChatNavigatorEntries(messages), [messages]);
 
   const setStreaming = useStreamingStore((s) => s.setStreaming);
   const clearUnseen = useStreamingStore((s) => s.clearUnseen);
@@ -854,6 +858,8 @@ function ChatPanelContent({
           )}
           <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} />
         </ConversationContent>
+        {/* Rendered after the transcript so it paints over the left gutter. */}
+        <ChatNavigator entries={navigatorEntries} />
         {/*
           On phones the metrics pills float in the bottom-right of this same
           band, and they sit above this button. Lift it clear of that row so the
@@ -1081,7 +1087,6 @@ function ChatPanelContent({
           status={status}
           onStop={() => void stop()}
           isGenerating={isGenerating}
-          modeBorderClass={modeBorderClass}
           selectorOpen={selectorOpen}
           setSelectorOpen={setSelectorOpen}
           selectedModel={selectedModel}

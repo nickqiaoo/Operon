@@ -21,6 +21,10 @@ import { useUpdateStore } from "@/stores/update-store"
  * quietly next to the help button as a small brand-purple pill. Clicking it
  * opens a dialog that explains the restart. Dismissing the dialog keeps the
  * pill around, so the update is never lost and never interrupts.
+ *
+ * The brand colour stops at the pill: it is there to be spotted in a busy
+ * sidebar. The dialog already has the user's attention, so it stays neutral
+ * rather than repeating an accent the rest of the app never uses.
  */
 export function UpdateReadyPill() {
   const intl = useIntl()
@@ -65,7 +69,7 @@ export function UpdateReadyPill() {
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-muted text-brand">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                 <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
               </div>
               <div className="min-w-0 space-y-1.5 text-left">
@@ -82,16 +86,18 @@ export function UpdateReadyPill() {
               </div>
             </div>
           </DialogHeader>
-          <DialogFooter className="border-t border-border/40 pt-4">
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={restarting}>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" className="h-8" onClick={() => setOpen(false)} disabled={restarting}>
               <FormattedMessage id="update.ready.later" defaultMessage="Later" />
             </Button>
             <Button
-              className="bg-brand text-brand-fg hover:bg-brand-soft active:bg-brand-soft"
+              size="sm"
+              variant="secondary"
+              className="h-8 gap-1.5"
               onClick={handleRestart}
               disabled={restarting}
             >
-              {restarting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {restarting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <FormattedMessage id="update.ready.restart" defaultMessage="Restart & install" />
             </Button>
           </DialogFooter>

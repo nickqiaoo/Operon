@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -162,7 +163,7 @@ export function SlackQuickSetupDialog({
 
         <Stepper step={step} />
 
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar mt-3">
+        <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar mt-3">
           {step === "name" && (
             <NameStep
               displayName={displayName}
@@ -196,40 +197,40 @@ export function SlackQuickSetupDialog({
           )}
         </div>
 
-        <div className="pt-4 mt-4 border-t border-border/40 shrink-0 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} className="hover:bg-muted/50">
+        <DialogFooter>
+          <Button size="sm" variant="ghost" onClick={onClose} className="h-8">
             <FormattedMessage id="settings.slack.cancel" defaultMessage="Cancel" />
           </Button>
           {step === "manifest" && (
-            <Button variant="ghost" onClick={() => setStep("name")} className="hover:bg-muted/50">
+            <Button size="sm" variant="ghost" onClick={() => setStep("name")} className="h-8">
               <FormattedMessage id="settings.slack.back" defaultMessage="Back" />
             </Button>
           )}
           {step === "install" && (
-            <Button variant="ghost" onClick={() => setStep("manifest")} className="hover:bg-muted/50">
+            <Button size="sm" variant="ghost" onClick={() => setStep("manifest")} className="h-8">
               <FormattedMessage id="settings.slack.back" defaultMessage="Back" />
             </Button>
           )}
           {step === "name" && (
-            <Button variant="secondary" disabled={busy} onClick={() => void handleBuildManifest()} className="px-6">
-              {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void handleBuildManifest()} className="h-8 gap-1.5">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <FormattedMessage id="settings.slack.generateManifest" defaultMessage="Generate Manifest" />
-              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+              <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           )}
           {step === "manifest" && (
-            <Button variant="secondary" onClick={() => setStep("install")} className="px-6">
+            <Button size="sm" variant="secondary" onClick={() => setStep("install")} className="h-8 gap-1.5">
               <FormattedMessage id="settings.slack.appCreatedNext" defaultMessage="I created the app" />
-              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+              <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           )}
           {step === "install" && (
-            <Button variant="secondary" disabled={busy} onClick={() => void handleFinish()} className="px-6">
-              {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void handleFinish()} className="h-8 gap-1.5">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <FormattedMessage id="settings.slack.finish" defaultMessage="Finish" />
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

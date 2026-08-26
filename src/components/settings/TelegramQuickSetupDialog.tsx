@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -179,7 +180,7 @@ export function TelegramQuickSetupDialog({
 
         <Stepper step={step} />
 
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar mt-3">
+        <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar mt-3">
           {step === "token" && (
             <TokenStep
               token={token}
@@ -217,35 +218,35 @@ export function TelegramQuickSetupDialog({
           </div>
         )}
 
-        <div className="pt-4 mt-4 border-t border-border/40 shrink-0 flex justify-end gap-2">
+        <DialogFooter>
           {step === "token" && (
             <>
-              <Button variant="ghost" onClick={onClose} className="hover:bg-muted/50">
+              <Button size="sm" variant="ghost" onClick={onClose} className="h-8">
                 <FormattedMessage id="settings.telegram.cancel" defaultMessage="Cancel" />
               </Button>
-              <Button variant="secondary" onClick={() => void handleValidate()} disabled={busy} className="px-6">
-                {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              <Button size="sm" variant="secondary" onClick={() => void handleValidate()} disabled={busy} className="h-8 gap-1.5">
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 <FormattedMessage id="settings.telegram.validate" defaultMessage="Validate token" />
               </Button>
             </>
           )}
           {step === "configure" && (
             <>
-              <Button variant="ghost" onClick={() => setStep("token")} className="hover:bg-muted/50">
+              <Button size="sm" variant="ghost" onClick={() => setStep("token")} className="h-8">
                 <FormattedMessage id="settings.telegram.back" defaultMessage="Back" />
               </Button>
-              <Button variant="secondary" onClick={() => void handleCreate()} disabled={busy} className="px-6">
-                {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              <Button size="sm" variant="secondary" onClick={() => void handleCreate()} disabled={busy} className="h-8 gap-1.5">
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 <FormattedMessage id="settings.telegram.createProvider" defaultMessage="Create provider" />
               </Button>
             </>
           )}
           {step === "done" && (
-            <Button variant="secondary" onClick={onClose} className="px-6">
+            <Button size="sm" variant="secondary" onClick={onClose} className="h-8 gap-1.5">
               <FormattedMessage id="settings.telegram.done" defaultMessage="Done" />
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

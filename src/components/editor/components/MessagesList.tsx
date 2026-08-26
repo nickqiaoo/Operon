@@ -253,6 +253,9 @@ const MessageItem = memo(function MessageItem({
   return (
     <div
       data-message-item-role={message.role}
+      // Anchor for the left-hand turn rail (ChatNavigator), which locates each
+      // prompt by id to compute its scroll offset.
+      data-message-id={message.id}
       className="space-y-1"
       style={deferOffscreen ? OFFSCREEN_DEFER_STYLE : undefined}
     >

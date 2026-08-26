@@ -265,7 +265,7 @@ export function CommitDialog({
           </div>
         </div>
 
-        <DialogFooter className="border-t border-border/40 px-5 py-3 sm:justify-end">
+        <DialogFooter className="mx-0 mb-0 px-5">
           <Button
             size="sm"
             variant="ghost"

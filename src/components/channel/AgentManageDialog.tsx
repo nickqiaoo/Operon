@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -226,7 +227,7 @@ export function AgentManageDialog({ open, onClose, providers }: AgentManageDialo
             </div>
           </DialogHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
+          <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
             {agents.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground/50">
                 <Bot className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -339,7 +340,7 @@ export function AgentManageDialog({ open, onClose, providers }: AgentManageDialo
             </Button>
           </DialogHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
+          <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
             <div className="space-y-5 pb-2">
               {/* Name */}
               <div className="space-y-1.5">
@@ -530,13 +531,14 @@ export function AgentManageDialog({ open, onClose, providers }: AgentManageDialo
             </div>
           </div>
 
-          <div className="pt-4 mt-4 border-t border-border/60 shrink-0 flex justify-end gap-2">
-            <Button variant="ghost" onClick={handleFormClose} className="hover:bg-muted/50"><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={handleFormClose} className="h-8"><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
             <Button
+              size="sm"
               variant="secondary"
               onClick={() => void handleSave()}
               disabled={isSubmitDisabled}
-              className="px-6"
+              className="h-8"
             >
               {saving
                 ? <FormattedMessage id="channel.form.saving" defaultMessage="Saving..." />
@@ -544,7 +546,7 @@ export function AgentManageDialog({ open, onClose, providers }: AgentManageDialo
                   ? <FormattedMessage id="channel.form.saveChanges" defaultMessage="Save Changes" />
                   : <FormattedMessage id="common.create" defaultMessage="Create" />}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

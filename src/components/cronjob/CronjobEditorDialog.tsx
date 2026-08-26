@@ -202,7 +202,7 @@ export function CronjobEditorDialog({
           </Button>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
+        <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
           <div className="space-y-6 pb-2">
             {/* Task Type Toggle */}
             <div className="space-y-1.5">
@@ -440,13 +440,14 @@ export function CronjobEditorDialog({
           </div>
         </div>
 
-        <DialogFooter className="pt-4 mt-4 border-t border-border/40 shrink-0">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="hover:bg-muted/50">{intl.formatMessage({ id: "common.cancel", defaultMessage: "Cancel" })}</Button>
+        <DialogFooter>
+          <Button size="sm" variant="ghost" className="h-8" onClick={() => onOpenChange(false)}>{intl.formatMessage({ id: "common.cancel", defaultMessage: "Cancel" })}</Button>
           <Button
+            size="sm"
             variant="secondary"
             onClick={handleSubmit}
             disabled={isSubmitDisabled}
-            className="px-6"
+            className="h-8"
           >
             {initial ? intl.formatMessage({ id: "cronjob.editor.saveChanges", defaultMessage: "Save Changes" }) : intl.formatMessage({ id: "cronjob.editor.createJob", defaultMessage: "Create Job" })}
           </Button>

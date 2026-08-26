@@ -38,7 +38,6 @@ interface ChatInputAreaProps {
   status: ChatStatus;
   onStop: () => void;
   isGenerating: boolean;
-  modeBorderClass: string;
   selectorOpen: boolean;
   setSelectorOpen: (open: boolean) => void;
   selectedModel: DynamicModel | undefined;
@@ -100,7 +99,6 @@ export function ChatInputArea({
   status,
   onStop,
   isGenerating,
-  modeBorderClass,
   selectedModel,
   availableModels,
   model,
@@ -372,15 +370,26 @@ export function ChatInputArea({
       maxFileSize={10 * 1024 * 1024}
       multiple
       className={cn(
-        'rounded-2xl bg-popover/90 overflow-hidden border border-border/60 transition-[border-color,box-shadow,background-color,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
+        // The composer's edge never changes: no focus ring, no per-mode tint. It
+        // is where the eye already is and it is focused nearly all the time, so
+        // recolouring it on every click — or on every mode switch — is motion
+        // that says nothing; the caret reports focus and the mode button
+        // reports the mode.
+        //
+        // `border-border/60` is the card-edge tier and is deliberately not
+        // weakened here. Measured against the reference composer at 2x: one
+        // device pixel of #d9d9d9 on white, i.e. 38/255 of ink. `/60` (#eceef3)
+        // spread over the two device pixels of a 1px border comes to the same
+        // 38 — matching weight, just softer. The per-mode palette used to
+        // override this with `/40`, which is 26, and read as a border that had
+        // gone missing.
+        'rounded-2xl bg-popover/90 overflow-hidden border border-border/60 transition-[box-shadow,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
         composerCompact
           ? 'shadow-none'
           : 'shadow-input',
-        'focus-within:ring-1 focus-within:ring-tint/10 focus-within:border-tint/35 focus-within:bg-popover',
         '[&_[data-slot=input-group]]:border-none [&_[data-slot=input-group]]:shadow-none [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:rounded-none',
         '[&_[data-slot=input-group]]:focus-within:ring-0 [&_[data-slot=input-group]]:focus-within:border-none',
-        'cursor-text',
-        modeBorderClass
+        'cursor-text'
       )}
       onClick={(e) => {
         const target = e.target as HTMLElement

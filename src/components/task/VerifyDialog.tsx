@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useIntl, FormattedMessage } from 'react-intl'
 import { Loader2, ShieldCheck } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -114,7 +114,7 @@ export function VerifyDialog({
           )}
         </div>
 
-        <div className="mt-2 flex min-w-0 justify-end gap-2 border-t border-border/40 pt-2">
+        <DialogFooter className="min-w-0">
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={onClose}>
             <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
           </Button>
@@ -134,7 +134,7 @@ export function VerifyDialog({
               ? intl.formatMessage({ id: 'task.verify.starting', defaultMessage: 'Starting…' })
               : intl.formatMessage({ id: 'task.verify.start', defaultMessage: 'Run verifier' })}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

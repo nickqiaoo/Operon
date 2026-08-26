@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useIntl, FormattedMessage } from 'react-intl'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -111,7 +111,7 @@ export function NewTaskDialog({ agents, onClose, onCreated }: NewTaskDialogProps
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-border/40 mt-2">
+        <DialogFooter>
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={onClose}>
             <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
           </Button>
@@ -126,7 +126,7 @@ export function NewTaskDialog({ agents, onClose, onCreated }: NewTaskDialogProps
               ? intl.formatMessage({ id: 'task.new.creating', defaultMessage: 'Creating…' })
               : intl.formatMessage({ id: 'task.new.create', defaultMessage: 'Create Task' })}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

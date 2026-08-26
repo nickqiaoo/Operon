@@ -34,9 +34,9 @@ export function RewindConfirmDialog({
             <FormattedMessage id="editor.rewind.desc2" defaultMessage='You can undo this operation using the "Undo" button that will appear at the checkpoint.' />
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="border-t border-border/40 pt-4">
-          <Button variant="ghost" onClick={onCancel}><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
-          <Button variant="destructive" onClick={onConfirm}><FormattedMessage id="editor.rewind.confirm" defaultMessage="Rewind" /></Button>
+        <DialogFooter>
+          <Button size="sm" variant="ghost" className="h-8" onClick={onCancel}><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
+          <Button size="sm" variant="destructive" className="h-8" onClick={onConfirm}><FormattedMessage id="editor.rewind.confirm" defaultMessage="Rewind" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -99,11 +99,11 @@ export function RewindConflictDialog({
             </li>
           ))}
         </ul>
-        <DialogFooter className="border-t border-border/40 pt-4">
-          <Button variant="ghost" onClick={onDismiss}>
+        <DialogFooter>
+          <Button size="sm" variant="ghost" className="h-8" onClick={onDismiss}>
             <FormattedMessage id="editor.rewind.conflict.keep" defaultMessage="Keep them" />
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button size="sm" variant="destructive" className="h-8" onClick={onConfirm}>
             <FormattedMessage id="editor.rewind.conflict.revert" defaultMessage="Revert anyway" />
           </Button>
         </DialogFooter>

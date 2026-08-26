@@ -245,16 +245,18 @@ export function CreatePRDialog({
           </label>
         </div>
 
-        <DialogFooter className="border-t border-border/40 pt-4">
+        <DialogFooter>
           <Button
+            size="sm"
             variant="ghost"
+            className="h-8"
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
             <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
           </Button>
-          <Button variant="secondary" onClick={handleSubmit} disabled={submitDisabled}>
-            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+          <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={handleSubmit} disabled={submitDisabled}>
+            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             <FormattedMessage id="editor.prDialog.create" defaultMessage="Create PR" />
           </Button>
         </DialogFooter>

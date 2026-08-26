@@ -165,9 +165,9 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
           </div>
         </ScrollArea>
 
-        <DialogFooter className="pt-4 mt-2 border-t border-border/60 shrink-0">
-          <Button variant="secondary" onClick={() => void handleDone()} disabled={saving} className="w-full">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+        <DialogFooter>
+          <Button size="sm" variant="secondary" onClick={() => void handleDone()} disabled={saving} className="h-8 gap-1.5">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             <FormattedMessage id="common.done" defaultMessage="Done" />
           </Button>
         </DialogFooter>

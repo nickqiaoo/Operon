@@ -36,6 +36,20 @@
   --color-primary-foreground: #ffffff;
   --color-secondary: #eef1f7;
   --color-secondary-foreground: #1a1b23;
+  /* Interaction steps for the two flat button fills.
+     `hover:bg-secondary/60` used to be the hover state, which makes the button
+     *more transparent* — it moves toward whatever is behind it. That reads as a
+     fade-out, and in dark mode it disappears outright: `secondary` (#202024) is
+     already within 3 of the dialog surface (#1d1d1f), so a 60% wash of it lands
+     1 away from the resting fill. Mixing toward `foreground` instead darkens in
+     light and lightens in dark — one expression, right direction in both.
+     Kept as a mix of the base token rather than a fixed hex so it tracks the
+     ported UI themes, which override `--color-secondary` inline on
+     `documentElement`. Repeated verbatim under `.dark` — see the note there. */
+  --color-secondary-hover: color-mix(in srgb, var(--color-secondary) 92%, var(--color-foreground));
+  --color-secondary-active: color-mix(in srgb, var(--color-secondary) 84%, var(--color-foreground));
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 92%, var(--color-foreground));
+  --color-accent-active: color-mix(in srgb, var(--color-accent) 84%, var(--color-foreground));
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
   --color-popover: #ffffff;
@@ -144,6 +158,14 @@
   --color-destructive-foreground: #fecaca;
   --color-popover: #1a1a1e;
   --color-popover-foreground: #f0f0f2;
+  /* Same expression as the light block, repeated on purpose: Tailwind emits each
+     `@theme` var onto `:root, :host` twice — once with the light values already
+     inlined, once as authored — so only source order decides which survives.
+     Redeclaring here pins the dark resolution regardless of that order. */
+  --color-secondary-hover: color-mix(in srgb, var(--color-secondary) 92%, var(--color-foreground));
+  --color-secondary-active: color-mix(in srgb, var(--color-secondary) 84%, var(--color-foreground));
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 92%, var(--color-foreground));
+  --color-accent-active: color-mix(in srgb, var(--color-accent) 84%, var(--color-foreground));
   --color-dialog: color-mix(in srgb, var(--color-background) 92%, var(--color-foreground) 8%);
   --color-dialog-foreground: var(--color-popover-foreground);
   --color-dialog-field: color-mix(in srgb, var(--color-background) 97%, var(--color-foreground) 3%);
@@ -516,7 +538,17 @@
      from big grey haze. Values originate from the blessed hand-tuned surfaces
      (board card, chat composer, dialog) and are now the single source. */
   --elevation-card: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --elevation-input: 0 10px 24px -22px rgba(15, 23, 42, 0.24);
+  /* Fitted to the reference composer, measured off a 2x screenshot (page bg 253,
+     luminance drop just outside the border): sides 8, top 5, bottom 11, all
+     decaying to 0 across ~8 CSS px. Treating CSS blur as a Gaussian with
+     sigma = blur/2, every edge lands on the same solution — sigma 4 (blur 8),
+     dy 2, no spread, full-alpha drop 16/255.
+     The old `-22px` spread was the problem the numbers exposed: it shrank the
+     shadow rect 22px inside the box, so with sigma 12 almost nothing reached the
+     sides (drop 2) or the top (drop 0) and the whole shadow pooled under the
+     bottom edge (drop 10) as a smudge. A tight even halo costs less ink overall
+     and still reads on all four sides. */
+  --elevation-input: 0 2px 8px rgba(15, 23, 42, 0.07);
   --elevation-float:
     0 12px 28px -18px rgba(15, 23, 42, 0.22),
     0 0 0 1px rgba(15, 23, 42, 0.02);
@@ -545,7 +577,10 @@
   /* Dark mode: deeper black shadows are needed to lift surfaces off the dark
      canvas; a faint white hairline replaces the slate outline. */
   --elevation-card: 0 12px 30px -24px rgba(0, 0, 0, 0.9);
-  --elevation-input: 0 18px 44px -34px rgba(0, 0, 0, 0.9);
+  /* Same geometry as light so the composer's halo is even here too; the alpha is
+     an estimate, not a measurement — there was no dark reference to fit, and a
+     black shadow on a near-black canvas needs far more of it to register. */
+  --elevation-input: 0 2px 8px rgba(0, 0, 0, 0.6);
   --elevation-float:
     0 24px 48px -16px rgba(0, 0, 0, 0.55),
     0 0 0 1px rgba(255, 255, 255, 0.06);

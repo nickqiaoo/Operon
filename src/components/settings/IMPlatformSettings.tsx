@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -428,7 +429,7 @@ export function IMPlatformSettings() {
             </Button>
           </DialogHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
+          <div className="min-h-0 overflow-y-auto -mx-6 px-6 code-scrollbar">
             <div className="space-y-5 pb-2">
               <Field
                 label={intl.formatMessage({ id: "settings.im.field.source", defaultMessage: "Source" })}
@@ -553,18 +554,18 @@ export function IMPlatformSettings() {
             </div>
           </div>
 
-          <div className="pt-4 mt-4 border-t border-border/40 shrink-0 flex justify-end gap-2">
-            <Button variant="ghost" onClick={closeForm} className="hover:bg-muted/50">
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={closeForm} className="h-8">
               <FormattedMessage id="settings.im.cancel" defaultMessage="Cancel" />
             </Button>
-            <Button variant="secondary" onClick={() => void handleSave()} disabled={saving} className="px-6">
-              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            <Button size="sm" variant="secondary" onClick={() => void handleSave()} disabled={saving} className="h-8 gap-1.5">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {editing
                 ? <FormattedMessage id="settings.im.saveChanges" defaultMessage="Save Changes" />
                 : <FormattedMessage id="settings.im.create" defaultMessage="Create" />
               }
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -687,7 +688,7 @@ function BindingsDialog({
           </Button>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 pb-2 code-scrollbar">
+        <div className="min-h-0 overflow-y-auto -mx-6 px-6 pb-2 code-scrollbar">
           {loading ? (
             <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
               <Loader2 className="h-4 w-4 animate-spin" />
