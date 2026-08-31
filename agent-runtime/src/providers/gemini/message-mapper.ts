@@ -1,4 +1,5 @@
 import type {
+  FileData,
   FilePart,
   ImagePart,
   TextPart,
@@ -9,14 +10,36 @@ import type {
 import type { ModelMessage } from 'ai'
 import type { Content, Part } from '@google/genai'
 
-function toInlineData(data: string | Uint8Array | ArrayBuffer | ArrayBufferView | URL): string | Uint8Array {
+/**
+ * Everything AI SDK v5+ accepts as a file/image payload. Beyond raw bytes and a
+ * URL, v7 added a tagged `FileData` union and a bare provider reference
+ * (`{ [provider]: fileId }`) — neither of which Gemini CLI Core can fetch.
+ */
+type FileInputData = FilePart['data'] | ImagePart['image']
+
+const isFileData = (data: FileInputData): data is FileData =>
+  typeof data === 'object' && data !== null && !(data instanceof URL) && 'type' in data
+
+function toInlineData(data: FileInputData): string | Uint8Array {
+  // v7 wraps payloads in a tagged union; unwrap the inline variant, reject the rest.
+  if (isFileData(data)) {
+    if (data.type === 'data') return toInlineData(data.data)
+    throw new Error(
+      `Gemini CLI Core needs inline file data, got a '${data.type}' file. Please provide inline data.`,
+    )
+  }
   if (data instanceof URL) {
     throw new Error('URL files are not supported by Gemini CLI Core. Please provide inline data.')
   }
   if (typeof data === 'string') return data
   if (data instanceof Uint8Array) return data
   if (data instanceof ArrayBuffer) return new Uint8Array(data)
-  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  // Only a provider reference is left — an id for a file uploaded to some other
+  // provider, which Gemini CLI Core has no way to resolve.
+  throw new Error(
+    'Provider file references are not supported by Gemini CLI Core. Please provide inline data.',
+  )
 }
 
 export function mapUserPart(part: TextPart | ImagePart | FilePart): Part {

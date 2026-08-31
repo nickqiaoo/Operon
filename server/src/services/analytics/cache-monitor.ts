@@ -67,18 +67,17 @@ interface UsageNumbers {
 
 /**
  * Read cache tokens out of the AI-SDK usage. Both claude-code and codex place them in
- * `inputTokenDetails.{cacheReadTokens,cacheWriteTokens}` (with `cachedInputTokens` as a
- * fallback for cache read), and report `inputTokens` as the FULL prompt (cache included).
+ * `inputTokenDetails.{cacheReadTokens,cacheWriteTokens}`, and report `inputTokens` as
+ * the FULL prompt (cache included).
  */
 function readUsage(usage: LanguageModelUsage): UsageNumbers {
   const u = usage as unknown as {
     inputTokens?: number
     outputTokens?: number
-    cachedInputTokens?: number
     inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number }
   }
   return {
-    cacheRead: u.inputTokenDetails?.cacheReadTokens ?? u.cachedInputTokens ?? 0,
+    cacheRead: u.inputTokenDetails?.cacheReadTokens ?? 0,
     cacheWrite: u.inputTokenDetails?.cacheWriteTokens ?? 0,
     inputTokens: u.inputTokens ?? 0,
     outputTokens: u.outputTokens ?? 0,

@@ -36,6 +36,7 @@ import { MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT } from '../../memory-reso
 import { logProviderRaw } from '../../provider-raw-log.js'
 import { applyRuntimeEnv } from '../../runtime-env.js'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
+import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
 
 const GEMINI_PROVIDER_OPTIONS: GeminiProviderOptions = {
   authType: 'oauth-personal',
@@ -83,8 +84,6 @@ function buildUsage(inputTokens?: number, outputTokens?: number): GeminiUsage {
         ? inputTokens + outputTokens
         : inputTokens ?? outputTokens,
     raw: undefined,
-    reasoningTokens: 0,
-    cachedInputTokens: 0,
   }
 }
 
@@ -327,6 +326,7 @@ export class GeminiRuntimeSession implements RuntimeSession {
         type: 'finish-step',
         response: this.makeResponseMetadata(),
         usage: buildUsage(0, 0),
+        performance: UNMEASURED_STEP_PERFORMANCE,
         finishReason: 'stop',
         rawFinishReason: 'stop',
         providerMetadata: this.getSessionProviderMetadata(),
@@ -838,6 +838,7 @@ export class GeminiRuntimeSession implements RuntimeSession {
             type: 'finish-step',
             response: this.makeResponseMetadata(),
             usage: buildUsage(turnResult.inputTokens, turnResult.outputTokens),
+            performance: UNMEASURED_STEP_PERFORMANCE,
             finishReason: 'stop',
             rawFinishReason: turnResult.rawFinishReason,
             providerMetadata: this.getSessionProviderMetadata(turnResult.inputTokens),
@@ -873,6 +874,7 @@ export class GeminiRuntimeSession implements RuntimeSession {
           type: 'finish-step',
           response: this.makeResponseMetadata(),
           usage: buildUsage(turnResult.inputTokens, turnResult.outputTokens),
+          performance: UNMEASURED_STEP_PERFORMANCE,
           finishReason: 'tool-calls',
           rawFinishReason: turnResult.rawFinishReason,
           providerMetadata: this.getSessionProviderMetadata(turnResult.inputTokens),

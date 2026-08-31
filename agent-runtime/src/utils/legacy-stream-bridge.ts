@@ -31,8 +31,6 @@ function asLanguageModelUsage(usage: LanguageModelV3Usage) {
         ? usage.inputTokens.total + usage.outputTokens.total
         : usage.inputTokens.total ?? usage.outputTokens.total,
     raw: usage.raw,
-    reasoningTokens: usage.outputTokens.reasoning,
-    cachedInputTokens: usage.inputTokens.cacheRead,
   }
 }
 
@@ -252,8 +250,6 @@ export async function* bridgeLegacyModelStream(
     },
     totalTokens: undefined,
     raw: undefined,
-    reasoningTokens: undefined,
-    cachedInputTokens: undefined,
   }
 
   yield {

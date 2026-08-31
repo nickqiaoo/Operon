@@ -27,11 +27,9 @@ describe('GROK_CONFIG.parseUsage', () => {
     expect(usage?.inputTokens).toBe(16006)
     expect(usage?.outputTokens).toBe(28)
     expect(usage?.totalTokens).toBe(16034)
-    expect(usage?.cachedInputTokens).toBe(11264)
     expect(usage?.inputTokenDetails.cacheReadTokens).toBe(11264)
     expect(usage?.inputTokenDetails.noCacheTokens).toBe(16006 - 11264)
     expect(usage?.outputTokenDetails.reasoningTokens).toBe(23)
-    expect(usage?.reasoningTokens).toBe(23)
   })
 
   it('falls back to flat _meta counters when there is no nested usage', () => {

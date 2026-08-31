@@ -150,7 +150,7 @@ export const kimiReasoning: FakeScript = async function* ({ session }) {
   yield {
     type: 'finish',
     finishReason: 'stop',
-    totalUsage: { ...USAGE, reasoningTokens: 14 },
+    totalUsage: { ...USAGE, outputTokenDetails: { textTokens: 27, reasoningTokens: 14 } },
   } as RuntimeStreamPart
 }
 

@@ -29,8 +29,8 @@ function metadata(extra: Record<string, unknown> = {}): { codex: Record<string, 
 const USAGE = {
   inputTokens: 30,
   outputTokens: 60,
+  outputTokenDetails: { textTokens: 48, reasoningTokens: 12 },
   totalTokens: 90,
-  reasoningTokens: 12,
 }
 
 export const codexTextOnly: FakeScript = async function* ({ session }) {
@@ -184,7 +184,7 @@ export const codexReasoning: FakeScript = async function* ({ session }) {
   yield {
     type: 'finish',
     finishReason: 'stop',
-    totalUsage: { ...USAGE, reasoningTokens: 24 },
+    totalUsage: { ...USAGE, outputTokenDetails: { textTokens: 36, reasoningTokens: 24 } },
   } as RuntimeStreamPart
 }
 

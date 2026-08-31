@@ -247,8 +247,6 @@ describe('AcpEventMapper', () => {
             outputTokenDetails: { textTokens: undefined, reasoningTokens: 3 },
             totalTokens: 110,
             raw: undefined,
-            reasoningTokens: 3,
-            cachedInputTokens: 40,
           }
         : undefined
     const mapper = new AcpEventMapper('sess-usage-1', 'grok-4.5', [], parseUsage)
@@ -273,8 +271,6 @@ describe('AcpEventMapper', () => {
       outputTokenDetails: { textTokens: undefined, reasoningTokens: 0 },
       totalTokens: 75_200,
       raw: undefined,
-      reasoningTokens: 0,
-      cachedInputTokens: 60_000,
     })
     const parseContextTokens = (meta: Record<string, unknown> | undefined) =>
       typeof meta?.totalTokens === 'number' ? meta.totalTokens : undefined

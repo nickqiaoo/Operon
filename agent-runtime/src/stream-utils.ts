@@ -1,3 +1,24 @@
+import type { StepResultPerformance } from 'ai'
+
+/**
+ * `performance` metrics for a `finish-step` part we did not time.
+ *
+ * AI SDK v7 made `performance` required on `TextStreamFinishStepPart`.
+ * `streamText` fills it from its own request timers, but our providers
+ * translate an external CLI's event stream — there is no request we clocked,
+ * so every rate is reported as zero/unknown rather than invented.
+ */
+export const UNMEASURED_STEP_PERFORMANCE: StepResultPerformance = {
+  effectiveOutputTokensPerSecond: 0,
+  outputTokensPerSecond: undefined,
+  inputTokensPerSecond: undefined,
+  effectiveTotalTokensPerSecond: 0,
+  stepTimeMs: 0,
+  responseTimeMs: 0,
+  toolExecutionMs: {},
+  timeToFirstOutputMs: undefined,
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 

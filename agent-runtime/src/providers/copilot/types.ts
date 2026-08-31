@@ -19,4 +19,7 @@ export type {
   UsageInfoEvent,
   IdleEvent,
   ErrorEvent as CopilotErrorEvent,
+  // Tool arguments are typed as free-form JSON (null / scalars / arrays are
+  // all legal), not as an object — the mapper must not assume a record.
+  JsonValue as CopilotJsonValue,
 } from '@github/copilot-sdk'

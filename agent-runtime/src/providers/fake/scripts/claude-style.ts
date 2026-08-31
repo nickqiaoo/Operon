@@ -22,9 +22,9 @@ function metadata(extra: Record<string, unknown> = {}): { 'claude-code': Record<
 
 const USAGE = {
   inputTokens: 12,
+  inputTokenDetails: { noCacheTokens: 4, cacheReadTokens: 8, cacheWriteTokens: 0 },
   outputTokens: 24,
   totalTokens: 36,
-  cachedInputTokens: 8,
 }
 
 export const claudeTextOnly: FakeScript = async function* ({ session }) {
@@ -196,7 +196,7 @@ export const claudeReasoning: FakeScript = async function* ({ session }) {
   yield {
     type: 'finish',
     finishReason: 'stop',
-    totalUsage: { ...USAGE, reasoningTokens: 18 },
+    totalUsage: { ...USAGE, outputTokenDetails: { textTokens: 6, reasoningTokens: 18 } },
   } as RuntimeStreamPart
 }
 

@@ -294,7 +294,7 @@ export const ContextReasoningUsage = ({
   ...props
 }: ContextReasoningUsageProps) => {
   const { usage } = useContextValue();
-  const reasoningTokens = usage?.outputTokenDetails?.reasoningTokens ?? usage?.reasoningTokens ?? 0;
+  const reasoningTokens = usage?.outputTokenDetails?.reasoningTokens ?? 0;
 
   if (children) {
     return children;
@@ -323,7 +323,7 @@ export const ContextCacheUsage = ({
   ...props
 }: ContextCacheUsageProps) => {
   const { usage } = useContextValue();
-  const cacheRead = usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? 0;
+  const cacheRead = usage?.inputTokenDetails?.cacheReadTokens ?? 0;
   const cacheWrite = usage?.inputTokenDetails?.cacheWriteTokens ?? 0;
 
   if (children) {
@@ -448,8 +448,8 @@ export const ContextDetailedContent = ({
   // Fallback: standard usage breakdown when detailed data is not available
   const inputTotal = usage?.inputTokens ?? 0;
   const outputTokens = usage?.outputTokens ?? 0;
-  const reasoningTokens = usage?.outputTokenDetails?.reasoningTokens ?? usage?.reasoningTokens ?? 0;
-  const cacheRead = usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? 0;
+  const reasoningTokens = usage?.outputTokenDetails?.reasoningTokens ?? 0;
+  const cacheRead = usage?.inputTokenDetails?.cacheReadTokens ?? 0;
   const cacheWrite = usage?.inputTokenDetails?.cacheWriteTokens ?? 0;
   // How full the window is — NOT the same number as this turn's input. `usedTokens`
   // carries the provider's own prompt-token count (see useRecentDerivedState:

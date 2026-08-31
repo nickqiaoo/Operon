@@ -12,7 +12,6 @@ const usage = (cacheRead: number, cacheWrite: number, uncached: number, output =
   ({
     inputTokens: cacheRead + cacheWrite + uncached, // full prompt (cache included)
     outputTokens: output,
-    cachedInputTokens: cacheRead,
     inputTokenDetails: { cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite },
   }) as unknown as LanguageModelUsage
 

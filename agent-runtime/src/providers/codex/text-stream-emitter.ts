@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { buildStreamMessageMetadata, type StreamMessageMetadata } from '../../stream-message-metadata.js'
+import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
 
 interface JsonRecord {
   [key: string]: JsonValue | undefined
@@ -135,8 +136,6 @@ function buildUsage(
     },
     totalTokens: inputTokens + outputTokens,
     raw: serializeJsonObject(metadata),
-    reasoningTokens,
-    cachedInputTokens,
   }
 }
 
@@ -460,6 +459,7 @@ export class CodexTextStreamEmitter {
         modelId: this.options.modelId,
       },
       usage,
+      performance: UNMEASURED_STEP_PERFORMANCE,
       finishReason: finishReason.unified,
       rawFinishReason: finishReason.raw,
       providerMetadata: this.buildProviderMetadata(promptTokens),

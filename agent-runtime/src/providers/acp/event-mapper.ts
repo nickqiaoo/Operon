@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type * as acp from '@zed-industries/agent-client-protocol'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
+import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
 
 type FinishReason = Extract<RuntimeTextStreamPart, { type: 'finish-step' }>['finishReason']
 type RuntimeUsage = Extract<RuntimeTextStreamPart, { type: 'finish-step' }>['usage']
@@ -35,8 +36,6 @@ function zeroUsage(): RuntimeUsage {
     outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
     totalTokens: 0,
     raw: undefined,
-    reasoningTokens: 0,
-    cachedInputTokens: 0,
   }
 }
 
@@ -454,6 +453,7 @@ export class AcpEventMapper {
         type: 'finish-step',
         response: { id: randomUUID(), timestamp: new Date(), modelId: this.modelId },
         usage: this.latestUsage,
+        performance: UNMEASURED_STEP_PERFORMANCE,
         finishReason: finishReason.unified,
         rawFinishReason: finishReason.raw,
         providerMetadata: this.buildProviderMetadata(),

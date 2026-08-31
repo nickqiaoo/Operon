@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeStreamPart } from '../../types.js'
 import { COPILOT_INTERACTIVE_TOOL_NAMES } from './config.js'
-import type { CopilotSessionEvent } from './types.js'
+import type { CopilotJsonValue, CopilotSessionEvent } from './types.js'
 
 /**
  * Stateful translator: Copilot SDK `SessionEvent`s -> RuntimeStreamPart stream.
@@ -229,7 +229,7 @@ export class CopilotMessageMapper {
   private onToolStart(
     toolCallId: string,
     toolName: string,
-    args: Record<string, unknown> | undefined,
+    args: CopilotJsonValue | undefined,
   ): RuntimeStreamPart[] {
     const parts: RuntimeStreamPart[] = []
     // A tool call ends any open assistant text/reasoning block first.

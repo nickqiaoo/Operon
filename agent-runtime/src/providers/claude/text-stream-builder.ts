@@ -10,6 +10,7 @@ import type {
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type { ToolStreamState } from './types.js'
+import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
 
 interface JsonRecord {
   [key: string]: JsonValue | undefined
@@ -110,8 +111,6 @@ function toLanguageModelUsage(usage: ClaudeRawUsage): LanguageModelUsage {
     },
     totalTokens: inputTokens + cacheWrite + cacheRead + outputTokens,
     raw: usage as JsonRecord,
-    reasoningTokens: 0,
-    cachedInputTokens: cacheRead,
   }
 }
 
@@ -470,6 +469,7 @@ export class ClaudeTextStreamBuilder {
         modelId: this.options.modelId,
       },
       usage,
+      performance: UNMEASURED_STEP_PERFORMANCE,
       finishReason: reason,
       rawFinishReason: rawReason,
       providerMetadata: this.buildProviderMetadata(extraMetadata),

@@ -106,8 +106,6 @@ function parseGrokUsage(meta: Record<string, unknown> | undefined): AcpUsage | u
     outputTokenDetails: { textTokens: undefined, reasoningTokens },
     totalTokens,
     raw: toJsonRecord(meta),
-    reasoningTokens,
-    cachedInputTokens,
   }
 }
 

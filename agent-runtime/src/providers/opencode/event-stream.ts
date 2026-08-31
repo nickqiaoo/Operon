@@ -7,6 +7,7 @@ import type {
   StreamingUsage,
   ToolStreamState,
 } from './types.js'
+import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
 
 type FinishReason = Extract<RuntimeTextStreamPart, { type: 'finish-step' }>['finishReason']
 type FinishStepUsage = Extract<RuntimeTextStreamPart, { type: 'finish-step' }>['usage']
@@ -394,8 +395,6 @@ function buildUsage(usage: StreamingUsage): FinishStepUsage {
       cache_write_input_tokens: usage.cachedWriteTokens,
       total_cost: usage.totalCost,
     },
-    reasoningTokens: usage.reasoningTokens,
-    cachedInputTokens: usage.cachedInputTokens,
   }
 }
 
@@ -897,6 +896,7 @@ function handleStepFinishPart(part: StepFinishPart, state: StreamState): Runtime
         modelId: state.modelId,
       },
       usage,
+      performance: UNMEASURED_STEP_PERFORMANCE,
       finishReason: finishReason.unified,
       rawFinishReason: finishReason.raw,
       providerMetadata: buildStepProviderMetadata(state, part.sessionID),
@@ -931,6 +931,7 @@ export function createFinishParts(
         modelId,
       },
       usage,
+      performance: UNMEASURED_STEP_PERFORMANCE,
       finishReason: finishReason.unified,
       rawFinishReason: finishReason.raw,
       providerMetadata: buildStepProviderMetadata(state, sessionId),

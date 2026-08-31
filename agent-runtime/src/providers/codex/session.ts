@@ -63,6 +63,7 @@ import type { SdkMcpServer } from './sdk/tools/sdk-mcp-server.js'
 import { CodexTextStreamEmitter } from './text-stream-emitter.js'
 import { createResponseForDecision, type ApprovalResolverType } from './approval-response.js'
 import { withLocalMcpNoProxy } from './local-mcp-env.js'
+import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
 
 type ApprovalPayload =
   | import('./sdk/protocol/messages.js').CommandExecutionRequestApprovalResponse
@@ -452,13 +453,12 @@ export class CodexRuntimeSession implements RuntimeSession {
           outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
           totalTokens: 0,
           raw: undefined,
-          reasoningTokens: 0,
-          cachedInputTokens: 0,
         }
         controller.enqueue({
           type: 'finish-step',
           response: { id: randomUUID(), timestamp: new Date(), modelId },
           usage,
+          performance: UNMEASURED_STEP_PERFORMANCE,
           finishReason: 'stop',
           rawFinishReason: 'stop',
           providerMetadata: threadId ? { codex: { sessionId: threadId } } : undefined,
