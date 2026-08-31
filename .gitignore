@@ -123,3 +123,8 @@ web/public/download/*.apk
 # Scoped to this subdirectory on purpose: `.operon/changes/` holds tracked SDD
 # artifacts, so the parent must stay visible to git.
 /.operon/worktrees/
+
+# Personal frontend study notes kept next to the code for convenience. A
+# learning scratchpad, not project documentation — docs/ is where shared
+# material belongs.
+/study-notes/
