@@ -1415,6 +1415,9 @@
   "editor.lineComment.edit": "编辑",
   "editor.lineComment.delete": "删除",
   "editor.lineComment.remove": "移除注释",
+  "editor.selectedText.remove": "移除选中内容",
+  "selection.addToChat": "添加到对话",
+  "selection.askInSideChat": "在侧边聊天中提问",
 
   "mobile.chats.loading": "加载中…",
   "sidebar.inbox": "收件箱",

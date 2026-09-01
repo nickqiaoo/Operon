@@ -144,3 +144,75 @@ describe('OpenCode MCP session control', () => {
     })
   })
 })
+
+describe('OpenCode side chat', () => {
+  function mockForkableClient() {
+    const fork = vi.fn(async () => ({ data: { id: 'fork-1' } }))
+    const promptAsync = vi.fn(async () => ({ data: {} }))
+    const remove = vi.fn(async () => ({ data: true }))
+    const create = vi.fn(async () => ({ data: { id: 'fresh-1' } }))
+    const client = { session: { fork, promptAsync, delete: remove, create } }
+    return {
+      fork,
+      promptAsync,
+      remove,
+      create,
+      clientManager: { getClient: vi.fn(async () => client) },
+    }
+  }
+
+  it('branches off the parent once and reuses the branch after that', async () => {
+    const session = new OpencodeRuntimeSession({
+      cwd: '/workspace',
+      forkFrom: { sessionId: 'parent-1', ephemeral: true },
+    })
+    const mocks = mockForkableClient()
+    Object.assign(session, { clientManager: mocks.clientManager })
+
+    await session.injectMessage('hello')
+    expect(mocks.fork).toHaveBeenCalledWith({
+      sessionID: 'parent-1',
+      directory: '/workspace',
+    })
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(session.getSessionId()).toBe('fork-1')
+
+    await session.injectMessage('again')
+    expect(mocks.fork).toHaveBeenCalledTimes(1)
+  })
+
+  it('deletes the branch it forked when discarded, but keeps it across a rebuild', async () => {
+    const session = new OpencodeRuntimeSession({
+      cwd: '/workspace',
+      forkFrom: { sessionId: 'parent-1', ephemeral: true },
+    })
+    const mocks = mockForkableClient()
+    Object.assign(session, { clientManager: mocks.clientManager })
+
+    await session.injectMessage('hello')
+
+    await session.dispose('rebuild')
+    expect(mocks.remove).not.toHaveBeenCalled()
+    // The rebuilt session resumes the branch by id, so it must still be known.
+    expect(session.getSessionId()).toBe('fork-1')
+
+    await session.dispose('discard')
+    expect(mocks.remove).toHaveBeenCalledWith({
+      sessionID: 'fork-1',
+      directory: '/workspace',
+    })
+  })
+
+  it('creates an ordinary session and never deletes it', async () => {
+    const session = new OpencodeRuntimeSession({ cwd: '/workspace' })
+    const mocks = mockForkableClient()
+    Object.assign(session, { clientManager: mocks.clientManager })
+
+    await session.injectMessage('hello')
+    expect(mocks.create).toHaveBeenCalled()
+    expect(mocks.fork).not.toHaveBeenCalled()
+
+    await session.dispose()
+    expect(mocks.remove).not.toHaveBeenCalled()
+  })
+})

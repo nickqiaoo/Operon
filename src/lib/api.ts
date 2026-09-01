@@ -366,6 +366,7 @@ export const api = {
   chatHistoryPatch: httpClient.chatHistoryPatch,
   chatHistoryClear: httpClient.chatHistoryClear,
   chatHistoryList: httpClient.chatHistoryList,
+  chatHistorySideCreate: httpClient.chatHistorySideCreate,
 
   // --- AI turn control (HTTP) ---
   aiAbort: httpClient.aiAbort,

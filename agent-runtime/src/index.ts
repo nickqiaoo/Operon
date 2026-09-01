@@ -1,5 +1,8 @@
 // Public type surface — everything declared in types.ts.
 export type * from './types.js'
+// Values (not just types) the host needs at runtime — the error class lets a
+// host tell a message written for the user from an internal failure.
+export { UserFacingRuntimeError, isUserFacingRuntimeError } from './types.js'
 
 export { SessionManager } from './session-manager.js'
 export { setRuntimeHost, getRuntimeHost, type RuntimeHost } from './host.js'

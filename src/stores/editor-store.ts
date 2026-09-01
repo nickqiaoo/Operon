@@ -49,6 +49,12 @@ interface EditorStore extends EditorState {
    */
   openChatTab: (chatId: string, title?: string, options?: EditorTab['options'], providerId?: string, isSubAgent?: boolean) => string
   setTabChatId: (tabId: string, chatId: number) => void
+  /**
+   * Register a side chat so ChatPanel can find its state. Never activated and
+   * never shown in the editor tab strip — the right-panel tab owning it is the
+   * only way in. Returns the editor tab id to hand to ChatPanel.
+   */
+  openSideChatTab: (dbChatId: number, title: string, providerId?: string) => string
   openDiff: (path: string, content: string) => void
   updateTabTitle: (id: string, title: string) => void
   updateTabProvider: (id: string, provider: string) => void
@@ -262,6 +268,27 @@ export const useEditorStore = create<EditorStore>()(
       activeTabId: options?.background ? state.activeTabId : newTab.id,
     })
     return newTab.id
+  },
+
+  openSideChatTab: (dbChatId, title, providerId) => {
+    const tabId = `chat:${dbChatId}`
+    const state = get()
+    if (state.tabs.some((tab) => tab.id === tabId)) return tabId
+    set({
+      tabs: [
+        ...state.tabs,
+        {
+          id: tabId,
+          title,
+          type: "chat",
+          closable: true,
+          providerId,
+          isSideChat: true,
+          chatId: dbChatId,
+        },
+      ],
+    })
+    return tabId
   },
 
   setTabChatId: (tabId: string, chatId: number) => {

@@ -150,6 +150,7 @@ export class ClaudeRuntimeProvider implements RuntimeProviderFactory {
         checkpoint: true,
         dynamicSwitch: true,
         contextUsage: true,
+        sideChat: true,
       },
       account,
     }

@@ -1,6 +1,6 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useIntl } from "react-intl"
-import { ExternalLink, Folders, RefreshCw } from "lucide-react"
+import { ArrowLeft, ArrowRight, ExternalLink, Folders, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   SIDE_FILE_TREE_DEFAULT_WIDTH,
@@ -48,13 +48,30 @@ export function WorkspaceBrowserTab({
   const isTreeVisible = useAppShellStore((s) => !s.workspaceTreeHidden[tabId])
   const toggleWorkspaceTree = useAppShellStore((s) => s.toggleWorkspaceTree)
   const updateTab = useTabsStore((s) => s.updateTab)
+  const previewHistory = useAppShellStore((s) => s.workspacePreviewHistory[tabId])
+  const pushPreviewHistory = useAppShellStore((s) => s.pushWorkspacePreviewHistory)
+  const stepPreviewHistory = useAppShellStore((s) => s.stepWorkspacePreviewHistory)
   // Bumped by the refresh button to force FilePreviewPane to re-read the file.
   const [previewReloadNonce, setPreviewReloadNonce] = useState(0)
   const [fileTreeWidth, setFileTreeWidth] = useState(
     SIDE_FILE_TREE_DEFAULT_WIDTH
   )
 
-  const handleSelectFile = (absolutePath: string) => {
+  const historyIndex = previewHistory?.index ?? -1
+  const historyLength = previewHistory?.entries.length ?? 0
+  const canGoBack = historyIndex > 0
+  const canGoForward = historyIndex >= 0 && historyIndex < historyLength - 1
+
+  // Records every file the preview lands on, wherever the navigation came
+  // from — the tree, a file citation in chat, `openWorkspaceFilePreview`. Going
+  // back/forward moves the cursor first, so the push below sees the path it is
+  // already parked on and does nothing.
+  useEffect(() => {
+    if (selectedPath == null) return
+    pushPreviewHistory(tabId, selectedPath)
+  }, [pushPreviewHistory, selectedPath, tabId])
+
+  const showFile = (absolutePath: string) => {
     updateTab(panelId, tabId, {
       title: basename(absolutePath),
       payload: {
@@ -64,6 +81,38 @@ export function WorkspaceBrowserTab({
       },
     })
   }
+
+  const goHistory = (delta: number) => {
+    const path = stepPreviewHistory(tabId, delta)
+    if (path == null) return
+    showFile(path)
+  }
+
+  const backButton = (
+    <HistoryNavButton
+      label={intl.formatMessage({
+        id: "workspaceBrowser.previousFile",
+        defaultMessage: "Previous file",
+      })}
+      disabled={!canGoBack}
+      onClick={() => goHistory(-1)}
+    >
+      <ArrowLeft className="h-3.5 w-3.5" />
+    </HistoryNavButton>
+  )
+
+  const forwardButton = (
+    <HistoryNavButton
+      label={intl.formatMessage({
+        id: "workspaceBrowser.nextFile",
+        defaultMessage: "Next file",
+      })}
+      disabled={!canGoForward}
+      onClick={() => goHistory(1)}
+    >
+      <ArrowRight className="h-3.5 w-3.5" />
+    </HistoryNavButton>
+  )
 
   const refreshButton = (
     <button
@@ -117,6 +166,8 @@ export function WorkspaceBrowserTab({
         rightAccessory={
           isTreeVisible ? null : (
             <>
+              {backButton}
+              {forwardButton}
               {openInEditorButton}
               {refreshButton}
               {toggleButton}
@@ -147,6 +198,8 @@ export function WorkspaceBrowserTab({
               }
             />
             <div className="flex h-10 shrink-0 items-center justify-end gap-0.5 border-b border-border/50 px-2">
+              {backButton}
+              {forwardButton}
               {openInEditorButton}
               {refreshButton}
               {toggleButton}
@@ -154,7 +207,7 @@ export function WorkspaceBrowserTab({
             <WorkspaceFileTree
               rootPath={rootPath}
               selectedPath={selectedPath}
-              onSelectFile={handleSelectFile}
+              onSelectFile={showFile}
               apiRef={treeApiRef}
               className="min-h-0 flex-1"
             />
@@ -162,6 +215,36 @@ export function WorkspaceBrowserTab({
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Back / forward arrow for the preview history. Matches the in-app browser's
+ * NavButton so the two toolbars read the same, including the dimmed,
+ * hover-inert disabled state at either end of the history.
+ */
+function HistoryNavButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  disabled: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+    >
+      {children}
+    </button>
   )
 }
 

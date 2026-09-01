@@ -89,6 +89,7 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory {
         injection: true,
         sessionResume: true,
         goal: true,
+        sideChat: true,
       },
     }
   }

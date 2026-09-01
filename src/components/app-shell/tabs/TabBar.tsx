@@ -3,7 +3,11 @@ import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortabl
 import { cn } from "@/lib/utils"
 import { useTabsStore } from "@/stores/tabs-store"
 import { useVisiblePanelTabs } from "./use-visible-tabs"
-import type { PanelId } from "./types"
+import { useState } from "react"
+import { discardSideChat, sideChatHasMessages } from "@/lib/side-chat"
+import { useAppShellStore } from "@/stores/app-shell-store"
+import { CloseSideChatDialog } from "./CloseSideChatDialog"
+import type { PanelId, Tab } from "./types"
 import { TabBarItem } from "./TabBarItem"
 import { NewTabMenu } from "./NewTabMenu"
 
@@ -33,12 +37,46 @@ export function TabBar({ panelId, accessory, dragRegion, className }: TabBarProp
   const activateTab = useTabsStore((s) => s.activateTab)
   const closeTab = useTabsStore((s) => s.closeTab)
 
+  const skipCloseConfirm = useAppShellStore((s) => s.skipSideChatCloseConfirm)
+  const setSkipCloseConfirm = useAppShellStore((s) => s.setSkipSideChatCloseConfirm)
+  const [pendingClose, setPendingClose] = useState<{ tabId: string; chatId: number } | null>(
+    null
+  )
+
   const { setNodeRef, isOver } = useDroppable({
     id: `panel-droppable-${panelId}`,
     data: { kind: "app-shell-panel" as const, panelId },
   })
 
   const tabIds = tabs.map((t) => t.tabId)
+
+  const discard = (tabId: string, chatId: number) => {
+    closeTab(panelId, tabId)
+    discardSideChat(chatId)
+  }
+
+  // A side chat is temporary: closing its tab throws the conversation away
+  // rather than leaving a row nothing can navigate back to. Confirm first when
+  // there is something to lose — an untouched one closes straight away, and so
+  // does any of them once the user has said not to ask.
+  const handleClose = (tab: Tab) => {
+    if (tab.payload.type !== "side-chat") {
+      closeTab(panelId, tab.tabId)
+      return
+    }
+    const { chatId } = tab.payload
+    if (skipCloseConfirm) {
+      discard(tab.tabId, chatId)
+      return
+    }
+    void sideChatHasMessages(chatId).then((used) => {
+      if (!used) {
+        discard(tab.tabId, chatId)
+        return
+      }
+      setPendingClose({ tabId: tab.tabId, chatId })
+    })
+  }
 
   return (
     <div
@@ -63,7 +101,7 @@ export function TabBar({ panelId, accessory, dragRegion, className }: TabBarProp
               tab={tab}
               isActive={activeTabId === tab.tabId}
               onActivate={() => activateTab(panelId, tab.tabId)}
-              onClose={() => closeTab(panelId, tab.tabId)}
+              onClose={() => handleClose(tab)}
             />
           ))}
         </div>
@@ -74,6 +112,15 @@ export function TabBar({ panelId, accessory, dragRegion, className }: TabBarProp
       {accessory && (
         <div className="no-drag ml-auto flex shrink-0 items-center">{accessory}</div>
       )}
+      <CloseSideChatDialog
+        open={pendingClose != null}
+        onCancel={() => setPendingClose(null)}
+        onConfirm={(skipNextTime) => {
+          if (skipNextTime) setSkipCloseConfirm(true)
+          if (pendingClose) discard(pendingClose.tabId, pendingClose.chatId)
+          setPendingClose(null)
+        }}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import type { AppServerClient } from './sdk/app-server-client.js'
+import { REQUEST_NOT_HANDLED, type AppServerClient } from './sdk/app-server-client.js'
 import type {
   AgentMessageDeltaNotification,
   CollabAgentToolCall,
@@ -413,9 +413,12 @@ export class NotificationRouter {
     )
 
     this.unsubscribers.push(
-      this.client.onRequest('item/commandExecution/requestApproval', async (params): Promise<CommandExecutionRequestApprovalResponse> => {
+      this.client.onRequest('item/commandExecution/requestApproval', async (params): Promise<CommandExecutionRequestApprovalResponse | typeof REQUEST_NOT_HANDLED> => {
         const payload = params as CommandExecutionRequestApprovalNotification['params']
-        if (sameThread(payload.threadId, threadId) && sameTurn(payload.turnId, turnId)) {
+        if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turnId, turnId)) {
+          return REQUEST_NOT_HANDLED
+        }
+        {
           if (!this.emittedToolCallIds.has(payload.itemId)) {
             const toolInput = safeJsonStringify({ command: payload.command, cwd: payload.cwd })
             this.emitter.flushText()
@@ -429,9 +432,12 @@ export class NotificationRouter {
         if (this.options.onCommandApproval) return this.options.onCommandApproval(payload)
         return { decision: 'decline' }
       }),
-      this.client.onRequest('item/fileChange/requestApproval', async (params): Promise<FileChangeRequestApprovalResponse> => {
+      this.client.onRequest('item/fileChange/requestApproval', async (params): Promise<FileChangeRequestApprovalResponse | typeof REQUEST_NOT_HANDLED> => {
         const payload = params as FileChangeRequestApprovalNotification['params']
-        if (sameThread(payload.threadId, threadId) && sameTurn(payload.turnId, turnId)) {
+        if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turnId, turnId)) {
+          return REQUEST_NOT_HANDLED
+        }
+        {
           if (!this.emittedToolCallIds.has(payload.itemId)) {
             const toolInput = safeJsonStringify({ changes: payload.changes })
             this.emitter.flushText()
@@ -445,9 +451,12 @@ export class NotificationRouter {
         if (this.options.onFileChangeApproval) return this.options.onFileChangeApproval(payload)
         return { decision: 'decline' }
       }),
-      this.client.onRequest('item/tool/requestUserInput', async (params): Promise<ToolRequestUserInputResponse> => {
+      this.client.onRequest('item/tool/requestUserInput', async (params): Promise<ToolRequestUserInputResponse | typeof REQUEST_NOT_HANDLED> => {
         const payload = params as ToolRequestUserInputParams
-        if (sameThread(payload.threadId, threadId) && sameTurn(payload.turnId, turnId)) {
+        if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turnId, turnId)) {
+          return REQUEST_NOT_HANDLED
+        }
+        {
           const questions = payload.questions.map((question) => ({
             id: question.id,
             question: question.question,

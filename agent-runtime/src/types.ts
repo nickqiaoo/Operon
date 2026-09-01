@@ -122,6 +122,13 @@ export interface ProviderFeatures {
   /** Provider supports a persisted thread goal (set/get/clear + autonomous pursuit). */
   goal?: boolean
   /**
+   * Provider honours `RuntimeSessionParams.forkFrom`, so a session can branch off
+   * another one's history. Gates the side chat UI — without a real fork the only
+   * alternative is replaying the parent transcript as fresh input, which costs a
+   * full context every time.
+   */
+  sideChat?: boolean
+  /**
    * Provider implements `RuntimeSession.dynamicSet`, so model / permission mode can
    * be switched on a live session — including mid-stream, which is what lets the UI
    * keep those pickers enabled while a turn is running.
@@ -222,6 +229,27 @@ export interface RuntimeSessionParams {
    * orchestration tools, preventing unbounded workflow-within-workflow nesting.
    */
   isWorker?: boolean
+  /**
+   * Branch this session off an existing one instead of starting fresh — what a
+   * side chat is built on. The new session inherits the source's history as
+   * model context but opens on a blank transcript, and diverges from that point
+   * on: nothing said in either session afterwards reaches the other.
+   *
+   * Only honoured by providers that declare `features.sideChat`; others ignore
+   * it and start a normal session. Applies to the FIRST thread this session
+   * creates — once `sessionId` is known the session resumes it as usual, so a
+   * side chat forks once, not on every turn.
+   */
+  forkFrom?: RuntimeForkSource
+}
+
+export interface RuntimeForkSource {
+  /** Provider-native id of the session to branch from (the parent's thread). */
+  sessionId: string
+  /** Branch after this turn instead of at the parent's tail. */
+  lastTurnId?: string
+  /** Do not persist the fork as a resumable session. Side chats are ephemeral. */
+  ephemeral?: boolean
 }
 
 export interface RuntimeStreamParams {
@@ -250,15 +278,32 @@ export interface DynamicSetPayload {
   modelId?: string
   modeId?: string
   thinkingLevel?: string
+  /**
+   * Fast mode. Unlike the fields above, `undefined` here is a VALUE — it means
+   * "not fast" — so a provider must test `'serviceTier' in payload` rather than
+   * truthiness, or turning fast mode back off will silently do nothing.
+   */
+  serviceTier?: ServiceTier
 }
 
 /** Which requested fields the session actually applied — see `RuntimeSession.dynamicSet`. */
 export type DynamicSetApplied = Array<keyof DynamicSetPayload>
 
+/**
+ * Why a session is being torn down.
+ *
+ * `'rebuild'` means the very same conversation is about to get a fresh session,
+ * because something the runtime cannot change in place moved (fast mode, the MCP
+ * map). State the conversation still needs — a side chat's forked session, say —
+ * must survive it. `'discard'` is the end of the conversation itself: the chat is
+ * going away, and everything it owns can go with it.
+ */
+export type SessionDisposeReason = 'discard' | 'rebuild'
+
 export interface RuntimeSession {
   stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart>
   abort(): void
-  dispose(): Promise<void>
+  dispose(reason?: SessionDisposeReason): Promise<void>
   /** True when this approval was still pending and accepted by the runtime. */
   resolvePermission(approvalId: string, decision: PermissionDecision): boolean
   getSessionId?(): string | undefined
@@ -322,4 +367,29 @@ export interface SessionRecord {
   params: RuntimeSessionParams
   createdAt: number
   activeRequest: ActiveRequest | null
+}
+
+/**
+ * An error whose message is written for the user rather than for a log.
+ *
+ * The AI SDK replaces stream errors with a generic notice, which is right for
+ * internal failures but wrong for the few we author deliberately — "this side
+ * chat expired", say. Hosts forward the message of these and mask everything
+ * else, so a provider can speak to the user without opening a channel for
+ * arbitrary internals to leak out.
+ */
+export class UserFacingRuntimeError extends Error {
+  readonly userFacing = true as const
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'UserFacingRuntimeError'
+  }
+}
+
+export function isUserFacingRuntimeError(error: unknown): error is UserFacingRuntimeError {
+  return (
+    error instanceof Error &&
+    (error as { userFacing?: unknown }).userFacing === true
+  )
 }

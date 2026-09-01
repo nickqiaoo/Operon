@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { FormattedMessage } from "react-intl"
+import { useSelectedTextStore } from "@/stores/selected-text-store"
 import { ChevronRight, Code, Eye, FileIcon } from "lucide-react"
 import { File as PierreFile } from "@pierre/diffs/react"
 import type { LineAnnotation } from "@pierre/diffs"
 import { Button } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
+import { MarkdownToc } from "@/components/ui/markdown-toc"
+import { SelectionToolbar, type SelectionAction } from "@/components/ui/selection-toolbar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { getImageMediaType, readFileForPreview } from "@/lib/file-preview"
@@ -57,6 +61,10 @@ export function FilePreviewPane({
   const displayedImageUrl = __APP_TARGET__ === "web" ? secureImageUrl : imageUrl
   const [viewMode, setViewMode] = useState<PreviewMode>("source")
   const contentRef = useRef<HTMLDivElement | null>(null)
+  const markdownRef = useRef<HTMLDivElement | null>(null)
+  // Container for the selection toolbar. Covers both view modes — the actions
+  // themselves are what differ.
+  const previewRef = useRef<HTMLDivElement | null>(null)
 
   const imageMediaType = useMemo(
     () => (selectedPath != null ? getImageMediaType(selectedPath) : null),
@@ -80,6 +88,25 @@ export function FilePreviewPane({
     path: commentPath,
     mode: "file",
   })
+  const selectionActions = useMemo<SelectionAction[]>(
+    () => [
+      {
+        key: "add-to-chat",
+        label: <FormattedMessage id="selection.addToChat" defaultMessage="Add to chat" />,
+        onSelect: ({ text, range }) => {
+          useSelectedTextStore.getState().add({
+            id: crypto.randomUUID(),
+            workspaceId,
+            path: commentPath,
+            location: lineRangeFromSelection(range),
+            text,
+            createdAt: Date.now(),
+          })
+        },
+      },
+    ],
+    [commentPath, workspaceId]
+  )
   const lineAnnotations = useMemo<LineAnnotation<CommentMeta>[]>(
     () => entries.map((entry) => ({ lineNumber: entry.line, metadata: entry.meta })),
     [entries]
@@ -222,6 +249,9 @@ export function FilePreviewPane({
         )}
         {(showMarkdownToggle || rightAccessory != null) && (
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            {showMarkdownToggle && viewMode === "preview" && content != null && (
+              <MarkdownToc contentRef={markdownRef} content={content} />
+            )}
             {showMarkdownToggle && (
               <MarkdownViewToggle value={viewMode} onChange={setViewMode} />
             )}
@@ -229,7 +259,8 @@ export function FilePreviewPane({
           </div>
         )}
       </div>
-      <div className="relative min-h-0 flex-1">
+      <div ref={previewRef} className="relative min-h-0 flex-1">
+        <SelectionToolbar containerRef={previewRef} actions={selectionActions} />
         {error != null ? (
           <div className="flex h-full items-center justify-center px-4 text-xs text-destructive">
             {error}
@@ -256,7 +287,7 @@ export function FilePreviewPane({
           // `[&>div]:!block` defeats the radix viewport's inner `display:table`
           // wrapper, which otherwise sizes to content instead of to the pane.
           <ScrollArea className="h-full w-full" viewportClassName="[&>div]:!block">
-            <div className="min-w-0 px-5 py-5 sm:px-8 sm:py-6">
+            <div ref={markdownRef} className="min-w-0 px-4 py-5 sm:px-6 sm:py-6">
               <MarkdownRenderer content={content} />
             </div>
           </ScrollArea>
@@ -356,4 +387,34 @@ function PathBreadcrumb({ path, title }: { path: string; title: string }) {
       })}
     </div>
   )
+}
+
+/**
+ * Best-effort line range for a selection, as `12` or `12-18`.
+ *
+ * Pierre tags each rendered row with `data-line`, so a selection in the source
+ * view can say where it came from. The rendered markdown view has no lines at
+ * all, and a selection can also start or end in the gutter — hence best-effort:
+ * this only ever decorates the chip's label, so `undefined` degrades to the
+ * bare filename rather than mislabelling anything.
+ */
+function lineRangeFromSelection(range: Range): string | undefined {
+  const lineOf = (node: Node | null): number | undefined => {
+    const element =
+      node == null
+        ? null
+        : node.nodeType === Node.ELEMENT_NODE
+          ? (node as HTMLElement)
+          : node.parentElement
+    const raw = element?.closest<HTMLElement>("[data-line]")?.dataset.line
+    if (raw == null) return undefined
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  const start = lineOf(range.startContainer)
+  const end = lineOf(range.endContainer)
+  if (start == null) return end == null ? undefined : String(end)
+  if (end == null || end === start) return String(start)
+  return `${Math.min(start, end)}-${Math.max(start, end)}`
 }

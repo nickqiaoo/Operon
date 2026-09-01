@@ -8,6 +8,7 @@ import type {
   RuntimeProviderFactory,
   RuntimeSession,
   RuntimeSessionParams,
+  SessionDisposeReason,
   SessionRecord,
 } from './types.js'
 
@@ -23,22 +24,54 @@ interface ProviderEntry {
  * reason to rebuild. Whether the reconfigure sticks is up to the runtime, which
  * reports back which fields it applied.
  */
-const RECONFIGURABLE_FIELDS = ['modelId', 'modeId', 'thinkingLevel'] as const
+const RECONFIGURABLE_FIELDS = ['modelId', 'modeId', 'thinkingLevel', 'serviceTier'] as const
+
+type ReconfigurableField = (typeof RECONFIGURABLE_FIELDS)[number]
+
+/**
+ * Fields where `undefined` is a value rather than "not specified".
+ *
+ * For a model or a mode, a missing value means the caller is not asking for a
+ * change. Fast mode is the opposite: absent IS the off state, so switching it off
+ * arrives as `serviceTier: undefined` and has to be forwarded, not skipped.
+ */
+const CLEARABLE_FIELDS = new Set<ReconfigurableField>(['serviceTier'])
+
+/**
+ * Write one reconfigurable field into whichever of the two shapes carries it.
+ *
+ * `DynamicSetPayload` and `RuntimeSessionParams` declare these four fields
+ * identically, but indexing either with a union key severs the tie between the key
+ * and its value type — `serviceTier` is `'fast'` where the rest are plain strings —
+ * and TypeScript refuses the write. The generic pins both sides to one `K`.
+ */
+function setField<K extends ReconfigurableField>(
+  target: DynamicSetPayload | RuntimeSessionParams,
+  field: K,
+  value: RuntimeSessionParams[K],
+): void {
+  Object.assign(target, { [field]: value })
+}
 
 /**
  * Everything that is baked in at session creation. A difference here cannot be
  * expressed by the running session at all, so it forces a rebuild.
  *
  * In practice none of these move during a conversation — cwd is the workspace, env
- * is fixed, mcpServers is derived from ids that do not change for a given chat, and
- * serviceTier only moves when the user toggles fast mode (which no runtime can apply
- * live, so it belongs here rather than above).
+ * is fixed, and mcpServers is derived from ids that do not change for a given chat
+ * (it moves only when the user edits MCP settings, which is meant to rebuild).
  */
 const buildStructuralKey = (params: RuntimeSessionParams): string =>
   JSON.stringify({
     cwd: params.cwd,
     env: params.env ?? {},
-    serviceTier: params.serviceTier ?? '',
+    // NOTE: serviceTier (fast mode) is NOT here — it moved up to the
+    // reconfigurable fields. It is baked in for Claude, whose warm query reads it
+    // at creation, but not for codex, which re-sends it with every `turn/start`.
+    // Deciding centrally that it forces a rebuild was wrong for codex: it threw
+    // away a live thread, restarted its SDK MCP servers, and released the shared
+    // app-server lease — which can take an ephemeral side-chat fork with it.
+    // `reconfigure` asks the provider instead, and rebuilds only if it says no.
     // MCP config is a session capability. In particular, node_repl contains the
     // conversation id in its URL; reusing a session with a different map would
     // silently leave the agent connected to the wrong persistent kernel.
@@ -122,7 +155,9 @@ export class SessionManager {
     }
 
     if (current) {
-      await this.destroy(chatId)
+      // Same conversation, new session — tell the runtime so it keeps whatever the
+      // conversation still needs (a side chat's fork) rather than cleaning it up.
+      await this.destroy(chatId, 'rebuild')
     }
 
     const provider = this.createProvider(providerId)
@@ -153,10 +188,10 @@ export class SessionManager {
     const changed: DynamicSetApplied = []
     for (const field of RECONFIGURABLE_FIELDS) {
       const value = next[field]
-      if (value !== undefined && value !== session.params[field]) {
-        patch[field] = value
-        changed.push(field)
-      }
+      if (value === session.params[field]) continue
+      if (value === undefined && !CLEARABLE_FIELDS.has(field)) continue
+      setField(patch, field, value)
+      changed.push(field)
     }
     if (changed.length === 0) return true
     if (typeof session.runtime.dynamicSet !== 'function') return false
@@ -164,7 +199,7 @@ export class SessionManager {
     const applied = await session.runtime.dynamicSet(patch)
     if (!changed.every((field) => applied.includes(field))) return false
 
-    for (const field of changed) session.params[field] = patch[field]
+    Object.assign(session.params, patch)
     return true
   }
 
@@ -185,7 +220,10 @@ export class SessionManager {
     // rebuild that is the only way to make that setting take.
     for (const field of applied) {
       const value = patch[field]
-      if (value !== undefined) session.params[field] = value
+      // `serviceTier: undefined` is fast mode being switched off — a real applied
+      // value, not a missing one — so it has to be folded in like any other.
+      if (value === undefined && !CLEARABLE_FIELDS.has(field)) continue
+      setField(session.params, field, value)
     }
   }
 
@@ -228,13 +266,13 @@ export class SessionManager {
     return this.sessions.get(chatId)
   }
 
-  async destroy(chatId: number): Promise<void> {
+  async destroy(chatId: number, reason: SessionDisposeReason = 'discard'): Promise<void> {
     const session = this.sessions.get(chatId)
     if (!session) return
     if (session.activeRequest) {
       session.activeRequest.abortController.abort()
     }
-    await session.runtime.dispose()
+    await session.runtime.dispose(reason)
     this.sessions.delete(chatId)
   }
 

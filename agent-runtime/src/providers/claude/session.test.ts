@@ -8,9 +8,11 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { setRuntimeHost } from '../../host.js';
 import { ClaudeRuntimeSession } from './session.js';
+import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js';
 
 const sdkMock = vi.hoisted(() => ({
   query: vi.fn(),
+  deleteSession: vi.fn(async () => {}),
 }));
 
 vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => {
@@ -18,6 +20,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => {
   return {
     ...actual,
     query: sdkMock.query,
+    deleteSession: sdkMock.deleteSession,
   };
 });
 
@@ -332,5 +335,111 @@ describe('ClaudeRuntimeSession stream completion', () => {
     expect(receivedMessages).toHaveLength(2);
 
     await session.dispose();
+  });
+});
+
+describe('ClaudeRuntimeSession side chat', () => {
+  beforeEach(() => {
+    setRuntimeHost({
+      resolveCliPath: () => '/mock/claude',
+      getShellEnv: () => ({}),
+      getUserEnv: () => ({}),
+    });
+  });
+
+  afterEach(() => {
+    sdkMock.query.mockReset();
+    sdkMock.deleteSession.mockClear();
+  });
+
+  const forkParams = {
+    cwd: '/tmp',
+    providerId: 'claude-code',
+    modelId: 'claude-sonnet-4-5',
+    modeId: 'default',
+    forkFrom: { sessionId: 'parent-session', ephemeral: true },
+  };
+  const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
+
+  async function runTurn(session: ClaudeRuntimeSession, requestId: string) {
+    for await (const _part of session.stream({ requestId, messages })) {
+      // Drain the turn.
+    }
+  }
+
+  it('branches off the parent once and opens with the boundary marker', async () => {
+    const receivedMessages: SDKUserMessage[] = [];
+    mockStreamingQuery({ onUserMessage: (message) => receivedMessages.push(message) });
+
+    const session = new ClaudeRuntimeSession(forkParams);
+    await runTurn(session, 'request-1');
+
+    // The fork resumes the PARENT — the branch has no id of its own yet.
+    expect(sdkMock.query).toHaveBeenCalledTimes(1);
+    const firstOptions = sdkMock.query.mock.calls[0][0].options;
+    expect(firstOptions.resume).toBe('parent-session');
+    expect(firstOptions.forkSession).toBe(true);
+
+    // The parent's transcript comes with the fork, so the branch's first message
+    // has to say where the inherited history stops.
+    const firstContent = receivedMessages[0].message.content;
+    expect(Array.isArray(firstContent)).toBe(true);
+    const firstBlock = (firstContent as Array<{ type: string; text?: string }>)[0];
+    expect(firstBlock.text).toBe(SIDE_CHAT_BOUNDARY_PROMPT);
+
+    // Second turn rides the same warm query, so no second fork and no repeat marker.
+    await runTurn(session, 'request-2');
+    expect(sdkMock.query).toHaveBeenCalledTimes(1);
+    const secondContent = receivedMessages[1].message.content;
+    const secondBlock = (secondContent as Array<{ type: string; text?: string }>)[0];
+    expect(secondBlock.text).not.toBe(SIDE_CHAT_BOUNDARY_PROMPT);
+
+    await session.dispose();
+  });
+
+  it('resumes its own branch, not the parent, when the query is rebuilt', async () => {
+    mockStreamingQuery();
+
+    const session = new ClaudeRuntimeSession(forkParams);
+    await runTurn(session, 'request-1');
+
+    // Kill the warm query the way a dropped CLI process would.
+    Object.assign(session, { messageLoopDead: true });
+    await runTurn(session, 'request-2');
+
+    expect(sdkMock.query).toHaveBeenCalledTimes(2);
+    const secondOptions = sdkMock.query.mock.calls[1][0].options;
+    expect(secondOptions.resume).toBe('session-1');
+    expect(secondOptions.forkSession).toBe(false);
+
+    await session.dispose();
+  });
+
+  it('deletes the branch it forked when discarded, but keeps it across a rebuild', async () => {
+    mockStreamingQuery();
+
+    const session = new ClaudeRuntimeSession(forkParams);
+    await runTurn(session, 'request-1');
+
+    await session.dispose('rebuild');
+    expect(sdkMock.deleteSession).not.toHaveBeenCalled();
+
+    await session.dispose('discard');
+    expect(sdkMock.deleteSession).toHaveBeenCalledWith('session-1', { dir: '/tmp' });
+  });
+
+  it('never deletes an ordinary session', async () => {
+    mockStreamingQuery();
+
+    const session = new ClaudeRuntimeSession({
+      cwd: '/tmp',
+      providerId: 'claude-code',
+      modelId: 'claude-sonnet-4-5',
+      modeId: 'default',
+    });
+    await runTurn(session, 'request-1');
+    await session.dispose();
+
+    expect(sdkMock.deleteSession).not.toHaveBeenCalled();
   });
 });

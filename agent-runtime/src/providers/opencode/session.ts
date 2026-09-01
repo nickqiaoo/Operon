@@ -8,6 +8,7 @@ import type {
   RuntimeSessionParams,
   RuntimeStreamPart,
   RuntimeStreamParams,
+  SessionDisposeReason,
 } from '../../types.js'
 import { OpencodeClientManager } from './client-manager.js'
 import { extractErrorMessage, isAbortError } from './errors.js'
@@ -29,6 +30,7 @@ import { convertToOpencodeMessages, isCompactCommand } from './message-mapper.js
 import type {
   OpencodeLogger,
   OpencodeMcpServerEntry,
+  OpencodePartInput,
   OpencodeSettings,
   ParsedModelId,
   ProviderListResponse,
@@ -36,6 +38,7 @@ import type {
 import { isRuntimeVerbose } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
 import { applyRuntimeEnv } from '../../runtime-env.js'
+import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
 import type { McpStatus } from '@opencode-ai/sdk/v2'
 
 const AGENTS_MAP: Record<string, string> = {
@@ -187,6 +190,12 @@ export class OpencodeRuntimeSession implements RuntimeSession {
   private mcpReadyPromise: Promise<void> = Promise.resolve()
   private readonly pendingApprovalIds = new Set<string>()
   private readonly questionApprovalIds = new Set<string>()
+  /**
+   * Side chat state: true until the branch's first prompt carries the boundary
+   * marker. A side chat that already has a session id forked on an earlier turn,
+   * so only a branch that has not run yet still owes one.
+   */
+  private boundaryPending: boolean
 
   constructor(params: RuntimeSessionParams) {
     ensureOpencodeInPath()
@@ -194,12 +203,14 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     this.currentModelId = params.modelId ?? 'opencode/big-pickle'
     this.currentModeId = params.modeId ?? 'build'
     this.sessionId = params.sessionId
+    this.boundaryPending = params.forkFrom != null && !params.sessionId
     const mcpServers = params.mcpServers as Record<string, OpencodeMcpServerEntry> | undefined
     console.log('[opencode-session] MCP servers:', mcpServers ? Object.keys(mcpServers).join(', ') : '(none)')
     this.settings = {
       cwd: params.cwd,
       env: params.env,
       sessionId: params.sessionId,
+      forkFrom: params.forkFrom,
       systemPrompt: buildSystemPrompt(params.instructions),
       verbose: isRuntimeVerbose(),
       mcpServers,
@@ -254,7 +265,13 @@ export class OpencodeRuntimeSession implements RuntimeSession {
         : undefined,
       agent: AGENTS_MAP[this.currentModeId] ?? 'build',
       system: this.settings.systemPrompt,
-      parts: converted.parts,
+      // A side chat's first prompt opens with the boundary marker: the fork
+      // carries the parent's whole transcript, and without this the model reads
+      // it as its own unfinished task. OpenCode has no API for appending a
+      // standalone item to a session's history, so it rides at the head of the
+      // first prompt — the same place relative to the inherited history, after
+      // the cached prefix the fork shares with its parent.
+      parts: this.takeBoundaryParts().concat(converted.parts),
       tools: this.settings.tools,
     }
 
@@ -422,8 +439,45 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     this.questionApprovalIds.clear()
   }
 
-  async dispose(): Promise<void> {
+  /** The boundary marker, once, for a side chat's opening prompt. */
+  private takeBoundaryParts(): OpencodePartInput[] {
+    if (!this.boundaryPending) return []
+    this.boundaryPending = false
+    return [{ type: 'text', text: SIDE_CHAT_BOUNDARY_PROMPT }]
+  }
+
+  async dispose(reason: SessionDisposeReason = 'discard'): Promise<void> {
     this.abort()
+    // A 'rebuild' is the same conversation getting a fresh session (fast mode
+    // toggled, MCP map changed), so the fork has to outlive it — the new session
+    // resumes it by id.
+    if (reason === 'discard') await this.discardEphemeralFork()
+  }
+
+  /**
+   * Delete the branch a side chat forked for itself.
+   *
+   * Codex's forks are ephemeral by construction — they never touch disk — but
+   * OpenCode's are ordinary sessions, so an abandoned side chat would leave one
+   * in the session list forever. Disposal is where a side chat ends (the chat row
+   * goes with it), so this is the last chance to clean up.
+   *
+   * The id compared against is the parent's, so this can only ever delete a
+   * branch this session forked, never the conversation it came from.
+   */
+  private async discardEphemeralFork(): Promise<void> {
+    const source = this.settings.forkFrom
+    if (!source || source.ephemeral === false) return
+    const forkedId = this.sessionId
+    if (!forkedId || forkedId === source.sessionId) return
+    this.sessionId = undefined
+    try {
+      const client = await this.clientManager.getClient()
+      await client.session.delete({ sessionID: forkedId, directory: this.settings.cwd })
+      this.logger.info(`Deleted side chat fork ${forkedId}`)
+    } catch (error) {
+      this.logger.warn(`Failed to delete side chat fork ${forkedId}: ${extractErrorMessage(error)}`)
+    }
   }
 
   /**
@@ -642,6 +696,38 @@ export class OpencodeRuntimeSession implements RuntimeSession {
       return this.sessionId
     }
     const client = await this.clientManager.getClient()
+
+    // A side chat branches off its parent exactly once. `session.fork` copies the
+    // parent's messages into a new session, so the model inherits the history
+    // while this conversation keeps its own transcript and its own id — the two
+    // never write back to each other. From the next turn on `this.sessionId` is
+    // the branch's id and the check above short-circuits.
+    //
+    // The branch is a sibling, not a child: `Session.fork` creates it without a
+    // `parentID`, so a parent that happens to be mid-turn never mistakes it for
+    // sub-agent output on the shared event stream.
+    //
+    // `forkFrom.lastTurnId` is deliberately NOT forwarded as `messageID`. The two
+    // mean opposite things — codex branches *after* the turn it names, while
+    // OpenCode slices the history to *before* the message it names — so passing it
+    // through would silently drop the last turn. Nothing sets it today; a side
+    // chat always branches at the tail.
+    const source = this.settings.forkFrom
+    if (source && !this.settings.createNewSession) {
+      this.logger.info(`Forking session ${source.sessionId} for a side chat`)
+      const forked = await client.session.fork({
+        sessionID: source.sessionId,
+        directory: this.settings.cwd,
+      })
+      const forkedId = (forked.data as { id?: string } | undefined)?.id
+      if (!forkedId) {
+        throw new Error('Failed to fork OpenCode session')
+      }
+      this.sessionId = forkedId
+      this.logger.info(`Forked session ${forkedId}`)
+      return forkedId
+    }
+
     const result = await client.session.create({
       title: this.settings.sessionTitle ?? 'XUI Session',
       directory: this.settings.cwd,

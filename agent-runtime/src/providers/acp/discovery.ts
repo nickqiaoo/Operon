@@ -61,15 +61,9 @@ export async function probeAcpModels(config: AcpProviderConfig): Promise<AcpDisc
       args: config.agentArgs,
       cwd: process.cwd(),
       env: buildRuntimeEnv(),
-      callbacks: {
-        onSessionUpdate: (params) => {
-          if (params.update.sessionUpdate !== 'available_commands_update') return
-          commands = params.update.availableCommands
-          onCommands?.()
-        },
-        onRequestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
-        onExit: () => {},
-      },
+      // A throwaway probe keeps its own process rather than borrowing a shared
+      // one: it runs before any conversation exists and is disposed immediately.
+      callbacks: {},
     })
     const initialize = await withTimeout(
       connection.agent.initialize({
@@ -86,6 +80,17 @@ export async function probeAcpModels(config: AcpProviderConfig): Promise<AcpDisc
         12000,
         `${config.providerId} newSession`,
       )
+      // Commands can be pushed in the same tick `session/new` is answered; the
+      // connection buffers those and replays them on registration.
+      connection.registerSession(session.sessionId, {
+        onSessionUpdate: (params) => {
+          if (params.update.sessionUpdate !== 'available_commands_update') return
+          commands = params.update.availableCommands
+          onCommands?.()
+        },
+        onRequestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+        onExit: () => {},
+      })
     }
     if (config.probeCommands && commands === null) {
       // The ceiling is only there so an agent that never pushes cannot keep the

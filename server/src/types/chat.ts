@@ -1,4 +1,4 @@
-export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear'
+export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side'
 
 export interface ChatMetadata {
   /** canvas chat fields */
@@ -15,6 +15,13 @@ export interface ChatMetadata {
   linearSessionId?: string
   linearOrgId?: string
   linearIssueId?: string
+  /** side chat fields — a temporary branch of `parentChatId`'s conversation.
+   *  The runtime forks the parent's provider session on the first turn, so the
+   *  model inherits the parent's history while this chat opens empty. The two
+   *  diverge from that point on and are never merged back. */
+  parentChatId?: number
+  /** How far the parent had got when this branched, for the "forked at #N" label. */
+  forkedAtMessageIndex?: number
   /** Runtime option selections (thinkingLevel, mode, etc.) bound to this chat
    * at first start so reloading from history restores the same selections.
    * Mid-conversation changes are not allowed — provider/model/runtimeOptions

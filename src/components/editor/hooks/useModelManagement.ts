@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { useProviderCapabilityStore } from '@/stores/provider-capability-store';
 
 export interface DynamicModel {
   id: string;
@@ -53,6 +54,7 @@ interface ProviderModelsResponse {
     goal?: boolean;
     dynamicSwitch?: boolean;
     contextUsage?: boolean;
+    sideChat?: boolean;
   };
   configOptions?: ProviderConfigOptionResponse[];
   // Set by the backend SWR cache when the provider's model list isn't ready yet
@@ -251,6 +253,11 @@ export function useModelManagement(
           supportsDynamicSwitch: data.features?.dynamicSwitch === true,
           supportsContextUsage: data.features?.contextUsage === true,
         };
+        // Mirror the capability bits so surfaces outside this chat (the right
+        // panel's new-tab menu) can gate on them without refetching.
+        useProviderCapabilityStore.getState().setCapabilities(providerId!, {
+          sideChat: data.features?.sideChat === true,
+        });
         const initialMode = initialOptions?.modeId;
         const resolvedMode = initialMode && providerModes.some((mode) => mode.value === initialMode)
           ? initialMode

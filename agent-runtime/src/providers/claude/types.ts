@@ -5,6 +5,7 @@ import type {
   PermissionUpdate,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
+import type { RuntimeForkSource } from '../../types.js'
 
 export type ClaudeThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -15,6 +16,8 @@ export interface ClaudeRuntimeSettings {
   thinkingLevel: ClaudeThinkingLevel
   fastMode: boolean
   resume?: string
+  /** Set for a side chat: branch off this session instead of starting a new one. */
+  forkFrom?: RuntimeForkSource
   pathToClaudeCodeExecutable: string
   settingSources: Array<'user' | 'project' | 'local'>
   persistSession: boolean

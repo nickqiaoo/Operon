@@ -18,7 +18,8 @@ import type {
 } from '../../types.js'
 import { AsyncQueue } from './async-queue.js'
 import { toSlashCommands } from './commands.js'
-import { ACP_PROTOCOL_VERSION, AcpConnection } from './connection.js'
+import type { AcpConnection } from './connection.js'
+import { acquireAcpConnection } from './connection-registry.js'
 import { AcpEventMapper } from './event-mapper.js'
 import { convertToAcpPrompt, prependTextToPrompt } from './message-mapper.js'
 import type { AcpProviderConfig } from './types.js'
@@ -105,6 +106,10 @@ export class AcpRuntimeSession implements RuntimeSession {
   private readonly instructions: string | undefined
 
   private connection: AcpConnection | null = null
+  /** Detaches this conversation's callbacks from the shared connection. */
+  private unregisterSession: (() => void) | null = null
+  /** Releases this session's hold on the shared agent process. */
+  private connectionLease: (() => void) | null = null
   private sessionId: string | undefined
   private initPromise: Promise<void> | null = null
   private activeQueue: AsyncQueue<RuntimeStreamPart> | null = null
@@ -232,14 +237,21 @@ export class AcpRuntimeSession implements RuntimeSession {
       throw new Error(`${this.config.label} CLI not configured`)
     }
 
-    const connection = new AcpConnection({
+    // One agent process serves every conversation on the same CLI + workspace —
+    // see `connection-registry.ts`. The handshake is shared too, so this session
+    // only creates its own `session/new` and attaches its callbacks to it.
+    const lease = await acquireAcpConnection({
       providerId: this.config.providerId,
       command: cliPath,
       args: this.config.agentArgs,
       cwd: this.cwd,
       env: this.env,
-      callbacks: {
-        onSessionUpdate: (params) => {
+      onStderr: (line) => this.logger.debug(`[stderr] ${line}`),
+    })
+    const connection = lease.connection
+    this.connectionLease = lease.release
+    const sessionCallbacks = {
+        onSessionUpdate: (params: acp.SessionNotification) => {
           // Commands arrive right after `session/new` — before any prompt, so
           // before a mapper exists. Take them at the session level or the very
           // first (and usually only) push is dropped by the guard below.
@@ -256,30 +268,25 @@ export class AcpRuntimeSession implements RuntimeSession {
             this.activeQueue.push(part)
           }
         },
-        onRequestPermission: (params) => this.handlePermissionRequest(params),
-        onStderr: (line) => this.logger.debug(`[stderr] ${line}`),
-        onExit: (error) => {
+        onRequestPermission: (params: acp.RequestPermissionRequest) =>
+          this.handlePermissionRequest(params),
+        onExit: (error?: Error) => {
           if (error) {
             this.logger.error(`${this.config.label} agent exited: ${describeError(error)}`)
             this.activeQueue?.push({ type: 'error', error })
           }
           this.activeQueue?.close()
         },
-      },
-    })
+    }
     this.connection = connection
 
-    this.logger.info(`Starting ${this.config.providerId} ACP agent: ${cliPath} ${this.config.agentArgs.join(' ')}`)
-    const initialize = await connection.agent.initialize({
-      protocolVersion: ACP_PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-    })
-    // The same handshake the descriptor probe uses also carries each model's
-    // context window; read it here so a session has it without a second spawn.
-    this.contextWindows = this.readContextWindows(initialize)
+    // The handshake carries each model's context window; read it here so a
+    // session has it without a second spawn.
+    this.contextWindows = this.readContextWindows(lease.initialize)
 
     const newSession = await connection.agent.newSession({ cwd: this.cwd, mcpServers: this.mcpServers })
     this.sessionId = newSession.sessionId
+    this.unregisterSession = connection.registerSession(this.sessionId, sessionCallbacks)
     this.logger.info(`${this.config.label} session created: ${this.sessionId}`)
 
     // A fresh session already starts on the agent's default model + mode, and
@@ -399,9 +406,12 @@ export class AcpRuntimeSession implements RuntimeSession {
     }
     this.pendingDecisions.clear()
     this.activeQueue?.close()
-    if (this.connection) {
-      await this.connection.dispose()
-      this.connection = null
-    }
+    // The process is shared, so detach and hand back the lease rather than
+    // killing it — it exits once the last conversation lets go.
+    this.unregisterSession?.()
+    this.unregisterSession = null
+    this.connectionLease?.()
+    this.connectionLease = null
+    this.connection = null
   }
 }

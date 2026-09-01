@@ -125,9 +125,43 @@ export interface ThreadResumeParams {
 }
 
 export interface ThreadForkParams {
+  /** Thread to branch from. Its history becomes the fork's inherited context. */
   threadId: string;
+  /** Branch after this turn instead of the tail. Mutually exclusive with `beforeTurnId`. */
+  lastTurnId?: string;
+  /** Branch before this turn. Mutually exclusive with `lastTurnId`. */
+  beforeTurnId?: string;
+  cwd?: string;
+  model?: string;
+  serviceTier?: ProtocolServiceTier;
+  approvalPolicy?: ProtocolApprovalPolicy;
+  approvalsReviewer?: ProtocolApprovalsReviewer;
+  sandbox?: ProtocolSandboxMode;
+  developerInstructions?: string;
+  /**
+   * Omit the inherited turns from the response. The fork still carries them as
+   * model context — this only stops the app server from replaying them back,
+   * which is what lets a side chat open on a blank transcript.
+   * The app server requires this when `ephemeral` is set.
+   */
+  excludeTurns?: boolean;
+  /** Do not persist the fork as a resumable rollout. */
+  ephemeral?: boolean;
+  config?: Record<string, unknown>;
   modelOverride?: string;
   sandboxOverride?: ProtocolSandboxMode;
+}
+
+/** One item appended to a thread's history without running a turn. */
+export interface ThreadInjectItem {
+  type: 'message';
+  role: 'user' | 'assistant';
+  content: Array<{ type: 'input_text'; text: string }>;
+}
+
+export interface ThreadInjectItemsParams {
+  threadId: string;
+  items: ThreadInjectItem[];
 }
 
 export interface ThreadRollbackParams {

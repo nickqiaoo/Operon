@@ -35,6 +35,12 @@ export type TabPayload =
     }
   | { type: "terminal"; terminalId: string; cwd: string }
   /**
+   * A side chat — a temporary branch of `parentChatId`'s conversation, opened to
+   * ask something without disturbing the main thread. `chatId` is a real chat
+   * row; closing the tab deletes it. See `@/lib/side-chat`.
+   */
+  | { type: "side-chat"; chatId: number; parentChatId: number }
+  /**
    * Live workflow runs — every run the app knows about, in one tab.
    *
    * Unlike the other tabs this one is never opened by the user: it appears when

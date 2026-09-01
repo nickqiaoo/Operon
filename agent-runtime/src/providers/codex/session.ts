@@ -8,12 +8,15 @@ import type {
   ProviderDescriptor,
   RuntimeMcpServers,
   RuntimeSession,
+  RuntimeForkSource,
   RuntimeSessionParams,
   RuntimeStreamParams,
 } from '../../types.js'
+import { UserFacingRuntimeError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { buildRuntimeEnv } from '../../runtime-env.js'
+import { acquireAppServerClient } from './sdk/client-registry.js'
 import {
   buildDeveloperInstructions,
   CODEX_PLAN_MODE_ID,
@@ -34,9 +37,11 @@ import {
   mapModelInfoToDescriptor,
 } from './model-info.js'
 import { cleanupTempFiles, convertPrompt, isCompactCommand } from './message-mapper.js'
+import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
+import { SIDE_CHAT_EXPIRED_MESSAGE } from './side-chat-prompt.js'
 import { NotificationRouter } from './notification-router.js'
 import { listModels } from './sdk/discovery.js'
-import { AppServerClient } from './sdk/app-server-client.js'
+import type { AppServerClient } from './sdk/app-server-client.js'
 import { SessionImpl } from './sdk/session.js'
 import { buildConfigOverrides, resolveSdkMcpServers, stopSdkMcpServers } from './sdk/converters/settings-merger.js'
 import type {
@@ -154,6 +159,10 @@ export function toCodexMcpServers(
 export class CodexRuntimeSession implements RuntimeSession {
   private readonly logger = createRuntimeLogger('codex-runtime')
   private client: AppServerClient | null = null
+  /** Releases this session's hold on the shared app-server connection. */
+  private clientLease: (() => void) | null = null
+  /** Listener teardown for the shared client — it outlives us, so we must unhook. */
+  private clientUnsubscribers: Array<() => void> = []
   private currentModelId: string
   private currentModeId: CodexModeId
   private currentThinkingLevel = 'high'
@@ -173,6 +182,8 @@ export class CodexRuntimeSession implements RuntimeSession {
   private readonly codexMcpServers: Record<string, CodexSdkMcpServerConfig> | undefined
   /** Session instructions (persona) from the host — folded into developerInstructions at thread creation. */
   private readonly instructions: string | undefined
+  /** Set for a side chat: branch off this thread instead of starting a new one. */
+  private readonly forkFrom: RuntimeForkSource | undefined
   /** Latest known thread goal, mirrored from goal RPC responses + notifications. */
   private currentGoal: CodexGoal | null = null
 
@@ -186,6 +197,7 @@ export class CodexRuntimeSession implements RuntimeSession {
     this.threadId = params.sessionId
     this.codexMcpServers = toCodexMcpServers(params.mcpServers)
     this.instructions = params.instructions?.trim() || undefined
+    this.forkFrom = params.forkFrom
   }
 
   private buildMemoryInstructions(): string | undefined {
@@ -263,57 +275,70 @@ export class CodexRuntimeSession implements RuntimeSession {
   private getClient(): AppServerClient {
     if (!this.client) {
       const settings = this.buildSettings()
-      this.client = new AppServerClient(settings)
-      // Codex proprietary: MCP tool calls are gated by an elicitation request
-      // (codex_approval_kind: "mcp_tool_call"). Without a handler, codex gets
-      // -32601 and fails the tool call. We auto-approve injected MCP servers
-      // (memory / external_agent / workspace_chat / taskboard / im_chat / team_inbox)
-      // since they're first-party;
-      // other servers are user-configured and also auto-approved for now
-      // because we don't have an approval UI for MCP tools yet.
-      this.client.onRequest('mcpServer/elicitation/request', async (params) => {
-        const p = params as { serverName?: string; _meta?: { codex_approval_kind?: string } }
-        this.logger.debug(
-          `Auto-accepting MCP elicitation from ${p.serverName} (${p._meta?.codex_approval_kind})`,
-        )
-        return { action: 'accept', content: {}, _meta: null }
-      })
+      // One app-server per host, shared by every conversation on it — see
+      // `sdk/client-registry.ts`. Everything below therefore has to be scoped to
+      // this session's thread and unhooked when the session ends, because the
+      // connection outlives us.
+      const lease = acquireAppServerClient(settings)
+      this.client = lease.client
+      this.clientLease = lease.release
+      // MCP elicitation is auto-accepted by the connection itself, once per
+      // app-server rather than once per session — see `sdk/client-registry.ts`.
 
       // Session-level goal mirror: keep currentGoal fresh across turns/streams so
       // the loop's continuation decision and the GET endpoint see the latest state.
-      this.client.onNotification('thread/goal/updated', (params) => {
-        const p = params as GoalUpdatedParams
-        if (this.threadId && String(p.threadId) !== String(this.threadId)) return
-        this.currentGoal = p.goal
-      })
-      this.client.onNotification('thread/goal/cleared', (params) => {
-        const p = params as GoalClearedParams
-        if (this.threadId && String(p.threadId) !== String(this.threadId)) return
-        this.currentGoal = null
-      })
-      this.client.onNotification('mcpServer/startupStatus/updated', (params) => {
-        const value = params as Partial<CodexMcpStartupStatus>
-        if (
-          typeof value.name !== 'string' ||
-          !isCodexMcpStartupState(value.status) ||
-          (value.threadId !== null && typeof value.threadId !== 'string')
-        ) {
-          return
-        }
-        if (this.threadId && value.threadId && value.threadId !== this.threadId) return
-        this.mcpStartupStatuses.set(value.name, {
-          threadId: value.threadId,
-          name: value.name,
-          status: value.status,
-          error: typeof value.error === 'string' ? value.error : null,
-          failureReason:
-            value.failureReason === 'reauthenticationRequired'
-              ? 'reauthenticationRequired'
-              : null,
-        })
-      })
+      this.clientUnsubscribers.push(
+        this.client.onNotification('thread/goal/updated', (params) => {
+          const p = params as GoalUpdatedParams
+          if (!this.isOwnThread(p.threadId)) return
+          this.currentGoal = p.goal
+        }),
+      )
+      this.clientUnsubscribers.push(
+        this.client.onNotification('thread/goal/cleared', (params) => {
+          const p = params as GoalClearedParams
+          if (!this.isOwnThread(p.threadId)) return
+          this.currentGoal = null
+        }),
+      )
+      this.clientUnsubscribers.push(
+        this.client.onNotification('mcpServer/startupStatus/updated', (params) => {
+          const value = params as Partial<CodexMcpStartupStatus>
+          if (
+            typeof value.name !== 'string' ||
+            !isCodexMcpStartupState(value.status) ||
+            (value.threadId !== null && typeof value.threadId !== 'string')
+          ) {
+            return
+          }
+          if (!this.isOwnThread(value.threadId)) return
+          this.mcpStartupStatuses.set(value.name, {
+            threadId: value.threadId,
+            name: value.name,
+            status: value.status,
+            error: typeof value.error === 'string' ? value.error : null,
+            failureReason:
+              value.failureReason === 'reauthenticationRequired'
+                ? 'reauthenticationRequired'
+                : null,
+          })
+        }),
+      )
     }
     return this.client
+  }
+
+  /**
+   * Whether a notification about `threadId` belongs to this session.
+   *
+   * Traffic with no thread attached is connection-wide and always ours. An
+   * unresolved `threadId` on our side used to mean "accept everything", which on
+   * a shared connection would soak up other conversations' events, so a session
+   * that has not started its thread yet accepts nothing thread-scoped.
+   */
+  private isOwnThread(threadId: string | null | undefined): boolean {
+    if (threadId == null) return true
+    return this.threadId != null && String(threadId) === String(this.threadId)
   }
 
   private getMcpDisplayStatus(server: CodexMcpServerStatus): {
@@ -499,6 +524,28 @@ export class CodexRuntimeSession implements RuntimeSession {
       })
       return threadResult.thread.id
     }
+    // Fork once, then keep talking to the live thread. A side chat's fork is
+    // ephemeral, so the app server writes no rollout for it and `thread/resume`
+    // fails with "no rollout found" — the handle we already hold is the only way
+    // back in.
+    //
+    // A thread id alone cannot tell a live fork from a dead one, because the id
+    // outlives the thread in the chat record. The connection knows: it remembers
+    // the ephemeral threads it created, and forgets them when its process goes.
+    // Since connections are shared, a side chat can outlive its own session (its
+    // fork survives as long as some conversation keeps the connection open) but
+    // not the connection.
+    if (this.forkFrom) {
+      if (this.threadId) {
+        if (!client.hasEphemeralThread(this.threadId)) {
+          this.logger.info(`Side chat thread ${this.threadId} is gone with its app-server`)
+          throw new UserFacingRuntimeError(SIDE_CHAT_EXPIRED_MESSAGE)
+        }
+        this.logger.info(`Reusing forked thread ${this.threadId}`)
+        return this.threadId
+      }
+      return this.forkThread(client, effectiveSettings, instructions)
+    }
     if (effectiveSettings.resume) {
       this.logger.info(`Resuming thread ${effectiveSettings.resume}`)
       const resumeResult = await client.resumeThread({
@@ -529,6 +576,49 @@ export class CodexRuntimeSession implements RuntimeSession {
       config: buildConfigOverrides(effectiveSettings),
     })
     return threadResult.thread.id
+  }
+
+  /**
+   * Branch off `forkFrom` and mark the boundary. The fork carries the parent's
+   * history as model context; `excludeTurns` keeps the app server from replaying
+   * it back, so the side chat opens on a blank transcript. The injected message
+   * is what tells the model the inherited history is reference material rather
+   * than an active task — see {@link SIDE_CHAT_BOUNDARY_PROMPT}.
+   */
+  private async forkThread(
+    client: AppServerClient,
+    effectiveSettings: CodexAppServerSettings,
+    instructions: string | undefined,
+  ): Promise<string> {
+    const source = this.forkFrom!
+    this.logger.info(`Forking thread ${source.sessionId} for a side chat`)
+    const forked = await client.forkThread({
+      threadId: source.sessionId,
+      ...(source.lastTurnId ? { lastTurnId: source.lastTurnId } : {}),
+      model: this.currentModelId,
+      serviceTier: effectiveSettings.serviceTier,
+      cwd: effectiveSettings.cwd,
+      approvalPolicy: mapApprovalMode(effectiveSettings.approvalMode),
+      approvalsReviewer: effectiveSettings.approvalsReviewer,
+      sandbox: mapSandboxMode(effectiveSettings.sandboxMode),
+      developerInstructions: buildDeveloperInstructions(effectiveSettings, instructions),
+      excludeTurns: true,
+      ...(source.ephemeral === false ? {} : { ephemeral: true }),
+      config: buildConfigOverrides(effectiveSettings),
+    })
+    const threadId = forked.thread.id
+    client.markEphemeralThread(threadId)
+    await client.injectItems({
+      threadId,
+      items: [
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: SIDE_CHAT_BOUNDARY_PROMPT }],
+        },
+      ],
+    })
+    return threadId
   }
 
   async *stream(params: RuntimeStreamParams) {
@@ -1015,7 +1105,12 @@ export class CodexRuntimeSession implements RuntimeSession {
     this.mcpStartupStatuses.clear()
     this.currentGoal = null
     this.threadId = undefined
-    this.client?.dispose()
+    // The connection is shared, so unhook our listeners and hand back the lease
+    // instead of killing the process — it dies once the last session lets go.
+    for (const unsubscribe of this.clientUnsubscribers) unsubscribe()
+    this.clientUnsubscribers = []
+    this.clientLease?.()
+    this.clientLease = null
     this.client = null
     await stopSdkMcpServers(this.activeSdkServers).catch(() => {})
     this.activeSdkServers = []
@@ -1088,6 +1183,15 @@ export class CodexRuntimeSession implements RuntimeSession {
     if (payload.thinkingLevel) {
       this.currentThinkingLevel = payload.thinkingLevel
       applied.push('thinkingLevel')
+    }
+    // Presence, not truthiness: `serviceTier: undefined` is fast mode being turned
+    // off, and a truthiness check would drop it and leave the session fast forever.
+    // Taking this here is what keeps a fast-mode toggle from rebuilding the session
+    // — which for codex would mean a fresh thread, restarted SDK MCP servers, and a
+    // released app-server lease that can take a side chat's fork down with it.
+    if ('serviceTier' in payload) {
+      this.currentServiceTier = payload.serviceTier
+      applied.push('serviceTier')
     }
     return applied
   }

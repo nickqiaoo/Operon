@@ -15,6 +15,8 @@ import type {
   InitializeResult,
   ThreadStartParams,
   ThreadStartResult,
+  ThreadForkParams,
+  ThreadInjectItemsParams,
   ThreadResumeParams,
   TurnStartParams,
   TurnStartResult,
@@ -40,8 +42,22 @@ type PendingRequest = {
 
 type NotificationHandler = (params: unknown) => void;
 
-// Handler for server-initiated requests (expects a response)
-type RequestHandler = (params: unknown, id: string | number) => Promise<unknown> | unknown;
+/**
+ * Returned by a request handler that does not own this request — typically
+ * because the request belongs to a different thread. The client then offers it
+ * to the next handler, and finally to the fallback handlers.
+ *
+ * A distinct sentinel rather than `null`/`undefined`, both of which are valid
+ * JSON-RPC results a handler may legitimately want to answer with.
+ */
+export const REQUEST_NOT_HANDLED = Symbol('codex.request-not-handled');
+
+// Handler for server-initiated requests (expects a response). Return
+// REQUEST_NOT_HANDLED to pass the request on to the next handler.
+type RequestHandler = (
+  params: unknown,
+  id: string | number,
+) => Promise<unknown | typeof REQUEST_NOT_HANDLED> | unknown | typeof REQUEST_NOT_HANDLED;
 
 const DEFAULT_REQUEST_TIMEOUT = 60_000; // 60 seconds
 const DESKTOP_CLIENT_NAME = 'Codex Desktop';
@@ -56,7 +72,21 @@ export class AppServerClient {
   private process: ChildProcess | null = null;
   private pendingRequests = new Map<string | number, PendingRequest>();
   private notificationHandlers = new Map<string, Set<NotificationHandler>>();
-  private requestHandlers = new Map<string, RequestHandler>();
+  /**
+   * Server-initiated request handlers, in registration order. One app-server can
+   * carry many threads at once, so a method may have several owners — each is
+   * offered the request until one claims it (see {@link REQUEST_NOT_HANDLED}).
+   */
+  private requestHandlers = new Map<string, RequestHandler[]>();
+  /** Tried after every ordinary handler has declined. */
+  private fallbackRequestHandlers = new Map<string, RequestHandler[]>();
+  /**
+   * Threads this connection forked as ephemeral — they exist only in this
+   * process's memory, so they are gone the moment it is. Lets a caller tell
+   * "my thread is still here" from "the server that held it has been replaced",
+   * which a thread id alone cannot answer.
+   */
+  private ephemeralThreads = new Set<string>();
   private initialized = false;
   private starting: Promise<void> | null = null;
   private logger: Logger;
@@ -213,6 +243,8 @@ export class AppServerClient {
     this.initialized = false;
     this.starting = null;
     this.process = null;
+    // Ephemeral threads died with the process, whether it exited or crashed.
+    this.ephemeralThreads.clear();
 
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests) {
@@ -308,8 +340,11 @@ export class AppServerClient {
   private handleServerRequest(msg: JSONRPCRequest): void {
     this.logger.debug(`Server request received: ${msg.method} (id: ${msg.id})`);
 
-    const handler = this.requestHandlers.get(msg.method);
-    if (!handler) {
+    const candidates = [
+      ...(this.requestHandlers.get(msg.method) ?? []),
+      ...(this.fallbackRequestHandlers.get(msg.method) ?? []),
+    ];
+    if (candidates.length === 0) {
       this.logger.warn(`No handler registered for server request: ${msg.method}`);
       // Send error response
       this.sendResponse(msg.id!, undefined, {
@@ -319,19 +354,34 @@ export class AppServerClient {
       return;
     }
 
-    // Execute handler and send response
-    Promise.resolve()
-      .then(() => handler(msg.params, msg.id!))
-      .then((result) => {
-        this.sendResponse(msg.id!, result);
-      })
-      .catch((err) => {
+    // Offer the request to each handler until one claims it. Handlers that
+    // belong to another thread decline, which is what keeps one shared
+    // app-server from answering a conversation with another's policy.
+    void (async () => {
+      try {
+        for (const handler of candidates) {
+          const result = await handler(msg.params, msg.id!);
+          if (result === REQUEST_NOT_HANDLED) continue;
+          this.sendResponse(msg.id!, result);
+          return;
+        }
+        // Every handler declined: the thread this belongs to has no live owner.
+        const threadId = (msg.params as { threadId?: unknown } | undefined)?.threadId;
+        this.logger.warn(
+          `No handler claimed server request ${msg.method} (threadId: ${String(threadId)})`,
+        );
+        this.sendResponse(msg.id!, undefined, {
+          code: -32000,
+          message: `No live handler for ${msg.method}`,
+        });
+      } catch (err) {
         this.logger.error(`Handler error for ${msg.method}: ${err}`);
         this.sendResponse(msg.id!, undefined, {
           code: -32000,
           message: err instanceof Error ? err.message : String(err),
         });
-      });
+      }
+    })();
   }
 
   private handleNotification(msg: JSONRPCNotification): void {
@@ -369,6 +419,16 @@ export class AppServerClient {
     this.logger.debug(`Sent response for ${id}: ${error ? 'error' : 'success'}`);
   }
 
+  /** Record a thread that lives only in this process (see {@link ephemeralThreads}). */
+  markEphemeralThread(threadId: string): void {
+    this.ephemeralThreads.add(threadId);
+  }
+
+  /** Whether this connection is still the one holding `threadId`. */
+  hasEphemeralThread(threadId: string): boolean {
+    return this.ephemeralThreads.has(threadId);
+  }
+
   /**
    * Subscribe to server notifications
    * @returns Unsubscribe function
@@ -385,18 +445,32 @@ export class AppServerClient {
   }
 
   /**
-   * Register a handler for server-initiated requests (requires a response)
-   * Only one handler per method is allowed.
+   * Register a handler for server-initiated requests (requires a response).
+   *
+   * Several handlers may share a method — one app-server carries every thread,
+   * so each live turn registers its own. They are offered the request in
+   * registration order and should return {@link REQUEST_NOT_HANDLED} for a
+   * thread that is not theirs; `fallback` handlers are tried only after all the
+   * others have declined.
+   *
    * @returns Unregister function
    */
-  onRequest(method: string, handler: RequestHandler): () => void {
-    if (this.requestHandlers.has(method)) {
-      this.logger.warn(`Overwriting existing request handler for: ${method}`);
-    }
-    this.requestHandlers.set(method, handler);
+  onRequest(
+    method: string,
+    handler: RequestHandler,
+    options?: { fallback?: boolean },
+  ): () => void {
+    const registry = options?.fallback ? this.fallbackRequestHandlers : this.requestHandlers;
+    const handlers = registry.get(method) ?? [];
+    handlers.push(handler);
+    registry.set(method, handlers);
 
     return () => {
-      this.requestHandlers.delete(method);
+      const current = registry.get(method);
+      if (!current) return;
+      const index = current.indexOf(handler);
+      if (index >= 0) current.splice(index, 1);
+      if (current.length === 0) registry.delete(method);
     };
   }
 
@@ -417,6 +491,22 @@ export class AppServerClient {
    */
   async resumeThread(params: ThreadResumeParams): Promise<ThreadStartResult> {
     return this.request<ThreadStartResult>('thread/resume', params);
+  }
+
+  /**
+   * Branch a thread. The fork inherits the source thread's history as model
+   * context; pass `excludeTurns` to keep the app server from replaying that
+   * history back to us (see {@link ThreadForkParams}).
+   */
+  async forkThread(params: ThreadForkParams): Promise<ThreadStartResult> {
+    return this.request<ThreadStartResult>('thread/fork', params);
+  }
+
+  /**
+   * Append items to a thread's history without running a turn.
+   */
+  async injectItems(params: ThreadInjectItemsParams): Promise<void> {
+    await this.request<unknown>('thread/inject_items', params);
   }
 
   /**

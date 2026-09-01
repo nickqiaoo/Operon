@@ -37,7 +37,11 @@ export const prepareChatRecord = (
         meta.revision,
         -1,
         [lastUserMessage],
-        payload.tp ?? 'chat',
+        // No `?? 'chat'` here: an existing row already knows what it is, and the
+        // send payload does not carry `tp`. Defaulting would rewrite a side chat
+        // (or any non-'chat' row) into a plain chat on its first message; storage
+        // keeps the current value when this is undefined.
+        payload.tp,
         payload.workspaceId,
         payload.modelId,
         payload.providerId,

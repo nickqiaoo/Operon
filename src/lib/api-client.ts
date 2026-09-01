@@ -509,6 +509,17 @@ export function chatHistoryClear(chatId: number) {
   }).then((r) => r.success)
 }
 
+/**
+ * Create the (empty) chat row backing a side chat branched off `parentChatId`.
+ * The provider session is forked server-side on the first turn, not here.
+ */
+export function chatHistorySideCreate(parentChatId: number, title?: string) {
+  return request<{ success: boolean; chatId?: number; error?: string }>('/chat-history/side', {
+    method: 'POST',
+    body: JSON.stringify({ parentChatId, ...(title ? { title } : {}) }),
+  })
+}
+
 export function chatHistoryList(
   workspaceId?: number,
   tp?: string,

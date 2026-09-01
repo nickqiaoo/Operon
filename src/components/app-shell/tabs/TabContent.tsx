@@ -1,5 +1,6 @@
 import { BrowserTab } from "../content/BrowserTab"
 import { ReviewTab } from "../content/ReviewTab"
+import { SideChatTab } from "../content/SideChatTab"
 import { TerminalTab } from "../content/TerminalTab"
 import { WorkspaceBrowserTab } from "../content/WorkspaceBrowserTab"
 import { WorkflowTab } from "../content/WorkflowTab"
@@ -21,6 +22,7 @@ interface TabContentProps {
  *   workspace-browser → @pierre/trees + preview pane
  *   diff              → (later)
  *   review            → @pierre/diffs multi-file
+ *   side-chat         → ChatPanel on a forked conversation
  *   browser           → webview overlay (browserManager)
  *   terminal          → xterm + PTY
  *   workflow          → live runs + each sub-agent's stream
@@ -41,6 +43,14 @@ export function TabContent({ panelId, tab, isActive }: TabContentProps) {
       )
     case "review":
       return <ReviewTab tabId={tab.tabId} rootPath={tab.payload.rootPath} />
+    case "side-chat":
+      return (
+        <SideChatTab
+          chatId={tab.payload.chatId}
+          parentChatId={tab.payload.parentChatId}
+          isActive={isActive}
+        />
+      )
     case "terminal":
       return (
         <TerminalTab

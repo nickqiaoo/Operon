@@ -238,6 +238,8 @@ export class SqliteStorage
       migrationsDir: options.migrationsDir,
     })
 
+    this.discardStaleSideChats()
+
     // The db holds provider API keys and IM bot tokens; keep it out of reach
     // of other OS users. After migrations so the WAL/SHM side files (created
     // on first write, with the process umask — typically 644) exist too.
@@ -247,6 +249,30 @@ export class SqliteStorage
       } catch {
         // side file not created yet — the next startup tightens it
       }
+    }
+  }
+
+  /**
+   * Drop every side chat left over from a previous run.
+   *
+   * A side chat is a branch of another conversation held in the agent's memory:
+   * its forked thread is ephemeral (never written to disk) and the tab that owns
+   * it is not persisted either. So a side chat cannot survive a restart by
+   * construction, and any row still here at startup is unreachable — no listing
+   * shows side chats, and nothing else can navigate to one. Clearing them keeps
+   * the rows a user abandons by quitting from accumulating forever.
+   */
+  private discardStaleSideChats(): void {
+    const result = this.db
+      .prepare("DELETE FROM chats WHERE tp = 'side'")
+      .run()
+    if (result.changes > 0) {
+      // Messages are keyed by chat_id with no foreign keys, so they go separately.
+      this.db
+        .prepare(
+          "DELETE FROM chat_messages WHERE chat_id NOT IN (SELECT id FROM chats)",
+        )
+        .run()
     }
   }
 
@@ -750,6 +776,12 @@ export class SqliteStorage
     if (query?.tp !== undefined) {
       whereClauses.push('tp = ?')
       params.push(query.tp)
+    } else {
+      // Side chats are throwaway branches of another conversation and never
+      // belong in a history list; the tab that owns one is the only way back to
+      // it. An explicit `tp` filter still reaches them (the side chat tab reads
+      // its own row by id, not through here).
+      whereClauses.push("tp != 'side'")
     }
 
     const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''

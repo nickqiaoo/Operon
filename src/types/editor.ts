@@ -19,6 +19,13 @@ export type EditorTab = {
   provider?: string
   providerId?: string
   isSubAgent?: boolean
+  /**
+   * A side chat: a throwaway branch of another conversation, rendered as a tab
+   * in the right panel rather than in the editor tab strip. It still lives in
+   * the editor store because that is where ChatPanel reads a conversation's
+   * state from — the editor surfaces just filter it out.
+   */
+  isSideChat?: boolean
   // Terminal tabs (type === "terminal")
   terminalId?: string
   launch?: string  // logical launcher, e.g. "claude"

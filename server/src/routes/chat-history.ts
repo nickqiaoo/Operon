@@ -107,6 +107,51 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     return c.json(result)
   })
 
+  // POST /api/chat-history/side - open a side chat branched off `parentChatId`
+  //
+  // The row is created empty and up front, before the user has typed anything,
+  // so the tab has an id to render against immediately. The provider session is
+  // not forked here — that happens on the first turn, in chat-flow's
+  // `resolveForkSource`, because forking a thread nobody talks to would burn a
+  // thread for every side chat the user opens and abandons.
+  router.post('/side', async (c) => {
+    const { parentChatId, title } = await c.req.json<{ parentChatId?: number; title?: string }>()
+    if (!Number.isInteger(parentChatId) || (parentChatId as number) <= 0) {
+      return c.json({ success: false, error: 'parentChatId must be a positive integer' }, 400)
+    }
+    const parent = storage.getChatMeta(parentChatId as number)
+    if (!parent) {
+      return c.json({ success: false, error: 'Parent chat not found' }, 404)
+    }
+    if (parent.tp === 'side') {
+      return c.json({ success: false, error: 'Cannot open a side chat from a side chat' }, 400)
+    }
+
+    const result = storage.patchChatEntry(null, {
+      baseRevision: 0,
+      replaceFrom: 0,
+      tailMessages: [],
+      tp: 'side',
+      title: title?.trim() || 'Side chat',
+      workspaceId: parent.workspaceId,
+      model: parent.model,
+      providerId: parent.providerId,
+      thinkingLevel: parent.thinkingLevel,
+      updatedAt: Date.now(),
+      metadata: {
+        parentChatId: parentChatId as number,
+        forkedAtMessageIndex: storage.getChatMessages(parentChatId as number, { limit: 0 })?.total ?? 0,
+        // The side chat inherits the parent's runtime selections: a fork that ran
+        // on a different model would not share the parent's cached prefix.
+        ...(parent.metadata?.chatRuntimeOptions
+          ? { chatRuntimeOptions: parent.metadata.chatRuntimeOptions }
+          : {}),
+      },
+    })
+
+    return c.json(result)
+  })
+
   // PATCH /api/chat-history/:chatId - update existing chat
   router.patch('/:chatId', async (c) => {
     const chatId = parseInt(c.req.param('chatId'), 10)

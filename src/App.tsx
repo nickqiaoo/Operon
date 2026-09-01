@@ -192,19 +192,24 @@ export default function App() {
     [tabs, activeTabId]
   )
 
+  // The editor tab strip never shows side chats — they belong to the right-panel
+  // tab that opened them.
+  const editorStripTabs = useMemo(() => tabs.filter((tab) => !tab.isSideChat), [tabs])
+
   // Collect chat tabs from current workspace + actively streaming tabs from other workspaces.
   // Only streaming inactive tabs stay mounted to preserve their SSE connections.
   // Non-streaming inactive tabs are unmounted and reload history from DB when revisited.
   const allChatTabs = useMemo(() => {
     const currentKey = String(currentWorkspaceId ?? 'global')
-    const currentChatTabs = tabs.filter(t => t.type === 'chat')
+    // Side chats render inside their right-panel tab, not here.
+    const currentChatTabs = tabs.filter(t => t.type === 'chat' && !t.isSideChat)
     const currentIds = new Set(currentChatTabs.map(t => t.id))
 
     const inactiveTabs: typeof tabs = []
     for (const [key, state] of Object.entries(workspaceStates)) {
       if (key === currentKey) continue
       for (const tab of state.tabs) {
-        if (tab.type === 'chat' && !currentIds.has(tab.id) && streamingTabIds.has(tab.id)) {
+        if (tab.type === 'chat' && !tab.isSideChat && !currentIds.has(tab.id) && streamingTabIds.has(tab.id)) {
           inactiveTabs.push(tab)
         }
       }
@@ -480,7 +485,7 @@ export default function App() {
                 </div>
 
                 <EditorTabs
-                  tabs={tabs}
+                  tabs={editorStripTabs}
                   activeTabId={activeTabId}
                   onSelectTab={setActiveTab}
                   onCloseTab={closeTab}

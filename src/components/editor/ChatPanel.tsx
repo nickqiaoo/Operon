@@ -45,8 +45,17 @@ import { normalizeHistoryMessages } from './hooks/useChatHistory';
 import { mergeServerTail, TAIL_SYNC_SIZE } from './utils/merge-server-tail';
 import { useAttachmentLoader } from './hooks/useAttachmentLoader';
 import { AnnotationTray, annotationToFiles } from './AnnotationTray';
+import { SelectionToolbar, type SelectionAction } from '@/components/ui/selection-toolbar';
+import { openSideChat } from '@/lib/side-chat';
+import { useProviderCapabilityStore } from '@/stores/provider-capability-store';
 import { useAnnotationsStore, annotationsForWorkspace } from '@/stores/annotations-store';
 import { LineCommentTray } from './comments/LineCommentTray';
+import { SelectedTextTray } from './comments/SelectedTextTray';
+import {
+  useSelectedTextStore,
+  selectedTextForChat,
+  selectedTextToFile,
+} from '@/stores/selected-text-store';
 import {
   useLineCommentsStore,
   lineCommentsForWorkspace,
@@ -157,6 +166,63 @@ function ChatPanelContent({
     return undefined;
   });
   const dbChatId = tab?.chatId;
+
+  // Selection toolbar over the transcript. The container is the whole panel and
+  // the targetSelector is what actually narrows it to assistant messages, so a
+  // selection in the composer or in a user's own message raises nothing.
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const sideChatProviderId = tab?.providerId ?? providerId;
+  const canOpenSideChat = useProviderCapabilityStore(
+    (state) =>
+      sideChatProviderId != null &&
+      state.byProvider[sideChatProviderId]?.sideChat === true
+  );
+  const selectionActions = useMemo<SelectionAction[]>(() => {
+    const actions: SelectionAction[] = [
+      {
+        key: 'add-to-chat',
+        label: <FormattedMessage id="selection.addToChat" defaultMessage="Add to chat" />,
+        // Bound to this chat: a quote pulled out of this transcript belongs to
+        // this conversation, not to whatever else the workspace has open.
+        onSelect: ({ text }) => {
+          useSelectedTextStore.getState().add({
+            id: crypto.randomUUID(),
+            workspaceId: currentWorkspaceId,
+            chatId: dbChatId,
+            text,
+            createdAt: Date.now(),
+          });
+        },
+      },
+    ];
+    // A side chat branches the conversation it is opened from, so there has to be
+    // one on disk, and a side chat cannot branch again.
+    if (canOpenSideChat && dbChatId != null && tab?.isSideChat !== true) {
+      actions.push({
+        key: 'ask-in-side-chat',
+        label: <FormattedMessage id="selection.askInSideChat" defaultMessage="Ask in side chat" />,
+        onSelect: ({ text }) => {
+          void openSideChat(dbChatId, { providerId: sideChatProviderId })
+            .then((sideChatId) => {
+              if (sideChatId == null) return;
+              // Bound to the new side chat, so it rides along there rather than
+              // showing up on the parent's composer.
+              useSelectedTextStore.getState().add({
+                id: crypto.randomUUID(),
+                workspaceId: currentWorkspaceId,
+                chatId: sideChatId,
+                text,
+                createdAt: Date.now(),
+              });
+            })
+            .catch((error) => {
+              console.error('[ChatPanel] Failed to open side chat from selection:', error);
+            });
+        },
+      });
+    }
+    return actions;
+  }, [canOpenSideChat, currentWorkspaceId, dbChatId, sideChatProviderId, tab?.isSideChat]);
   useVisibleChatInboxRead(dbChatId, visible);
   const [recentOptionsState] = useState(() => {
     const remember =
@@ -613,13 +679,18 @@ function ChatPanelContent({
     const lineStore = useLineCommentsStore.getState();
     const lineComments = lineCommentsForWorkspace(lineStore.items, currentWorkspaceId);
     const lineCommentFiles = lineComments.map(lineCommentToFile);
-    const extraFiles = [...annFiles, ...lineCommentFiles];
+    // Same one-shot consume for text picked out of a file preview.
+    const selectedStore = useSelectedTextStore.getState();
+    const selectedSnippets = selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId);
+    const selectedFiles = selectedSnippets.map(selectedTextToFile);
+    const extraFiles = [...annFiles, ...lineCommentFiles, ...selectedFiles];
     const merged = extraFiles.length > 0
       ? { ...message, files: [...message.files, ...extraFiles] as FileUIPart[] }
       : message;
     submitMessage(merged, attachments.files, setInput);
     for (const a of annotations) annStore.remove(a.id);
     lineStore.clearWorkspace(currentWorkspaceId);
+    selectedStore.clearWorkspace(currentWorkspaceId);
     trackEvent('message_sent', {
       provider_id: currentProviderId,
       model: model || undefined,
@@ -797,7 +868,7 @@ function ChatPanelContent({
   }, [chatId]);
 
   return (
-    <div className="h-full flex flex-col relative">
+    <div ref={transcriptRef} className="h-full flex flex-col relative">
       <RewindConfirmDialog
         open={rewindDialogOpen}
         onOpenChange={setRewindDialogOpen}
@@ -811,6 +882,11 @@ function ChatPanelContent({
         onConfirm={confirmConflicts}
       />
       {isCanvasChatId(chatId) && <CanvasChatBanner chatId={chatId} />}
+      <SelectionToolbar
+        containerRef={transcriptRef}
+        targetSelector='[data-message-item-role="assistant"]'
+        actions={selectionActions}
+      />
       <Conversation className="flex-1 rounded-xl bg-background font-sans">
         <AutoScrollManager
           status={status}
@@ -1063,6 +1139,7 @@ function ChatPanelContent({
           );
         })() : null}
         <AnnotationTray workspaceId={currentWorkspaceId} />
+        <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
         <LineCommentTray workspaceId={currentWorkspaceId} />
         <WorkflowApprovalsBar chatId={tab?.chatId ?? dbChatIdRef.current} />
         {goal && (

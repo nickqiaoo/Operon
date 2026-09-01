@@ -51,10 +51,17 @@ function createNotificationFilter(): Transform {
   })
 }
 
-export interface AcpConnectionCallbacks {
+/** Callbacks for one conversation. Every ACP message carries the session it
+ *  belongs to, so a connection can serve several of these at once. */
+export interface AcpSessionCallbacks {
   onSessionUpdate(params: acp.SessionNotification): void
   onRequestPermission(params: acp.RequestPermissionRequest): Promise<acp.RequestPermissionResponse>
+  /** The agent process went away, taking this session with it. */
   onExit(error?: Error): void
+}
+
+/** Callbacks that belong to the process rather than to any one session. */
+export interface AcpConnectionCallbacks {
   onStderr?(line: string): void
 }
 
@@ -65,6 +72,8 @@ export interface AcpConnectionOptions {
   cwd: string
   env: Record<string, string>
   callbacks: AcpConnectionCallbacks
+  /** Lets the owner (the connection registry) drop a dead connection. */
+  onProcessExit?: (error?: Error) => void
 }
 
 /**
@@ -77,6 +86,16 @@ export class AcpConnection {
   readonly agent: acp.Agent
   private readonly proc: ChildProcessWithoutNullStreams
   private exited = false
+  private readonly sessions = new Map<string, AcpSessionCallbacks>()
+  /**
+   * Updates that arrived before their session registered.
+   *
+   * An agent may start pushing about a session (grok sends its command list) in
+   * the same tick it answers `session/new`, before the caller has learned the id
+   * it needs in order to register. Those land here and replay on registration,
+   * so a shared connection cannot drop the first update of a conversation.
+   */
+  private readonly pendingUpdates = new Map<string, acp.SessionNotification[]>()
 
   constructor(private readonly options: AcpConnectionOptions) {
     this.proc = spawn(options.command, options.args, {
@@ -107,15 +126,48 @@ export class AcpConnection {
     })
   }
 
+  /**
+   * Attach a conversation to this connection. Returns a detach function; the
+   * connection itself outlives any single session.
+   */
+  registerSession(sessionId: string, callbacks: AcpSessionCallbacks): () => void {
+    this.sessions.set(sessionId, callbacks)
+    const buffered = this.pendingUpdates.get(sessionId)
+    if (buffered) {
+      this.pendingUpdates.delete(sessionId)
+      for (const params of buffered) callbacks.onSessionUpdate(params)
+    }
+    return () => {
+      if (this.sessions.get(sessionId) === callbacks) this.sessions.delete(sessionId)
+    }
+  }
+
+  get sessionCount(): number {
+    return this.sessions.size
+  }
+
   private createClient(): acp.Client {
     return {
       sessionUpdate: async (params) => {
         logProviderRaw(this.options.providerId, { dir: 'notify', method: 'session/update', params })
-        this.options.callbacks.onSessionUpdate(params)
+        const session = this.sessions.get(params.sessionId)
+        if (session) {
+          session.onSessionUpdate(params)
+          return
+        }
+        const queued = this.pendingUpdates.get(params.sessionId) ?? []
+        queued.push(params)
+        this.pendingUpdates.set(params.sessionId, queued)
       },
       requestPermission: async (params) => {
         logProviderRaw(this.options.providerId, { dir: 'request', method: 'session/request_permission', params })
-        return this.options.callbacks.onRequestPermission(params)
+        const session = this.sessions.get(params.sessionId)
+        if (!session) {
+          // Nobody owns this conversation any more — refusing is the safe answer,
+          // and far better than letting another conversation's policy decide.
+          return { outcome: { outcome: 'cancelled' } }
+        }
+        return session.onRequestPermission(params)
       },
     }
   }
@@ -137,7 +189,12 @@ export class AcpConnection {
   private handleExit(error?: Error): void {
     if (this.exited) return
     this.exited = true
-    this.options.callbacks.onExit(error)
+    // The process is gone, so every conversation on it is gone with it.
+    const sessions = [...this.sessions.values()]
+    this.sessions.clear()
+    this.pendingUpdates.clear()
+    for (const session of sessions) session.onExit(error)
+    this.options.onProcessExit?.(error)
   }
 
   async dispose(): Promise<void> {

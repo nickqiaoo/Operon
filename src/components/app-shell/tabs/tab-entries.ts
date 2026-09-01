@@ -4,6 +4,7 @@ import {
   FolderTree,
   GitPullRequest,
   Globe,
+  MessageSquarePlus,
   Plus,
   Terminal as TerminalIcon,
 } from "lucide-react"
@@ -11,6 +12,12 @@ import { useProjectStore } from "@/stores/project-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { browserScopeChatId } from "@/stores/browser-scope-store"
+import { useEditorStore } from "@/stores/editor-store"
+import {
+  providerSupportsSideChat,
+  useProviderCapabilityStore,
+} from "@/stores/provider-capability-store"
+import { openSideChat } from "@/lib/side-chat"
 import type { PanelId, Tab, TabType } from "./types"
 
 // Menu/card labels for the new-tab entries. Descriptors keep them statically
@@ -24,6 +31,11 @@ const M = defineMessages({
   browserDesc: { id: "tab.browser.desc", defaultMessage: "Open a website" },
   terminalLabel: { id: "tab.terminal.label", defaultMessage: "Terminal" },
   terminalDesc: { id: "tab.terminal.desc", defaultMessage: "Start an interactive shell" },
+  sideChatLabel: { id: "tab.sideChat.label", defaultMessage: "Side chat" },
+  sideChatDesc: {
+    id: "tab.sideChat.desc",
+    defaultMessage: "Ask without disturbing the main chat",
+  },
 })
 
 export interface MenuEntry {
@@ -34,10 +46,32 @@ export interface MenuEntry {
   icon: typeof Plus
   /** True if this type needs an open workspace to make sense. */
   requiresWorkspace: boolean
-  build: (ctx: { rootPath: string | null; openTabs: readonly Tab[] }) => Tab | null
+  /**
+   * Builds the tab synchronously. Entries whose tab cannot be described up front
+   * — a side chat has to create its chat row on the server first — leave this
+   * unset and provide `open` instead.
+   */
+  build?: (ctx: { rootPath: string | null; openTabs: readonly Tab[] }) => Tab | null
+  /** Opens the tab itself, for entries that need to talk to the server first. */
+  open?: () => void | Promise<void>
+  /** Hides the entry when the current context cannot support it. */
+  isAvailable?: () => boolean
 }
 
 const counter = () => Math.random().toString(36).slice(2, 8)
+
+/**
+ * The conversation a side chat would branch from: the active editor tab, when it
+ * is a persisted chat whose provider can fork and is not itself a side chat.
+ */
+function activeChatForSideChat(): { chatId: number; providerId?: string } | null {
+  const editor = useEditorStore.getState()
+  const tab = editor.tabs.find((t) => t.id === editor.activeTabId)
+  if (tab == null || tab.type !== "chat" || tab.isSideChat) return null
+  if (tab.chatId == null) return null
+  if (!providerSupportsSideChat(tab.providerId)) return null
+  return { chatId: tab.chatId, providerId: tab.providerId }
+}
 
 const nextTerminalTitle = (tabs: readonly Tab[]): string => {
   const usedNumbers = new Set<number>()
@@ -113,6 +147,21 @@ export const newTabEntries: MenuEntry[] = [
     },
   },
   {
+    type: "side-chat",
+    label: M.sideChatLabel,
+    description: M.sideChatDesc,
+    icon: MessageSquarePlus,
+    requiresWorkspace: false,
+    // Only offered while a conversation is open on a provider that can fork it:
+    // a side chat is a branch of something, not a blank chat.
+    isAvailable: () => activeChatForSideChat() != null,
+    open: async () => {
+      const active = activeChatForSideChat()
+      if (active == null) return
+      await openSideChat(active.chatId, { providerId: active.providerId })
+    },
+  },
+  {
     type: "terminal",
     label: M.terminalLabel,
     description: M.terminalDesc,
@@ -136,8 +185,8 @@ export const newTabEntries: MenuEntry[] = [
 
 /** Visible items per panel (just affects ordering / hides irrelevant ones). */
 const PANEL_ORDER: Record<PanelId, TabType[]> = {
-  right: ["workspace-browser", "review", "browser", "terminal"],
-  bottom: ["terminal", "browser", "workspace-browser", "review"],
+  right: ["workspace-browser", "side-chat", "review", "browser", "terminal"],
+  bottom: ["terminal", "browser", "workspace-browser", "review", "side-chat"],
 }
 
 /**
@@ -188,16 +237,29 @@ export function useNewTab(panelId: PanelId) {
     return null
   }, [projects, activeWorkspaceId])
 
+  // Subscribed, not just read inside the memo below: the side chat entry appears
+  // and disappears as the user switches conversations, so the menu has to
+  // re-derive when that changes.
+  const sideChatSource = useEditorStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    return tab?.type === "chat" && !tab.isSideChat ? (tab.chatId ?? null) : null
+  })
+  const sideChatProviders = useProviderCapabilityStore((s) => s.byProvider)
+
   const ordered = useMemo(() => {
     const order = PANEL_ORDER[panelId]
     return newTabEntries
       .slice()
+      // Context-dependent entries (side chat needs a forkable conversation open)
+      // disappear rather than showing as permanently disabled.
+      .filter((e) => e.isAvailable?.() !== false)
       // The in-app browser is an Electron <webview>; it has no web-build equivalent,
       // so drop it from the new-tab menu on the web target (Files/Review/Terminal
       // all go through the tunneled backend and stay available).
       .filter((e) => __APP_TARGET__ !== "web" || e.type !== "browser")
       .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))
-  }, [panelId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelId, sideChatSource, sideChatProviders])
 
   const openEntry = useCallback(
     (entry: MenuEntry) => {
@@ -210,7 +272,12 @@ export function useNewTab(panelId: PanelId) {
         else setBottomOpen(true)
         return
       }
-      const tab = entry.build({ rootPath, openTabs: [...right.tabs, ...bottom.tabs] })
+      // Entries that must reach the server open themselves (and open the panel).
+      if (entry.open != null) {
+        void entry.open()
+        return
+      }
+      const tab = entry.build?.({ rootPath, openTabs: [...right.tabs, ...bottom.tabs] })
       if (tab == null) return
       openTab(panelId, tab)
       if (panelId === "right") setRightOpen(true)

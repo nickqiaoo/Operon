@@ -26,7 +26,29 @@ interface AppShellState {
    * a `true` entry means the user explicitly hid it. Transient — not persisted.
    */
   workspaceTreeHidden: Record<string, boolean>
+  /**
+   * Per-tab back/forward history of files previewed in the workspace browser.
+   * `entries` runs oldest -> newest and `index` points at the file on screen,
+   * so anything after `index` is the "forward" stack. Transient — not
+   * persisted, and kept here (rather than in the tab payload) so it survives
+   * switching workspaces, which unmounts the tab.
+   */
+  workspacePreviewHistory: Record<string, WorkspacePreviewHistory>
+  /**
+   * User ticked "don't ask again" on the side chat close confirmation. Persisted:
+   * it is a standing answer to a question they have already made up their mind
+   * about, not session state.
+   */
+  skipSideChatCloseConfirm: boolean
 }
+
+export interface WorkspacePreviewHistory {
+  entries: string[]
+  index: number
+}
+
+/** Cap on remembered files per tab; older entries fall off the front. */
+const MAX_WORKSPACE_PREVIEW_HISTORY = 50
 
 interface AppShellActions {
   setRightPanelOpen: (open: boolean) => void
@@ -37,13 +59,26 @@ interface AppShellActions {
   setBottomPanelHeight: (height: number) => void
   toggleRightPanelExpanded: () => void
   toggleWorkspaceTree: (tabId: string) => void
+  /**
+   * Record `path` as the file now shown in tab `tabId`. Drops the forward
+   * stack, like a browser does when you navigate after going back. No-op when
+   * `path` is already the current entry, which is what keeps back/forward
+   * itself from re-recording where it just went.
+   */
+  pushWorkspacePreviewHistory: (tabId: string, path: string) => void
+  /**
+   * Step the history cursor by `delta` (-1 back, +1 forward) and return the
+   * file to show, or `null` when there is nothing that way.
+   */
+  stepWorkspacePreviewHistory: (tabId: string, delta: number) => string | null
+  setSkipSideChatCloseConfirm: (skip: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   toggleSidebar: () => void
 }
 
 export const useAppShellStore = create<AppShellState & AppShellActions>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       rightPanelOpen: false,
       bottomPanelOpen: false,
       rightPanelWidth: RIGHT_PANEL_DEFAULT_WIDTH,
@@ -51,6 +86,8 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
       rightPanelExpanded: false,
       sidebarCollapsed: false,
       workspaceTreeHidden: {},
+      workspacePreviewHistory: {},
+      skipSideChatCloseConfirm: false,
 
       setRightPanelOpen: (rightPanelOpen) =>
         set((s) => ({
@@ -77,6 +114,36 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
             [tabId]: !s.workspaceTreeHidden[tabId],
           },
         })),
+      pushWorkspacePreviewHistory: (tabId, path) =>
+        set((s) => {
+          const current = s.workspacePreviewHistory[tabId]
+          if (current != null && current.entries[current.index] === path) return {}
+          const kept =
+            current == null ? [] : current.entries.slice(0, current.index + 1)
+          const entries = [...kept, path].slice(-MAX_WORKSPACE_PREVIEW_HISTORY)
+          return {
+            workspacePreviewHistory: {
+              ...s.workspacePreviewHistory,
+              [tabId]: { entries, index: entries.length - 1 },
+            },
+          }
+        }),
+      stepWorkspacePreviewHistory: (tabId, delta) => {
+        const current = get().workspacePreviewHistory[tabId]
+        if (current == null) return null
+        const index = current.index + delta
+        const path = current.entries[index]
+        if (path == null) return null
+        set((s) => ({
+          workspacePreviewHistory: {
+            ...s.workspacePreviewHistory,
+            [tabId]: { entries: current.entries, index },
+          },
+        }))
+        return path
+      },
+      setSkipSideChatCloseConfirm: (skipSideChatCloseConfirm) =>
+        set({ skipSideChatCloseConfirm }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     }),
@@ -95,6 +162,7 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
         bottomPanelOpen: s.bottomPanelOpen,
         rightPanelWidth: s.rightPanelWidth,
         bottomPanelHeight: s.bottomPanelHeight,
+        skipSideChatCloseConfirm: s.skipSideChatCloseConfirm,
       }),
     }
   )

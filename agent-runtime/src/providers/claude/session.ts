@@ -10,7 +10,7 @@ import type {
   SDKUserMessage,
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk'
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { deleteSession, query } from '@anthropic-ai/claude-agent-sdk'
 import type {
   DetailedContextUsage,
   DynamicSetApplied,
@@ -19,6 +19,7 @@ import type {
   RuntimeSession,
   RuntimeSessionParams,
   RuntimeStreamParams,
+  SessionDisposeReason,
   SlashCommandItem,
 } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
@@ -28,6 +29,7 @@ import { ClaudeTextStreamBuilder } from './text-stream-builder.js'
 import type { ClaudeRuntimeSettings, PendingApproval } from './types.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
+import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
 
 const MCP_READY_TIMEOUT_MS = 15_000
 const MCP_STATUS_POLL_INTERVAL_MS = 200
@@ -103,12 +105,17 @@ function buildQueryOptions(
   settings: ClaudeRuntimeSettings,
   abortController: AbortController,
   canUseTool: Options['canUseTool'],
+  forkSession = false,
 ): Options {
   return {
     model: settings.modelId,
     abortController,
     cwd: settings.cwd,
     resume: settings.resume,
+    // With `resume`, branches the conversation into a new session id instead of
+    // continuing the resumed one — the parent is left untouched. Only ever set
+    // on a side chat's first turn; see `ensureWarmQuery`.
+    forkSession,
     permissionMode: settings.permissionMode,
     effort: settings.thinkingLevel,
     // Fast mode lives in the settings (flag) layer, not as a top-level option.
@@ -156,12 +163,19 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   private readonly pendingApprovals = new Map<string, PendingApproval>()
   private cachedInitData: Record<string, unknown> | null = null
 
+  // Side chat state. `boundaryPending` is true only until the branch's first
+  // user message carries the boundary marker — see `stream()`.
+  private boundaryPending: boolean
+
   constructor(params: RuntimeSessionParams) {
     this.settings = buildClaudeRuntimeSettings(params)
     this.currentModelId = this.settings.modelId
     this.currentModeId = this.settings.permissionMode
     this.currentThinkingLevel = this.settings.thinkingLevel
     this.sessionId = this.settings.resume
+    // A side chat that already has a session id forked on an earlier turn; only
+    // a branch that has not run yet still owes its boundary marker.
+    this.boundaryPending = this.settings.forkFrom != null && !this.settings.resume
     this.logger.info(
       `Runtime settings entrypoint env=${this.settings.env?.CLAUDE_CODE_ENTRYPOINT ?? '<unset>'}, process env=${process.env.CLAUDE_CODE_ENTRYPOINT ?? '<unset>'}, cwd=${this.settings.cwd}`,
     )
@@ -177,13 +191,21 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     this.inputQueue = new PersistentInputQueue()
     this.abortController = new AbortController()
 
+    // A side chat branches off its parent exactly once: while it has no session
+    // id of its own, resume the parent *and* fork. The CLI reports the branch's
+    // new id on the init message, and from the next warm query on this resumes
+    // that id like any other conversation — so a dropped CLI process reconnects
+    // to the branch rather than forking the parent a second time.
+    const forkingNow = !this.sessionId && this.settings.forkFrom != null
+    const resume = forkingNow ? this.settings.forkFrom!.sessionId : this.sessionId
+
     const queryOptions = buildQueryOptions(
       {
         ...this.settings,
         modelId: this.currentModelId,
         permissionMode: this.currentModeId as PermissionMode,
         thinkingLevel: this.currentThinkingLevel as ClaudeRuntimeSettings['thinkingLevel'],
-        resume: this.sessionId,
+        resume,
       },
       this.abortController,
       async (toolName, input, context) =>
@@ -198,10 +220,11 @@ export class ClaudeRuntimeSession implements RuntimeSession {
           })
           this.turn?.builder.queueApprovalRequest(toolCallId, toolName, input, context.agentID ?? null)
         }),
+      forkingNow,
     )
 
     this.logger.info(
-      `SDK query options entrypoint env=${queryOptions.env?.CLAUDE_CODE_ENTRYPOINT ?? '<unset>'}, resume=${this.sessionId ?? '<new>'}`,
+      `SDK query options entrypoint env=${queryOptions.env?.CLAUDE_CODE_ENTRYPOINT ?? '<unset>'}, resume=${resume ?? '<new>'}${forkingNow ? ' (fork)' : ''}`,
     )
 
     const response = query({
@@ -210,7 +233,11 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     })
     this.activeQuery = response
     this.messageLoopDead = false
-    this.logger.info(`Warm query created${this.sessionId ? ` (resume ${this.sessionId})` : ''}`)
+    this.logger.info(
+      forkingNow
+        ? `Warm query created (forking ${resume} for a side chat)`
+        : `Warm query created${resume ? ` (resume ${resume})` : ''}`,
+    )
 
     this.messageLoopPromise = this.runMessageLoop()
     this.mcpReadyPromise = this.waitForMcpReady(response)
@@ -444,10 +471,26 @@ export class ClaudeRuntimeSession implements RuntimeSession {
           }
 
           // Build the user message only after the query's MCP list is stable.
-          const content: SDKUserMessage['message']['content'] =
+          const body: SDKUserMessage['message']['content'] =
             converted.streamingContentParts.length > 0
               ? converted.streamingContentParts
               : [{ type: 'text', text: converted.messagesPrompt }]
+
+          // A side chat's first message opens with the boundary marker: the fork
+          // carries the parent's whole transcript, and without this the model
+          // reads it as its own unfinished task. Claude Code has no API for
+          // appending a standalone item to a session's history, so it rides at
+          // the head of the first user message — which puts it in the same place
+          // relative to the inherited history, after the cached prefix the fork
+          // shares with its parent.
+          let content = body
+          if (this.boundaryPending) {
+            this.boundaryPending = false
+            content =
+              typeof body === 'string'
+                ? `${SIDE_CHAT_BOUNDARY_PROMPT}\n\n${body}`
+                : [{ type: 'text', text: SIDE_CHAT_BOUNDARY_PROMPT }, ...body]
+          }
 
           inputQueue.enqueue({
             type: 'user',
@@ -487,7 +530,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // dispose — tears down the entire warm session
   // -----------------------------------------------------------------------
 
-  async dispose(): Promise<void> {
+  async dispose(reason: SessionDisposeReason = 'discard'): Promise<void> {
     this.logger.info('Disposing warm session')
     this.inputQueue?.close()
     this.inputQueue = null
@@ -504,6 +547,36 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     await this.messageLoopPromise?.catch(() => {})
     this.messageLoopPromise = null
     this.mcpReadyPromise = null
+    // A 'rebuild' is the same conversation getting a fresh warm query (fast mode
+    // toggled, MCP map changed), so the fork has to outlive it — the new query
+    // resumes it by id.
+    if (reason === 'discard') await this.discardEphemeralFork()
+  }
+
+  /**
+   * Delete the branch a side chat forked for itself.
+   *
+   * Codex's forks are ephemeral by construction — they never touch disk — but
+   * Claude Code's are ordinary session files, so an abandoned side chat would
+   * leave one in the projects dir and in the `/resume` picker forever. Disposal
+   * is where a side chat ends (the chat row goes with it), so this is the last
+   * chance to clean up.
+   *
+   * The id compared against is the parent's, so this can only ever delete a
+   * branch this session forked, never the conversation it came from.
+   */
+  private async discardEphemeralFork(): Promise<void> {
+    const source = this.settings.forkFrom
+    if (!source || source.ephemeral === false) return
+    const forkedId = this.sessionId
+    if (!forkedId || forkedId === source.sessionId) return
+    this.sessionId = undefined
+    try {
+      await deleteSession(forkedId, { dir: this.settings.cwd })
+      this.logger.info(`Deleted side chat fork ${forkedId}`)
+    } catch (error) {
+      this.logger.warn(`Failed to delete side chat fork ${forkedId}: ${String(error)}`)
+    }
   }
 
   // -----------------------------------------------------------------------

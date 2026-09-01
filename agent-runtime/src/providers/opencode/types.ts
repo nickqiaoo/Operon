@@ -1,3 +1,5 @@
+import type { RuntimeForkSource } from '../../types.js'
+
 export type OpencodeMcpServerEntry =
   | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
   | { type: 'http'; url: string; headers?: Record<string, string> }
@@ -12,6 +14,8 @@ export interface OpencodeLogger {
 
 export interface OpencodeSettings {
   sessionId?: string
+  /** Set for a side chat: branch off this session instead of creating a fresh one. */
+  forkFrom?: RuntimeForkSource
   createNewSession?: boolean
   sessionTitle?: string
   agent?: string

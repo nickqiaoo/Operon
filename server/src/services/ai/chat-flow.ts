@@ -37,7 +37,11 @@ import {
 import { runAgentTurn, writePreparedPartToUiStream } from './agent-turn.js'
 import { startLiveTurn, pumpToLiveTurn } from './live-turn-hub.js'
 import { recordUsageSample } from '../analytics/cache-monitor.js'
-import { readStreamAsAsyncIterable, type RuntimeStreamPart } from '@operon/agent-runtime'
+import {
+  isUserFacingRuntimeError,
+  readStreamAsAsyncIterable,
+  type RuntimeStreamPart,
+} from '@operon/agent-runtime'
 import { buildCompactAwareView } from '../compact-service.js'
 
 // ---- Public API ----
@@ -150,6 +154,7 @@ export async function startChat(
     sessionId: chatRecord.sessionId,
     mcpServers,
     instructions: payload.instructions,
+    ...resolveForkSource(chatId),
   })
   const request = sessionManager.startRequest(chatId, requestId)
 
@@ -283,6 +288,32 @@ export async function startChat(
  * its UI-message-stream decoding off them (x-vercel-ai-ui-message-stream), so
  * an attach that invents its own headers would be parsed as a plain SSE.
  */
+/**
+ * A side chat branches off its parent's provider session on its first turn.
+ *
+ * Passed on every turn, not just the first: the provider forks only while the
+ * side chat has no `sessionId` of its own, and once the fork lands its id is
+ * persisted and resumed like any other chat's. Keeping this attached is what
+ * lets a session rebuilt mid-conversation (fast mode toggled, MCP map changed)
+ * still know it owns a fork, rather than treating the branch as a stray session
+ * and leaving it behind.
+ *
+ * Returns an empty object for ordinary chats, and for a parent that has not
+ * started a provider session yet (nothing to fork from — that chat then just
+ * starts fresh).
+ */
+function resolveForkSource(chatId: number): { forkFrom?: { sessionId: string; ephemeral: boolean } } {
+  if (chatId <= 0) return {}
+  const storage = getChatStorage()
+  const meta = storage?.getChatMeta(chatId)
+  if (meta?.tp !== 'side') return {}
+  const parentChatId = meta.metadata?.parentChatId
+  if (parentChatId == null) return {}
+  const parentSessionId = storage?.getChatMeta(parentChatId)?.sessionId
+  if (!parentSessionId) return {}
+  return { forkFrom: { sessionId: parentSessionId, ephemeral: true } }
+}
+
 function headersToRecord(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {}
   headers.forEach((value, key) => {
@@ -335,6 +366,12 @@ export async function handleChat(
     const clientStream = createUIMessageStream({
       originalMessages: ctx.normalizedMessages,
       generateId: () => ctx.assistantMessageId,
+      // The SDK masks stream errors behind a generic notice, which is right for
+      // internal failures but hides the few a provider writes for the user (an
+      // expired side chat, say). Forward only those; everything else stays
+      // generic so internals never reach the client.
+      onError: (error) =>
+        isUserFacingRuntimeError(error) ? error.message : 'An error occurred.',
       execute: async ({ writer }) => {
         try {
           for await (const preparedPart of readStreamAsAsyncIterable(ctx.preparedParts)) {

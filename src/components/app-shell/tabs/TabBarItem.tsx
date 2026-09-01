@@ -4,6 +4,7 @@ import {
   FileDiff,
   FolderTree,
   GitPullRequest,
+  MessageSquarePlus,
   Globe,
   SquareTerminal,
   Workflow as WorkflowIcon,
@@ -31,6 +32,8 @@ function getTabIcon(payload: TabPayload): LucideIcon {
       return FolderTree
     case "review":
       return GitPullRequest
+    case "side-chat":
+      return MessageSquarePlus
     case "diff":
       return FileDiff
     case "workflow":

@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import {
-  CopilotClient,
-  RuntimeConnection,
   type MCPServerConfig,
   type CopilotSession,
   type ExitPlanModeHandler,
@@ -22,6 +20,7 @@ import type {
   RuntimeStreamPart,
   SlashCommandItem,
 } from '../../types.js'
+import { acquireCopilotClient } from './client-registry.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
@@ -103,7 +102,7 @@ type UserInputHandler = NonNullable<SessionConfigBase['onUserInputRequest']>
 type UserInputResult = Awaited<ReturnType<UserInputHandler>>
 
 /**
- * One Copilot chat thread, backed by a long-lived `CopilotClient` (which spawns
+ * One Copilot chat thread, backed by a shared `CopilotClient` (which spawns
  * the `copilot` runtime over stdio) and a single `CopilotSession`. Unlike the
  * cursor provider — which spawns a fresh process per turn — the Copilot SDK
  * keeps the session alive and pushes events, so continuity across turns is
@@ -127,7 +126,10 @@ export class CopilotRuntimeSession implements RuntimeSession {
   /** Session instructions (persona) from the host — appended to the SDK system message. */
   private readonly instructions: string | undefined
 
-  private client: CopilotClient | null = null
+  /** Releases this session's hold on the shared runtime process. The client
+   *  itself is reached through the session the SDK hands back, so nothing here
+   *  needs to hold on to it. */
+  private clientLease: (() => Promise<void>) | null = null
   private session: CopilotSession | null = null
   private starting: Promise<CopilotSession> | null = null
 
@@ -436,14 +438,14 @@ export class CopilotRuntimeSession implements RuntimeSession {
       logger.debug(`session disconnect failed: ${err instanceof Error ? err.message : String(err)}`)
     }
     try {
-      // forceStop, not stop: graceful stop() can hang, and disconnect already
-      // flushed the session, so we just need the runtime process gone.
-      await this.client?.forceStop()
+      // The runtime is shared, so release our hold rather than stopping it; the
+      // registry stops the process once the last conversation is gone.
+      await this.clientLease?.()
     } catch (err) {
-      logger.debug(`client forceStop failed: ${err instanceof Error ? err.message : String(err)}`)
+      logger.debug(`client release failed: ${err instanceof Error ? err.message : String(err)}`)
     }
+    this.clientLease = null
     this.session = null
-    this.client = null
   }
 
   // Tool permission is resolved inline by handlePermission (autonomous). The
@@ -502,18 +504,16 @@ export class CopilotRuntimeSession implements RuntimeSession {
   }
 
   private async startSession(): Promise<CopilotSession> {
-    const client = new CopilotClient({
-      workingDirectory: this.cwd,
-      // copilotRuntimeEnv keeps PATH/HOME etc. and sets ELECTRON_RUN_AS_NODE so a
-      // `.js` runtime runs as plain Node inside Electron (see config.ts).
+    // One runtime process serves every conversation in this workspace — see
+    // `client-registry.ts`. Everything below is session-scoped config the SDK
+    // keeps separate per session, so sharing the client changes nothing about it.
+    const lease = await acquireCopilotClient({
+      cliPath: resolveCopilotCliPath(),
+      cwd: this.cwd,
       env: copilotRuntimeEnv(this.env),
-      // Unconditional on purpose — see resolveCopilotCliPath(). A spread that can
-      // omit `connection` lets the SDK fall through to its bundled platform
-      // package, which this build does not ship.
-      connection: RuntimeConnection.forStdio({ path: resolveCopilotCliPath() }),
     })
-    await client.start()
-    this.client = client
+    const client = lease.client
+    this.clientLease = lease.release
 
     const reasoningEffort = this.resolveEffort()
     const config: SessionConfigBase = {
@@ -555,11 +555,12 @@ export class CopilotRuntimeSession implements RuntimeSession {
       logger.info(`session ${this.sessionId} ready (model=${this.modelId}, mode=${this.modeId})`)
       return session
     } catch (err) {
-      // Failed to start a session — tear the client down so we don't leak the
-      // spawned runtime, and let the next stream() retry from scratch.
+      // Failed to start a session — hand back our hold so an idle runtime does
+      // not linger (it stops once the last conversation lets go), and let the
+      // next stream() retry from scratch.
       this.starting = null
-      await client.stop().catch(() => {})
-      this.client = null
+      await this.clientLease?.().catch(() => {})
+      this.clientLease = null
       throw err
     }
   }

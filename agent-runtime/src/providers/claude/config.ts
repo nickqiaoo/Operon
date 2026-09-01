@@ -104,6 +104,7 @@ export function buildClaudeRuntimeSettings(params: RuntimeSessionParams): Claude
     thinkingLevel,
     fastMode: params.serviceTier === 'fast',
     resume: params.sessionId,
+    forkFrom: params.forkFrom,
     pathToClaudeCodeExecutable: cliPath,
     settingSources: ['user', 'project', 'local'],
     persistSession: true,

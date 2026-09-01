@@ -66,6 +66,7 @@ export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
         attachments: false,
         injection: true,
         sessionResume: true,
+        sideChat: true,
       },
     }
   }
