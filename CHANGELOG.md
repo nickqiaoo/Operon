@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.29] - 2026-09-01
+
+### Changed
+
+- Side chats now work with Claude Code and OpenCode, not just Codex.
+- Select text in a reply to add it to the chat, or ask about it in a side chat.
+- Select text in a file preview to add it to the chat.
+- Markdown previews have an outline button for jumping between headings.
+- Trimmed the side padding in markdown previews.
+- Toggling fast mode no longer restarts the conversation's agent session.
+
 ## [1.3.28] - 2026-08-26
 
 ### Changed
