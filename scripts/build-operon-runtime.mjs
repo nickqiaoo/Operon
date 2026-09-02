@@ -23,6 +23,7 @@ await Promise.all([
   "site-adapters.js",
   "connectors",
   "docs",
+  "extensions",
   "skills",
 ].map((entry) => rm(path.join(outdir, entry), { recursive: true, force: true })));
 

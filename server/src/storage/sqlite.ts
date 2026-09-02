@@ -572,6 +572,15 @@ export class SqliteStorage
       .run(sessionId, chatId)
   }
 
+  findChatBySessionId(sessionId: string): (import('../types/chat.js').ChatMeta & { id: number }) | undefined {
+    const row = this.db
+      .prepare('SELECT id FROM chats WHERE session_id = ? ORDER BY id DESC LIMIT 1')
+      .get(sessionId) as { id: number } | undefined
+    if (!row) return undefined
+    const meta = this.getChatMeta(row.id)
+    return meta ? { ...meta, id: row.id } : undefined
+  }
+
   updateChatMetadata(chatId: number, metadata: import('../types/chat.js').ChatMetadata): void {
     this.db.prepare('UPDATE chats SET metadata = ? WHERE id = ?')
       .run(JSON.stringify(metadata), chatId)

@@ -1,7 +1,7 @@
 import { useIntl } from "react-intl"
-import { cn } from "@/lib/utils"
 import type { PanelId } from "./types"
 import { useNewTab } from "./tab-entries"
+import { ShortcutBadge } from "./ShortcutBadge"
 
 interface EmptyPanelStateProps {
   panelId: PanelId
@@ -9,25 +9,20 @@ interface EmptyPanelStateProps {
 
 /**
  * Shown when a panel has no tabs: instead of forcing the user to click "+"
- * first, surface the new-tab choices as big quick-pick cards. Picking one opens
- * the tab directly (same logic as the "+" dropdown via {@link useNewTab}).
+ * first, surface the new-tab choices right here. Picking one opens the tab
+ * directly (same logic as the "+" dropdown via {@link useNewTab}).
  *
- * The right panel is tall+narrow, so cards stack in a column; the bottom panel
- * is wide+short, so they flow in a wrapping row.
+ * A quiet list of rows — icon, then name — rather than cards: a panel that is
+ * empty anyway shouldn't answer with a slab of bordered boxes, and this is the
+ * same shape the "+" menu already has, so the two read as one idea.
  */
 export function EmptyPanelState({ panelId }: EmptyPanelStateProps) {
   const intl = useIntl()
   const { rootPath, ordered, openEntry, reviewExists } = useNewTab(panelId)
-  const isRow = panelId === "bottom"
 
   return (
-    <div className="h-full overflow-auto">
-      <div
-        className={cn(
-          "flex min-h-full items-center justify-center gap-2.5 p-5",
-          isRow ? "flex-row flex-wrap" : "flex-col"
-        )}
-      >
+    <div className="flex h-full items-center justify-center overflow-auto p-4">
+      <div className="w-full max-w-md">
         {ordered.map((entry) => {
           const Icon = entry.icon
           const disabled =
@@ -40,20 +35,13 @@ export function EmptyPanelState({ panelId }: EmptyPanelStateProps) {
               data-testid={`empty-panel-card-${entry.type}`}
               disabled={disabled}
               onClick={() => openEntry(entry)}
-              className={cn(
-                "group flex flex-col items-center gap-2 rounded-xl border border-border/40 bg-muted/10 px-4 py-6 text-center transition-colors hover:border-border/60 hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border/40 disabled:hover:bg-muted/10",
-                isRow ? "w-40" : "w-full max-w-sm"
-              )}
+              className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             >
-              <Icon className="h-5 w-5 text-muted-foreground transition-colors group-hover:text-foreground" />
-              <div className="space-y-0.5">
-                <div className="text-sm font-semibold text-foreground">
-                  {intl.formatMessage(entry.label)}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {intl.formatMessage(entry.description)}
-                </div>
-              </div>
+              <Icon className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                {intl.formatMessage(entry.label)}
+              </span>
+              <ShortcutBadge tabType={entry.type} />
             </button>
           )
         })}

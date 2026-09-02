@@ -35,6 +35,10 @@ import { getSubagentProgress, convertSubagentToChildParts, mapSubagentState } fr
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
 import { UserMessageText } from './UserMessageText';
+import { PeerMessage } from './PeerMessage';
+import { extractPeerMessage } from '../utils/chatMetadata';
+import { UserContextBlocks } from './UserContextBlocks';
+import { parseContextBlocks } from '@/lib/context-blocks';
 import type { SendToModel } from '../SendToButton';
 
 const skillTagPattern = /\[skill:([\w-]+)\]/g;
@@ -445,12 +449,23 @@ export function MessagePartRenderer({
     return <WorkflowResultMessage key={`${message.id}-${partIndex}`} text={displayText} />;
   }
 
+  // A teammate's message, delivered through the Teams hub. Same story as the workflow
+  // result above — user-role on the wire, but another agent wrote it.
+  const peer = extractPeerMessage(message);
+  if (peer) {
+    return <PeerMessage key={`${message.id}-${partIndex}`} from={peer.from} text={displayText} />;
+  }
+
   const text = displayText;
   const isSteerMessage = isSteerUserMessage(message);
 
-  // Parse skill tags from user messages
+  // Split the context the user attached (selected text, line comments…) off
+  // the front of the prompt, then parse skill tags from what remains.
+  const { blocks: contextBlocks, body: userText } = message.role === 'user'
+    ? parseContextBlocks(displayText)
+    : { blocks: [], body: displayText };
   const { skills: skillTags, cleanText } = message.role === 'user'
-    ? parseSkillTags(displayText)
+    ? parseSkillTags(userText)
     : { skills: [], cleanText: displayText };
 
   return (
@@ -458,6 +473,7 @@ export function MessagePartRenderer({
       <MessageContent
         className={isSteerMessage ? 'bg-tint/20 text-foreground ring-1 ring-inset ring-tint/35 shadow-card' : undefined}
       >
+        {message.role === 'user' && <UserContextBlocks blocks={contextBlocks} />}
         {skillTags.length > 0 && !isSteerMessage ? (
           <div className="flex items-baseline flex-wrap gap-1">
             {skillTags.map((name) => (
@@ -466,7 +482,7 @@ export function MessagePartRenderer({
             {cleanText && <UserMessageText text={cleanText} />}
           </div>
         ) : message.role === 'user' ? (
-          <UserMessageText text={displayText} />
+          userText && <UserMessageText text={userText} />
         ) : (
           <MessageResponse mode={isStreamingMessage ? 'streaming' : 'static'}>
             {displayText}

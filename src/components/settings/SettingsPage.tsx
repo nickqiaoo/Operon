@@ -1,6 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
 import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
-import { ArrowLeft, Palette, Server, Brain, Plug, Blocks, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Chrome } from "lucide-react"
+import { ArrowLeft, Palette, Server, Brain, Plug, Blocks, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Chrome, Puzzle } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import { ProvidersTab } from "./ProvidersTab"
 import { RepoDetail } from "./RepoDetail"
@@ -20,7 +20,9 @@ import { ChromeUseSettings } from "./ChromeUseSettings"
 import { ComputerUseSettings } from "./ComputerUseSettings"
 import { SaasSettings } from "./SaasSettings"
 import { PluginsSettings } from "./PluginsSettings"
+import { ExtensionsSettings } from "./ExtensionsSettings"
 import { NotificationTab } from "./NotificationTab"
+import { KeyboardShortcutsSettings } from "./KeyboardShortcutsSettings"
 import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon, KimiIcon, GrokIcon, CopilotIcon, OperonIcon } from "./ProviderIcons"
 import { Button } from "@/components/ui/button"
 import { FormattedMessage } from "react-intl"
@@ -31,6 +33,8 @@ import type { ConfigFileDefinition } from "./useConfigEditor"
 
 interface SettingsPageProps {
     onBack: () => void
+    /** Tab to land on when something deep-linked here; defaults to Appearance. */
+    initialTab?: SettingsTab
 }
 
 type SettingsTab = "appearance" | "notifications" | "logs" | "memory" | "mcp" | "env" | "code" | "codex" | "opencode" | "kimi" | "grok" | "providers" | "gateway" | "linear" | "github" | string
@@ -63,8 +67,8 @@ const OPERON_FILES: ConfigFileDefinition[] = [
     { id: "config", label: <FormattedMessage id="settings.config.labelConfig" defaultMessage="Config" />, filename: "config.toml", icon: FileJson, validation: "toml", placeholder: "", description: <FormattedMessage id="settings.config.operonSettingsDesc" defaultMessage="Global Operon settings — permission rules, plugin marketplaces, loop control" /> },
 ]
 
-export function SettingsPage({ onBack }: SettingsPageProps) {
-    const [activeTab, setActiveTab] = useState<SettingsTab>("appearance")
+export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
+    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "appearance")
     // On phones the two panes can't sit side by side, so we drill down:
     // the category list fills the screen, and picking one swaps to its detail
     // pane (the in-pane back button returns to the list). Ignored at md+, where
@@ -80,6 +84,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     const tabs = useMemo(() => [
         { id: "appearance", label: <FormattedMessage id="settings.tab.appearance" defaultMessage="Appearance" />, icon: Palette },
         { id: "notifications", label: <FormattedMessage id="settings.tab.notifications" defaultMessage="Notifications" />, icon: Bell },
+        { id: "shortcuts", label: <FormattedMessage id="settings.tab.shortcuts" defaultMessage="Keyboard shortcuts" />, icon: Keyboard },
         // Logs read the local operon.log via electronAPI — unavailable on the web build.
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "logs", label: <FormattedMessage id="settings.tab.logs" defaultMessage="Logs" />, icon: FileText }]),
         ...(__ENABLE_MEMORY__ ? [{ id: "memory" as const, label: <FormattedMessage id="settings.tab.memory" defaultMessage="Memory" />, icon: Brain }] : []),
@@ -96,6 +101,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         // OAuth → register node). Meaningless from the web client, which is already remote.
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "saas", label: <FormattedMessage id="settings.tab.saas" defaultMessage="Remote" />, icon: Cloud }]),
         { id: "plugins", label: <FormattedMessage id="settings.tab.plugins" defaultMessage="Plugins" />, icon: Blocks },
+        { id: "extensions", label: <FormattedMessage id="settings.tab.extensions" defaultMessage="Extensions" />, icon: Puzzle },
         // All three drive local hardware from the desktop app: the in-app browser, the user's
         // own Chrome via a native host, and a native engine on this machine. None means
         // anything from the web client, which is already remote.
@@ -222,6 +228,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         <>
                             {activeTab === "appearance" && <AppearanceTab />}
                             {activeTab === "notifications" && <NotificationTab />}
+                            {activeTab === "shortcuts" && <KeyboardShortcutsSettings />}
                             {activeTab === "logs" && <LogsSettings />}
                             {activeTab === "memory" && <MemorySettings />}
                             {activeTab === "mcp" && <McpSettings />}
@@ -295,6 +302,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 <ConfigEditor configDir=".operon" files={OPERON_FILES} />
                             )}
                             {activeTab === "plugins" && <PluginsSettings />}
+                            {activeTab === "extensions" && <ExtensionsSettings />}
                             {activeTab === "browser" && <BrowserUseSettings />}
                             {activeTab === "chrome" && <ChromeUseSettings />}
                             {activeTab === "computer" && <ComputerUseSettings />}

@@ -46,7 +46,7 @@ test('right panel opens and closes from the top-bar toggle', async ({ page }) =>
   await page.getByTestId('toggle-right-panel').first().click()
   await expect.poll(async () => (await panels(page))?.right.open).toBe(true)
 
-  // An empty panel surfaces the quick-pick cards instead of a blank pane.
+  // An empty panel surfaces the quick-pick rows instead of a blank pane.
   const rightPanel = page.locator('[data-app-shell-focus-area="right-panel"]')
   await expect(rightPanel.getByTestId('empty-panel-card-browser')).toBeVisible()
 
@@ -62,8 +62,8 @@ test('bottom panel toggles with the keyboard shortcut', async ({ page }) => {
   await page.keyboard.press(`${mod}+j`)
   await expect.poll(async () => (await panels(page))?.bottom.open).toBe(true)
 
-  const bottomPanel = page.locator('[data-app-shell-focus-area="bottom-panel"]')
-  await expect(bottomPanel.getByTestId('empty-panel-card-terminal')).toBeVisible()
+  // Opening it empty goes straight to a terminal rather than the picker.
+  await expect.poll(async () => (await panels(page))?.bottom.tabs[0]?.type).toBe('terminal')
 
   await page.keyboard.press(`${mod}+j`)
   await expect.poll(async () => (await panels(page))?.bottom.open).toBe(false)

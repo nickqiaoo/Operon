@@ -238,6 +238,21 @@ export const extractContextUsage = (message: UIMessage | undefined): ContextUsag
   return { usage, contextUsage, detailedContextUsage, codexAccount, codexRateLimits };
 };
 
+/** A message another agent sent through the Teams hub, and the name it goes by here. */
+export type PeerMessageInfo = { from: string };
+
+/**
+ * A peer delivery stamped by the passive observer (`services/operon-runtime/passive-observer.ts`).
+ * It is a user-role message because that is how a peer's text reaches the model — the stamp is
+ * what lets the transcript tell it apart from something this user typed.
+ */
+export const extractPeerMessage = (message: UIMessage | undefined): PeerMessageInfo | null => {
+  if (!message || message.role !== 'user' || !isRecord(message.metadata)) return null;
+  const peer = message.metadata.peer;
+  if (!isRecord(peer) || typeof peer.from !== 'string' || !peer.from.trim()) return null;
+  return { from: peer.from };
+};
+
 export const extractCompacted = (message: UIMessage | undefined): CompactedInfo | null => {
   if (!message || !isRecord(message.metadata)) return null;
   const metadata = message.metadata as Record<string, unknown>;

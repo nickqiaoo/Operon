@@ -20,29 +20,19 @@ import {
 import { openSideChat } from "@/lib/side-chat"
 import type { PanelId, Tab, TabType } from "./types"
 
-// Menu/card labels for the new-tab entries. Descriptors keep them statically
+// Menu labels for the new-tab entries. Descriptors keep them statically
 // extractable; the render sites (NewTabMenu / EmptyPanelState) translate them.
 const M = defineMessages({
   filesLabel: { id: "tab.files.label", defaultMessage: "Files" },
-  filesDesc: { id: "tab.files.desc", defaultMessage: "Browse project files" },
   reviewLabel: { id: "tab.review.label", defaultMessage: "Review" },
-  reviewDesc: { id: "tab.review.desc", defaultMessage: "View code changes" },
   browserLabel: { id: "tab.browser.label", defaultMessage: "Browser" },
-  browserDesc: { id: "tab.browser.desc", defaultMessage: "Open a website" },
   terminalLabel: { id: "tab.terminal.label", defaultMessage: "Terminal" },
-  terminalDesc: { id: "tab.terminal.desc", defaultMessage: "Start an interactive shell" },
   sideChatLabel: { id: "tab.sideChat.label", defaultMessage: "Side chat" },
-  sideChatDesc: {
-    id: "tab.sideChat.desc",
-    defaultMessage: "Ask without disturbing the main chat",
-  },
 })
 
 export interface MenuEntry {
   type: TabType
   label: MessageDescriptor
-  /** Short helper text shown under the label in the empty-panel cards. */
-  description: MessageDescriptor
   icon: typeof Plus
   /** True if this type needs an open workspace to make sense. */
   requiresWorkspace: boolean
@@ -90,7 +80,6 @@ export const newTabEntries: MenuEntry[] = [
   {
     type: "workspace-browser",
     label: M.filesLabel,
-    description: M.filesDesc,
     icon: FolderTree,
     requiresWorkspace: true,
     build: ({ rootPath }) => {
@@ -106,7 +95,6 @@ export const newTabEntries: MenuEntry[] = [
   {
     type: "review",
     label: M.reviewLabel,
-    description: M.reviewDesc,
     icon: GitPullRequest,
     requiresWorkspace: true,
     build: ({ rootPath }) => {
@@ -122,7 +110,6 @@ export const newTabEntries: MenuEntry[] = [
   {
     type: "browser",
     label: M.browserLabel,
-    description: M.browserDesc,
     icon: Globe,
     requiresWorkspace: false,
     build: () => {
@@ -149,7 +136,6 @@ export const newTabEntries: MenuEntry[] = [
   {
     type: "side-chat",
     label: M.sideChatLabel,
-    description: M.sideChatDesc,
     icon: MessageSquarePlus,
     requiresWorkspace: false,
     // Only offered while a conversation is open on a provider that can fork it:
@@ -164,7 +150,6 @@ export const newTabEntries: MenuEntry[] = [
   {
     type: "terminal",
     label: M.terminalLabel,
-    description: M.terminalDesc,
     icon: TerminalIcon,
     requiresWorkspace: false,
     build: ({ rootPath, openTabs }) => {
@@ -189,6 +174,107 @@ const PANEL_ORDER: Record<PanelId, TabType[]> = {
   bottom: ["terminal", "browser", "workspace-browser", "review", "side-chat"],
 }
 
+/** Worktree path of the active workspace, read outside React. */
+export function activeWorkspaceRoot(): string | null {
+  const { projects, activeWorkspaceId } = useProjectStore.getState()
+  for (const project of projects) {
+    const workspace = project.workspaces.find((w) => w.id === activeWorkspaceId)
+    if (workspace != null) return workspace.worktreePath
+  }
+  return null
+}
+
+/** Entries this context can actually offer, in the panel's own order. */
+function availableEntries(panelId: PanelId): MenuEntry[] {
+  const order = PANEL_ORDER[panelId]
+  return newTabEntries
+    .slice()
+    // Context-dependent entries (side chat needs a forkable conversation open)
+    // disappear rather than showing as permanently disabled.
+    .filter((e) => e.isAvailable?.() !== false)
+    // The in-app browser is an Electron <webview>; it has no web-build equivalent,
+    // so drop it from the new-tab menu on the web target (Files/Review/Terminal
+    // all go through the tunneled backend and stay available).
+    .filter((e) => __APP_TARGET__ !== "web" || e.type !== "browser")
+    .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))
+}
+
+// Singleton tab types — at most one may exist across both panels. The menus
+// disable the entry while one is open, and opening focuses the existing tab
+// instead of duplicating. Only `review` qualifies: rendering a full diff is
+// expensive, so a second one is disallowed. Browser tabs are not singletons —
+// every page is its own `instanceId`/<webview>, which is what Browser Use has
+// always relied on when opening several tabs for one conversation.
+function findExistingTab(type: TabType): { panel: PanelId; tabId: string } | null {
+  const { right, bottom } = useTabsStore.getState()
+  const panels = [
+    { id: "right" as const, tabs: right.tabs },
+    { id: "bottom" as const, tabs: bottom.tabs },
+  ]
+  for (const { id, tabs } of panels) {
+    const tab = tabs.find((t) => t.payload.type === type)
+    if (tab != null) return { panel: id, tabId: tab.tabId }
+  }
+  return null
+}
+
+const openPanel = (panelId: PanelId) => {
+  const shell = useAppShellStore.getState()
+  if (panelId === "right") shell.setRightPanelOpen(true)
+  else shell.setBottomPanelOpen(true)
+}
+
+/**
+ * Opens one new-tab entry into `panelId`, from anywhere — the menus go through
+ * the {@link useNewTab} hook, {@link toggleBottomPanelWithTerminal} calls it
+ * directly (no React context there).
+ */
+export function openTabEntry(entry: MenuEntry, panelId: PanelId): void {
+  // Never open a second instance of a singleton type — focus the existing tab
+  // (in whichever panel) and open that panel instead.
+  const existing = entry.type === "review" ? findExistingTab("review") : null
+  if (existing != null) {
+    useTabsStore.getState().activateTab(existing.panel, existing.tabId)
+    openPanel(existing.panel)
+    return
+  }
+  // Entries that must reach the server open themselves (and open the panel).
+  if (entry.open != null) {
+    void entry.open()
+    return
+  }
+  const { right, bottom, openTab } = useTabsStore.getState()
+  const tab = entry.build?.({
+    rootPath: activeWorkspaceRoot(),
+    openTabs: [...right.tabs, ...bottom.tabs],
+  })
+  if (tab == null) return
+  openTab(panelId, tab)
+  openPanel(panelId)
+}
+
+/**
+ * ⌘J and the bottom-panel toggle button.
+ *
+ * Opening the panel while it is empty goes straight to a terminal instead of
+ * the picker: a shell is the only thing anyone reaches for down there, so the
+ * pick was one click standing between the user and a prompt (codex opens one
+ * the same way). Reopening a panel that still holds tabs just reveals them.
+ */
+export function toggleBottomPanelWithTerminal(): void {
+  const shell = useAppShellStore.getState()
+  if (shell.bottomPanelOpen) {
+    shell.setBottomPanelOpen(false)
+    return
+  }
+  if (useTabsStore.getState().bottom.tabs.length === 0) {
+    const terminal = newTabEntries.find((e) => e.type === "terminal")
+    // openTabEntry opens the panel itself; the set below covers the other path.
+    if (terminal != null) openTabEntry(terminal, "bottom")
+  }
+  shell.setBottomPanelOpen(true)
+}
+
 /**
  * Shared "new tab" logic for both the `+` dropdown (NewTabMenu) and the
  * empty-panel quick-pick cards (EmptyPanelState). Resolves the active
@@ -196,34 +282,16 @@ const PANEL_ORDER: Record<PanelId, TabType[]> = {
  * tab is created.
  */
 export function useNewTab(panelId: PanelId) {
-  const openTab = useTabsStore((s) => s.openTab)
-  const activateTab = useTabsStore((s) => s.activateTab)
   const right = useTabsStore((s) => s.right)
   const bottom = useTabsStore((s) => s.bottom)
-  const setRightOpen = useAppShellStore((s) => s.setRightPanelOpen)
-  const setBottomOpen = useAppShellStore((s) => s.setBottomPanelOpen)
 
-  // Singleton tab types — at most one may exist across both panels. The menus
-  // disable the entry while one is open, and openEntry focuses the existing tab
-  // instead of duplicating. Only `review` qualifies: rendering a full diff is
-  // expensive, so a second one is disallowed. Browser tabs are not singletons —
-  // every page is its own `instanceId`/<webview>, which is what Browser Use has
-  // always relied on when opening several tabs for one conversation.
-  const findExisting = useCallback(
-    (type: TabType): { panel: PanelId; tabId: string } | null => {
-      const panels: { id: PanelId; tabs: Tab[] }[] = [
-        { id: "right", tabs: right.tabs },
-        { id: "bottom", tabs: bottom.tabs },
-      ]
-      for (const { id, tabs } of panels) {
-        const tab = tabs.find((t) => t.payload.type === type)
-        if (tab != null) return { panel: id, tabId: tab.tabId }
-      }
-      return null
-    },
+  // Drives the disabled state on the Review row; opening it while one exists
+  // focuses that tab instead (see openTabEntry).
+  const existingReview = useMemo(
+    () =>
+      [...right.tabs, ...bottom.tabs].some((t) => t.payload.type === "review"),
     [right.tabs, bottom.tabs]
   )
-  const existingReview = useMemo(() => findExisting("review"), [findExisting])
 
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
   const projects = useProjectStore((s) => s.projects)
@@ -246,60 +314,21 @@ export function useNewTab(panelId: PanelId) {
   })
   const sideChatProviders = useProviderCapabilityStore((s) => s.byProvider)
 
-  const ordered = useMemo(() => {
-    const order = PANEL_ORDER[panelId]
-    return newTabEntries
-      .slice()
-      // Context-dependent entries (side chat needs a forkable conversation open)
-      // disappear rather than showing as permanently disabled.
-      .filter((e) => e.isAvailable?.() !== false)
-      // The in-app browser is an Electron <webview>; it has no web-build equivalent,
-      // so drop it from the new-tab menu on the web target (Files/Review/Terminal
-      // all go through the tunneled backend and stay available).
-      .filter((e) => __APP_TARGET__ !== "web" || e.type !== "browser")
-      .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))
+  const ordered = useMemo(
+    () => availableEntries(panelId),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelId, sideChatSource, sideChatProviders])
+    [panelId, sideChatSource, sideChatProviders]
+  )
 
   const openEntry = useCallback(
-    (entry: MenuEntry) => {
-      // Never open a second instance of a singleton type — focus the existing
-      // tab (in whichever panel) and open that panel instead.
-      const existing = entry.type === "review" ? existingReview : null
-      if (existing != null) {
-        activateTab(existing.panel, existing.tabId)
-        if (existing.panel === "right") setRightOpen(true)
-        else setBottomOpen(true)
-        return
-      }
-      // Entries that must reach the server open themselves (and open the panel).
-      if (entry.open != null) {
-        void entry.open()
-        return
-      }
-      const tab = entry.build?.({ rootPath, openTabs: [...right.tabs, ...bottom.tabs] })
-      if (tab == null) return
-      openTab(panelId, tab)
-      if (panelId === "right") setRightOpen(true)
-      else setBottomOpen(true)
-    },
-    [
-      openTab,
-      activateTab,
-      existingReview,
-      panelId,
-      rootPath,
-      right.tabs,
-      bottom.tabs,
-      setRightOpen,
-      setBottomOpen,
-    ]
+    (entry: MenuEntry) => openTabEntry(entry, panelId),
+    [panelId]
   )
 
   return {
     rootPath,
     ordered,
     openEntry,
-    reviewExists: existingReview != null,
+    reviewExists: existingReview,
   }
 }

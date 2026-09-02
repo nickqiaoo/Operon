@@ -1,0 +1,7 @@
+{
+  "id": "peers",
+  "name": "Teams",
+  "version": "0.0.0",
+  "entry": "index.js",
+  "description": "Let a conversation form a team and spawn teammates: independent sessions that work in parallel, message each other, and report back. Each teammate appears as its own conversation."
+}

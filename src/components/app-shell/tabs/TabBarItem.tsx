@@ -87,50 +87,35 @@ export function TabBarItem({ tab, isActive, onActivate, onClose }: TabBarItemPro
       data-active={isActive}
       data-dragging={isDragging}
       className={cn(
-        "group inline-flex h-7 max-w-50 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg py-1 pl-1 pr-3 text-xs transition-all",
+        "group inline-flex h-7 max-w-50 shrink-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1.5 text-[13px] transition-colors",
         isActive
           ? "bg-foreground/4 text-foreground shadow-tab dark:bg-white/6"
           : "text-muted-foreground hover:bg-foreground/3 hover:text-foreground dark:hover:bg-white/4",
         isDragging && "opacity-50"
       )}
     >
-      {/* Icon ↔ close button live in the same slot; they cross-fade on hover. */}
-      <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon
-          className={cn(
-            "h-3.5 w-3.5 transition-opacity duration-150",
-            tab.isClosable && "group-hover:opacity-0"
-          )}
-          aria-hidden
-        />
-        {tab.isClosable && (
-          <button
-            type="button"
-            onClick={handleCloseClick}
-            onPointerDown={handleClosePointerDown}
-            aria-label={intl.formatMessage({ id: "appShell.closeTab", defaultMessage: "Close tab" })}
-            className={cn(
-              "absolute inset-0 flex items-center justify-center rounded-full",
-              "bg-foreground/80 text-background opacity-0 transition-opacity duration-150",
-              "group-hover:opacity-100 hover:bg-foreground"
-            )}
-          >
-            <X className="h-3 w-3" strokeWidth={2.5} />
-          </button>
-        )}
-      </span>
-      {/* Right-side fade mask instead of ellipsis. */}
-      <span
-        className="min-w-0 flex-1 overflow-hidden whitespace-nowrap"
-        style={{
-          maskImage:
-            "linear-gradient(to right, black calc(100% - 14px), transparent 100%)",
-          WebkitMaskImage:
-            "linear-gradient(to right, black calc(100% - 14px), transparent 100%)",
-        }}
-      >
-        {tab.title}
-      </span>
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      {/* Ellipsis, not a fade: a gradient that eats the last 14px of every title
+          — long or short — reads as a rendering fault, not as "there's more". */}
+      <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+      {/* Always visible, in its own slot right of the title. Hiding it until
+          hover left the tab with a hole on its right at rest — the slot has to
+          hold width either way, so an empty one just reads as bad spacing. The
+          icon stays put: swapping it for the close button (the old behaviour)
+          left you unable to tell what the tab was while pointing at it. */}
+      {tab.isClosable ? (
+        <button
+          type="button"
+          onClick={handleCloseClick}
+          onPointerDown={handleClosePointerDown}
+          aria-label={intl.formatMessage({ id: "appShell.closeTab", defaultMessage: "Close tab" })}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-foreground/8 hover:text-foreground dark:hover:bg-white/10"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <span className="w-1.5 shrink-0" aria-hidden />
+      )}
     </div>
   )
 }

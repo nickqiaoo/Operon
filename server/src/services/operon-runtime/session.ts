@@ -15,43 +15,8 @@ import type {
 import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 import { operonAgentControl } from './control.js'
 import { resolveModel } from './resolve-model.js'
-
-/** Minimal single-consumer async queue used to merge run events + approval prompts. */
-class PartQueue {
-  private readonly buffer: RuntimeStreamPart[] = []
-  private waiter: ((r: IteratorResult<RuntimeStreamPart>) => void) | undefined
-  private closed = false
-
-  push(part: RuntimeStreamPart): void {
-    if (this.closed) return
-    if (this.waiter) {
-      const w = this.waiter
-      this.waiter = undefined
-      w({ value: part, done: false })
-    } else {
-      this.buffer.push(part)
-    }
-  }
-
-  close(): void {
-    this.closed = true
-    if (this.waiter) {
-      const w = this.waiter
-      this.waiter = undefined
-      w({ value: undefined as never, done: true })
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<RuntimeStreamPart> {
-    return {
-      next: (): Promise<IteratorResult<RuntimeStreamPart>> => {
-        if (this.buffer.length > 0) return Promise.resolve({ value: this.buffer.shift() as RuntimeStreamPart, done: false })
-        if (this.closed) return Promise.resolve({ value: undefined as never, done: true })
-        return new Promise((resolve) => (this.waiter = resolve))
-      },
-    }
-  }
-}
+import { markDriven, unmarkDriven } from './passive-observer.js'
+import { PartQueue } from './part-queue.js'
 
 /**
  * Build the framework `AgentInput` from the request's latest user message. The
@@ -280,6 +245,8 @@ export class OperonRuntimeSession implements RuntimeSession {
     const queue = new PartQueue()
     const mapper = new OperonStreamMapper()
 
+    // This turn is ours: the passive observer (peer-woken turns) must stay out of it.
+    markDriven(this.harness.id)
     const unsubscribe = this.harness.onEvent((event) => {
       for (const part of mapper.map(event)) queue.push(part)
     })
@@ -380,6 +347,7 @@ export class OperonRuntimeSession implements RuntimeSession {
       for await (const part of queue) yield part
     } finally {
       unsubscribe()
+      unmarkDriven(this.harness.id)
       this.harness.setApprovalHandler(undefined)
       this.harness.setQuestionHandler(undefined)
     }

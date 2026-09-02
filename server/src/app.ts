@@ -41,6 +41,8 @@ import { integrationsRoutes } from './routes/integrations.js'
 import { initIntegrationConfigService } from './services/integration-config.js'
 import { pluginApiRoutes } from './routes/plugin-api.js'
 import { pluginRoutes } from './routes/plugins.js'
+import { extensionRoutes } from './routes/extensions.js'
+import { peersRoutes } from './routes/peers.js'
 import { connectorRoutes } from './routes/connectors.js'
 import { adminIMRoutes } from './routes/admin-im.js'
 import { imChatMcpRoutes } from './routes/im-chat-mcp.js'
@@ -265,6 +267,8 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/integrations', integrationsRoutes())
   app.route('/api/plugin', pluginApiRoutes(deps.storage))
   app.route('/api/plugins', pluginRoutes())
+  app.route('/api/extensions', extensionRoutes())
+  app.route('/api/peers', peersRoutes())
   app.route('/api/connectors', connectorRoutes())
   app.route('/api/e2ee', remoteE2EERoutes())
 

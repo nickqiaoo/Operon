@@ -8,6 +8,8 @@ import { Checkpoint, CheckpointIcon, CheckpointTrigger } from '@/components/ai-e
 import { TurnDiffCard, type TurnDiffFile } from './TurnDiffCard';
 import { AssistantMessageActions, MessagePartRenderer } from './MessagePartRenderer';
 import { UserMessageText } from './UserMessageText';
+import { UserContextBlocks } from './UserContextBlocks';
+import { parseContextBlocks } from '@/lib/context-blocks';
 import { SendToButton } from '../SendToButton';
 import { SendToChatButton } from '../SendToChatButton';
 import {
@@ -35,6 +37,17 @@ const getMessageText = (message: UIMessage) =>
     .filter(isTextPart)
     .map((part) => part.text)
     .join('');
+
+/** Fallback user bubble: attached context as cards, then the prompt. */
+const UserMessageWithContext = ({ text }: { text: string }) => {
+  const { blocks, body } = parseContextBlocks(text);
+  return (
+    <>
+      <UserContextBlocks blocks={blocks} />
+      {body && <UserMessageText text={body} />}
+    </>
+  );
+};
 
 const getFilteredMessageText = (message: UIMessage) =>
   (message.parts ?? [])
@@ -312,7 +325,7 @@ const MessageItem = memo(function MessageItem({
         <Message from={message.role}>
           <MessageContent>
             {message.role === 'user' ? (
-              <UserMessageText text={getMessageText(message)} />
+              <UserMessageWithContext text={getMessageText(message)} />
             ) : (
               <MessageResponse mode={isStreamingMessage ? 'streaming' : 'static'}>
                 {getMessageText(message)}

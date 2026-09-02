@@ -139,6 +139,18 @@ export class SessionManager {
     }
   }
 
+  /**
+   * The live record whose runtime reports `sessionId` as its provider session — how a
+   * host maps a framework session back to its chat before the id is persisted on the
+   * chat row (that only happens once the turn ends). Linear scan: a handful of sessions.
+   */
+  findBySessionId(sessionId: string): SessionRecord | undefined {
+    for (const record of this.sessions.values()) {
+      if (record.runtime.getSessionId?.() === sessionId) return record
+    }
+    return undefined
+  }
+
   async getOrCreate(chatId: number, providerId: string, params: RuntimeSessionParams): Promise<SessionRecord> {
     const current = this.sessions.get(chatId)
     const reusable =

@@ -91,6 +91,7 @@ dist-web/
 codex-chat-ui/
 .build/
 /dist-operon-runtime/
+/dist-extension-market/
 /packages/browser-use/vendor/codex-browser-client/
 /packages/computer-use/vendor/oai-sky/
 /packages/computer-use/assets/sky.bundle.mjs

@@ -5,6 +5,12 @@ import type {
   ChatType,
 } from '../types/chat.js'
 
+// Mirrors `parseContextBlocks` in src/lib/context-blocks.ts: quoted context
+// (selected text, line comments…) is sent ahead of the prompt as
+// `[File: name]\n…\n[/File]` blocks, and the title should come from the prompt.
+const stripContextBlocks = (text: string): string =>
+  text.replace(/^(?:\[File: [^\]\n]+\]\n[\s\S]*?\n\[\/File\]\n*)+/, '')
+
 const extractTitle = (messages: unknown[]): string => {
   const findText = (message: unknown) => {
     if (!message || typeof message !== 'object') return ''
@@ -22,7 +28,7 @@ const extractTitle = (messages: unknown[]): string => {
   )
   const text = findText(firstUser) || findText(messages[0])
 
-  const trimmed = text.replace(/\s+/g, ' ').trim()
+  const trimmed = (stripContextBlocks(text) || text).replace(/\s+/g, ' ').trim()
   if (!trimmed) return 'Chat'
   return trimmed.slice(0, 48)
 }

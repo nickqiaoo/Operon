@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import type { PeersRosterDTO } from '@/types/peers'
 
 /**
  * Typed client for the Session panel's provider runtime-control surface.
@@ -24,7 +25,12 @@ export interface McpServerDTO {
     | 'needs-client-registration'
     | 'cancelled'
   error?: string
-  toolCount?: number
+}
+
+/** One tool an MCP server exposes. */
+export interface McpToolDTO {
+  name: string
+  description?: string
 }
 
 export interface OperonCronTaskDTO {
@@ -69,7 +75,10 @@ export interface OperonSubagentDTO {
 export interface OperonSkillDTO {
   name: string
   description: string
+  /** Where it came from: `project` | `user` | `extra` | `builtin`. */
   source: string
+  /** Absolute path of the skill's own file — what makes a row openable. */
+  path?: string
   type?: string
   disableModelInvocation?: boolean
 }
@@ -84,7 +93,18 @@ export interface OperonPluginDTO {
   mcpServerCount: number
   enabledMcpServerCount: number
   hasErrors: boolean
+  /** How it was installed: `local-path` | `zip-url` | `github`. */
   source: string
+  /** The install spec the user typed (a path, a URL, `owner/repo`). */
+  originalSource?: string
+  /** Set for a github install — enough to open the repo. */
+  github?: { owner: string; repo: string }
+}
+
+export interface OperonSessionExtensionDTO {
+  id: string
+  uses: string[]
+  builtin: boolean
 }
 
 // ── dispatch helper ─────────────────────────────────────────────────────────
@@ -97,6 +117,8 @@ async function call<T>(chatId: number, method: string, params?: unknown): Promis
 // ── MCP ──
 export const mcpList = (chatId: number) =>
   call<{ servers: McpServerDTO[] }>(chatId, 'mcp.list')
+export const mcpTools = (chatId: number, name: string) =>
+  call<{ tools: McpToolDTO[] }>(chatId, 'mcp.tools', { name })
 export const mcpReconnect = (chatId: number, name: string) =>
   call<{ ok: true }>(chatId, 'mcp.reconnect', { name })
 export const mcpToggle = (chatId: number, name: string, enabled: boolean) =>
@@ -127,11 +149,17 @@ export const subagentsList = (chatId: number) =>
 // ── Skills ──
 export const skillsList = (chatId: number) =>
   call<{ skills: OperonSkillDTO[] }>(chatId, 'skills.list')
-export const skillsActivate = (chatId: number, name: string, args?: string) =>
-  call<{ activationId: string; skillName: string }>(chatId, 'skills.activate', { name, args })
 
 // ── Plugins ──
 export const pluginsList = (chatId: number) =>
   call<{ plugins: OperonPluginDTO[] }>(chatId, 'plugins.list')
 export const pluginsSetEnabled = (chatId: number, id: string, enabled: boolean) =>
   call<{ ok: true }>(chatId, 'plugins.setEnabled', { id, enabled })
+
+// ── Extensions (per-session view) ──
+export const extensionsList = (chatId: number) =>
+  call<{ extensions: OperonSessionExtensionDTO[] }>(chatId, 'extensions.list')
+
+// ── Peers / teams ──
+export const peersList = (chatId: number) =>
+  call<PeersRosterDTO>(chatId, 'peers.list')

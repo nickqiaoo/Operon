@@ -112,11 +112,34 @@ const summarizeScalarArgs = (args: Record<string, unknown>): string | undefined 
   return parts.length > 0 ? parts.join(' · ') : undefined
 }
 
+/**
+ * The peers extension's `Team` / `Hub` tools take an `op` discriminator; spell the
+ * call out the way the approval card should read it ("spawn coder “dba”") instead of
+ * the generic `op=spawn · type=coder · name=dba`.
+ */
+const describePeerTool = (args: Record<string, unknown>): string | undefined => {
+  const op = typeof args.op === 'string' ? args.op : undefined
+  if (!op) return undefined
+  const str = (key: string): string | undefined =>
+    typeof args[key] === 'string' && (args[key] as string).trim() ? (args[key] as string).trim() : undefined
+  switch (op) {
+    case 'spawn':
+      return `spawn ${str('type') ?? 'teammate'}${str('name') ? ` “${str('name')}”` : ''}`
+    case 'send':
+      return `send → ${str('to') ?? '?'}`
+    case 'create':
+      return `create team${str('name') ? ` “${str('name')}”` : ''}`
+    default:
+      return op
+  }
+}
+
 export const getToolDescription = (
   toolName: string,
   args: Record<string, unknown>,
 ): string | undefined => {
   const normalized = normalizeToolName(toolName)
+  if (normalized === 'team' || normalized === 'hub') return describePeerTool(args) ?? summarizeScalarArgs(args)
   const fields = TOOL_DESCRIPTION_FIELDS[normalized] ?? FALLBACK_FIELDS
   return readString(args, fields) ?? summarizeScalarArgs(args)
 }

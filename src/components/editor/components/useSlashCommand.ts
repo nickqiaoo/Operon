@@ -114,6 +114,19 @@ export function useSlashCommand({ input, setInput, cursorPos, slashCommands }: U
     setSelectedSkills([]);
   }, []);
 
+  /**
+   * Add a skill chip from outside the composer — the session panel's "Use skill".
+   *
+   * Picking a skill is the same act whether you type `/` or find it in the panel, so it
+   * has to land in the same place: a chip, removable, with the composer still empty and
+   * yours to write in. Inserting `/name` as plain text would look close but behave
+   * differently — it would be re-parsed as you typed, and it would reach the model as
+   * literal text rather than as the `[skill:name]` prefix `handleSubmit` builds.
+   */
+  const addSkill = useCallback((item: SlashCommandItem) => {
+    setSelectedSkills((prev) => (prev.some((s) => s.name === item.name) ? prev : [...prev, item]));
+  }, []);
+
   const state: SlashCommandState = {
     isOpen,
     suggestions,
@@ -131,6 +144,7 @@ export function useSlashCommand({ input, setInput, cursorPos, slashCommands }: U
     slashCommand: state,
     selectedSkills,
     selectItem,
+    addSkill,
     removeSkill,
     clearSkills,
   };

@@ -70,6 +70,10 @@ interface ChatInputAreaProps {
   mobileKeyboardOpen?: boolean;
   /** Queued review comments or browser annotations sent with the next message. */
   hasPendingContext?: boolean;
+  /** A skill picked outside the composer (session panel) waiting to become a chip. */
+  pendingSkill?: SlashCommandItem | null;
+  /** Called once `pendingSkill` has been taken, so the owner can clear it. */
+  onPendingSkillConsumed?: () => void;
 }
 
 function AttachmentButton() {
@@ -124,6 +128,8 @@ export function ChatInputArea({
   compactWhenIdle = false,
   mobileKeyboardOpen = false,
   hasPendingContext = false,
+  pendingSkill = null,
+  onPendingSkillConsumed,
 }: ChatInputAreaProps) {
   const intl = useIntl();
   const {
@@ -145,10 +151,19 @@ export function ChatInputArea({
   const {
     slashCommand,
     selectedSkills,
+    addSkill,
     selectItem,
     removeSkill,
     clearSkills,
   } = useSlashCommand({ input, setInput, cursorPos, slashCommands });
+
+  // A skill chosen in the session panel becomes a chip here, then is cleared upstream so
+  // reopening the panel does not re-add it.
+  useEffect(() => {
+    if (!pendingSkill) return;
+    addSkill(pendingSkill);
+    onPendingSkillConsumed?.();
+  }, [pendingSkill, addSkill, onPendingSkillConsumed]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Skip all custom key handling during IME composition (e.g. Chinese input)

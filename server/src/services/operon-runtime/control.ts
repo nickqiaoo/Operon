@@ -1,4 +1,5 @@
 import type { CronHandle, HarnessSession } from 'operon-agents'
+import { rosterForSession, type PeersRosterDTO } from './peers.js'
 
 /**
  * The operon agent's runtime control surface, exposed to the chat UI's Agent
@@ -73,13 +74,32 @@ export interface OperonSubagentDTO {
   updatedAt: number
 }
 
+/** One tool an MCP server exposes, as the panel shows it. */
+export interface OperonMcpToolDTO {
+  name: string
+  description?: string
+}
+
 export interface OperonSkillDTO {
   name: string
   description: string
+  /** Where it came from: `project` | `user` | `extra` | `builtin`. */
   source: string
+  /** Absolute path of the skill's own file — what makes a row openable. */
+  path?: string
   type?: string
   disableModelInvocation?: boolean
 }
+
+export interface OperonSessionExtensionDTO {
+  id: string
+  /** Services (other extensions' `create` results) this one consumes. */
+  uses: string[]
+  /** Built-in, by-value extensions vs. file extensions the user loaded. */
+  builtin: boolean
+}
+
+export type { PeersRosterDTO }
 
 export interface OperonPluginDTO {
   id: string
@@ -91,7 +111,12 @@ export interface OperonPluginDTO {
   mcpServerCount: number
   enabledMcpServerCount: number
   hasErrors: boolean
+  /** How it was installed: `local-path` | `zip-url` | `github`. */
   source: string
+  /** The install spec the user typed (a path, a URL, `owner/repo`). */
+  originalSource?: string
+  /** Set for a github install — enough to open the repo. */
+  github?: { owner: string; repo: string }
 }
 
 /**
@@ -108,6 +133,8 @@ export async function operonAgentControl(
     // ── MCP ──
     case 'mcp.list':
       return { servers: harness.listMcpServers().map(toMcpDTO) }
+    case 'mcp.tools':
+      return { tools: (await harness.listMcpTools(readString(params, 'name'))).map(toMcpToolDTO) }
     case 'mcp.reconnect':
       await harness.reconnectMcpServer(readString(params, 'name'))
       return { ok: true }
@@ -188,6 +215,14 @@ export async function operonAgentControl(
       await harness.reloadPlugins()
       return { ok: true }
 
+    // ── Extensions (per-session view; management is the chat-less /api/extensions route) ──
+    case 'extensions.list':
+      return { extensions: harness.attachedExtensions().map(toSessionExtensionDTO) }
+
+    // ── Peers / teams ──
+    case 'peers.list':
+      return rosterForSession(harness.id)
+
     default:
       throw new Error(`Unknown agent control method: ${method}`)
   }
@@ -200,6 +235,13 @@ function cronHandle(harness: HarnessSession): CronHandle {
 }
 
 // ── mappers ──────────────────────────────────────────────────────────────
+/** Extensions operon registers by value. File extensions such as Teams come from the marketplace. */
+const BUILTIN_EXTENSION_IDS = new Set(['cron'])
+
+function toSessionExtensionDTO(e: { readonly id: string; readonly uses: readonly string[] }): OperonSessionExtensionDTO {
+  return { id: e.id, uses: [...e.uses], builtin: BUILTIN_EXTENSION_IDS.has(e.id) }
+}
+
 function toMcpDTO(v: McpServerView): OperonMcpServerDTO {
   return {
     name: v.name,
@@ -207,6 +249,10 @@ function toMcpDTO(v: McpServerView): OperonMcpServerDTO {
     status: v.status,
     ...(v.error ? { error: v.error } : {}),
   }
+}
+
+function toMcpToolDTO(t: { name: string; description?: string }): OperonMcpToolDTO {
+  return { name: t.name, ...(t.description ? { description: t.description } : {}) }
 }
 
 function toCronDTO(t: CronTask, nextFireAt: number | null): OperonCronTaskDTO {
@@ -269,6 +315,7 @@ function toSkillDTO(s: SkillSummary): OperonSkillDTO {
     name: s.name,
     description: s.description,
     source: String(s.source),
+    ...(s.path ? { path: s.path } : {}),
     ...(s.type ? { type: s.type } : {}),
     ...(s.disableModelInvocation !== undefined ? { disableModelInvocation: s.disableModelInvocation } : {}),
   }
@@ -286,6 +333,9 @@ function toPluginDTO(p: PluginSummary): OperonPluginDTO {
     enabledMcpServerCount: p.enabledMcpServerCount,
     hasErrors: p.hasErrors,
     source: String(p.source),
+    ...(p.originalSource ? { originalSource: p.originalSource } : {}),
+    // The repo a github-installed plugin came from — enough to open it.
+    ...(p.github ? { github: { owner: p.github.owner, repo: p.github.repo } } : {}),
   }
 }
 

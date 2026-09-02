@@ -1,4 +1,4 @@
-import { Bot, History, LayoutDashboard, Loader2, Plus, SquareTerminal, X } from "lucide-react"
+import { Bot, History, LayoutDashboard, Loader2, Plus, SquareTerminal, Users, X } from "lucide-react"
 import googleLogo from "@/assets/logos/google.svg"
 import openaiLogo from "@/assets/logos/openai.svg"
 import anthropicLogo from "@/assets/logos/claude.svg"
@@ -355,6 +355,7 @@ export function EditorTabs({
                     const tabId = `chat:${item.id}`
                     const isCanvas = item.tp === 'canvas'
                     const isSubAgent = item.tp === 'subagent'
+                    const isTeammate = item.tp === 'teammate'
                     const logo = getHistoryLogo(item.providerId)
                     return (
                       <button
@@ -368,6 +369,8 @@ export function EditorTabs({
                       >
                         {isSubAgent ? (
                           <Bot className="size-4 shrink-0 text-blue-500" />
+                        ) : isTeammate ? (
+                          <Users className="size-4 shrink-0 text-status-info" />
                         ) : isCanvas ? (
                           <LayoutDashboard className="size-4 shrink-0 text-purple-500" />
                         ) : logo ? (
@@ -390,6 +393,11 @@ export function EditorTabs({
                         {isCanvas && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 shrink-0">
                             <FormattedMessage id="editor.history.workflow" defaultMessage="Workflow" />
+                          </span>
+                        )}
+                        {isTeammate && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info/10 text-status-info shrink-0">
+                            <FormattedMessage id="editor.history.teammate" defaultMessage="Teammate" />
                           </span>
                         )}
                         <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">

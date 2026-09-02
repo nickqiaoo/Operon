@@ -1,5 +1,6 @@
 import { api } from "@/lib/api";
 import { persistBlobUrl } from "@/lib/attachments";
+import { wrapContextBlock } from "@/lib/context-blocks";
 import type { FileUIPart } from 'ai';
 import { useCallback } from 'react';
 
@@ -58,7 +59,9 @@ export function useChatActions(
       const fileContent = 'content' in file ? file.content : undefined;
       if ('asText' in file && file.asText && typeof fileContent === 'string' && fileContent) {
         const filename = 'filename' in file ? file.filename : undefined;
-        textSnippets.push(filename ? `[File: ${filename}]\n${fileContent}` : fileContent);
+        // Fenced with a closing marker so the transcript can split the quote
+        // back out from what the user typed (see `parseContextBlocks`).
+        textSnippets.push(filename ? wrapContextBlock(filename, fileContent) : fileContent);
       } else {
         effectiveFiles.push(file);
       }

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { PanelId } from "./types"
 import { useNewTab } from "./tab-entries"
+import { ShortcutBadge } from "./ShortcutBadge"
 
 interface NewTabMenuProps {
   panelId: PanelId
@@ -31,7 +32,7 @@ export function NewTabMenu({ panelId }: NewTabMenuProps) {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-44 border-border/40 shadow-float"
+        className="w-52 border-border/40 shadow-float"
       >
         {ordered.map((entry) => {
           const Icon = entry.icon
@@ -47,7 +48,8 @@ export function NewTabMenu({ panelId }: NewTabMenuProps) {
               className="gap-2 text-xs"
             >
               <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{intl.formatMessage(entry.label)}</span>
+              <span className="min-w-0 flex-1 truncate">{intl.formatMessage(entry.label)}</span>
+              <ShortcutBadge tabType={entry.type} />
             </DropdownMenuItem>
           )
         })}

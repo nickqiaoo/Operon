@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useProjectStore } from "@/stores/project-store"
 import { OpenWithMenu } from "./OpenWithMenu"
+import { toggleBottomPanelWithTerminal } from "./tabs/tab-entries"
 
 /**
  * The window's top-right controls: "Open with…" + bottom/right panel toggles.
@@ -19,7 +20,6 @@ export function TopBarControls() {
   const intl = useIntl()
   const bottomPanelOpen = useAppShellStore((s) => s.bottomPanelOpen)
   const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
-  const toggleBottomPanel = useAppShellStore((s) => s.toggleBottomPanel)
   const toggleRightPanel = useAppShellStore((s) => s.toggleRightPanel)
 
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
@@ -39,7 +39,7 @@ export function TopBarControls() {
       <button
         type="button"
         data-testid="toggle-bottom-panel"
-        onClick={toggleBottomPanel}
+        onClick={toggleBottomPanelWithTerminal}
         className={cn(
           "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
           bottomPanelOpen

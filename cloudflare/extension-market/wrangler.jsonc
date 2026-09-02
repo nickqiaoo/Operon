@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "operon-extension-market",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-06",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "extensions.operon.chatcode.top",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "../../dist-extension-market",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  }
+}

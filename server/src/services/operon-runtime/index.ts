@@ -1,5 +1,5 @@
 import path from 'path'
-import { stat } from 'fs/promises'
+import { mkdir, stat } from 'fs/promises'
 import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalMachine, resolveFromFiles, toCoreOptions, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { fetchProviderModels, getProviderConfigs, PROVIDER_META } from '../provider-config.js'
@@ -15,7 +15,11 @@ import type {
 } from '@operon/agent-runtime'
 import { getModelCapabilities, resolveModel } from './resolve-model.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession } from './session.js'
-import { HARNESS_HOME_DIR } from './paths.js'
+import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
+import { configurePeersHost, createTeamsHostService } from './peers.js'
+import { TEAMS_SERVICE } from '../../extensions/peers/contract.js'
+import { loadApprovedExtensions } from './approved-extensions.js'
+import { observeSession, startSessionWatch } from './passive-observer.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
 
@@ -198,9 +202,59 @@ interface WorkspaceSetup {
  * empty exactly when it matters, reconnecting every MCP server on each session rebuild.
  */
 let HARNESS: Promise<Harness> | undefined
+/** The built harness, once `buildHarness` resolved — for callers that must not trigger a build. */
+let HARNESS_INSTANCE: Harness | undefined
 
 /** `mcp.json` + `config.toml` per project root — read once, reused by every session there. */
 const WORKSPACE_SETUPS = new Map<string, Promise<WorkspaceSetup>>()
+
+/**
+ * Resolve everything a session needs from its workspace: the project root, the MCP
+ * servers to expose (workspace `mcp.json` merged under the host-injected,
+ * conversation-scoped ones) and the permission policy from `config.toml`. Cached by
+ * root so this stays one filesystem read per workspace. Module-level so the peers
+ * extension can give a teammate the same policy its lead runs under.
+ */
+export async function resolveWorkspaceSetup(
+  cwd: string,
+  injectedMcpServers?: RuntimeMcpServers,
+): Promise<{
+  root: string
+  servers: Record<string, McpServerConfig>
+  permission: PermissionManagerOptions
+  limits: WorkspaceRunnerLimits
+}> {
+  const root = await resolveProjectRoot(cwd)
+  let pending = WORKSPACE_SETUPS.get(root)
+  if (!pending) {
+    pending = loadWorkspaceSetup(root).catch((error) => {
+      WORKSPACE_SETUPS.delete(root)
+      throw error
+    })
+    WORKSPACE_SETUPS.set(root, pending)
+  }
+  const setup = await pending
+  return {
+    root,
+    // Host-injected servers win: they carry the conversation's own identity
+    // (node_repl's kernel, the workflow/taskboard scope) and must not be masked
+    // by a same-named workspace entry.
+    servers: { ...setup.workspaceServers, ...(injectedMcpServers as Record<string, McpServerConfig> | undefined) },
+    permission: setup.permission,
+    limits: setup.limits,
+  }
+}
+
+/** The process-wide harness (built on first use). Chat-less routes (extensions, teams) use this. */
+export function getOperonHarness(): Promise<Harness> {
+  if (!HARNESS) {
+    HARNESS = buildHarness().catch((error) => {
+      HARNESS = undefined
+      throw error
+    })
+  }
+  return HARNESS
+}
 
 async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
   const [workspaceServers, config] = await Promise.all([loadWorkspaceMcpServers(root), loadWorkspaceConfig(root)])
@@ -235,8 +289,27 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
  * MCP servers, permission policy, persona and Runner limits are all per session.
  */
 async function buildHarness(): Promise<Harness> {
-  return createLocalHarness({
+  await mkdir(EXTENSIONS_DIR, { recursive: true })
+  configurePeersHost({
+    harness: () => HARNESS_INSTANCE,
+    workspaceSetup: async (cwd) => {
+      const { servers, permission } = await resolveWorkspaceSetup(cwd)
+      return { servers, permission }
+    },
+    defaultModelId: async () => {
+      const models = await availableModels()
+      return models[0]?.id ?? DEFAULT_MODEL_ID
+    },
+  })
+  const harness = await createLocalHarness({
     model: DEFAULT_MODEL_ID,
+    // File extensions: one folder per extension under `~/.operon/data/extensions`. Nothing
+    // there runs until the user loads it from Settings → Extensions. Marketplace downloads are
+    // ordinary file extensions; a previous explicit approval is restored below on startup.
+    extensionDir: EXTENSIONS_DIR,
+    // Host services extensions may `use`. `operon-teams` is what the Teams bundle reads its
+    // teammate types from and reports every spawn to.
+    services: { [TEAMS_SERVICE]: createTeamsHostService() },
     resolveModel,
     // A default only — every session passes its own workDir, and the engine builds
     // that session's `LocalMachine` from it.
@@ -271,6 +344,10 @@ async function buildHarness(): Promise<Harness> {
       ? { tools: [...filesystemTools(), ...registeredExtraTools] }
       : {}),
   })
+  HARNESS_INSTANCE = harness
+  startSessionWatch(harness)
+  await loadApprovedExtensions(harness)
+  return harness
 }
 
 /**
@@ -298,52 +375,7 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
    * session rebuild.
    */
   private harness(): Promise<Harness> {
-    if (!HARNESS) {
-      // Clear a failed build so a transient error doesn't poison the process.
-      HARNESS = buildHarness().catch((error) => {
-        HARNESS = undefined
-        throw error
-      })
-    }
-    return HARNESS
-  }
-
-  /**
-   * Resolve everything a session needs from its workspace: the project root, the
-   * MCP servers to expose (workspace `mcp.json` merged under the host-injected,
-   * conversation-scoped ones) and the permission policy from `config.toml`.
-   *
-   * Read per session rather than per harness — that is what lets the harness be
-   * shared. Cached by root so this stays one filesystem read per workspace.
-   */
-  private async resolveWorkspaceSetup(
-    cwd: string,
-    injectedMcpServers?: RuntimeMcpServers,
-  ): Promise<{
-    root: string
-    servers: Record<string, McpServerConfig>
-    permission: PermissionManagerOptions
-    limits: WorkspaceRunnerLimits
-  }> {
-    const root = await resolveProjectRoot(cwd)
-    let pending = WORKSPACE_SETUPS.get(root)
-    if (!pending) {
-      pending = loadWorkspaceSetup(root).catch((error) => {
-        WORKSPACE_SETUPS.delete(root)
-        throw error
-      })
-      WORKSPACE_SETUPS.set(root, pending)
-    }
-    const setup = await pending
-    return {
-      root,
-      // Host-injected servers win: they carry the conversation's own identity
-      // (node_repl's kernel, the workflow/taskboard scope) and must not be masked
-      // by a same-named workspace entry.
-      servers: { ...setup.workspaceServers, ...(injectedMcpServers as Record<string, McpServerConfig> | undefined) },
-      permission: setup.permission,
-      limits: setup.limits,
-    }
+    return getOperonHarness()
   }
 
   async getDescriptor(): Promise<ProviderDescriptor> {
@@ -423,7 +455,7 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
     mcpServers?: RuntimeMcpServers,
     instructions?: string,
   ): Promise<HarnessSession> {
-    const { root, servers, permission, limits } = await this.resolveWorkspaceSetup(cwd, mcpServers)
+    const { root, servers, permission, limits } = await resolveWorkspaceSetup(cwd, mcpServers)
     const harness = await this.harness()
     // Everything that used to be baked into a per-conversation harness travels with
     // the session instead, so all chats share one harness (and its MCP connections
@@ -434,13 +466,23 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
       ...limits,
       ...(instructions?.trim() ? { appendSystemPrompt: instructions.trim() } : {}),
     }
-    if (sessionId) {
-      try {
-        return await harness.resumeSession(sessionId, opts)
-      } catch {
-        // fall through to a fresh session
+    const session = await (async () => {
+      if (sessionId) {
+        // Already open on the harness (a teammate spawned by `Team`, or a lead a
+        // teammate woke) — reuse it rather than opening a second instance.
+        const open = harness.getSession(sessionId)
+        if (open) return open
+        try {
+          return await harness.resumeSession(sessionId, opts)
+        } catch {
+          // fall through to a fresh session
+        }
       }
-    }
-    return harness.createSession({ workDir: root, ...opts })
+      return harness.createSession({ workDir: root, ...opts })
+    })()
+    // Turns nobody in the UI started (a teammate waking this lead) still land in
+    // the chat's transcript and light up the inbox.
+    observeSession(session, { notifyOnTurnEnd: true })
+    return session
   }
 }

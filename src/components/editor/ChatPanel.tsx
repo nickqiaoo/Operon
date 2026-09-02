@@ -140,6 +140,8 @@ function ChatPanelContent({
   const setInput = (val: string) => setInputState(val);
 
   const [selectorOpen, setSelectorOpen] = useState(false);
+  /** Skill chosen in the session panel, handed to the composer as a chip on the next render. */
+  const [pendingSkill, setPendingSkill] = useState<SlashCommandItem | null>(null);
   const isMobile = useIsMobile();
   const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId);
   const pendingAnnotationCount = useAnnotationsStore(
@@ -1191,6 +1193,8 @@ function ChatPanelContent({
           compactWhenIdle={isMobile}
           mobileKeyboardOpen={isMobile && mobileKeyboardOpen}
           hasPendingContext={pendingAnnotationCount > 0 || pendingLineCommentCount > 0}
+          pendingSkill={pendingSkill}
+          onPendingSkillConsumed={() => setPendingSkill(null)}
         />
       </div>
       <AgentPanel
@@ -1198,6 +1202,12 @@ function ChatPanelContent({
         chatId={tab?.chatId ?? dbChatIdRef.current}
         providerId={sessionPanelProviderId}
         onClose={() => setAgentPanelOpen(false)}
+        // A skill picked in the panel arrives as a chip in the composer — the same state a
+        // `/` pick produces — rather than as text or as a message sent on your behalf.
+        onUseSkill={(skill) => {
+          setPendingSkill({ type: 'skill', name: skill.name, description: skill.description })
+          setAgentPanelOpen(false)
+        }}
       />
       {isMobile && dbChatId !== undefined && reviewCwd && mobileReviewMessageUid ? (
         <MobileSheet

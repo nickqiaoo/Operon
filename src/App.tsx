@@ -18,6 +18,7 @@ import { DiffPreview } from "@/components/editor/DiffPreview"
 import { TerminalTab } from "@/components/app-shell/content/TerminalTab"
 import { ConversationEmptyState } from "@/components/ai-elements/conversation"
 import { AppShell } from "@/components/app-shell/AppShell"
+import { useGlobalShortcuts } from "@/lib/shortcuts/useGlobalShortcuts"
 import { SettingsPage } from "@/components/settings/SettingsPage"
 import { CronjobPage } from "@/components/cronjob/CronjobPage"
 import { SkillPage } from "@/components/skill/SkillPage"
@@ -37,10 +38,13 @@ import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
 
 export default function App() {
   const intl = useIntl()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /** Tab to land on when something deep-linked into Settings; cleared once consumed. */
+  const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
   const [cronjobOpen, setCronjobOpen] = useState(false)
   const [skillOpen, setSkillOpen] = useState(false)
   const [canvasOpen, setCanvasOpen] = useState(false)
@@ -122,35 +126,10 @@ export default function App() {
   // src/components/browser/browser-use-bridge.ts.
   useEffect(() => installBrowserUseBridge(), [])
 
-  // Global app-shell shortcuts. ⌘\ toggles the right panel, ⌘J toggles the
-  // bottom panel, ⌘W closes the active tab in whichever panel has DOM focus.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      const isMac = navigator.platform.toLowerCase().includes("mac")
-      const cmd = isMac ? event.metaKey : event.ctrlKey
-      if (!cmd || event.altKey) return
-      if (event.key === "\\" || event.key === "|") {
-        event.preventDefault()
-        useAppShellStore.getState().toggleRightPanel()
-      } else if (event.key === "j" || event.key === "J") {
-        event.preventDefault()
-        useAppShellStore.getState().toggleBottomPanel()
-      } else if (event.key === "w" || event.key === "W") {
-        const focusEl =
-          (event.target as Element | null) ?? document.activeElement
-        const focusArea = focusEl?.closest?.("[data-app-shell-focus-area]")
-        const area = focusArea?.getAttribute("data-app-shell-focus-area")
-        if (area !== "right-panel" && area !== "bottom-panel") return
-        const panelId = area === "right-panel" ? "right" : "bottom"
-        const panel = useTabsStore.getState()[panelId]
-        if (panel.activeTabId == null) return
-        event.preventDefault()
-        useTabsStore.getState().closeTab(panelId, panel.activeTabId)
-      }
-    }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [])
+  // Every keyboard shortcut in the app, dispatched from one command table
+  // (src/lib/shortcuts/commands.ts) so Settings → Keyboard shortcuts can rebind
+  // them. Panel toggles, new-tab shortcuts and ⌘W all live there.
+  useGlobalShortcuts()
 
   const handleProviderSelected = useCallback((providerId: string) => {
     createChatTab(providerId, "Chat")
@@ -186,6 +165,19 @@ export default function App() {
       .getState()
       .setActiveWorkspace(activeWorkspaceId != null ? String(activeWorkspaceId) : null)
   }, [activeWorkspaceId])
+
+  // Deep links into Settings (a plugin row in the session panel, an extension row…).
+  useEffect(() => {
+    const onOpen = (event: Event): void => {
+      const detail = (event as CustomEvent<OpenSettingsDetail>).detail
+      if (!detail?.tab) return
+      setSettingsTab(detail.tab)
+      setSettingsOpen(true)
+      trackEvent('page_opened', { page: 'settings' })
+    }
+    window.addEventListener(OPEN_SETTINGS_EVENT, onOpen)
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen)
+  }, [])
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -322,7 +314,10 @@ export default function App() {
         <>
           {settingsOpen && (
             <div className="fixed inset-0 z-50">
-              <SettingsPage onBack={() => { setSettingsOpen(false); trackEvent('page_closed', { page: 'settings' }) }} />
+              <SettingsPage
+                initialTab={settingsTab}
+                onBack={() => { setSettingsOpen(false); setSettingsTab(undefined); trackEvent('page_closed', { page: 'settings' }) }}
+              />
             </div>
           )}
 

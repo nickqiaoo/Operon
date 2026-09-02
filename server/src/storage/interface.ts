@@ -110,6 +110,8 @@ export interface ChatStorageAdapter {
   listChatEntries(query?: ListChatEntriesQuery): ChatHistoryListItem[]
   /** Update only the session_id column without changing revision or messages */
   updateChatSessionId(chatId: number, sessionId: string): void
+  /** The chat whose provider session is `sessionId`, if any (chats.session_id is unique per session). */
+  findChatBySessionId(sessionId: string): (ChatMeta & { id: number }) | undefined
   /** Update only the metadata JSON column without changing revision or messages */
   updateChatMetadata(chatId: number, metadata: import('../types/chat.js').ChatMetadata): void
   // --- Workflow: one append-only event log + a rebuildable index (0038) ---

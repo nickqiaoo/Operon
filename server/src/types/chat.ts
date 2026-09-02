@@ -1,4 +1,4 @@
-export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side'
+export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side' | 'teammate'
 
 export interface ChatMetadata {
   /** canvas chat fields */
@@ -27,6 +27,21 @@ export interface ChatMetadata {
    * Mid-conversation changes are not allowed — provider/model/runtimeOptions
    * are locked once a chat is bound. */
   chatRuntimeOptions?: Record<string, string>
+  /** teammate chat fields — a peer session spawned by a lead's `Team spawn`.
+   *  The chat row is the transcript of that independent session; its
+   *  `sessionId` column points at the teammate's harness session. */
+  peer?: {
+    /** Roster name (what teammates address it by). */
+    name: string
+    /** Full team label, `team:<creatorSessionId>:<teamName>`. */
+    team: string
+    /** Teammate type (`coder`, `reviewer`, …) — the host-defined birth config. */
+    type: string
+    /** The session that spawned it (= the lead's harness session id). */
+    creatorSessionId: string
+    /** The lead's chat, when one exists for that session. */
+    leadChatId?: number
+  }
 }
 
 export interface ChatHistoryEntry {

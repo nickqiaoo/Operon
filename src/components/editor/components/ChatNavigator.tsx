@@ -2,8 +2,10 @@ import type { UIMessage } from 'ai';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
+import { stripContextBlocks } from '@/lib/context-blocks';
 import { cn } from '@/lib/utils';
 import { isSteerUserMessage } from './steer-message';
+import { extractPeerMessage } from '../utils/chatMetadata';
 
 /**
  * The turn rail: one tick per prompt, stacked down the left gutter of the
@@ -35,6 +37,7 @@ function plainText(message: UIMessage, limit: number): string {
     out += part.text;
     if (out.length >= limit) break;
   }
+  if (message.role === 'user') out = stripContextBlocks(out);
   return out.replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
@@ -51,7 +54,12 @@ export function buildChatNavigatorEntries(messages: readonly UIMessage[]): ChatN
   for (const message of messages) {
     if (message.role === 'user') {
       if (isSteerUserMessage(message)) continue;
-      current = { id: message.id, title: plainText(message, PREVIEW_LIMIT), preview: '' };
+      // A teammate's message starts a real turn, so it earns a row — but the rail is a list
+      // of prompts, and reading a teammate's report there as if the user had said it is
+      // exactly the confusion the transcript card avoids. Name the sender.
+      const peer = extractPeerMessage(message);
+      const body = plainText(message, PREVIEW_LIMIT);
+      current = { id: message.id, title: peer ? `${peer.from}: ${body}` : body, preview: '' };
       entries.push(current);
       continue;
     }

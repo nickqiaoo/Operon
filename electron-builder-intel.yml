@@ -84,6 +84,9 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+  # 内置公证没有重试机制：轮询期一次网络错误、或 Apple 侧卡死，都会中断整个构建。
+  # 改用 scripts/notarize.mjs（afterSign），带票据复用 / 轮询容错 / 卡死重传。
+  notarize: false
 
 dmg:
   sign: false
@@ -97,6 +100,7 @@ dmg:
       type: file
 
 afterPack: scripts/after-pack.mjs
+afterSign: scripts/notarize.mjs
 
 publish:
   provider: github

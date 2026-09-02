@@ -17,6 +17,8 @@ import type { UIMessage } from 'ai'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits } from '@/components/editor/utils/chatMetadata'
 import type { CodexGoal } from '@/types/goal'
+import type { ExtensionMarketplaceDTO, OperonExtensionDTO } from '@/types/extension'
+import type { PeersConfig, PeersRosterDTO } from '@/types/peers'
 import type { MarketplaceBrowseResult, OperonMarketplaceDetailsDTO, OperonMarketplaceInfoDTO, OperonMcpAuthServerDTO, OperonMcpToolDTO, OperonPluginDTO, OperonPluginInfoDTO } from '@/types/plugin'
 import type { MobilePairingSummary } from '@/types/mobile'
 import type {
@@ -899,6 +901,34 @@ export const api = {
     get<{ servers: Record<string, McpServerEntry> }>('/mcp/servers'),
   mcpSaveServers: (servers: Record<string, McpServerEntry>) =>
     put<{ servers: Record<string, McpServerEntry> }>('/mcp/servers', { servers }),
+
+  // --- Extensions (file extensions on the operon harness; session-independent) ---
+  extensionsList: () =>
+    softGet<{ extensions?: OperonExtensionDTO[]; error?: string }>('/extensions/list'),
+  extensionsLoad: (id: string) =>
+    softPost<{ ok?: true; error?: string }>('/extensions/load', { id }),
+  extensionsReload: (id: string) =>
+    softPost<{ ok?: true; error?: string }>('/extensions/reload', { id }),
+  extensionsUnload: (id: string) =>
+    softPost<{ ok?: true; error?: string }>('/extensions/unload', { id }),
+  extensionsRemove: (id: string) =>
+    softPost<{ ok?: true; error?: string }>('/extensions/remove', { id }),
+  extensionsInstall: (input: { url?: string; zipBase64?: string; sha256?: string }) =>
+    softPost<{ extension?: OperonExtensionDTO; error?: string }>('/extensions/install', input),
+  extensionsMarketplace: () =>
+    softGet<ExtensionMarketplaceDTO & { error?: string }>('/extensions/marketplace'),
+  extensionsMarketplaceInstall: (id: string) =>
+    softPost<{ extension?: OperonExtensionDTO; error?: string }>('/extensions/marketplace/install', { id }),
+
+  // --- Teams / peers (host API consumed by the marketplace-installed Teams extension) ---
+  peersRoster: () =>
+    softGet<PeersRosterDTO & { error?: string }>('/peers/roster'),
+  peersConfig: () =>
+    softGet<{ config?: PeersConfig; error?: string }>('/peers/config'),
+  peersConfigSave: (config: PeersConfig) =>
+    softPost<{ config?: PeersConfig; error?: string }>('/peers/config', { config }),
+  peersDisband: (label: string) =>
+    softPost<{ members?: number; error?: string }>('/peers/disband', { label }),
 
   // --- Plugins (session-independent management; global PluginManager) ---
   pluginsList: () =>
