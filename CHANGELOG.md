@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.3.30] - 2026-09-02
+
+### Changed
+
+- Teams is now a built-in extension: it appears in Settings → Extensions with Load / Unload, and its settings sit behind a Configure button on its row instead of a separate tab.
+- Teammate names only need to be unique within their team; teammates address their lead as `lead`.
+- A teammate's message now shows as a card with its sender's name instead of looking like something you typed.
+- The Team panel's token total can be expanded to see who spent it.
+- Disbanding a team now asks first, and says how many teammates are mid-task.
+- The Session panel is split into what's happening now and what the session can do; sections with nothing in them no longer take up space.
+- Tightened the Session panel: healthy servers no longer announce themselves, row controls appear on hover, and the whole session fits on one screen.
+- Click a skill in the Session panel to read it, then drop its slash command into the composer; plugin and extension rows open their repo or their settings.
+- Click a connected MCP server in the Session panel to see the tools it offers.
+- An empty panel now lists the things you can open as plain rows instead of big cards.
+- Opening the bottom panel goes straight to a terminal.
+- Keyboard shortcuts for opening Files, Review, Browser, Terminal and a side chat; the new-tab menu shows the keys.
+- Added Settings → Keyboard shortcuts, where every shortcut can be rebound, given a second key, or removed.
+- An extension shows as updatable when the framework inside it moves, not only when its own version does.
+- The Chinese interface is complete again — extensions, the session panel, shortcuts, teams and account screens were still falling back to English.
+
 ## [1.3.29] - 2026-09-01
 
 ### Changed
