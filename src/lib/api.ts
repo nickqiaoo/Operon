@@ -150,6 +150,35 @@ function softPost<T>(path: string, body: unknown): Promise<T> {
  * A Chrome switch that did not take. Reported as text either way — `code` only
  * distinguishes a filesystem denial for logging, not for different advice.
  */
+export type AcpInstallState = 'idle' | 'downloading' | 'extracting' | 'installing' | 'done' | 'error'
+
+export interface AcpInstallProgress {
+  state: AcpInstallState
+  receivedBytes: number
+  /** 0 when the server sent no Content-Length — render an indeterminate bar then. */
+  totalBytes: number
+  version?: string
+  error?: string
+}
+
+export interface AcpAgentEntry {
+  id: string
+  label: string
+  /** False when the registry ships no build for this OS/arch (Intel Macs today). */
+  supported: boolean
+  platform: string | null
+  installed: { version: string; cmd: string; installedAt: string } | null
+  resolvedPath?: string
+  progress: AcpInstallProgress
+}
+
+export interface AntigravityAuthStatus {
+  state: 'ready' | 'needs-login' | 'incomplete' | 'not-configured'
+  authType?: 'oauth-personal' | 'gemini-api-key' | 'oauth-business' | 'agent-platform'
+  settingsPath: string
+  detail?: string
+}
+
 export interface ChromeUseFailure {
   error: string
   code?: 'chrome_access_denied'
@@ -598,6 +627,25 @@ export const api = {
     get<{ version?: string; error?: string; warning?: string }>(
       `/cli-paths/${encodeURIComponent(adapterId)}/version`,
     ),
+
+  // --- ACP agents (installable binaries) ---
+  acpAgentsList: () =>
+    get<{ agents: AcpAgentEntry[] }>('/acp-agents'),
+  /**
+   * Starts the install and returns at once — downloading and unpacking most of
+   * a gigabyte runs far past any request timeout. Follow it with acpAgentProgress.
+   */
+  acpAgentInstall: (id: string) =>
+    post<{ started?: boolean; error?: string }>(`/acp-agents/${encodeURIComponent(id)}/install`, {}),
+  acpAgentProgress: (id: string) =>
+    get<AcpInstallProgress>(`/acp-agents/${encodeURIComponent(id)}/progress`),
+  /** Sign-in readiness — checked before spawning so a login page never appears unannounced. */
+  antigravityAuthStatus: () =>
+    get<AntigravityAuthStatus>('/acp-agents/antigravity/auth'),
+  antigravityAuthSet: (type: string) =>
+    put<AntigravityAuthStatus>('/acp-agents/antigravity/auth', { type }),
+  acpAgentUninstall: (id: string) =>
+    del<{ success: boolean }>(`/acp-agents/${encodeURIComponent(id)}`),
 
   // --- Skills (HTTP) ---
   // `workspacePath` is sent even for global listings: it's what lets the server flag

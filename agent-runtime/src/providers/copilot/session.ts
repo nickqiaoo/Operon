@@ -294,7 +294,7 @@ export class CopilotRuntimeSession implements RuntimeSession {
     // Emit the tool-call FIRST so the part carries the input (questions / plan)
     // by the time the approval card opens — the main UI transform drops the
     // toolCall from the approval-request chunk and reads input from the prior
-    // tool-call. dynamic+providerExecuted mirror the gemini interactive shape.
+    // tool-call. dynamic+providerExecuted mark it as run by the agent itself.
     const toolCall = {
       type: 'tool-call' as const,
       toolCallId: approvalId,

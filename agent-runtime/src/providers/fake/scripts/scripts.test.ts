@@ -43,7 +43,7 @@ describe('fake script registry', () => {
   })
 })
 
-const STYLES = ['claude', 'codex', 'gemini', 'kimi', 'opencode', 'custom'] as const
+const STYLES = ['claude', 'codex', 'kimi', 'opencode', 'custom'] as const
 
 describe.each(STYLES)('%s-style scripts', (style) => {
   it(`${style}-text-only emits start, text-*, finish`, async () => {

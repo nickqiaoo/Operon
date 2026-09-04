@@ -1,7 +1,7 @@
 import { test, fakeOnly, expect, waitForStreamIdle, setFakeScript, resetServerState } from '../ci-fixtures'
 import { chat } from '../helpers'
 
-const STYLES = ['claude', 'codex', 'gemini', 'kimi', 'opencode', 'custom'] as const
+const STYLES = ['claude', 'codex', 'kimi', 'opencode', 'custom'] as const
 
 test.beforeEach(async () => {
   fakeOnly()

@@ -2,12 +2,20 @@ import type * as acp from '@zed-industries/agent-client-protocol'
 import type { Model } from '../../types.js'
 import type { AcpDiscoveryContext, AcpModelDiscovery, AcpProviderConfig, AcpUsage } from '../acp/index.js'
 
-export const GROK_DEFAULT_MODEL_ID = 'grok-4.5'
+/**
+ * Grok's own current model, as advertised by the `initialize` handshake.
+ *
+ * Keep it in step with what the agent actually offers: the shared ACP session
+ * only calls `setSessionModel` when the selection differs from this constant, so
+ * a stale value costs a redundant call, and the fallback list below would name a
+ * model that no longer exists whenever the probe fails.
+ */
+export const GROK_DEFAULT_MODEL_ID = 'grok-4.6'
 
 const GROK_FALLBACK_MODELS: Model[] = [
   {
-    id: 'grok-4.5',
-    name: 'Grok 4.5',
+    id: GROK_DEFAULT_MODEL_ID,
+    name: 'Grok 4.6',
     description: "SpaceXAI's frontier coding model",
     providerId: 'grok',
     providerLabel: 'Grok',
@@ -31,7 +39,7 @@ function extractGrokModels(ctx: AcpDiscoveryContext, preferredModelId?: string):
     .map((entry): Model | null => {
       if (!isRecord(entry) || typeof entry.modelId !== 'string') return null
       // Grok advertises the window per model on the entry's own `_meta`
-      // (grok-4.5 = 500K, grok-composer-2.5-fast = 200K).
+      // (a few hundred K, varying by model).
       const entryMeta = isRecord(entry._meta) ? entry._meta : undefined
       const contextWindow = num(entryMeta?.totalContextTokens)
       return {

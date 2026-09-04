@@ -11,7 +11,7 @@ type RuntimeToolCall = Extract<RuntimeTextStreamPart, { type: 'tool-call' }>
 type SessionUpdate = acp.SessionNotification['update']
 type StopReason = acp.PromptResponse['stopReason']
 
-/** Mirrors gemini/session.ts — providerMetadata must be plain JSON. */
+/** providerMetadata must be plain JSON. */
 interface JsonSchemaObject {
   [key: string]: JsonSchemaValue | undefined
 }

@@ -2,6 +2,7 @@ import type { RuntimeHost } from '@operon/agent-runtime'
 import {
   getClaudeCliPath,
   getCodexBinaryPath,
+  getAntigravityCliPath,
   getCopilotCliPath,
   getOpencodeBinaryPath,
   getKimiCliPath,
@@ -17,6 +18,7 @@ const CLI_RESOLVERS: Record<string, () => string | undefined> = {
   kimi: getKimiCliPath,
   grok: getGrokCliPath,
   copilot: getCopilotCliPath,
+  antigravity: getAntigravityCliPath,
 }
 
 /**

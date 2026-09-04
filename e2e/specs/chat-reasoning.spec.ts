@@ -9,7 +9,6 @@ test.beforeEach(async () => {
 const cases = [
   { script: 'claude-reasoning', text: /answer is 42/i },
   { script: 'codex-reasoning', text: /Final answer/i },
-  { script: 'gemini-reasoning', text: /Result/i },
   { script: 'kimi-reasoning', text: /Plan executed/i },
   { script: 'opencode-reasoning', text: /OK/i },
   { script: 'custom-reasoning', text: /Done/i },

@@ -5,7 +5,7 @@
  * sub-agents, using the SAME engine as the operon-agents framework's built-in
  * Workflow (sandbox / parallel / pipeline / worktree isolation), but whose
  * `agent()` dispatches to ANY of OUR providers (custom / codex / claude-code /
- * gemini / kimi / opencode / cursor / copilot).
+ * kimi / opencode / cursor / copilot).
  *
  * Delivered over MCP, so every provider that speaks MCP gets the tool (injected
  * per-session in `mcp-config.ts`). Mounted at /api/workflow-mcp, with the

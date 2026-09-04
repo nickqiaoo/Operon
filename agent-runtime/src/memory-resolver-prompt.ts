@@ -6,7 +6,6 @@
  *   - claude/config.ts      → buildMemoryAppend()
  *   - opencode/session.ts   → buildMemoryPrompt()
  *   - codex/config.ts       → buildDeveloperInstructions()
- *   - gemini/session.ts     → systemInstruction assembly
  *   - kimi/*                → systemPrompt assembly
  *   - providers/custom.ts   → memoryParts
  *

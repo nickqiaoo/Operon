@@ -108,13 +108,15 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
 
   return (
     <div className="rounded-2xl border border-border/60 bg-muted/10 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="text-sm font-medium">{label}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
         <span className={cn(
-          "inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full",
+          // shrink-0 + nowrap: a long description must not squeeze the status
+          // badge until its label wraps a character per line.
+          "inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full",
           available
             ? "bg-green-500/10 text-green-600 dark:text-green-400"
             : "bg-muted text-muted-foreground"

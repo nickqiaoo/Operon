@@ -4,6 +4,7 @@ import opencodeLogo from "@/assets/logos/opencode.svg"
 import kimiLogo from "@/assets/logos/kimi.svg"
 import grokLogo from "@/assets/logos/grok.svg"
 import copilotLogo from "@/assets/logos/copilot.svg"
+import antigravityLogo from "@/assets/logos/antigravity.svg"
 import operonLogo from "@/assets/logos/custom.svg"
 import { cn } from "@/lib/utils"
 
@@ -29,6 +30,10 @@ export function GrokIcon({ className }: { className?: string }) {
 
 export function CopilotIcon({ className }: { className?: string }) {
     return <img src={copilotLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+}
+
+export function AntigravityIcon({ className }: { className?: string }) {
+    return <img src={antigravityLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function OperonIcon({ className }: { className?: string }) {

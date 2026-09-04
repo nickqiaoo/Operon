@@ -47,6 +47,14 @@ export interface AcpProviderConfig {
    * wired into the host's CLI-path registry). Resolved from PATH by the OS.
    */
   readonly fallbackCommand?: string
+  /**
+   * Last-chance fixup of the environment the agent process is spawned with.
+   * Only for agents with environment quirks of their own — the shared
+   * `buildRuntimeEnv` already merges shell, process, user and session env, and
+   * that is what every other provider gets. Applied to both the probe and the
+   * real session so they cannot diverge.
+   */
+  readonly patchEnv?: (env: Record<string, string>) => Record<string, string>
   /** UI modes surfaced in the descriptor; each `id` must be a valid ACP `modeId`. */
   readonly modes: Mode[]
   readonly defaultModeId: string

@@ -263,7 +263,6 @@ export function buildMcpServersForCli(
 const MCP_CLI_NAME_BY_PROVIDER: Record<string, string> = {
   'claude-code': 'claude-code',
   codex: 'codex',
-  gemini: 'gemini',
   kimi: 'kimi',
   opencode: 'opencode',
   cursor: 'cursor',

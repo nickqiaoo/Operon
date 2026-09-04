@@ -5,10 +5,13 @@
 // on PATH the terminal surfaces the usual "command not found".
 export const TERMINAL_CLI_LAUNCH: Record<string, string> = {
   'claude-code': 'claude',
+  // The interactive CLI, not the `agy_acp_server` binary operon installs for
+  // the provider: that one speaks stdio JSON-RPC and would do nothing in a
+  // terminal. The two ship separately, so having one does not imply the other.
+  antigravity: 'agy',
   codex: 'codex',
   copilot: 'copilot',
   cursor: 'cursor-agent',
-  gemini: 'gemini',
   opencode: 'opencode',
   kimi: 'kimi',
   grok: 'grok',

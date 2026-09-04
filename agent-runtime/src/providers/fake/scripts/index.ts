@@ -24,15 +24,6 @@ import {
   codexPlanSteps,
 } from './codex-style.js'
 import {
-  geminiTextOnly,
-  geminiToolCall,
-  geminiPermission,
-  geminiReasoning,
-  geminiError,
-  geminiMultiTurn,
-  geminiPlan,
-} from './gemini-style.js'
-import {
   kimiTextOnly,
   kimiToolCall,
   kimiPermission,
@@ -88,14 +79,6 @@ const BUILTIN_SCRIPTS: Record<string, FakeScript> = {
   'codex-patch-diff': codexPatchDiff,
   'codex-plan-steps': codexPlanSteps,
 
-  // gemini-style
-  'gemini-text-only': geminiTextOnly,
-  'gemini-tool-call': geminiToolCall,
-  'gemini-permission': geminiPermission,
-  'gemini-reasoning': geminiReasoning,
-  'gemini-error': geminiError,
-  'gemini-multi-turn': geminiMultiTurn,
-  'gemini-plan': geminiPlan,
 
   // kimi-style
   'kimi-text-only': kimiTextOnly,

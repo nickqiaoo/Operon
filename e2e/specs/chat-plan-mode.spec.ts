@@ -29,18 +29,3 @@ test('claude-plan: ExitPlanMode renders Plan card with permission actions', asyn
   // After allow, the script emits closing text "Starting implementation now."
   await expect(page.locator('[data-testid="message-assistant"]').last()).toContainText(/Starting implementation/i)
 })
-
-test('gemini-plan: exit_plan_mode renders Plan card with feedback flow', async ({ page }) => {
-  await setFakeScript('gemini-plan')
-  await chat.openNewChat(page)
-  await chat.sendMessage(page, 'plan the migration')
-
-  await expect(page.locator('[data-slot="plan"]').first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.locator('[data-slot="plan-title"]').first()).toContainText(/Migration plan/i)
-
-  await expect(page.locator('[data-testid="permission-dialog"]').first()).toBeVisible()
-  await approvePermission(page, 'allow')
-  await waitForStreamIdle(page)
-
-  await expect(page.locator('[data-testid="message-assistant"]').last()).toContainText(/Implementing the plan/i)
-})

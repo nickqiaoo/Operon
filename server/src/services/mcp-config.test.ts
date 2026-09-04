@@ -30,7 +30,6 @@ describe('resolveMcpServersForSession', () => {
 
   it.each([
     'claude-code',
-    'gemini',
     'kimi',
     'opencode',
     'cursor',

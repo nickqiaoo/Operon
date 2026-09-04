@@ -22,11 +22,11 @@ import { setRuntimeHost, type RuntimeHost } from './host.js'
 import type { ProviderInfo, RuntimeProviderFactory } from './types.js'
 import { ClaudeRuntimeProvider } from './providers/claude/index.js'
 import { CodexRuntimeProvider } from './providers/codex/index.js'
-import { GeminiRuntimeProvider } from './providers/gemini/index.js'
 import { GrokRuntimeProvider } from './providers/grok/index.js'
 import { KimiRuntimeProvider } from './providers/kimi/index.js'
 import { OpencodeRuntimeProvider } from './providers/opencode/index.js'
 import { CursorRuntimeProvider } from './providers/cursor/index.js'
+import { AntigravityRuntimeProvider } from './providers/antigravity/index.js'
 import { CopilotRuntimeProvider } from './providers/copilot/index.js'
 import { FakeRuntimeProvider } from './providers/fake/index.js'
 import './providers/fake/scripts/index.js'
@@ -62,11 +62,11 @@ export function createSessionManager(
   const providers: RuntimeProviderClass[] = [
     ClaudeRuntimeProvider,
     CodexRuntimeProvider,
-    GeminiRuntimeProvider,
     GrokRuntimeProvider,
     KimiRuntimeProvider,
     OpencodeRuntimeProvider,
     CursorRuntimeProvider,
+    AntigravityRuntimeProvider,
     CopilotRuntimeProvider,
     ...(process.env.OPERON_ENABLE_FAKE_RUNTIME === '1' ? [FakeRuntimeProvider] : []),
     ...extraProviders,

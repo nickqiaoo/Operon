@@ -142,7 +142,6 @@ export default defineConfig({
                   'sharp',
                   '@anthropic-ai/claude-agent-sdk',
                   '@grpc/grpc-js',
-                  '@google/gemini-cli-core',
                   'keytar',
                   'node-llama-cpp',
                   'tree-sitter-bash',

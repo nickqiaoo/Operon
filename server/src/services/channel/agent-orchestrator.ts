@@ -62,7 +62,7 @@ const DEBOUNCE_MS = 3000
 /** Context usage threshold (0-1) above which auto-compact is triggered for providers that don't auto-compact */
 const AUTO_COMPACT_THRESHOLD = 0.8
 /** Providers that handle compaction internally and don't need orchestrator-triggered compact */
-const SELF_COMPACTING_PROVIDERS = new Set(['gemini', 'opencode'])
+const SELF_COMPACTING_PROVIDERS = new Set(['opencode'])
 
 let _storage: Storage | null = null
 

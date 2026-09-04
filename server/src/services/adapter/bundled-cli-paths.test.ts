@@ -78,7 +78,7 @@ describe('isAdapterAvailable', () => {
   // not be gated on one.
   it('always reports bundled-runtime adapters as available', async () => {
     const { isAdapterAvailable } = await import('./bundled-cli-paths.js')
-    for (const id of ['gemini', 'custom']) {
+    for (const id of ['custom']) {
       expect(isAdapterAvailable(id)).toBe(true)
     }
   })

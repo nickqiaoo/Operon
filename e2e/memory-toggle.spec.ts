@@ -35,7 +35,7 @@ test.describe('Memory toggle', () => {
   test('Memory tool is invoked when Memory is enabled', async ({ appPage: page }) => {
     await setMemoryToggle(page, true)
 
-    await newChat(page, { id: 'gemini', label: 'Gemini CLI' })
+    await newChat(page, { id: 'claude-code', label: 'Claude Code' })
     await sendMessage(page, MEMORY_PROMPT)
     await waitForResponse(page)
 
@@ -48,7 +48,7 @@ test.describe('Memory toggle', () => {
   test('Memory tool is NOT invoked when Memory is disabled', async ({ appPage: page }) => {
     await setMemoryToggle(page, false)
 
-    await newChat(page, { id: 'gemini', label: 'Gemini CLI' })
+    await newChat(page, { id: 'claude-code', label: 'Claude Code' })
     await sendMessage(page, MEMORY_PROMPT)
     await waitForResponse(page)
 

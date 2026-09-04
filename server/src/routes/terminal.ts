@@ -33,7 +33,9 @@ function resolveLaunchCommand(launch: string | undefined): string | undefined {
     case 'grok': return getGrokCliPath() ?? 'grok'
     case 'cursor-agent':
     case 'copilot':
-    case 'gemini': return launch
+    // Resolved from PATH on purpose: the configured antigravity path points at
+    // the ACP server, which is not the interactive CLI.
+    case 'agy': return launch
     default: return undefined
   }
 }

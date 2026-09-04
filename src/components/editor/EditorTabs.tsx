@@ -9,6 +9,7 @@ import vercelLogo from "@/assets/logos/vercel.svg"
 import customLogo from "@/assets/logos/custom.svg"
 import copilotLogo from "@/assets/logos/copilot.svg"
 import cursorLogo from "@/assets/logos/cursor.svg"
+import antigravityLogo from "@/assets/logos/antigravity.svg"
 
 const providerLogos: Record<string, string> = {
   google: googleLogo,
@@ -27,6 +28,7 @@ const providerLogos: Record<string, string> = {
   custom: customLogo,
   copilot: copilotLogo,
   cursor: cursorLogo,
+  antigravity: antigravityLogo,
 }
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"

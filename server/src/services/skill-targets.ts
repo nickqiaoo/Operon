@@ -56,8 +56,8 @@ export interface SkillTarget {
 export const SKILL_TARGETS: SkillTarget[] = [
   {
     id: 'agents',
-    label: 'Operon, Codex, Cursor, Gemini, Copilot, Kimi, OpenCode',
-    agents: ['operon', 'codex', 'cursor', 'gemini', 'copilot', 'kimi', 'opencode'],
+    label: 'Operon, Codex, Cursor, Antigravity, Copilot, Kimi, OpenCode',
+    agents: ['operon', 'codex', 'cursor', 'antigravity', 'copilot', 'kimi', 'opencode'],
     globalDir: (home) => path.join(home, '.agents', 'skills'),
     projectDir: path.join('.agents', 'skills'),
     strategy: 'canonical',
@@ -107,13 +107,23 @@ export const SKILL_TARGETS: SkillTarget[] = [
     detectProject: null,
   },
   {
-    id: 'gemini',
-    label: 'Gemini CLI',
-    agents: ['gemini'],
-    globalDir: (home) => path.join(home, '.gemini', 'skills'),
+    id: 'antigravity',
+    label: 'Antigravity',
+    agents: ['antigravity'],
+    // `~/.gemini/config/skills`, not `~/.gemini/skills` — the latter is read by
+    // nothing. Both paths come from the agy binary itself, which documents
+    // `<workspace>/.agents/skills/<name>/` or `~/.gemini/config/skills/<name>/`,
+    // and the ACP server was verified to pick a skill up from here: it does not
+    // list them as slash commands, it folds them into the model's context.
+    globalDir: (home) => path.join(home, '.gemini', 'config', 'skills'),
+    // Project scope is already served by the canonical `.agents/skills`, which
+    // agy reads directly.
     projectDir: null,
     strategy: 'symlink',
-    detectGlobal: (home) => path.join(home, '.gemini'),
+    // The gemini family shares this directory, so its presence means "one of
+    // these tools is installed" rather than Antigravity specifically. That is
+    // the right side to err on: they all read the skills folder inside it.
+    detectGlobal: (home) => path.join(home, '.gemini', 'config'),
     detectProject: null,
   },
   {

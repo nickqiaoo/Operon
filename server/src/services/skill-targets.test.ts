@@ -112,7 +112,7 @@ describe('resolveInstallTargets — project', () => {
     // Codex, Cursor, Gemini and friends all read .agents/skills inside a project —
     // writing it once must still credit every one of them.
     expect(canonical!.agents).toEqual(
-      expect.arrayContaining(['operon', 'codex', 'cursor', 'gemini', 'copilot']),
+      expect.arrayContaining(['operon', 'codex', 'cursor', 'antigravity', 'copilot']),
     )
   })
 

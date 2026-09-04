@@ -1,7 +1,7 @@
 import type { ToolPartLike } from './toolName';
 import type { ToolInvocationPart } from './SubAgentRenderer';
 
-// ── Types mirroring SubagentProgress from gemini-cli-core ───────────
+// ── Subagent progress, as reported by the agent providers ───────────
 
 interface SubagentActivityItem {
   id: string;

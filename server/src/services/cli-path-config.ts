@@ -13,6 +13,7 @@ export const CLI_ADAPTER_IDS = [
   'grok',
   'cursor',
   'copilot',
+  'antigravity',
 ] as const
 
 export type CliAdapterId = (typeof CLI_ADAPTER_IDS)[number]

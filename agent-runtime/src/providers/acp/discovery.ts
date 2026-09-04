@@ -60,7 +60,7 @@ export async function probeAcpModels(config: AcpProviderConfig): Promise<AcpDisc
       command: cliPath,
       args: config.agentArgs,
       cwd: process.cwd(),
-      env: buildRuntimeEnv(),
+      env: config.patchEnv ? config.patchEnv(buildRuntimeEnv()) : buildRuntimeEnv(),
       // A throwaway probe keeps its own process rather than borrowing a shared
       // one: it runs before any conversation exists and is disposed immediately.
       callbacks: {},

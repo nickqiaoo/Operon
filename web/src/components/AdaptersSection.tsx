@@ -5,7 +5,6 @@ import { Eyebrow, SectionTitle, Lead, FeatureChips, SplitLayout } from './Sectio
 import { useIsMobile } from '../hooks/useIsMobile'
 import claudeIcon from '../assets/claude.svg'
 import openaiIcon from '../assets/openai.svg'
-import googleIcon from '../assets/google.svg'
 import opencodeIcon from '../assets/opencode.svg'
 import kimiIcon from '../assets/kimi.svg'
 import operonIcon from '../assets/operon-white.svg'
@@ -72,21 +71,6 @@ const adapters: Adapter[] = [
       'Sandbox isolation modes',
     ],
     accent: '#10b981',
-  },
-  {
-    id: 'gemini',
-    name: 'Gemini CLI',
-    icon: googleIcon,
-    label: 'Google',
-    description:
-      'Built from Gemini Core source code, fully compatible with all Gemini CLI capabilities. OAuth authentication, and rich UI rendering for subagent and all tool invocations.',
-    features: [
-      'Gemini Core source implementation',
-      'Full Gemini CLI compatibility',
-      'Configurable thinking budget',
-      'OAuth & subagent support',
-    ],
-    accent: '#6366f1',
   },
   {
     id: 'copilot',

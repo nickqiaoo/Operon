@@ -18,7 +18,7 @@ import type {
 } from '../../types.js'
 import { AsyncQueue } from './async-queue.js'
 import { toSlashCommands } from './commands.js'
-import type { AcpConnection } from './connection.js'
+import type { AcpConnection, AcpSessionCallbacks } from './connection.js'
 import { acquireAcpConnection } from './connection-registry.js'
 import { AcpEventMapper } from './event-mapper.js'
 import { convertToAcpPrompt, prependTextToPrompt } from './message-mapper.js'
@@ -127,11 +127,16 @@ export class AcpRuntimeSession implements RuntimeSession {
   ) {
     this.logger = createRuntimeLogger(`${config.providerId}-runtime`)
     this.cwd = params.cwd
-    this.env = buildRuntimeEnv(params.env)
+    const env = buildRuntimeEnv(params.env)
+    this.env = config.patchEnv ? config.patchEnv(env) : env
     this.mcpServers = toAcpMcpServers(params.mcpServers)
     this.currentModelId = params.modelId ?? config.defaultModelId
     this.currentModeId = params.modeId ?? config.defaultModeId
     this.instructions = params.instructions?.trim() || undefined
+    // The host stores whatever `getSessionId()` reported for a chat and hands it
+    // back here on the next run. Holding it before `connect()` is what lets the
+    // session resume the agent's own history instead of starting a blank one.
+    this.sessionId = params.sessionId
   }
 
   getSessionId(): string | undefined {
@@ -164,6 +169,13 @@ export class AcpRuntimeSession implements RuntimeSession {
     // ACP has no system-prompt channel, so session instructions ride as a
     // preamble on the first prompt — that puts them in the agent's own history,
     // so they survive its session persistence without re-sending.
+    //
+    // A resumed session re-sends it anyway (this flag is per-instance, and a
+    // resume builds a new one). That is the deliberate choice: the duplicate
+    // costs a few hundred tokens of identical instructions, while skipping it
+    // would silently drop the persona whenever an agent's `session/load`
+    // restores visible turns but not the preamble — and would also pin the chat
+    // to the persona it was created with, ignoring later edits.
     if (!this.didPrependResolver) {
       const preamble = [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, this.instructions]
         .filter((s): s is string => !!s && s.trim().length > 0)
@@ -284,16 +296,71 @@ export class AcpRuntimeSession implements RuntimeSession {
     // session has it without a second spawn.
     this.contextWindows = this.readContextWindows(lease.initialize)
 
-    const newSession = await connection.agent.newSession({ cwd: this.cwd, mcpServers: this.mcpServers })
-    this.sessionId = newSession.sessionId
-    this.unregisterSession = connection.registerSession(this.sessionId, sessionCallbacks)
-    this.logger.info(`${this.config.label} session created: ${this.sessionId}`)
+    const resumed = await this.tryLoadSession(connection, lease.initialize, sessionCallbacks)
+    if (!resumed) {
+      const newSession = await connection.agent.newSession({ cwd: this.cwd, mcpServers: this.mcpServers })
+      this.sessionId = newSession.sessionId
+      this.unregisterSession = connection.registerSession(this.sessionId, sessionCallbacks)
+      this.logger.info(`${this.config.label} session created: ${this.sessionId}`)
+    }
 
     // A fresh session already starts on the agent's default model + mode, and
     // re-setting the current selection makes some agents (Grok) reject it. Only
     // push a selection that differs from the provider default.
     if (this.currentModelId !== this.config.defaultModelId) await this.applyModel()
     if (this.currentModeId !== this.config.defaultModeId) await this.applyMode()
+  }
+
+  /**
+   * Resume the agent's own session for this conversation, when there is one to
+   * resume and the agent can. `false` means "start a fresh session instead".
+   *
+   * This is what makes history survive a restart. `convertToAcpPrompt` sends
+   * only the latest user message — every earlier turn lives in the agent
+   * process, not in our prompt — so without `session/load` a restarted app
+   * began each chat from zero context while still showing the full transcript.
+   *
+   * Callbacks are registered *before* the load because the agent replays the
+   * whole conversation as `session/update` notifications while it restores.
+   * That replay is deliberately discarded: `onSessionUpdate` bails when there
+   * is no active mapper, and during connect there isn't one — operon already
+   * holds the transcript, so re-emitting it would duplicate every message. The
+   * one part worth keeping is `available_commands_update`, handled above that
+   * guard, which fills the slash menu without waiting for the first prompt.
+   */
+  private async tryLoadSession(
+    connection: AcpConnection,
+    initialize: acp.InitializeResponse,
+    callbacks: AcpSessionCallbacks,
+  ): Promise<boolean> {
+    const sessionId = this.sessionId
+    if (!sessionId) return false
+    if (initialize.agentCapabilities?.loadSession !== true || !connection.agent.loadSession) {
+      this.logger.debug(
+        `${this.config.label} does not advertise session/load; starting a new session`,
+      )
+      return false
+    }
+
+    const unregister = connection.registerSession(sessionId, callbacks)
+    try {
+      await connection.agent.loadSession({ sessionId, cwd: this.cwd, mcpServers: this.mcpServers })
+      this.unregisterSession = unregister
+      this.logger.info(`${this.config.label} session resumed: ${sessionId}`)
+      return true
+    } catch (error) {
+      // Expired, pruned, or recorded on another machine — all recoverable by
+      // starting over. Clearing the id lets the caller open a fresh session, and
+      // the host overwrites the stale record with the new id when the turn ends,
+      // so the chat self-heals instead of failing on every message.
+      unregister()
+      this.sessionId = undefined
+      this.logger.warn(
+        `${this.config.label} could not resume session ${sessionId} ` +
+          `(${describeError(error)}); starting a new one`,
+      )
+      return false
+    }
   }
 
   /** Model id → advertised context window, for providers that report one. */

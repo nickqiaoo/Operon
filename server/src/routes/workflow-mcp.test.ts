@@ -38,7 +38,6 @@ describe('Workflow MCP tool contract', () => {
     const description = workflowToolDescription([
       'codex',
       'claude-code',
-      'gemini',
       'kimi',
       'opencode',
       'cursor',

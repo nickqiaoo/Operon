@@ -3,7 +3,7 @@
  *
  * The Workflow MCP tool's `agent()` hook runs each sub-agent through HERE — a
  * real, disposable standalone session on ANY of our providers (custom /
- * codex / claude-code / gemini / kimi / opencode / cursor / copilot). This is
+ * codex / claude-code / kimi / opencode / cursor / copilot). This is
  * the piece that makes the framework `runWorkflow` engine (imported as a
  * library, never modified) dispatch to our agents instead of its own internal
  * profiles.

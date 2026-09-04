@@ -459,6 +459,17 @@ function ChatPanelContent({
         detailedContextUsage: polledContextUsage,
       }
     : contextUsage;
+  // The object exists long before it holds anything, and some agents never fill
+  // it at all — Antigravity's ACP server sends no usage on any message, so the
+  // badge sat there claiming a confident "0 tokens". Show it once there is a
+  // real number to show; a provider that reports nothing gets no badge rather
+  // than a wrong one.
+  const hasContextUsageData =
+    !!displayedContextUsage &&
+    ((displayedContextUsage.maxTokens ?? 0) > 0 ||
+      (displayedContextUsage.usedTokens ?? 0) > 0 ||
+      (displayedContextUsage.usage?.inputTokens ?? 0) > 0 ||
+      (displayedContextUsage.usage?.outputTokens ?? 0) > 0);
   // Quota comes from the account-level poll only. Assistant messages used to
   // carry a snapshot in their metadata; old chats still have those rows, but
   // they are frozen at the time of the turn (weeks stale, resets long past), so
@@ -1084,7 +1095,7 @@ function ChatPanelContent({
               />
             )
           ) : null}
-          {displayedContextUsage ? (
+          {displayedContextUsage && hasContextUsageData ? (
             isMobile ? (
               <MobileContextUsage
                 chatId={dbChatId}

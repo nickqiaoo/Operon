@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Google Antigravity is now a provider; Settings installs its ACP server for you and tells you whether it is signed in, so a Google login page never appears mid-conversation.
+- Grok, Kimi, Cursor and Antigravity conversations pick up where they left off after you restart Operon, instead of starting over with no memory of the chat.
+- Removed the Gemini CLI provider, which no longer works.
+- New Terminal can open the Antigravity CLI.
+- Skills can be installed for Antigravity.
+- Agents can now hand work to Grok and Antigravity through the external-agent tool.
+
 ## [1.3.31] - 2026-09-04
 
 ### Changed

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { accessSync, constants, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
@@ -25,6 +26,25 @@ const ADAPTER_COMMANDS: Record<CliAdapterId, readonly [string, ...string[]]> = {
   // Matches CURSOR_BIN in agent-runtime/src/providers/cursor/config.ts.
   cursor: ['cursor-agent'],
   copilot: ['copilot'],
+  // Never actually on PATH — see ADAPTER_PATH_CANDIDATES. Kept as the display
+  // name for the Settings row and error messages.
+  antigravity: ['agy_acp_server.par'],
+}
+
+/**
+ * Absolute locations to try for adapters whose binary PATH will never find.
+ *
+ * Antigravity's ACP agent is a ~765MB file the user installs out of the ACP
+ * registry; it lands wherever the installer put it and is never linked into
+ * PATH, so the usual `resolveCommandFromShellPath` sweep cannot see it. These
+ * are the paths operon's own installer writes to — a manually configured path
+ * still wins, and anything installed elsewhere is reachable that way.
+ */
+const ADAPTER_PATH_CANDIDATES: Partial<Record<CliAdapterId, readonly string[]>> = {
+  antigravity: [
+    join(homedir(), '.operon', 'acp-agents', 'antigravity', 'agy_acp_server.par'),
+    join(homedir(), '.operon', 'acp-agents', 'antigravity', 'agy_acp_server.exe'),
+  ],
 }
 
 const execFileAsync = promisify(execFile)
@@ -153,6 +173,18 @@ export function getCliPathInfo(adapterId: CliAdapterId): CliPathInfo {
     }
   }
 
+  for (const candidate of ADAPTER_PATH_CANDIDATES[adapterId] ?? []) {
+    if (isExecutable(candidate)) {
+      return {
+        path,
+        resolvedPath: candidate,
+        available: true,
+        source: 'auto',
+        command,
+      }
+    }
+  }
+
   return {
     path,
     available: false,
@@ -201,6 +233,16 @@ export function getGrokCliPath(): string | undefined {
  */
 export function getCopilotCliPath(): string | undefined {
   return getCliPathInfo('copilot').resolvedPath
+}
+
+/**
+ * Resolve the Antigravity ACP server binary (`agy_acp_server`).
+ *
+ * Note this is NOT the `agy` CLI: that one has no ACP mode at all. The ACP
+ * agent ships as a separate download from the ACP registry.
+ */
+export function getAntigravityCliPath(): string | undefined {
+  return getCliPathInfo('antigravity').resolvedPath
 }
 
 export interface CliVersionInfo {
@@ -270,7 +312,13 @@ export async function probeCliVersion(adapterId: CliAdapterId): Promise<CliVersi
 async function runVersionProbe(adapterId: CliAdapterId): Promise<CliVersionInfo> {
   const command = ADAPTER_COMMANDS[adapterId][0]
   const resolvedPath = getCliPathInfo(adapterId).resolvedPath
-  if (!resolvedPath) return { error: `\`${command}\` was not found on your PATH.` }
+  if (!resolvedPath) {
+    // Adapters with absolute-path candidates are never expected on PATH, so
+    // saying "not on your PATH" would send the user looking in the wrong place.
+    return ADAPTER_PATH_CANDIDATES[adapterId]
+      ? { error: `\`${command}\` is not installed. Install it, or set its path in Settings.` }
+      : { error: `\`${command}\` was not found on your PATH.` }
+  }
 
   let stdout: string
   let stderr: string
@@ -322,7 +370,7 @@ function describeProbeFailure(command: string, error: unknown): string {
  */
 /**
  * Adapters whose runtime ships as an npm dependency rather than a binary the
- * user installs — `@google/gemini-cli-core` and our own direct-API provider.
+ * user installs — our own direct-API provider.
  * There is nothing on PATH to look for, so they are available whenever the app
  * is.
  *
@@ -334,7 +382,7 @@ function describeProbeFailure(command: string, error: unknown): string {
  * Note what this does NOT claim: these still need credentials before a turn
  * will run. `available` answers "is the code here", not "is it usable".
  */
-const BUNDLED_RUNTIME_ADAPTERS = new Set(['gemini', 'custom'])
+const BUNDLED_RUNTIME_ADAPTERS = new Set(['custom'])
 
 /**
  * Check if an adapter's CLI dependency is available.

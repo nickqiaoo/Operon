@@ -8,7 +8,6 @@ import { waitForStreamIdle, waitForAssistantMessage, setFakeScript } from './ci-
  * the fake runtime instead — see ./ci-fixtures.ts.
  */
 export const PROVIDERS = [
-  { id: 'gemini', label: 'Gemini CLI' },
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
   { id: 'opencode', label: 'OpenCode' },

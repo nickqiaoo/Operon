@@ -12,7 +12,7 @@
  *   - workflow agent:     preparedParts → hub (tagged); done → persist subagent chat.
  *
  * Tools/model/provider/cwd are all baked into the `session` the caller passes,
- * so this works identically for custom / claude-code / codex / gemini / … .
+ * so this works identically for custom / claude-code / codex / … .
  */
 
 import {

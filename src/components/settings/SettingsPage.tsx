@@ -11,6 +11,8 @@ import { EnvSettings } from "./EnvSettings"
 import { MemorySettings } from "./MemorySettings"
 import { ConfigEditor } from "./ConfigEditor"
 import { CliPathSetting } from "./CliPathSetting"
+import { AcpAgentInstaller } from "./AcpAgentInstaller"
+import { AntigravityAuthStatus } from "./AntigravityAuthStatus"
 import { GatewaySettings } from "./GatewaySettings"
 import { LinearSettings } from "./LinearSettings"
 import { GithubSettings } from "./GithubSettings"
@@ -23,7 +25,7 @@ import { PluginsSettings } from "./PluginsSettings"
 import { ExtensionsSettings } from "./ExtensionsSettings"
 import { NotificationTab } from "./NotificationTab"
 import { KeyboardShortcutsSettings } from "./KeyboardShortcutsSettings"
-import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon, KimiIcon, GrokIcon, CopilotIcon, OperonIcon } from "./ProviderIcons"
+import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon, KimiIcon, GrokIcon, CopilotIcon, AntigravityIcon, OperonIcon } from "./ProviderIcons"
 import { Button } from "@/components/ui/button"
 import { FormattedMessage } from "react-intl"
 import { useProjectStore } from "@/stores/project-store"
@@ -96,6 +98,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "kimi", label: <FormattedMessage id="settings.tab.kimi" defaultMessage="Kimi Code" />, icon: KimiIcon },
         { id: "grok", label: <FormattedMessage id="settings.tab.grok" defaultMessage="Grok" />, icon: GrokIcon },
         { id: "copilot", label: <FormattedMessage id="settings.tab.copilot" defaultMessage="Copilot" />, icon: CopilotIcon },
+        { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
         // "Remote" is the desktop-side control panel for THIS feature (loopback
         // OAuth → register node). Meaningless from the web client, which is already remote.
@@ -295,6 +298,18 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                         label={<FormattedMessage id="settings.cli.pathLabel" defaultMessage="{name} CLI Path" values={{ name: "Copilot" }} />}
                                         description={<FormattedMessage id="settings.cli.copilotPathDesc" defaultMessage="Operon uses the Copilot CLI you installed. Get it with `brew install copilot-cli` or `npm i -g @github/copilot`." />}
                                         placeholder="/opt/homebrew/bin/copilot"
+                                    />
+                                </div>
+                            )}
+                            {activeTab === "antigravity" && (
+                                <div className="space-y-6">
+                                    <AcpAgentInstaller agentId="antigravity" />
+                                    <AntigravityAuthStatus />
+                                    <CliPathSetting
+                                        adapterId="antigravity"
+                                        label={<FormattedMessage id="settings.cli.antigravityPathLabel" defaultMessage="Antigravity ACP Server Path" />}
+                                        description={<FormattedMessage id="settings.cli.antigravityPathDesc" defaultMessage="Override only if you installed the server yourself." />}
+                                        placeholder="~/.operon/acp-agents/antigravity/agy_acp_server.par"
                                     />
                                 </div>
                             )}

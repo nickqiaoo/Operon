@@ -18,6 +18,7 @@ import openrouterLogo from '@/assets/logos/openrouter.svg';
 import customLogo from '@/assets/logos/custom.svg';
 import copilotLogo from '@/assets/logos/copilot.svg';
 import cursorLogo from '@/assets/logos/cursor.svg';
+import antigravityLogo from '@/assets/logos/antigravity.svg';
 
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
@@ -49,6 +50,7 @@ const PROVIDER_LOGOS: Record<string, string> = {
   codex: openaiLogo,
   copilot: copilotLogo,
   cursor: cursorLogo,
+  antigravity: antigravityLogo,
 };
 
 export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {

@@ -31,6 +31,7 @@ import { initProviderConfigService } from './services/provider-config.js'
 import { envRoutes } from './routes/env.js'
 import { initEnvConfigService } from './services/env-config.js'
 import { cliPathConfigRoutes } from './routes/cli-path-config.js'
+import { acpAgentRoutes } from './routes/acp-agents.js'
 import { initCliPathConfigService } from './services/cli-path-config.js'
 import { diffPreviewConfigRoutes } from './routes/diff-preview-config.js'
 import { initDiffPreviewConfigService, getDiffPreviewConfig } from './services/diff-preview-config.js'
@@ -261,6 +262,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())
   app.route('/api/cli-paths', cliPathConfigRoutes())
+  app.route('/api/acp-agents', acpAgentRoutes())
   app.route('/api/diff-preview', diffPreviewConfigRoutes())
   app.route('/api/commit-message', commitMessageConfigRoutes())
   app.route('/api/saas', saasRoutes())

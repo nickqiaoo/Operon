@@ -17,7 +17,7 @@ const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   cursor: "Cursor",
-  gemini: "Gemini CLI",
+  antigravity: "Antigravity",
   copilot: "GitHub Copilot",
   kimi: "Kimi",
   opencode: "OpenCode",

@@ -6,7 +6,7 @@ test.beforeEach(async () => {
   await resetServerState()
 })
 
-const STYLES = ['claude', 'codex', 'gemini', 'kimi', 'opencode', 'custom'] as const
+const STYLES = ['claude', 'codex', 'kimi', 'opencode', 'custom'] as const
 
 for (const style of STYLES) {
   test(`${style}-error: stream returns to idle after an error event`, async ({ page }) => {

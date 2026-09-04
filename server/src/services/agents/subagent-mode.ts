@@ -32,8 +32,6 @@ const SUBAGENT_MODE: Record<string, string> = {
   'claude-code': 'bypassPermissions',
   // requestApproval | approveForMe | fullAccess | plan        (providers/codex/index.ts)
   codex: 'fullAccess',
-  // Default | AutoEdit | FullAccess                           (providers/gemini/index.ts)
-  gemini: 'FullAccess',
   // default | plan | auto | yolo                              (providers/kimi/config.ts)
   kimi: 'yolo',
   // build | plan | fullAccess                                 (providers/opencode/index.ts)

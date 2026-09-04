@@ -25,12 +25,12 @@ import { subagentMode } from '../services/agents/subagent-mode.js'
 
 // ---- Tool definitions ----
 
-const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'gemini', 'kimi', 'cursor', 'copilot'] as const
+const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity'] as const
 
 const EXTERNAL_AGENT_RUN_PROMPT =
-  'Delegate a task to an external coding agent (e.g. Claude Code, Codex, OpenCode, Gemini, Cursor, GitHub Copilot). ' +
+  'Delegate a task to an external coding agent (e.g. Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, GitHub Copilot). ' +
   'When the user explicitly mentions an agent by name (e.g. "use Claude Code to ...", "let Codex handle ...", ' +
-  '"ask Gemini to ..."), you MUST call this tool IMMEDIATELY as your FIRST action — do NOT read files, ' +
+  '"ask Cursor to ..."), you MUST call this tool IMMEDIATELY as your FIRST action — do NOT read files, ' +
   'run commands, or gather context beforehand. The external agent has its own tools and will handle everything itself. ' +
   'Write a self-contained prompt because the agent runs in a separate session and cannot see this conversation. ' +
   'IMPORTANT: After calling this tool, check whether later steps depend on the agent result. ' +
@@ -49,8 +49,19 @@ const EXTERNAL_AGENT_RUN_PROMPT =
 const STATIC_AGENT_MODELS: Record<string, string[]> = {
   'claude-code': ['default', 'best', 'fable', 'opus', 'sonnet', 'haiku', 'sonnet[1m]', 'opus[1m]', 'opusplan'],
   'codex': ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
-  'gemini': ['gemini-3.1-pro-preview', 'gemini-3-flash-preview'],
   kimi: ['kimi-code'],
+  grok: ['grok-4.6'],
+  // Hand-listed rather than fetched: antigravity advertises its models only on
+  // `session/new`, so enumerating them spawns a ~765MB binary and costs several
+  // seconds — too much to pay while building a tool description.
+  antigravity: [
+    'gemini-3.8-flash-high',
+    'gemini-3.8-flash-medium',
+    'gemini-3.8-flash-low',
+    'gemini-3.7-flash-high',
+    'gemini-pro-agent',
+    'gemini-3.1-pro-low',
+  ],
   // Representative subset of cursor-agent's ~150 models (base variants, no
   // -fast/-thinking/-<effort> permutations). Full list stays available via the
   // in-app picker; this is only the external-agent hint.
