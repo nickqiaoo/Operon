@@ -18,7 +18,7 @@ import { MODE_TO_PERMISSION, OperonRuntimeSession } from './session.js'
 import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
 import { configurePeersHost, createTeamsHostService } from './peers.js'
 import { TEAMS_SERVICE } from '../../extensions/peers/contract.js'
-import { loadApprovedExtensions } from './approved-extensions.js'
+import { loadApprovedExtensions, syncApprovedExtensions } from './approved-extensions.js'
 import { observeSession, startSessionWatch } from './passive-observer.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
@@ -315,18 +315,25 @@ async function buildHarness(): Promise<Harness> {
     // that session's `LocalMachine` from it.
     workDir: process.cwd(),
     homeDir: HARNESS_HOME_DIR,
-    // Capabilities are built FRESH PER SESSION (a factory) so per-session state (goal/plan/todo/
-    // background/skills/mcp) is isolated. The factory loads the shared global PluginManager, then
-    // hands it + THIS session's MCP servers to `defaultCapabilities`, which self-drives the
-    // plugin's skills + MCP (merged, namespaced) + session-start into the set. Reading the manager
-    // per session means installs/enables take effect on the next chat with no cache eviction.
-    capabilities: async (ctx) => {
+    // The `session` half of the three composition hooks: capabilities are built FRESH PER SESSION
+    // so per-session state (goal/plan/todo/background/skills/mcp) is isolated. The factory loads
+    // the shared global PluginManager, then hands it + THIS session's MCP servers to
+    // `defaultCapabilities`, which self-drives the plugin's skills + MCP (merged, namespaced) +
+    // session-start into the set. Reading the manager per session means installs/enables take
+    // effect on the next chat with no cache eviction.
+    session: async (scope, ctx) => {
       await ensurePluginsLoaded()
       // Shared MCP OAuth token store — a login done from the Plugins UI is reused here, so an
       // OAuth-gated plugin MCP server (e.g. Linear) connects authenticated without re-prompting.
       return defaultCapabilities({
+        // The session's scope: whatever its workspace registered (a shared skill scan, the MCP
+        // OAuth store) is reused instead of rebuilt per session.
+        scope,
+        ownMachine: ctx.ownMachine,
         pluginManager,
-        mcpServers: ctx.mcpServers ?? {},
+        // Operon gives every conversation its own servers (resolved per workDir in
+        // `resolveWorkspaceSetup`), so they are the SESSION's overlay, not the workspace's.
+        ...(ctx.mcpServers !== undefined ? { sessionMcpServers: ctx.mcpServers } : {}),
         oauthService: mcpOAuthService,
       })
     },
@@ -347,6 +354,12 @@ async function buildHarness(): Promise<Harness> {
   HARNESS_INSTANCE = harness
   startSessionWatch(harness)
   await loadApprovedExtensions(harness)
+  // Then, off the launch path, catch the extensions up with the marketplace. Chained onto
+  // `HARNESS` rather than started here: the sync reads the marketplace through
+  // `listMarketplaceExtensions`, which calls `getOperonHarness()` — awaiting the very promise
+  // this function is still resolving. Waiting for it to settle first is what keeps that from
+  // being a deadlock.
+  void HARNESS?.then((built) => syncApprovedExtensions(built)).catch(() => undefined)
   return harness
 }
 

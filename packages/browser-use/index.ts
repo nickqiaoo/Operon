@@ -48,6 +48,17 @@ export {
   type InstallOptions as ChromeNativeHostInstallOptions,
   type InstallResult as ChromeNativeHostInstallResult,
 } from "./chrome-native-host-install.ts";
+export {
+  ChromeAccessDeniedError,
+  isAccessDenied as isChromeAccessDenied,
+} from "./chrome-fs-access.ts";
+export {
+  readChromePresence,
+  recordHostLifecycle as recordChromeHostLifecycle,
+  presenceDir as chromePresenceDir,
+  type ChromePresence,
+  type ConnectedExtension as ConnectedChromeExtension,
+} from "./chrome-host-presence.ts";
 
 export {
   // framing

@@ -146,6 +146,16 @@ function softPost<T>(path: string, body: unknown): Promise<T> {
 // No softPut/softDel: no endpoint declaring `error?` uses those verbs today.
 // Add them next to softRequest if one does.
 
+/**
+ * A Chrome switch that did not take. Reported as text either way — `code` only
+ * distinguishes a filesystem denial for logging, not for different advice.
+ */
+export interface ChromeUseFailure {
+  error: string
+  code?: 'chrome_access_denied'
+  deniedPath?: string
+}
+
 type PermissionOutcomeKind = 'allow' | 'deny' | 'allowAlways'
 type PermissionOutcome =
   | PermissionOutcomeKind
@@ -774,10 +784,22 @@ export const api = {
       /** Manifest present but the binary it execs is gone — Chrome only reports this
        *  as a generic connection failure, so the UI has to say it. */
       nativeHostStale: boolean
+      /** The extension answered a getInfo just now — proof it is installed, enabled,
+       *  and reachable, which no on-disk check can establish. */
+      extensionConnected: boolean
+      /** Epoch ms of the last connection, or null if it has never reached us. */
+      extensionLastSeenAt: number | null
+      /** Neither source could answer: the registry was unreadable and nothing has ever
+       *  connected. Everything still works — nothing here for the user to fix. */
+      extensionUnknown: boolean
     }>('/chrome-use/settings'),
-  chromeUseSetEnabled: (enabled: boolean) => post<{ ok: true }>('/chrome-use/enabled', { enabled }),
+  chromeUseSetEnabled: (enabled: boolean) =>
+    softPost<{ ok: true } | ChromeUseFailure>('/chrome-use/enabled', { enabled }),
   chromeUseReinstallHost: () =>
-    post<{ ok: true; manifestPaths: string[] }>('/chrome-use/reinstall-host', {}),
+    softPost<{ ok: true; manifestPaths: string[] } | ChromeUseFailure>(
+      '/chrome-use/reinstall-host',
+      {},
+    ),
   browserUseRevokeOrigin: (origin: string) =>
     post<{ ok: true }>('/browser-use/approvals/revoke', { origin }),
   browserUseClearRemembered: () =>

@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { ExtensionMarketplaceEntryDTO, OperonExtensionDTO, OperonExtensionState } from "@/types/extension"
+import type { ExtensionMarketplaceEntryDTO, ExtensionRepairOutcome, OperonExtensionDTO, OperonExtensionState } from "@/types/extension"
 import { TeamsSettings } from "./TeamsSettings"
 
 /** Product-owned settings views contributed by a known extension id. */
@@ -45,36 +45,13 @@ function extensionDescription(intl: IntlShape, id: string, fallback?: string): s
   return fallback
 }
 
+/** Every listed entry runs on this build — the server leaves out the ones that do not — so this
+ *  is the minimum version, not a warning. */
 function extensionCompatibility(intl: IntlShape, entry: ExtensionMarketplaceEntryDTO): string {
-  const reason = entry.compatibilityReason
-  if (!reason) {
-    return intl.formatMessage(
-      { id: "settings.extensions.requiresOperon", defaultMessage: "Requires Operon {version} or later" },
-      { version: entry.minOperonVersion },
-    )
-  }
-  const operon = /^Requires Operon (.+) or later$/.exec(reason)
-  if (operon) {
-    return intl.formatMessage(
-      { id: "settings.extensions.requiresOperon", defaultMessage: "Requires Operon {version} or later" },
-      { version: operon[1] },
-    )
-  }
-  const engine = /^Requires operon-agents (.+) or later$/.exec(reason)
-  if (engine) {
-    return intl.formatMessage(
-      { id: "settings.extensions.requiresEngine", defaultMessage: "Requires operon-agents {version} or later" },
-      { version: engine[1] },
-    )
-  }
-  const services = /^Requires unavailable host services?: (.+)$/.exec(reason)
-  if (services) {
-    return intl.formatMessage(
-      { id: "settings.extensions.requiresServices", defaultMessage: "Requires unavailable host services: {services}" },
-      { services: services[1] },
-    )
-  }
-  return reason
+  return intl.formatMessage(
+    { id: "settings.extensions.requiresOperon", defaultMessage: "Requires Operon {version} or later" },
+    { version: entry.minOperonVersion },
+  )
 }
 
 export function ExtensionsSettings() {
@@ -392,14 +369,12 @@ export function ExtensionsSettings() {
 
 function MarketplaceCard({ entry, busy, onInstall }: { entry: ExtensionMarketplaceEntryDTO; busy: boolean; onInstall: () => void }) {
   const intl = useIntl()
-  const disabled = entry.status === "installed" || entry.status === "incompatible" || busy
+  const disabled = entry.status === "installed" || busy
   const action = entry.status === "update"
     ? intl.formatMessage({ id: "settings.extensions.action.update", defaultMessage: "Update" })
     : entry.status === "installed"
       ? intl.formatMessage({ id: "settings.extensions.action.installed", defaultMessage: "Installed" })
-      : entry.status === "incompatible"
-        ? intl.formatMessage({ id: "settings.extensions.action.unavailable", defaultMessage: "Unavailable" })
-        : intl.formatMessage({ id: "settings.extensions.action.install", defaultMessage: "Install" })
+      : intl.formatMessage({ id: "settings.extensions.action.install", defaultMessage: "Install" })
   const name = extensionName(intl, entry.id, entry.name)
   const description = extensionDescription(intl, entry.id, entry.description)
   return (
@@ -460,6 +435,35 @@ function extensionStateLabel(intl: IntlShape, state: OperonExtensionState): stri
   return intl.formatMessage({ id: "settings.extensions.state.error", defaultMessage: "Error" })
 }
 
+/**
+ * What the background update pass could do about a failed import. Without it the row shows the
+ * raw import error and nothing about whether waiting would help.
+ */
+function repairHint(repair: ExtensionRepairOutcome): ReactNode {
+  if (repair === "unavailable") {
+    return (
+      <FormattedMessage
+        id="settings.extensions.repair.unavailable"
+        defaultMessage="No build compatible with this version of Operon is published yet. Operon checks again on every launch and loads it as soon as one is."
+      />
+    )
+  }
+  if (repair === "unreachable") {
+    return (
+      <FormattedMessage
+        id="settings.extensions.repair.unreachable"
+        defaultMessage="Operon could not reach the marketplace to look for a fix. It tries again on the next launch."
+      />
+    )
+  }
+  return (
+    <FormattedMessage
+      id="settings.extensions.repair.failed"
+      defaultMessage="The newest published build did not fix this either."
+    />
+  )
+}
+
 function ExtensionRow({ ext, busy, onLoad, onReload, onUnload, onRemove, onConfigure }: {
   ext: OperonExtensionDTO
   busy: boolean
@@ -472,7 +476,12 @@ function ExtensionRow({ ext, busy, onLoad, onReload, onUnload, onRemove, onConfi
   const intl = useIntl()
   const name = extensionName(intl, ext.id, ext.name ?? ext.id)
   const description = extensionDescription(intl, ext.id, ext.description)
-  const stateLabel = extensionStateLabel(intl, ext.state)
+  // An import that threw leaves the approval standing, so the loader still says `approved`.
+  // Saying "Approved" on a row for something that is not running is the whole bug.
+  const failed = Boolean(ext.loadError)
+  const stateLabel = failed
+    ? intl.formatMessage({ id: "settings.extensions.state.loadFailed", defaultMessage: "Failed to load" })
+    : extensionStateLabel(intl, ext.state)
   const canLoad = ext.state === "new" || ext.state === "approved"
   const canReload = ext.state === "changed" || ext.state === "loaded"
   const canUnload = ext.state === "loaded"
@@ -482,7 +491,7 @@ function ExtensionRow({ ext, busy, onLoad, onReload, onUnload, onRemove, onConfi
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{name}</span>
           {ext.version ? <span className="text-[11px] text-muted-foreground">v{ext.version}</span> : null}
-          <span className={cn("rounded border px-1.5 py-0.5 text-[10px] font-medium", STATE_CLASS[ext.state])}>{stateLabel}</span>
+          <span className={cn("rounded border px-1.5 py-0.5 text-[10px] font-medium", STATE_CLASS[failed ? "error" : ext.state])}>{stateLabel}</span>
           {ext.attachedSessions > 0 ? (
             <span className="text-[11px] text-muted-foreground">
               <FormattedMessage id="settings.extensions.usedBy" defaultMessage="used by {count, plural, one {# session} other {# sessions}}" values={{ count: ext.attachedSessions }} />
@@ -495,6 +504,12 @@ function ExtensionRow({ ext, busy, onLoad, onReload, onUnload, onRemove, onConfi
         </div>
         {description ? <div className="mt-1 text-xs text-muted-foreground">{description}</div> : null}
         {ext.error ? <div className="mt-1"><InlineMessage tone="error" message={ext.error} /></div> : null}
+        {ext.loadError ? (
+          <div className="mt-1 space-y-1">
+            <InlineMessage tone="error" message={ext.loadError} />
+            {ext.loadRepair ? <div className="pl-5 text-[11px] text-muted-foreground">{repairHint(ext.loadRepair)}</div> : null}
+          </div>
+        ) : null}
         {ext.state === "changed" ? (
           <div className="mt-1 text-xs text-status-warn">
             <FormattedMessage id="settings.extensions.changedHint" defaultMessage="A new build is installed. Reload to apply it; active sessions switch at a safe run boundary." />
@@ -505,7 +520,14 @@ function ExtensionRow({ ext, busy, onLoad, onReload, onUnload, onRemove, onConfi
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : (
           <>
             {onConfigure ? <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onConfigure}><Settings2 className="h-3.5 w-3.5" /><FormattedMessage id="settings.extensions.configure" defaultMessage="Configure" /></Button> : null}
-            {canLoad ? <Button size="sm" variant="secondary" className="h-7 gap-1.5 text-xs" onClick={onLoad} disabled={ext.state === "error"}><Play className="h-3.5 w-3.5" /><FormattedMessage id="settings.extensions.load" defaultMessage="Load" /></Button> : null}
+            {canLoad ? (
+              <Button size="sm" variant="secondary" className="h-7 gap-1.5 text-xs" onClick={onLoad} disabled={ext.state === "error"}>
+                {failed ? <RefreshCw className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {failed
+                  ? <FormattedMessage id="settings.extensions.retryLoad" defaultMessage="Try again" />
+                  : <FormattedMessage id="settings.extensions.load" defaultMessage="Load" />}
+              </Button>
+            ) : null}
             {canReload ? <Button size="sm" variant={ext.state === "changed" ? "secondary" : "ghost"} className="h-7 gap-1.5 text-xs" onClick={onReload}><RefreshCw className="h-3.5 w-3.5" /><FormattedMessage id="settings.extensions.reload" defaultMessage="Reload" /></Button> : null}
             {canUnload ? <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onUnload}><Square className="h-3.5 w-3.5" /><FormattedMessage id="settings.extensions.unload" defaultMessage="Unload" /></Button> : null}
             <Button

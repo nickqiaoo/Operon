@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ChromeAccessDeniedError, isAccessDenied } from "./chrome-fs-access.ts";
 
 /**
  * Installs the native messaging host so Chrome will spawn us for our extension.
@@ -150,8 +151,16 @@ export async function installChromeNativeHost(options: InstallOptions = {}): Pro
     const supportDir = path.join(homeDir, "Library", "Application Support", browserDir);
     if (!fs.existsSync(supportDir)) continue;
     const target = manifestPath(homeDir, browserDir);
-    await fs.promises.mkdir(path.dirname(target), { recursive: true });
-    await fs.promises.writeFile(target, `${JSON.stringify(manifest, null, 2)}\n`);
+    // The manifest lives inside the browser's own protected directory, so an
+    // ungranted app fails here for the same TCC reason detection does. Say which
+    // grant is missing; a bare EPERM on a path the user never chose reads like a bug.
+    try {
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.writeFile(target, `${JSON.stringify(manifest, null, 2)}\n`);
+    } catch (e) {
+      if (isAccessDenied(e)) throw new ChromeAccessDeniedError(supportDir, { cause: e });
+      throw e;
+    }
     manifestPaths.push(target);
   }
   return { wrapperPath: wrapper, manifestPaths };
@@ -163,7 +172,16 @@ export async function uninstallChromeNativeHost(options: InstallOptions = {}): P
   for (const browserDir of Object.values(MANIFEST_DIRS_MACOS)) {
     const target = manifestPath(homeDir, browserDir);
     if (!fs.existsSync(target)) continue;
-    await fs.promises.rm(target, { force: true });
+    // Unlike install, a denial here must not fail the call: the user is switching the
+    // feature *off*, and removing the wrapper below already breaks the path — Chrome
+    // finds a manifest pointing at a script that is gone. Blocking the switch on a
+    // grant they may have just revoked would strand them with the feature stuck on.
+    try {
+      await fs.promises.rm(target, { force: true });
+    } catch (e) {
+      if (isAccessDenied(e)) continue;
+      throw e;
+    }
     removed.push(target);
   }
   const wrapper = wrapperPath(homeDir);

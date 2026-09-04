@@ -62,7 +62,37 @@ describe("detectChromeExtension", () => {
       installed: false,
       disabled: false,
       matchedExtensionId: null,
+      permissionDenied: false,
     });
+  });
+
+  /**
+   * The failure that shipped: macOS keeps Chrome's directory behind Full Disk
+   * Access, so `readdir` throws EPERM for an ungranted app and the whole
+   * settings page rendered a raw `EPERM … scandir` instead of the switch. The
+   * denial has to become a reportable state, and it must not be confused with
+   * "Chrome is not installed" — the directory is right there.
+   *
+   * `chmod 0` reproduces it as EACCES rather than TCC's EPERM; both are handled
+   * the same way and only this one is reachable from a test.
+   */
+  it("reports a denied read as such, not as a missing browser", async () => {
+    const dir = await fakeChrome({ Default: { entry: installedEntry() } });
+    fs.chmodSync(dir, 0o000);
+    try {
+      const detection = detectChromeExtension({ userDataDir: dir });
+      expect(detection).toEqual({
+        browserInstalled: true,
+        profiles: [],
+        installed: false,
+        disabled: false,
+        matchedExtensionId: null,
+        permissionDenied: true,
+      });
+    } finally {
+      // Restore, or the afterEach cleanup cannot remove it either.
+      fs.chmodSync(dir, 0o700);
+    }
   });
 
   it("finds an extension registered in Secure Preferences", async () => {

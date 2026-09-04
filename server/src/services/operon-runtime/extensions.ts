@@ -7,6 +7,7 @@ import { inflateRawSync } from 'node:zlib'
 import type { Harness } from 'operon-agents'
 import { EXTENSIONS_DIR } from './paths.js'
 import { getOperonHarness } from './index.js'
+import { clearLoadFailure, loadFailure, recordLoadFailure, type ExtensionRepairOutcome } from './extension-load-failures.js'
 
 /**
  * File-extension management — session-independent, drives `harness.extensions` directly.
@@ -30,6 +31,14 @@ export interface OperonExtensionDTO {
   engine?: string
   description?: string
   error?: string
+  /**
+   * Why the last import of an approved extension failed. Distinct from `error`, which the loader
+   * reports for a folder it rejected without importing: a failed import leaves the approval in
+   * place, so the entry stays `approved` and only this says it is not actually running.
+   */
+  loadError?: string
+  /** What the marketplace update pass could do about `loadError`, once it has run. */
+  loadRepair?: ExtensionRepairOutcome
   /** Extension ids of the sessions currently holding it — for "used by N sessions". */
   attachedSessions: number
 }
@@ -48,29 +57,54 @@ export async function listExtensions(): Promise<OperonExtensionDTO[]> {
   for (const session of harness.sessions.values()) {
     for (const id of session.attachedExtensionIds()) attached.set(id, (attached.get(id) ?? 0) + 1)
   }
-  return statuses.map((s) => ({
-    id: s.id,
-    state: s.state,
-    ...(s.name ? { name: s.name } : {}),
-    ...(s.version ? { version: s.version } : {}),
-    ...(s.engine ? { engine: s.engine } : {}),
-    ...(s.description ? { description: s.description } : {}),
-    ...(s.error ? { error: s.error } : {}),
-    attachedSessions: attached.get(s.id) ?? 0,
-  }))
+  return statuses.map((s) => {
+    // Only meaningful while the approval stands and nothing is loaded: every other state either
+    // already carries its own reason (`error`) or describes bytes the failure no longer covers.
+    const failure = s.state === 'approved' ? loadFailure(s.id) : undefined
+    return {
+      id: s.id,
+      state: s.state,
+      ...(s.name ? { name: s.name } : {}),
+      ...(s.version ? { version: s.version } : {}),
+      ...(s.engine ? { engine: s.engine } : {}),
+      ...(s.description ? { description: s.description } : {}),
+      ...(s.error ? { error: s.error } : {}),
+      ...(failure ? { loadError: failure.message } : {}),
+      ...(failure?.repair ? { loadRepair: failure.repair } : {}),
+      attachedSessions: attached.get(s.id) ?? 0,
+    }
+  })
 }
 
 /** Load (= approve) or hot-reload one extension. */
 export async function loadExtension(id: string): Promise<void> {
-  await (await manager()).load(assertId(id))
+  await attempt(id, (m, safe) => m.load(safe))
 }
 
 export async function reloadExtension(id: string): Promise<void> {
-  await (await manager()).reload(assertId(id))
+  await attempt(id, (m, safe) => m.reload(safe))
 }
 
 export async function unloadExtension(id: string): Promise<void> {
-  await (await manager()).unload(assertId(id))
+  const safe = assertId(id)
+  await (await manager()).unload(safe)
+  clearLoadFailure(safe)
+}
+
+/**
+ * Run an import for the user and record the outcome. The caller sees the throw either way; the
+ * record is what keeps the reason on the row after the toast is gone.
+ */
+async function attempt(id: string, run: (m: NonNullable<Harness['extensions']>, id: string) => Promise<unknown>): Promise<void> {
+  const safe = assertId(id)
+  const m = await manager()
+  try {
+    await run(m, safe)
+    clearLoadFailure(safe)
+  } catch (error) {
+    recordLoadFailure(safe, error)
+    throw error
+  }
 }
 
 /** Unload if loaded, then delete the folder. State under `.data/<id>` is kept on purpose. */
@@ -80,6 +114,7 @@ export async function removeExtension(id: string): Promise<void> {
   const current = (await m.list()).find((s) => s.id === safe)
   if (current?.state === 'loaded') await m.unload(safe)
   await rm(path.join(EXTENSIONS_DIR, safe), { recursive: true, force: true })
+  clearLoadFailure(safe)
 }
 
 export interface InstallInput {
@@ -159,6 +194,8 @@ export async function installExtension(input: InstallInput, expectation?: Instal
     // Update = an atomic folder swap. If copying or renaming the new build fails, the
     // previously installed extension stays byte-for-byte in place.
     await swapExtension(staging, id)
+    // Different bytes: whatever the previous build failed at no longer describes what is here.
+    clearLoadFailure(id)
     const listed = (await listExtensions()).find((e) => e.id === id)
     if (!listed) throw new Error(`Installed ${id} but it is not listed`)
     return listed

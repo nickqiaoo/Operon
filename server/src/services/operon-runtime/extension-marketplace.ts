@@ -11,7 +11,7 @@ const MARKET_URLS = process.env.OPERON_EXTENSION_MARKET_URL
 const SUPPORTED_HOST_SERVICES: ReadonlySet<string> = new Set([TEAMS_SERVICE])
 const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/
 
-export type ExtensionMarketplaceStatus = 'available' | 'installed' | 'update' | 'incompatible'
+export type ExtensionMarketplaceStatus = 'available' | 'installed' | 'update'
 
 export interface ExtensionPublisherDTO {
   id: string
@@ -32,7 +32,6 @@ export interface ExtensionMarketplaceEntryDTO {
   size: number
   downloadUrl: string
   status: ExtensionMarketplaceStatus
-  compatibilityReason?: string
   installedVersion?: string
   installedState?: OperonExtensionDTO['state']
 }
@@ -176,29 +175,40 @@ async function fetchMarketplace(): Promise<RemoteMarketplaceIndex> {
   throw lastError instanceof Error ? lastError : new Error('Extension marketplace is unavailable')
 }
 
+/**
+ * One marketplace entry as this build sees it — or `undefined` when this build cannot run it.
+ *
+ * An entry that does not fit is HIDDEN, not shown disabled. Every way `compatibilityReason`
+ * can trip says the same thing — this copy of Operon is older than the build the extension was
+ * published for — and that is not something the user can act on from this screen: the framework
+ * is compiled into the app, and `minOperonVersion` is whatever the app's version was when the
+ * bundle was published. Meanwhile a card reading "Unavailable" sits right next to an extension
+ * that is installed and working perfectly, which reads as "yours is broken". So: say nothing,
+ * and let `syncApprovedExtensions` pick the new build up after the app updates.
+ * `installMarketplaceExtension` keeps the same check as a guard, so a stale list cannot get
+ * one installed either.
+ */
+export function marketplaceEntryFor(
+  entry: RemoteMarketplaceEntry,
+  local: OperonExtensionDTO | undefined,
+): ExtensionMarketplaceEntryDTO | undefined {
+  if (compatibilityReason(entry) !== undefined) return undefined
+  return {
+    ...entry,
+    status: !local ? 'available' : isOutdated(local, entry) ? 'update' : 'installed',
+    ...(local?.version ? { installedVersion: local.version } : {}),
+    ...(local ? { installedState: local.state } : {}),
+  }
+}
+
 export async function listMarketplaceExtensions(): Promise<{ generatedAt: string; extensions: ExtensionMarketplaceEntryDTO[] }> {
   const [marketplace, installed] = await Promise.all([fetchMarketplace(), listExtensions()])
   const installedById = new Map(installed.map((extension) => [extension.id, extension]))
   return {
     generatedAt: marketplace.generatedAt,
-    extensions: marketplace.extensions.map((entry) => {
-      const local = installedById.get(entry.id)
-      const reason = compatibilityReason(entry)
-      const status: ExtensionMarketplaceStatus = reason
-        ? 'incompatible'
-        : !local
-          ? 'available'
-          : isOutdated(local, entry)
-            ? 'update'
-            : 'installed'
-      return {
-        ...entry,
-        status,
-        ...(reason ? { compatibilityReason: reason } : {}),
-        ...(local?.version ? { installedVersion: local.version } : {}),
-        ...(local ? { installedState: local.state } : {}),
-      }
-    }),
+    extensions: marketplace.extensions
+      .map((entry) => marketplaceEntryFor(entry, installedById.get(entry.id)))
+      .filter((entry): entry is ExtensionMarketplaceEntryDTO => entry !== undefined),
   }
 }
 

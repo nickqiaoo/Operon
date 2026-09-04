@@ -187,6 +187,72 @@ describe.skipIf(!isDarwin)("chromeNativeHostStatus", () => {
   });
 });
 
+describe.skipIf(!isDarwin)("access denials", () => {
+  /**
+   * Guards the fact that keeps this feature grant-free: macOS protects Chrome's profile
+   * directory but exempts `NativeMessagingHosts/` inside it, so registering the host needs
+   * no Full Disk Access. Measured on an ungranted machine — the parent directory, `Local
+   * State` and `Default/*` are all refused while this one reads, writes and lists.
+   *
+   * Runs against the user's real Chrome when it is there, because a temp directory cannot
+   * reproduce TCC. If this ever fails, the tradeoff behind "never ask for the grant" has
+   * changed and the settings page has to be revisited — do not just delete the test.
+   */
+  it("can write the manifest directory of a real Chrome without any grant", async () => {
+    const real = path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "Google/Chrome",
+      "NativeMessagingHosts",
+    );
+    if (!fs.existsSync(real)) return; // No Chrome on this machine; nothing to assert.
+    const probe = path.join(real, ".operon-access-probe");
+    await fs.promises.writeFile(probe, "");
+    await fs.promises.rm(probe, { force: true });
+    expect(fs.readdirSync(real).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The fallback for Chromium forks whose manifest directory might not be exempt. Its job
+   * is a legible sentence instead of a raw `EPERM … mkdir`; it offers no remedy, because
+   * the only one would be a grant this feature has no business asking for.
+   *
+   * `chmod 0o500` stands in for TCC: EACCES rather than EPERM, handled identically.
+   */
+  it("installing reports a denial rather than a raw write error", async () => {
+    const homeDir = await tempHome();
+    const supportDir = path.join(homeDir, "Library", "Application Support", "Google/Chrome");
+    fs.chmodSync(supportDir, 0o500);
+    try {
+      await expect(
+        installChromeNativeHost({ homeDir, execPath: "/bin/echo", execArgs: [] }),
+      ).rejects.toMatchObject({ code: "chrome_access_denied", deniedPath: supportDir });
+    } finally {
+      fs.chmodSync(supportDir, 0o700);
+    }
+  });
+
+  /**
+   * Uninstall is the opposite call: it must not block on a denial. The user is switching the
+   * feature *off*, and removing the wrapper is enough — Chrome then finds a manifest
+   * pointing at a script that is gone. Failing here would strand the switch on.
+   */
+  it("uninstalling skips an unremovable manifest and still removes the wrapper", async () => {
+    const homeDir = await tempHome();
+    const installed = await installChromeNativeHost({ homeDir, execPath: "/bin/echo", execArgs: [] });
+    const manifestDir = path.dirname(installed.manifestPaths[0]!);
+    fs.chmodSync(manifestDir, 0o500);
+    try {
+      const removed = await uninstallChromeNativeHost({ homeDir });
+      expect(removed).toEqual([installed.wrapperPath]);
+      expect(fs.existsSync(installed.wrapperPath)).toBe(false);
+    } finally {
+      fs.chmodSync(manifestDir, 0o700);
+    }
+  });
+});
+
 // Same as the two suites above: uninstall calls install to set up its fixture, and install
 // throws outright on a non-darwin platform.
 describe.skipIf(!isDarwin)("uninstallChromeNativeHost", () => {

@@ -3,6 +3,9 @@
 
 export type OperonExtensionState = 'loaded' | 'approved' | 'new' | 'changed' | 'error'
 
+/** What the background marketplace pass could do about a failed import. */
+export type ExtensionRepairOutcome = 'unavailable' | 'unreachable' | 'failed'
+
 export interface OperonExtensionDTO {
   id: string
   state: OperonExtensionState
@@ -11,11 +14,15 @@ export interface OperonExtensionDTO {
   engine?: string
   description?: string
   error?: string
+  /** Why the last import failed, on an entry the loader still lists as `approved`. */
+  loadError?: string
+  /** What the background marketplace pass could do about `loadError`, once it has run. */
+  loadRepair?: ExtensionRepairOutcome
   /** Sessions currently holding this extension (an unload is refused while > 0 for service providers). */
   attachedSessions: number
 }
 
-export type ExtensionMarketplaceStatus = 'available' | 'installed' | 'update' | 'incompatible'
+export type ExtensionMarketplaceStatus = 'available' | 'installed' | 'update'
 
 export interface ExtensionMarketplaceEntryDTO {
   id: string
@@ -30,7 +37,6 @@ export interface ExtensionMarketplaceEntryDTO {
   size: number
   downloadUrl: string
   status: ExtensionMarketplaceStatus
-  compatibilityReason?: string
   installedVersion?: string
   installedState?: OperonExtensionState
 }

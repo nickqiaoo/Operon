@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isAccessDenied } from "./chrome-fs-access.ts";
 import { DEFAULT_EXTENSION_IDS } from "./chrome-native-host-install.ts";
 
 /**
@@ -63,6 +64,14 @@ export interface ChromeDetection {
    * Settings UI shows this so a Store install is not mistaken for the dev id.
    */
   matchedExtensionId: string | null;
+  /**
+   * macOS refused the read, so nothing below `browserInstalled` was observed.
+   *
+   * Distinct from "not installed" and load-bearing: every other field is false
+   * here because we could not look, not because we looked and found nothing.
+   * The UI has to say "grant access", not "install the extension".
+   */
+  permissionDenied: boolean;
 }
 
 export interface DetectOptions {
@@ -112,6 +121,24 @@ export function detectChromeExtension(options: DetectOptions = {}): ChromeDetect
       installed: false,
       disabled: false,
       matchedExtensionId: null,
+      permissionDenied: false,
+    };
+  }
+
+  // `existsSync` is a stat and passes even when TCC will refuse the listing, so the
+  // denial lands here rather than on the early return above.
+  let profileDirs: string[];
+  try {
+    profileDirs = listProfileDirs(userDataDir);
+  } catch (e) {
+    if (!isAccessDenied(e)) throw e;
+    return {
+      browserInstalled: true,
+      profiles: [],
+      installed: false,
+      disabled: false,
+      matchedExtensionId: null,
+      permissionDenied: true,
     };
   }
 
@@ -120,7 +147,7 @@ export function detectChromeExtension(options: DetectOptions = {}): ChromeDetect
   let matchedEnabled: string | null = null;
   let matchedInstalled: string | null = null;
 
-  for (const directory of listProfileDirs(userDataDir)) {
+  for (const directory of profileDirs) {
     let best: { entry: ExtensionEntry; id: string } | null = null;
     for (const id of extensionIds) {
       const entry = readExtensionEntry(path.join(userDataDir, directory), id);
@@ -158,6 +185,7 @@ export function detectChromeExtension(options: DetectOptions = {}): ChromeDetect
     installed: profiles.some((p) => p.installed && p.enabled),
     disabled: profiles.some((p) => p.installed) && !profiles.some((p) => p.enabled),
     matchedExtensionId: matchedEnabled ?? matchedInstalled,
+    permissionDenied: false,
   };
 }
 

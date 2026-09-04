@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import type { Writable } from "node:stream";
 import { ChromeNativeHost } from "./ChromeNativeHost.ts";
+import { recordHostLifecycle } from "./chrome-host-presence.ts";
 
 /**
  * Entry point for `operon --chrome-native-host`, the process Chrome spawns.
@@ -32,6 +33,14 @@ export async function runChromeNativeHost(): Promise<void> {
 
   const socketPath = await host.listen();
   console.error(`[operon-native-host] listening on ${socketPath}`);
+
+  // Stamp the connection. Liveness itself is read straight off this socket by
+  // `readChromePresence`, so this exists only for the window the settings page
+  // cannot observe: a connection made while the Operon app is closed.
+  // `exit` rather than the signal handlers alone: the disconnect path below leaves
+  // through process.exit(0) directly, and that is the ordinary way this ends.
+  recordHostLifecycle();
+  process.on("exit", () => recordHostLifecycle());
 
   const shutdown = () => {
     void host.close().finally(() => process.exit(0));

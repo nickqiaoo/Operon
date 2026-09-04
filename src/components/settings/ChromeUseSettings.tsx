@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, Chrome, CheckCircle2, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
+import { AlertCircle, Chrome, CheckCircle2, CircleDashed, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { api } from "@/lib/api"
+import { api, type ChromeUseFailure } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
 import { FormattedMessage } from "react-intl"
 
@@ -19,9 +19,23 @@ const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/annipikgo
  * and we can only report on it. So "on" here does not mean "working", and the tab has to
  * show both: the switch is the user's intent, the checks below are reality.
  *
- * The checks read Chrome's own on-disk profile registry rather than trying a connection,
- * because "not installed" and "installed but the host is broken" need different advice and
- * a failed connection cannot tell them apart.
+ * ## The extension row answers one question: is it installed?
+ * Three sources can say yes — connected right now, connected at some point before, or found
+ * in Chrome's profile registry — and the row collapses them into that single answer. What it
+ * deliberately does not show is everything else those sources happen to know: which profile,
+ * which version, how many connections. None of it changes what the user would do next, and
+ * an earlier version that reported all of it managed to draw a red cross beside the word
+ * "Installed." with an install button next to that.
+ *
+ * ## It may come back "unknown", and that is not something to fix
+ * macOS keeps the profile registry behind Full Disk Access, so on a machine without that
+ * grant — which is most of them, and every dev build — it cannot be read. Nothing else is
+ * affected: `NativeMessagingHosts/` is exempt from that protection, so the host registers
+ * and Chrome talks to us exactly as before.
+ *
+ * So do not add a prompt to grant Full Disk Access here. It is one of the heaviest grants
+ * on macOS — every other app's data, mail and messages — and the entire return on it would
+ * be turning one row of this checklist from a dash into a tick. Show the dash.
  */
 export function ChromeUseSettings() {
     const [settings, setSettings] = useState<Settings | null>(null)
@@ -41,13 +55,20 @@ export function ChromeUseSettings() {
         void load()
     }, [load])
 
+    /** Every failure reads the same way here: one line of text, no remedy invented. */
+    const report = (result: { ok: true } | ChromeUseFailure) => {
+        if ("error" in result) setError(result.error)
+    }
+
     const toggle = async (next: boolean) => {
         setBusy(true)
         setError(null)
         try {
-            await api.chromeUseSetEnabled(next)
+            report(await api.chromeUseSetEnabled(next))
             // Refetch rather than patch `enabled` in place: turning on installs the native
-            // host, so the checks below are stale the moment the switch moves.
+            // host, so the checks below are stale the moment the switch moves. Refetch on
+            // failure too — the switch is left untouched by the server, and this is what
+            // walks it back in the UI.
             await load()
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e))
@@ -60,7 +81,7 @@ export function ChromeUseSettings() {
         setBusy(true)
         setError(null)
         try {
-            await api.chromeUseReinstallHost()
+            report(await api.chromeUseReinstallHost())
             await load()
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e))
@@ -141,7 +162,18 @@ function ChromeStatus({
     onReinstall: () => void
     onRefresh: () => void
 }) {
-    const profileWithExtension = settings.profiles.find((p) => p.installed && p.enabled)
+    /**
+     * Installed, from whichever source can say so.
+     *
+     * Connected now is proof. Connected before is proof it was installed, and the
+     * ordinary reason it is not connected now is that Chrome is closed — reporting
+     * "not installed" for a shut browser would be wrong far more often than right.
+     * The registry is the last resort, since it is usually unreadable.
+     */
+    const installed =
+        settings.extensionConnected ||
+        settings.extensionLastSeenAt != null ||
+        settings.extensionInstalled
 
     return (
         <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
@@ -166,7 +198,7 @@ function ChromeStatus({
 
             <div className="space-y-2">
                 <StatusRow
-                    ok={settings.chromeInstalled}
+                    status={settings.chromeInstalled ? "ok" : "bad"}
                     label={<FormattedMessage id="settings.chrome.check.chrome" defaultMessage="Google Chrome" />}
                     detail={
                         settings.chromeInstalled ? undefined : (
@@ -178,29 +210,33 @@ function ChromeStatus({
                     }
                 />
                 <StatusRow
-                    ok={settings.extensionInstalled}
+                    // One question, one answer: is it installed? Every source that can say
+                    // yes counts — connected now, connected before, or found in the registry.
+                    // The mark and the sentence are derived from the same `installed` here,
+                    // because deriving them separately is exactly how a cross ended up next
+                    // to the words "Installed." with an install button beside it.
+                    status={installed ? "ok" : settings.extensionUnknown ? "unknown" : "bad"}
                     label={<FormattedMessage id="settings.chrome.check.extension" defaultMessage="Operon extension" />}
                     detail={
-                        settings.extensionInstalled ? (
-                            profileWithExtension?.unpacked ? (
-                                <FormattedMessage
-                                    id="settings.chrome.check.extension.unpacked"
-                                    defaultMessage="Loaded unpacked in {profile}."
-                                    values={{ profile: profileWithExtension.directory }}
-                                />
-                            ) : (
-                                <FormattedMessage
-                                    id="settings.chrome.check.extension.ok"
-                                    defaultMessage="Installed in {profile}."
-                                    values={{ profile: profileWithExtension?.directory ?? "Default" }}
-                                />
-                            )
-                        ) : settings.extensionDisabled ? (
+                        // Only the cases that change what the user would do. "Which profile",
+                        // "which version", "how many connections" are things we happen to know,
+                        // not things anyone came here to read.
+                        settings.extensionDisabled ? (
                             <FormattedMessage
                                 id="settings.chrome.check.extension.disabled"
                                 defaultMessage="Installed but switched off. Enable it at chrome://extensions."
                             />
-                        ) : (
+                        ) : installed && !settings.extensionConnected ? (
+                            <FormattedMessage
+                                id="settings.chrome.check.extension.idle"
+                                defaultMessage="Installed. Not connected right now, which usually just means Chrome is closed."
+                            />
+                        ) : settings.extensionUnknown ? (
+                            <FormattedMessage
+                                id="settings.chrome.check.extension.unknown"
+                                defaultMessage="Can't tell yet — open Chrome and refresh."
+                            />
+                        ) : installed ? undefined : (
                             <FormattedMessage
                                 id="settings.chrome.check.extension.missing"
                                 defaultMessage="Not installed yet. Install Operon Browser Use from the Chrome Web Store."
@@ -208,7 +244,9 @@ function ChromeStatus({
                         )
                     }
                     action={
-                        !settings.extensionInstalled && !settings.extensionDisabled ? (
+                        // Offered while unknown too: it is the one action that still helps, and
+                        // the Store page says plainly whether it is already installed.
+                        !installed && !settings.extensionDisabled ? (
                             <Button
                                 size="sm"
                                 variant="secondary"
@@ -225,7 +263,7 @@ function ChromeStatus({
                     }
                 />
                 <StatusRow
-                    ok={settings.nativeHostInstalled && !settings.nativeHostStale}
+                    status={settings.nativeHostInstalled && !settings.nativeHostStale ? "ok" : "bad"}
                     label={<FormattedMessage id="settings.chrome.check.host" defaultMessage="Native host" />}
                     detail={
                         settings.nativeHostStale ? (
@@ -261,21 +299,31 @@ function ChromeStatus({
     )
 }
 
+/**
+ * A check, its answer, and the repair.
+ *
+ * Three states, not two. "Unknown" earns its own mark because a cross here is a
+ * claim — it tells the user something is missing and to go fix it — and we are
+ * not entitled to make it when we were simply not allowed to look. A dashed
+ * circle in muted grey reads as "no answer" rather than "bad answer".
+ */
 function StatusRow({
-    ok,
+    status,
     label,
     detail,
     action,
 }: {
-    ok: boolean
+    status: "ok" | "bad" | "unknown"
     label: React.ReactNode
     detail?: React.ReactNode
     action?: React.ReactNode
 }) {
     return (
         <div className="flex items-start gap-2.5 rounded-lg border border-border/40 bg-background/40 p-3">
-            {ok ? (
-                <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-emerald-500" />
+            {status === "ok" ? (
+                <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-status-ok" />
+            ) : status === "unknown" ? (
+                <CircleDashed className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
             ) : (
                 <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
             )}

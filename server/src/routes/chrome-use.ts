@@ -20,9 +20,11 @@ import { createRuntimeLogger } from '@operon/agent-runtime'
 import {
   CHROME_EXTENSION_IDS,
   CHROME_STORE_EXTENSION_ID,
+  ChromeAccessDeniedError,
   chromeNativeHostStatus,
   detectChromeExtension,
   installChromeNativeHost,
+  readChromePresence,
   uninstallChromeNativeHost,
 } from '@operon/browser-use'
 import { getChromeUseConfig, updateChromeUseConfig } from '../services/chrome-use-config.js'
@@ -32,33 +34,68 @@ import { disposeAllNodeReplSessions } from './node-repl-mcp.js'
 
 const logger = createRuntimeLogger('chrome-use')
 
+/**
+ * Report a denial as a plain sentence rather than a 500 with a stack.
+ *
+ * Not reachable on a stock macOS + Chrome — `NativeMessagingHosts/` is exempt
+ * from the protection on the rest of the profile directory — so this is a
+ * fallback for the Chromium forks we also install into. It deliberately offers
+ * no remedy: the only one would be Full Disk Access, which this feature has no
+ * business asking for.
+ */
+function accessDeniedResponse(e: unknown) {
+  if (!(e instanceof ChromeAccessDeniedError)) return null
+  return { error: e.message, code: e.code, deniedPath: e.deniedPath }
+}
+
 export function chromeUseRoutes() {
   const router = new Hono()
 
   /**
    * Switch state plus what is actually installed.
    *
-   * Installation state is read straight from Chrome's own profile registry
-   * rather than inferred by trying to connect. "Not installed" and "installed
-   * but the host is broken" call for completely different advice, and a failed
-   * connection cannot tell them apart.
+   * Two sources, and the order matters. Presence is observed from the running
+   * system — Chrome only spawns our native host when the extension connects, so
+   * a live host proves installed *and* enabled *and* reachable in one shot, and
+   * costs no privacy grant. The profile registry is the fallback: it answers
+   * when Chrome is closed, but it sits behind Full Disk Access and so is
+   * frequently unreadable. Neither alone covers the ground; presence is the one
+   * that is trusted when both have an opinion.
    */
   router.get('/settings', async (c) => {
     // Scan both the unpacked dev id and the Web Store id so either install path works.
     const detection = detectChromeExtension({ extensionIds: CHROME_EXTENSION_IDS })
     const host = await chromeNativeHostStatus()
+    const presence = await readChromePresence()
     return c.json({
       enabled: getChromeUseConfig().enabled,
-      extensionId: detection.matchedExtensionId ?? CHROME_STORE_EXTENSION_ID,
+      // A connected extension reports the id it is actually running under, which
+      // beats both the registry guess and the hardcoded fallback.
+      extensionId:
+        presence.extensions[0]?.extensionId ??
+        detection.matchedExtensionId ??
+        CHROME_STORE_EXTENSION_ID,
       chromeInstalled: detection.browserInstalled,
-      extensionInstalled: detection.installed,
+      // A live connection settles it regardless of whether the registry could be read.
+      extensionInstalled: presence.connected || detection.installed,
       extensionDisabled: detection.disabled,
       profiles: detection.profiles,
+      /** The extension answered just now. */
+      extensionConnected: presence.connected,
+      /** Epoch ms of the last connection; null means it has never reached us. */
+      extensionLastSeenAt: presence.lastSeenAt,
       nativeHostInstalled: host.installed,
       // The host manifest survives but the binary it execs is gone, typically
       // because an upgrade moved the path. Chrome reports only a generic
       // connection failure, so say it plainly here instead.
       nativeHostStale: host.installed && !host.execPathExists,
+      // The registry was unreadable *and* nothing has ever connected, so the
+      // extension's state is genuinely unknown rather than known-absent. A past
+      // connection answers the question on its own, which is why presence is
+      // checked first here: it makes the missing grant irrelevant in the common
+      // case, and the UI asks the user for nothing either way.
+      extensionUnknown:
+        detection.permissionDenied && !presence.connected && presence.lastSeenAt == null,
     })
   })
 
@@ -96,6 +133,8 @@ export function chromeUseRoutes() {
       // alone. A switch that looks like it did nothing beats a flag claiming on
       // while the agent has no skill, or the path does not work at all.
       logger.error(`failed to ${enabled ? 'enable' : 'disable'} chrome use: ${e}`)
+      const denied = accessDeniedResponse(e)
+      if (denied) return c.json(denied, 403)
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
     }
   })
@@ -116,6 +155,8 @@ export function chromeUseRoutes() {
       return c.json({ ok: true, manifestPaths: result.manifestPaths })
     } catch (e) {
       logger.error(`failed to reinstall chrome native host: ${e}`)
+      const denied = accessDeniedResponse(e)
+      if (denied) return c.json(denied, 403)
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
     }
   })
