@@ -109,7 +109,7 @@ export const profile = defineCommand({
     }
     await page.goto(`https://x.com/${username}`)
     await page.wait(2)
-    const queryId = await resolveQueryId(page, "UserByScreenName", USER_BY_SCREEN_NAME_QUERY_ID)
+    const queryId = await resolveQueryId("UserByScreenName", USER_BY_SCREEN_NAME_QUERY_ID)
     const raw = (await graphqlGet(page, {
       queryId,
       operation: "UserByScreenName",
@@ -165,7 +165,7 @@ export const timeline = defineCommand({
     await getCt0(page)
     const endpoint = type === "following" ? "HomeLatestTimeline" : "HomeTimeline"
     const fallback = type === "following" ? HOME_LATEST_TIMELINE_QUERY_ID : HOME_TIMELINE_QUERY_ID
-    const queryId = await resolveQueryId(page, endpoint, fallback)
+    const queryId = await resolveQueryId(endpoint, fallback)
     const all: Array<Record<string, unknown>> = []
     const seen = new Set<string>()
     let cursor: string | null = null
@@ -184,7 +184,6 @@ export const timeline = defineCommand({
         operation: endpoint,
         variables,
         features: TIMELINE_FEATURES,
-        method: type === "following" ? "POST" : "GET",
       })) as Record<string, unknown>
       if (raw.__httpError) {
         if (all.length === 0) throw new Error(`twitter.timeline: HTTP ${raw.__httpError}`)
@@ -224,7 +223,7 @@ export const tweets = defineCommand({
     await page.goto(`https://x.com/${username}`)
     await page.wait(2)
     await getCt0(page)
-    const profileQid = await resolveQueryId(page, "UserByScreenName", USER_BY_SCREEN_NAME_QUERY_ID)
+    const profileQid = await resolveQueryId("UserByScreenName", USER_BY_SCREEN_NAME_QUERY_ID)
     const profileRaw = (await graphqlGet(page, {
       queryId: profileQid,
       operation: "UserByScreenName",
@@ -238,7 +237,7 @@ export const tweets = defineCommand({
     const userId = String(userResult?.rest_id || "")
     if (!userId) throw new Error(`twitter.tweets: user @${username} not found`)
 
-    const tweetsQid = await resolveQueryId(page, "UserTweets", USER_TWEETS_QUERY_ID)
+    const tweetsQid = await resolveQueryId("UserTweets", USER_TWEETS_QUERY_ID)
     const all: Array<Record<string, unknown>> = []
     const seen = new Set<string>()
     let cursor: string | null = null
@@ -307,7 +306,7 @@ export const search = defineCommand({
     await page.goto(`https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query&f=${product === "Top" ? "top" : "live"}`)
     await page.wait(2)
     await getCt0(page)
-    const queryId = await resolveQueryId(page, "SearchTimeline", SEARCH_TIMELINE_QUERY_ID)
+    const queryId = await resolveQueryId("SearchTimeline", SEARCH_TIMELINE_QUERY_ID)
     const all: Array<Record<string, unknown>> = []
     const seen = new Set<string>()
     let cursor: string | null = null

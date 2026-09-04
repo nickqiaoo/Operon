@@ -266,8 +266,7 @@ export const comments = defineCommand({
           continuationToken = commentSection?.itemSectionRenderer?.contents?.[0]
             ?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
         }
-        if (!continuationToken || !apiKey || !context) {
-          // DOM fallback
+        const readRenderedComments = () => {
           const nodes = Array.from(document.querySelectorAll('ytd-comment-thread-renderer')).slice(0, limit);
           return nodes.map((n, i) => ({
             rank: i + 1,
@@ -276,13 +275,22 @@ export const comments = defineCommand({
             likes: n.querySelector('#vote-count-middle')?.innerText?.trim() || '0',
             time: n.querySelector('.published-time-text')?.innerText?.trim() || '',
           }));
+        };
+        if (!continuationToken || !apiKey || !context) return readRenderedComments();
+        let resp;
+        try {
+          resp = await fetch('/youtubei/v1/next?key=' + apiKey + '&prettyPrint=false', {
+            method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ context, continuation: continuationToken })
+          });
+        } catch (e) {
+          // The browser client evaluates this under a read-only guard that
+          // rejects every non-GET fetch. The comments the page already
+          // rendered are still readable, so take those instead of failing.
+          return readRenderedComments();
         }
-        const resp = await fetch('/youtubei/v1/next?key=' + apiKey + '&prettyPrint=false', {
-          method: 'POST', credentials: 'include',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ context, continuation: continuationToken })
-        });
-        if (!resp.ok) return { error: 'HTTP ' + resp.status };
+        if (!resp.ok) return readRenderedComments();
         const j = await resp.json();
         const muts = j.onResponseReceivedEndpoints || j.frameworkUpdates || [];
         const comments = [];

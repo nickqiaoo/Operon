@@ -112,6 +112,32 @@ export interface TabInfo {
   url?: string;
 }
 
+/**
+ * A tab the user opened, as returned by `browser.user.openTabs()`.
+ *
+ * `id` is a string here for the same reason `TabInfo.id` is: the wire speaks
+ * numbers, the model-facing layer speaks opaque strings. `claimTab` converts
+ * back on the way in.
+ */
+export interface BrowserUserTabInfo {
+  id: string;
+  title?: string;
+  url?: string;
+  /** ISO 8601 timestamp for the last time the tab was opened or focused. */
+  lastOpened?: string;
+  /** User-visible tab group name when the tab belongs to one. */
+  tabGroup?: string;
+}
+
+/** The user-tab shape a backend returns, with the wire's numeric id. */
+interface WireUserTabInfo {
+  id: number;
+  title?: string;
+  url?: string;
+  lastOpened?: string;
+  tabGroup?: string;
+}
+
 export interface TabClipboardEntry {
   base64?: string;
   mimeType: string;
@@ -945,9 +971,18 @@ export class Tab {
    * is what decides how the navigation state machine proceeds. An early version
    * omitted it and the differential test caught it immediately.
    */
-  async goto(url: string): Promise<void> {
+  /**
+   * `timeoutMs` bounds the wait for the new document, not the load itself; the
+   * wait ends at `DOMContentLoaded`. The 10s default is short for app-shell
+   * sites (x.com, youtube.com) on a slow link, so callers that know they are
+   * opening one should raise it rather than eat a spurious timeout.
+   */
+  async goto(url: string, options: { timeoutMs?: number } = {}): Promise<void> {
     if (typeof url !== "string" || url.length === 0) {
       throw new Error("tab.goto requires a url");
+    }
+    if (options.timeoutMs != null && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+      throw new Error("tab.goto timeoutMs must be a positive number of milliseconds");
     }
     await ensureNavigationAllowed(url);
     await this.#attach();
@@ -958,6 +993,7 @@ export class Tab {
       mainFrameId,
       previousUrl: previous.href,
       targetUrl: url,
+      ...(options.timeoutMs == null ? {} : { timeoutMs: options.timeoutMs }),
     });
     try {
       const result = await cdp<{ errorText?: string }>(this, "Page.navigate", { url });
@@ -1407,6 +1443,17 @@ function browserConnection(browser: Browser): BackendConnection {
   return connection;
 }
 
+/**
+ * Convert a model-facing tab id back to the positive integer the wire expects,
+ * or `undefined` when it is not one. The IAB backend coerces numeric strings
+ * itself; the extension backend does not, so never send it a string.
+ */
+function wireTabId(value: unknown): number | undefined {
+  const n =
+    typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 /** The Browser returned by `agent.browsers.get(...)`. */
 export class Browser {
   readonly browserId: string;
@@ -1416,7 +1463,7 @@ export class Browser {
     get(id: string): Promise<unknown>;
   };
   readonly user: {
-    openTabs(): Promise<Array<{ id: string; title?: string; url?: string }>>;
+    openTabs(): Promise<BrowserUserTabInfo[]>;
     history(options?: {
       limit?: number;
       queries?: string[];
@@ -1427,7 +1474,7 @@ export class Browser {
       title?: string;
       dateVisited: string;
     }>>;
-    claimTab(tab: string | { id: string }): Promise<Tab>;
+    claimTab(tab: string | number | { id: string | number }): Promise<Tab>;
   };
   /**
    * Neither `conn` (the raw transport) nor `info` may be an ordinary property.
@@ -1463,8 +1510,19 @@ export class Browser {
       this.#documentationContext,
     );
     const rawUser = {
-      openTabs: (): Promise<Array<{ id: string; title?: string; url?: string }>> =>
-        browserConnection(this).sendSessionRequest("getUserTabs", {}),
+      openTabs: async (): Promise<BrowserUserTabInfo[]> => {
+        const tabs = await browserConnection(this).sendSessionRequest<WireUserTabInfo[]>(
+          "getUserTabs",
+          {},
+        );
+        // Stringify like `tabs.list()` does. Passing the wire's number straight
+        // through made `claimTab(tab)` reject the very object `openTabs()`
+        // handed out.
+        return (tabs ?? []).map((tab) => ({
+          ...tab,
+          id: String(tab.id),
+        }));
+      },
       history: async (options: {
         limit?: number;
         queries?: string[];
@@ -1511,14 +1569,18 @@ export class Browser {
         await ensureHistoryAllowed(params);
         return await browserConnection(this).sendSessionRequest("getUserHistory", params);
       },
-      claimTab: async (tab: string | { id: string }): Promise<Tab> => {
-        const id =
-          typeof tab === "string"
+      claimTab: async (tab: string | number | { id: string | number }): Promise<Tab> => {
+        const raw =
+          typeof tab === "string" || typeof tab === "number"
             ? tab
-            : typeof tab === "object" && tab != null && typeof tab.id === "string"
+            : typeof tab === "object" && tab != null
               ? tab.id
               : undefined;
-        if (id == null || id.length === 0) {
+        // The wire wants a positive integer. The extension backend rejects a
+        // numeric string outright, so convert here rather than hoping the
+        // backend is lenient.
+        const id = wireTabId(raw);
+        if (id == null) {
           throw new Error(
             "browser.user.claimTab expects a tab returned by browser.user.openTabs() or a tab id",
           );

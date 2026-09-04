@@ -351,7 +351,7 @@
       "goto": {
         "declarations": [
           {
-            "text": "goto(url: string): Promise<void>; // Open a URL in this tab.",
+            "text": "goto(url: string, options?: { timeoutMs?: number }): Promise<void>; // Open a URL in this tab. Waits for the new document (DOMContentLoaded), up to `timeoutMs`, default 10000; raise it for app-shell sites that paint late.",
             "references": []
           }
         ]

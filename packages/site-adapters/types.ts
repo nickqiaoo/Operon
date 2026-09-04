@@ -4,7 +4,7 @@
  */
 
 export interface SiteBrowserTab {
-  goto(url: string): Promise<void>
+  goto(url: string, options?: { timeoutMs?: number }): Promise<void>
   playwright: {
     /**
      * Page-context evaluate. Accepts a function body or an async IIFE string.

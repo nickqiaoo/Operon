@@ -9,11 +9,25 @@ import type { AdapterPage } from "../types.ts"
 export const TWITTER_BEARER_TOKEN =
   "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
+/**
+ * Page-context source that reads the `ct0` CSRF cookie.
+ *
+ * Deliberately split-and-trim rather than a regex: this string is evaluated as
+ * JS source inside the page, so a regex here needs its backslashes escaped
+ * twice. The earlier source wrote `;\\\\s*`, which reached the page as
+ * `;\\s*` — a literal backslash, not the space in `; ct0=`. Every cookie
+ * command reported "not logged in" no matter the session.
+ */
+export const CT0_COOKIE_SOURCE = `(() => {
+  const hit = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('ct0='));
+  return hit ? decodeURIComponent(hit.slice(4)) : '';
+})()`
+
 export async function getCt0(page: AdapterPage): Promise<string> {
-  const ct0 = await page.evaluate(`(() => {
-    const m = document.cookie.match(/(?:^|;\\\\s*)ct0=([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : '';
-  })()`)
+  const ct0 = await page.evaluate(CT0_COOKIE_SOURCE)
   if (typeof ct0 !== "string" || !ct0) {
     throw new Error("twitter: not logged into x.com (no ct0 cookie). Sign in in Chrome first.")
   }
@@ -36,37 +50,60 @@ export function normalizeScreenName(value: unknown): string {
   return /^[A-Za-z0-9_]{1,15}$/.test(candidate) ? candidate : ""
 }
 
+/** Upstream's tracking of X's rotating GraphQL operation ids. */
+const QUERY_ID_SOURCE =
+  "https://raw.githubusercontent.com/fa0311/twitter-openapi/refs/heads/main/src/config/placeholder.json"
+
+/** One fetch per process; the ids rotate on X's release cadence, not per call. */
+let queryIdCache: Promise<Record<string, { queryId?: string }> | null> | undefined
+
+async function upstreamQueryIds(): Promise<Record<string, { queryId?: string }> | null> {
+  queryIdCache ??= (async () => {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      try {
+        const res = await fetch(QUERY_ID_SOURCE, { signal: controller.signal })
+        if (!res.ok) return null
+        return (await res.json()) as Record<string, { queryId?: string }>
+      } finally {
+        clearTimeout(timeout)
+      }
+    } catch {
+      return null
+    }
+  })()
+  return queryIdCache
+}
+
+/**
+ * Resolve an operation's current queryId, falling back to the pinned one.
+ *
+ * The lookup runs on the host, not in the page: x.com's CSP blocks a page-context
+ * fetch to raw.githubusercontent.com outright ("Failed to fetch"), so the
+ * in-page version this replaced could only ever burn a timeout and fall back.
+ * The pinned ids do still work — this is about following X's rotation, not
+ * repairing a break.
+ */
 export async function resolveQueryId(
-  page: AdapterPage,
   operationName: string,
   fallbackId: string,
 ): Promise<string> {
-  const resolved = await page.evaluate(`async () => {
-    const operationName = ${JSON.stringify(operationName)};
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      try {
-        const ghResp = await fetch(
-          'https://raw.githubusercontent.com/fa0311/twitter-openapi/refs/heads/main/src/config/placeholder.json',
-          { signal: controller.signal }
-        );
-        clearTimeout(timeout);
-        if (ghResp.ok) {
-          const data = await ghResp.json();
-          const entry = data && data[operationName];
-          if (entry && entry.queryId) return entry.queryId;
-        }
-      } catch {
-        clearTimeout(timeout);
-      }
-    } catch {}
-    return null;
-  }`)
+  const ids = await upstreamQueryIds()
+  const resolved = ids?.[operationName]?.queryId
   if (typeof resolved === "string" && /^[A-Za-z0-9_-]+$/.test(resolved)) return resolved
   return fallbackId
 }
 
+/**
+ * Read one X GraphQL operation from the page session.
+ *
+ * Always GET. The browser client evaluates adapter source under a read-only
+ * guard that rejects any fetch other than GET or HEAD, so a POST here throws
+ * before it reaches the network. `HomeLatestTimeline` — the one operation this
+ * package used to POST — answers a GET identically, verified against a live
+ * session.
+ */
 export async function graphqlGet(
   page: AdapterPage,
   opts: {
@@ -75,11 +112,9 @@ export async function graphqlGet(
     variables: Record<string, unknown>
     features: Record<string, boolean>
     fieldToggles?: Record<string, boolean>
-    method?: "GET" | "POST"
   },
 ): Promise<unknown> {
   const ct0 = await getCt0(page)
-  const method = opts.method ?? "GET"
   return page.evaluate(`async () => {
     const ct0 = ${JSON.stringify(ct0)};
     const bearer = ${JSON.stringify(TWITTER_BEARER_TOKEN)};
@@ -95,19 +130,13 @@ export async function graphqlGet(
     const fieldToggles = ${JSON.stringify(opts.fieldToggles ?? {})};
     const queryId = ${JSON.stringify(opts.queryId)};
     const operation = ${JSON.stringify(opts.operation)};
-    const method = ${JSON.stringify(method)};
-    let url = '/i/api/graphql/' + queryId + '/' + operation;
-    const init = { method, headers, credentials: 'include' };
-    if (method === 'GET') {
-      url += '?variables=' + encodeURIComponent(JSON.stringify(variables))
-        + '&features=' + encodeURIComponent(JSON.stringify(features));
-      if (Object.keys(fieldToggles).length) {
-        url += '&fieldToggles=' + encodeURIComponent(JSON.stringify(fieldToggles));
-      }
-    } else {
-      init.body = JSON.stringify({ variables, features, fieldToggles, queryId });
+    let url = '/i/api/graphql/' + queryId + '/' + operation
+      + '?variables=' + encodeURIComponent(JSON.stringify(variables))
+      + '&features=' + encodeURIComponent(JSON.stringify(features));
+    if (Object.keys(fieldToggles).length) {
+      url += '&fieldToggles=' + encodeURIComponent(JSON.stringify(fieldToggles));
     }
-    const resp = await fetch(url, init);
+    const resp = await fetch(url, { method: 'GET', headers, credentials: 'include' });
     if (!resp.ok) {
       return { __httpError: resp.status };
     }

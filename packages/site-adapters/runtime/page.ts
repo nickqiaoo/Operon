@@ -11,11 +11,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Adapters navigate to app-shell sites (x.com, youtube.com, bilibili.com) whose
+ * first paint routinely lands past the client's 10s default. A timeout here
+ * aborts the whole command, so buy more room.
+ */
+const NAVIGATION_TIMEOUT_MS = 30_000
+
 export async function openPage(browser: SiteBrowser): Promise<AdapterPage> {
   const tab: SiteBrowserTab = await browser.tabs.new()
   return {
     async goto(url: string) {
-      await tab.goto(url)
+      await tab.goto(url, { timeoutMs: NAVIGATION_TIMEOUT_MS })
     },
     async evaluate(source: string) {
       return tab.playwright.evaluate(source)
