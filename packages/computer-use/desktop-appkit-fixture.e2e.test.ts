@@ -20,6 +20,7 @@ const RUN_FIXTURE_E2E =
 const describeFixtureE2E = RUN_FIXTURE_E2E ? describe : describe.skip;
 const execFileAsync = promisify(execFile);
 
+const FIXTURE_CTX = "fixture";
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SWIFT_PACKAGE = path.join(REPO_ROOT, "native/computer-use");
 const SERVICE_BIN = path.join(SWIFT_PACKAGE, ".build/debug/operon-computer-use");
@@ -247,7 +248,7 @@ describeFixtureE2E("Computer Use controlled AppKit E2E", () => {
 
   async function executeSky<T>(source: string): Promise<T> {
     if (!host) throw new Error("NodeReplHost is not ready");
-    const result = await host.exec(source) as T;
+    const result = await host.exec(FIXTURE_CTX, source) as T;
     const frontmostAfter = currentFrontmostBundleIdentifier();
     if (frontmostAfter === FIXTURE_BUNDLE_ID) foregroundViolations.add(frontmostAfter);
     return result;
@@ -321,11 +322,14 @@ describeFixtureE2E("Computer Use controlled AppKit E2E", () => {
       "Computer Use socket",
     );
 
+    // One kernel now serves many vm contexts, so even a single-context test has
+    // to name the one it runs in.
     host = new NodeReplHost({
       cwd: REPO_ROOT,
       env: { SKY_CUA_NATIVE_PIPE_PATH: socketPath },
       tmpDir: tempDirectory,
     });
+    await host.createContext(FIXTURE_CTX);
 
     foregroundSample = setInterval(() => {
       void execFileAsync("/usr/bin/lsappinfo", ["front"], { encoding: "utf8" })

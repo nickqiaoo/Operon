@@ -40,6 +40,18 @@ export interface CreateComputerUseOptions {
    * actually enforcing the token, so the two have to be aligned explicitly.
    */
   cuAuthToken?: string;
+  /**
+   * Runtime setup run once per kernel before the model's first line of code.
+   * Build it with `buildNodeReplBanner(surfaces)`; omitting it leaves the model
+   * to bootstrap the runtime by hand, which is what the skills used to teach.
+   */
+  banner?: string;
+  /**
+   * A kernel process to share instead of forking one per session. Pass a getter
+   * so a kernel that died can be replaced without rebuilding this handle.
+   * See NodeReplSessionOptions.host for why sharing is safe.
+   */
+  host?: import("./NodeReplHost.ts").NodeReplHost | (() => import("./NodeReplHost.ts").NodeReplHost);
 }
 
 export interface ComputerUseHandle {
@@ -84,6 +96,8 @@ export async function createComputerUse(
       processEnv: opts.processEnv,
       configStore: opts.configStore,
       cuAuthToken,
+      banner: opts.banner,
+      host: opts.host,
     });
     sessions.push(session);
     return session;

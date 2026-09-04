@@ -16,6 +16,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 // the vm, then nodeRepl.nativePipe, then the host's net.connect, then the Swift
 // domain socket, and back.
 
+/** One kernel serves many vm contexts now, so a direct host test names its own. */
+const T_CTX = "test";
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SWIFT_BIN = path.join(REPO_ROOT, "native/computer-use/.build/debug/operon-computer-use");
 const SOCK = "/tmp/opcu-nrtest.sock";
@@ -67,11 +69,12 @@ describe.skipIf(!hasSwiftService)("node_repl → host → Swift domain socket", 
     const host = new NodeReplHost({
       processEnv: { NODE_REPL_TRUSTED_CODE_PATHS: dir },
     });
+    await host.createContext(T_CTX);
     try {
-      await host.exec(
+      await host.exec(T_CTX, 
         `const m = await import(${JSON.stringify(mod)}); m.install(); return "ok";`,
       );
-      expect(host.responseMeta).toEqual({
+      expect(host.responseMetaFor(T_CTX)).toEqual({
         "codex/toolSurface": { kind: "browserUse", hookRan: true },
       });
     } finally {
@@ -119,8 +122,9 @@ describe.skipIf(!hasSwiftService)("node_repl → host → Swift domain socket", 
       env: { SKY_CUA_NATIVE_PIPE_PATH: SOCK },
       processEnv: { NODE_REPL_TRUSTED_CODE_PATHS: dir },
     });
+    await host.createContext(T_CTX);
     try {
-      const resp = (await host.exec(
+      const resp = (await host.exec(T_CTX, 
         `const m = await import(${JSON.stringify(mod)});
          return await m.ping(nodeRepl.env.SKY_CUA_NATIVE_PIPE_PATH);`,
       )) as { result?: { serverApiVersion?: string } };
@@ -132,8 +136,9 @@ describe.skipIf(!hasSwiftService)("node_repl → host → Swift domain socket", 
 
   it("computer.list_apps() reaches Swift through the kernel and returns a real app list", async () => {
     const host = new NodeReplHost({ env: { SKY_CUA_NATIVE_PIPE_PATH: SOCK } });
+    await host.createContext(T_CTX);
     try {
-      const r = await host.exec(`
+      const r = await host.exec(T_CTX, `
         if (typeof computer === 'undefined') return { clientLoadError: globalThis.__computerLoadError || 'computer undefined' };
         return await computer.list_apps();
       `);
@@ -147,8 +152,9 @@ describe.skipIf(!hasSwiftService)("node_repl → host → Swift domain socket", 
 
   it("process is not reachable inside the vm sandbox", async () => {
     const host = new NodeReplHost();
+    await host.createContext(T_CTX);
     try {
-      const r = (await host.exec("return typeof process;")) as unknown;
+      const r = (await host.exec(T_CTX, "return typeof process;")) as unknown;
       expect(r).toBe("undefined");
     } finally {
       await host.dispose();

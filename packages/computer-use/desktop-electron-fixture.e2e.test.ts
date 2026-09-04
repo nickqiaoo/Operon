@@ -11,6 +11,7 @@ const RUN_FIXTURE_E2E =
   process.platform === "darwin"
   && process.env.OPERON_RUN_COMPUTER_USE_FIXTURE_E2E === "1";
 const describeFixtureE2E = RUN_FIXTURE_E2E ? describe : describe.skip;
+const FIXTURE_CTX = "fixture";
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SWIFT_PACKAGE = path.join(REPO_ROOT, "native/computer-use");
 const SERVICE_BIN = path.join(SWIFT_PACKAGE, ".build/debug/operon-computer-use");
@@ -161,7 +162,7 @@ describeFixtureE2E("Computer Use controlled Electron E2E", () => {
 
   async function executeSky<T>(source: string): Promise<T> {
     if (!host) throw new Error("NodeReplHost is not ready");
-    const result = await host.exec(source) as T;
+    const result = await host.exec(FIXTURE_CTX, source) as T;
     const frontmost = currentFrontmostBundleIdentifier();
     if (frontmost === ELECTRON_BUNDLE_ID) foregroundViolations.add(frontmost);
     return result;
@@ -235,11 +236,14 @@ describeFixtureE2E("Computer Use controlled Electron E2E", () => {
       () => fs.existsSync(socketPath) ? true : undefined,
       "Computer Use socket",
     );
+    // One kernel now serves many vm contexts, so even a single-context test has
+    // to name the one it runs in.
     host = new NodeReplHost({
       cwd: REPO_ROOT,
       env: { SKY_CUA_NATIVE_PIPE_PATH: socketPath },
       tmpDir: tempDirectory,
     });
+    await host.createContext(FIXTURE_CTX);
   }, 60_000);
 
   afterAll(async () => {

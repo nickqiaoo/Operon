@@ -3,7 +3,15 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createComputerUse, type CreateComputerUseOptions } from "../createComputerUse.ts";
-import { NODE_REPL_TOOL_DESCRIPTION } from "./tool.ts";
+import {
+  ALL_NODE_REPL_SURFACES,
+  buildNodeReplToolDescription,
+  clampNodeReplOutput,
+  DEFAULT_OUTPUT_TOKEN_LIMIT,
+  JS_RESET_TOOL_DESCRIPTION,
+  type NodeReplSurface,
+} from "./tool.ts";
+import { buildNodeReplBanner } from "../banner.ts";
 import type { ElicitationResult } from "../NodeReplHost.ts";
 import { CODEX_TURN_METADATA_HEADER, type CodexTurnMetadata } from "../ipc.ts";
 import { formatNodeReplError } from "../error-format.ts";
@@ -39,9 +47,9 @@ import { formatNodeReplError } from "../error-format.ts";
  */
 const ELICITATION_TIMEOUT_MS = 5 * 60 * 1000;
 
-const JS_TOOL = {
+const jsTool = (surfaces: readonly NodeReplSurface[]) => ({
   name: "js",
-  description: NODE_REPL_TOOL_DESCRIPTION,
+  description: buildNodeReplToolDescription(surfaces),
   inputSchema: {
     type: "object",
     properties: {
@@ -56,7 +64,18 @@ const JS_TOOL = {
     },
     required: ["source"],
   },
+});
+
+const JS_RESET_TOOL = {
+  name: "js_reset",
+  description: JS_RESET_TOOL_DESCRIPTION,
+  inputSchema: { type: "object", properties: {} },
 } as const;
+
+export interface NodeReplMcpServer {
+  server: Server;
+  dispose(): Promise<void>;
+}
 
 const elicitResultSchema = z
   .object({ action: z.string(), content: z.unknown().optional(), _meta: z.unknown().optional() })
@@ -80,6 +99,17 @@ export interface NodeReplMcpServerOptions extends CreateComputerUseOptions {
   fallbackTurnMetadata?: () => CodexTurnMetadata | undefined;
   /** Merge host-only lifecycle fields without replacing the client's Codex metadata. */
   turnMetadataAugment?: () => Partial<CodexTurnMetadata> | undefined;
+  /**
+   * Which capabilities this session was built with, from the Settings toggles.
+   * Drives both the `js` description and the banner, so the model is promised
+   * exactly the globals the kernel will actually have.
+   *
+   * Defaults to all three, which is what a caller that has no toggles (tests,
+   * the standalone stdio server) wants.
+   */
+  surfaces?: readonly NodeReplSurface[];
+  /** Ceiling on the text of one tool result, in tokens. See DEFAULT_OUTPUT_TOKEN_LIMIT. */
+  outputTokenLimit?: number;
 }
 
 export async function buildNodeReplMcpServer(
@@ -89,6 +119,10 @@ export async function buildNodeReplMcpServer(
     { name: "node_repl", version: "0.1.0" },
     { capabilities: { tools: {}, logging: {} } },
   );
+
+  const surfaces = opts.surfaces ?? ALL_NODE_REPL_SURFACES;
+  const outputTokenLimit = opts.outputTokenLimit ?? DEFAULT_OUTPUT_TOKEN_LIMIT;
+  const tools = [jsTool(surfaces), JS_RESET_TOOL];
 
   // Live push channel for the current tools/call, set by the handler for the
   // duration of the run. Assumes execution is serial.
@@ -137,6 +171,9 @@ export async function buildNodeReplMcpServer(
 
   const cu = await createComputerUse({
     ...opts,
+    // Install the runtime for the enabled surfaces before the model's first
+    // line runs, so `computer` / `agent` exist without a bootstrap snippet.
+    banner: opts.banner ?? buildNodeReplBanner(surfaces),
     integration: {
       requestElicitation,
       // Live pushes during execution: the screenshot and text stream.
@@ -150,9 +187,17 @@ export async function buildNodeReplMcpServer(
   });
   const session = cu.createSession();
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [JS_TOOL] }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+    if (req.params.name === "js_reset") {
+      try {
+        await session.reset();
+        return { content: [{ type: "text", text: "node_repl session reset. Browser tabs and apps are unaffected." }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: formatNodeReplError(e) }], isError: true };
+      }
+    }
     if (req.params.name !== "js") {
       return { content: [{ type: "text", text: `Unknown tool: ${req.params.name}` }], isError: true };
     }
@@ -176,7 +221,10 @@ export async function buildNodeReplMcpServer(
     try {
       if (args.description) streamMessage({ type: "title", text: args.description }); // live title
       const { result, output, images, responseMeta } = await session.run(source, turnMetadata);
-      const text = output + (result !== undefined ? (output ? "\n" : "") + safeJson(result) : "");
+      const text = clampNodeReplOutput(
+        output + (result !== undefined ? (output ? "\n" : "") + safeJson(result) : ""),
+        outputTokenLimit,
+      );
       const content: CallToolResult["content"] = [];
       if (text || images.length === 0) content.push({ type: "text", text });
       for (const image of images) {

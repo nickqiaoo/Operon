@@ -21,18 +21,7 @@ Read `await agent.documentation.get("<name>")` only when one of these topics app
 
 Run all browser setup and browser API calls through the `node_repl` MCP `js` tool. Its visible name may be namespaced, such as `mcp__node_repl__js`. Do not replace this path with standalone Playwright, shell-launched browsers, or Computer Use.
 
-Initialize the runtime once per fresh JavaScript session:
-
-```js
-if (globalThis.agent?.browsers == null) {
-  const clientPath = nodeRepl.env?.OPERON_BROWSER_CLIENT_PATH;
-  if (typeof clientPath !== "string" || clientPath.length === 0) {
-    throw new Error("Operon Browser client is unavailable");
-  }
-  const { setupBrowserRuntime } = await import(clientPath);
-  await setupBrowserRuntime({ globals: globalThis });
-}
-```
+`agent` is already installed in every `node_repl` session before your first line of code runs. Do not import the browser client or write a setup guard; if `agent` is somehow missing, the first tool result of the session says why.
 
 Bind the in-app browser once, then print and read its complete documentation before the first interaction:
 

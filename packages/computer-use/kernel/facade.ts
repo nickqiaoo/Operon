@@ -9,6 +9,32 @@ interface ConnectionHandlers {
   data: Array<(buf: Buffer) => void>;
   error: Array<(err: Error) => void>;
   close: Array<() => void>;
+  /** Which vm context opened this connection, as an opaque token from
+   *  `captureScope`. Socket events arrive on the process message handler, far
+   *  outside the execution that created them, so the scope has to be carried
+   *  here and re-entered at dispatch or a `write` from a data handler would be
+   *  attributed to whichever conversation happens to be running. */
+  scope?: unknown;
+}
+
+/**
+ * Hooks that let one facade serve many vm contexts.
+ *
+ * The kernel runs a context per conversation but only one facade: every
+ * privileged call already funnels through `send`, so making `send` and
+ * `requestMeta` context-aware is enough to route everything else. entry.ts
+ * implements these with AsyncLocalStorage.
+ *
+ * Omit them and the facade behaves as a single-context one, which is what the
+ * direct-embedding tests want.
+ */
+export interface NodeReplFacadeScope {
+  /** Turn metadata of the context currently executing. */
+  requestMetaFor?: () => Record<string, unknown>;
+  /** Opaque token for the context currently executing. */
+  captureScope?: () => unknown;
+  /** Re-enter a captured context for the duration of `fn`. */
+  runInScope?: (scope: unknown, fn: () => void) => void;
 }
 
 /**
@@ -38,19 +64,32 @@ interface ConnectionHandlers {
  *   supplying `undefined` is equivalent to omitting it, and inventing an API
  *   that does nothing would be a lie.
  */
-export function createNodeReplFacade(send: SendRequest, init: KernelInit) {
+export function createNodeReplFacade(
+  send: SendRequest,
+  init: KernelInit,
+  scope: NodeReplFacadeScope = {},
+) {
+  const captureScope = scope.captureScope ?? (() => undefined);
+  const runInScope = scope.runInScope ?? ((_s: unknown, fn: () => void) => fn());
   const connections = new Map<string, ConnectionHandlers>();
   const afterSubmittedCodeHooks = new Set<{
     run(): Promise<void> | void;
     timeoutMs?: number;
+    /** The context that registered it; only that context's exec runs it. */
+    scope?: unknown;
   }>();
+
+  /** Sentinel for "run every context's hooks", the single-context default. */
+  const ALL_SCOPES = Symbol("all-scopes");
+  /** Used when no per-context resolver is installed (single-context embedding). */
+  let fallbackRequestMeta: Record<string, unknown> = init.requestMeta;
 
   const nativePipe = {
     async createConnection(path: string) {
       const { connectionId } = (await send("nativePipe.connect", { path })) as {
         connectionId: string;
       };
-      const handlers: ConnectionHandlers = { data: [], error: [], close: [] };
+      const handlers: ConnectionHandlers = { data: [], error: [], close: [], scope: captureScope() };
       connections.set(connectionId, handlers);
       return {
         on(event: "data" | "error" | "close", cb: (arg?: unknown) => void) {
@@ -78,14 +117,28 @@ export function createNodeReplFacade(send: SendRequest, init: KernelInit) {
   }) {
     const h = connections.get(evt.connectionId);
     if (!h) return;
-    if (evt.event === "nativePipe.data" && evt.dataBase64 != null) {
-      const buf = Buffer.from(evt.dataBase64, "base64");
-      for (const cb of h.data) cb(buf);
-    } else if (evt.event === "nativePipe.closed") {
-      if (evt.error) for (const cb of h.error) cb(new Error(evt.error));
-      for (const cb of h.close) cb();
-      connections.delete(evt.connectionId);
+    runInScope(h.scope, () => {
+      if (evt.event === "nativePipe.data" && evt.dataBase64 != null) {
+        const buf = Buffer.from(evt.dataBase64, "base64");
+        for (const cb of h.data) cb(buf);
+      } else if (evt.event === "nativePipe.closed") {
+        if (evt.error) for (const cb of h.error) cb(new Error(evt.error));
+        for (const cb of h.close) cb();
+        connections.delete(evt.connectionId);
+      }
+    });
+  }
+
+  /** Drop every connection a context opened. Called when its context is disposed
+   *  so a closed conversation does not leak handlers into the shared kernel. */
+  function forgetConnectionsInScope(target: unknown): string[] {
+    const dropped: string[] = [];
+    for (const [id, h] of connections) {
+      if (h.scope !== target) continue;
+      connections.delete(id);
+      dropped.push(id);
     }
+    return dropped;
   }
 
   const nodeRepl = {
@@ -109,16 +162,17 @@ export function createNodeReplFacade(send: SendRequest, init: KernelInit) {
       if (hook == null || typeof hook.run !== "function") {
         throw new Error("nodeRepl.addAfterSubmittedCodeHook expected a run function");
       }
-      afterSubmittedCodeHooks.add(hook);
-      return () => afterSubmittedCodeHooks.delete(hook);
+      const entry = { run: hook.run.bind(hook), timeoutMs: hook.timeoutMs, scope: captureScope() };
+      afterSubmittedCodeHooks.add(entry);
+      return () => afterSubmittedCodeHooks.delete(entry);
     },
     emitImage: (image: unknown) => send("emitImage", normalizeImage(image)),
     write: (text: string) => {
       void send("write", { text: String(text) });
     },
     env: init.env,
-    /** Refreshed by the host each turn through `setRequestMeta`; see its note below. */
-    requestMeta: init.requestMeta,
+    // `requestMeta` is installed below as a getter, not here: it has to resolve
+    // per context. See the defineProperty block.
     // Browser client dependencies; see the note above on which are required.
     tmpDir: init.tmpDir ?? os.tmpdir(),
     homeDir: os.homedir(),
@@ -176,8 +230,7 @@ export function createNodeReplFacade(send: SendRequest, init: KernelInit) {
    * enough for the next read to see it.
    */
   const setRequestMeta = (requestMeta: Record<string, unknown>) => {
-    nodeRepl.requestMeta = requestMeta;
-    untrusted.requestMeta = requestMeta;
+    fallbackRequestMeta = requestMeta;
   };
 
   /**
@@ -209,14 +262,37 @@ export function createNodeReplFacade(send: SendRequest, init: KernelInit) {
     emitImage: nodeRepl.emitImage,
     write: nodeRepl.write,
     env: init.env,
-    requestMeta: init.requestMeta,
+    // `requestMeta`: see the defineProperty block below.
     tmpDir: init.tmpDir ?? os.tmpdir(),
     homeDir: os.homedir(),
     cwd: process.cwd(),
   };
 
-  const runAfterSubmittedCodeHooks = async (): Promise<void> => {
+  /**
+   * `requestMeta` is a getter, not a field.
+   *
+   * Trusted modules are cached per process, so the browser SDK is one module
+   * instance shared by every context, and it reads its session through
+   * `globalThis.nodeRepl.requestMeta`. A plain field would hand whichever
+   * conversation wrote last to all of them — and session_id is the backend's
+   * tab-lease and ownership key, so that is not a cosmetic mix-up.
+   */
+  for (const target of [nodeRepl, untrusted] as Record<string, unknown>[]) {
+    Object.defineProperty(target, "requestMeta", {
+      configurable: true,
+      enumerable: true,
+      get: () => scope.requestMetaFor?.() ?? fallbackRequestMeta,
+    });
+  }
+
+  /**
+   * Run the hooks the finishing context registered — not every context's.
+   * These flush presentation state at the end of a turn; running another
+   * conversation's would emit its UI into this one's tool result.
+   */
+  const runAfterSubmittedCodeHooks = async (target: unknown = ALL_SCOPES): Promise<void> => {
     for (const hook of afterSubmittedCodeHooks) {
+      if (target !== ALL_SCOPES && hook.scope !== target) continue;
       try {
         const run = Promise.resolve().then(() => hook.run());
         if (hook.timeoutMs == null) {
@@ -247,6 +323,7 @@ export function createNodeReplFacade(send: SendRequest, init: KernelInit) {
     nodeRepl,
     untrustedNodeRepl: untrusted,
     dispatchConnectionEvent,
+    forgetConnectionsInScope,
     setRequestMeta,
     runAfterSubmittedCodeHooks,
   };

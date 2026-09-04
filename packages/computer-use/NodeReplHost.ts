@@ -14,6 +14,22 @@ export interface ElicitationResult {
   _meta?: unknown;
 }
 
+/**
+ * The parts of a host that belong to one conversation rather than to the
+ * process. Everything else — the import allowlist, `nodeRepl.env`, the config
+ * store, the sockets — is identical for every context and stays on the host.
+ */
+export interface NodeReplContextHandlers {
+  /** Text callback for nodeRepl.write, wired into one chat's stream. */
+  onWrite?: (text: string) => void;
+  /** Callback for nodeRepl.emitImage. */
+  onImage?: (img: EmittedImage) => void;
+  /** Routes nodeRepl.createElicitation to that chat's authorize flow. */
+  onElicitation?: (req: { message: string; meta?: unknown }) => Promise<ElicitationResult>;
+  /** nodeRepl.launchServices.openApplication */
+  launchApplication?: (target: unknown) => Promise<void>;
+}
+
 export interface NodeReplHostOptions {
   /** Injected as the kernel's `nodeRepl.env` (e.g. SKY_CUA_NATIVE_PIPE_PATH).
    *  Visible to the model. This is not the process env. */
@@ -79,7 +95,7 @@ export interface NodeReplHostOptions {
    * token stays in-process: it never goes through env and never enters the
    * kernel sandbox. See the authentication note in computer/wire.ts.
    */
-  cuAuthToken?: string;
+  cuAuthToken?: string | (() => string | undefined);
   /** The CU socket path that requires authentication. Gated together with
    *  {@link cuAuthToken} so the browser-use socket is never sent auth frames. */
   cuSocketPath?: string;
@@ -119,7 +135,20 @@ export class NodeReplHost {
   private connSeq = 0;
   private disposed = false;
   private readonly opts: NodeReplHostOptions;
-  responseMeta: Record<string, unknown> = {};
+  /**
+   * The conversations this kernel is serving.
+   *
+   * One process, a vm context each. A `write` or an elicitation arrives tagged
+   * with its context so it reaches the right chat; without that tag a shared
+   * kernel would post one conversation's output into another.
+   */
+  /** Rejects `ready` when the kernel dies before announcing itself. */
+  private onReadyFailed: (e: Error) => void = () => {};
+  private exitReason: string | undefined;
+  private readonly contexts = new Map<
+    string,
+    { handlers: NodeReplContextHandlers; responseMeta: Record<string, unknown> }
+  >();
 
   constructor(opts: NodeReplHostOptions = {}) {
     this.opts = opts;
@@ -132,9 +161,15 @@ export class NodeReplHost {
       tmpDir: opts.tmpDir,
     };
     let readyResolve!: () => void;
-    this.ready = new Promise<void>((r) => {
-      readyResolve = r;
+    let readyReject!: (e: Error) => void;
+    this.ready = new Promise<void>((resolve, reject) => {
+      readyResolve = resolve;
+      readyReject = reject;
     });
+    // Nothing may await `ready` forever: a kernel that dies during startup
+    // (a missing tsx, a bad entry path) would otherwise wedge every caller.
+    this.ready.catch(() => {});
+    this.onReadyFailed = readyReject;
     this.child = fork(opts.kernelEntry ?? defaultKernelEntry(), [], {
       cwd: opts.cwd ?? process.cwd(),
       execArgv: opts.execArgv ?? DEFAULT_EXEC_ARGV,
@@ -143,6 +178,14 @@ export class NodeReplHost {
       // is above us, above all the stdout channel of a stdio MCP server.
       // stderr is inherited for debugging. fd3 carries the IPC control channel.
       stdio: ["ignore", "ignore", "inherit", "ipc"],
+    });
+    // A kernel that dies takes every in-flight call with it. Rejecting them with
+    // a clear reason beats leaving them pending forever — and on a shared kernel
+    // "forever" would mean every conversation at once.
+    this.child.once("exit", (code, signal) => {
+      this.handleChildExit(
+        `node_repl kernel exited unexpectedly (${signal ? `signal=${signal}` : `code=${code ?? "unknown"}`})`,
+      );
     });
     this.child.on("message", (msg: { kind: string } & Record<string, unknown>) => {
       if (msg.kind === "ready") readyResolve();
@@ -158,17 +201,6 @@ export class NodeReplHost {
    * was baked into the env at fork time. Without this refresh turn_id freezes at
    * the first turn and the browser client works against a stale one.
    */
-  setTurnMetadata(turnMetadata: CodexTurnMetadata, extraRequestMeta?: Record<string, unknown>) {
-    this.post({
-      kind: "setRequestMeta",
-      requestMeta: {
-        ...this.opts.requestMeta,
-        ...extraRequestMeta,
-        [CODEX_TURN_METADATA_HEADER]: turnMetadata,
-      },
-    });
-  }
-
   private onExecResult(msg: { id: number; ok: boolean; result?: unknown; error?: string }) {
     const p = this.execPending.get(msg.id);
     if (!p) return;
@@ -188,6 +220,38 @@ export class NodeReplHost {
     }
   }
 
+  /**
+   * Whether this kernel can still serve calls.
+   *
+   * A shared kernel is held by a getter rather than by reference precisely so a
+   * dead one can be replaced; this is what the getter checks.
+   */
+  get alive(): boolean {
+    return !this.disposed && this.exitReason == null && this.child.connected;
+  }
+
+  private handleChildExit(reason: string): void {
+    if (this.exitReason != null) return;
+    this.exitReason = reason;
+    this.onReadyFailed(new Error(reason));
+    const error = new Error(reason);
+    for (const p of this.execPending.values()) p.reject(error);
+    this.execPending.clear();
+    for (const p of this.pendingHostRequests()) p.reject(error);
+    this.contexts.clear();
+    for (const s of this.sockets.values()) {
+      s.removeAllListeners();
+      s.destroy();
+    }
+    this.sockets.clear();
+  }
+
+  /** No host-side request map exists today; kept as a seam so a future one is
+   *  cleaned up here too rather than being forgotten. */
+  private pendingHostRequests(): Array<{ reject: (e: Error) => void }> {
+    return [];
+  }
+
   private respond(id: number, ok: boolean, result?: unknown, error?: string) {
     this.post({ kind: "res", id, ok, result, error });
   }
@@ -200,16 +264,29 @@ export class NodeReplHost {
     this.post({ kind: "event", event, connectionId, ...extra });
   }
 
-  private async handleRequest(msg: { id: number; method: string; params: unknown }) {
+  private async handleRequest(msg: { id: number; ctx?: string; method: string; params: unknown }) {
     try {
-      this.respond(msg.id, true, await this.privileged(msg.method, msg.params));
+      this.respond(msg.id, true, await this.privileged(msg.ctx, msg.method, msg.params));
     } catch (e) {
       this.respond(msg.id, false, undefined, e instanceof Error ? e.message : String(e));
     }
   }
 
-  private async privileged(method: string, params: unknown): Promise<unknown> {
+  /**
+   * Per-conversation callbacks, falling back to the constructor's.
+   *
+   * The fallback is what keeps a single-context embedding working unchanged:
+   * pass `onWrite` to the constructor and one context still finds it. A shared
+   * host registers its handlers per context instead and passes none here.
+   */
+  private handlers(ctx: string | undefined): NodeReplContextHandlers {
+    const registered = ctx != null ? this.contexts.get(ctx)?.handlers : undefined;
+    return registered ?? this.opts;
+  }
+
+  private async privileged(ctx: string | undefined, method: string, params: unknown): Promise<unknown> {
     const p = params as Record<string, unknown>;
+    const handlers = this.handlers(ctx);
     switch (method) {
       case "nativePipe.connect": {
         const connectionId = `c${this.connSeq++}`;
@@ -231,8 +308,13 @@ export class NodeReplHost {
         // that protocol. Both token and path are host-side constructor arguments.
         // This method runs in the host process, not the kernel sandbox, and
         // neither value ever reaches the model-visible nodeRepl.env.
-        if (this.opts.cuAuthToken && String(p.path) === this.opts.cuSocketPath) {
-          socket.write(encodeAuthFrame(this.opts.cuAuthToken));
+        // Resolved at connect time, not at construction: a shared kernel outlives
+        // the Computer Use engine, and a restarted engine issues a new token.
+        const cuAuthToken = typeof this.opts.cuAuthToken === "function"
+          ? this.opts.cuAuthToken()
+          : this.opts.cuAuthToken;
+        if (cuAuthToken && String(p.path) === this.opts.cuSocketPath) {
+          socket.write(encodeAuthFrame(cuAuthToken));
         }
         return { connectionId };
       }
@@ -243,20 +325,22 @@ export class NodeReplHost {
         this.sockets.get(String(p.connectionId))?.end();
         return {};
       case "launchServices.openApplication":
-        await this.opts.launchApplication?.(p.target);
+        await handlers.launchApplication?.(p.target);
         return {};
       case "createElicitation":
-        return this.opts.onElicitation
-          ? await this.opts.onElicitation(p as { message: string; meta?: unknown })
+        return handlers.onElicitation
+          ? await handlers.onElicitation(p as { message: string; meta?: unknown })
           : { action: "accept" };
-      case "setResponseMeta":
-        this.responseMeta = { ...this.responseMeta, ...(p.meta as object) };
+      case "setResponseMeta": {
+        const entry = ctx != null ? this.contexts.get(ctx) : undefined;
+        if (entry) entry.responseMeta = { ...entry.responseMeta, ...(p.meta as object) };
         return {};
+      }
       case "emitImage":
-        this.opts.onImage?.(p as EmittedImage);
+        handlers.onImage?.(p as EmittedImage);
         return {};
       case "write":
-        this.opts.onWrite?.(String(p.text));
+        handlers.onWrite?.(String(p.text));
         return {};
       // ---- nodeRepl.config: browser security policy and approval memory
       //      (see configStore.ts) ----
@@ -279,14 +363,70 @@ export class NodeReplHost {
     }
   }
 
-  /** Run a piece of model code in the persistent context and return its completion value. */
-  async exec(code: string): Promise<unknown> {
+  /**
+   * Register a conversation and build its vm context in the kernel.
+   *
+   * Idempotent: re-registering an id replaces the handlers, which is what a
+   * reconnecting MCP transport needs.
+   */
+  async createContext(ctx: string, handlers: NodeReplContextHandlers = {}): Promise<void> {
     await this.ready;
-    this.responseMeta = {};
+    this.contexts.set(ctx, { handlers, responseMeta: {} });
+    await this.control({ kind: "createContext", ctx });
+  }
+
+  /** Drop a conversation's context. The process and every other context live on. */
+  async disposeContext(ctx: string): Promise<void> {
+    if (!this.contexts.delete(ctx)) return;
+    if (this.disposed || !this.child.connected) return;
+    await this.control({ kind: "disposeContext", ctx }).catch(() => {});
+  }
+
+  /** How many conversations this kernel is serving. */
+  get contextCount(): number {
+    return this.contexts.size;
+  }
+
+  /** Response metadata accumulated by one context's last exec. */
+  responseMetaFor(ctx: string): Record<string, unknown> {
+    return { ...(this.contexts.get(ctx)?.responseMeta ?? {}) };
+  }
+
+  /** A control message that the kernel acknowledges through the exec channel. */
+  private control(msg: { kind: "createContext" | "disposeContext"; ctx: string }): Promise<unknown> {
     const id = ++this.execSeq;
     return new Promise<unknown>((resolve, reject) => {
       this.execPending.set(id, { resolve, reject });
-      this.child.send({ kind: "exec", id, code } satisfies HostToKernel);
+      this.child.send({ ...msg, id } satisfies HostToKernel);
+    });
+  }
+
+  setTurnMetadata(
+    ctx: string,
+    turnMetadata: CodexTurnMetadata,
+    extraRequestMeta?: Record<string, unknown>,
+  ) {
+    this.post({
+      kind: "setRequestMeta",
+      ctx,
+      requestMeta: {
+        ...this.opts.requestMeta,
+        ...extraRequestMeta,
+        [CODEX_TURN_METADATA_HEADER]: turnMetadata,
+      },
+    });
+  }
+
+  /** Run a piece of model code in one conversation's context and return its
+   *  completion value. */
+  async exec(ctx: string, code: string): Promise<unknown> {
+    await this.ready;
+    const entry = this.contexts.get(ctx);
+    if (entry) entry.responseMeta = {};
+    const id = ++this.execSeq;
+    return new Promise<unknown>((resolve, reject) => {
+      this.execPending.set(id, { resolve, reject });
+      this.child.send({ kind: "exec", id, ctx, code } satisfies HostToKernel);
     });
   }
 

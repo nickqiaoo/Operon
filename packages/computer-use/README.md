@@ -268,7 +268,7 @@ a default session.
 | `ComputerUseIntegration` | The host integration contract (requestElicitation, onOutput, onImage, launchApplication). |
 | `ComputerUseService` | Swift service lifecycle: spawn, socket, stop. |
 | `NodeReplSession` | A persistent session; `run(code)` returns `{result, output, images}`. |
-| `NodeReplHost` | The low level: kernel child process plus the privileged nodeRepl surface. |
+| `NodeReplHost` | The low level: kernel child process plus the privileged nodeRepl surface. One host can serve many conversations — see "One kernel, many contexts". |
 | `createNodeReplTool` | The zod tool adapter. Optional; the core does not depend on zod. |
 
 ## Layout
@@ -280,10 +280,11 @@ ComputerUseService.ts  Swift service lifecycle
 NodeReplSession.ts     Persistent session
 NodeReplHost.ts        Host side: the parent process holding socket, launch and elicitation
 ipc.ts                 host <-> kernel message protocol
-kernel/entry.ts        Kernel child process: vm.createContext with process denied
+kernel/entry.ts        Kernel child process: a vm context per conversation, process denied
 kernel/facade.ts       The globalThis.nodeRepl surface
-adapters/tool.ts       zod tool adapter (optional, for direct embedding)
-adapters/mcp.ts        MCP server adapter: node_repl as an MCP server with a `js` tool
+banner.ts              Runtime setup run once per kernel, before the model's first line
+adapters/tool.ts       zod tool adapter, plus the per-surface `js` description and output clamp
+adapters/mcp.ts        MCP server adapter: node_repl as an MCP server with `js` and `js_reset`
 adapters/mcp-server.ts Executable stdio entry point, referenced from mcp.json
 skill/                 The Computer Use skill (SKILL.md, node-repl.md)
 runtime.ts             Idempotent setupComputerUseRuntime bootstrap
@@ -311,7 +312,42 @@ operations — sockets, launching, elicitation — go to the host over IPC, and 
 kernel holds no raw system handles. Genuinely dangerous actions are gated by
 `requestElicitation` reaching the host's authorization flow.
 
-This is a soft sandbox, not `isolated-vm` and not an OS seatbelt.
+This is a soft sandbox, not `isolated-vm` and not an OS seatbelt. Model code can
+reach the filesystem through `node:fs`, with the privileges of the host process.
+
+## One kernel, many contexts
+
+A `NodeReplSession` is one conversation. Give it a `host` and it takes a vm
+context in that kernel; leave `host` out and it forks a kernel of its own.
+
+The split follows the cost. Measured on an M-series Mac: a kernel process is
+~63 MB and ~115 ms of fork plus tsx startup, while `vm.createContext` is ~0.2 MB
+and ~190 µs. What a conversation actually needs is its own `globalThis`, which
+is the cheap half — so operon shares the process and not the contexts. Six
+sessions went from six processes, ~380 MB and ~756 ms to one process, ~90 MB and
+~147 ms, with only the first paying the fork.
+
+Isolation is unchanged: contexts do not share globals, so one conversation
+cannot see another's variables.
+
+What the sharing does require is that **everything leaving the kernel names the
+context that caused it**. Trusted modules are cached per process — the browser
+SDK is a single module instance shared by every context, and it finds its
+session through `globalThis.nodeRepl.requestMeta` — so a plain field would hand
+whichever conversation wrote last to all of them, and `session_id` is the
+backend's tab-lease and ownership key. `kernel/entry.ts` therefore keeps the
+executing context in an `AsyncLocalStorage`: `send` tags each outbound request
+with it, `requestMeta` is a getter that resolves through it, and the façade
+captures and re-enters it for socket handlers, which fire outside any execution.
+`node-repl-multiplex.test.ts` pins this, including under interleaved execution.
+
+Codex reaches the same conclusion about the ALS and stops one step earlier: its
+kernel is spawned inside an OS sandbox (`sandbox-exec` / Landlock) bound to one
+conversation's `sandboxCwd` and permission profile, so a second context would
+still need a second process — hence its `sandbox_changed` → "kernel reset, rerun
+your request" path. We put no OS sandbox on the kernel, so the process boundary
+carries no isolation we lose by sharing it. Adding one later would make this
+design invalid, not merely slower.
 
 ## Open: a virtual cursor
 

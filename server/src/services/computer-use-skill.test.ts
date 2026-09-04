@@ -67,8 +67,12 @@ describe('installComputerUseSkill', () => {
       'description: Control local Mac apps through Operon Computer Use for tasks that require reading or operating app UI. Prefer purpose-built connectors, APIs, or CLIs when available.',
     )
     expect(body).toContain('target: "mac"')
-    expect(body).toContain('setupComputerUseRuntime')
-    expect(body).toContain('OPERON_COMPUTER_USE_CLIENT_PATH')
+    // The bootstrap snippet is gone on purpose: the banner installs `computer`
+    // before the model's first line, so a skill that still taught a setup guard
+    // would be teaching a wasted turn. See packages/computer-use/banner.ts.
+    expect(body).not.toContain('setupComputerUseRuntime')
+    expect(body).not.toContain('OPERON_COMPUTER_USE_CLIENT_PATH')
+    expect(body).toContain('`computer` is already installed')
     expect(body).toContain('node_repl` state is persistent across calls')
     expect(body).toContain('JSON.stringify(...)')
     expect(body).toContain('cannot invoke global shortcuts')

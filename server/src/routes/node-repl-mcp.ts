@@ -8,11 +8,15 @@
  * ## Why one route per session rather than a single shared server
  *
  * The kernel keeps `globalThis` alive across turns, which is exactly how
- * `agent.browsers` gets reused. Two conversations sharing one kernel would
- * therefore see each other's variables. So each sessionId gets its own
- * `NodeReplSession`, meaning its own kernel child process. The route itself is
- * shared and reads identity from the URL, the same shape as workspace-chat,
- * task-board and memory (`mcp-config.ts` bakes identity into the URL).
+ * `agent.browsers` gets reused. Two conversations sharing one JavaScript world
+ * would therefore see each other's variables. So each sessionId gets its own
+ * `NodeReplSession`, meaning its own vm context. The route itself is shared and
+ * reads identity from the URL, the same shape as workspace-chat, task-board and
+ * memory (`mcp-config.ts` bakes identity into the URL).
+ *
+ * The *process* is shared, though: contexts are what isolate conversations, and
+ * they are ~0.2 MB against ~63 MB for a kernel process. See sharedNodeReplKernel
+ * below and "One kernel, many contexts" in the package README.
  *
  * ## Why identity comes from the URL rather than from request metadata
  *
@@ -35,7 +39,9 @@ import {
   buildNodeReplMcpServer,
   createTomlConfigStore,
   ComputerUseService,
+  NodeReplHost,
   OPERON_COMPUTER_USE_CLIENT_PATH_ENV,
+  type NodeReplSurface,
 } from '@operon/computer-use'
 import {
   OPERON_BUILD_FLAVOR,
@@ -207,16 +213,17 @@ interface Entry extends StatefulMcpTransportHolder {
    */
 }
 
-/** sessionId -> that session's node_repl, one kernel child process each. */
+/** sessionId -> that session's node_repl, one vm context each in the shared kernel. */
 const bySession = new Map<string, Entry>()
 
 /**
  * Sessions currently being created. This map is load-bearing: an MCP client's
  * `connect()` sends the initialize POST and opens the GET SSE stream almost
- * simultaneously, and with no entry in `bySession` yet both requests would fork
- * their own kernel child process. The second would then evict the first from
- * the map, leaving an orphan process nothing can reach. Building a kernel is
- * async and slow (fork plus tsx startup), so that window is easy to hit.
+ * simultaneously, and with no entry in `bySession` yet both requests would build
+ * their own session. The second would then evict the first from the map, leaving
+ * an orphan context nothing can reach — and, on the very first session, an
+ * orphan kernel process too. Building a session is async (and slow when it is
+ * the one that forks the kernel), so that window is easy to hit.
  */
 const inFlight = new Map<string, Promise<Entry>>()
 
@@ -245,8 +252,16 @@ let computerUseService: ComputerUseService | null = null
  * Letting Browser Use keep working, and giving the model a clear error only
  * when it actually calls `computer.*`, beats failing to build node_repl at all.
  */
-async function ensureComputerUseService(): Promise<string | null> {
-  if (!getComputerUseConfig().enabled) return null
+/**
+ * The service object, constructed but not started.
+ *
+ * The shared kernel needs `socketPath` at fork time, and the toggle may be off
+ * then. Constructing is free — the path is derived from the pid and no process
+ * is spawned — so the kernel can always be told where the engine *would* be and
+ * simply fail to connect while it is not running, which is the behaviour the
+ * model already sees for a disabled Computer Use.
+ */
+function computerUseServiceInstance(): ComputerUseService {
   computerUseService ??= new ComputerUseService({
     ...(COMPUTER_USE_BINARY ? { binaryPath: COMPUTER_USE_BINARY } : {}),
     restartDelaysMs: [100, 500, 2_000, 5_000],
@@ -259,15 +274,65 @@ async function ensureComputerUseService(): Promise<string | null> {
       logger.warn(`computer use engine exited unexpectedly (${status})${stderr ? `: ${stderr}` : ''}`)
     },
   })
+  return computerUseService
+}
+
+async function ensureComputerUseService(): Promise<string | null> {
+  if (!getComputerUseConfig().enabled) return null
+  const service = computerUseServiceInstance()
   try {
     // start() also performs a real socket connect. A live child with a dead or
     // stale socket is restarted in place, preserving the path baked into kernels.
-    await computerUseService.start()
+    await service.start()
   } catch (e) {
     logger.warn(`computer use engine unavailable: ${e instanceof Error ? e.message : String(e)}`)
     return null
   }
-  return computerUseService.socketPath
+  return service.socketPath
+}
+
+/**
+ * The one kernel process every conversation shares.
+ *
+ * Before this there was a kernel per chat: ~63 MB and ~115 ms of fork each,
+ * with no cap on how many could pile up. What a conversation actually needs is
+ * its own `globalThis`, and that is a vm context — ~0.2 MB, ~190 µs — so the
+ * process is now shared and the contexts are not. Isolation is unchanged:
+ * contexts do not see each other's variables, and every privileged call is
+ * tagged with the context that made it so output and approvals reach the right
+ * chat.
+ *
+ * Held behind a getter rather than passed by reference so a kernel that died
+ * can be replaced: sessions re-create their context in the new process on their
+ * next call instead of staying broken until the app restarts.
+ */
+let sharedKernel: NodeReplHost | null = null
+
+function sharedNodeReplKernel(): NodeReplHost {
+  if (sharedKernel?.alive) return sharedKernel
+  const service = computerUseServiceInstance()
+  sharedKernel = new NodeReplHost({
+    // `nodeRepl.env`, which the model reads. Every entry here is a module-level
+    // constant, identical for every conversation, which is what makes one
+    // process legitimate in the first place.
+    env: {
+      SKY_CUA_NATIVE_PIPE_PATH: service.socketPath,
+      [BUILD_FLAVOR_ENV]: OPERON_BUILD_FLAVOR,
+      [OPERON_BROWSER_CLIENT_PATH_ENV]: BROWSER_CLIENT_PATH,
+      [OPERON_COMPUTER_USE_CLIENT_PATH_ENV]: COMPUTER_USE_CLIENT_PATH,
+      [OPERON_SITE_ADAPTERS_PATH_ENV]: SITE_ADAPTERS_ENTRY,
+    },
+    // The kernel process's own env, invisible to the model: the import allowlist.
+    processEnv: { NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: TRUSTED_MODULE_SHA256S },
+    configStore: createTomlConfigStore(),
+    ...(KERNEL_ENTRY ? { kernelEntry: KERNEL_ENTRY, execArgv: KERNEL_EXEC_ARGV } : {}),
+    cuSocketPath: service.socketPath,
+    // A getter, because the engine can be stopped and restarted under a live
+    // kernel and a restarted engine issues a new token.
+    cuAuthToken: () => computerUseService?.authToken,
+  })
+  logger.info('forked shared node_repl kernel')
+  return sharedKernel
 }
 
 /**
@@ -318,6 +383,15 @@ function sweepIdle() {
     void e.dispose().catch(() => {})
     logger.info(`disposed idle node_repl session ${id}`)
   }
+  // With every conversation gone the kernel is ~63 MB serving nothing. Let it go;
+  // the next session pays one fork to bring it back, which is the same cost it
+  // would have paid anyway.
+  if (bySession.size === 0 && sharedKernel) {
+    const kernel = sharedKernel
+    sharedKernel = null
+    void kernel.dispose().catch(() => {})
+    logger.info('disposed idle shared node_repl kernel')
+  }
 }
 
 async function entryFor(sessionId: string): Promise<Entry> {
@@ -338,11 +412,24 @@ async function buildEntry(sessionId: string): Promise<Entry> {
   // calling `computer.*` fails to reach the socket and gets an error, while
   // Browser Use, which does not need it, keeps working.
   const socketPath = await ensureComputerUseService()
+  // The surfaces this session gets, from the same three toggles mcp-config gates
+  // the mount on. They decide two things the model sees directly: which globals
+  // the banner installs, and what the `js` description claims exists.
+  //
+  // Baked in at creation, like the URL and the kernel itself. A toggle flipped
+  // later cannot reach a live session; the route's own check catches the case
+  // where all three went off.
+  const surfaces: NodeReplSurface[] = [
+    ...(getComputerUseConfig().enabled ? (['computer'] as const) : []),
+    ...(getBrowserUseConfig().enabled ? (['browser'] as const) : []),
+    ...(getChromeUseConfig().enabled ? (['chrome'] as const) : []),
+  ]
   const chatId = Number(sessionId)
   const hostElicitation = Number.isSafeInteger(chatId) && chatId > 0
     ? (request: { message: string; meta?: unknown }) => requestOperonElicitation(chatId, request)
     : undefined
   const built = await buildNodeReplMcpServer({
+    surfaces,
     // Always `autoStart: false`, even when Computer Use is on. This code path is
     // per-session, and `createComputerUse` would `new ComputerUseService(...)`
     // and start it. That service defaults its socketPath to
@@ -357,41 +444,12 @@ async function buildEntry(sessionId: string): Promise<Entry> {
       ...(COMPUTER_USE_BINARY ? { binaryPath: COMPUTER_USE_BINARY } : {}),
       ...(socketPath ? { socketPath } : {}),
     },
-    ...(KERNEL_ENTRY
-      ? { kernelEntry: KERNEL_ENTRY, execArgv: KERNEL_EXEC_ARGV }
-      : {}),
-    // Env for the kernel *process*. The model never sees it: there is no
-    // `process` inside the sandbox. The import allowlist is read from here, and
-    // without these entries the model could not even import our own
-    // browser-client, since only `node:` builtins are permitted by default.
-    processEnv: {
-      NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: TRUSTED_MODULE_SHA256S,
-    },
-    // Startup token for the CU socket, so the kernel host (NodeReplHost) can
-    // send an authenticating first frame. It has to be the *shared* engine's
-    // token: this module passes autoStart:false so the factory starts nothing,
-    // and the process actually enforcing the token is the computerUseService
-    // that ensureComputerUseService() started above. Only set when CU is on.
-    ...(socketPath && computerUseService
-      ? { cuAuthToken: computerUseService.authToken }
-      : {}),
-    env: {
-      // IAB-only selection key. Chrome extension backends deliberately ignore app flavor.
-      // Production currently uses "operon"; isolated tests may override it.
-      [BUILD_FLAVOR_ENV]: OPERON_BUILD_FLAVOR,
-      // The Browser skill is installed into user-level agent directories, while
-      // this client ships inside the app. Give the skill the resolved absolute
-      // path through the restricted nodeRepl.env instead of baking a machine-
-      // specific path into SKILL.md.
-      [OPERON_BROWSER_CLIENT_PATH_ENV]: BROWSER_CLIENT_PATH,
-      // Codex runs the same idempotent setup guard in every fresh JavaScript
-      // session. Keep the installed skill portable by injecting our signed
-      // runtime entry instead of writing an absolute path into SKILL.md.
-      [OPERON_COMPUTER_USE_CLIENT_PATH_ENV]: COMPUTER_USE_CLIENT_PATH,
-      // Site-adapter entry (bilibili.hot, …). Same path injection pattern as the
-      // browser client — skills never hard-code install locations.
-      [OPERON_SITE_ADAPTERS_PATH_ENV]: SITE_ADAPTERS_ENTRY,
-    },
+    // One shared kernel process, a vm context per conversation. The fork-time
+    // configuration that used to be repeated here — nodeRepl.env, the import
+    // allowlist, the config store, the CU socket and its token — is identical
+    // for every session and now lives on the shared kernel; see
+    // sharedNodeReplKernel above.
+    host: sharedNodeReplKernel,
     // Most MCP clients do not know Codex's private per-tool metadata. The route
     // already owns the conversation identity, so make it the standards-based
     // fallback and synthesize the opaque turn id on every js invocation.
@@ -406,6 +464,8 @@ async function buildEntry(sessionId: string): Promise<Entry> {
       ? { integration: { requestElicitation: hostElicitation } }
       : {}),
     // Backend for `nodeRepl.config`: browser security policy plus remembered approvals.
+    // With `host` set this is the fallback for a session that forks its own kernel;
+    // the shared kernel carries its own store. Both are createTomlConfigStore().
     // Omit it and `tab.goto()` fails with "Browser security unavailable outside
     // node repl": the presence of a config is what tells the SDK it is running
     // inside a node repl at all (see the config comment in kernel/facade.ts).
@@ -476,5 +536,10 @@ export async function disposeAllNodeReplSessions(): Promise<void> {
   const all = [...bySession.values()]
   bySession.clear()
   await Promise.allSettled(all.map((e) => e.dispose()))
+  // The kernel is shared, so no session's dispose kills it. It is a long-lived
+  // child process we forked, and clearing only the contexts would leave it running.
+  const kernel = sharedKernel
+  sharedKernel = null
+  await kernel?.dispose().catch(() => {})
   await stopComputerUseService()
 }

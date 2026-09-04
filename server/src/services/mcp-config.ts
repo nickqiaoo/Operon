@@ -117,8 +117,9 @@ export function buildMcpServersForCli(
   //
   // The sessionId is baked into the URL. The kernel keeps `globalThis` alive
   // across turns, which is how `agent.browsers` gets reused, so two conversations
-  // sharing one kernel would see each other's variables. The route therefore
-  // gives each sessionId its own kernel.
+  // sharing one JavaScript world would see each other's variables. The route
+  // therefore gives each sessionId its own vm context (inside a kernel process
+  // shared by all of them).
   // This is also why identity does not come from per-request metadata: a
   // statically configured kernel is spawned identically for every session and can
   // only be told who it is on each request. Operon computes mcpServers per session

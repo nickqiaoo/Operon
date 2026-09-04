@@ -41,9 +41,21 @@ export { createTomlConfigStore, noopConfigStore } from "./configStore.ts";
 export type { NodeReplConfigStore, TomlConfigStoreOptions } from "./configStore.ts";
 
 // ---- Tool adapter (zod, optional) ----
-export { createNodeReplTool, nodeReplInputSchema, NODE_REPL_TOOL_DESCRIPTION } from "./adapters/tool.ts";
-export type { NodeReplTool } from "./adapters/tool.ts";
+export {
+  createNodeReplTool,
+  nodeReplInputSchema,
+  NODE_REPL_TOOL_DESCRIPTION,
+  JS_RESET_TOOL_DESCRIPTION,
+  buildNodeReplToolDescription,
+  ALL_NODE_REPL_SURFACES,
+  clampNodeReplOutput,
+  DEFAULT_OUTPUT_TOKEN_LIMIT,
+} from "./adapters/tool.ts";
+export type { NodeReplTool, NodeReplSurface } from "./adapters/tool.ts";
+
+// Runtime setup spliced in before the model's first cell (see banner.ts).
+export { buildNodeReplBanner } from "./banner.ts";
 
 // ---- MCP server adapter: node_repl as an MCP server exposing a `js` tool ----
 export { buildNodeReplMcpServer } from "./adapters/mcp.ts";
-export type { NodeReplMcpServer } from "./adapters/mcp.ts";
+export type { NodeReplMcpServer, NodeReplMcpServerOptions } from "./adapters/mcp.ts";

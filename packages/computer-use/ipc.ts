@@ -6,10 +6,18 @@
 // as a message and performed there. Socket bytes always cross the boundary as
 // base64.
 
-/** kernel to host: a privileged request that expects a response. */
+/**
+ * kernel to host: a privileged request that expects a response.
+ *
+ * `ctx` names the vm context the request came from. One kernel process serves
+ * many of them (one per conversation), and the host has different handlers for
+ * each — a `write` has to reach the right chat, an elicitation the right
+ * approval dialog — so every request carries its origin.
+ */
 export interface KernelRequest {
   kind: "req";
   id: number;
+  ctx: string;
   method: PrivilegedMethod;
   params: unknown;
 }
@@ -39,7 +47,8 @@ export interface EmittedImage {
   url?: string;
 }
 
-/** kernel to host: the result of one execution. */
+/** kernel to host: the result of one execution. `id` is unique across contexts,
+ *  so the host routes on it alone. */
 export interface KernelExecResult {
   kind: "execResult";
   id: number;
@@ -68,10 +77,27 @@ export interface HostEvent {
   error?: string;
 }
 
-/** host to kernel: run a piece of model code. */
+/** host to kernel: create a vm context. Idempotent; the kernel replies "ready"
+ *  for the id so the host can await it. */
+export interface HostCreateContext {
+  kind: "createContext";
+  id: number;
+  ctx: string;
+}
+
+/** host to kernel: drop a vm context and everything in it. The globals and any
+ *  sockets it opened go with it; other contexts are untouched. */
+export interface HostDisposeContext {
+  kind: "disposeContext";
+  id: number;
+  ctx: string;
+}
+
+/** host to kernel: run a piece of model code in one context. */
 export interface HostExec {
   kind: "exec";
   id: number;
+  ctx: string;
   code: string;
 }
 
@@ -86,10 +112,17 @@ export interface HostExec {
  */
 export interface HostSetRequestMeta {
   kind: "setRequestMeta";
+  ctx: string;
   requestMeta: Record<string, unknown>;
 }
 
-export type HostToKernel = HostResponse | HostEvent | HostExec | HostSetRequestMeta;
+export type HostToKernel =
+  | HostResponse
+  | HostEvent
+  | HostExec
+  | HostSetRequestMeta
+  | HostCreateContext
+  | HostDisposeContext;
 
 /**
  * The requestMeta key carrying turn metadata. The Computer Use client and the

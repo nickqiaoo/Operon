@@ -15,20 +15,9 @@ description: Control local Mac apps through Operon Computer Use for tasks that r
 
 ## Bootstrap
 
-Load Computer Use through the Operon-owned wrapper. Do not import its internal client implementation directly from the JavaScript session.
+None. `computer` is already installed in every `node_repl` session before your first line of code runs, and stays for the life of the session. Call it directly.
 
-Run this once per fresh `node_repl` session. Repeating the guard is safe because the JavaScript session persists and the setup wrapper is idempotent:
-
-```js
-if (!globalThis.computer) {
-  const clientPath = nodeRepl.env?.OPERON_COMPUTER_USE_CLIENT_PATH;
-  if (typeof clientPath !== "string" || clientPath.length === 0) {
-    throw new Error("Operon Computer Use client is unavailable");
-  }
-  const { setupComputerUseRuntime } = await import(clientPath);
-  await setupComputerUseRuntime({ globals: globalThis });
-}
-```
+Do not import the Computer Use client yourself, and do not write a setup guard — an import of the internal client from the JavaScript session is refused. If `computer` is somehow missing, the first tool result of the session says why; report that instead of trying to install it.
 
 ## API surface
 
