@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.3.31] - 2026-09-04
+
+### Changed
+
+- Teams are now per repository: each project you open keeps its own teammates, mailbox and budget, and a teammate is spawned into the repo its lead is working in.
+- Computer Use and the browser are ready from the first line of code, so the agent no longer spends a turn setting them up.
+- The agent is now told which of Computer Use, the in-app browser and Chrome are actually on, instead of being offered ones you turned off.
+- Open chats share one JavaScript runtime process instead of one each, cutting a few hundred megabytes with six conversations open.
+- A runaway script's output is trimmed in the middle rather than filling the conversation.
+- The agent can reset its JavaScript session on its own; your browser tabs and apps stay as they are.
+- Extensions that failed to load now say so, with what went wrong and a Try again button, instead of showing as approved.
+- Operon looks for a compatible build of a broken extension on every launch and loads it once one is published.
+- The marketplace only lists extensions that run on your version of Operon.
+
 ## [1.3.30] - 2026-09-02
 
 ### Changed
