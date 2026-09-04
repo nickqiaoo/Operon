@@ -37,6 +37,7 @@ export interface RuntimeProviderClass {
   readonly providerInfo: ProviderInfo
 }
 
+export { disposeOpencodeServer } from './providers/opencode/index.js'
 export { FakeRuntimeProvider } from './providers/fake/index.js'
 export type { FakeScript, FakeScriptCtx, FakeSessionState } from './providers/fake/index.js'
 export { BUILTIN_SCRIPT_NAMES } from './providers/fake/scripts/index.js'

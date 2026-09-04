@@ -1,5 +1,12 @@
 import { createTimeoutError, extractErrorMessage } from './errors.js'
 import { getLogger } from './logger.js'
+import {
+  clearServerPid,
+  pidListeningOn,
+  reclaimOrphanedServer,
+  recordServerPid,
+  waitForPortRelease,
+} from './server-pidfile.js'
 import type { OpencodeLogger } from './types.js'
 
 type OpencodeClient = Awaited<ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>>
@@ -83,6 +90,7 @@ export class OpencodeClientManager {
     if (this.server) {
       this.server.close()
       this.server = null
+      clearServerPid(this.options.port)
     }
   }
 
@@ -98,7 +106,23 @@ export class OpencodeClientManager {
 
     const serverUrl = `http://${this.options.hostname}:${this.options.port}`
     if (await this.isServerRunning(serverUrl)) {
-      return createOpencodeClient({ baseUrl: serverUrl, directory: this.options.cwd })
+      // A server on the port is not automatically one we may talk to. If a
+      // previous run of this app left it behind, its MCP endpoints still point
+      // at that run's HTTP port, which died with it — reusing it yields a
+      // session where every node_repl call reports "Unable to connect". Take
+      // the orphan down and start clean; a server the user started by hand has
+      // no pid record and is reused exactly as before.
+      const reclaimed = this.options.autoStartServer && reclaimOrphanedServer(this.options.port, this.logger)
+      const released =
+        reclaimed && (await waitForPortRelease(() => this.isServerRunning(serverUrl)))
+      if (!reclaimed || !released) {
+        if (reclaimed) {
+          this.logger.warn(
+            `Orphaned OpenCode server on port ${this.options.port} did not exit; reusing it. MCP endpoints may be stale.`,
+          )
+        }
+        return createOpencodeClient({ baseUrl: serverUrl, directory: this.options.cwd })
+      }
     }
 
     if (!this.options.autoStartServer) {
@@ -111,6 +135,9 @@ export class OpencodeClientManager {
         port: this.options.port,
         timeout: this.options.serverTimeout,
       })
+      // Recorded so the next launch can tell this process apart from one the
+      // user started, and reclaim only this one.
+      recordServerPid(this.options.port, pidListeningOn(this.options.port))
       return createOpencodeClient({
         baseUrl: this.server.url,
         directory: this.options.cwd,

@@ -2,6 +2,18 @@ import type { ProviderDescriptor, RuntimeProviderFactory, RuntimeSession, Runtim
 import type { ProviderInfo } from '../../types.js'
 import { applyRuntimeEnv } from '../../runtime-env.js'
 import { OpencodeClientManager } from './client-manager.js'
+
+/**
+ * Stop the OpenCode server this process started, on the way out.
+ *
+ * Without this the server outlives the app. The next launch then finds port
+ * 4096 answering and, before the pid-file reclaim existed, reused a process
+ * whose MCP endpoints pointed at the previous launch's HTTP port — which is
+ * gone, because the app binds port 0 and gets a new one every time.
+ */
+export async function disposeOpencodeServer(): Promise<void> {
+  await OpencodeClientManager.getInstance().dispose()
+}
 import { listOpencodeDescriptorModels, OpencodeRuntimeSession } from './session.js'
 
 export class OpencodeRuntimeProvider implements RuntimeProviderFactory {

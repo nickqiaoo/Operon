@@ -11,6 +11,7 @@ import { PostHog } from 'posthog-node'
 import { createNodeAnalytics } from './analytics'
 import { startServer } from '../server/src/start.js'
 import { getApiToken, isApiTokenAuthDisabled } from '../server/src/services/api-token.js'
+import { disposeOpencodeServer } from '@operon/agent-runtime'
 import { cleanupAllTerminals } from '../server/src/services/terminal.js'
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
 import { stopComputerUsePresentationService } from '../server/src/services/computer-use-presentation.js'
@@ -592,6 +593,10 @@ const cleanupAll = () => {
   void stopIabBackend()
   // The Claude quota probe holds an idle CLI process.
   void disposeClaudeUsageProbe()
+  // Same shape as the IAB socket above: an OpenCode server that outlives the app
+  // keeps answering on 4096, and its MCP endpoints point at this run's HTTP
+  // port, which dies with us. The next launch would inherit dead endpoints.
+  void disposeOpencodeServer()
   if (__ENABLE_MEMORY__) {
     SqliteVecStore.getInstance()?.close()
   }
