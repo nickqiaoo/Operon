@@ -12,6 +12,22 @@ const STALL_TIMEOUT_MS = 20 * 60 * 1000
 const POLL_INTERVAL_MS = 30 * 1000
 const MAX_SUBMISSIONS = 3
 
+// 上传本身的重试，与"提交成功后卡死"分开计数。
+// 卡死重试一次要等 20 分钟，上传失败却是立刻就知道的，两者混在一个计数里，
+// 会让一次断流吃掉一次宝贵的卡死配额。
+// 包约 600MB / 20+ 个 part，从国内传到 Apple 的 S3 断流是常态而非异常。
+const UPLOAD_ATTEMPTS = 4
+const UPLOAD_BACKOFF_MS = [15 * 1000, 45 * 1000, 90 * 1000]
+
+/**
+ * 上传被网络掐断，而不是 Apple 拒绝了这次提交。
+ * 只有这一类才值得重传：凭据错误、包结构不合法这些重传多少次都一样，
+ * 应该立刻把原始错误抛出去，而不是拖四轮再报同一件事。
+ */
+function isUploadInterrupted(message) {
+  return /abortedUpload|deadlineExceeded|connectTimeout|connection reset|network|timed out|Could not connect/i.test(message)
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const log = (msg) => console.log(`  • notarize  ${msg}`)
 
@@ -42,9 +58,29 @@ async function tryStapleExistingTicket(appPath) {
   }
 }
 
+/**
+ * 提交一次，上传断流则重传。
+ *
+ * 这是原先唯一没有兜住的一步：submit 抛错会直接冲出下面的 for 循环，
+ * 整个 build 以 "Command failed: xcrun notarytool submit" 结束——尽管
+ * 包还在本地、凭据也没问题，只是最后一个 part 没传完。
+ *
+ * 断流的提交在 Apple 侧不会留下记录（multipart 没有 complete），
+ * 所以重传是干净的，不会产生重复提交。
+ */
 async function submitOnce(zipPath, credentials) {
-  const result = await notarytool(['submit', zipPath, '--no-wait'], credentials)
-  return result.id
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await notarytool(['submit', zipPath, '--no-wait'], credentials)
+      return result.id
+    } catch (error) {
+      const message = error.message ?? String(error)
+      if (!isUploadInterrupted(message) || attempt === UPLOAD_ATTEMPTS) throw error
+      const backoff = UPLOAD_BACKOFF_MS[attempt - 1] ?? 90 * 1000
+      log(`上传中断（第 ${attempt}/${UPLOAD_ATTEMPTS} 次），${backoff / 1000}s 后重传`)
+      await sleep(backoff)
+    }
+  }
 }
 
 /**
@@ -82,7 +118,8 @@ async function printFailureLog(submissionId, credentials) {
 /**
  * afterSign hook for electron-builder.
  * 取代 electron-builder 内置公证（配置里已 notarize: false），
- * 增加三层容错：命中已有票据 / 轮询期网络错误重试 / 提交卡死后重新提交。
+ * 增加四层容错：命中已有票据 / 上传断流重传 / 轮询期网络错误重试 /
+ * 提交卡死后重新提交。
  */
 export default async function notarize(context) {
   if (context.electronPlatformName !== 'darwin') return

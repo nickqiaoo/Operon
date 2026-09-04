@@ -48,6 +48,35 @@ files:
   - "!node_modules/@github/copilot-linux*/**"
   - "!node_modules/@github/copilot-win32-*/**"
 
+  # ---- Dead weight: shipped by npm, never read at runtime ----
+  # Measured against the 1.3.31 arm64 build by reading the asar header directly.
+  # Together these are ~86 MB of the ~318 MB asar, which matters twice over: the
+  # notarize upload is a 600 MB zip to Apple's S3, and every byte is also a byte
+  # the user downloads.
+  #
+  # C sources for prebuilt native modules. `npmRebuild: false` and both packages
+  # ship a prebuilt .node, so nothing here is ever compiled — better-sqlite3
+  # carries sqlite3.c twice (deps/ and a copy under build/Release/obj/).
+  - "!**/better-sqlite3/deps/**"
+  - "!**/better-sqlite3/build/Release/obj/**"
+  - "!**/tree-sitter-bash/src/**"
+  # node-llama-cpp keeps a git bundle to build llama.cpp from source. We ship the
+  # prebuilt @node-llama-cpp/mac-* binaries, so it is 27 MB of nothing.
+  - "!**/node-llama-cpp/llama/gitRelease.bundle"
+  # gemini-cli-core packs a tarball of itself next to its own dist.
+  - "!**/@google/gemini-cli-core/dist/*.tgz"
+  - "!**/@google/gemini-cli-core/dist/docs/**"
+  - "!**/*.tsbuildinfo"
+  - "!**/__tests__/**"
+  - "!**/*.test.js"
+  - "!**/*.spec.js"
+  # Prebuilt binaries for platforms this build will never run on. Keep this in
+  # step with the arch: the intel config excludes darwin-arm64 instead.
+  - "!**/prebuilds/darwin-arm64/**"
+  - "!**/prebuilds/linux-*/**"
+  - "!**/prebuilds/win32-*/**"
+  - "!**/prebuilds/android-*/**"
+
 extraResources:
   - from: dist-operon-runtime
     to: operon-runtime
