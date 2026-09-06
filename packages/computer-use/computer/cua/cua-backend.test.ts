@@ -256,6 +256,102 @@ describe("CuaDriverBackend action mapping", () => {
     ).rejects.toThrow(/no cua-driver equivalent/);
   });
 
+  it("carries the snapshot handle on element-indexed actions", async () => {
+    // The driver's contract: "required when targeting by element_index; stale
+    // snapshots fail closed". That refusal is what stands in for the automatic
+    // intervention detection this migration drops.
+    const { backend, calls } = backendWith((name) => {
+      if (name === "list_apps") return APPS;
+      if (name === "list_windows") return WINDOWS;
+      return { snapshot_id: "sdeadbeef", elements: [{ element_index: 0, role: "AXWindow" }] };
+    });
+    await backend.getAppState({ app: "Calculator" });
+    await backend.click({ app: "Calculator", elementIndex: 2 });
+    expect(calls.find((c) => c.name === "click")?.args).toMatchObject({
+      pid: 42,
+      window_id: 7,
+      element_index: 2,
+      snapshot_id: "sdeadbeef",
+    });
+  });
+
+  it("takes a snapshot first when an element action arrives without one", async () => {
+    const { backend, calls } = backendWith((name) => {
+      if (name === "list_apps") return APPS;
+      if (name === "list_windows") return WINDOWS;
+      return { snapshot_id: "s00000001", elements: [] };
+    });
+    await backend.setValue({ app: "Calculator", elementIndex: 1, value: "x" });
+    // Mirrors the Swift engine's currentSnapshot: an action that follows no
+    // explicit get_app_state still works.
+    expect(calls.map((c) => c.name)).toContain("get_window_state");
+    expect(calls.find((c) => c.name === "set_value")?.args).toMatchObject({ snapshot_id: "s00000001" });
+  });
+
+  it("drops the snapshot after an action, because the index map is now stale", async () => {
+    let snapshots = 0;
+    const { backend, calls } = backendWith((name) => {
+      if (name === "list_apps") return APPS;
+      if (name === "list_windows") return WINDOWS;
+      if (name !== "get_window_state") return {};
+      snapshots += 1;
+      return { snapshot_id: `s0000000${snapshots}`, elements: [] };
+    });
+    await backend.getAppState({ app: "Calculator" });
+    await backend.click({ app: "Calculator", elementIndex: 1 });
+    await backend.click({ app: "Calculator", elementIndex: 1 });
+    const clicks = calls.filter((c) => c.name === "click");
+    expect(clicks[0]?.args).toMatchObject({ snapshot_id: "s00000001" });
+    // The second click re-snapshotted rather than reusing a map the first click
+    // invalidated.
+    expect(clicks[1]?.args).toMatchObject({ snapshot_id: "s00000002" });
+  });
+
+  it("does not attach a snapshot to a coordinate action", async () => {
+    const { backend, calls } = backendWith((name) => {
+      if (name === "list_apps") return APPS;
+      if (name === "list_windows") return WINDOWS;
+      return { snapshot_id: "sabcdef01", elements: [] };
+    });
+    await backend.click({ app: "Calculator", x: 10, y: 20 });
+    const click = calls.find((c) => c.name === "click");
+    expect(click?.args).toMatchObject({ x: 10, y: 20, window_id: 7 });
+    expect(click?.args).not.toHaveProperty("snapshot_id");
+    // A pixel click needs no index map, so it must not trigger a tree walk.
+    expect(calls.some((c) => c.name === "get_window_state")).toBe(false);
+  });
+
+  it("addresses a window, not just a process", async () => {
+    const { backend, calls } = backendWith((name) => {
+      if (name === "list_apps") return APPS;
+      if (name === "list_windows") return WINDOWS;
+      return { snapshot_id: "s11111111", elements: [] };
+    });
+    await backend.pressKey({ app: "Calculator", key: "a" });
+    await backend.typeText({ app: "Calculator", text: "hi" });
+    await backend.drag({ app: "Calculator", fromX: 1, fromY: 2, toX: 3, toY: 4 });
+    for (const name of ["press_key", "type_text", "drag"]) {
+      expect(calls.find((c) => c.name === name)?.args, name).toMatchObject({ pid: 42, window_id: 7 });
+    }
+  });
+
+  it("reads the screenshot path from whichever key the driver used", async () => {
+    for (const structured of [
+      { screenshot_path: "/tmp/a.png" },
+      { screenshot_file: "/tmp/a.png" },
+      { screenshot: { path: "/tmp/a.png" } },
+      { screenshot: { url: "file:///tmp/a.png" } },
+    ]) {
+      const { backend } = backendWith((name) => {
+        if (name === "list_apps") return APPS;
+        if (name === "list_windows") return WINDOWS;
+        return { elements: [], ...structured };
+      });
+      const state = await backend.getAppState({ app: "Calculator" });
+      expect(state.skyshot?.screenshot?.url).toBe("file:///tmp/a.png");
+    }
+  });
+
   it("builds app state from the structured elements, not their markdown", async () => {
     const { backend } = backendWith((name) => {
       if (name === "list_apps") return APPS;

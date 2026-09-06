@@ -144,6 +144,18 @@ interface Resolved {
   windowId: number;
   bundleId: string;
   at: number;
+  /**
+   * Handle from the last `get_window_state`, in cua-driver's `s########` form.
+   *
+   * Every element-indexed action carries it, because the driver's contract is
+   * "required when targeting by element_index; stale snapshots fail closed".
+   * That is the guard against the failure Operon otherwise has no protection
+   * for now that automatic intervention detection is out of scope: the user
+   * touches the app between the snapshot and the action, the index map no
+   * longer describes the screen, and the click lands on the wrong thing. With
+   * the handle attached the driver refuses instead, and says to re-snapshot.
+   */
+  snapshotId?: string;
 }
 
 export interface CuaDriverBackendOptions {
@@ -263,10 +275,29 @@ export class CuaDriverBackend implements ComputerUseBackend {
     return resolved;
   }
 
-  /** An action changed the UI, so the next call must re-resolve rather than
-   *  trust a window id that may have gone. */
-  private invalidate(app: AppIdentifier): void {
-    this.resolutions.delete(app);
+  /**
+   * An action changed the UI, so the index map from the last snapshot is gone.
+   * The window itself usually is not, so only the snapshot handle is dropped;
+   * the pid and window id keep their own short TTL. Re-resolving those on every
+   * action would cost two extra round trips for nothing.
+   */
+  private invalidateSnapshot(app: AppIdentifier): void {
+    const resolved = this.resolutions.get(app);
+    if (resolved) resolved.snapshotId = undefined;
+  }
+
+  /**
+   * The snapshot handle for `app`, taking one if there is none.
+   *
+   * Mirrors the Swift engine's `currentSnapshot`, which also takes a fresh tree
+   * when a call arrives without one, so an action that follows no explicit
+   * `get_app_state` keeps working.
+   */
+  private async ensureSnapshot(app: AppIdentifier): Promise<Resolved> {
+    const resolved = await this.resolve(app);
+    if (resolved.snapshotId != null) return resolved;
+    await this.getAppState({ app });
+    return await this.resolve(app);
   }
 
   // ------------------------------- tree text -------------------------------
@@ -351,22 +382,32 @@ export class CuaDriverBackend implements ComputerUseBackend {
     args: { app: AppIdentifier; disableDiff?: boolean },
     options?: RequestOptions,
   ): Promise<MacWindowAppState> {
-    const { pid, windowId, bundleId } = await this.resolve(args.app);
+    const resolved = await this.resolve(args.app);
     const result = await this.call(
       "get_window_state",
-      { pid, window_id: windowId, include_screenshot: true },
+      { pid: resolved.pid, window_id: resolved.windowId, include_screenshot: true },
       options,
     );
     const structured = result.structuredContent ?? {};
+    // Present only when the window scope resolved; an observation-only reply has
+    // no index map, so there is nothing to hand a later action.
+    resolved.snapshotId = typeof structured.snapshot_id === "string" ? structured.snapshot_id : undefined;
     const elements = (structured.elements ?? []) as CuaElement[];
     const text = CuaDriverBackend.renderTree(elements);
-    const screenshot = typeof structured.screenshot_path === "string"
-      ? { url: `file://${structured.screenshot_path}` }
-      : null;
+    const screenshot = screenshotUrl(structured);
     return {
-      app: { bundleIdentifier: bundleId, pid },
+      app: { bundleIdentifier: resolved.bundleId, pid: resolved.pid },
       skyshot: { text, screenshot },
     };
+  }
+
+  /** Address one window and, when the target is an element, the snapshot its
+   *  index came from. */
+  private async targetArgs(app: AppIdentifier, byElement: boolean): Promise<Record<string, unknown>> {
+    const resolved = byElement ? await this.ensureSnapshot(app) : await this.resolve(app);
+    const args: Record<string, unknown> = { pid: resolved.pid, window_id: resolved.windowId };
+    if (byElement && resolved.snapshotId != null) args.snapshot_id = resolved.snapshotId;
+    return args;
   }
 
   async click(
@@ -380,10 +421,13 @@ export class CuaDriverBackend implements ComputerUseBackend {
     },
     options?: RequestOptions,
   ): Promise<void> {
-    const { pid } = await this.resolve(args.app);
-    const button = normalizeButton(args.mouseButton);
-    const payload: Record<string, unknown> = { pid, count: args.clickCount ?? 1, button };
-    if (args.elementIndex != null) payload.element_index = args.elementIndex;
+    const byElement = args.elementIndex != null;
+    const payload: Record<string, unknown> = {
+      ...(await this.targetArgs(args.app, byElement)),
+      count: args.clickCount ?? 1,
+      button: normalizeButton(args.mouseButton),
+    };
+    if (byElement) payload.element_index = args.elementIndex;
     else if (args.x != null && args.y != null) { payload.x = args.x; payload.y = args.y; }
     else {
       throw new SkyComputerUseError({
@@ -394,58 +438,61 @@ export class CuaDriverBackend implements ComputerUseBackend {
       });
     }
     await this.call("click", payload, options);
-    this.invalidate(args.app);
+    this.invalidateSnapshot(args.app);
   }
 
   async pressKey(args: { app: AppIdentifier; key: string }, options?: RequestOptions): Promise<void> {
-    const { pid } = await this.resolve(args.app);
-    await this.call("press_key", { pid, key: args.key }, options);
-    this.invalidate(args.app);
+    await this.call("press_key", { ...(await this.targetArgs(args.app, false)), key: args.key }, options);
+    this.invalidateSnapshot(args.app);
   }
 
   async typeText(args: { app: AppIdentifier; text: string }, options?: RequestOptions): Promise<void> {
-    const { pid } = await this.resolve(args.app);
-    await this.call("type_text", { pid, text: args.text }, options);
-    this.invalidate(args.app);
+    await this.call("type_text", { ...(await this.targetArgs(args.app, false)), text: args.text }, options);
+    this.invalidateSnapshot(args.app);
   }
 
   async scroll(
     args: { app: AppIdentifier; direction: DirectionName; elementIndex?: number; x?: number; y?: number; pages?: number },
     options?: RequestOptions,
   ): Promise<void> {
-    const { pid } = await this.resolve(args.app);
+    const byElement = args.elementIndex != null;
     const payload: Record<string, unknown> = {
-      pid,
+      ...(await this.targetArgs(args.app, byElement)),
       direction: normalizeDirection(args.direction),
       by: "page",
       amount: args.pages ?? 1,
     };
-    if (args.elementIndex != null) payload.element_index = args.elementIndex;
+    if (byElement) payload.element_index = args.elementIndex;
     else if (args.x != null && args.y != null) { payload.x = args.x; payload.y = args.y; }
     await this.call("scroll", payload, options);
-    this.invalidate(args.app);
+    this.invalidateSnapshot(args.app);
   }
 
   async setValue(
     args: { app: AppIdentifier; elementIndex: number; value: string },
     options?: RequestOptions,
   ): Promise<void> {
-    const { pid } = await this.resolve(args.app);
-    await this.call("set_value", { pid, element_index: args.elementIndex, value: args.value }, options);
-    this.invalidate(args.app);
+    await this.call(
+      "set_value",
+      { ...(await this.targetArgs(args.app, true)), element_index: args.elementIndex, value: args.value },
+      options,
+    );
+    this.invalidateSnapshot(args.app);
   }
 
   async drag(
     args: { app: AppIdentifier; fromX: number; fromY: number; toX: number; toY: number },
     options?: RequestOptions,
   ): Promise<void> {
-    const { pid } = await this.resolve(args.app);
     await this.call(
       "drag",
-      { pid, from_x: args.fromX, from_y: args.fromY, to_x: args.toX, to_y: args.toY },
+      {
+        ...(await this.targetArgs(args.app, false)),
+        from_x: args.fromX, from_y: args.fromY, to_x: args.toX, to_y: args.toY,
+      },
       options,
     );
-    this.invalidate(args.app);
+    this.invalidateSnapshot(args.app);
   }
 
   /**
@@ -456,21 +503,25 @@ export class CuaDriverBackend implements ComputerUseBackend {
     args: { app: AppIdentifier; action: string; elementIndex: number },
     options?: RequestOptions,
   ): Promise<void> {
-    const { pid, windowId } = await this.resolve(args.app);
     const key = args.action.trim().toLowerCase().replace(/\s+/g, "_");
     const clickAction = CLICK_ACTIONS.get(key);
     if (clickAction != null) {
       await this.call(
         "click",
-        { pid, element_index: args.elementIndex, action: clickAction, count: 1 },
+        {
+          ...(await this.targetArgs(args.app, true)),
+          element_index: args.elementIndex,
+          action: clickAction,
+          count: 1,
+        },
         options,
       );
-      this.invalidate(args.app);
+      this.invalidateSnapshot(args.app);
       return;
     }
     if (RAISE_ACTIONS.has(key)) {
-      await this.call("bring_to_front", { pid, window_id: windowId }, options);
-      this.invalidate(args.app);
+      await this.call("bring_to_front", await this.targetArgs(args.app, false), options);
+      this.invalidateSnapshot(args.app);
       return;
     }
     throw new SkyComputerUseError({
@@ -510,6 +561,28 @@ export class CuaDriverBackend implements ComputerUseBackend {
     this.transport = undefined;
     this.resolutions.clear();
   }
+}
+
+/**
+ * cua-driver writes the capture to a file and names it in the structured reply.
+ * The exact key is not pinned by the contract, so accept the shapes it is known
+ * to use and fall back to nothing rather than inventing a path.
+ */
+function screenshotUrl(structured: Record<string, unknown>): { url: string } | null {
+  for (const key of ["screenshot_path", "screenshot_file", "screenshot_out_file", "image_path"]) {
+    const value = structured[key];
+    if (typeof value === "string" && value !== "") {
+      return { url: value.startsWith("file:") ? value : `file://${value}` };
+    }
+  }
+  const nested = structured.screenshot;
+  if (nested != null && typeof nested === "object") {
+    const path = (nested as { path?: unknown; url?: unknown }).path ?? (nested as { url?: unknown }).url;
+    if (typeof path === "string" && path !== "") {
+      return { url: path.startsWith("file:") ? path : `file://${path}` };
+    }
+  }
+  return null;
 }
 
 function normalizeButton(button: MouseButtonName | number | undefined): string {
