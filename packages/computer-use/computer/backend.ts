@@ -106,3 +106,42 @@ export interface ComputerUseBackend {
  * decided to start, not by the model or by kernel code.
  */
 export const CUA_DRIVER_SOCKET_ENV = "OPERON_CUA_DRIVER_SOCKET";
+
+interface NodeReplLike {
+  nativePipe?: { createConnection?: (path: string) => Promise<unknown> };
+  env?: Record<string, string | undefined>;
+}
+
+/**
+ * Pick the engine for this kernel.
+ *
+ * The choice is made by whichever service the host started: `CuaDriverService`
+ * puts its socket path in the kernel's env, `ComputerUseService` does not. Model
+ * code cannot reach `nodeRepl.env` (it lives on the privileged object outside
+ * the vm sandbox), so this is not model-settable.
+ *
+ * Reads `nodeRepl.env` rather than `process.env` for the same reason
+ * `resolveSocketPath` does: there is no `process` inside the sandbox.
+ */
+export async function selectBackend(): Promise<ComputerUseBackend> {
+  const repl = (globalThis as { nodeRepl?: NodeReplLike }).nodeRepl;
+  const socketPath = repl?.env?.[CUA_DRIVER_SOCKET_ENV];
+  if (typeof socketPath === "string" && socketPath !== "") {
+    const create = repl?.nativePipe?.createConnection;
+    if (typeof create !== "function") {
+      throw new Error("the cua-driver backend requires nodeRepl.nativePipe support");
+    }
+    const { CuaDriverBackend } = await import("./cua/backend.ts");
+    return new CuaDriverBackend({
+      socketPath,
+      connect: create as CuaDriverBackendConnect,
+      sessionId: repl?.env?.OPERON_SESSION_ID,
+    });
+  }
+  const { MacComputerUseClient } = await import("./client.ts");
+  return new MacComputerUseClient();
+}
+
+type CuaDriverBackendConnect = ConstructorParameters<
+  typeof import("./cua/backend.ts").CuaDriverBackend
+>[0]["connect"];

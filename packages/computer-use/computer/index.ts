@@ -52,6 +52,7 @@ import {
   type SkyDiscoveredApp,
 } from "./client.ts";
 import type { ComputerUseBackend } from "./backend.ts";
+import { selectBackend } from "./backend.ts";
 
 export type { ComputerUseBackend } from "./backend.ts";
 
@@ -217,17 +218,22 @@ async function requestApproval(policy: MacAppPolicyResult): Promise<void> {
  */
 async function withApproval<TInput extends { app: AppIdentifier }, TOut>(
   input: TInput,
-  run: (approved: TInput, target: MacAppPolicyResult["target"]) => Promise<TOut>,
+  run: (
+    approved: TInput,
+    target: MacAppPolicyResult["target"],
+    engine: ComputerUseBackend,
+  ) => Promise<TOut>,
 ): Promise<TOut> {
   const validated = validateAndFreeze(input);
   const withSuspendedTimeout = requireNodeRepl("withSuspendedTimeout");
-  const policy = await client.getAppPolicy(validated.app);
+  const engine = await backend();
+  const policy = await engine.getAppPolicy(validated.app);
   reportToolSurface(policy.target.bundleIdentifier);
   const target = decideTarget(policy);
   await requestApproval(policy);
   // Once approved, the app that goes on the wire is appPath.
   const approved = validateAndFreeze(validated, target.appPath);
-  return await withSuspendedTimeout(() => run(approved, target));
+  return await withSuspendedTimeout(() => run(approved, target, engine));
 }
 
 // --------------------------- Response mapping ---------------------------
@@ -351,10 +357,24 @@ export function mapAppState(
 
 // ------------------- Public API: the model's `computer` -------------------
 
-// Typed through the backend seam rather than the concrete class. Phase 0 of the
-// cua-driver migration: the interface exists and is enforced, the implementation
-// is unchanged. See docs/cua-driver-migration/design.md.
-const client: ComputerUseBackend = new MacComputerUseClient();
+/**
+ * The engine, resolved once per kernel and then reused.
+ *
+ * Which one it is depends on the service the host started, not on anything the
+ * model can reach. The default is unchanged: without the cua-driver socket in
+ * the kernel env this is the Swift engine, exactly as before.
+ * See docs/cua-driver-migration/design.md.
+ */
+let resolvedBackend: ComputerUseBackend | undefined;
+let resolvingBackend: Promise<ComputerUseBackend> | undefined;
+async function backend(): Promise<ComputerUseBackend> {
+  if (resolvedBackend) return resolvedBackend;
+  resolvingBackend ??= selectBackend().then((value) => {
+    resolvedBackend = value;
+    return value;
+  });
+  return await resolvingBackend;
+}
 const appsWithDeliveredInstructions = new Set<string>();
 
 export const computer: WindowComputerUseClient = {
@@ -363,19 +383,19 @@ export const computer: WindowComputerUseClient = {
   /** list_apps does not target a specific app, so it needs no approval. */
   async list_apps() {
     reportToolSurface(null);
-    return mapListApps(await client.listApps());
+    return mapListApps(await (await backend()).listApps());
   },
 
   async get_app_state(input) {
-    return await withApproval(input, async (approved) => {
-      const result = await client.getAppState({ app: approved.app, disableDiff: approved.disableDiff });
+    return await withApproval(input, async (approved, _target, engine) => {
+      const result = await engine.getAppState({ app: approved.app, disableDiff: approved.disableDiff });
       return mapAppState(approved.app, result, appsWithDeliveredInstructions);
     });
   },
 
   async click(input) {
-    await withApproval(input, (a) =>
-      client.click({
+    await withApproval(input, (a, _t, engine) =>
+      engine.click({
         app: a.app,
         clickCount: a.click_count,
         elementIndex: a.element_index,
@@ -387,40 +407,40 @@ export const computer: WindowComputerUseClient = {
   },
 
   async press_key(input) {
-    await withApproval(input, (a) => client.pressKey({ app: a.app, key: a.key }));
+    await withApproval(input, (a, _t, engine) => engine.pressKey({ app: a.app, key: a.key }));
   },
 
   async type_text(input) {
-    await withApproval(input, (a) => client.typeText({ app: a.app, text: a.text }));
+    await withApproval(input, (a, _t, engine) => engine.typeText({ app: a.app, text: a.text }));
   },
 
   async scroll(input) {
-    await withApproval(input, (a) =>
-      client.scroll({ app: a.app, direction: a.direction, elementIndex: a.element_index, pages: a.pages }),
+    await withApproval(input, (a, _t, engine) =>
+      engine.scroll({ app: a.app, direction: a.direction, elementIndex: a.element_index, pages: a.pages }),
     );
   },
 
   async set_value(input) {
-    await withApproval(input, (a) =>
-      client.setValue({ app: a.app, elementIndex: a.element_index, value: a.value }),
+    await withApproval(input, (a, _t, engine) =>
+      engine.setValue({ app: a.app, elementIndex: a.element_index, value: a.value }),
     );
   },
 
   async drag(input) {
-    await withApproval(input, (a) =>
-      client.drag({ app: a.app, fromX: a.from_x, fromY: a.from_y, toX: a.to_x, toY: a.to_y }),
+    await withApproval(input, (a, _t, engine) =>
+      engine.drag({ app: a.app, fromX: a.from_x, fromY: a.from_y, toX: a.to_x, toY: a.to_y }),
     );
   },
 
   async perform_secondary_action(input) {
-    await withApproval(input, (a) =>
-      client.performSecondaryAction({ app: a.app, action: a.action, elementIndex: a.element_index }),
+    await withApproval(input, (a, _t, engine) =>
+      engine.performSecondaryAction({ app: a.app, action: a.action, elementIndex: a.element_index }),
     );
   },
 
   async select_text(input) {
-    await withApproval(input, (a) =>
-      client.selectText({
+    await withApproval(input, (a, _t, engine) =>
+      engine.selectText({
         app: a.app,
         elementIndex: a.element_index,
         text: a.text,
