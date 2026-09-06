@@ -51,6 +51,9 @@ import {
   type SelectTextSelectionType,
   type SkyDiscoveredApp,
 } from "./client.ts";
+import type { ComputerUseBackend } from "./backend.ts";
+
+export type { ComputerUseBackend } from "./backend.ts";
 
 export {
   SkyComputerUseError,
@@ -348,7 +351,10 @@ export function mapAppState(
 
 // ------------------- Public API: the model's `computer` -------------------
 
-const client = new MacComputerUseClient();
+// Typed through the backend seam rather than the concrete class. Phase 0 of the
+// cua-driver migration: the interface exists and is enforced, the implementation
+// is unchanged. See docs/cua-driver-migration/design.md.
+const client: ComputerUseBackend = new MacComputerUseClient();
 const appsWithDeliveredInstructions = new Set<string>();
 
 export const computer: WindowComputerUseClient = {
