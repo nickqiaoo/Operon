@@ -87,7 +87,7 @@ function currentFrontmostBundleIdentifier(): string {
     ["info", "-only", "bundleID", asn],
     { encoding: "utf8" },
   );
-  const match = /"CFBundleIdentifier"="([^"]+)"/.exec(info);
+  const match = /(?:"CFBundleIdentifier"|bundleID)="([^"]+)"/.exec(info);
   if (!match) throw new Error(`Could not resolve frontmost app from: ${info}`);
   return match[1];
 }
@@ -339,7 +339,7 @@ describeFixtureE2E("Computer Use controlled AppKit E2E", () => {
           { encoding: "utf8" },
         ))
         .then(({ stdout: info }) => {
-          const match = /"CFBundleIdentifier"="([^"]+)"/.exec(info);
+          const match = /(?:"CFBundleIdentifier"|bundleID)="([^"]+)"/.exec(info);
           if (match?.[1] === FIXTURE_BUNDLE_ID) foregroundViolations.add(match[1]);
         })
         .catch(() => {

@@ -82,7 +82,7 @@ function currentFrontmostBundleIdentifier(): string {
     ["info", "-only", "bundleID", asn],
     { encoding: "utf8" },
   );
-  const match = /"CFBundleIdentifier"="([^"]+)"/.exec(info);
+  const match = /(?:"CFBundleIdentifier"|bundleID)="([^"]+)"/.exec(info);
   if (!match) throw new Error(`Could not resolve frontmost app from: ${info}`);
   return match[1];
 }

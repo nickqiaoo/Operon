@@ -39,6 +39,7 @@ interface ElectronFixtureState {
   lastKey: string;
   searchValue: string;
   searchSubmitCount: number;
+  scrollOffsetY: number;
   focusedId: string;
   windowWidth: number;
   windowHeight: number;
@@ -63,7 +64,7 @@ function currentFrontmostBundleIdentifier(): string {
     ["info", "-only", "bundleID", asn],
     { encoding: "utf8" },
   );
-  const match = /"CFBundleIdentifier"="([^"]+)"/.exec(info);
+  const match = /(?:"CFBundleIdentifier"|bundleID)="([^"]+)"/.exec(info);
   if (!match) throw new Error(`Could not resolve frontmost app from: ${info}`);
   return match[1];
 }
@@ -371,5 +372,29 @@ describeFixtureE2E("Computer Use controlled Electron E2E", () => {
       (next) => next.keyDownCount === keyDownCount + 1 && next.lastKey.toLowerCase() === "a",
       "Electron background press_key",
     );
+  }, 60_000);
+
+  // Known limitation, not a regression. A background scroll aimed at a
+  // Chromium scroll region returns without error and moves nothing. The same
+  // request against the native AppKit fixture does scroll, so the delivery
+  // path itself is sound and the wall is Chromium's. cua-driver reaches the
+  // same conclusion from its own CI matrix and refuses the call up front with
+  // `background_unavailable`, while we still answer success. If this test ever
+  // starts failing, the limitation is gone and the silent-success behaviour
+  // should be revisited.
+  it("does not scroll a background Chromium scroll region", async () => {
+    const state = await getState();
+    const fixture = await waitForState(() => true, "fixture state");
+    const scroll = elementByAccessibilityName(
+      state.text,
+      "Fixture Scroll",
+      fixture.elementFrames["fixture-scroll"],
+    );
+    const offset = fixture.scrollOffsetY;
+    await executeSky(
+      `return await computer.scroll({ app: ${JSON.stringify(electronAppPath)}, element_index: ${scroll.index}, direction: "down" });`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(readFixtureState(statePath)?.scrollOffsetY).toBe(offset);
   }, 60_000);
 });
