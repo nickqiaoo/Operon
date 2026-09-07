@@ -24,7 +24,31 @@ const logger = createRuntimeLogger('computer-use')
 export function computerUseRoutes() {
   const router = new Hono()
 
-  router.get('/settings', (c) => c.json({ enabled: getComputerUseConfig().enabled }))
+  router.get('/settings', (c) => {
+    const config = getComputerUseConfig()
+    return c.json({ enabled: config.enabled, engine: config.engine })
+  })
+
+  /**
+   * Pick the native engine. Same teardown as `/enabled`, for the same reason:
+   * a kernel reads its backend out of `nodeRepl.env` once, at fork time, so a
+   * live kernel keeps driving the old engine until it is replaced.
+   */
+  router.post('/engine', async (c) => {
+    const { engine } = await c.req.json<{ engine?: string }>()
+    if (engine !== 'swift' && engine !== 'cua-driver') {
+      return c.json({ error: 'engine must be swift or cua-driver' }, 400)
+    }
+    try {
+      updateComputerUseConfig({ engine })
+      await disposeAllNodeReplSessions()
+      logger.info(`computer use engine set to ${engine}`)
+      return c.json({ ok: true, engine })
+    } catch (e) {
+      logger.error(`failed to switch computer use engine: ${e}`)
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    }
+  })
 
   /**
    * macOS permission state. This has to be asked of the engine process: TCC

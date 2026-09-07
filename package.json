@@ -22,6 +22,7 @@
     "build:extension-market": "node scripts/build-extension-market.mjs",
     "deploy:extension-market": "npm run build:extension-market && wrangler deploy --config cloudflare/extension-market/wrangler.jsonc",
     "build:computer-use-native": "node scripts/build-computer-use-native.mjs",
+    "fetch:cua-driver": "node scripts/fetch-cua-driver.mjs",
     "deploy:web": "npm --prefix web run deploy",
     "build:web": "OPERON_SKIP_ELECTRON=1 OPERON_BUILD_TARGET=web vite build",
     "build:web:app": "VITE_BROKER_URL=https://operon-api.chatcode.top npm run build:web",

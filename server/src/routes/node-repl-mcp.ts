@@ -39,6 +39,8 @@ import {
   buildNodeReplMcpServer,
   createTomlConfigStore,
   ComputerUseService,
+  CuaDriverService,
+  CUA_DRIVER_SOCKET_ENV,
   NodeReplHost,
   OPERON_COMPUTER_USE_CLIENT_PATH_ENV,
   type NodeReplSurface,
@@ -56,6 +58,7 @@ import {
 } from './mcp-http.js'
 import { getBrowserUseConfig } from '../services/browser-use-config.js'
 import { getComputerUseConfig } from '../services/computer-use-config.js'
+import type { ComputerUseEngine } from '../services/computer-use-config.js'
 import { getChromeUseConfig } from '../services/chrome-use-config.js'
 import { requestOperonElicitation } from '../services/ai/host-elicitation.js'
 import {
@@ -193,6 +196,20 @@ const COMPUTER_USE_BINARY = PACKAGED_RUNTIME_DIR
         'operon-computer-use',
       )
     : undefined
+/**
+ * The cua-driver daemon binary.
+ *
+ * `CuaDriverService` can find it on its own, but only from workspace source:
+ * its `defaultBinaryPath()` walks up from `import.meta.url`, and Rollup rewrites
+ * that to a `data:` asset when the package is bundled into Electron's main
+ * chunk — the same reason COMPUTER_USE_BINARY is resolved here. Passing a
+ * concrete path keeps packaged builds off workspace layout entirely.
+ */
+const CUA_DRIVER_BINARY = PACKAGED_RUNTIME_DIR
+  ? path.join(PACKAGED_RUNTIME_DIR, 'cua-driver')
+  : COMPUTER_USE_PKG_DIR
+    ? path.resolve(COMPUTER_USE_PKG_DIR, '..', '..', 'dist-operon-runtime', 'cua-driver')
+    : undefined
 const KERNEL_EXEC_ARGV = PACKAGED_RUNTIME_DIR
   ? ['--experimental-vm-modules']
   : ['--import', 'tsx', '--experimental-vm-modules']
@@ -277,9 +294,64 @@ function computerUseServiceInstance(): ComputerUseService {
   return computerUseService
 }
 
+/**
+ * The cua-driver daemon, the alternative engine behind the same `computer.*`.
+ *
+ * Held separately from the Swift service rather than behind one union: the two
+ * have different lifecycles (this one restarts itself on exit, and carries no
+ * auth token or presentation stream) and only one of them is ever started, so a
+ * common interface would be a shape neither fits.
+ */
+let cuaDriverService: CuaDriverService | null = null
+
+function cuaDriverServiceInstance(): CuaDriverService {
+  cuaDriverService ??= new CuaDriverService({
+    ...(CUA_DRIVER_BINARY ? { binaryPath: CUA_DRIVER_BINARY } : {}),
+    restartDelaysMs: [100, 500, 2_000, 5_000],
+    // The agent-cursor overlay is the visible half of this engine; the daemon
+    // only parks its main thread in the AppKit run loop that renders it when
+    // the overlay is enabled, so leaving it on is not merely cosmetic.
+    cursorOverlay: true,
+    onStderrLine: (line) => logger.warn(`cua-driver: ${line}`),
+    onExit: ({ code, signal, stderr }) => {
+      const status = signal ? `signal=${signal}` : `code=${code ?? 'unknown'}`
+      logger.warn(`cua-driver exited unexpectedly (${status})${stderr ? `: ${stderr}` : ''}`)
+    },
+  })
+  return cuaDriverService
+}
+
+/** Which engine the config asks for, independent of whether it can start. */
+function selectedEngine(): ComputerUseEngine {
+  return getComputerUseConfig().engine
+}
+
+/**
+ * Start whichever engine is selected and return the socket the kernel should
+ * use, or null when Computer Use is off or the engine failed to start.
+ *
+ * A failure to start is deliberately not thrown, for both engines: the Swift
+ * binary only exists after a `swift build` and the cua-driver binary is a
+ * release artifact a development checkout may not have. Letting Browser Use
+ * keep working, and giving the model a clear error only when it actually calls
+ * `computer.*`, beats failing to build node_repl at all.
+ */
 async function ensureComputerUseService(): Promise<string | null> {
   if (!getComputerUseConfig().enabled) return null
-  const service = computerUseServiceInstance()
+  const engine = selectedEngine()
+  // Only one engine may hold the Mac's input at a time, and the loser of a
+  // switch would otherwise keep its child process (and, for cua-driver, its
+  // overlay window) alive for the rest of the app's life.
+  if (engine === 'cua-driver' && computerUseService) {
+    const stale = computerUseService
+    computerUseService = null
+    await stale.stop().catch(() => {})
+  } else if (engine !== 'cua-driver' && cuaDriverService) {
+    const stale = cuaDriverService
+    cuaDriverService = null
+    await stale.stop().catch(() => {})
+  }
+  const service = engine === 'cua-driver' ? cuaDriverServiceInstance() : computerUseServiceInstance()
   try {
     // start() also performs a real socket connect. A live child with a dead or
     // stale socket is restarted in place, preserving the path baked into kernels.
@@ -307,16 +379,35 @@ async function ensureComputerUseService(): Promise<string | null> {
  * next call instead of staying broken until the app restarts.
  */
 let sharedKernel: NodeReplHost | null = null
+/**
+ * The engine the live kernel was forked for.
+ *
+ * `nodeRepl.env` is fixed at fork time and `selectBackend()` reads it once per
+ * context, so a kernel cannot change engines under a running session. Switching
+ * the setting therefore has to replace the process, not just the service.
+ */
+let kernelEngine: ComputerUseEngine | null = null
 
 function sharedNodeReplKernel(): NodeReplHost {
-  if (sharedKernel?.alive) return sharedKernel
-  const service = computerUseServiceInstance()
+  const engine = selectedEngine()
+  if (sharedKernel?.alive && kernelEngine === engine) return sharedKernel
+  if (sharedKernel?.alive) {
+    logger.info(`computer use engine changed to ${engine}; replacing the shared node_repl kernel`)
+    void sharedKernel.dispose().catch(() => {})
+  }
+  kernelEngine = engine
+  // Both services derive their socket path from the pid, so constructing one is
+  // free and tells the kernel where the engine *would* be even while it is off.
+  const service = engine === 'cua-driver' ? cuaDriverServiceInstance() : computerUseServiceInstance()
   sharedKernel = new NodeReplHost({
     // `nodeRepl.env`, which the model reads. Every entry here is a module-level
     // constant, identical for every conversation, which is what makes one
     // process legitimate in the first place.
     env: {
       SKY_CUA_NATIVE_PIPE_PATH: service.socketPath,
+      // Presence of this key is what makes `selectBackend()` choose cua-driver,
+      // so it must be absent — not empty — for the Swift engine.
+      ...(engine === 'cua-driver' ? { [CUA_DRIVER_SOCKET_ENV]: service.socketPath } : {}),
       [BUILD_FLAVOR_ENV]: OPERON_BUILD_FLAVOR,
       [OPERON_BROWSER_CLIENT_PATH_ENV]: BROWSER_CLIENT_PATH,
       [OPERON_COMPUTER_USE_CLIENT_PATH_ENV]: COMPUTER_USE_CLIENT_PATH,
@@ -326,12 +417,19 @@ function sharedNodeReplKernel(): NodeReplHost {
     processEnv: { NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: TRUSTED_MODULE_SHA256S },
     configStore: createTomlConfigStore(),
     ...(KERNEL_ENTRY ? { kernelEntry: KERNEL_ENTRY, execArgv: KERNEL_EXEC_ARGV } : {}),
-    cuSocketPath: service.socketPath,
-    // A getter, because the engine can be stopped and restarted under a live
-    // kernel and a restarted engine issues a new token.
-    cuAuthToken: () => computerUseService?.authToken,
+    // Auth framing is the Swift engine's protocol. cua-driver authenticates by
+    // the socket's 0700 directory and would treat the frame as a malformed
+    // request, so leave both off unless the Swift engine is the one running.
+    ...(engine === 'cua-driver'
+      ? {}
+      : {
+          cuSocketPath: service.socketPath,
+          // A getter, because the engine can be stopped and restarted under a live
+          // kernel and a restarted engine issues a new token.
+          cuAuthToken: () => computerUseService?.authToken,
+        }),
   })
-  logger.info('forked shared node_repl kernel')
+  logger.info(`forked shared node_repl kernel (computer use engine: ${engine})`)
   return sharedKernel
 }
 
@@ -347,7 +445,12 @@ export async function getComputerUsePermissions(): Promise<{
   screenRecording: boolean
 }> {
   const socketPath = await ensureComputerUseService()
-  const permissions = socketPath ? await computerUseService?.permissions() : undefined
+  if (!socketPath) return { running: false, accessibility: false, screenRecording: false }
+  const permissions = selectedEngine() === 'cua-driver'
+    // `prompt: false` keeps this a pure status read. The UI polls it, and the
+    // prompting form raises modal system dialogs.
+    ? await cuaDriverService?.permissions(false).catch(() => undefined)
+    : await computerUseService?.permissions()
   if (!permissions) return { running: false, accessibility: false, screenRecording: false }
   return { running: true, ...permissions }
 }
@@ -357,17 +460,29 @@ export async function openComputerUsePermissionSettings(
   permission: 'accessibility' | 'screenRecording',
 ): Promise<void> {
   const socketPath = await ensureComputerUseService()
-  if (!socketPath || !computerUseService) {
-    throw new Error('Computer Use engine is not running')
+  if (!socketPath) throw new Error('Computer Use engine is not running')
+  if (selectedEngine() === 'cua-driver') {
+    if (!cuaDriverService) throw new Error('Computer Use engine is not running')
+    // cua-driver has no "open this pane" call. It raises the OS request dialogs
+    // instead, which is the same destination from the user's side and, unlike a
+    // Settings deep link, actually registers the daemon in the TCC list.
+    await cuaDriverService.requestPermissions()
+    return
   }
+  if (!computerUseService) throw new Error('Computer Use engine is not running')
   await computerUseService.openPermissionSettings(permission)
 }
 
-/** Stop the shared engine when Computer Use is switched off. Called by the toggle route. */
+/** Stop whichever engine is running. Called by the toggle route and on engine change. */
 export async function stopComputerUseService(): Promise<void> {
-  const service = computerUseService
+  const swift = computerUseService
+  const driver = cuaDriverService
   computerUseService = null
-  await service?.stop().catch(() => {})
+  cuaDriverService = null
+  await Promise.all([
+    swift?.stop().catch(() => {}),
+    driver?.stop().catch(() => {}),
+  ])
 }
 
 setComputerUseEndHostSessionHandler(async (hostSessionID) => {

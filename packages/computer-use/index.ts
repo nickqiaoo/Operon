@@ -19,10 +19,11 @@ export { defaultIntegration } from "./integration.ts";
 // ---- Swift service lifecycle ----
 export { ComputerUseService } from "./ComputerUseService.ts";
 // The cua-driver daemon's lifecycle, the counterpart to ComputerUseService.
-// Exported so a host can start it; nothing selects it yet. Phase 3 of
-// docs/cua-driver-migration/design.md wires it up.
+// The host starts one or the other; the kernel then picks its backend from
+// CUA_DRIVER_SOCKET_ENV, which only the cua-driver path sets.
 export { CuaDriverService } from "./CuaDriverService.ts";
 export type { CuaDriverServiceOptions } from "./CuaDriverService.ts";
+export { CUA_DRIVER_SOCKET_ENV } from "./computer/backend.ts";
 export type {
   ComputerUsePermissionKind,
   ComputerUsePermissions,

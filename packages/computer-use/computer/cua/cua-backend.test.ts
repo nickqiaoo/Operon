@@ -153,10 +153,19 @@ function backendWith(script: (name: string, args: Record<string, unknown>) => un
   return { backend, calls };
 }
 
+/**
+ * Shaped after a real `list_apps` reply: every *installed* app is listed, and a
+ * running one carries a live `pid`. Resolution depends on that distinction, so
+ * a fixture that omitted `pid` would test a world the daemon never produces.
+ */
 const APPS = {
   apps: [
-    { bundle_id: "com.apple.calculator", name: "Calculator", launch_path: "/System/Applications/Calculator.app", active: false },
-    { bundle_id: "com.1password.1password", name: "1Password", launch_path: "/Applications/1Password.app" },
+    {
+      bundle_id: "com.apple.calculator", name: "Calculator",
+      launch_path: "/System/Applications/Calculator.app",
+      active: false, running: true, pid: 42,
+    },
+    { bundle_id: "com.1password.1password", name: "1Password", launch_path: "/Applications/1Password.app", running: false, pid: 0 },
   ],
 };
 const WINDOWS = {
@@ -197,6 +206,88 @@ describe("CuaDriverBackend policy", () => {
   it("refuses an app it cannot find rather than inventing an identity", async () => {
     const { backend } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
     await expect(backend.getAppPolicy("/Applications/Nope.app")).rejects.toThrow(/could not find/i);
+  });
+});
+
+describe("CuaDriverBackend app resolution", () => {
+  /** A running app with no window of its own, plus another app that does have
+   *  one — the shape that produced the original bug. */
+  const OTHER_WINDOW = {
+    windows: [
+      { app_name: "OrbStack", pid: 99, window_id: 3, is_on_screen: true, layer: 0, z_index: 1 },
+    ],
+  };
+
+  it("never addresses another app's window when the target has none", async () => {
+    // The first version fell back to the frontmost window of any app, so asking
+    // for a closed System Settings silently drove whatever was in front.
+    const { backend, calls } = backendWith((name, args) => {
+      if (name === "list_apps") return APPS;
+      if (name === "launch_app") return { app: { pid: 0, windows: [] } };
+      // Never any window for pid 42; only the unrelated app has one.
+      return (args as { pid?: number }).pid === 99 ? OTHER_WINDOW : { windows: [] };
+    });
+    await expect(backend.getAppState({ app: "Calculator" })).rejects.toThrow(/no window/i);
+    expect(calls.some((c) => c.name === "click" || c.name === "get_window_state")).toBe(false);
+  });
+
+  it("launches an installed app that is not running, like the Swift engine does", async () => {
+    let launched = false;
+    const { backend, calls } = backendWith((name, args) => {
+      if (name === "list_apps") {
+        return {
+          apps: [{
+            bundle_id: "com.apple.calculator", name: "Calculator",
+            launch_path: "/System/Applications/Calculator.app",
+            running: launched, pid: launched ? 42 : 0,
+          }],
+        };
+      }
+      if (name === "launch_app") {
+        launched = true;
+        return { app: { pid: 42, name: "计算器", windows: WINDOWS.windows } };
+      }
+      if (name === "list_windows") return (args as { pid?: number }).pid === 42 ? WINDOWS : { windows: [] };
+      return { elements: [], snapshot_id: "s1" };
+    });
+    const state = await backend.getAppState({ app: "Calculator" });
+    expect(calls.find((c) => c.name === "launch_app")?.args)
+      .toMatchObject({ bundle_id: "com.apple.calculator" });
+    expect(state.app).toMatchObject({ bundleIdentifier: "com.apple.calculator", pid: 42 });
+  });
+
+  it("matches a running app by its bundle name when the display name is localized", async () => {
+    // A running System Settings reports "系统设置" on a Chinese Mac. Matching only
+    // on `name` made an English request resolve while closed and fail once open.
+    const { backend } = backendWith((name, args) => {
+      if (name === "list_apps") {
+        return {
+          apps: [{
+            bundle_id: "com.apple.systempreferences", name: "系统设置",
+            launch_path: "/System/Applications/System Settings.app",
+            running: true, pid: 42,
+          }],
+        };
+      }
+      if (name === "list_windows") return (args as { pid?: number }).pid === 42 ? WINDOWS : { windows: [] };
+      return { elements: [], snapshot_id: "s1" };
+    });
+    const state = await backend.getAppState({ app: "System Settings" });
+    expect(state.app).toMatchObject({ bundleIdentifier: "com.apple.systempreferences", pid: 42 });
+  });
+
+  it("matches a system app with no launch path by its bundle id's last segment", async () => {
+    // Finder reports a localized name and no launch_path at all.
+    const { backend } = backendWith((name, args) => {
+      if (name === "list_apps") {
+        return { apps: [{ bundle_id: "com.apple.finder", name: "访达", launch_path: null, running: true, pid: 42 }] };
+      }
+      if (name === "list_windows") return (args as { pid?: number }).pid === 42 ? WINDOWS : { windows: [] };
+      return { elements: [], snapshot_id: "s1" };
+    });
+    await expect(backend.getAppState({ app: "Finder" })).resolves.toMatchObject({
+      app: { bundleIdentifier: "com.apple.finder" },
+    });
   });
 });
 

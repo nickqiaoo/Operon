@@ -22,6 +22,10 @@ TARGET_ARCH=arm64 npm run rebuild:native
 # must run per arch, after clean:build. Skipping this ships an app with no Computer Use engine.
 TARGET_ARCH=arm64 npm run build:operon-runtime
 TARGET_ARCH=arm64 npm run build:computer-use-native
+# cua-driver is the alternative Computer Use engine: an upstream release binary,
+# not built here. Universal, so the same file is correct for both arch passes —
+# it is re-fetched only because clean:build wipes dist-operon-runtime.
+npm run fetch:cua-driver
 vite build
 electron-builder --mac
 
@@ -37,6 +41,7 @@ TARGET_ARCH=x64 npm run rebuild:native
 # cross-compiled for x86_64 (build:computer-use-native reads TARGET_ARCH).
 TARGET_ARCH=x64 npm run build:operon-runtime
 TARGET_ARCH=x64 npm run build:computer-use-native
+npm run fetch:cua-driver
 vite build
 electron-builder --mac --config electron-builder-intel.yml
 

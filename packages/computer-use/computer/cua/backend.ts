@@ -110,6 +110,14 @@ const RAISE_ACTIONS = new Set(["raise", "axraise"]);
 /** How long a resolved (app -> pid, window) mapping is trusted. */
 const RESOLUTION_TTL_MS = 1_500;
 
+/** The window an action should address: frontmost (lowest z) of the ordinary,
+ *  on-screen ones, falling back to any window when none is on screen. */
+function pickWindow(windows: CuaWindow[]): CuaWindow | undefined {
+  const onScreen = windows.filter((w) => w.is_on_screen && (w.layer ?? 0) === 0);
+  const pool = onScreen.length > 0 ? onScreen : windows;
+  return [...pool].sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0))[0];
+}
+
 interface CuaApp {
   bundle_id?: string;
   name?: string;
@@ -117,6 +125,9 @@ interface CuaApp {
   active?: boolean;
   last_used?: string;
   kind?: string;
+  /** False for an installed-but-not-running app, whose `pid` is then 0. */
+  running?: boolean;
+  pid?: number;
 }
 
 interface CuaWindow {
@@ -233,16 +244,70 @@ export class CuaDriverBackend implements ComputerUseBackend {
     if (launchPath !== "" && (launchPath === q || q === launchPath.replace(/\/$/, ""))) return true;
     // `app` is often an .app bundle path once policy substituted appPath.
     if (launchPath !== "" && q.endsWith(".app") && launchPath === q) return true;
+    /**
+     * The bundle's own name, which is not localized.
+     *
+     * `name` is: a running System Settings reports "系统设置" on a Chinese Mac,
+     * so an English request stops matching the moment the app is open — the app
+     * resolves while closed, then vanishes once launched. The Swift engine
+     * avoids this by also comparing the executable name
+     * (`AppDiscovery.resolvedRunningApp`), and `launch_path`'s basename is the
+     * same string.
+     */
+    const bundleName = launchPath.split("/").pop()?.replace(/\.app$/, "") ?? "";
+    if (bundleName !== "" && bundleName === q.replace(/\.app$/, "")) return true;
+    /**
+     * Last resort: the bundle id's final segment ("com.apple.finder" → "finder").
+     * Some system apps report no `launch_path` at all — Finder is one — and
+     * would otherwise be unreachable by their English name on a localized Mac.
+     * Guarded to non-bundle-id queries so "com.apple.mail" cannot match some
+     * other app whose id happens to end in "mail".
+     */
+    if (!q.includes(".") && q.length >= 3) {
+      const tail = (app.bundle_id ?? "").toLowerCase().split(".").pop() ?? "";
+      if (tail !== "" && tail === q.replace(/\s+/g, "")) return true;
+    }
     return false;
   }
 
-  /** Resolve an Operon `app` to the window cua-driver should act on. */
+  /** The frontmost ordinary window belonging to `pid`, or undefined. */
+  private async windowFor(pid: number): Promise<CuaWindow | undefined> {
+    const result = await this.call("list_windows", { pid });
+    const windows = (result.structuredContent?.windows ?? []) as CuaWindow[];
+    // Filter by pid again: the parameter is documented as a filter, but a window
+    // addressed by the wrong pid is the exact failure this whole function exists
+    // to prevent, so it is not worth trusting on the driver's word alone.
+    return pickWindow(windows.filter((w) => w.pid === pid));
+  }
+
+  /**
+   * Resolve an Operon `app` to the window cua-driver should act on.
+   *
+   * Two things here are load-bearing, and both were learned the hard way.
+   *
+   * **A closed app is launched, not failed.** `list_apps` reports every
+   * *installed* app, so an app the user has never opened matches by name and
+   * then has no window at all. The Swift engine launches it and polls for up to
+   * five seconds (`AppDiscovery.resolve`), and every model prompt written
+   * against this product assumes that: "open System Settings and…" is a single
+   * request, not two.
+   *
+   * **Never fall back to another app's window.** The first version of this
+   * picked the frontmost window of *any* app when the target had none, so
+   * asking for a closed System Settings silently returned whatever happened to
+   * be in front — OrbStack, in the report that found this — and every following
+   * click landed there, cached for the resolution TTL. Addressing the wrong
+   * application is far worse than refusing, so an unresolvable app now throws.
+   */
   private async resolve(app: AppIdentifier): Promise<Resolved> {
     const cached = this.resolutions.get(app);
     if (cached && Date.now() - cached.at < RESOLUTION_TTL_MS) return cached;
 
-    const apps = await this.listCuaApps();
-    const match = apps.find((candidate) => CuaDriverBackend.matchesQuery(candidate, app));
+    const find = async () => {
+      const apps = await this.listCuaApps();
+      return apps.find((candidate) => CuaDriverBackend.matchesQuery(candidate, app));
+    };
+    let match = await find();
     if (!match) {
       throw new SkyComputerUseError({
         code: -32_000,
@@ -253,15 +318,33 @@ export class CuaDriverBackend implements ComputerUseBackend {
     }
     const bundleId = match.bundle_id ?? app;
 
-    const windowsResult = await this.call("list_windows", {});
-    const windows = (windowsResult.structuredContent?.windows ?? []) as CuaWindow[];
-    const named = windows.filter(
-      (w) => (w.app_name ?? "").toLowerCase() === (match.name ?? "").toLowerCase(),
-    );
-    const candidates = named.length > 0 ? named : windows;
-    const onScreen = candidates.filter((w) => w.is_on_screen && (w.layer ?? 0) === 0);
-    const pool = onScreen.length > 0 ? onScreen : candidates;
-    const best = pool.sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0))[0];
+    let best = match.pid ? await this.windowFor(match.pid) : undefined;
+    if (!best) {
+      // Not running, or running with no addressable window yet (a just-launched
+      // app answers `list_apps` before its window exists).
+      const launched = await this.call(
+        "launch_app",
+        match.bundle_id ? { bundle_id: match.bundle_id } : { name: match.name ?? app },
+      );
+      // `launch_app` already reports the app it started, windows included, so the
+      // common case costs no extra round trip.
+      const app_ = (launched.structuredContent?.app ?? {}) as CuaApp & { windows?: CuaWindow[] };
+      let pid = typeof app_.pid === "number" && app_.pid > 0 ? app_.pid : 0;
+      if (pid) best = pickWindow((app_.windows ?? []).filter((w) => w.pid === pid));
+      // Re-find by bundle id, never by the original query: a launched app reports
+      // its *localized* name ("系统设置" for a "System Settings" request), so
+      // re-running the name match here would lose the app it just started.
+      for (let attempt = 0; attempt < 20 && !best; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (!pid) {
+          const again = (await this.listCuaApps()).find(
+            (candidate) => candidate.bundle_id != null && candidate.bundle_id === match.bundle_id,
+          );
+          pid = typeof again?.pid === "number" && again.pid > 0 ? again.pid : 0;
+        }
+        if (pid) best = await this.windowFor(pid);
+      }
+    }
     if (!best) {
       throw new SkyComputerUseError({
         code: -32_000,

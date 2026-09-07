@@ -33,6 +33,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CuaDaemonTransport, type CuaToolResult } from "./computer/cua/daemon.ts";
 
 export interface CuaDriverServiceOptions {
   binaryPath?: string;
@@ -221,6 +222,54 @@ export class CuaDriverService {
       this.restartTimer = undefined;
       void this.start().catch(() => {});
     }, delay);
+  }
+
+  /**
+   * TCC grants as the daemon sees them.
+   *
+   * The host asks over the same socket the kernel uses, but on its own
+   * short-lived connection: the kernel's transport matches replies in send
+   * order, so sharing it would interleave a settings query with a tool call.
+   *
+   * `prompt` is the difference between reading the status and raising the system
+   * dialogs. cua-driver refuses `prompt: true` from an untrusted caller, which is
+   * why this lives on the service (the host process) and not in the kernel.
+   */
+  async permissions(prompt = false): Promise<{ accessibility: boolean; screenRecording: boolean }> {
+    const result = await this.callOnce("check_permissions", {
+      prompt,
+      ...(prompt ? { probe_direct_capture: false } : {}),
+    });
+    const structured = result.structuredContent ?? {};
+    return {
+      accessibility: structured.accessibility === true,
+      screenRecording: structured.screen_recording === true,
+    };
+  }
+
+  /** Raise the macOS grant dialogs for whatever is still missing. */
+  async requestPermissions(): Promise<{ accessibility: boolean; screenRecording: boolean }> {
+    return await this.permissions(true);
+  }
+
+  /** One request on a connection of its own, closed before returning. */
+  private async callOnce(
+    name: string,
+    args: Record<string, unknown>,
+    timeoutMs = 30_000,
+  ): Promise<CuaToolResult> {
+    if (!this.running) throw new Error("cua-driver is not running");
+    const socket = createConnection({ path: this.socketPath });
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+    const transport = new CuaDaemonTransport(socket);
+    try {
+      return await transport.call(name, args, timeoutMs);
+    } finally {
+      transport.end();
+    }
   }
 
   async stop(): Promise<void> {
