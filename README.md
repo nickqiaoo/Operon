@@ -118,11 +118,12 @@ npm test               # unit tests
 npm run build:mac      # signed .dmg (needs Apple credentials in .env)
 ```
 
-Two native components build separately and are optional in development:
+Two native pieces are fetched or built separately and are optional in
+development:
 
 ```bash
-cd native/computer-use && swift build    # the Computer Use engine
-npm run build:computer-use-native        # native addons, including peer-auth
+npm run fetch:cua-driver     # the Computer Use engine (upstream release binary)
+npm run build:native-addons  # native addons, including peer-auth
 ```
 
 Native modules are built against Electron's ABI for the app and Node's for the

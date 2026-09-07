@@ -24,17 +24,41 @@ Do not import the Computer Use client yourself, and do not write a setup guard �
 ```ts
 type Computer = {
   target: "mac";
-  click: (args: { app: string, element_index?: number, x?: number, y?: number, mouse_button?: MouseButton, click_count?: number }) => Promise<void>;
+  click: (args: { app: string, element_index?: number, x?: number, y?: number, mouse_button?: MouseButton, click_count?: number, action?: ClickAction }) => Promise<void>;
   drag: (args: { app: string, from_x: number, from_y: number, to_x: number, to_y: number }) => Promise<void>;
-  get_app_state: (args: { app: string, disableDiff?: boolean }) => Promise<AppState>;
+  get_app_state: (args: { app: string, disableDiff?: boolean, query?: string, max_elements?: number, max_depth?: number }) => Promise<AppState>;
   list_apps: () => Promise<Array<App>>;
-  perform_secondary_action: (args: { app: string, element_index: number, action: string }) => Promise<void>;
   press_key: (args: { app: string, key: string }) => Promise<void>;
-  scroll: (args: { app: string, element_index: number, direction: Direction, pages?: number }) => Promise<void>;
-  select_text: (args: { app: string, element_index: number, text: string, prefix?: string, suffix?: string, selection_type?: SelectionType }) => Promise<void>;
+  scroll: (args: { app: string, element_index?: number, x?: number, y?: number, direction: Direction, pages?: number }) => Promise<void>;
+  bring_to_front: (args: { app: string }) => Promise<void>;
   set_value: (args: { app: string, element_index: number, value: string }) => Promise<void>;
   type_text: (args: { app: string, text: string }) => Promise<void>;
+
+  // Key combinations. press_key sends one key; this sends a chord.
+  hotkey: (args: { app: string, keys: string[], element_index?: number, x?: number, y?: number }) => Promise<void>;
+  // The only way to reach the menu bar: it lives outside the window, so its
+  // items have no element_index you can click.
+  invoke_menu: (args: { app: string, path: string[] }) => Promise<void>;
+  double_click: (args: { app: string, element_index?: number, x?: number, y?: number }) => Promise<void>;
+  right_click: (args: { app: string, element_index?: number, x?: number, y?: number, modifiers?: string[] }) => Promise<void>;
+  // Resize/move a window. Often the cleanest fix when a row is below the fold.
+  set_window_frame: (args: { app: string, x: number, y: number, width: number, height: number }) => Promise<WindowFrame>;
+  // Magnified crop of a window region, for reading fine detail.
+  zoom: (args: { app: string, x1: number, y1: number, x2: number, y2: number }) => Promise<Screenshot | null>;
+  // Force-quit. Try hotkey({ app, keys: ["cmd", "q"] }) first.
+  kill_app: (args: { app: string }) => Promise<void>;
+  // Check predicates with a bounded wait. status "unknown" never means success.
+  verify_state: (args: { app: string, expect: unknown[], timeout_ms?: number, stable_samples?: number, include_screenshot?: boolean }) => Promise<VerifyStateReport>;
+
+  // Not scoped to one app:
+  get_screen_size: () => Promise<{ width: number, height: number, scale_factor: number }>;
+  get_desktop_state: () => Promise<Screenshot | null>;      // asks for its own approval
+  clipboard_read: (args?: { include_text?: boolean }) => Promise<{ types: string[], text?: string }>;
+  clipboard_write: (args: { text?: string, image_path?: string, file_path?: string }) => Promise<{ types: string[] }>;
 };
+
+type WindowFrame = { x: number, y: number, width: number, height: number };
+type VerifyStateReport = { status: string, results?: unknown[], screenshot: Screenshot | null };
 
 type App = {
   id: string;
@@ -55,7 +79,8 @@ type Screenshot = {
 };
 
 type Direction = "up" | "down" | "left" | "right" | "u" | "d" | "l" | "r";
-type SelectionType = "text" | "cursor_before" | "cursor_after";
+// The AX actions an element can be sent instead of an ordinary press.
+type ClickAction = "press" | "show_menu" | "pick" | "confirm" | "cancel" | "open";
 type MouseButton = "left" | "right" | "middle" | "l" | "r" | "m";
 ```
 
@@ -90,20 +115,30 @@ await computer.set_value({ app: "Google Chrome", element_index: 42, value: "open
 await computer.press_key({ app: "Google Chrome", key: "Return" });
 await computer.type_text({ app: "Google Chrome", text: "hello" });
 await computer.scroll({ app: "Google Chrome", element_index: 42, direction: "down", pages: 1 });
-await computer.select_text({ app: "Google Chrome", element_index: 42, text: "hello" });
-await computer.perform_secondary_action({ app: "Google Chrome", element_index: 42, action: "Show Menu" });
+await computer.click({ app: "Google Chrome", element_index: 42, action: "show_menu" });
+await computer.hotkey({ app: "Google Chrome", keys: ["cmd", "l"] });        // focus the address bar
+await computer.invoke_menu({ app: "Google Chrome", path: ["File", "New Window"] });
 nodeRepl.write((await computer.get_app_state({ app: "Google Chrome" })).text);
 ```
 
 Notes:
 
+* **Rows carry their state.** A row may end in `(disabled)`, `(selected)` or `(offscreen)`. `(offscreen)` means the app has not laid that row out — it is in the tree but cannot be clicked until it is on screen. Do not try; fix it first (see the note below).
+* **`query` filters the tree.** `get_app_state({ app, query: "notifications" })` returns matching actionable rows plus their ancestors. A Chrome window reports over 1500 nodes; asking for the few you need costs a fraction of the context. `max_elements` and `max_depth` bound the walk instead.
+* **A line in square brackets at the top of the tree is the engine talking about the tree itself** — that it is incomplete, that the walk was capped, or that an input route is already refused for this window. Act on it; it is telling you something an action would otherwise discover the hard way.
 * Prefer `element_index`-based actions over coordinate actions. If AX actions or AX text are unavailable or behave unexpectedly, switch to screenshots, coordinate clicks, and key presses.
 * If the UI is not behaving as expected, try fetching the latest `get_app_state(...)` to make sure you have the latest context.
 * Prefer using accessibility text over screenshots for efficiency, but if the interface is not fully working or not providing enough context, make sure to fetch a screenshot to get more context. The accessibility interface may be incomplete in some applications, so a screenshot helps fully understand what's going on.
-* `perform_secondary_action` is for invoking an accessibility action that an element exposes besides a normal click, such as expanding a disclosure row, showing a menu, incrementing a control, or cancelling something. It requires an action actually exposed for that element in the accessibility text. Do not guess action names.
-* `select_text` selects matching text in an editable element. Use `prefix` and `suffix` to disambiguate repeated matches, and `selection_type` to choose whether to select the text itself or place the cursor before or after it.
+* `click`'s `action` invokes an accessibility action instead of an ordinary press — expanding a disclosure row, showing a menu, confirming or cancelling. It needs `element_index`; an AX action goes to an element, not to a point. The six values in `ClickAction` are all the engine accepts, so there is nothing to guess. To raise a window without clicking in it, use `bring_to_front`.
+* **There is no `select_text`.** To rewrite the contents of a field, read its current `value` from the tree, change the string, and write it back with `set_value` — one call, exact, and you can read the result back to check it. That is better than moving a caret about: the engine exposes no way to set a selection range, and no way to read one back either.
 * `press_key` presses a key or key combination, including modifier and navigation keys. `press_key.key` supports xdotool-style key syntax. Examples: `"a"`, `"Return"`, `"Tab"`, `"super+c"`, `"Up"`, and `"KP_0"` for numpad `0`.
-* `press_key` and `type_text` target the specified app, so they cannot invoke global shortcuts.
+* `press_key` and `type_text` target the specified app, so they cannot invoke global shortcuts. For a chord such as ⌘C, use `hotkey({ app, keys: ["cmd", "c"] })`.
+* **An element in the tree is not always clickable.** Lists that virtualise their rows (the System Settings sidebar, long tables) still report rows that are scrolled out of view, and those have no on-screen geometry — they are the rows marked `(offscreen)`. Acting on one fails with `element_outside_target_window`, which reads as "wrong window" but actually means "this element could not be proven to be on screen". Re-taking the snapshot does not help. Two things do:
+  - `set_window_frame({ app, x, y, width, height })` — a taller window materialises more rows at once, and unlike scrolling it leaves the scroll position alone. Usually the better fix.
+  - `scroll(...)` toward the element, then `get_app_state` again and use the fresh index.
+* Menu bar items are outside the window, so they have no usable `element_index`. Use `invoke_menu({ app, path: ["File", "Save"] })` rather than trying to click them.
+* `verify_state` is the way to confirm an action landed. Most actions cannot be independently verified by the engine, so a call that returns without error means "dispatched", not "worked". A `status` of `unknown` never means success.
+* Take care when passing strings containing `\n` or `\r` to `type_text`, as it simulates pressing the return key. Many apps with message composers or forms will respond to pressing return by sending the message or submitting the form, rather than inserting a newline.
 * No need to open or launch apps; `get_app_state` transparently launches the app in the background if it's not already running.
 * The `app` parameter may be either an app's display name, full app path, or bundle identifier.
 * Do not call `list_apps` solely to resolve an identifier for a specific app. First, attempt `get_app_state` with the app's name.

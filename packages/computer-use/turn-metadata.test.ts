@@ -205,7 +205,7 @@ describe("MCP _meta reaching nodeRepl.requestMeta", () => {
     turnMetadataAugment?: () => Partial<CodexTurnMetadata>,
   ) {
     const { server, dispose } = await buildNodeReplMcpServer({
-      service: { socketPath: "/tmp/opcu-turnmeta-unused.sock", autoStart: false },
+      driver: { socketPath: "/tmp/cua-turnmeta-unused.sock", autoStart: false },
       fallbackTurnMetadata,
       turnMetadataAugment,
     });

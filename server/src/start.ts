@@ -22,10 +22,6 @@ import { startMemoryMaintenanceScheduler } from './services/memory-maintenance/s
 import { startSaasRuntime } from './services/saas-runtime.js'
 import { initTelemetry } from './services/analytics/telemetry.js'
 import { isApiTokenAuthDisabled, publishApiToken } from './services/api-token.js'
-import {
-  setComputerUsePresentationSink,
-} from './services/computer-use-presentation.js'
-import type { ComputerUsePresentationEvent } from '@operon/computer-use'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 
 declare const __ENABLE_MEMORY__: boolean
@@ -39,8 +35,6 @@ export interface StartServerOptions {
   captureAnalytics?: (event: string, properties: Record<string, unknown>) => void
   /** App version, attached to analytics events for per-release regression attribution. */
   appVersion?: string
-  /** Latest Computer Use target snapshot for the desktop preview window. */
-  onComputerUsePresentationEvent?: (event: ComputerUsePresentationEvent) => void
   /** Remote clients require E2EE unless an unpackaged developer explicitly opts out. */
   remoteE2eeMode?: RemoteE2EEMode
 }
@@ -92,7 +86,6 @@ function tightenLegacyFileModes() {
 
 export async function startServer(options: StartServerOptions): Promise<ServerInstance> {
   const { dbPath, migrationsDir, port, hostname = '127.0.0.1' } = options
-  setComputerUsePresentationSink(options.onComputerUsePresentationEvent)
 
   // One telemetry service for the process: the framework projects agent events into it and
   // cache-monitor reports through it; both reach PostHog via the host's consent-gated sink.

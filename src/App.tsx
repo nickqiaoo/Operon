@@ -27,8 +27,6 @@ import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
 import { useInboxStream } from "@/hooks/useInboxStream"
-import { useComputerUsePIPHostLayout } from "@/hooks/useComputerUsePIPHostLayout"
-import { useComputerUsePermissionAlert } from "@/hooks/useComputerUsePermissionAlert"
 import type { Notification } from "@/types/notification"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useTabsStore } from "@/stores/tabs-store"
@@ -296,11 +294,6 @@ export default function App() {
     : channelProject ? 'channel'
     : activeTab?.type ?? 'home'
   useEffect(() => { setAnalyticsScreen(analyticsScreen) }, [analyticsScreen])
-  const activeComputerUseHostSessionID = !isPageOpen && activeTab?.type === 'chat' && activeTab.chatId != null
-    ? String(activeTab.chatId)
-    : undefined
-  useComputerUsePIPHostLayout(activeComputerUseHostSessionID)
-  useComputerUsePermissionAlert()
 
   return (
     <>
@@ -496,7 +489,6 @@ export default function App() {
                     return (
                       <div
                         key={tab.id}
-                        data-computer-use-pip-host={isActive && tab.chatId != null ? String(tab.chatId) : undefined}
                         className="absolute inset-0 bg-background"
                         aria-hidden={!isActive}
                         style={{

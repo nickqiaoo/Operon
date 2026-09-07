@@ -82,6 +82,9 @@ extraResources:
     to: operon-runtime
     filter:
       - "**/*"
+      # Build metadata for the cua-driver fetch step's idempotency check. Dot
+      # files are not excluded by `**/*` here, and it has no business shipping.
+      - "!.cua-driver.json"
 
 asar: true
 npmRebuild: false

@@ -125,6 +125,81 @@ describe("CuaDriverBackend.renderTree", () => {
     ]);
     expect(text.split("\n")).toHaveLength(1);
   });
+
+  it("marks the state the daemon reports, which the model cannot otherwise see", () => {
+    const text = CuaDriverBackend.renderTree([
+      { element_index: 0, role: "AXWindow", frame: { x: 0, y: 0, w: 10, h: 10 } },
+      { element_index: 1, role: "AXButton", label: "Back", enabled: false, frame: { x: 0, y: 0, w: 1, h: 1 } },
+      { element_index: 2, role: "AXRow", selected: true, frame: { x: 0, y: 0, w: 1, h: 1 } },
+      // No frame while siblings have one: laid out nowhere, so unclickable.
+      { element_index: 3, role: "AXButton", label: "Notifications" },
+    ]);
+    const lines = text.split("\n");
+    expect(lines[1]).toBe("1 AXButton Back (disabled)");
+    expect(lines[2]).toBe("2 AXRow (selected)");
+    expect(lines[3]).toBe("3 AXButton Notifications (offscreen)");
+  });
+
+  it("does not call everything offscreen when the tree carries no geometry at all", () => {
+    // Some surfaces report no frames whatsoever. Marking every row there would
+    // be noise that distinguishes nothing.
+    const text = CuaDriverBackend.renderTree([
+      { element_index: 0, role: "AXWindow" },
+      { element_index: 1, role: "AXButton", label: "Go" },
+    ]);
+    expect(text).not.toContain("offscreen");
+  });
+});
+
+describe("CuaDriverBackend.renderTreeNotes", () => {
+  it("says so when the walk was capped, naming the way out", () => {
+    const notes = CuaDriverBackend.renderTreeNotes({
+      returned_element_count: 200,
+      total_element_count: 1526,
+    });
+    expect(notes).toContain("showing 200 of 1526 elements");
+    expect(notes).toContain("query");
+  });
+
+  it("reports an incomplete walk even when everything walked was returned", () => {
+    const notes = CuaDriverBackend.renderTreeNotes({
+      returned_element_count: 246,
+      total_element_count: 246,
+      elements_complete: false,
+    });
+    expect(notes).toContain("incomplete");
+  });
+
+  it("warns about a refused input route before an action tries to use it", () => {
+    const notes = CuaDriverBackend.renderTreeNotes({
+      background_input: {
+        routes: [
+          { route: "accessibility", status: "available" },
+          { route: "pid_keyboard", status: "refused", reason: "same_pid_keyboard_ambiguity" },
+        ],
+      },
+    });
+    expect(notes).toContain("pid_keyboard");
+    expect(notes).toContain("same_pid_keyboard_ambiguity");
+  });
+
+  it("does not call a filtered walk truncated, nor suggest the filter already in use", () => {
+    const notes = CuaDriverBackend.renderTreeNotes(
+      { returned_element_count: 11, total_element_count: 246, elements_complete: false },
+      true,
+    );
+    expect(notes).toContain("query matched 11 of 246");
+    expect(notes).not.toContain("capped");
+    expect(notes).not.toContain("pass query");
+  });
+
+  it("stays empty for an ordinary complete tree, so no preamble is added", () => {
+    expect(CuaDriverBackend.renderTreeNotes({
+      returned_element_count: 10,
+      total_element_count: 10,
+      elements_complete: true,
+    })).toBe("");
+  });
 });
 
 /** Backend wired to a scripted daemon, so policy and mapping can be tested
@@ -299,32 +374,27 @@ describe("CuaDriverBackend action mapping", () => {
     expect(click?.args).toMatchObject({ pid: 42, element_index: 3, button: "left", count: 1 });
   });
 
-  it("maps the six click-shaped secondary actions onto click's action parameter", async () => {
-    for (const [given, expected] of [
-      ["Press", "press"], ["AXShowMenu", "show_menu"], ["pick", "pick"],
-      ["confirm", "confirm"], ["Cancel", "cancel"], ["AXOpen", "open"],
-    ] as const) {
+  it("passes an AX action straight through to click, no translation table", async () => {
+    for (const action of ["press", "show_menu", "pick", "confirm", "cancel", "open"] as const) {
       const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
-      await backend.performSecondaryAction({ app: "Calculator", action: given, elementIndex: 1 });
-      expect(calls.find((c) => c.name === "click")?.args).toMatchObject({ action: expected });
+      await backend.click({ app: "Calculator", elementIndex: 1, action });
+      expect(calls.find((c) => c.name === "click")?.args).toMatchObject({ action });
     }
   });
 
-  it("sends Raise to bring_to_front, which is where AXRaise actually lives", async () => {
-    const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
-    await backend.performSecondaryAction({ app: "Calculator", action: "AXRaise", elementIndex: 1 });
-    expect(calls.some((c) => c.name === "click")).toBe(false);
-    expect(calls.find((c) => c.name === "bring_to_front")?.args).toMatchObject({ pid: 42, window_id: 7 });
-  });
-
-  it("refuses an unknown secondary action instead of letting it become a click", async () => {
-    // cua-driver's map_action ends in `_ => "AXPress"`. Forwarding AXDecrement
-    // would silently click a stepper instead of decrementing it, and report success.
+  it("refuses an AX action addressed by coordinates, which the daemon cannot honour", async () => {
     const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
     await expect(
-      backend.performSecondaryAction({ app: "Calculator", action: "AXDecrement", elementIndex: 1 }),
-    ).rejects.toThrow(/cannot perform the secondary action/i);
+      backend.click({ app: "Calculator", x: 10, y: 10, action: "show_menu" }),
+    ).rejects.toThrow(/requires element_index/);
     expect(calls.some((c) => c.name === "click")).toBe(false);
+  });
+
+  it("raises a window through bring_to_front, its own method now", async () => {
+    const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
+    await backend.bringToFront({ app: "Calculator" });
+    expect(calls.some((c) => c.name === "click")).toBe(false);
+    expect(calls.find((c) => c.name === "bring_to_front")?.args).toMatchObject({ pid: 42, window_id: 7 });
   });
 
   it("normalises mouse buttons and scroll directions to the driver's spelling", async () => {
@@ -338,13 +408,6 @@ describe("CuaDriverBackend action mapping", () => {
   it("rejects a click with neither an element nor a point", async () => {
     const { backend } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
     await expect(backend.click({ app: "Calculator" })).rejects.toThrow(/element_index or x and y/);
-  });
-
-  it("says plainly that select_text has no equivalent yet", async () => {
-    const { backend } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
-    await expect(
-      backend.selectText({ app: "Calculator", elementIndex: 1, text: "hi" }),
-    ).rejects.toThrow(/no cua-driver equivalent/);
   });
 
   it("carries the snapshot handle on element-indexed actions", async () => {

@@ -1,5 +1,5 @@
 /**
- * The seam between Operon's Computer Use policy layer and whatever engine
+ * The seam between Operon's Computer Use policy layer and the engine that
  * actually drives the desktop.
  *
  * Everything above this line is product logic and stays engine-agnostic:
@@ -7,47 +7,92 @@
  * screenshot materialisation, tool-surface reporting. Everything below is
  * engine-specific: request encoding, framing, transport.
  *
- * Two implementations:
- *   - `MacComputerUseClient` (computer/client.ts) speaks CodexComputerUseIPC-2
- *     to the Swift `operon-computer-use` engine. macOS only.
- *   - `CuaDriverBackend` (computer/cua/backend.ts) speaks the line-delimited
- *     JSON daemon protocol to `cua-driver serve`. macOS today, the other two
- *     platforms later.
+ * One implementation: `CuaDriverBackend` (computer/cua/backend.ts), which
+ * speaks the line-delimited JSON daemon protocol to `cua-driver serve`.
  *
- * The method set is deliberately the one `index.ts` already calls, in the shapes
- * it already calls them. Phase 0 of the migration introduces this interface
- * without changing a single byte of behaviour: `MacComputerUseClient` satisfies
- * it structurally and remains the default.
+ * The in-tree Swift engine used to be the other one, selected by the absence of
+ * the socket env var below. Its TypeScript half — the client, the service that
+ * spawned it, and its wire protocol — has been removed; the Swift package itself
+ * is still in `native/computer-use`, so switching back means restoring that half
+ * from git history rather than rewriting the engine.
  *
  * See docs/cua-driver-migration/design.md.
  */
-import type {
-  AppIdentifier,
-  DirectionName,
-  MacAppPolicyResult,
-  MacWindowAppState,
-  MouseButtonName,
-  RequestOptions,
-  SelectTextSelectionType,
-  SkyDiscoveredApp,
-} from "./client.ts";
+import type { CodexMetadata } from "./wire.ts";
 
-export type {
-  AppIdentifier,
-  DirectionName,
-  MacAppPolicyResult,
-  MacWindowAppState,
-  MouseButtonName,
-  RequestOptions,
-  SelectTextSelectionType,
-  SkyDiscoveredApp,
-};
+// ---------------------------- Vocabulary ----------------------------
+//
+// The shapes `index.ts` speaks in. They were defined alongside the Swift client
+// and outlived it: the field names are the ones the model has been trained on
+// in this product, so `CuaDriverBackend` translates cua-driver's vocabulary into
+// these rather than the other way round.
+
+export type AppIdentifier = string;
+export type MouseButtonName = "left" | "right" | "middle" | "l" | "r" | "m";
+export type DirectionName = "up" | "down" | "left" | "right" | "u" | "d" | "l" | "r";
+/**
+ * The AX actions cua-driver's `click` accepts. A closed set, deliberately: the
+ * daemon's tree does not report which actions an element exposes, so a
+ * free-form name would be something the caller could only guess at.
+ */
+export type ClickAction = "press" | "show_menu" | "pick" | "confirm" | "cancel" | "open";
+
+export interface SkyDiscoveredApp {
+  appPath?: string | null;
+  bundleIdentifier?: string;
+  displayName?: string;
+  isFrontmost?: boolean;
+  isRunning?: boolean;
+  lastUsedDate?: string | null;
+  useCount?: number | null;
+}
+
+export interface MacAppPolicyTarget {
+  appPath: string;
+  bundleIdentifier: string;
+  displayName: string;
+  risk: "high" | "low";
+  warningSubtitle?: string | null;
+}
+
+export interface MacAppPolicyResult {
+  allowPersistentApproval: boolean;
+  decision: "allowed" | "denied" | "forbidden";
+  target: MacAppPolicyTarget;
+}
+
+export interface MacWindowSkyshot {
+  text: string;
+  screenshot?: { url?: string | null; mimeType?: string | null } | null;
+}
+
+export interface MacWindowAppState {
+  app: AppIdentifier | { bundleIdentifier?: string; pid?: number };
+  appSpecificInstructions?: string | null;
+  skyshot?: MacWindowSkyshot;
+}
+
+export interface RequestOptions {
+  codexMetadata?: CodexMetadata;
+  timeoutSeconds?: number;
+}
 
 export interface ComputerUseBackend {
   listApps(options?: RequestOptions): Promise<SkyDiscoveredApp[]>;
   getAppPolicy(app: AppIdentifier, options?: RequestOptions): Promise<MacAppPolicyResult>;
   getAppState(
-    args: { app: AppIdentifier; disableDiff?: boolean },
+    args: {
+      app: AppIdentifier;
+      disableDiff?: boolean;
+      /** Case-insensitive filter: matching actionable rows plus their ancestors.
+       *  A Chrome window reports 1500+ nodes; this is how the model asks for the
+       *  few it cares about instead of paying for all of them. */
+      query?: string;
+      /** Cap on nodes walked. */
+      maxElements?: number;
+      /** Cap on walk depth (daemon default 25). */
+      maxDepth?: number;
+    },
     options?: RequestOptions,
   ): Promise<MacWindowAppState>;
   click(
@@ -56,6 +101,8 @@ export interface ComputerUseBackend {
       clickCount?: number;
       elementIndex?: number;
       mouseButton?: MouseButtonName | number;
+      /** An AX action instead of an ordinary press. Requires `elementIndex`. */
+      action?: ClickAction;
       x?: number;
       y?: number;
     },
@@ -82,28 +129,130 @@ export interface ComputerUseBackend {
     args: { app: AppIdentifier; fromX: number; fromY: number; toX: number; toY: number },
     options?: RequestOptions,
   ): Promise<void>;
-  performSecondaryAction(
-    args: { app: AppIdentifier; action: string; elementIndex: number },
+  /** Raise the app's window without clicking in it. */
+  bringToFront(args: { app: AppIdentifier }, options?: RequestOptions): Promise<void>;
+
+  // ---------------------------------------------------------------------
+  // Capabilities beyond the original eight actions.
+  //
+  // The method set above is the Swift engine's action enum, one for one. It was
+  // the right shape while two engines had to satisfy the same interface, but it
+  // capped Computer Use at whatever the Swift engine could do — cua-driver
+  // exposes 56 tools and this interface reached eleven of them. Everything below
+  // is a capability the daemon always had and the seam used to hide.
+  // ---------------------------------------------------------------------
+
+  /** A key combination (["cmd", "c"]). `pressKey` sends one key; this sends a chord. */
+  hotkey(
+    args: { app: AppIdentifier; keys: readonly string[]; elementIndex?: number; x?: number; y?: number },
     options?: RequestOptions,
   ): Promise<void>;
-  selectText(
+
+  /**
+   * Walk an application menu by path and invoke the final item.
+   *
+   * Menu bars live outside any window, so their elements cannot be addressed by
+   * the window-scoped element index that every action above uses. This is the
+   * only way to reach them.
+   */
+  invokeMenu(
+    args: { app: AppIdentifier; path: readonly string[] },
+    options?: RequestOptions,
+  ): Promise<void>;
+
+  doubleClick(
+    args: { app: AppIdentifier; elementIndex?: number; x?: number; y?: number },
+    options?: RequestOptions,
+  ): Promise<void>;
+
+  rightClick(
+    args: { app: AppIdentifier; elementIndex?: number; x?: number; y?: number; modifiers?: readonly string[] },
+    options?: RequestOptions,
+  ): Promise<void>;
+
+  /**
+   * Resize/move a window, verified by an independent read-back.
+   *
+   * More than a convenience: a list that virtualises its rows only materialises
+   * what fits, so an element below the fold has no frame and cannot be acted on
+   * at all. Growing the window is often a cleaner fix than scrolling, because it
+   * leaves the scroll position alone.
+   */
+  setWindowFrame(
+    args: { app: AppIdentifier; x: number; y: number; width: number; height: number },
+    options?: RequestOptions,
+  ): Promise<WindowFrame>;
+
+  /** A cropped, magnified capture of one window region. */
+  zoom(
+    args: { app: AppIdentifier; x1: number; y1: number; x2: number; y2: number },
+    options?: RequestOptions,
+  ): Promise<{ screenshot: { url?: string | null; mimeType?: string | null } | null }>;
+
+  /** Force-terminate the app. The cooperative path (⌘Q via `hotkey`) comes first. */
+  killApp(args: { app: AppIdentifier }, options?: RequestOptions): Promise<void>;
+
+  /** Check bounded predicates against the app's window, with a bounded wait. */
+  verifyState(
     args: {
       app: AppIdentifier;
-      elementIndex: number;
-      text: string;
-      prefix?: string;
-      suffix?: string;
-      selection?: SelectTextSelectionType;
+      expect: readonly unknown[];
+      timeoutMs?: number;
+      stableSamples?: number;
+      includeScreenshot?: boolean;
     },
     options?: RequestOptions,
-  ): Promise<void>;
+  ): Promise<VerifyStateResult>;
+
+  // ---- Not scoped to an app ----
+
+  /** Logical display size plus the backing scale factor (2.0 on Retina). */
+  getScreenSize(options?: RequestOptions): Promise<ScreenSize>;
+
+  /** Full-display capture at true pixel size. Vision only: no accessibility walk. */
+  getDesktopState(
+    options?: RequestOptions,
+  ): Promise<{ screenshot: { url?: string | null; mimeType?: string | null } | null; width?: number; height?: number }>;
+
+  clipboardRead(args?: { includeText?: boolean }, options?: RequestOptions): Promise<ClipboardContents>;
+
+  clipboardWrite(
+    args: { text?: string; imagePath?: string; filePath?: string },
+    options?: RequestOptions,
+  ): Promise<{ types: string[] }>;
+}
+
+export interface WindowFrame {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ScreenSize {
+  width: number;
+  height: number;
+  scaleFactor: number;
+}
+
+export interface ClipboardContents {
+  types: string[];
+  text?: string;
+}
+
+export interface VerifyStateResult {
+  /** `satisfied` / `unsatisfied` / `unknown` — unknown never implies success. */
+  status: string;
+  results?: unknown[];
+  screenshot?: { url?: string | null; mimeType?: string | null } | null;
 }
 
 /**
- * Environment variable naming the cua-driver daemon socket. Presence selects the
- * cua-driver backend; absence keeps the Swift engine. `CuaDriverService` sets it
- * on the kernel it spawns, so the choice is made by whichever service the host
- * decided to start, not by the model or by kernel code.
+ * Environment variable naming the cua-driver daemon socket. `CuaDriverService`
+ * sets it on the kernel it spawns, so the path is decided by the host, not by
+ * the model or by kernel code. Its absence means Computer Use is off (or the
+ * daemon failed to start), which surfaces as an error on the first `computer.*`
+ * call rather than at fork time.
  */
 export const CUA_DRIVER_SOCKET_ENV = "OPERON_CUA_DRIVER_SOCKET";
 
@@ -113,33 +262,33 @@ interface NodeReplLike {
 }
 
 /**
- * Pick the engine for this kernel.
+ * Build the backend for this kernel.
  *
- * The choice is made by whichever service the host started: `CuaDriverService`
- * puts its socket path in the kernel's env, `ComputerUseService` does not. Model
- * code cannot reach `nodeRepl.env` (it lives on the privileged object outside
- * the vm sandbox), so this is not model-settable.
+ * The socket path comes from `nodeRepl.env`, which the host fixed at fork time.
+ * Model code cannot reach it (it lives on the privileged object outside the vm
+ * sandbox), so the engine is not model-settable.
  *
- * Reads `nodeRepl.env` rather than `process.env` for the same reason
- * `resolveSocketPath` does: there is no `process` inside the sandbox.
+ * Reads `nodeRepl.env` rather than `process.env` because there is no `process`
+ * inside the sandbox.
  */
 export async function selectBackend(): Promise<ComputerUseBackend> {
   const repl = (globalThis as { nodeRepl?: NodeReplLike }).nodeRepl;
   const socketPath = repl?.env?.[CUA_DRIVER_SOCKET_ENV];
-  if (typeof socketPath === "string" && socketPath !== "") {
-    const create = repl?.nativePipe?.createConnection;
-    if (typeof create !== "function") {
-      throw new Error("the cua-driver backend requires nodeRepl.nativePipe support");
-    }
-    const { CuaDriverBackend } = await import("./cua/backend.ts");
-    return new CuaDriverBackend({
-      socketPath,
-      connect: create as CuaDriverBackendConnect,
-      sessionId: repl?.env?.OPERON_SESSION_ID,
-    });
+  if (typeof socketPath !== "string" || socketPath === "") {
+    throw new Error(
+      "Computer Use is not running: no cua-driver socket in this kernel's environment.",
+    );
   }
-  const { MacComputerUseClient } = await import("./client.ts");
-  return new MacComputerUseClient();
+  const create = repl?.nativePipe?.createConnection;
+  if (typeof create !== "function") {
+    throw new Error("the cua-driver backend requires nodeRepl.nativePipe support");
+  }
+  const { CuaDriverBackend } = await import("./cua/backend.ts");
+  return new CuaDriverBackend({
+    socketPath,
+    connect: create as CuaDriverBackendConnect,
+    sessionId: repl?.env?.OPERON_SESSION_ID,
+  });
 }
 
 type CuaDriverBackendConnect = ConstructorParameters<

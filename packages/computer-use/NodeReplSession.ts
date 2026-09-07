@@ -5,7 +5,7 @@ import type { CodexTurnMetadata, EmittedImage } from "./ipc.ts";
 import type { NodeReplConfigStore } from "./configStore.ts";
 
 export interface NodeReplSessionOptions {
-  /** Socket path of the operon-computer-use Swift service, injected as
+  /** Socket path of the cua-driver daemon, injected as
    *  nodeRepl.env.SKY_CUA_NATIVE_PIPE_PATH. */
   socketPath: string;
   /** Host integration for elicitation, output, images and launching. Safe
@@ -37,13 +37,6 @@ export interface NodeReplSessionOptions {
   configStore?: NodeReplConfigStore;
   kernelEntry?: string;
   execArgv?: string[];
-  /**
-   * Startup token for the CU socket. When set, the host sends an authentication
-   * frame before anything else on connecting to this session's `socketPath`.
-   * createComputerUse injects the engine's authToken automatically, so passing
-   * it by hand is rarely needed.
-   */
-  cuAuthToken?: string;
   /**
    * Runtime setup executed once per kernel, before the model's first `run`.
    * See banner.ts for what it contains and why the model no longer writes it.
@@ -152,8 +145,6 @@ export class NodeReplSession {
       configStore: this.opts.configStore,
       kernelEntry: this.opts.kernelEntry,
       execArgv: this.opts.execArgv,
-      cuAuthToken: this.opts.cuAuthToken,
-      cuSocketPath: this.opts.socketPath,
     });
     this.ownsHost = provided == null;
     await host.createContext(this.ctx, this.buildHandlers());

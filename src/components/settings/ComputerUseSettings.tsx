@@ -5,13 +5,12 @@ import {
     ExternalLink,
     Loader2,
     MonitorCog,
-    MousePointer2,
     RefreshCw,
     ShieldAlert,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { api, type ComputerUseEngine } from "@/lib/api"
+import { api } from "@/lib/api"
 import { alertMissingComputerUsePermissions } from "@/hooks/useComputerUsePermissionAlert"
 import { FormattedMessage } from "react-intl"
 
@@ -40,24 +39,6 @@ const PERMISSION_ROWS: Array<{
     },
 ]
 
-const ENGINE_ROWS: Array<{
-    engine: ComputerUseEngine
-    title: string
-    description: string
-}> = [
-    {
-        engine: "swift",
-        title: "Built-in (Swift)",
-        description: "The engine that ships with Operon. Ships in every build, no extra download.",
-    },
-    {
-        engine: "cua-driver",
-        title: "cua-driver",
-        description:
-            "The Rust daemon from trycua/cua. Draws an animated agent cursor so you can see what the agent is doing. Requires the cua-driver binary in dist-operon-runtime/.",
-    },
-]
-
 /**
  * Computer Use settings — one switch.
  *
@@ -71,7 +52,6 @@ const ENGINE_ROWS: Array<{
  */
 export function ComputerUseSettings() {
     const [enabled, setEnabled] = useState<boolean | null>(null)
-    const [engine, setEngine] = useState<ComputerUseEngine>("swift")
     const [error, setError] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
     const [permissions, setPermissions] = useState<PermissionState | null>(null)
@@ -80,9 +60,7 @@ export function ComputerUseSettings() {
     const load = useCallback(async () => {
         setError(null)
         try {
-            const settings = await api.computerUseGetSettings()
-            setEnabled(settings.enabled)
-            setEngine(settings.engine)
+            setEnabled((await api.computerUseGetSettings()).enabled)
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e))
         }
@@ -131,26 +109,6 @@ export function ComputerUseSettings() {
             // if enabling left a grant missing, surface it (the engine starts on the
             // permission read). Screenshots/AX silently no-op without these.
             if (next) void alertMissingComputerUsePermissions()
-        } catch (e) {
-            setError(e instanceof Error ? e.message : String(e))
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    /**
-     * Switching engines restarts every kernel, so the permission panel below is
-     * re-read afterwards: the two engines are separate binaries with separate
-     * TCC identities, and grants held by one say nothing about the other.
-     */
-    const switchEngine = async (next: ComputerUseEngine) => {
-        if (next === engine) return
-        setBusy(true)
-        setError(null)
-        try {
-            await api.computerUseSetEngine(next)
-            setEngine(next)
-            if (enabled) void loadPermissions()
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e))
         } finally {
@@ -217,57 +175,6 @@ export function ComputerUseSettings() {
                     </div>
                 )}
             </section>
-
-            {enabled && (
-                <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
-                    <div className="flex items-start gap-3">
-                        <MousePointer2 className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
-                        <div className="flex-1">
-                            <h2 className="text-sm font-semibold mb-1">
-                                <FormattedMessage
-                                    id="settings.computerUse.engine.title"
-                                    defaultMessage="Engine"
-                                />
-                            </h2>
-                            <p className="text-xs text-muted-foreground">
-                                <FormattedMessage
-                                    id="settings.computerUse.engine.desc"
-                                    defaultMessage="Which native process drives your Mac. Switching restarts running agent sessions, and each engine holds its own macOS permissions."
-                                />
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        {ENGINE_ROWS.map((row) => {
-                            const active = engine === row.engine
-                            return (
-                                <button
-                                    key={row.engine}
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => void switchEngine(row.engine)}
-                                    className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors disabled:opacity-60 ${
-                                        active
-                                            ? "border-border/60 bg-background/40"
-                                            : "border-border/40 hover:bg-secondary-hover"
-                                    }`}
-                                >
-                                    {active ? (
-                                        <CheckCircle2 className="h-4 w-4 shrink-0 text-status-ok mt-0.5" />
-                                    ) : (
-                                        <span className="mt-1 h-3.5 w-3.5 shrink-0 rounded-full border border-border/60" />
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-xs font-medium">{row.title}</div>
-                                        <div className="text-xs text-muted-foreground">{row.description}</div>
-                                    </div>
-                                </button>
-                            )
-                        })}
-                    </div>
-                </section>
-            )}
 
             {enabled && (
                 <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">

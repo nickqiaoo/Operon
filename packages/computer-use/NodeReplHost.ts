@@ -5,7 +5,6 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import type { HostToKernel, KernelInit, CodexTurnMetadata, EmittedImage } from "./ipc.ts";
 import { CODEX_TURN_METADATA_HEADER } from "./ipc.ts";
-import { encodeAuthFrame } from "./computer/wire.ts";
 import { noopConfigStore, type NodeReplConfigStore } from "./configStore.ts";
 
 export interface ElicitationResult {
@@ -88,17 +87,6 @@ export interface NodeReplHostOptions {
    * `--experimental-vm-modules` has to stay; see DEFAULT_EXEC_ARGV.
    */
   execArgv?: string[];
-  /**
-   * Startup token for the CU socket, held host-side. When set, and when the
-   * kernel asks to connect to `path === cuSocketPath`, the host sends one
-   * `operon/authenticate` frame after connecting and before any request. The
-   * token stays in-process: it never goes through env and never enters the
-   * kernel sandbox. See the authentication note in computer/wire.ts.
-   */
-  cuAuthToken?: string | (() => string | undefined);
-  /** The CU socket path that requires authentication. Gated together with
-   *  {@link cuAuthToken} so the browser-use socket is never sent auth frames. */
-  cuSocketPath?: string;
 }
 
 function defaultKernelEntry(): string {
@@ -301,21 +289,11 @@ export class NodeReplHost {
         });
         socket.on("error", (e: Error) => this.event("nativePipe.closed", connectionId, { error: e.message }));
         await once(socket, "connect");
-        // The authentication frame specific to the CU socket, sent after
-        // connecting and before any request, ping included. It has to be gated by
-        // path: this same host also connects to browser-use's
-        // `/tmp/operon-browser-use/*.sock`, and an auth frame there would corrupt
-        // that protocol. Both token and path are host-side constructor arguments.
-        // This method runs in the host process, not the kernel sandbox, and
-        // neither value ever reaches the model-visible nodeRepl.env.
-        // Resolved at connect time, not at construction: a shared kernel outlives
-        // the Computer Use engine, and a restarted engine issues a new token.
-        const cuAuthToken = typeof this.opts.cuAuthToken === "function"
-          ? this.opts.cuAuthToken()
-          : this.opts.cuAuthToken;
-        if (cuAuthToken && String(p.path) === this.opts.cuSocketPath) {
-          socket.write(encodeAuthFrame(cuAuthToken));
-        }
+        // No authentication frame: that was the Swift engine's protocol, and
+        // cua-driver authenticates by the 0700 directory its socket lives in.
+        // This host also connects to browser-use's
+        // `/tmp/operon-browser-use/*.sock`, whose protocol an auth frame would
+        // corrupt, so nothing here is path-gated any more.
         return { connectionId };
       }
       case "nativePipe.write":

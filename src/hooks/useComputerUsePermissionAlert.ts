@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 
@@ -64,22 +63,4 @@ export async function alertMissingComputerUsePermissions(): Promise<void> {
       },
     })
   }
-}
-
-/**
- * Mounted once at the app root. The native PiP tells us when it can never draw a
- * frame this session (a missing Screen Recording grant); we turn that into a
- * re-check of *all* grants, since a brand-new user is usually missing both and
- * only Screen Recording ever had a push signal.
- */
-export function useComputerUsePermissionAlert(): void {
-  useEffect(() => {
-    const pip = window.electronAPI?.computerUsePIP
-    if (!pip?.onBlocked) return
-
-    return pip.onBlocked(({ reason }) => {
-      if (reason !== 'screen-recording') return
-      void alertMissingComputerUsePermissions()
-    })
-  }, [])
 }

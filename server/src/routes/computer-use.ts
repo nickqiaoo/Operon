@@ -25,29 +25,7 @@ export function computerUseRoutes() {
   const router = new Hono()
 
   router.get('/settings', (c) => {
-    const config = getComputerUseConfig()
-    return c.json({ enabled: config.enabled, engine: config.engine })
-  })
-
-  /**
-   * Pick the native engine. Same teardown as `/enabled`, for the same reason:
-   * a kernel reads its backend out of `nodeRepl.env` once, at fork time, so a
-   * live kernel keeps driving the old engine until it is replaced.
-   */
-  router.post('/engine', async (c) => {
-    const { engine } = await c.req.json<{ engine?: string }>()
-    if (engine !== 'swift' && engine !== 'cua-driver') {
-      return c.json({ error: 'engine must be swift or cua-driver' }, 400)
-    }
-    try {
-      updateComputerUseConfig({ engine })
-      await disposeAllNodeReplSessions()
-      logger.info(`computer use engine set to ${engine}`)
-      return c.json({ ok: true, engine })
-    } catch (e) {
-      logger.error(`failed to switch computer use engine: ${e}`)
-      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
-    }
+    return c.json({ enabled: getComputerUseConfig().enabled })
   })
 
   /**
@@ -55,8 +33,8 @@ export function computerUseRoutes() {
    * grants against that binary, not against Electron, so a preflight run by the
    * host answers for a different identity than the one that actually captures.
    *
-   * It exists because of a real failure: once Screen Recording was revoked, model
-   * screenshots and PiP both vanished silently, with nowhere in the app to see why.
+   * It exists because of a real failure: once Screen Recording was revoked,
+   * model screenshots vanished silently, with nowhere in the app to see why.
    */
   router.get('/permissions', async (c) => {
     if (!getComputerUseConfig().enabled) {
@@ -90,10 +68,10 @@ export function computerUseRoutes() {
    *    it has to be installed or deleted right here.
    *  - The MCP needs nothing: node_repl is shared by both features and mounted
    *    on an OR in `mcp-config.ts`, so it is already there if Browser Use is on.
-   *  - Kernels for running sessions are long-lived and had
-   *    `SKY_CUA_NATIVE_PIPE_PATH` baked into their env at fork time, which the
-   *    switch cannot reach. They are torn down and rebuilt, and the shared Swift
-   *    engine stops with them.
+   *  - Kernels for running sessions are long-lived and had the daemon socket
+   *    baked into their env at fork time, which the switch cannot reach. They
+   *    are torn down and rebuilt, and the shared cua-driver daemon stops with
+   *    them.
    */
   router.post('/enabled', async (c) => {
     const { enabled } = await c.req.json<{ enabled?: boolean }>()

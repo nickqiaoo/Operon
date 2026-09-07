@@ -16,25 +16,12 @@ export type { CreateComputerUseOptions, ComputerUseHandle } from "./createComput
 export type { ComputerUseIntegration } from "./integration.ts";
 export { defaultIntegration } from "./integration.ts";
 
-// ---- Swift service lifecycle ----
-export { ComputerUseService } from "./ComputerUseService.ts";
-// The cua-driver daemon's lifecycle, the counterpart to ComputerUseService.
-// The host starts one or the other; the kernel then picks its backend from
-// CUA_DRIVER_SOCKET_ENV, which only the cua-driver path sets.
+// ---- Engine lifecycle ----
+// The cua-driver daemon is the only engine; the Swift service that used to be
+// the other option no longer has a TypeScript half. See computer/backend.ts.
 export { CuaDriverService } from "./CuaDriverService.ts";
 export type { CuaDriverServiceOptions } from "./CuaDriverService.ts";
 export { CUA_DRIVER_SOCKET_ENV } from "./computer/backend.ts";
-export type {
-  ComputerUsePermissionKind,
-  ComputerUsePermissions,
-  ComputerUseServiceExit,
-  ComputerUseServiceOptions,
-} from "./ComputerUseService.ts";
-export { decodeComputerUsePresentationEvent } from "./presentation.ts";
-export type {
-  ComputerUsePresentationEvent,
-  ComputerUsePresentationEventType,
-} from "./presentation.ts";
 
 // ---- Sessions and the low-level host ----
 export { NodeReplSession } from "./NodeReplSession.ts";

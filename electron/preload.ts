@@ -63,26 +63,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hide: () => ipcRenderer.invoke('annotation-editor:hide'),
   },
 
-  // Renderer-owned conversation geometry for the native Computer Use PiP host.
-  computerUsePIP: {
-    setHostLayout: (layout: {
-      hostSessionID?: string
-      visible: boolean
-      anchorRect: { x: number; y: number; width: number; height: number }
-    }) => ipcRenderer.send('computer-use-pip:host-layout', layout),
-    /** PiP cannot render (missing macOS grant) — the renderer prompts for it. */
-    onBlocked: (
-      handler: (payload: { reason: string; displayName?: string; hostSessionID?: string }) => void,
-    ) => {
-      const listener = (
-        _event: unknown,
-        payload: { reason: string; displayName?: string; hostSessionID?: string },
-      ) => handler(payload)
-      ipcRenderer.on('computer-use-pip:blocked', listener)
-      return () => ipcRenderer.off('computer-use-pip:blocked', listener)
-    },
-  },
-
   // Browser toolbar helpers (screenshot → clipboard, clear cookies/cache) +
   // Browser Use tab registration (maps our instanceId → guest webContents so the
   // IAB backend can drive it over CDP; see electron/browser-use-driver.ts).

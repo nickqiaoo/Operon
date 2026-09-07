@@ -7,7 +7,7 @@
  * this switch cannot inject or withhold an MCP server of its own. What it owns is:
  *
  *   1. the `operon-computer-use` skill file, and
- *   2. whether the native Swift service starts at all — no service, no `computer.*`.
+ *   2. whether the cua-driver daemon starts at all — no daemon, no `computer.*`.
  *
  * `node_repl` itself is mounted when *either* feature is on.
  */
@@ -15,19 +15,8 @@ import type { StorageAdapter } from '../storage/interface.js'
 
 const CONFIG_KEY = 'computer-use-config'
 
-/**
- * Which native engine backs `computer.*`.
- *
- * `swift` is the in-tree OpenComputerUseKit service; `cua-driver` is the Rust
- * daemon from trycua/cua, which additionally renders the animated agent-cursor
- * overlay. The kernel picks its backend from an env var baked in at fork time,
- * so switching this restarts the shared kernel — see `node-repl-mcp.ts`.
- */
-export type ComputerUseEngine = 'swift' | 'cua-driver'
-
 export interface ComputerUseConfig {
   enabled: boolean
-  engine: ComputerUseEngine
   /** Bundle identifiers explicitly approved with "Always allow". */
   approvedApps: string[]
 }
@@ -35,7 +24,6 @@ export interface ComputerUseConfig {
 /** Off until asked for: it lets agents drive the user's real Mac UI. */
 const DEFAULT_CONFIG: ComputerUseConfig = {
   enabled: false,
-  engine: 'swift',
   approvedApps: [],
 }
 
@@ -51,8 +39,7 @@ export function getComputerUseConfig(): ComputerUseConfig {
   const approvedApps = Array.isArray(stored?.approvedApps)
     ? stored.approvedApps.filter((app): app is string => typeof app === 'string' && app.trim() !== '')
     : []
-  const engine: ComputerUseEngine = stored?.engine === 'cua-driver' ? 'cua-driver' : 'swift'
-  return { ...DEFAULT_CONFIG, ...stored, engine, approvedApps }
+  return { ...DEFAULT_CONFIG, ...stored, approvedApps }
 }
 
 export function updateComputerUseConfig(config: Partial<ComputerUseConfig>): ComputerUseConfig {

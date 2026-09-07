@@ -1,6 +1,5 @@
 /**
- * Lifecycle for the `cua-driver serve` daemon, the counterpart to
- * {@link ComputerUseService} for the Swift engine.
+ * Lifecycle for the `cua-driver serve` daemon: the Computer Use engine.
  *
  * Four things here are not obvious and each has a reason.
  *

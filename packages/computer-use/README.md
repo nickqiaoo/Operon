@@ -10,8 +10,14 @@
 
 A self-contained module that gives a model a persistent `node_repl` JavaScript
 session, a privileged `globalThis.nodeRepl` surface, and a Computer Use client
-(`computer/`) that drives the `operon-computer-use` Swift engine to control macOS
-applications.
+(`computer/`) that drives the `cua-driver` daemon to control macOS applications.
+
+> **On the engine.** This package used to ship its own Swift engine
+> (`native/computer-use`, spoken to over `CodexComputerUseIPC-2`) and select
+> between the two at fork time. Only cua-driver is wired up now; the Swift
+> package is still in the tree but has no TypeScript client, service or build
+> step. Sections below that describe the Swift side are history, kept because
+> they record why the contract has the shape it does.
 
 ## Naming
 
@@ -264,9 +270,9 @@ a default session.
 
 | export | purpose |
 |---|---|
-| `createComputerUse(opts)` | Top-level factory: starts the service, creates a session, returns a tool. The recommended entry point. |
+| `createComputerUse(opts)` | Top-level factory: starts the daemon, creates a session, returns a tool. The recommended entry point. |
 | `ComputerUseIntegration` | The host integration contract (requestElicitation, onOutput, onImage, launchApplication). |
-| `ComputerUseService` | Swift service lifecycle: spawn, socket, stop. |
+| `CuaDriverService` | cua-driver daemon lifecycle: spawn, socket, stop. |
 | `NodeReplSession` | A persistent session; `run(code)` returns `{result, output, images}`. |
 | `NodeReplHost` | The low level: kernel child process plus the privileged nodeRepl surface. One host can serve many conversations — see "One kernel, many contexts". |
 | `createNodeReplTool` | The zod tool adapter. Optional; the core does not depend on zod. |
@@ -276,7 +282,9 @@ a default session.
 ```
 integration.ts         Host integration contract, framework-agnostic
 createComputerUse.ts   Top-level factory
-ComputerUseService.ts  Swift service lifecycle
+CuaDriverService.ts    cua-driver daemon lifecycle
+computer/backend.ts    The engine seam: vocabulary + backend selection
+computer/cua/          The cua-driver backend and its daemon transport
 NodeReplSession.ts     Persistent session
 NodeReplHost.ts        Host side: the parent process holding socket, launch and elicitation
 ipc.ts                 host <-> kernel message protocol
@@ -293,10 +301,15 @@ package.json           @operon/computer-use (workspace package; deps: zod)
 
 ## External artefacts
 
-**The Swift engine**, `native/computer-use`: a standalone SwiftPM package built on
-an MIT-licensed engine with our own wire layer. `swift build` produces
-`operon-computer-use`. `ComputerUseService` looks for the debug build by default;
-production passes `binaryPath`.
+**The cua-driver daemon**: an upstream release binary from
+[trycua/cua](https://github.com/trycua/cua) (MIT), not built here.
+`npm run fetch:cua-driver` pins a version into `dist-operon-runtime/`, which is
+where `CuaDriverService` looks by default; production passes `binaryPath`.
+
+**The Swift engine**, `native/computer-use`: a standalone SwiftPM package built
+on an MIT-licensed engine with our own wire layer. No longer wired up or built
+by any npm script — `swift build` there still produces `operon-computer-use`,
+but nothing in this package connects to it.
 
 ## Development and production
 

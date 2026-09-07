@@ -2,8 +2,15 @@
 
 ## [Unreleased]
 
+## [1.3.32] - 2026-09-07
+
 ### Changed
 
+- Computer Use runs on a new engine. It can now press keyboard shortcuts, pick items from an app's menu bar, resize a window, zoom into part of one, and read or write the clipboard — none of which it could do before.
+- Computer Use can search a window for the controls it needs instead of reading the whole screen, which makes it quicker in large apps like Chrome.
+- Computer Use can confirm an action actually took effect rather than assuming it did.
+- Reading the whole screen or the clipboard now asks for its own permission, separately from approving an app.
+- The Computer Use preview window is gone; the agent's pointer is shown on screen as it works instead.
 - Google Antigravity is now a provider; Settings installs its ACP server for you and tells you whether it is signed in, so a Google login page never appears mid-conversation.
 - Grok, Kimi, Cursor and Antigravity conversations pick up where they left off after you restart Operon, instead of starting over with no memory of the chat.
 - Removed the Gemini CLI provider, which no longer works.

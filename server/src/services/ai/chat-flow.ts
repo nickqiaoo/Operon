@@ -17,7 +17,6 @@ import type {
   StartChatOptions,
 } from './types.js'
 import { mergeConsecutiveSameRole, normalizeUiMessagesFileAttachments } from './message-utils.js'
-import { endComputerUseHostSession } from '../computer-use-presentation.js'
 import {
   resolveProviderId,
   findLatestUserMessage,
@@ -261,7 +260,6 @@ export async function startChat(
       console.error('[AI] Persistence stream error:', err)
     })
     .finally(async () => {
-      if (chatId > 0) await endComputerUseHostSession(String(chatId))
       // Close this turn's diff interval. Must land before the SSE stream ends
       // (handleChat awaits persistDone in its finally), because the client
       // refetches turn diffs the moment the stream settles — a later capture

@@ -41,17 +41,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  MacComputerUseClient,
-  type AppIdentifier,
-  type DirectionName,
-  type MacAppPolicyResult,
-  type MacWindowAppState,
-  type MouseButtonName,
-  type SelectTextSelectionType,
-  type SkyDiscoveredApp,
-} from "./client.ts";
-import type { ComputerUseBackend } from "./backend.ts";
+import type {
+  AppIdentifier,
+  ClickAction,
+  ComputerUseBackend,
+  DirectionName,
+  MacAppPolicyResult,
+  MacWindowAppState,
+  MouseButtonName,
+  SkyDiscoveredApp,
+} from "./backend.ts";
 import { selectBackend } from "./backend.ts";
 
 export type { ComputerUseBackend } from "./backend.ts";
@@ -60,9 +59,7 @@ export {
   SkyComputerUseError,
   SkyComputerUseTransportError,
   ServerErrorCode,
-  API_VERSION,
 } from "./wire.ts";
-export { MacComputerUseClient } from "./client.ts";
 
 // ---------------------- Types the model can see ----------------------
 
@@ -87,15 +84,102 @@ export interface AppState {
 export interface WindowComputerUseClient {
   readonly target: "mac";
   list_apps(): Promise<ListAppsApp[]>;
-  get_app_state(input: { app: AppIdentifier; disableDiff?: boolean }): Promise<AppState>;
-  click(input: { app: AppIdentifier; click_count?: number; element_index?: number; mouse_button?: MouseButtonName; x?: number; y?: number }): Promise<void>;
+  /**
+   * The accessibility tree, plus a grounding screenshot.
+   *
+   * `query` filters to matching actionable rows and their ancestors — worth
+   * reaching for on a big surface (a Chrome window reports 1500+ nodes).
+   * Rows are suffixed with the state the engine reports: `(disabled)`,
+   * `(selected)`, and `(offscreen)` for a row the app has not laid out, which
+   * is in the tree but cannot be clicked until it is scrolled into view or the
+   * window is made big enough to hold it.
+   */
+  get_app_state(input: {
+    app: AppIdentifier;
+    disableDiff?: boolean;
+    query?: string;
+    max_elements?: number;
+    max_depth?: number;
+  }): Promise<AppState>;
+  /**
+   * Click, or invoke one of the element's AX actions.
+   *
+   * `action` replaces the old `perform_secondary_action`: cua-driver models this
+   * as one tool with a closed set of actions, and its tree does not report which
+   * actions an element exposes — so a free-form name was something the caller
+   * could only guess at. Requires `element_index`; an AX action goes to an
+   * element, not to a point.
+   */
+  click(input: { app: AppIdentifier; click_count?: number; element_index?: number; mouse_button?: MouseButtonName; action?: ClickAction; x?: number; y?: number }): Promise<void>;
   press_key(input: { app: AppIdentifier; key: string }): Promise<void>;
   type_text(input: { app: AppIdentifier; text: string }): Promise<void>;
-  scroll(input: { app: AppIdentifier; direction: DirectionName; element_index: number; pages?: number }): Promise<void>;
+  scroll(input: { app: AppIdentifier; direction: DirectionName; element_index?: number; pages?: number; x?: number; y?: number }): Promise<void>;
   set_value(input: { app: AppIdentifier; element_index: number; value: string }): Promise<void>;
   drag(input: { app: AppIdentifier; from_x: number; from_y: number; to_x: number; to_y: number }): Promise<void>;
-  perform_secondary_action(input: { app: AppIdentifier; action: string; element_index: number }): Promise<void>;
-  select_text(input: { app: AppIdentifier; element_index: number; text: string; prefix?: string; selection_type?: SelectTextSelectionType; suffix?: string }): Promise<void>;
+  /** Raise the app's window without clicking in it. */
+  bring_to_front(input: { app: AppIdentifier }): Promise<void>;
+
+  // ---- Beyond the original eight actions; see the note in backend.ts ----
+
+  /** A key combination: `{ app, keys: ["cmd", "c"] }`. `press_key` sends one key. */
+  hotkey(input: { app: AppIdentifier; keys: string[]; element_index?: number; x?: number; y?: number }): Promise<void>;
+  /** Invoke a menu item by path: `{ app, path: ["File", "Save"] }`. The only way
+   *  to reach the menu bar, which lives outside the window's element indices. */
+  invoke_menu(input: { app: AppIdentifier; path: string[] }): Promise<void>;
+  double_click(input: { app: AppIdentifier; element_index?: number; x?: number; y?: number }): Promise<void>;
+  right_click(input: { app: AppIdentifier; element_index?: number; x?: number; y?: number; modifiers?: string[] }): Promise<void>;
+  /** Resize or move a window. Often the cleanest fix for an element that is
+   *  below the fold: a bigger window materialises it without scrolling. */
+  set_window_frame(input: { app: AppIdentifier; x: number; y: number; width: number; height: number }): Promise<WindowFrame>;
+  /** A magnified crop of one window region, as a screenshot. */
+  zoom(input: { app: AppIdentifier; x1: number; y1: number; x2: number; y2: number }): Promise<Screenshot | null>;
+  /** Force-quit. Try the cooperative path first: `hotkey({ app, keys: ["cmd", "q"] })`. */
+  kill_app(input: { app: AppIdentifier }): Promise<void>;
+  /** Check predicates against the app's window, with a bounded wait. `status`
+   *  is satisfied / unsatisfied / unknown — unknown never means success. */
+  verify_state(input: {
+    app: AppIdentifier;
+    expect: unknown[];
+    timeout_ms?: number;
+    stable_samples?: number;
+    include_screenshot?: boolean;
+  }): Promise<VerifyStateReport>;
+
+  /** Logical display size plus backing scale (2.0 on Retina). Actions take
+   *  points while screenshots are pixels; this is the conversion factor. */
+  get_screen_size(): Promise<ScreenSize>;
+  /** Full-display capture. Asks for approval separately: it sees every app,
+   *  including ones Computer Use was never approved for. */
+  get_desktop_state(): Promise<Screenshot | null>;
+  /** Read the clipboard. Asks for approval: the clipboard is shared by every
+   *  app, so its contents are not scoped to anything already approved. */
+  clipboard_read(input?: { include_text?: boolean }): Promise<ClipboardContents>;
+  /** Replace the clipboard with exactly one of text / image_path / file_path. */
+  clipboard_write(input: { text?: string; image_path?: string; file_path?: string }): Promise<{ types: string[] }>;
+}
+
+export interface WindowFrame {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ScreenSize {
+  width: number;
+  height: number;
+  scale_factor: number;
+}
+
+export interface ClipboardContents {
+  types: string[];
+  text?: string;
+}
+
+export interface VerifyStateReport {
+  status: string;
+  results?: unknown[];
+  screenshot: Screenshot | null;
 }
 
 // ------------------------ nodeRepl dependencies ------------------------
@@ -166,7 +250,15 @@ function validateAndFreeze<T extends { app: AppIdentifier }>(input: T, appOverri
     Object.defineProperty(out, key, {
       configurable: false,
       enumerable: descriptor.enumerable,
-      value: key === "app" ? (appOverride ?? app) : descriptor.value,
+      // Array arguments (hotkey keys, menu path, verify predicates) are copied
+      // and frozen, not passed by reference: freezing only the wrapper would
+      // leave the caller free to rewrite the contents after approval, which is
+      // the same time-of-check-to-time-of-use hole `app` is guarded against.
+      value: key === "app"
+        ? (appOverride ?? app)
+        : Array.isArray(descriptor.value)
+          ? Object.freeze([...descriptor.value])
+          : descriptor.value,
       writable: false,
     });
   }
@@ -184,6 +276,42 @@ function decideTarget(policy: MacAppPolicyResult): MacAppPolicyResult["target"] 
       throw new Error(`Computer Use is blocked from using the app '${bundleIdentifier}' by your organization's policy.`);
     case "forbidden":
       throw new Error(`Computer Use is not allowed to use the app '${bundleIdentifier}' for safety reasons.`);
+  }
+}
+
+/**
+ * Approval for a capability that is not scoped to one app.
+ *
+ * The app-approval flow below protects "operate this application". It does not
+ * cover reading the whole screen or the clipboard, both of which cross every app
+ * boundary — a desktop capture sees apps the user never approved, and the
+ * clipboard may hold whatever a password manager last copied. Those get their
+ * own prompt rather than inheriting an approval that was about something else.
+ *
+ * Asked on every call, like app approval: de-duplication is the host's job, so
+ * that "always allow" remains the user's decision and not this module's cache.
+ */
+async function requestSurfaceApproval(args: {
+  id: string;
+  title: string;
+  subtitle?: string;
+}): Promise<void> {
+  const createElicitation = requireNodeRepl("createElicitation");
+  const result = await createElicitation({
+    message: args.title,
+    meta: {
+      codex_approval_kind: "mcp_tool_call",
+      connector_id: "computer-use",
+      connector_name: "Computer Use",
+      persist: ["session", "always"],
+      riskLevel: "high",
+      ...(args.subtitle == null ? {} : { subtitle: args.subtitle }),
+      tool_params: { capability: args.id },
+      tool_params_display: [{ name: "capability", display_name: "Capability", value: args.id }],
+    },
+  });
+  if (result?.action !== "accept") {
+    throw new Error(`Computer Use was not approved to ${args.title.replace(/^Allow Computer Use to /, "").replace(/\?$/, "")}`);
   }
 }
 
@@ -388,7 +516,13 @@ export const computer: WindowComputerUseClient = {
 
   async get_app_state(input) {
     return await withApproval(input, async (approved, _target, engine) => {
-      const result = await engine.getAppState({ app: approved.app, disableDiff: approved.disableDiff });
+      const result = await engine.getAppState({
+        app: approved.app,
+        disableDiff: approved.disableDiff,
+        query: approved.query,
+        maxElements: approved.max_elements,
+        maxDepth: approved.max_depth,
+      });
       return mapAppState(approved.app, result, appsWithDeliveredInstructions);
     });
   },
@@ -400,6 +534,7 @@ export const computer: WindowComputerUseClient = {
         clickCount: a.click_count,
         elementIndex: a.element_index,
         mouseButton: a.mouse_button,
+        action: a.action,
         x: a.x,
         y: a.y,
       }),
@@ -416,7 +551,17 @@ export const computer: WindowComputerUseClient = {
 
   async scroll(input) {
     await withApproval(input, (a, _t, engine) =>
-      engine.scroll({ app: a.app, direction: a.direction, elementIndex: a.element_index, pages: a.pages }),
+      // Coordinates are the fallback for a scrollable region the accessibility
+      // tree gives no index for, so they are passed through rather than dropped:
+      // the wire has always carried them, and `@oai/sky`'s scroll takes both.
+      engine.scroll({
+        app: a.app,
+        direction: a.direction,
+        elementIndex: a.element_index,
+        pages: a.pages,
+        x: a.x,
+        y: a.y,
+      }),
     );
   },
 
@@ -432,22 +577,129 @@ export const computer: WindowComputerUseClient = {
     );
   },
 
-  async perform_secondary_action(input) {
+  async bring_to_front(input) {
+    await withApproval(input, (a, _t, engine) => engine.bringToFront({ app: a.app }));
+  },
+
+  // ---- Beyond the original eight actions ----
+
+  async hotkey(input) {
     await withApproval(input, (a, _t, engine) =>
-      engine.performSecondaryAction({ app: a.app, action: a.action, elementIndex: a.element_index }),
+      engine.hotkey({ app: a.app, keys: a.keys, elementIndex: a.element_index, x: a.x, y: a.y }),
     );
   },
 
-  async select_text(input) {
+  async invoke_menu(input) {
+    await withApproval(input, (a, _t, engine) => engine.invokeMenu({ app: a.app, path: a.path }));
+  },
+
+  async double_click(input) {
     await withApproval(input, (a, _t, engine) =>
-      engine.selectText({
+      engine.doubleClick({ app: a.app, elementIndex: a.element_index, x: a.x, y: a.y }),
+    );
+  },
+
+  async right_click(input) {
+    await withApproval(input, (a, _t, engine) =>
+      engine.rightClick({
         app: a.app,
         elementIndex: a.element_index,
-        text: a.text,
-        prefix: a.prefix,
-        suffix: a.suffix,
-        selection: a.selection_type,
+        x: a.x,
+        y: a.y,
+        modifiers: a.modifiers,
       }),
     );
   },
+
+  async set_window_frame(input) {
+    return await withApproval(input, (a, _t, engine) =>
+      engine.setWindowFrame({ app: a.app, x: a.x, y: a.y, width: a.width, height: a.height }),
+    );
+  },
+
+  async zoom(input) {
+    return await withApproval(input, async (a, _t, engine) => {
+      const result = await engine.zoom({ app: a.app, x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 });
+      return toScreenshot(result.screenshot);
+    });
+  },
+
+  async kill_app(input) {
+    await withApproval(input, (a, _t, engine) => engine.killApp({ app: a.app }));
+  },
+
+  async verify_state(input) {
+    return await withApproval(input, async (a, _t, engine) => {
+      const report = await engine.verifyState({
+        app: a.app,
+        expect: a.expect,
+        timeoutMs: a.timeout_ms,
+        stableSamples: a.stable_samples,
+        includeScreenshot: a.include_screenshot,
+      });
+      return {
+        status: report.status,
+        results: report.results,
+        screenshot: toScreenshot(report.screenshot),
+      };
+    });
+  },
+
+  // ---- Not scoped to an app ----
+
+  /** No approval: it reads display geometry, not content, and needs no TCC grant. */
+  async get_screen_size() {
+    reportToolSurface(null);
+    const size = await (await backend()).getScreenSize();
+    return { width: size.width, height: size.height, scale_factor: size.scaleFactor };
+  },
+
+  async get_desktop_state() {
+    reportToolSurface(null);
+    await requestSurfaceApproval({
+      id: "desktop-capture",
+      title: "Allow Computer Use to capture the whole screen?",
+      subtitle: "This sees every open app, including ones you have not approved.",
+    });
+    const withSuspendedTimeout = requireNodeRepl("withSuspendedTimeout");
+    const result = await withSuspendedTimeout(() => (backend()).then((e) => e.getDesktopState()));
+    return toScreenshot(result.screenshot);
+  },
+
+  async clipboard_read(input) {
+    reportToolSurface(null);
+    // Only the text read needs consent; listing the available types reveals
+    // nothing about the content.
+    if (input?.include_text) {
+      await requestSurfaceApproval({
+        id: "clipboard-read",
+        title: "Allow Computer Use to read the clipboard?",
+        subtitle: "The clipboard is shared by every app and may hold passwords or other secrets.",
+      });
+    }
+    return await (await backend()).clipboardRead({ includeText: input?.include_text });
+  },
+
+  async clipboard_write(input) {
+    reportToolSurface(null);
+    await requestSurfaceApproval({
+      id: "clipboard-write",
+      title: "Allow Computer Use to replace the clipboard?",
+      subtitle: "Whatever you last copied will be lost.",
+    });
+    return await (await backend()).clipboardWrite({
+      text: input.text,
+      imagePath: input.image_path,
+      filePath: input.file_path,
+    });
+  },
 };
+
+/** Engine screenshots go through the same file materialisation as get_app_state,
+ *  so a data: URL never lands in the model's context as megabytes of base64. */
+function toScreenshot(
+  raw: { url?: string | null; mimeType?: string | null } | null | undefined,
+): Screenshot | null {
+  const url = materializeScreenshotUrl(typeof raw?.url === "string" ? raw.url : null);
+  return url == null ? null : { url };
+}

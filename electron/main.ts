@@ -16,18 +16,11 @@ import { cleanupAllTerminals } from '../server/src/services/terminal.js'
 import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tracing.js'
 import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js'
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
-import { stopComputerUsePresentationService } from '../server/src/services/computer-use-presentation.js'
+import { stopComputerUseEngine } from '../server/src/services/computer-use-lifecycle.js'
 import { disposeClaudeUsageProbe } from '@operon/agent-runtime'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
 import { registerBrowserUseIpc, startIabBackend, stopIabBackend } from './browser-use-driver.js'
-import {
-  ComputerUsePreviewController,
-  decodeComputerUsePIPHostLayout,
-  type ComputerUsePIPHostLayout,
-} from './computer-use-preview.js'
-
 import { runChromeNativeHost } from '../packages/browser-use/chrome-native-host-main.ts'
-import type { ComputerUsePresentationEvent } from '../packages/computer-use/presentation.ts'
 
 declare const __ENABLE_MEMORY__: boolean
 import type { OpenInIdeApp, OpenInIdeRequest, OpenInIdeResult } from '../src/types/open-in-ide.ts'
@@ -166,52 +159,6 @@ console.log(`Log file: ${logFile}`)
 
 let mainWindow: BrowserWindow | null = null
 let serverPort: number | null = null
-let computerUsePreview: ComputerUsePreviewController | null = null
-let latestComputerUsePresentation: ComputerUsePresentationEvent | null = null
-let latestComputerUsePIPHostLayout: ComputerUsePIPHostLayout | null = null
-
-function isSameComputerUsePresentation(
-  current: ComputerUsePresentationEvent,
-  event: ComputerUsePresentationEvent,
-): boolean {
-  if (current.hostSessionID && event.hostSessionID) {
-    return current.hostSessionID === event.hostSessionID
-  }
-  // Match conversation, not exact turn — PiP spans get_app_state + click in one chat.
-  if (current.sessionID && event.sessionID) {
-    return current.sessionID === event.sessionID
-  }
-  if (current.sessionID && current.turnID && event.sessionID && event.turnID) {
-    return current.sessionID === event.sessionID && current.turnID === event.turnID
-  }
-  return !event.hostSessionID && !event.sessionID && !event.turnID
-}
-
-function handleComputerUsePresentationEvent(event: ComputerUsePresentationEvent): void {
-  if (event.type === 'blocked') {
-    // Live session that can never produce a frame — tell the renderer so it can
-    // explain the empty PiP and offer the System Settings shortcut.
-    console.warn(`[computer-use-pip] blocked: ${event.reason ?? 'unknown'}`)
-    mainWindow?.webContents.send('computer-use-pip:blocked', {
-      reason: event.reason ?? 'unknown',
-      displayName: event.displayName,
-      hostSessionID: event.hostSessionID,
-    })
-    computerUsePreview?.handle(event)
-    return
-  }
-  if (event.type === 'ended') {
-    if (
-      latestComputerUsePresentation == null
-      || isSameComputerUsePresentation(latestComputerUsePresentation, event)
-    ) {
-      latestComputerUsePresentation = null
-    }
-  } else {
-    latestComputerUsePresentation = event
-  }
-  computerUsePreview?.handle(event)
-}
 
 const macAppNames: Record<OpenInIdeApp, string | null> = {
   vscode: 'Visual Studio Code',
@@ -539,7 +486,6 @@ async function startHonoServer(): Promise<number> {
     // 'analytics:sync-id', and inherits its `disabled: isDev` so dev runs no-op.
     captureAnalytics: (event, properties) => captureNodeEvent(event, properties),
     appVersion: app.getVersion(),
-    onComputerUsePresentationEvent: handleComputerUsePresentationEvent,
     // Packaged clients never honor a local opt-out. The environment flag exists
     // only to make protocol debugging practical in an unpackaged desktop build.
     remoteE2eeMode: app.isPackaged
@@ -587,9 +533,7 @@ process.on('unhandledRejection', (reason) => {
 
 const cleanupAll = () => {
   cleanupAllTerminals()
-  computerUsePreview?.dispose()
-  computerUsePreview = null
-  void stopComputerUsePresentationService()
+  void stopComputerUseEngine()
   // The IAB backend's socket file does not vanish on exit; leaving it behind makes
   // clients discover a dead backend they can't connect to.
   void stopIabBackend()
@@ -674,17 +618,7 @@ function createWindow() {
       webviewTag: true,
     }
   })
-  computerUsePreview?.dispose()
-  computerUsePreview = new ComputerUsePreviewController(mainWindow)
-  if (latestComputerUsePIPHostLayout) {
-    computerUsePreview.setHostLayout(latestComputerUsePIPHostLayout)
-  }
-  if (latestComputerUsePresentation) {
-    computerUsePreview.handle(latestComputerUsePresentation)
-  }
   mainWindow.on('closed', () => {
-    computerUsePreview?.dispose()
-    computerUsePreview = null
     mainWindow = null
   })
 
@@ -867,13 +801,6 @@ app.whenReady().then(async () => {
   // The api token travels renderer-ward over IPC only — never through a file a
   // web page or another app could discover. null = auth disabled (tests/dev).
   ipcMain.handle('server:get-token', () => (isApiTokenAuthDisabled() ? null : getApiToken()))
-  ipcMain.on('computer-use-pip:host-layout', (event, value: unknown) => {
-    if (event.sender !== mainWindow?.webContents) return
-    const layout = decodeComputerUsePIPHostLayout(value)
-    if (!layout) return
-    latestComputerUsePIPHostLayout = layout
-    computerUsePreview?.setHostLayout(layout)
-  })
   ipcMain.handle('fs:select-folder', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openDirectory']

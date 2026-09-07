@@ -5,13 +5,13 @@ import { buildNodeReplMcpServer } from "./mcp.ts";
 // from mcp.json:
 //   { "node_repl": { "command": "node", "args": ["--import","tsx", "<pkg>/adapters/mcp-server.ts"] } }
 //   In production this should point at a pre-bundled .mjs. Setting
-//   OPERON_CU_SOCKET reuses an already-running Swift service.
+//   OPERON_CU_SOCKET reuses an already-running cua-driver daemon.
 
 const socketPath = process.env.OPERON_CU_SOCKET;
 const binaryPath = process.env.OPERON_CU_BINARY;
 
 const { server, dispose } = await buildNodeReplMcpServer({
-  service: {
+  driver: {
     ...(socketPath ? { socketPath, autoStart: false } : {}),
     ...(binaryPath ? { binaryPath } : {}),
   },

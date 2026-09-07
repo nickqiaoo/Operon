@@ -1,5 +1,6 @@
-import { ComputerUseService, type ComputerUseServiceOptions } from "./ComputerUseService.ts";
+import { CuaDriverService, type CuaDriverServiceOptions } from "./CuaDriverService.ts";
 import { NodeReplSession } from "./NodeReplSession.ts";
+import { CUA_DRIVER_SOCKET_ENV } from "./computer/backend.ts";
 import type { ComputerUseIntegration } from "./integration.ts";
 import { createNodeReplTool, type NodeReplTool } from "./adapters/tool.ts";
 import type { NodeReplConfigStore } from "./configStore.ts";
@@ -8,8 +9,9 @@ export interface CreateComputerUseOptions {
   /** Host integration: elicitation to authorize, output and images to the chat
    *  stream, plus launching. */
   integration?: ComputerUseIntegration;
-  /** Swift service options, and whether to start it automatically (it does by default). */
-  service?: ComputerUseServiceOptions & { autoStart?: boolean };
+  /** cua-driver daemon options, and whether to start it automatically (it does
+   *  by default). */
+  driver?: CuaDriverServiceOptions & { autoStart?: boolean };
   kernelEntry?: string;
   execArgv?: string[];
   /**
@@ -33,14 +35,6 @@ export interface CreateComputerUseOptions {
    */
   configStore?: NodeReplConfigStore;
   /**
-   * Override the token used to authenticate against the CU socket. It defaults to
-   * the `authToken` of the service this factory started itself. node-repl-mcp
-   * passes the *shared* engine's token instead: it uses `autoStart:false` so the
-   * factory starts nothing, and the service it manages separately is the one
-   * actually enforcing the token, so the two have to be aligned explicitly.
-   */
-  cuAuthToken?: string;
-  /**
    * Runtime setup run once per kernel before the model's first line of code.
    * Build it with `buildNodeReplBanner(surfaces)`; omitting it leaves the model
    * to bootstrap the runtime by hand, which is what the skills used to teach.
@@ -55,7 +49,7 @@ export interface CreateComputerUseOptions {
 }
 
 export interface ComputerUseHandle {
-  service: ComputerUseService;
+  service: CuaDriverService;
   /** Create a persistent node_repl session, normally one per conversation. */
   createSession(): NodeReplSession;
   /** Convenience: the `mcp__node_repl__js` tool over the default session, via the
@@ -78,12 +72,8 @@ export interface ComputerUseHandle {
 export async function createComputerUse(
   opts: CreateComputerUseOptions = {},
 ): Promise<ComputerUseHandle> {
-  const service = new ComputerUseService(opts.service);
-  if (opts.service?.autoStart !== false) await service.start();
-
-  // Token for CU socket authentication: this service's own by default, overridden
-  // by node-repl-mcp with the shared engine's.
-  const cuAuthToken = opts.cuAuthToken ?? service.authToken;
+  const service = new CuaDriverService(opts.driver);
+  if (opts.driver?.autoStart !== false) await service.start();
 
   const sessions: NodeReplSession[] = [];
   const createSession = () => {
@@ -92,10 +82,11 @@ export async function createComputerUse(
       integration: opts.integration,
       kernelEntry: opts.kernelEntry,
       execArgv: opts.execArgv,
-      env: opts.env,
+      // `selectBackend()` reads this to find the daemon. Callers that pass their
+      // own `host` set it on that kernel instead; this covers the self-forked case.
+      env: { [CUA_DRIVER_SOCKET_ENV]: service.socketPath, ...opts.env },
       processEnv: opts.processEnv,
       configStore: opts.configStore,
-      cuAuthToken,
       banner: opts.banner,
       host: opts.host,
     });

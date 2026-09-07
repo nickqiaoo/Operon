@@ -36,16 +36,6 @@ interface ElectronAPI {
     show: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
     hide: () => Promise<void>
   }
-  computerUsePIP: {
-    setHostLayout: (layout: {
-      hostSessionID?: string
-      visible: boolean
-      anchorRect: { x: number; y: number; width: number; height: number }
-    }) => void
-    onBlocked: (
-      handler: (payload: { reason: string; displayName?: string; hostSessionID?: string }) => void
-    ) => () => void
-  }
   browser: {
     screenshotToClipboard: (dataUrl: string) => Promise<boolean>
     clearData: (partition: string, kinds: Array<'cookies' | 'cache'>) => Promise<void>

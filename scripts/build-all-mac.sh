@@ -17,15 +17,15 @@ npm run clean:build
 echo "=== Building ARM version (with Memory) ==="
 TARGET_ARCH=arm64 npm run rebuild:native
 # clean:build wiped dist-operon-runtime; rebuild the runtime JS bundles + the native
-# Computer Use artifacts (Swift operon-computer-use binary + .node addons) that
-# electron-builder packages as the `operon-runtime` extraResource. Arch-specific, so it
-# must run per arch, after clean:build. Skipping this ships an app with no Computer Use engine.
+# addons that electron-builder packages as the `operon-runtime` extraResource.
+# Arch-specific, so it must run per arch, after clean:build.
 TARGET_ARCH=arm64 npm run build:operon-runtime
-TARGET_ARCH=arm64 npm run build:computer-use-native
-# cua-driver is the alternative Computer Use engine: an upstream release binary,
-# not built here. Universal, so the same file is correct for both arch passes —
-# it is re-fetched only because clean:build wipes dist-operon-runtime.
-npm run fetch:cua-driver
+TARGET_ARCH=arm64 npm run build:native-addons
+# cua-driver is the Computer Use engine: an upstream release binary, not built
+# here. Upstream ships it universal; the fetch script thins it to TARGET_ARCH,
+# which halves it, so this is per-arch like the addons above. Skipping this
+# ships an app with no Computer Use engine.
+TARGET_ARCH=arm64 npm run fetch:cua-driver
 vite build
 electron-builder --mac
 
@@ -37,11 +37,11 @@ npm run clean:build
 
 echo "=== Building Intel version ==="
 TARGET_ARCH=x64 npm run rebuild:native
-# Same as the ARM block: rebuild the runtime + native Computer Use artifacts, this time
-# cross-compiled for x86_64 (build:computer-use-native reads TARGET_ARCH).
+# Same as the ARM block: rebuild the runtime + native addons, this time
+# cross-compiled for x86_64 (build:native-addons reads TARGET_ARCH).
 TARGET_ARCH=x64 npm run build:operon-runtime
-TARGET_ARCH=x64 npm run build:computer-use-native
-npm run fetch:cua-driver
+TARGET_ARCH=x64 npm run build:native-addons
+TARGET_ARCH=x64 npm run fetch:cua-driver
 vite build
 electron-builder --mac --config electron-builder-intel.yml
 

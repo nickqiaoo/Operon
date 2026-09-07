@@ -32,9 +32,6 @@ import type {
 import type { TaskArtifact, ArtifactKind } from '@/types/task'
 import type { RemotePairingQrPayload, RemotePairingStatus } from '@shared/e2ee/protocol'
 
-/** Which native engine backs Computer Use; mirrors the server's config type. */
-export type ComputerUseEngine = 'swift' | 'cua-driver'
-
 export type ProjectDTO = {
   id: number
   name: string
@@ -811,12 +808,9 @@ export const api = {
     post<{ ok: true }>('/browser-use/enabled', { enabled }),
 
   computerUseGetSettings: () =>
-    get<{ enabled: boolean; engine: ComputerUseEngine }>('/computer-use/settings'),
+    get<{ enabled: boolean }>('/computer-use/settings'),
   computerUseSetEnabled: (enabled: boolean) =>
     post<{ ok: true }>('/computer-use/enabled', { enabled }),
-  /** Swap the native engine. Rebuilds every kernel, so running sessions restart. */
-  computerUseSetEngine: (engine: ComputerUseEngine) =>
-    post<{ ok: true; engine: ComputerUseEngine }>('/computer-use/engine', { engine }),
   /** macOS grants as the engine process sees them (`running: false` = engine off). */
   computerUseGetPermissions: () =>
     get<{

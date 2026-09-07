@@ -25,13 +25,18 @@
  */
 import type {
   AppIdentifier,
+  ClickAction,
+  ClipboardContents,
   ComputerUseBackend,
   DirectionName,
   MacAppPolicyResult,
   MacWindowAppState,
   MouseButtonName,
   RequestOptions,
+  ScreenSize,
   SkyDiscoveredApp,
+  VerifyStateResult,
+  WindowFrame,
 } from "../backend.ts";
 import { SkyComputerUseError, SkyComputerUseTransportError, type NativePipeConnection } from "../wire.ts";
 import { CuaDaemonTransport } from "./daemon.ts";
@@ -89,24 +94,6 @@ const BLOCKED_BUNDLE_IDS = new Set([
  * mapping here is a closed set and anything outside it is refused. Raise and the
  * stepping actions are not `click` at all; they have their own tools.
  */
-const CLICK_ACTIONS = new Map<string, string>([
-  ["press", "press"],
-  ["axpress", "press"],
-  ["click", "press"],
-  ["showmenu", "show_menu"],
-  ["axshowmenu", "show_menu"],
-  ["show_menu", "show_menu"],
-  ["pick", "pick"],
-  ["axpick", "pick"],
-  ["confirm", "confirm"],
-  ["axconfirm", "confirm"],
-  ["cancel", "cancel"],
-  ["axcancel", "cancel"],
-  ["open", "open"],
-  ["axopen", "open"],
-]);
-const RAISE_ACTIONS = new Set(["raise", "axraise"]);
-
 /** How long a resolved (app -> pid, window) mapping is trusted. */
 const RESOLUTION_TTL_MS = 1_500;
 
@@ -147,7 +134,20 @@ interface CuaElement {
   value?: string;
   depth?: number;
   parent_index?: number;
+  /**
+   * On-screen geometry. Absent for a node the app has not laid out — a row a
+   * virtualised list has scrolled past, most often. Such a node is in the tree
+   * but cannot be acted on: the daemon's background-input gate cannot prove it
+   * belongs to the target window and refuses with `element_outside_target_window`.
+   * That is why the renderer marks it; before, the model could not tell.
+   */
   frame?: { x: number; y: number; w: number; h: number };
+  /** False for a greyed-out control. Acting on one silently does nothing. */
+  enabled?: boolean;
+  /** Current selection state, for rows, cells, tabs and radio buttons. */
+  selected?: boolean;
+  /** Inside a web view rather than native AX. */
+  in_web_content?: boolean;
 }
 
 interface Resolved {
@@ -379,6 +379,9 @@ export class CuaDriverBackend implements ComputerUseBackend {
   private async ensureSnapshot(app: AppIdentifier): Promise<Resolved> {
     const resolved = await this.resolve(app);
     if (resolved.snapshotId != null) return resolved;
+    // Deliberately unfiltered: this snapshot backs an action addressed by an
+    // index the model already holds, and a `query`-scoped walk would produce a
+    // different index map.
     await this.getAppState({ app });
     return await this.resolve(app);
   }
@@ -395,6 +398,10 @@ export class CuaDriverBackend implements ComputerUseBackend {
    * the front of the row.
    */
   static renderTree(elements: CuaElement[]): string {
+    // "No frame" only means "off screen" when the tree carries geometry at all.
+    // Some surfaces report none for any node, and marking every row `offscreen`
+    // there would be noise that says nothing.
+    const hasGeometry = elements.some((element) => element.frame != null);
     const lines: string[] = [];
     for (const element of elements) {
       if (element.element_index == null) continue;
@@ -402,9 +409,66 @@ export class CuaDriverBackend implements ComputerUseBackend {
       const parts = [String(element.element_index), element.role ?? "element"];
       if (element.label != null && element.label !== "") parts.push(element.label);
       if (element.value != null && element.value !== "") parts.push(element.value);
+      // Suffixed rather than inserted, so the leading `<index> <role>` shape every
+      // consumer parses is untouched.
+      const flags: string[] = [];
+      if (element.enabled === false) flags.push("disabled");
+      if (element.selected === true) flags.push("selected");
+      if (hasGeometry && element.frame == null) flags.push("offscreen");
+      if (flags.length > 0) parts.push(`(${flags.join(", ")})`);
       lines.push(`${indent}${parts.join(" ")}`);
     }
     return lines.join("\n");
+  }
+
+  /**
+   * A header for the tree, when there is something about it the model must know.
+   *
+   * Three facts the daemon reports and this used to drop on the floor:
+   *
+   *  - the walk was capped, so rows the model needs may simply be missing;
+   *  - `elements_complete: false`, i.e. the daemon itself says the tree is partial
+   *    even when it returned everything it walked;
+   *  - an input route the daemon has already refused for this window, which
+   *    predicts the failure of an action rather than reporting it afterwards.
+   *
+   * Empty when there is nothing to say, so an ordinary tree gains no preamble.
+   */
+  static renderTreeNotes(structured: Record<string, unknown>, filtered = false): string {
+    const notes: string[] = [];
+    const returned = numberOr(structured.returned_element_count, NaN);
+    const total = numberOr(structured.total_element_count, NaN);
+    const partial = Number.isFinite(returned) && Number.isFinite(total) && returned < total;
+    if (partial && filtered) {
+      // A filtered walk returns fewer nodes by definition. Calling that a cap
+      // would be wrong, and telling the caller to "pass query" when they just
+      // did is worse than saying nothing.
+      notes.push(`query matched ${returned} of ${total} elements`);
+    } else if (partial) {
+      notes.push(
+        `showing ${returned} of ${total} elements (the walk was capped — raise max_elements, `
+        + `or pass query to filter)`,
+      );
+    } else if (structured.elements_complete === false && !filtered) {
+      notes.push(
+        "this tree is incomplete: the accessibility walk did not reach every node "
+        + "(pass query to filter, or max_depth / max_elements to bound it differently)",
+      );
+    }
+    const routes = (structured.background_input as { routes?: unknown } | undefined)?.routes;
+    if (Array.isArray(routes)) {
+      const refused = routes
+        .filter((r): r is { route?: string; status?: string; reason?: string } =>
+          typeof r === "object" && r != null)
+        .filter((r) => r.status === "refused" && typeof r.route === "string");
+      for (const route of refused) {
+        notes.push(
+          `the '${route.route}' input route is refused for this window`
+          + `${route.reason ? ` (${route.reason})` : ""} — actions using it will fail`,
+        );
+      }
+    }
+    return notes.length === 0 ? "" : notes.map((note) => `[${note}]`).join("\n");
   }
 
   // ------------------------------ the interface -----------------------------
@@ -462,21 +526,41 @@ export class CuaDriverBackend implements ComputerUseBackend {
   }
 
   async getAppState(
-    args: { app: AppIdentifier; disableDiff?: boolean },
+    args: {
+      app: AppIdentifier;
+      disableDiff?: boolean;
+      /**
+       * Case-insensitive filter: matching actionable rows plus their actionable
+       * ancestors. The reason this is worth having is scale — a Chrome window
+       * reports over 1500 nodes, and rendering all of them costs the model far
+       * more context than finding the one row it was looking for.
+       */
+      query?: string;
+      /** Cap on nodes walked (daemon default is its own). */
+      maxElements?: number;
+      /** Cap on walk depth (daemon default 25). */
+      maxDepth?: number;
+    },
     options?: RequestOptions,
   ): Promise<MacWindowAppState> {
     const resolved = await this.resolve(args.app);
-    const result = await this.call(
-      "get_window_state",
-      { pid: resolved.pid, window_id: resolved.windowId, include_screenshot: true },
-      options,
-    );
+    const request: Record<string, unknown> = {
+      pid: resolved.pid,
+      window_id: resolved.windowId,
+      include_screenshot: true,
+    };
+    if (args.query != null && args.query !== "") request.query = args.query;
+    if (args.maxElements != null) request.max_elements = args.maxElements;
+    if (args.maxDepth != null) request.max_depth = args.maxDepth;
+    const result = await this.call("get_window_state", request, options);
     const structured = result.structuredContent ?? {};
     // Present only when the window scope resolved; an observation-only reply has
     // no index map, so there is nothing to hand a later action.
     resolved.snapshotId = typeof structured.snapshot_id === "string" ? structured.snapshot_id : undefined;
     const elements = (structured.elements ?? []) as CuaElement[];
-    const text = CuaDriverBackend.renderTree(elements);
+    const notes = CuaDriverBackend.renderTreeNotes(structured, request.query != null);
+    const tree = CuaDriverBackend.renderTree(elements);
+    const text = notes === "" ? tree : `${notes}\n${tree}`;
     const screenshot = screenshotUrl(structured);
     return {
       app: { bundleIdentifier: resolved.bundleId, pid: resolved.pid },
@@ -499,17 +583,37 @@ export class CuaDriverBackend implements ComputerUseBackend {
       clickCount?: number;
       elementIndex?: number;
       mouseButton?: MouseButtonName | number;
+      /**
+       * The AX action to invoke instead of an ordinary press.
+       *
+       * This is the daemon's own model: one `click` tool with an action
+       * parameter, whose values are a closed set. It used to be hidden behind a
+       * separate `performSecondaryAction` method that took a free-form name and
+       * translated it — which could not work here, because cua-driver's tree
+       * does not report which actions an element exposes, so nothing could tell
+       * the caller what to pass.
+       */
+      action?: ClickAction;
       x?: number;
       y?: number;
     },
     options?: RequestOptions,
   ): Promise<void> {
     const byElement = args.elementIndex != null;
+    if (args.action != null && !byElement) {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "click action requires element_index: an AX action is sent to an element, not a point.",
+        request: args,
+        requestType: "click",
+      });
+    }
     const payload: Record<string, unknown> = {
       ...(await this.targetArgs(args.app, byElement)),
       count: args.clickCount ?? 1,
       button: normalizeButton(args.mouseButton),
     };
+    if (args.action != null) payload.action = args.action;
     if (byElement) payload.element_index = args.elementIndex;
     else if (args.x != null && args.y != null) { payload.x = args.x; payload.y = args.y; }
     else {
@@ -582,61 +686,258 @@ export class CuaDriverBackend implements ComputerUseBackend {
    * Fan out by action name. See CLICK_ACTIONS for why unknown names are refused
    * instead of forwarded.
    */
-  async performSecondaryAction(
-    args: { app: AppIdentifier; action: string; elementIndex: number },
-    options?: RequestOptions,
-  ): Promise<void> {
-    const key = args.action.trim().toLowerCase().replace(/\s+/g, "_");
-    const clickAction = CLICK_ACTIONS.get(key);
-    if (clickAction != null) {
-      await this.call(
-        "click",
-        {
-          ...(await this.targetArgs(args.app, true)),
-          element_index: args.elementIndex,
-          action: clickAction,
-          count: 1,
-        },
-        options,
-      );
-      this.invalidateSnapshot(args.app);
-      return;
-    }
-    if (RAISE_ACTIONS.has(key)) {
-      await this.call("bring_to_front", await this.targetArgs(args.app, false), options);
-      this.invalidateSnapshot(args.app);
-      return;
-    }
-    throw new SkyComputerUseError({
-      code: -32_000,
-      message:
-        `Computer Use cannot perform the secondary action '${args.action}' through cua-driver. `
-        + `Supported: ${[...new Set(CLICK_ACTIONS.values())].join(", ")}, raise. `
-        + `Numeric stepping goes through set_value.`,
-      request: args,
-      requestType: "perform_secondary_action",
-    });
+  /** Raise the app's window without clicking in it. */
+  async bringToFront(args: { app: AppIdentifier }, options?: RequestOptions): Promise<void> {
+    await this.call("bring_to_front", await this.targetArgs(args.app, false), options);
+    this.invalidateSnapshot(args.app);
   }
 
-  async selectText(
+  // ---------------------------------------------------------------------
+  // Capabilities the Swift-shaped interface used to hide. See backend.ts.
+  // ---------------------------------------------------------------------
+
+  async hotkey(
+    args: { app: AppIdentifier; keys: readonly string[]; elementIndex?: number; x?: number; y?: number },
+    options?: RequestOptions,
+  ): Promise<void> {
+    if (args.keys.length === 0) {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "hotkey needs at least one key, e.g. ['cmd', 'c'].",
+        request: args,
+        requestType: "hotkey",
+      });
+    }
+    const byElement = args.elementIndex != null;
+    const payload: Record<string, unknown> = {
+      ...(await this.targetArgs(args.app, byElement)),
+      keys: [...args.keys],
+    };
+    if (byElement) payload.element_index = args.elementIndex;
+    else if (args.x != null && args.y != null) {
+      payload.x = args.x;
+      payload.y = args.y;
+    }
+    await this.call("hotkey", payload, options);
+    // A chord is the most likely thing in this file to have rearranged the UI.
+    this.invalidateSnapshot(args.app);
+  }
+
+  async invokeMenu(
+    args: { app: AppIdentifier; path: readonly string[] },
+    options?: RequestOptions,
+  ): Promise<void> {
+    if (args.path.length === 0) {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "invoke_menu needs a path, e.g. ['File', 'Save'].",
+        request: args,
+        requestType: "invoke_menu",
+      });
+    }
+    // Menu targeting is window-scoped but never element-scoped: the menu bar is
+    // not inside the window, so a snapshot handle would mean nothing here.
+    await this.call(
+      "invoke_menu",
+      { ...(await this.targetArgs(args.app, false)), path: [...args.path] },
+      options,
+    );
+    this.invalidateSnapshot(args.app);
+  }
+
+  async doubleClick(
+    args: { app: AppIdentifier; elementIndex?: number; x?: number; y?: number },
+    options?: RequestOptions,
+  ): Promise<void> {
+    const byElement = args.elementIndex != null;
+    const payload: Record<string, unknown> = await this.targetArgs(args.app, byElement);
+    if (byElement) payload.element_index = args.elementIndex;
+    else if (args.x != null && args.y != null) {
+      payload.x = args.x;
+      payload.y = args.y;
+    } else {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "double_click needs either element_index or x and y.",
+        request: args,
+        requestType: "double_click",
+      });
+    }
+    await this.call("double_click", payload, options);
+    this.invalidateSnapshot(args.app);
+  }
+
+  async rightClick(
+    args: { app: AppIdentifier; elementIndex?: number; x?: number; y?: number; modifiers?: readonly string[] },
+    options?: RequestOptions,
+  ): Promise<void> {
+    const byElement = args.elementIndex != null;
+    const payload: Record<string, unknown> = await this.targetArgs(args.app, byElement);
+    if (byElement) payload.element_index = args.elementIndex;
+    else if (args.x != null && args.y != null) {
+      payload.x = args.x;
+      payload.y = args.y;
+    } else {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "right_click needs either element_index or x and y.",
+        request: args,
+        requestType: "right_click",
+      });
+    }
+    // The daemon accepts modifiers on the pixel path only.
+    if (args.modifiers?.length && !byElement) payload.modifier = [...args.modifiers];
+    await this.call("right_click", payload, options);
+    this.invalidateSnapshot(args.app);
+  }
+
+  async setWindowFrame(
+    args: { app: AppIdentifier; x: number; y: number; width: number; height: number },
+    options?: RequestOptions,
+  ): Promise<WindowFrame> {
+    const result = await this.call(
+      "set_window_frame",
+      {
+        ...(await this.targetArgs(args.app, false)),
+        x: args.x,
+        y: args.y,
+        width: args.width,
+        height: args.height,
+      },
+      options,
+    );
+    // Resizing re-lays-out the window, so every cached element index is stale.
+    this.invalidateSnapshot(args.app);
+    const structured = result.structuredContent ?? {};
+    const frame = (structured.frame ?? structured) as Record<string, unknown>;
+    return {
+      x: numberOr(frame.x, args.x),
+      y: numberOr(frame.y, args.y),
+      width: numberOr(frame.width, args.width),
+      height: numberOr(frame.height, args.height),
+    };
+  }
+
+  async zoom(
+    args: { app: AppIdentifier; x1: number; y1: number; x2: number; y2: number },
+    options?: RequestOptions,
+  ): Promise<{ screenshot: { url?: string | null; mimeType?: string | null } | null }> {
+    const result = await this.call(
+      "zoom",
+      {
+        ...(await this.targetArgs(args.app, false)),
+        x1: args.x1,
+        y1: args.y1,
+        x2: args.x2,
+        y2: args.y2,
+      },
+      options,
+    );
+    return { screenshot: screenshotUrl(result.structuredContent ?? {}) };
+  }
+
+  async killApp(args: { app: AppIdentifier }, options?: RequestOptions): Promise<void> {
+    const resolved = await this.resolve(args.app);
+    await this.call("kill_app", { pid: resolved.pid }, options);
+    // The pid is gone; a cached resolution pointing at it would address nothing.
+    this.resolutions.delete(args.app);
+  }
+
+  async verifyState(
     args: {
       app: AppIdentifier;
-      elementIndex: number;
-      text: string;
-      prefix?: string;
-      suffix?: string;
-      selection?: string;
+      expect: readonly unknown[];
+      timeoutMs?: number;
+      stableSamples?: number;
+      includeScreenshot?: boolean;
     },
-    _options?: RequestOptions,
-  ): Promise<void> {
-    throw new SkyComputerUseError({
-      code: -32_000,
-      message:
-        "select_text has no cua-driver equivalent yet. Track docs/cua-driver-migration/design.md; "
-        + "until it lands, read the element value and use set_value.",
-      request: args,
-      requestType: "select_text",
-    });
+    options?: RequestOptions,
+  ): Promise<VerifyStateResult> {
+    if (args.expect.length === 0 || args.expect.length > 8) {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "verify_state takes one to eight predicates, combined with AND.",
+        request: args,
+        requestType: "verify_state",
+      });
+    }
+    const payload: Record<string, unknown> = {
+      ...(await this.targetArgs(args.app, false)),
+      expect: [...args.expect],
+    };
+    if (args.timeoutMs != null) payload.timeout_ms = args.timeoutMs;
+    if (args.stableSamples != null) payload.stable_samples = args.stableSamples;
+    if (args.includeScreenshot != null) payload.include_screenshot = args.includeScreenshot;
+    const result = await this.call("verify_state", payload, options);
+    const structured = result.structuredContent ?? {};
+    return {
+      // `unknown` is the honest default: absence of evidence is never success.
+      status: typeof structured.status === "string" ? structured.status : "unknown",
+      results: Array.isArray(structured.results) ? structured.results : undefined,
+      screenshot: screenshotUrl(structured),
+    };
+  }
+
+  async getScreenSize(options?: RequestOptions): Promise<ScreenSize> {
+    const structured = (await this.call("get_screen_size", {}, options)).structuredContent ?? {};
+    return {
+      width: numberOr(structured.width, 0),
+      height: numberOr(structured.height, 0),
+      // Retina reports 2.0. Actions take points, screenshots are in pixels, so a
+      // caller mixing the two without this factor clicks at half the intended spot.
+      scaleFactor: numberOr(structured.scale_factor ?? structured.backing_scale_factor, 1),
+    };
+  }
+
+  async getDesktopState(
+    options?: RequestOptions,
+  ): Promise<{ screenshot: { url?: string | null; mimeType?: string | null } | null; width?: number; height?: number }> {
+    const structured = (await this.call("get_desktop_state", {}, options)).structuredContent ?? {};
+    return {
+      screenshot: screenshotUrl(structured),
+      width: typeof structured.width === "number" ? structured.width : undefined,
+      height: typeof structured.height === "number" ? structured.height : undefined,
+    };
+  }
+
+  async clipboardRead(
+    args: { includeText?: boolean } = {},
+    options?: RequestOptions,
+  ): Promise<ClipboardContents> {
+    const structured = (await this.call(
+      "clipboard_read",
+      args.includeText ? { include_text: true } : {},
+      options,
+    )).structuredContent ?? {};
+    const types = Array.isArray(structured.types)
+      ? structured.types.filter((t): t is string => typeof t === "string")
+      : [];
+    return { types, text: typeof structured.text === "string" ? structured.text : undefined };
+  }
+
+  async clipboardWrite(
+    args: { text?: string; imagePath?: string; filePath?: string },
+    options?: RequestOptions,
+  ): Promise<{ types: string[] }> {
+    const payload: Record<string, unknown> = {};
+    if (args.text != null) payload.text = args.text;
+    if (args.imagePath != null) payload.image_path = args.imagePath;
+    if (args.filePath != null) payload.file_path = args.filePath;
+    // The daemon replaces the clipboard with exactly one value.
+    if (Object.keys(payload).length !== 1) {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: "clipboard_write takes exactly one of text, imagePath or filePath.",
+        request: args,
+        requestType: "clipboard_write",
+      });
+    }
+    const structured = (await this.call("clipboard_write", payload, options)).structuredContent ?? {};
+    return {
+      types: Array.isArray(structured.types)
+        ? structured.types.filter((t): t is string => typeof t === "string")
+        : [],
+    };
   }
 
   dispose(): void {
@@ -644,6 +945,10 @@ export class CuaDriverBackend implements ComputerUseBackend {
     this.transport = undefined;
     this.resolutions.clear();
   }
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 /**
