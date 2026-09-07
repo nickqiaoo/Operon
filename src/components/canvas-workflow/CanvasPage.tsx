@@ -122,8 +122,8 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
   // Sync execution status to canvas nodes (inject runId + onOpenChat for AI nodes)
   useEffect(() => {
     const runId = execution.selectedRun?.id
-    canvasState.updateNodeStatuses(execution.nodeStatusMap, { runId, onOpenChat: handleOpenCanvasChat })
-  }, [canvasState.updateNodeStatuses, execution.nodeStatusMap, execution.selectedRun?.id, handleOpenCanvasChat])
+    canvasState.updateNodeStatuses(execution.nodeStatusMap, { runId, onOpenChat: handleOpenCanvasChat }, execution.nodeProgressMap)
+  }, [canvasState.updateNodeStatuses, execution.nodeStatusMap, execution.nodeProgressMap, execution.selectedRun?.id, handleOpenCanvasChat])
 
   // Selected ReactFlow node
   const selectedNode = useMemo(
@@ -477,6 +477,7 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
                   onDeleteNodes={canvasState.deleteNodes}
                   onDuplicateNodes={canvasState.duplicateNodes}
                   onAddNodeAtPosition={canvasState.addNodeAtPosition}
+                  onNodeDragStop={canvasState.onNodeDragStop}
                   onAutoLayout={canvasState.autoLayout}
                 />
               </ReactFlowProvider>
@@ -504,6 +505,10 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
 
             {rightPanel === "config" && (
               <NodeConfigPanel
+                workflowId={canvasState.workflow?.id}
+                nodes={canvasState.nodes}
+                edges={canvasState.edges}
+                lastRun={execution.selectedRun ?? execution.runs[0] ?? null}
                 node={selectedNode}
                 providers={providers}
                 onUpdate={canvasState.updateNodeData}

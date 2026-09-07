@@ -69,6 +69,7 @@ import type {
   CanvasWorkflowLastRun,
   CanvasWorkflowListItem,
   CanvasWorkflowRun,
+  CreateCanvasRunOptions,
   CreateCanvasWorkflowInput,
   NodeResult,
   NodeResultUpdate,
@@ -1358,13 +1359,17 @@ export class SqliteStorage
   createCanvasWorkflow(input: CreateCanvasWorkflowInput): CanvasWorkflow {
     const now = Date.now()
     const result = this.db.prepare(`
-      INSERT INTO canvas_workflows (name, description, workspace_id, nodes, edges, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(input.name, input.description ?? null, input.workspaceId ?? null, JSON.stringify(input.nodes), JSON.stringify(input.edges), now, now)
+      INSERT INTO canvas_workflows (name, description, workspace_id, nodes, edges, settings, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      input.name, input.description ?? null, input.workspaceId ?? null,
+      JSON.stringify(input.nodes), JSON.stringify(input.edges),
+      input.settings ? JSON.stringify(input.settings) : null, now, now,
+    )
     const id = Number(result.lastInsertRowid)
     return {
       id, name: input.name, description: input.description, workspaceId: input.workspaceId,
-      nodes: input.nodes, edges: input.edges, createdAt: now, updatedAt: now,
+      nodes: input.nodes, edges: input.edges, settings: input.settings, createdAt: now, updatedAt: now,
     }
   }
 
@@ -1389,7 +1394,7 @@ export class SqliteStorage
       LEFT JOIN canvas_workflow_runs r
         ON r.id = (
           SELECT id FROM canvas_workflow_runs
-          WHERE workflow_id = w.id
+          WHERE workflow_id = w.id AND parent_run_id IS NULL
           ORDER BY started_at DESC, id DESC
           LIMIT 1
         )
@@ -1423,6 +1428,7 @@ export class SqliteStorage
     if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description) }
     if (updates.nodes !== undefined) { fields.push('nodes = ?'); values.push(JSON.stringify(updates.nodes)) }
     if (updates.edges !== undefined) { fields.push('edges = ?'); values.push(JSON.stringify(updates.edges)) }
+    if (updates.settings !== undefined) { fields.push('settings = ?'); values.push(JSON.stringify(updates.settings)) }
     fields.push('updated_at = ?')
     values.push(Date.now())
     values.push(id)
@@ -1433,10 +1439,11 @@ export class SqliteStorage
     this.db.prepare('DELETE FROM canvas_workflows WHERE id = ?').run(id)
   }
 
-  createCanvasRun(workflowId: number): number {
+  createCanvasRun(workflowId: number, options?: CreateCanvasRunOptions): number {
     const result = this.db.prepare(
-      `INSERT INTO canvas_workflow_runs (workflow_id, status, started_at) VALUES (?, 'running', ?)`
-    ).run(workflowId, Date.now())
+      `INSERT INTO canvas_workflow_runs (workflow_id, status, started_at, parent_run_id, iteration, trigger)
+       VALUES (?, 'running', ?, ?, ?, ?)`
+    ).run(workflowId, Date.now(), options?.parentRunId ?? null, options?.iteration ?? null, options?.trigger ?? null)
     return Number(result.lastInsertRowid)
   }
 
@@ -1459,13 +1466,23 @@ export class SqliteStorage
       finishedAt: (run.finished_at as number) || undefined,
       outputs: run.outputs ? JSON.parse(run.outputs as string) : undefined,
       nodeResults,
+      parentRunId: (run.parent_run_id as number | null) ?? undefined,
+      iteration: (run.iteration as number | null) ?? undefined,
+      trigger: (run.trigger as CanvasWorkflowRun['trigger'] | null) ?? undefined,
     }
   }
 
   listCanvasRuns(workflowId: number, limit: number = 20): CanvasWorkflowRun[] {
     const rows = this.db.prepare(
-      'SELECT id FROM canvas_workflow_runs WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ?'
+      'SELECT id FROM canvas_workflow_runs WHERE workflow_id = ? AND parent_run_id IS NULL ORDER BY started_at DESC LIMIT ?'
     ).all(workflowId, limit) as Array<{ id: number }>
+    return rows.map(row => this.getCanvasRun(row.id)!).filter(Boolean)
+  }
+
+  listCanvasChildRuns(parentRunId: number): CanvasWorkflowRun[] {
+    const rows = this.db.prepare(
+      'SELECT id FROM canvas_workflow_runs WHERE parent_run_id = ? ORDER BY iteration ASC, id ASC'
+    ).all(parentRunId) as Array<{ id: number }>
     return rows.map(row => this.getCanvasRun(row.id)!).filter(Boolean)
   }
 
@@ -3468,6 +3485,7 @@ function rowToCanvasWorkflow(row: Record<string, unknown>): CanvasWorkflow {
     workspaceId: (row.workspace_id as number) || undefined,
     nodes: JSON.parse(row.nodes as string),
     edges: JSON.parse(row.edges as string),
+    settings: row.settings ? JSON.parse(row.settings as string) : undefined,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   }

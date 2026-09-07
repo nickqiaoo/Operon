@@ -697,6 +697,12 @@ export const api = {
     get<{ run: CanvasWorkflowRun }>(`/canvas-workflows/runs/${runId}`),
   canvasWorkflowListRuns: (id: number, limit?: number) =>
     get<{ runs: CanvasWorkflowRun[] }>(`/canvas-workflows/${id}/runs${limit ? `?limit=${limit}` : ''}`),
+  canvasWorkflowListChildRuns: (runId: number) =>
+    get<{ runs: CanvasWorkflowRun[] }>(`/canvas-workflows/runs/${runId}/children`),
+  canvasWorkflowCallers: (id: number) =>
+    get<{ callers: Array<{ workflowId: number; workflowName: string; nodeName: string; keys: string[] }> }>(`/canvas-workflows/${id}/callers`),
+  canvasWorkflowDecide: (runId: number, nodeId: string, approved: boolean, comment?: string) =>
+    post<{ success: boolean }>(`/canvas-workflows/runs/${runId}/nodes/${encodeURIComponent(nodeId)}/decide`, { approved, comment }),
 
   // --- Projects (HTTP) ---
   projectList: () =>

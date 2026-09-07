@@ -69,6 +69,7 @@ export function useCanvasWorkflow(workflowId?: number) {
     autoLayout,
     updateNodeData,
     updateNodeStatuses,
+    onNodeDragStop,
   } = useCanvasNodeOperations({
     nodes,
     edges,
@@ -102,6 +103,7 @@ export function useCanvasWorkflow(workflowId?: number) {
     autoLayout,
     updateNodeData,
     updateNodeStatuses,
+    onNodeDragStop,
     setWorkflow,
     setReactFlowInstance,
   }

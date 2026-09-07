@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { CREATABLE_NODE_TYPES, NODE_TYPES, metaForReactFlowType, type CreatableNodeType } from "./node-registry"
 import { useIntl } from "react-intl"
 import {
   Background,
@@ -23,12 +24,20 @@ import {
   Copy,
   LayoutGrid,
   Maximize,
-  FileInput,
-  Brain,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { InputNodeComponent } from "./nodes/InputNode"
 import { AINodeComponent } from "./nodes/AINode"
 import { AISessionNodeComponent } from "./nodes/AISessionNode"
+import { ShellNodeComponent } from "./nodes/ShellNode"
+import { TemplateNodeComponent } from "./nodes/TemplateNode"
+import { CodeNodeComponent } from "./nodes/CodeNode"
+import { IfNodeComponent } from "./nodes/IfNode"
+import { HttpNodeComponent } from "./nodes/HttpNode"
+import { EndNodeComponent } from "./nodes/EndNode"
+import { IterationNodeComponent, LoopNodeComponent } from "./nodes/GroupNode"
+import { SubWorkflowNodeComponent } from "./nodes/SubWorkflowNode"
+import { ApprovalNodeComponent } from "./nodes/ApprovalNode"
 
 type CanvasNode = Node<Record<string, unknown>>
 
@@ -52,9 +61,10 @@ interface CanvasEditorProps {
   onCreateSessionNode?: (parentNodeId: string) => void
   hasSessionChild?: (nodeId: string) => boolean
   onInit?: (instance: ReactFlowInstance) => void
+  onNodeDragStop?: (event: unknown, node: CanvasNode) => void
   onDeleteNodes?: (nodeIds: string[]) => void
   onDuplicateNodes?: (nodeIds: string[]) => void
-  onAddNodeAtPosition?: (type: "input" | "ai", position: XYPosition) => void
+  onAddNodeAtPosition?: (type: CreatableNodeType, position: XYPosition) => void
   onAutoLayout?: () => void
 }
 
@@ -73,12 +83,23 @@ function CanvasEditorInner({
   onDuplicateNodes,
   onAddNodeAtPosition,
   onAutoLayout,
+  onNodeDragStop,
 }: CanvasEditorProps) {
   const nodeTypes = useMemo(
     () => ({
       inputNode: InputNodeComponent,
       aiNode: AINodeComponent,
       aiSessionNode: AISessionNodeComponent,
+      shellNode: ShellNodeComponent,
+      templateNode: TemplateNodeComponent,
+      codeNode: CodeNodeComponent,
+      ifNode: IfNodeComponent,
+      httpNode: HttpNodeComponent,
+      endNode: EndNodeComponent,
+      iterationNode: IterationNodeComponent,
+      loopNode: LoopNodeComponent,
+      subworkflowNode: SubWorkflowNodeComponent,
+      approvalNode: ApprovalNodeComponent,
     }),
     []
   )
@@ -150,7 +171,7 @@ function CanvasEditorInner({
   }, [contextMenu, onDuplicateNodes])
 
   const handleAddNodeAtPosition = useCallback(
-    (type: "input" | "ai") => {
+    (type: CreatableNodeType) => {
       if (contextMenu?.flowPosition && onAddNodeAtPosition) {
         onAddNodeAtPosition(type, contextMenu.flowPosition)
       }
@@ -227,6 +248,7 @@ function CanvasEditorInner({
           dismissContextMenu()
           onPaneClick?.()
         }}
+        onNodeDragStop={(event, node) => onNodeDragStop?.(event, node)}
         onNodeContextMenu={handleNodeContextMenu}
         onPaneContextMenu={handlePaneContextMenu}
         proOptions={{ hideAttribution: true }}
@@ -250,12 +272,7 @@ function CanvasEditorInner({
         <MiniMap
           className="!bg-background/80 !border-border/40 !shadow-card !rounded-lg"
           maskColor="rgba(0, 0, 0, 0.08)"
-          nodeColor={(node) => {
-            if (node.type === "inputNode") return "rgb(59 130 246 / 0.5)"
-            if (node.type === "aiNode") return "rgb(168 85 247 / 0.5)"
-            if (node.type === "aiSessionNode") return "rgb(6 182 212 / 0.5)"
-            return "rgb(156 163 175 / 0.4)"
-          }}
+          nodeColor={(node) => metaForReactFlowType(node.type).minimapColor}
           pannable
           zoomable
         />
@@ -324,20 +341,20 @@ function CanvasEditorInner({
 
             {contextMenu.target === "pane" && (
               <>
-                <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
-                  onClick={() => handleAddNodeAtPosition("input")}
-                >
-                  <FileInput className="h-3.5 w-3.5 text-blue-500" />
-                  <span>{intl.formatMessage({ id: "canvas.context.addInput", defaultMessage: "Add Input Node" })}</span>
-                </button>
-                <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
-                  onClick={() => handleAddNodeAtPosition("ai")}
-                >
-                  <Brain className="h-3.5 w-3.5 text-purple-500" />
-                  <span>{intl.formatMessage({ id: "canvas.context.addAi", defaultMessage: "Add AI Node" })}</span>
-                </button>
+                {CREATABLE_NODE_TYPES.map((type) => {
+                  const meta = NODE_TYPES[type]
+                  const Icon = meta.icon
+                  return (
+                    <button
+                      key={type}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
+                      onClick={() => handleAddNodeAtPosition(type)}
+                    >
+                      <Icon className={cn("h-3.5 w-3.5", meta.iconClass)} />
+                      <span>Add {meta.title}</span>
+                    </button>
+                  )
+                })}
                 <div className="my-1 h-px bg-border/30" />
                 <button
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"

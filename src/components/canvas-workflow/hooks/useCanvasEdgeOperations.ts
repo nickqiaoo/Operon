@@ -42,7 +42,8 @@ export function useCanvasEdgeOperations({
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      setEdges((eds) => addEdge({ ...connection, id: `e-${connection.source}-${connection.target}` }, eds))
+      const handleSuffix = connection.sourceHandle ? `-${connection.sourceHandle}` : ""
+      setEdges((eds) => addEdge({ ...connection, id: `e-${connection.source}${handleSuffix}-${connection.target}` }, eds))
       setDirty(true)
     },
     [setEdges, setDirty]

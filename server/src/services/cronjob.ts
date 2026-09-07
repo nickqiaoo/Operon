@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from 'ai'
-import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
+import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, NotificationStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 import type {
   CronjobSchedule,
   CronjobTask,
@@ -11,7 +11,7 @@ import type {
 import { startChat, getSessionManager } from './ai.js'
 import { readPreparedTextStreamParts } from './ai/prepared-stream-parts.js'
 import { createUiStreamFromTextParts } from './ai/text-stream-part-to-ui.js'
-import { startCanvasWorkflowExecution } from './canvas-workflow.js'
+import { startCanvasWorkflowExecution } from './canvas-workflow/index.js'
 import { ChatHistoryService } from './chat-history.js'
 
 const DEFAULT_DAILY_DAYS = [1, 2, 3, 4, 5]
@@ -19,7 +19,7 @@ const MAX_OUTPUT_CHARS = 8000
 const HISTORY_TITLE_MAX_CHARS = 160
 const WORKFLOW_POLL_INTERVAL_MS = 2000
 const WORKFLOW_POLL_TIMEOUT_MS = 30 * 60_000 // 30 minutes
-type CronjobStorage = CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter
+type CronjobStorage = CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter
 
 const isValidTime = (value: string): boolean => /^([01]\d|2[0-3]):([0-5]\d)$/.test(value)
 
@@ -419,7 +419,7 @@ const executeCanvasWorkflowCronjob = async (
     : { ...job, workspaceId: workflow.workspaceId }
 
   try {
-    const { runId } = startCanvasWorkflowExecution(storage, workflowId)
+    const { runId } = startCanvasWorkflowExecution(storage, workflowId, { trigger: 'cron' })
     const result = await pollWorkflowRun(storage, runId)
 
     const finishedAt = Date.now()

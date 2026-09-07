@@ -1,4 +1,4 @@
-import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
+import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../storage/interface.js'
 import { computeNextRunAtForJob, executeCronjob, listCronjobs, setCronjobNextRunAt } from './cronjob.js'
 
 export interface CronjobSchedulerOptions {
@@ -9,7 +9,7 @@ const TAG = '[CronjobScheduler]'
 const STALE_THRESHOLD_MS = 60 * 60_000 // 1 hour
 
 export function startCronjobScheduler(
-  storage: CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter,
+  storage: CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter,
   options: CronjobSchedulerOptions = {}
 ): () => void {
   const intervalMs = options.intervalMs ?? 10_000

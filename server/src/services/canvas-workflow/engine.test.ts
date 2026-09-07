@@ -1,17 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { executeCanvasWorkflow } from './canvas-workflow.js'
+import { executeCanvasWorkflow } from './index.js'
 import type {
   CanvasWorkflow,
   NodeResult,
   NodeResultUpdate,
-} from '../types/canvas-workflow.js'
-import type {
-  CanvasWorkflowStorageAdapter,
-  ChatStorageAdapter,
-  ProjectStorageAdapter,
-} from '../storage/interface.js'
-
-type CombinedStorage = CanvasWorkflowStorageAdapter & ChatStorageAdapter & ProjectStorageAdapter
+} from '../../types/canvas-workflow.js'
+import type { CombinedStorage } from './types.js'
 
 interface FakeRun {
   status: 'running' | 'success' | 'error'
@@ -142,5 +136,80 @@ describe('executeCanvasWorkflow (input-only DAG)', () => {
     const run = runs.get(1)!
     expect(run.status).toBe('success')
     expect(run.outputs).toEqual({ a: 'alpha', b: 'beta' })
+  })
+})
+
+// An AI node without a workspace fails deterministically before touching any
+// provider, which makes it a handy failure injector for engine tests.
+const makeFailingNode = (id: string): CanvasWorkflow['nodes'][number] => ({
+  id,
+  type: 'ai',
+  name: id,
+  position: { x: 0, y: 0 },
+  data: { providerId: 'none', userPrompt: 'x' },
+})
+
+const edge = (source: string, target: string) => ({ id: `${source}-${target}`, source, target })
+
+describe('executeCanvasWorkflow (failures and skips)', () => {
+  it('skips everything downstream of a failed node and marks the run as error', async () => {
+    const { storage, runs } = createFakeStorage()
+    const workflow: CanvasWorkflow = {
+      id: 1,
+      name: 'fail-chain',
+      nodes: [makeInputNode('a', 'alpha'), makeFailingNode('bad'), makeInputNode('c', 'gamma'), makeInputNode('d', 'delta')],
+      edges: [edge('a', 'bad'), edge('bad', 'c'), edge('c', 'd')],
+      createdAt: 0,
+      updatedAt: 0,
+    }
+
+    await executeCanvasWorkflow(workflow, 1, storage)
+
+    const run = runs.get(1)!
+    expect(run.status).toBe('error')
+    expect(run.error).toContain('Node "bad" failed')
+    expect(run.nodeResults.get('a')?.status).toBe('success')
+    expect(run.nodeResults.get('bad')?.status).toBe('error')
+    expect(run.nodeResults.get('c')?.status).toBe('skipped')
+    expect(run.nodeResults.get('d')?.status).toBe('skipped')
+    expect(run.outputs).toEqual({})
+  })
+
+  it('still runs a fan-in node when at least one predecessor completed', async () => {
+    const { storage, runs } = createFakeStorage()
+    const workflow: CanvasWorkflow = {
+      id: 1,
+      name: 'fan-in',
+      nodes: [makeInputNode('a', 'alpha'), makeFailingNode('bad'), makeInputNode('join', 'joined')],
+      edges: [edge('a', 'join'), edge('bad', 'join')],
+      createdAt: 0,
+      updatedAt: 0,
+    }
+
+    await executeCanvasWorkflow(workflow, 1, storage)
+
+    const run = runs.get(1)!
+    expect(run.status).toBe('error')
+    expect(run.nodeResults.get('join')?.status).toBe('success')
+    expect(run.outputs).toEqual({ join: 'joined' })
+  })
+
+  it('keeps independent branches running while one fails', async () => {
+    const { storage, runs } = createFakeStorage()
+    const workflow: CanvasWorkflow = {
+      id: 1,
+      name: 'independent',
+      nodes: [makeFailingNode('bad'), makeInputNode('a', 'alpha'), makeInputNode('b', 'beta')],
+      edges: [edge('a', 'b')],
+      createdAt: 0,
+      updatedAt: 0,
+    }
+
+    await executeCanvasWorkflow(workflow, 1, storage)
+
+    const run = runs.get(1)!
+    expect(run.status).toBe('error')
+    expect(run.nodeResults.get('b')?.status).toBe('success')
+    expect(run.outputs).toEqual({ b: 'beta' })
   })
 })

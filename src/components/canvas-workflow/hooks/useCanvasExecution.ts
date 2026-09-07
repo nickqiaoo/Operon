@@ -93,6 +93,16 @@ export function useCanvasExecution(workflowId?: number) {
     return Object.fromEntries(selectedRun.nodeResults.map((r) => [r.nodeId, r.status]))
   }, [selectedRun])
 
+  /** Progress text group nodes publish while running ("2/5 done"). */
+  const nodeProgressMap = useMemo(() => {
+    if (!selectedRun) return {}
+    return Object.fromEntries(
+      selectedRun.nodeResults
+        .filter((r) => r.status === "running" && r.output)
+        .map((r) => [r.nodeId, r.output as string])
+    )
+  }, [selectedRun])
+
   const reset = useCallback(() => {
     stopPolling()
     setRunId(null)
@@ -100,5 +110,5 @@ export function useCanvasExecution(workflowId?: number) {
     setExecuting(false)
   }, [stopPolling])
 
-  return { execute, run, selectedRun, runs, selectRun, selectedRunId, nodeStatusMap, executing, reset }
+  return { execute, run, selectedRun, runs, selectRun, selectedRunId, nodeStatusMap, nodeProgressMap, executing, reset }
 }

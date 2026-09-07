@@ -15,6 +15,7 @@ import type {
   UpdateCanvasWorkflowInput,
   NodeResult,
   NodeResultUpdate,
+  CreateCanvasRunOptions,
 } from '../types/canvas-workflow.js'
 import type { Project, Workspace, CreateProjectInput, CreateWorkspaceInput } from '../types/project.js'
 import type {
@@ -247,10 +248,12 @@ export interface CanvasWorkflowStorageAdapter {
   deleteCanvasWorkflow(id: number): void
 
   // Run Management
-  createCanvasRun(workflowId: number): number
+  createCanvasRun(workflowId: number, options?: CreateCanvasRunOptions): number
   updateCanvasRunStatus(runId: number, status: 'success' | 'error', data?: { outputs?: Record<string, string>; error?: string }): void
   getCanvasRun(runId: number): CanvasWorkflowRun | null
+  /** Top-level runs only (no parent); group / sub-workflow bodies come via listCanvasChildRuns. */
   listCanvasRuns(workflowId: number, limit?: number): CanvasWorkflowRun[]
+  listCanvasChildRuns(parentRunId: number): CanvasWorkflowRun[]
 
   // Node Results
   updateCanvasNodeResult(runId: number, nodeId: string, result: NodeResultUpdate): void

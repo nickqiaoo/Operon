@@ -10,6 +10,7 @@ export type NotificationKind =
   | 'task_failed'
   | 'sdd_gate'
   | 'cron_done'
+  | 'workflow_approval'
 
 export type NotificationSeverity = 'action' | 'info'
 

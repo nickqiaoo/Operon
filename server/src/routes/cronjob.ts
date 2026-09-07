@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
-import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
+import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../storage/interface.js'
 import type { CronjobUpsertInput } from '../types/cronjob.js'
 import { createCronjob, deleteCronjob, executeCronjob, getCronjobExecutionHistory, listCronjobs, updateCronjob } from '../services/cronjob.js'
 
-type CronjobStorage = CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter
+type CronjobStorage = CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter
 
 export function cronjobRoutes(storage: CronjobStorage) {
   const router = new Hono()

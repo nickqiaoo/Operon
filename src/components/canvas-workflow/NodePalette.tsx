@@ -1,8 +1,8 @@
 import { useIntl } from "react-intl"
-import { FileInput, Brain } from "lucide-react"
+import { CREATABLE_NODE_TYPES, NODE_TYPES, type CreatableNodeType } from "./node-registry"
 
 interface NodePaletteProps {
-  onAddNode: (type: "input" | "ai") => void
+  onAddNode: (type: CreatableNodeType) => void
 }
 
 /**
@@ -20,20 +20,24 @@ export function NodePalette({ onAddNode }: NodePaletteProps) {
         </span>
       </div>
       <div className="space-y-1 px-3">
-        <button
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          onClick={() => onAddNode("input")}
-        >
-          <FileInput className="h-4 w-4" />
-          <span>{intl.formatMessage({ id: "canvas.palette.inputNode", defaultMessage: "Input node" })}</span>
-        </button>
-        <button
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          onClick={() => onAddNode("ai")}
-        >
-          <Brain className="h-4 w-4" />
-          <span>{intl.formatMessage({ id: "canvas.palette.aiNode", defaultMessage: "AI node" })}</span>
-        </button>
+        {CREATABLE_NODE_TYPES.map((type) => {
+          const meta = NODE_TYPES[type]
+          const Icon = meta.icon
+          return (
+            <button
+              key={type}
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              onClick={() => onAddNode(type)}
+            >
+              <Icon className="h-4 w-4" />
+              <span>
+                {meta.paletteMessageId
+                  ? intl.formatMessage({ id: meta.paletteMessageId, defaultMessage: meta.paletteLabel })
+                  : meta.paletteLabel}
+              </span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )

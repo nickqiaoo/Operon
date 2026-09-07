@@ -10,6 +10,7 @@ export type NotificationKind =
   | 'task_failed'
   | 'sdd_gate'
   | 'cron_done'
+  | 'workflow_approval'
 
 /** 'action' = needs you (blocking). 'info' = done, FYI. Drives the badge. */
 export type NotificationSeverity = 'action' | 'info'

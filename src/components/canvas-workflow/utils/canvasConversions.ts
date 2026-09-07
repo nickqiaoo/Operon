@@ -4,32 +4,15 @@ import type {
   CanvasEdgeDef,
   CanvasAISessionNodeData,
 } from "@/types/canvas-workflow"
+import { DEFAULT_GROUP_SIZE, NODE_TYPES, fromReactFlowNodeType, isGroupReactFlowType, toReactFlowNodeType } from "../node-registry"
+
+export { fromReactFlowNodeType, toReactFlowNodeType }
 
 export type CanvasNode = Node<Record<string, unknown>>
 export type CanvasEdge = Edge
 
 function getNodeName(node: CanvasNodeDef): string {
   return node.name || node.id
-}
-
-/** Map backend node type to ReactFlow node type */
-export function toReactFlowNodeType(backendType: CanvasNodeDef["type"]): string {
-  switch (backendType) {
-    case "input": return "inputNode"
-    case "ai": return "aiNode"
-    case "ai-session": return "aiSessionNode"
-    default: return "aiNode"
-  }
-}
-
-/** Map ReactFlow node type to backend node type */
-export function fromReactFlowNodeType(rfType: string): CanvasNodeDef["type"] {
-  switch (rfType) {
-    case "inputNode": return "input"
-    case "aiNode": return "ai"
-    case "aiSessionNode": return "ai-session"
-    default: return "ai"
-  }
 }
 
 /** Walk parentNodeId chain to find root AI node info */
@@ -50,9 +33,10 @@ export function findRootAINodeInfo(
   return null
 }
 
-/** Convert backend nodes to ReactFlow nodes */
+/** Convert backend nodes to ReactFlow nodes (parents first — ReactFlow requires it) */
 export function toReactFlowNodes(defs: CanvasNodeDef[]): CanvasNode[] {
-  return defs.map((n) => {
+  const ordered = [...defs].sort((a, b) => Number(a.parentId !== undefined) - Number(b.parentId !== undefined))
+  return ordered.map((n) => {
     const nodeName = getNodeName(n)
     const baseData: Record<string, unknown> = {
       name: nodeName,
@@ -70,12 +54,26 @@ export function toReactFlowNodes(defs: CanvasNodeDef[]): CanvasNode[] {
       }
     }
 
-    return {
+    const node: CanvasNode = {
       id: n.id,
       type: toReactFlowNodeType(n.type),
       position: n.position,
       data: baseData,
     }
+    if (n.parentId) {
+      node.parentId = n.parentId
+      node.extent = "parent"
+    }
+    if (n.size) {
+      node.width = n.size.width
+      node.height = n.size.height
+      node.style = { width: n.size.width, height: n.size.height }
+    } else if (NODE_TYPES[n.type]?.group) {
+      node.width = DEFAULT_GROUP_SIZE.width
+      node.height = DEFAULT_GROUP_SIZE.height
+      node.style = { ...DEFAULT_GROUP_SIZE }
+    }
+    return node
   })
 }
 
@@ -104,23 +102,45 @@ export function toReactFlowEdges(defs: CanvasEdgeDef[], nodes: CanvasNodeDef[]):
       }
     }
 
+    const sourceNode = nodes.find(n => n.id === e.source)
+    const branchLabel = sourceNode?.type === "if" && e.sourceHandle ? e.sourceHandle : undefined
+
     return {
       id: e.id,
       source: e.source,
       target: e.target,
+      sourceHandle: e.sourceHandle ?? null,
+      ...(branchLabel
+        ? {
+            label: branchLabel,
+            labelStyle: { fontSize: 10, fill: "var(--color-muted-foreground)" },
+            labelBgStyle: { fill: "var(--color-background)", fillOpacity: 0.9 },
+            labelBgPadding: [4, 2] as [number, number],
+            labelBgBorderRadius: 4,
+          }
+        : {}),
     }
   })
 }
 
 /** Convert ReactFlow nodes back to backend format */
 export function fromReactFlowNodes(nodes: CanvasNode[]): CanvasNodeDef[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    type: fromReactFlowNodeType(n.type || "aiNode"),
-    name: (n.data.name as string) || "Untitled",
-    position: n.position,
-    data: n.data.nodeData as CanvasNodeDef["data"],
-  }))
+  return nodes.map((n) => {
+    const def: CanvasNodeDef = {
+      id: n.id,
+      type: fromReactFlowNodeType(n.type || "aiNode"),
+      name: (n.data.name as string) || "Untitled",
+      position: n.position,
+      data: n.data.nodeData as CanvasNodeDef["data"],
+    }
+    if (n.parentId) def.parentId = n.parentId
+    if (isGroupReactFlowType(n.type)) {
+      const width = n.width ?? Number(n.style?.width) ?? DEFAULT_GROUP_SIZE.width
+      const height = n.height ?? Number(n.style?.height) ?? DEFAULT_GROUP_SIZE.height
+      if (Number.isFinite(width) && Number.isFinite(height)) def.size = { width, height }
+    }
+    return def
+  })
 }
 
 /** Convert ReactFlow edges back to backend format */
@@ -129,5 +149,6 @@ export function fromReactFlowEdges(edges: CanvasEdge[]): CanvasEdgeDef[] {
     id: e.id,
     source: e.source,
     target: e.target,
+    ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
   }))
 }

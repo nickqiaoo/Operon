@@ -1,11 +1,43 @@
 import { useCallback, useEffect, useState } from "react"
-import type { Node } from "@xyflow/react"
-import { FileInput, Brain, Link2, X } from "lucide-react"
+import type { Edge, Node } from "@xyflow/react"
+import type { CanvasWorkflowRun } from "@/types/canvas-workflow"
+import type { CanvasNode } from "./utils/canvasConversions"
+import { useAvailableVariables, type CallerVariable } from "./hooks/useAvailableVariables"
+import { VariableScopeProvider } from "./panels/variable-scope"
+import { Link2, X } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { fromReactFlowNodeType, metaForReactFlowType } from "./node-registry"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { CanvasAINodeData, CanvasAISessionNodeData, CanvasInputNodeData } from "@/types/canvas-workflow"
+import type {
+  CanvasAINodeData,
+  CanvasAISessionNodeData,
+  CanvasCodeNodeData,
+  CanvasEndNodeData,
+  CanvasHttpNodeData,
+  CanvasIfNodeData,
+  CanvasInputNodeData,
+  CanvasIterationNodeData,
+  CanvasLoopNodeData,
+  CanvasSubWorkflowNodeData,
+  CanvasApprovalNodeData,
+  CanvasNodeData,
+  CanvasShellNodeData,
+  CanvasTemplateNodeData,
+} from "@/types/canvas-workflow"
+import { ShellPanel } from "./panels/ShellPanel"
+import { TemplatePanel } from "./panels/TemplatePanel"
+import { CodePanel } from "./panels/CodePanel"
+import { IfPanel } from "./panels/IfPanel"
+import { HttpPanel } from "./panels/HttpPanel"
+import { EndPanel } from "./panels/EndPanel"
+import { IterationPanel } from "./panels/IterationPanel"
+import { LoopPanel } from "./panels/LoopPanel"
+import { SubWorkflowPanel } from "./panels/SubWorkflowPanel"
+import { ApprovalPanel } from "./panels/ApprovalPanel"
+import { Field, NumberField, TextAreaField } from "./panels/fields"
 import { api } from "@/lib/api"
 
 interface ProviderInfo {
@@ -17,27 +49,61 @@ interface ProviderInfo {
 interface NodeConfigPanelProps {
   node: Node | null
   providers: ProviderInfo[]
+  /** The workflow being edited, so a sub-workflow picker can exclude it. */
+  workflowId?: number
+  /** The whole graph plus the latest run, to offer the variables this node can use. */
+  nodes: CanvasNode[]
+  edges: Edge[]
+  lastRun?: CanvasWorkflowRun | null
   onUpdate: (nodeId: string, updates: Record<string, unknown>) => void
   onClose: () => void
 }
 
-export function NodeConfigPanel({ node, providers, onUpdate, onClose }: NodeConfigPanelProps) {
+/**
+ * Variables other workflows hand to this one through Sub-workflow nodes.
+ * The child never declares them, so the only honest source is the callers.
+ */
+function useCallerVariables(workflowId: number | undefined): CallerVariable[] {
+  const [callers, setCallers] = useState<CallerVariable[]>([])
+  useEffect(() => {
+    if (!workflowId) { setCallers([]); return }
+    let cancelled = false
+    api.canvasWorkflowCallers(workflowId)
+      .then(({ callers: list }) => {
+        if (cancelled) return
+        const byName = new Map<string, Set<string>>()
+        for (const caller of list) {
+          for (const key of caller.keys) {
+            if (!byName.has(key)) byName.set(key, new Set())
+            byName.get(key)!.add(caller.workflowName)
+          }
+        }
+        setCallers([...byName.entries()].map(([name, from]) => ({ name, from: [...from] })))
+      })
+      .catch(() => { if (!cancelled) setCallers([]) })
+    return () => { cancelled = true }
+  }, [workflowId])
+  return callers
+}
+
+export function NodeConfigPanel({ node, providers, workflowId, nodes, edges, lastRun, onUpdate, onClose }: NodeConfigPanelProps) {
+  const callerVariables = useCallerVariables(workflowId)
+  const variables = useAvailableVariables(node?.id ?? null, nodes, edges, lastRun, callerVariables)
   if (!node) return null
 
-  const isInput = node.type === "inputNode"
-  const isAISession = node.type === "aiSessionNode"
+  const nodeType = fromReactFlowNodeType(node.type ?? "")
   const data = node.data as Record<string, unknown>
-  const nodeData = data.nodeData as CanvasInputNodeData | CanvasAINodeData | CanvasAISessionNodeData
+  const nodeData = data.nodeData as CanvasNodeData
+  const update = (updates: Partial<CanvasNodeData>) =>
+    onUpdate(node.id, { nodeData: { ...nodeData, ...updates } })
 
-  const headerIcon = isInput
-    ? <FileInput className="h-4 w-4 text-blue-500" />
-    : isAISession
-      ? <Link2 className="h-4 w-4 text-blue-500" />
-      : <Brain className="h-4 w-4 text-purple-500" />
-
-  const headerTitle = isInput ? "Input Node" : isAISession ? "AI Session Node" : "AI Node"
+  const meta = metaForReactFlowType(node.type)
+  const HeaderIcon = meta.icon
+  const headerIcon = <HeaderIcon className={cn("h-4 w-4", meta.iconClass)} />
+  const headerTitle = meta.title
 
   return (
+    <VariableScopeProvider value={variables}>
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
         <div className="flex items-center gap-2">
@@ -62,33 +128,35 @@ export function NodeConfigPanel({ node, providers, onUpdate, onClose }: NodeConf
           />
         </div>
 
-        {isInput ? (
-          <InputNodeConfig
-            nodeData={nodeData as CanvasInputNodeData}
-            onUpdate={(updates) =>
-              onUpdate(node.id, { nodeData: { ...nodeData, ...updates } })
-            }
-          />
-        ) : isAISession ? (
+        {nodeType === "input" && (
+          <InputNodeConfig nodeData={nodeData as CanvasInputNodeData} onUpdate={update} />
+        )}
+        {nodeType === "ai-session" && (
           <AISessionNodeConfig
             nodeData={nodeData as CanvasAISessionNodeData}
             parentName={(data.parentName as string) || undefined}
             parentProviderId={(data.parentProviderId as string) || undefined}
-            onUpdate={(updates) =>
-              onUpdate(node.id, { nodeData: { ...nodeData, ...updates } })
-            }
-          />
-        ) : (
-          <AINodeConfig
-            nodeData={nodeData as CanvasAINodeData}
-            providers={providers}
-            onUpdate={(updates) =>
-              onUpdate(node.id, { nodeData: { ...nodeData, ...updates } })
-            }
+            onUpdate={update}
           />
         )}
+        {nodeType === "ai" && (
+          <AINodeConfig nodeData={nodeData as CanvasAINodeData} providers={providers} onUpdate={update} />
+        )}
+        {nodeType === "shell" && <ShellPanel nodeData={nodeData as CanvasShellNodeData} onUpdate={update} />}
+        {nodeType === "template" && <TemplatePanel nodeData={nodeData as CanvasTemplateNodeData} onUpdate={update} />}
+        {nodeType === "code" && <CodePanel nodeData={nodeData as CanvasCodeNodeData} onUpdate={update} />}
+        {nodeType === "if" && <IfPanel nodeData={nodeData as CanvasIfNodeData} onUpdate={update} />}
+        {nodeType === "http" && <HttpPanel nodeData={nodeData as CanvasHttpNodeData} onUpdate={update} />}
+        {nodeType === "end" && <EndPanel nodeData={nodeData as CanvasEndNodeData} onUpdate={update} />}
+        {nodeType === "iteration" && <IterationPanel nodeData={nodeData as CanvasIterationNodeData} onUpdate={update} />}
+        {nodeType === "loop" && <LoopPanel nodeData={nodeData as CanvasLoopNodeData} onUpdate={update} />}
+        {nodeType === "subworkflow" && (
+          <SubWorkflowPanel nodeData={nodeData as CanvasSubWorkflowNodeData} currentWorkflowId={workflowId} onUpdate={update} />
+        )}
+        {nodeType === "approval" && <ApprovalPanel nodeData={nodeData as CanvasApprovalNodeData} onUpdate={update} />}
       </div>
     </div>
+    </VariableScopeProvider>
   )
 }
 
@@ -256,7 +324,7 @@ function AISessionNodeConfig({
           className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
         />
         <p className="text-[10px] text-muted-foreground/50">
-          {'Variables: {{summary}} = output from upstream node named "summary"'}
+          {'Variables: {{ summary }} = output of the node named "summary" (any node that ran before this one). JSON outputs are objects: {{ review.passed }}.'}
         </p>
       </div>
     </div>
@@ -401,9 +469,28 @@ function AINodeConfig({
           className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
         />
         <p className="text-[10px] text-muted-foreground/50">
-          {'Variables: {{summary}} = output from upstream node named "summary"'}
+          {'Variables: {{ summary }} = output of the node named "summary" (any node that ran before this one). JSON outputs are objects: {{ review.passed }}.'}
         </p>
       </div>
+
+      {/* Structured output */}
+      <Field
+        label="Structured output (JSON Schema, optional)"
+        hint="When set, the reply must be JSON matching this schema; invalid replies get a correction round. Downstream nodes then read fields directly: {{ review.passed }}."
+      >
+        <TextAreaField
+          value={nodeData.outputSchema || ""}
+          onChange={(outputSchema) => onUpdate({ outputSchema: outputSchema.trim() === "" ? undefined : outputSchema })}
+          placeholder={'{"type": "object", "properties": {"passed": {"type": "boolean"}, "issues": {"type": "array", "items": {"type": "string"}}}, "required": ["passed"]}'}
+          mono
+          minHeight="min-h-[100px]"
+        />
+      </Field>
+      {nodeData.outputSchema && (
+        <Field label="Correction rounds" hint="Default 2.">
+          <NumberField value={nodeData.maxRetries} onChange={(maxRetries) => onUpdate({ maxRetries })} placeholder="2" />
+        </Field>
+      )}
     </div>
   )
 }

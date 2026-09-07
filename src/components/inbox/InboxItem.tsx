@@ -20,6 +20,7 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   task_failed: XCircle,
   sdd_gate: ShieldCheck,
   cron_done: Clock,
+  workflow_approval: ShieldCheck,
 }
 
 export function inboxRelativeTime(ms: number): string {

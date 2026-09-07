@@ -1,4 +1,5 @@
 import { useCallback, type MutableRefObject } from "react"
+import { DEFAULT_GROUP_SIZE, NODE_TYPES, isGroupReactFlowType, type CreatableNodeType } from "../node-registry"
 import type {
   NodeChange,
   NodeRemoveChange,
@@ -41,6 +42,7 @@ export function useCanvasNodeOperations({
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => {
     const hasStructuralChange = changes.some(
       (c) => c.type === "add" || c.type === "remove" || c.type === "position"
+        || (c.type === "dimensions" && c.resizing === false)
     )
     if (hasStructuralChange && !initialLoadRef.current) setDirty(true)
     const removeChanges = changes.filter((c): c is NodeRemoveChange => c.type === "remove")
@@ -49,11 +51,15 @@ export function useCanvasNodeOperations({
       const removingIds = new Set(removeChanges.map(c => c.id))
       const currentNodes = nodesRef.current
 
-      // Walk chains: any session node whose parentNodeId is being removed gets removed too
+      // Walk chains: session continuations and group members of removed nodes go too
       let changed = true
       while (changed) {
         changed = false
         for (const n of currentNodes) {
+          if (n.parentId && removingIds.has(n.parentId) && !removingIds.has(n.id)) {
+            removingIds.add(n.id)
+            changed = true
+          }
           if (n.type === "aiSessionNode" && !removingIds.has(n.id)) {
             const sessionData = n.data.nodeData as CanvasAISessionNodeData | undefined
             if (sessionData && removingIds.has(sessionData.parentNodeId)) {
@@ -84,7 +90,7 @@ export function useCanvasNodeOperations({
   }, [rawOnNodesChange, setEdges, nodesRef, initialLoadRef, setDirty])
 
   // Add node
-  const addNode = useCallback((type: "input" | "ai") => {
+  const addNode = useCallback((type: CreatableNodeType) => {
     const id = `node-${Date.now()}`
 
     // Place node at the center of the current viewport
@@ -104,17 +110,13 @@ export function useCanvasNodeOperations({
 
     const newNode: CanvasNode = {
       id,
-      type: type === "input" ? "inputNode" : "aiNode",
+      type: NODE_TYPES[type].rfType,
       position,
-      data: {
-        name: type === "input" ? "Input" : "AI Node",
-        nodeData: type === "input"
-          ? { prompt: "" }
-          : { providerId: "claude-code", userPrompt: "" },
-      },
+      data: NODE_TYPES[type].create!(),
+      ...(NODE_TYPES[type].group ? { style: { ...DEFAULT_GROUP_SIZE }, ...DEFAULT_GROUP_SIZE } : {}),
     }
 
-    setNodes((nds) => [...nds, newNode])
+    setNodes((nds) => (NODE_TYPES[type].group ? [newNode, ...nds] : [...nds, newNode]))
     setDirty(true)
   }, [nodes.length, setNodes, setDirty, reactFlowInstanceRef])
 
@@ -206,16 +208,79 @@ export function useCanvasNodeOperations({
     setDirty(true)
   }, [setNodes, setDirty])
 
+  /**
+   * Dropping a node inside a group adopts it (position becomes relative);
+   * dragging it out releases it. Edges that would now cross the border are
+   * dropped, since the engine has no meaning for them.
+   */
+  const onNodeDragStop = useCallback((_event: unknown, dragged: CanvasNode) => {
+    if (isGroupReactFlowType(dragged.type)) return
+    const currentNodes = nodesRef.current
+    const byId = new Map(currentNodes.map((n) => [n.id, n]))
+
+    const absoluteOf = (node: CanvasNode): XYPosition => {
+      const parent = node.parentId ? byId.get(node.parentId) : undefined
+      return parent
+        ? { x: parent.position.x + node.position.x, y: parent.position.y + node.position.y }
+        : node.position
+    }
+    const abs = absoluteOf(dragged)
+    const center = { x: abs.x + (dragged.width ?? 220) / 2, y: abs.y + (dragged.height ?? 80) / 2 }
+
+    const target = currentNodes.find((n) => {
+      if (!isGroupReactFlowType(n.type) || n.id === dragged.id) return false
+      const w = n.width ?? DEFAULT_GROUP_SIZE.width
+      const h = n.height ?? DEFAULT_GROUP_SIZE.height
+      return center.x >= n.position.x && center.x <= n.position.x + w
+        && center.y >= n.position.y && center.y <= n.position.y + h
+    })
+
+    const nextParentId = target?.id
+    if (nextParentId === dragged.parentId) return
+
+    setNodes((nds) => {
+      const updated = nds.map((n) => {
+        if (n.id !== dragged.id) return n
+        if (target) {
+          const { extent: _extent, ...rest } = n
+          void _extent
+          return {
+            ...rest,
+            parentId: target.id,
+            extent: "parent" as const,
+            position: { x: Math.max(0, abs.x - target.position.x), y: Math.max(40, abs.y - target.position.y) },
+          }
+        }
+        const { parentId: _parentId, extent: _extent, ...rest } = n
+        void _parentId; void _extent
+        return { ...rest, position: abs }
+      })
+      // Parents must precede children in the array.
+      return [...updated.filter((n) => !n.parentId), ...updated.filter((n) => n.parentId)]
+    })
+    setEdges((eds) => eds.filter((e) => {
+      const source = e.source === dragged.id ? { parentId: nextParentId } : byId.get(e.source)
+      const targetNode = e.target === dragged.id ? { parentId: nextParentId } : byId.get(e.target)
+      if (!source || !targetNode) return true
+      return (source.parentId ?? undefined) === (targetNode.parentId ?? undefined)
+    }))
+    setDirty(true)
+  }, [nodesRef, setNodes, setEdges, setDirty])
+
   // Delete specific nodes by ID
   const deleteNodes = useCallback((nodeIds: string[]) => {
     const idsToRemove = new Set(nodeIds)
 
-    // Cascade: remove session children of removed nodes
+    // Cascade: remove session children and group members of removed nodes
     const currentNodes = nodesRef.current
     let changed = true
     while (changed) {
       changed = false
       for (const n of currentNodes) {
+        if (n.parentId && idsToRemove.has(n.parentId) && !idsToRemove.has(n.id)) {
+          idsToRemove.add(n.id)
+          changed = true
+        }
         if (n.type === "aiSessionNode" && !idsToRemove.has(n.id)) {
           const sessionData = n.data.nodeData as CanvasAISessionNodeData | undefined
           if (sessionData && idsToRemove.has(sessionData.parentNodeId)) {
@@ -274,20 +339,16 @@ export function useCanvasNodeOperations({
   }, [edges, setNodes, setEdges, setDirty, nodesRef])
 
   // Add node at specific position (for pane context menu)
-  const addNodeAtPosition = useCallback((type: "input" | "ai", position: XYPosition) => {
+  const addNodeAtPosition = useCallback((type: CreatableNodeType, position: XYPosition) => {
     const id = `node-${Date.now()}`
     const newNode: CanvasNode = {
       id,
-      type: type === "input" ? "inputNode" : "aiNode",
+      type: NODE_TYPES[type].rfType,
       position,
-      data: {
-        name: type === "input" ? "Input" : "AI Node",
-        nodeData: type === "input"
-          ? { prompt: "" }
-          : { providerId: "claude-code", userPrompt: "" },
-      },
+      data: NODE_TYPES[type].create!(),
+      ...(NODE_TYPES[type].group ? { style: { ...DEFAULT_GROUP_SIZE }, ...DEFAULT_GROUP_SIZE } : {}),
     }
-    setNodes((nds) => [...nds, newNode])
+    setNodes((nds) => (NODE_TYPES[type].group ? [newNode, ...nds] : [...nds, newNode]))
     setDirty(true)
   }, [setNodes, setDirty])
 
@@ -304,24 +365,31 @@ export function useCanvasNodeOperations({
     const nodeWidth = 220
     const nodeHeight = 100
 
-    for (const node of currentNodes) {
-      g.setNode(node.id, { width: nodeWidth, height: nodeHeight })
+    // Groups are laid out as single blocks at their drawn size; their children
+    // keep their relative positions, which is what the author arranged.
+    const topLevel = currentNodes.filter((node) => !node.parentId)
+    const topLevelIds = new Set(topLevel.map((node) => node.id))
+    for (const node of topLevel) {
+      const width = isGroupReactFlowType(node.type) ? (node.width ?? DEFAULT_GROUP_SIZE.width) : nodeWidth
+      const height = isGroupReactFlowType(node.type) ? (node.height ?? DEFAULT_GROUP_SIZE.height) : nodeHeight
+      g.setNode(node.id, { width, height })
     }
     for (const edge of currentEdges) {
-      g.setEdge(edge.source, edge.target)
+      if (topLevelIds.has(edge.source) && topLevelIds.has(edge.target)) g.setEdge(edge.source, edge.target)
     }
 
     dagre.layout(g)
 
     setNodes((nds) =>
       nds.map((node) => {
+        if (node.parentId) return node
         const pos = g.node(node.id)
         if (!pos) return node
         return {
           ...node,
           position: {
-            x: pos.x - nodeWidth / 2,
-            y: pos.y - nodeHeight / 2,
+            x: pos.x - (g.node(node.id).width ?? nodeWidth) / 2,
+            y: pos.y - (g.node(node.id).height ?? nodeHeight) / 2,
           },
         }
       })
@@ -334,16 +402,18 @@ export function useCanvasNodeOperations({
   }, [edges, setNodes, nodesRef, reactFlowInstanceRef])
 
   // Update node status for execution visualization
-  const updateNodeStatuses = useCallback((statusMap: Record<string, string>, extraData?: Record<string, unknown>) => {
+  const updateNodeStatuses = useCallback((statusMap: Record<string, string>, extraData?: Record<string, unknown>, progressMap?: Record<string, string>) => {
     setNodes((nds) => {
       let changed = false
 
       const nextNodes = nds.map((n) => {
         const nextStatus = statusMap[n.id]
         const currentStatus = (n.data as Record<string, unknown>).status
+        const nextProgress = progressMap?.[n.id]
+        const currentProgress = (n.data as Record<string, unknown>).progress
 
-        let nodeChanged = currentStatus !== nextStatus
-        const mergedData: Record<string, unknown> = { ...n.data, status: nextStatus }
+        let nodeChanged = currentStatus !== nextStatus || currentProgress !== nextProgress
+        const mergedData: Record<string, unknown> = { ...n.data, status: nextStatus, progress: nextProgress }
 
         if (extraData) {
           for (const [key, value] of Object.entries(extraData)) {
@@ -374,5 +444,6 @@ export function useCanvasNodeOperations({
     autoLayout,
     updateNodeData,
     updateNodeStatuses,
+    onNodeDragStop,
   }
 }
