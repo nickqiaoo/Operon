@@ -2,7 +2,7 @@ import type { UIMessage } from 'ai';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { stripContextBlocks } from '@/lib/context-blocks';
+import { stripContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import { cn } from '@/lib/utils';
 import { isSteerUserMessage } from './steer-message';
 import { extractPeerMessage } from '../utils/chatMetadata';
@@ -37,7 +37,7 @@ function plainText(message: UIMessage, limit: number): string {
     out += part.text;
     if (out.length >= limit) break;
   }
-  if (message.role === 'user') out = stripContextBlocks(out);
+  if (message.role === 'user') out = stripContextBlocks(stripSystemReminders(out));
   return out.replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 

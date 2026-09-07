@@ -76,10 +76,11 @@ const buildStructuralKey = (params: RuntimeSessionParams): string =>
     // conversation id in its URL; reusing a session with a different map would
     // silently leave the agent connected to the wrong persistent kernel.
     mcpServers: params.mcpServers ?? {},
-    // NOTE: instructions is intentionally excluded. Ordinary chats never send it
-    // (the frontend does not, and the route does not fill it in), so it only ever
-    // read as '' there. Only channel agents pass a persona, and the trade-off taken
-    // is that editing one no longer forces a rebuild — the new persona lands when
+    // NOTE: instructions is intentionally excluded. For a given chat it is stable:
+    // a workspace chat gets the SDD hint from its first message on (chat-flow
+    // resolves sourceChatId before the session exists), and a channel agent's
+    // persona is what it was when the session was built. The trade-off taken is
+    // that editing a persona no longer forces a rebuild — the new one lands when
     // that session is next rebuilt for some other reason. It IS still part of the
     // Operon harness key, so two personas never share a harness.
     // NOTE: sessionId is intentionally excluded — it is runtime state produced by

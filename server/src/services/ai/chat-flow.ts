@@ -16,7 +16,7 @@ import type {
   AssistantContinuationState,
   StartChatOptions,
 } from './types.js'
-import { appendTurnReminder, mergeConsecutiveSameRole, normalizeUiMessagesFileAttachments } from './message-utils.js'
+import { mergeConsecutiveSameRole, normalizeUiMessagesFileAttachments } from './message-utils.js'
 import { endComputerUseHostSession } from '../computer-use-presentation.js'
 import {
   resolveProviderId,
@@ -143,6 +143,17 @@ export async function startChat(
     ? { ...(payload.agentContext ?? {}), chatId, cwd }
     : payload.agentContext
   const mcpServers = resolveMcpServersForSession(providerId, mcpContext)
+  // SDD hint for a direct workspace chat (sourceChatId set): a light, always-on
+  // nudge that create_spec_task exists and when to reach for it — the same hint
+  // channel agents get, delivered the same way: as session instructions, layered
+  // once onto the provider's system prompt. It used to ride every user message
+  // as a <system-reminder>; that block was journaled with the message by every
+  // stateful provider, so a long chat carried one copy per turn. sourceChatId
+  // is resolved above, before the session exists, so the hint is baked in on
+  // message #1 and never changes the session's params afterwards.
+  const instructions = payload.agentContext?.sourceChatId != null
+    ? [payload.instructions?.trim(), SDD_CREATE_SPEC_TASK_HINT].filter(Boolean).join('\n\n')
+    : payload.instructions
   const session = await sessionManager.getOrCreate(chatId, providerId, {
     cwd,
     env: payload.env,
@@ -153,7 +164,7 @@ export async function startChat(
     serviceTier: payload.serviceTier,
     sessionId: chatRecord.sessionId,
     mcpServers,
-    instructions: payload.instructions,
+    instructions,
     ...resolveForkSource(chatId),
   })
   const request = sessionManager.startRequest(chatId, requestId)
@@ -167,16 +178,6 @@ export async function startChat(
     messagesForModel = buildCompactAwareView(dbHistory)
   } else if (!messagesForModel) {
     messagesForModel = normalizedMessages
-  }
-
-  // SDD hint for a direct workspace chat (sourceChatId set): a light, always-on
-  // nudge that create_spec_task exists and when to reach for it — the same hint
-  // channel agents get. Reminder semantics, so it rides the latest user message
-  // as a <system-reminder> block (per turn, works on every provider); the full
-  // workflow arrives in the create_spec_task result once the chat actually
-  // promotes. Not persisted to history.
-  if (payload.agentContext?.sourceChatId != null && messagesForModel.length > 0) {
-    messagesForModel = appendTurnReminder(messagesForModel, SDD_CREATE_SPEC_TASK_HINT)
   }
 
   const messages = messagesForModel.length > 0

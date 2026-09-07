@@ -21,6 +21,7 @@ import { AskUserQuestionRenderer, isAskUserQuestionTool } from './AskUserQuestio
 import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
 import { WorkflowResultMessage, isWorkflowResultMessage } from './WorkflowResultMessage';
+import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import {
   ExternalAgentToolRenderer,
   ExternalAgentResultRenderer,
@@ -38,7 +39,7 @@ import { UserMessageText } from './UserMessageText';
 import { PeerMessage } from './PeerMessage';
 import { extractPeerMessage } from '../utils/chatMetadata';
 import { UserContextBlocks } from './UserContextBlocks';
-import { parseContextBlocks } from '@/lib/context-blocks';
+import { parseContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import type { SendToModel } from '../SendToButton';
 
 const skillTagPattern = /\[skill:([\w-]+)\]/g;
@@ -449,6 +450,15 @@ export function MessagePartRenderer({
     return <WorkflowResultMessage key={`${message.id}-${partIndex}`} text={displayText} />;
   }
 
+  // Runtime-injected events (background task settled, extension spoke, external delivery).
+  // Same story again: user-role on the wire because that is how text reaches the model
+  // mid-turn, but the framework stamps them "NOT a message from the user" itself. Rendering
+  // them as user bubbles is what makes the user see messages they never sent.
+  const steerNotice = message.role === 'user' ? parseSteerNotice(displayText) : undefined;
+  if (steerNotice) {
+    return <SteerNoticeMessage key={`${message.id}-${partIndex}`} notice={steerNotice} />;
+  }
+
   // A teammate's message, delivered through the Teams hub. Same story as the workflow
   // result above — user-role on the wire, but another agent wrote it.
   const peer = extractPeerMessage(message);
@@ -462,7 +472,7 @@ export function MessagePartRenderer({
   // Split the context the user attached (selected text, line comments…) off
   // the front of the prompt, then parse skill tags from what remains.
   const { blocks: contextBlocks, body: userText } = message.role === 'user'
-    ? parseContextBlocks(displayText)
+    ? parseContextBlocks(stripSystemReminders(displayText))
     : { blocks: [], body: displayText };
   const { skills: skillTags, cleanText } = message.role === 'user'
     ? parseSkillTags(userText)

@@ -99,8 +99,12 @@ export class OperonStreamMapper {
   private readonly toolProgress = new Map<string, string[]>()
   /** Workflow progress accumulator per tool-call id (→ isSubagentProgress activity list). */
   private readonly workflowProgress = new Map<string, WorkflowProgressAcc>()
-  /** Tool-call ids already surfaced as a `tool-input-start` (dedupe the streaming `tool.call.delta`). */
-  private readonly startedInputs = new Set<string>()
+  /** Tool-call ids already surfaced as a `tool-input-start`, mapped to the moment they were
+   *  (dedupe the streaming `tool.call.delta`). The timestamp measures the UI's "Pending"
+   *  window: input-start renders as Pending, and only `tool.call.started` flips it to Running,
+   *  so this gap is everything that happens BEFORE the tool body runs — argument streaming plus
+   *  the whole authorize phase (in `auto` mode, an LLM judge call). */
+  private readonly startedInputs = new Map<string, number>()
   /**
    * Tool-call ids for which we've already emitted a `tool-call` part. The model's
    * streaming `tool.call.delta` and the authoritative `tool.call.started` / `tool.result`
@@ -130,6 +134,13 @@ export class OperonStreamMapper {
   ): void {
     if (this.emittedToolCalls.has(toolCallId)) return
     this.emittedToolCalls.add(toolCallId)
+    // How long the card sat on "Pending". The tool has not executed a single line yet at this
+    // point, so a large number here is pre-execution overhead (authorize / judge), never a slow
+    // command — the two are indistinguishable in the UI, which is why it is worth logging.
+    const pendingSince = this.startedInputs.get(toolCallId)
+    if (pendingSince !== undefined) {
+      console.log(`[operon] tool ${toolName} pending ${Date.now() - pendingSince}ms before start`)
+    }
     const remapped = remapTodoTool(toolName, input)
     push({
       type: 'tool-call',
@@ -217,7 +228,7 @@ export class OperonStreamMapper {
         // Streaming tool arguments. The event carries its own toolCallId now (no partial lookup);
         // toolName is present on the first delta, so surface a single tool-input-start per call.
         if (event.toolName !== undefined && !this.startedInputs.has(event.toolCallId)) {
-          this.startedInputs.add(event.toolCallId)
+          this.startedInputs.set(event.toolCallId, Date.now())
           push({ type: 'tool-input-start', id: event.toolCallId, toolName: remapToolName(event.toolName), dynamic: true } as RuntimeStreamPart)
         }
         if (event.argumentsPart.length > 0) {
@@ -343,7 +354,7 @@ export class OperonStreamMapper {
       case 'tool.call.delta':
         // Stream the sub-agent's tool arguments as a child part under the parent task.
         if (event.toolName !== undefined && !this.startedInputs.has(event.toolCallId)) {
-          this.startedInputs.add(event.toolCallId)
+          this.startedInputs.set(event.toolCallId, Date.now())
           push({ type: 'tool-input-start', id: event.toolCallId, toolName: event.toolName, dynamic: true, providerMetadata: meta } as RuntimeStreamPart)
         }
         if (event.argumentsPart.length > 0) {

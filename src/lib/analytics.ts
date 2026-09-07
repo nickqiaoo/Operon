@@ -1,6 +1,7 @@
 import { App as CapacitorApp } from '@capacitor/app'
 import posthog, { type CaptureResult, type Properties } from 'posthog-js'
 import { appPlatform, appShell, type AppPlatform } from '@/lib/app-platform'
+import type { Exact, ProductTelemetryEventName, ProductTelemetryPayload } from '@shared/telemetry/events'
 
 const POSTHOG_KEY = 'phc_p9nI7Xag0whG3IcBUeO19m9FmCObKzJUDsz1jGcKep'
 const POSTHOG_HOST = 'https://us.i.posthog.com'
@@ -340,9 +341,18 @@ export function trackError(error: Error, context?: Record<string, unknown>) {
   })
 }
 
-export function trackEvent(event: string, properties?: Record<string, unknown>) {
+/**
+ * Record a product event. The name and its properties are checked against
+ * `shared/telemetry/events.ts` at compile time: an unknown event, a missing property or an
+ * extra one is a type error, so the registry (and its per-property descriptions) is the only
+ * way a field reaches PostHog from the renderer.
+ */
+export function trackEvent<K extends ProductTelemetryEventName, P extends ProductTelemetryPayload<K>>(
+  event: K,
+  properties: Exact<ProductTelemetryPayload<K>, P>
+): void {
   if (!initialized) return
-  posthog.capture(event, properties)
+  posthog.capture(event, properties as Properties)
 }
 
 /**

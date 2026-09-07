@@ -1,7 +1,9 @@
 import path from 'path'
 import { mkdir, stat } from 'fs/promises'
 import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalMachine, resolveFromFiles, toCoreOptions, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
+import { T } from 'operon-agents/core'
 import { loadMcpServers } from 'operon-agents/mcp'
+import { getTelemetry } from '../analytics/telemetry.js'
 import { fetchProviderModels, getProviderConfigs, PROVIDER_META } from '../provider-config.js'
 import type {
   Model,
@@ -13,6 +15,7 @@ import type {
   RuntimeSessionParams,
   ThinkingLevel,
 } from '@operon/agent-runtime'
+import { createOperonTracing } from './tracing.js'
 import { getModelCapabilities, resolveModel } from './resolve-model.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession } from './session.js'
 import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
@@ -267,9 +270,14 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
     rules: { allow: auto?.allow, deny: auto?.deny, environment: auto?.environment },
     ...(auto?.twoStageMode ? { twoStageMode: auto.twoStageMode } : {}),
     onOutcome: (r) => {
-      if (r.outcome !== 'allow' && r.outcome !== 'no-relevance') {
-        console.log(`[operon] auto-approval ${r.outcome} for ${r.toolName}${r.reason ? `: ${r.reason}` : ''}`)
-      }
+      // Log EVERY verdict, `allow` included. The judge runs the main-loop model before the
+      // tool is allowed to start, so its latency is the tool's "Pending" window in the UI —
+      // filtering out the common `allow` made the single biggest source of pre-execution
+      // delay completely invisible. `no-relevance` is the cheap path (no model call at all),
+      // so keeping it distinct is what tells "the judge was slow" from "the judge never ran".
+      const stage = r.stage ? ` stage=${r.stage}` : ''
+      const reason = r.reason ? `: ${r.reason}` : ''
+      console.log(`[operon] auto-approval ${r.outcome} for ${r.toolName} in ${r.durationMs}ms${stage}${reason}`)
     },
   })
   return {
@@ -311,6 +319,17 @@ async function buildHarness(): Promise<Harness> {
     // teammate types from and reports every spawn to.
     services: { [TEAMS_SERVICE]: createTeamsHostService() },
     resolveModel,
+    // Product telemetry: the framework projects every session's turn / tool / compaction events
+    // into the process service, which reaches PostHog through the host's consent-gated sink.
+    // A headless run has no sink and gets the no-op service.
+    telemetry: getTelemetry(),
+    // Process-tier composition. Tracing is the only registration so far: with `OPERON_TRACING`
+    // set, every session's event stream is bridged into OTel spans (see ./tracing.ts); otherwise
+    // nothing is registered and sessions run exactly as before.
+    harness: (scope) => {
+      const tracing = createOperonTracing()
+      if (tracing) scope.register(T.Tracing, tracing, { owned: false })
+    },
     // A default only — every session passes its own workDir, and the engine builds
     // that session's `LocalMachine` from it.
     workDir: process.cwd(),

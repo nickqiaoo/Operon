@@ -20,7 +20,7 @@ import { getLocalLLM } from './services/vector/local-llm.js'
 import { MemoryService } from './services/memory/index.js'
 import { startMemoryMaintenanceScheduler } from './services/memory-maintenance/scheduler.js'
 import { startSaasRuntime } from './services/saas-runtime.js'
-import { setTelemetrySink } from './services/analytics/cache-monitor.js'
+import { initTelemetry } from './services/analytics/telemetry.js'
 import { isApiTokenAuthDisabled, publishApiToken } from './services/api-token.js'
 import {
   setComputerUsePresentationSink,
@@ -94,8 +94,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   const { dbPath, migrationsDir, port, hostname = '127.0.0.1' } = options
   setComputerUsePresentationSink(options.onComputerUsePresentationEvent)
 
+  // One telemetry service for the process: the framework projects agent events into it and
+  // cache-monitor reports through it; both reach PostHog via the host's consent-gated sink.
   if (options.captureAnalytics) {
-    setTelemetrySink(options.captureAnalytics, options.appVersion)
+    initTelemetry(options.captureAnalytics, options.appVersion)
   }
 
   tightenLegacyFileModes()

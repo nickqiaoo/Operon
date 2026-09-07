@@ -13,6 +13,8 @@ import { startServer } from '../server/src/start.js'
 import { getApiToken, isApiTokenAuthDisabled } from '../server/src/services/api-token.js'
 import { disposeOpencodeServer } from '@operon/agent-runtime'
 import { cleanupAllTerminals } from '../server/src/services/terminal.js'
+import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tracing.js'
+import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js'
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
 import { stopComputerUsePresentationService } from '../server/src/services/computer-use-presentation.js'
 import { disposeClaudeUsageProbe } from '@operon/agent-runtime'
@@ -597,6 +599,10 @@ const cleanupAll = () => {
   // keeps answering on 4096, and its MCP endpoints point at this run's HTTP
   // port, which dies with us. The next launch would inherit dead endpoints.
   void disposeOpencodeServer()
+  // Push the last buffered spans to the local collector before the process goes.
+  void shutdownOperonTracing()
+  // Drain the framework telemetry appender into the PostHog client before that client goes.
+  void shutdownTelemetry()
   if (__ENABLE_MEMORY__) {
     SqliteVecStore.getInstance()?.close()
   }

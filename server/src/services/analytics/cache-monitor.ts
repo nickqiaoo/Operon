@@ -1,4 +1,5 @@
 import type { LanguageModelUsage } from 'ai'
+import { productTelemetry } from './telemetry.js'
 
 /**
  * Per-conversation LLM prompt-cache monitor.
@@ -18,17 +19,6 @@ import type { LanguageModelUsage } from 'ai'
  * Flip EMIT_ALL_SAMPLES to also emit a per-call `llm_call` sample if you later want full
  * hit-rate dashboards (much higher event volume).
  */
-
-// --- Telemetry sink (wired by startServer, backed by the main-process posthog-node) -------
-type CaptureFn = (event: string, properties: Record<string, unknown>) => void
-let sink: CaptureFn | null = null
-let appVersion: string | undefined
-
-/** Wire the analytics sink + app version. Called once from `startServer`. */
-export function setTelemetrySink(capture: CaptureFn, version?: string): void {
-  sink = capture
-  appVersion = version
-}
 
 // --- Detection tuning ---------------------------------------------------------------------
 /**
@@ -123,7 +113,7 @@ export function recordUsageSample(
     n.cacheRead < prev.prevCacheRead * COLLAPSE_RATIO
 
   if (isBreak && prev) {
-    sink?.('llm_cache_break', {
+    productTelemetry().track('llm_cache_break', {
       conversation_id: ctx.conversationId,
       provider_id: ctx.providerId,
       model: ctx.modelId,
@@ -135,12 +125,11 @@ export function recordUsageSample(
       output_tokens: n.outputTokens,
       cache_read_ratio: cacheReadRatio,
       seconds_since_prev_call: Math.round(secondsSincePrev),
-      app_version: appVersion,
     })
   }
 
   if (EMIT_ALL_SAMPLES) {
-    sink?.('llm_call', {
+    productTelemetry().track('llm_call', {
       conversation_id: ctx.conversationId,
       provider_id: ctx.providerId,
       model: ctx.modelId,
@@ -152,7 +141,6 @@ export function recordUsageSample(
       cache_read_ratio: cacheReadRatio,
       seconds_since_prev_call: prev ? Math.round(secondsSincePrev) : null,
       suspected_cache_break: isBreak,
-      app_version: appVersion,
     })
   }
 

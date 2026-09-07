@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai'
-import { stripContextBlocks } from '@/lib/context-blocks'
+import { stripContextBlocks, stripSystemReminders } from '@/lib/context-blocks'
 import type { ExternalAgentTask } from '@/hooks/useExternalAgent'
 import type { ExternalAgentResultMetadata } from '../components/ExternalAgentRenderer'
 import { parseExternalAgentRun } from '@/hooks/useExternalAgent'
@@ -121,8 +121,9 @@ export const getFirstUserTitleFromMessage = (message: UIMessage): string | null 
       part.type === 'text' && part.text.trim().length > 0,
   )
   if (!textPart) return null
-  // Title from what the user typed, not the quoted context in front of it.
-  const typed = stripContextBlocks(textPart.text).replace(/\s+/g, ' ').trim()
+  // Title from what the user typed: not the quoted context in front of it, nor the
+  // per-turn reminder the server appends behind it.
+  const typed = stripContextBlocks(stripSystemReminders(textPart.text)).replace(/\s+/g, ' ').trim()
   return typed ? typed.slice(0, 48) : null
 }
 

@@ -114,3 +114,14 @@ export const describeContextBlock = (block: ContextBlock): ContextBlockView => {
     markdown: /\.(md|markdown)$/i.test(filename),
   }
 }
+
+/**
+ * Per-turn reminders the server appends to the last user message on its way to the
+ * model (`appendTurnReminder`), e.g. the Taskboard / spec-driven hint. They are
+ * instructions for the model, appended after the user already hit send — showing
+ * them inside the user's own bubble makes it look like they typed a wall of English
+ * policy text. Stripped for display only; the model still receives them.
+ */
+const SYSTEM_REMINDER = /\n*<system-reminder>[\s\S]*?<\/system-reminder>\s*/g
+
+export const stripSystemReminders = (text: string): string => text.replace(SYSTEM_REMINDER, '').trim()

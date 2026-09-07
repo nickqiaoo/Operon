@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { LanguageModelUsage } from 'ai'
+import { createTelemetryService } from 'operon-agents/telemetry'
+import { setTelemetryService } from './telemetry.js'
 import {
   recordUsageSample,
-  setTelemetrySink,
   __resetCacheMonitor,
   type CacheSampleContext,
 } from './cache-monitor.js'
@@ -23,7 +24,14 @@ let events: Array<{ event: string; props: Record<string, unknown> }>
 beforeEach(() => {
   __resetCacheMonitor()
   events = []
-  setTelemetrySink((event, props) => events.push({ event, props }))
+  // The process telemetry service, with one appender that mirrors what reaches PostHog.
+  const service = createTelemetryService()
+  service.addAppender({
+    track: (e) => void events.push({ event: e.name, props: e.properties }),
+    flush: () => Promise.resolve(),
+    shutdown: () => Promise.resolve(),
+  })
+  setTelemetryService(service)
 })
 
 describe('cache-monitor', () => {

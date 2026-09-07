@@ -169,7 +169,7 @@ export const useProjectStore = create<ProjectStore>()(
           activeWorkspaceId: id,
           activeProjectId: projectId ?? state.activeProjectId
         }))
-        trackEvent('workspace_switched')
+        trackEvent('workspace_switched', {})
       },
 
       addWorkspace: async (projectId, workspaceData) => {
