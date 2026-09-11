@@ -243,20 +243,20 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
               setDiff("")
               setDiffError(null)
             }}
-            className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           >
             <ArrowLeft className="size-4 shrink-0" />
             <span className="truncate">{title}</span>
           </button>
-          <span className="ml-1 min-w-0 truncate font-mono text-xs text-foreground/85">{selectedFile.path}</span>
+          <span className="ml-1 min-w-0 truncate font-mono text-[13px] text-foreground/85">{selectedFile.path}</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {diffLoading ? (
-            <p className="p-4 text-xs text-muted-foreground/70">Loading diff...</p>
+            <p className="p-4 text-[13px] text-muted-foreground/70">Loading diff...</p>
           ) : diffError ? (
-            <p className="p-4 text-xs text-destructive">{diffError}</p>
+            <p className="p-4 text-[13px] text-destructive">{diffError}</p>
           ) : !diff.trim() ? (
-            <p className="p-4 text-xs text-muted-foreground/70">No diff to show.</p>
+            <p className="p-4 text-[13px] text-muted-foreground/70">No diff to show.</p>
           ) : (
             <PatchDiff
               patch={normalizePatch(selectedFile.path, diff)}
@@ -272,7 +272,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/50 px-4">
-        <span className="min-w-0 truncate text-sm font-semibold text-foreground/90">{title}</span>
+        <span className="min-w-0 truncate text-base font-semibold text-foreground/90">{title}</span>
         <div className="flex shrink-0 items-center gap-1">
           {viewMode === "stacked" && files.length > 0 ? (
             <button
@@ -304,25 +304,25 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
       </div>
 
       {error ? (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-xs text-destructive">
+        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-destructive">
           {error}
         </div>
       ) : loading ? (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground/70">
+        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-muted-foreground/70">
           {loadingLabel}
         </div>
       ) : files.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
           <FileDiff className="size-6 text-muted-foreground/60" />
-          <p className="text-sm font-medium text-foreground/85">{emptyTitle}</p>
+          <p className="text-base font-medium text-foreground/85">{emptyTitle}</p>
           {emptyDescription ? (
-            <p className="text-xs text-muted-foreground/70">{emptyDescription}</p>
+            <p className="text-[13px] text-muted-foreground/70">{emptyDescription}</p>
           ) : null}
         </div>
       ) : viewMode === "stacked" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {stackedIsLarge ? (
-            <p className="px-1 pb-2 text-[11px] leading-snug text-muted-foreground/70">
+            <p className="px-1 pb-2 text-xs leading-snug text-muted-foreground/70">
               Large diff — files are collapsed. Tap a file to view its changes.
             </p>
           ) : null}
@@ -348,23 +348,23 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
                     ) : (
                       <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/70" />
                     )}
-                    <span className="w-4 shrink-0 text-center font-mono text-xs text-muted-foreground/70">
+                    <span className="w-4 shrink-0 text-center font-mono text-[13px] text-muted-foreground/70">
                       {file.status?.trim()?.[0] ?? "-"}
                     </span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/85">{file.path}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-foreground/85">{file.path}</span>
                     {metrics ? (
-                      <span className="shrink-0 text-xs tabular-nums">
+                      <span className="shrink-0 text-[13px] tabular-nums">
                         <span className="text-emerald-600 dark:text-emerald-400">+{metrics.additions}</span>{" "}
                         <span className="text-red-500 dark:text-red-400">-{metrics.deletions}</span>
                       </span>
                     ) : null}
                   </button>
                   {collapsed ? null : (loaded?.loading ?? true) ? (
-                    <p className="p-4 text-xs text-muted-foreground/70">Loading diff...</p>
+                    <p className="p-4 text-[13px] text-muted-foreground/70">Loading diff...</p>
                   ) : loaded.error ? (
-                    <p className="p-4 text-xs text-destructive">{loaded.error}</p>
+                    <p className="p-4 text-[13px] text-destructive">{loaded.error}</p>
                   ) : !loaded.diff.trim() ? (
-                    <p className="p-4 text-xs text-muted-foreground/70">No diff to show.</p>
+                    <p className="p-4 text-[13px] text-muted-foreground/70">No diff to show.</p>
                   ) : (
                     <PatchDiff
                       patch={normalizePatch(file.path, loaded.diff)}
@@ -386,10 +386,10 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
               onClick={() => void openFile(file)}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
             >
-              <span className="w-4 shrink-0 text-center font-mono text-xs text-muted-foreground/70">
+              <span className="w-4 shrink-0 text-center font-mono text-[13px] text-muted-foreground/70">
                 {file.status?.trim()?.[0] ?? "-"}
               </span>
-              <span className="truncate font-mono text-xs text-foreground/85">{file.path}</span>
+              <span className="truncate font-mono text-[13px] text-foreground/85">{file.path}</span>
             </button>
           ))}
         </div>

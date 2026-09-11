@@ -368,10 +368,10 @@ const TokenCount = ({ tokens }: { tokens?: number }) => (
   </span>
 );
 
-const compact = (n: number) =>
+export const compact = (n: number) =>
   new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 
-const formatPercent = (n: number) =>
+export const formatPercent = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 }).format(n);
 
 const CategoryRow = ({ category, maxTokens }: { category: DetailedContextUsageCategory; maxTokens: number }) => {

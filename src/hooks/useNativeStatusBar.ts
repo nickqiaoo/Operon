@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import { Style, StatusBar } from "@capacitor/status-bar"
-import { isNativeApp, nativePlatform } from "@/lib/native"
+import { hasNativeTabBar, isNativeApp, NativeShell, nativePlatform } from "@/lib/native"
 import { useThemeStore } from "@/stores/theme-store"
 
 /**
@@ -25,6 +25,8 @@ export function useNativeStatusBar(): void {
       const dark = theme === "dark" || (theme === "system" && media.matches)
       // Style.Dark means "content for a dark background", i.e. light glyphs.
       void StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light }).catch(() => {})
+      // The native bars and sheets follow the same switch (iOS shell only).
+      if (hasNativeTabBar()) void NativeShell.setAppearance({ dark }).catch(() => {})
     }
 
     // Draw behind the status bar rather than reserving a band for it; the

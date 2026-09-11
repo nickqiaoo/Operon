@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { ChatPanel } from "@/components/editor/ChatPanel"
+import { hasNativeTabBar, NativeShell } from "@/lib/native"
+import { ProviderIcon, providerLogoName } from "@/components/editor/components/ModelSelectorPanel"
 import { MobileSheet } from "./MobileSheet"
 
 interface Provider {
@@ -141,17 +143,47 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
     onDeepLinkConsumed?.()
   }, [openChatId, openChatTitle, openChatTab, setTabChatId, setActiveTab, onDeepLinkConsumed])
 
-  const openPicker = async () => {
-    setPickerOpen(true)
-    if (providers.length === 0) {
-      try {
-        const list = await api.getProviders()
-        setProviders(list.map((p) => ({ id: p.id, label: p.label })))
-      } catch {
-        // Leave the picker empty; the user can retry by reopening it.
-      }
+  const loadProviders = async (): Promise<Provider[]> => {
+    if (providers.length > 0) return providers
+    try {
+      const list = (await api.getProviders()).map((p) => ({ id: p.id, label: p.label }))
+      setProviders(list)
+      return list
+    } catch {
+      // Leave the picker empty; the user can retry by reopening it.
+      return []
     }
   }
+
+  const openPicker = async () => {
+    // iOS: a system sheet (AgentSheet.swift) with the same rows; the web
+    // sheet stays for Android and the browser, and as the fallback.
+    if (hasNativeTabBar()) {
+      const list = await loadProviders()
+      try {
+        await NativeShell.presentAgentSheet({
+          title: intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" }),
+          emptyText: intl.formatMessage({ id: "mobile.chats.loadingAgents", defaultMessage: "Loading agents…" }),
+          agents: list.map((p) => ({ id: p.id, label: p.label, logo: providerLogoName(p.id) ?? undefined })),
+        })
+        return
+      } catch {
+        // fall through to the web sheet
+      }
+    }
+    setPickerOpen(true)
+    void loadProviders()
+  }
+
+  useEffect(() => {
+    if (!hasNativeTabBar()) return
+    const handle = NativeShell.addListener("agentPicked", ({ id }) => startChat(id))
+    return () => {
+      void handle.then((h) => h.remove()).catch(() => {})
+    }
+    // startChat only closes over stable store actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const startChat = (providerId: string) => {
     const id = createChatTab(providerId, "Chat")
@@ -193,10 +225,28 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
       <div
         className="relative flex h-full flex-col"
         style={{
-          paddingTop: "env(safe-area-inset-top)",
+          // No top inset here on purpose: the transcript itself pads its first
+          // message below the status bar and the floating back button, so the
+          // conversation scrolls *under* both (ChatPanel's ConversationContent).
           paddingBottom: keyboardOpen ? undefined : "env(safe-area-inset-bottom)",
         }}
       >
+        {/* Dim, don't cover: the transcript stays visible under the status
+            bar (as in ChatGPT), just pressed towards the page color so the
+            clock and the floating back button read over it. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 z-20"
+          style={{
+            height: "calc(env(safe-area-inset-top) + 2.5rem)",
+            background:
+              "linear-gradient(to bottom, color-mix(in srgb, var(--color-background) 82%, transparent) 0%, color-mix(in srgb, var(--color-background) 55%, transparent) env(safe-area-inset-top), transparent 100%)",
+          }}
+        />
+        {/* On iOS the back button is the native navigation bar's (see
+            MobileApp / NativeShell); it reaches us through the back-handler
+            stack registered above. */}
+        {!hasNativeTabBar() && (
         <button
           type="button"
           onClick={() => setOpenId(null)}
@@ -209,6 +259,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
         >
           <ArrowLeft className="size-5" />
         </button>
+        )}
         <div className="min-h-0 flex-1">
           <ChatPanel chatId={openTab.id} providerId={openTab.providerId} mobileKeyboardOpen={keyboardOpen} />
         </div>
@@ -221,13 +272,13 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/50 px-4">
-        <span className="text-sm font-semibold text-foreground/90">
+        <span className="text-base font-semibold text-foreground/90">
           <FormattedMessage id="mobile.chats.title" defaultMessage="Chats" />
         </span>
         <button
           type="button"
           onClick={openPicker}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
         >
           <Plus className="size-4" />
           <FormattedMessage id="common.new" defaultMessage="New" />
@@ -247,12 +298,8 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
                 "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
               )}
             >
-              <span className="truncate text-sm text-foreground/85">{tab.title}</span>
-              {tab.providerId && (
-                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/60">
-                  {tab.providerId}
-                </span>
-              )}
+              <ProviderIcon id={tab.providerId ?? ""} size={16} />
+              <span className="truncate text-base text-foreground/85">{tab.title}</span>
             </button>
           ))}
 
@@ -265,15 +312,16 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
                 "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
               )}
             >
-              <span className="truncate text-sm text-foreground/85">{item.title}</span>
-              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground/60">
+              <ProviderIcon id={item.providerId ?? ""} size={16} />
+              <span className="truncate text-base text-foreground/85">{item.title}</span>
+              <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">
                 {formatRelativeTime(item.updatedAt)}
               </span>
             </button>
           ))}
 
           {loadingMore && (
-            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground/60">
+            <div className="flex items-center justify-center gap-2 py-4 text-[13px] text-muted-foreground/60">
               <Loader2 className="size-3.5 animate-spin" />
               <FormattedMessage id="mobile.chats.loading" defaultMessage="Loading…" />
             </div>
@@ -298,7 +346,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
         title={intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" })}
       >
         {providers.length === 0 ? (
-          <p className="px-2 py-6 text-center text-sm text-muted-foreground/70">
+          <p className="px-2 py-6 text-center text-base text-muted-foreground/70">
             <FormattedMessage id="mobile.chats.loadingAgents" defaultMessage="Loading agents…" />
           </p>
         ) : (
@@ -308,8 +356,9 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
                 key={provider.id}
                 type="button"
                 onClick={() => startChat(provider.id)}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-sm text-foreground/85 hover:bg-muted/40"
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 hover:bg-muted/40"
               >
+                <ProviderIcon id={provider.id} size={18} />
                 {provider.label}
               </button>
             ))}
@@ -327,17 +376,17 @@ function EmptyChats({ onNew }: { onNew: () => void }) {
         <MessageSquarePlus className="size-6 text-muted-foreground/70" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground/85">
+        <p className="text-base font-medium text-foreground/85">
           <FormattedMessage id="mobile.chats.emptyTitle" defaultMessage="No chats yet" />
         </p>
-        <p className="text-xs text-muted-foreground/70">
+        <p className="text-[13px] text-muted-foreground/70">
           <FormattedMessage id="mobile.chats.emptyDesc" defaultMessage="Start a conversation with an agent." />
         </p>
       </div>
       <button
         type="button"
         onClick={onNew}
-        className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-sm font-medium text-foreground/85 hover:bg-muted/50"
+        className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-base font-medium text-foreground/85 hover:bg-muted/50"
       >
         <FormattedMessage id="mobile.chats.newChat" defaultMessage="New chat" />
       </button>

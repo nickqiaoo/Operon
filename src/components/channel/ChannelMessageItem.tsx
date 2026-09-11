@@ -103,7 +103,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
                   ? (agent?.name ?? message.senderName)
                   : (message.senderName || intl.formatMessage({ id: 'channel.message.you', defaultMessage: 'You' }))}
               </span>
-              <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+              <span className="text-[10px] max-md:text-xs text-muted-foreground/50 tabular-nums">
                 {formatTime(message.createdAt)}
               </span>
             </div>
@@ -128,7 +128,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </div>
 
             <div className={cn(
-              'text-sm leading-relaxed rounded-2xl px-3.5 py-1.5',
+              'text-sm max-md:text-base leading-relaxed rounded-2xl px-3.5 py-1.5',
               isAgent
                 ? 'bg-popover/60 text-foreground border border-border/40 rounded-tl-md'
                 : 'bg-muted/85 text-foreground rounded-tr-md',

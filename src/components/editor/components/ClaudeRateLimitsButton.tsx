@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import type { ClaudeRateLimits, ClaudeRateLimitWindow } from '../utils/chatMetadata';
 
 interface ClaudeRateLimitsButtonProps {
@@ -196,6 +197,27 @@ export function MobileClaudeRateLimits({ rateLimits, className }: ClaudeRateLimi
   const [open, setOpen] = useState(false);
   const windows = useMemo(() => collectWindows(rateLimits), [rateLimits]);
 
+  // iOS: the same blocks as ClaudeRateLimitsContent, as a native info sheet.
+  const openSheet = () => {
+    if (!hasNativeTabBar()) {
+      setOpen(true);
+      return;
+    }
+    void NativeShell.presentInfoSheet({
+      title: intl.formatMessage({ id: 'editor.claude.title', defaultMessage: 'Subscription usage' }),
+      caption: rateLimits?.subscriptionType
+        ? intl.formatMessage({ id: 'editor.claude.plan', defaultMessage: '{plan} plan' }, { plan: rateLimits.subscriptionType })
+        : undefined,
+      sections: windows.map((item) => ({
+        header: item.label,
+        value: intl.formatMessage({ id: 'editor.claude.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(item.used) }),
+        progress: item.used / 100,
+        tone: item.used >= 100 ? 'error' : item.used >= 85 ? 'warn' : 'normal',
+        footer: intl.formatMessage({ id: 'editor.claude.resets', defaultMessage: 'Resets {time}' }, { time: formatResetTime(item.window.resetsAt, intl) }),
+      })),
+    }).catch(() => setOpen(true));
+  };
+
   if (windows.length === 0) return null;
 
   return (
@@ -205,7 +227,7 @@ export function MobileClaudeRateLimits({ rateLimits, className }: ClaudeRateLimi
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(triggerClassName, className)}
-        onClick={() => setOpen(true)}
+        onClick={openSheet}
         size="sm"
         type="button"
         variant="outline"

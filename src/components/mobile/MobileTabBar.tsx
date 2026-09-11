@@ -4,7 +4,14 @@ import { cn } from "@/lib/utils"
 
 export type MobileTab = "chats" | "channel" | "changes" | "more"
 
-const TAB_LABELS = defineMessages({
+export const MOBILE_TABS: readonly MobileTab[] = ["chats", "channel", "changes", "more"]
+
+export function isMobileTab(value: string): value is MobileTab {
+  return (MOBILE_TABS as readonly string[]).includes(value)
+}
+
+/** Shared with the native iOS tab bar, which is titled from here so it follows the locale. */
+export const MOBILE_TAB_LABELS = defineMessages({
   chats: { id: "mobile.tab.chats", defaultMessage: "Chats" },
   channel: { id: "mobile.tab.channel", defaultMessage: "Board" },
   changes: { id: "mobile.tab.changes", defaultMessage: "Changes" },
@@ -37,7 +44,7 @@ export function MobileTabBar({ active, onChange }: MobileTabBarProps) {
     >
       {TABS.map(({ id, Icon }) => {
         const isActive = id === active
-        const label = intl.formatMessage(TAB_LABELS[id])
+        const label = intl.formatMessage(MOBILE_TAB_LABELS[id])
         return (
           <button
             key={id}

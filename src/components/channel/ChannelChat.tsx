@@ -10,6 +10,7 @@ import { useChannel } from '@/hooks/useChannel'
 import { ChannelMessageItem } from './ChannelMessageItem'
 import { ThreadPanel } from './ThreadPanel'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
+import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
 
 interface ChannelChatProps {
   channelId: number
@@ -255,6 +256,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     : null
 
   const showRightPanel = threadRootId
+  // On a phone the thread is a full-screen overlay; the native iOS tab bar
+  // would otherwise sit on top of it.
+  useNativeShellOverlay(showRightPanel != null)
 
   return (
     <div className="flex h-full min-h-0">

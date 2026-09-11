@@ -50,7 +50,7 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
             <button
               type="button"
               onClick={() => setSelected(null)}
-              className="-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              className="-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
               <FormattedMessage id="mobile.files.title" defaultMessage="Files" />
@@ -70,12 +70,12 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
           <FormattedMessage id="mobile.tab.more" defaultMessage="More" />
         </button>
-        <span className="ml-1 text-sm font-semibold text-foreground/90">
+        <span className="ml-1 text-base font-semibold text-foreground/90">
           <FormattedMessage id="mobile.files.title" defaultMessage="Files" />
         </span>
         {rootPath != null && (
@@ -93,10 +93,10 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
       {rootPath == null ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
           <FolderTree className="size-6 text-muted-foreground/60" />
-          <p className="text-sm font-medium text-foreground/85">
+          <p className="text-base font-medium text-foreground/85">
             <FormattedMessage id="mobile.files.noWorkspaceTitle" defaultMessage="No workspace selected" />
           </p>
-          <p className="text-xs text-muted-foreground/70">
+          <p className="text-[13px] text-muted-foreground/70">
             <FormattedMessage
               id="mobile.files.noWorkspaceDesc"
               defaultMessage="Pick a workspace from the context bar, then reopen Files."

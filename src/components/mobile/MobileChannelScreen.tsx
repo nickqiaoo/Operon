@@ -8,6 +8,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { ChannelChat } from "@/components/channel/ChannelChat"
 import { TasksPage } from "@/components/task/TasksPage"
 import { MobileSheet } from "./MobileSheet"
+import { hasNativeTabBar, NativeShell } from "@/lib/native"
 
 type HubView = "channels" | "tasks"
 
@@ -69,10 +70,10 @@ export function MobileChannelScreen({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
         <Hash className="size-6 text-muted-foreground/60" />
-        <p className="text-sm font-medium text-foreground/85">
+        <p className="text-base font-medium text-foreground/85">
           <FormattedMessage id="mobile.channel.noProjectTitle" defaultMessage="No project selected" />
         </p>
-        <p className="text-xs text-muted-foreground/70">
+        <p className="text-[13px] text-muted-foreground/70">
           <FormattedMessage id="mobile.channel.noProjectDesc" defaultMessage="Pick a project from the bar above." />
         </p>
       </div>
@@ -89,7 +90,7 @@ export function MobileChannelScreen({
           <button
             type="button"
             onClick={() => setActiveChannel(null)}
-            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
             <FormattedMessage id="mobile.channel.channels" defaultMessage="Channels" />
@@ -102,8 +103,28 @@ export function MobileChannelScreen({
     )
   }
 
-  const createNew = async () => {
-    const name = newName.trim()
+  // iOS: the system alert with a text field is the native shape of "name
+  // one thing"; the web sheet stays for Android and the browser.
+  const startCreating = async () => {
+    if (!hasNativeTabBar()) {
+      setCreating(true)
+      return
+    }
+    try {
+      const { value } = await NativeShell.promptText({
+        title: intl.formatMessage({ id: "mobile.channel.newChannel", defaultMessage: "New channel" }),
+        placeholder: intl.formatMessage({ id: "mobile.channel.namePlaceholder", defaultMessage: "channel-name" }),
+        confirmLabel: intl.formatMessage({ id: "common.create", defaultMessage: "Create" }),
+        cancelLabel: intl.formatMessage({ id: "common.cancel", defaultMessage: "Cancel" }),
+      })
+      if (value) await createNew(value)
+    } catch {
+      setCreating(true)
+    }
+  }
+
+  const createNew = async (nameArg?: string) => {
+    const name = (nameArg ?? newName).trim()
     if (!name) return
     try {
       const channel = await createChannel(activeProjectId, name)
@@ -130,7 +151,7 @@ export function MobileChannelScreen({
         {view === "channels" && (
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => void startCreating()}
             className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/50 hover:text-foreground"
             aria-label={intl.formatMessage({ id: "mobile.channel.newChannel", defaultMessage: "New channel" })}
           >
@@ -150,10 +171,10 @@ export function MobileChannelScreen({
         ) : channels.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
             <Hash className="size-6 text-muted-foreground/60" />
-            <p className="text-sm font-medium text-foreground/85">
+            <p className="text-base font-medium text-foreground/85">
               <FormattedMessage id="mobile.channel.emptyTitle" defaultMessage="No channels yet" />
             </p>
-            <p className="text-xs text-muted-foreground/70">
+            <p className="text-[13px] text-muted-foreground/70">
               <FormattedMessage id="mobile.channel.emptyDesc" defaultMessage="Create one to start collaborating." />
             </p>
           </div>
@@ -167,7 +188,7 @@ export function MobileChannelScreen({
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
               >
                 <Hash className="size-4 shrink-0 text-muted-foreground/60" />
-                <span className="truncate text-sm text-foreground/85">{channel.name}</span>
+                <span className="truncate text-base text-foreground/85">{channel.name}</span>
               </button>
             ))}
           </div>
@@ -194,7 +215,7 @@ export function MobileChannelScreen({
             type="button"
             onClick={() => void createNew()}
             disabled={!newName.trim()}
-            className="w-full min-w-0 rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-sm font-medium text-foreground/85 hover:bg-muted/50 disabled:opacity-40"
+            className="w-full min-w-0 rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-base font-medium text-foreground/85 hover:bg-muted/50 disabled:opacity-40"
           >
             <FormattedMessage id="common.create" defaultMessage="Create" />
           </button>
@@ -220,7 +241,7 @@ function SegButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors",
+        "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-[13px] font-medium transition-colors",
         active ? "bg-background text-foreground shadow-card" : "text-muted-foreground/70 hover:text-muted-foreground"
       )}
     >

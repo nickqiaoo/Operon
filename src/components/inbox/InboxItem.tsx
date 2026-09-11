@@ -23,6 +23,18 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   workflow_approval: ShieldCheck,
 }
 
+/** SF Symbol per kind for the native iOS inbox sheet — the same mapping as KIND_ICON. */
+export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
+  chat_complete: "message",
+  chat_needs_input: "exclamationmark.circle",
+  task_in_review: "eye",
+  task_done: "checkmark.circle",
+  task_failed: "xmark.circle",
+  sdd_gate: "checkmark.shield",
+  cron_done: "clock",
+  workflow_approval: "checkmark.shield",
+}
+
 export function inboxRelativeTime(ms: number): string {
   const diff = Date.now() - ms
   const s = Math.floor(diff / 1000)

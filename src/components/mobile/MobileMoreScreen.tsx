@@ -101,7 +101,7 @@ export function MobileMoreScreen() {
             <div className="overflow-hidden rounded-lg border border-border/40 bg-muted/10">
               <div className="flex items-center gap-3 px-4 py-3">
                 <Monitor className="size-4 text-muted-foreground/70" />
-                <span className="truncate text-sm text-foreground/85">
+                <span className="truncate text-base text-foreground/85">
                   {node?.label || getSelectedNodeLabel() || intl.formatMessage({ id: "mobile.more.machineFallback", defaultMessage: "machine" })}
                 </span>
                 <MachineStatusBadge loading={nodeLoading} node={node} />
@@ -112,7 +112,7 @@ export function MobileMoreScreen() {
                 className="flex w-full items-center gap-3 border-t border-border/40 px-4 py-3 text-left hover:bg-muted/30"
               >
                 <RefreshCw className="size-4 text-muted-foreground/70" />
-                <span className="text-sm text-foreground/85">
+                <span className="text-base text-foreground/85">
                   <FormattedMessage id="mobile.more.switchMachine" defaultMessage="Switch machine" />
                 </span>
               </button>
@@ -122,7 +122,7 @@ export function MobileMoreScreen() {
                 className="flex w-full items-center gap-3 border-t border-border/40 px-4 py-3 text-left hover:bg-muted/30"
               >
                 <LogOut className="size-4 text-muted-foreground/70" />
-                <span className="text-sm text-foreground/85">
+                <span className="text-base text-foreground/85">
                   <FormattedMessage id="mobile.more.signOut" defaultMessage="Sign out" />
                 </span>
               </button>
@@ -138,7 +138,7 @@ export function MobileMoreScreen() {
                 type="button"
                 onClick={() => setTheme(t)}
                 className={cn(
-                  "flex-1 rounded-md py-1.5 text-xs font-medium capitalize transition-colors",
+                  "flex-1 rounded-md py-1.5 text-[13px] font-medium capitalize transition-colors",
                   theme === t
                     ? "bg-background text-foreground shadow-card"
                     : "text-muted-foreground/70 hover:text-muted-foreground"
@@ -157,7 +157,7 @@ export function MobileMoreScreen() {
             className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-muted/30"
           >
             <FolderTree className="size-4 text-muted-foreground/70" />
-            <span className="text-sm text-foreground/85">
+            <span className="text-base text-foreground/85">
               <FormattedMessage id="mobile.files.title" defaultMessage="Files" />
             </span>
           </button>
@@ -170,7 +170,7 @@ export function MobileMoreScreen() {
             className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-muted/30"
           >
             <CalendarClock className="size-4 text-muted-foreground/70" />
-            <span className="text-sm text-foreground/85">
+            <span className="text-base text-foreground/85">
               <FormattedMessage id="mobile.cron.title" defaultMessage="Schedules" />
             </span>
           </button>
@@ -183,7 +183,7 @@ export function MobileMoreScreen() {
             className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-muted/30"
           >
             <Settings className="size-4 text-muted-foreground/70" />
-            <span className="text-sm text-foreground/85">
+            <span className="text-base text-foreground/85">
               <FormattedMessage id="mobile.more.openSettings" defaultMessage="Open settings" />
             </span>
           </button>
@@ -198,10 +198,10 @@ export function MobileMoreScreen() {
           <div className="flex items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
             <BarChart3 className="size-4 shrink-0 text-muted-foreground/70" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-foreground/85">
+              <p className="text-base text-foreground/85">
                 <FormattedMessage id="mobile.more.analytics" defaultMessage="Share usage analytics" />
               </p>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">
                 <FormattedMessage
                   id="mobile.more.analytics.help"
                   defaultMessage="Anonymous usage and crash data. Never your code, messages or files."
@@ -228,13 +228,13 @@ export function MobileMoreScreen() {
             <div className="space-y-2 rounded-lg border border-border/40 bg-muted/10 p-4">
               {confirmDelete ? (
                 <>
-                  <p className="text-sm font-medium text-foreground/85">
+                  <p className="text-base font-medium text-foreground/85">
                     <FormattedMessage
                       id="mobile.more.deleteAccount.confirmTitle"
                       defaultMessage="Delete your account?"
                     />
                   </p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
+                  <p className="text-[13px] leading-relaxed text-muted-foreground">
                     <FormattedMessage
                       id="mobile.more.deleteAccount.confirmBody"
                       defaultMessage="This permanently removes your account, unpairs every machine, and cannot be undone. Files and projects on your machines are not touched."
@@ -244,7 +244,7 @@ export function MobileMoreScreen() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 gap-1.5 text-xs"
+                      className="h-7 gap-1.5 text-[13px]"
                       disabled={deleting}
                       onClick={() => setConfirmDelete(false)}
                     >
@@ -253,7 +253,7 @@ export function MobileMoreScreen() {
                     <Button
                       size="sm"
                       variant="destructive"
-                      className="h-7 gap-1.5 text-xs"
+                      className="h-7 gap-1.5 text-[13px]"
                       disabled={deleting}
                       onClick={() => void runDeleteAccount()}
                     >
@@ -272,7 +272,7 @@ export function MobileMoreScreen() {
                   className="flex w-full items-center gap-3 text-left"
                 >
                   <Trash2 className="size-4 text-destructive/80" />
-                  <span className="text-sm text-destructive">
+                  <span className="text-base text-destructive">
                     <FormattedMessage id="mobile.more.deleteAccount" defaultMessage="Delete account" />
                   </span>
                 </button>
@@ -323,7 +323,7 @@ function MachineStatusBadge({ loading, node }: { loading: boolean; node: WebNode
   return (
     <span
       className={cn(
-        "ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+        "ml-auto rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
         className,
       )}
     >
@@ -335,7 +335,7 @@ function MachineStatusBadge({ loading, node }: { loading: boolean; node: WebNode
 function Section({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
-      <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/60">
+      <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground/60">
         {title}
       </h2>
       {children}

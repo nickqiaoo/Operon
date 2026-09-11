@@ -10,7 +10,7 @@
 // `__APP_NATIVE__` is a compile-time constant, so in the browser build every
 // one of these branches folds to `false` and the bodies are dropped.
 
-import { Capacitor, registerPlugin } from '@capacitor/core'
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 
 /** True only inside a packaged app (iOS or Android). */
 export function isNativeApp(): boolean {
@@ -129,4 +129,135 @@ export async function nativeAuthenticate(url: string, callbackScheme: string): P
     // side, which ships on a different cadence (App Store review).
     return { kind: 'unavailable' }
   }
+}
+
+// ---- native shell (iOS system tab bar) ----
+
+/**
+ * Thin bridge to `NativeShellPlugin.swift` (iOS only).
+ *
+ * On iOS the bottom tab bar is the system `UITabBarController` bar (Liquid
+ * Glass on iOS 26) drawn over the web view; the web app stays the source of
+ * truth for which tab is active and just mirrors it over this plugin. Titles
+ * are sent from JS so they follow the app's locale. `tabBarInset` is how much
+ * of the web view's bottom the bar covers, which the shell pads its content by.
+ */
+export interface NativeShellPlugin {
+  configure(options: { tabs: { id: string; title: string }[] }): Promise<{ tabBarInset: number }>
+  selectTab(options: { tab: string }): Promise<void>
+  setTabBarVisible(options: { visible: boolean }): Promise<void>
+  /**
+   * The navigation bar. `context` = project › workspace title + inbox bell
+   * (list screens), `back` = a lone back button (open conversation), `hidden`.
+   */
+  setTopBar(options: {
+    mode: NativeTopBarMode
+    title: string
+    subtitle?: string
+    unread: boolean
+    /** False while a web overlay is up: the bar stays put but stops taking taps. */
+    interactive: boolean
+  }): Promise<void>
+  addListener(eventName: 'tabSelected', listener: (event: { tab: string }) => void): Promise<PluginListenerHandle>
+  addListener(eventName: 'layout', listener: (event: { tabBarInset: number }) => void): Promise<PluginListenerHandle>
+  addListener(eventName: 'topBarAction', listener: (event: { action: NativeTopBarAction }) => void): Promise<PluginListenerHandle>
+  /**
+   * Project → workspace picker as a system sheet. Resolves once the sheet is
+   * up; the pick arrives as `contextPicked`, every dismissal as
+   * `contextSheetDismissed`.
+   */
+  presentContextSheet(options: {
+    title: string
+    emptyText: string
+    projects: { id: number; name: string; workspaces: { id: number; name: string }[] }[]
+    activeProjectId?: number
+    activeWorkspaceId?: number
+  }): Promise<void>
+  addListener(
+    eventName: 'contextPicked',
+    listener: (event: { projectId: number; workspaceId?: number }) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(eventName: 'contextSheetDismissed', listener: () => void): Promise<PluginListenerHandle>
+  /**
+   * "New chat" agent picker as a system sheet. The pick arrives as
+   * `agentPicked { id }`; `logo` is an imageset name in the iOS asset catalog
+   * (see `providerLogoName`).
+   */
+  presentAgentSheet(options: {
+    title: string
+    emptyText: string
+    agents: { id: string; label: string; logo?: string }[]
+  }): Promise<void>
+  addListener(eventName: 'agentPicked', listener: (event: { id: string }) => void): Promise<PluginListenerHandle>
+  /** Model picker as a system sheet; the pick arrives as `modelPicked { id }`. */
+  presentModelSheet(options: {
+    title: string
+    searchPlaceholder: string
+    emptyText: string
+    selectedId?: string
+    models: { id: string; label: string; group: string; logo?: string }[]
+  }): Promise<void>
+  addListener(eventName: 'modelPicked', listener: (event: { id: string }) => void): Promise<PluginListenerHandle>
+  /** Read-only stats (context window, subscription quotas) as a system sheet. */
+  presentInfoSheet(options: { title: string; caption?: string; sections: NativeInfoSection[] }): Promise<void>
+  /**
+   * Live inbox as a system sheet. Controls come back as `inboxAction`; keep
+   * it current with `updateInboxSheet` until `inboxSheetDismissed`.
+   */
+  presentInboxSheet(options: { labels: NativeInboxLabels; state: NativeInboxState }): Promise<void>
+  updateInboxSheet(options: { state: NativeInboxState }): Promise<void>
+  dismissInboxSheet(): Promise<void>
+  addListener(
+    eventName: 'inboxAction',
+    listener: (event: { action: 'open' | 'archive' | 'markAllRead' | 'filter' | 'loadMore'; id?: number; filter?: string }) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(eventName: 'inboxSheetDismissed', listener: () => void): Promise<PluginListenerHandle>
+  /** System alert with one text field. `value` is null on cancel or empty input. */
+  promptText(options: {
+    title: string
+    message?: string
+    placeholder: string
+    confirmLabel: string
+    cancelLabel: string
+  }): Promise<{ value: string | null }>
+  /** Light / dark for the native bars and sheets, following the app theme, not the OS. */
+  setAppearance(options: { dark: boolean }): Promise<void>
+}
+
+export interface NativeInfoSection {
+  header?: string
+  value?: string
+  /** 0…1 */
+  progress?: number
+  tone?: 'normal' | 'warn' | 'error'
+  footer?: string
+  rows?: { label: string; value?: string; detail?: string; color?: string; indent?: boolean }[]
+}
+
+export interface NativeInboxLabels {
+  title: string
+  filters: { id: string; label: string }[]
+  markAllRead: string
+  empty: string
+  loading: string
+  loadMore: string
+}
+
+export interface NativeInboxState {
+  filter: string
+  items: { id: number; title: string; body?: string; time: string; symbol: string; action: boolean; unread: boolean }[]
+  loading: boolean
+  loadingMore: boolean
+  hasMore: boolean
+  unreadCount: number
+}
+
+export type NativeTopBarMode = 'hidden' | 'context' | 'back'
+export type NativeTopBarAction = 'context' | 'inbox' | 'back'
+
+export const NativeShell = registerPlugin<NativeShellPlugin>('NativeShell')
+
+/** True when the packaged app draws the tab bar and top bar natively (iOS). */
+export function hasNativeTabBar(): boolean {
+  return isNativeApp() && nativePlatform() === 'ios' && Capacitor.isPluginAvailable('NativeShell')
 }

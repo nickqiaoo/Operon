@@ -916,7 +916,9 @@ function ChatPanelContent({
         <ConversationContent
           className={cn(
             "w-full max-w-4xl mx-auto px-4 pt-5 pb-4 gap-1",
-            isMobile && "group-data-[keyboard-open=true]/mobile-shell:pb-44"
+            // Phone: the transcript runs under the status bar and the floating
+            // back button; start the first message just below them.
+            isMobile && "pt-[calc(env(safe-area-inset-top)+3rem)] group-data-[keyboard-open=true]/mobile-shell:pb-44"
           )}
         >
           {chatLoadingMore && (

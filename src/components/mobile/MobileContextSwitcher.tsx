@@ -45,7 +45,7 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
       title={intl.formatMessage({ id: "mobile.context.title", defaultMessage: "Switch project" })}
     >
       {projects.length === 0 ? (
-        <p className="px-2 py-6 text-center text-sm text-muted-foreground/70">
+        <p className="px-2 py-6 text-center text-base text-muted-foreground/70">
           <FormattedMessage id="mobile.context.empty" defaultMessage="No projects yet." />
         </p>
       ) : (
@@ -62,7 +62,7 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                   <Folder className="size-4 shrink-0 text-muted-foreground/70" />
                   <span
                     className={cn(
-                      "truncate text-sm font-medium",
+                      "truncate text-base font-medium",
                       projectActive ? "text-foreground" : "text-foreground/80"
                     )}
                   >
@@ -85,7 +85,7 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                         >
                           <span
                             className={cn(
-                              "truncate text-sm",
+                              "truncate text-base",
                               isActive ? "text-foreground" : "text-muted-foreground"
                             )}
                           >

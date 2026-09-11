@@ -16,6 +16,32 @@ interface InboxButtonProps {
 }
 
 /**
+ * The phone inbox: a bottom sheet with the list; tapping a row navigates.
+ * Split from the bell so the iOS shell, whose bell is a native bar button,
+ * can open the same sheet without rendering a web bell.
+ */
+export function MobileInboxSheet({
+  open,
+  onClose,
+  onNavigate,
+}: {
+  open: boolean
+  onClose: () => void
+  onNavigate?: (n: Notification) => void
+}) {
+  const handleTap = (n: Notification) => {
+    onClose()
+    if (n.readAt == null) void useInboxStore.getState().markRead([n.id])
+    onNavigate?.(n)
+  }
+  return (
+    <MobileSheet open={open} onClose={onClose}>
+      <InboxPanel onItemClick={handleTap} />
+    </MobileSheet>
+  )
+}
+
+/**
  * Top-bar bell + unread indicator. Desktop click opens the full inbox page;
  * phone click opens a bottom sheet with the list (tapping a row navigates).
  * The badge is two-tier: an amber count for "needs you" (action) items, and a
@@ -42,11 +68,6 @@ export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonPr
   )
 
   if (isMobile) {
-    const handleTap = (n: Notification) => {
-      setSheetOpen(false)
-      if (n.readAt == null) void useInboxStore.getState().markRead([n.id])
-      onNavigate?.(n)
-    }
     return (
       <>
         <button
@@ -58,9 +79,7 @@ export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonPr
           <Bell className="h-4 w-4" />
           {badge}
         </button>
-        <MobileSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
-          <InboxPanel onItemClick={handleTap} />
-        </MobileSheet>
+        <MobileInboxSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onNavigate={onNavigate} />
       </>
     )
   }

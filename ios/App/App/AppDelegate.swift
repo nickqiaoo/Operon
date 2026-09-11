@@ -8,6 +8,7 @@ class BridgeViewController: CAPBridgeViewController {
         super.capacitorDidLoad()
         bridge?.registerPluginInstance(SecureStoragePlugin())
         bridge?.registerPluginInstance(WebAuthPlugin())
+        bridge?.registerPluginInstance(NativeShellPlugin())
     }
 }
 

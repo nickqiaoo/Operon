@@ -63,10 +63,10 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
         <FileDiff className="size-6 text-muted-foreground/60" />
-        <p className="text-sm font-medium text-foreground/85">
+        <p className="text-base font-medium text-foreground/85">
           <FormattedMessage id="mobile.changes.noWorkspaceTitle" defaultMessage="No workspace selected" />
         </p>
-        <p className="text-xs text-muted-foreground/70">
+        <p className="text-[13px] text-muted-foreground/70">
           <FormattedMessage id="mobile.changes.noWorkspaceDesc" defaultMessage="Pick a workspace from the bar above." />
         </p>
       </div>

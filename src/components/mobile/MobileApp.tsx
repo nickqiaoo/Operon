@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
-import { nativePlatform } from "@/lib/native"
-import { useAndroidBackButton } from "@/hooks/useAndroidBackButton"
+import { useIntl } from "react-intl"
+import { hasNativeTabBar, NativeShell, nativePlatform } from "@/lib/native"
+import { useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
+import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
+import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
 import { useNativeStatusBar } from "@/hooks/useNativeStatusBar"
 import { useNativePushNotifications } from "@/hooks/useNativePushNotifications"
-import { InboxButton } from "@/components/inbox/InboxButton"
+import { InboxButton, MobileInboxSheet } from "@/components/inbox/InboxButton"
+import { useInboxStore } from "@/stores/inbox-store"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import type { Notification } from "@/types/notification"
 import { useProjectStore } from "@/stores/project-store"
@@ -13,7 +17,7 @@ import { useEditorStore } from "@/stores/editor-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { useThemeStore, applyTheme } from "@/stores/theme-store"
 import { MobileTopBar } from "./MobileTopBar"
-import { MobileTabBar, type MobileTab } from "./MobileTabBar"
+import { MobileTabBar, MOBILE_TABS, MOBILE_TAB_LABELS, isMobileTab, type MobileTab } from "./MobileTabBar"
 import { MobileContextSwitcher } from "./MobileContextSwitcher"
 import { MobileChatsScreen } from "./MobileChatsScreen"
 import { MobileChannelScreen } from "./MobileChannelScreen"
@@ -35,6 +39,8 @@ type NotificationTarget = Partial<
 export function MobileApp() {
   const [tab, setTab] = useState<MobileTab>("chats")
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  // iOS only: the inbox sheet opened from the native bell.
+  const [nativeInboxOpen, setNativeInboxOpen] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   // A screen can ask for the full viewport (chat transcript): the context bar
   // and tab bar step aside and the screen carries the safe-area insets itself.
@@ -52,6 +58,70 @@ export function MobileApp() {
   const taskNavRequest = useEditorStore((s) => s.taskNavigationRequest)
   const clearTaskNavRequest = useEditorStore((s) => s.clearTaskNavigationRequest)
   const theme = useThemeStore((s) => s.theme)
+  const intl = useIntl()
+
+  // iOS draws the bottom bar natively (system tab bar, Liquid Glass on iOS 26)
+  // and this shell just mirrors tab state over `NativeShell`. `tabBarHeight` is
+  // how much of the bottom the bar covers; the screen pads itself by it while
+  // the bar is showing so nothing ends up underneath.
+  const nativeTabBar = useMemo(() => hasNativeTabBar(), [])
+  const [nativeTabBarHeight, setNativeTabBarHeight] = useState(0)
+  const overlayCount = useNativeShellOverlayCount()
+  const tabBarVisible = !keyboardOpen && !immersive
+
+  useEffect(() => {
+    if (!nativeTabBar) return
+    let cancelled = false
+    // Titles follow the app's locale, so this re-runs when it changes.
+    const tabs = MOBILE_TABS.map((id) => ({ id, title: intl.formatMessage(MOBILE_TAB_LABELS[id]) }))
+    void NativeShell.configure({ tabs })
+      .then(({ tabBarInset }) => {
+        if (!cancelled && tabBarInset > 0) setNativeTabBarHeight(tabBarInset)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [nativeTabBar, intl])
+
+  // The picker is a system sheet on iOS (ContextSheet.swift); the web
+  // MobileContextSwitcher stays for Android and the browser. Data is read at
+  // tap time, not mirrored continuously — a sheet lives for a few seconds.
+  const openNativeContextSheet = useCallback(async () => {
+    const store = useProjectStore.getState()
+    try {
+      await NativeShell.presentContextSheet({
+        title: intl.formatMessage({ id: "mobile.context.title", defaultMessage: "Switch project" }),
+        emptyText: intl.formatMessage({ id: "mobile.context.empty", defaultMessage: "No projects yet." }),
+        projects: store.projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          workspaces: p.workspaces.map((w) => ({ id: w.id, name: w.name })),
+        })),
+        activeProjectId: store.activeProjectId ?? undefined,
+        activeWorkspaceId: store.activeWorkspaceId ?? undefined,
+      })
+    } catch {
+      // Older shell without the sheet: fall back to the web one.
+      setSwitcherOpen(true)
+    }
+  }, [intl])
+
+
+  // JS-initiated switches (deep links, Android back, notification taps) show
+  // up in the bar too. Harmless after a native tap: selecting the current tab
+  // is a no-op.
+  useEffect(() => {
+    if (!nativeTabBar) return
+    void NativeShell.selectTab({ tab }).catch(() => {})
+  }, [nativeTabBar, tab])
+
+  // Same rule the web bar follows, plus: step aside for full-screen web
+  // overlays (sheets, thread panel), which cannot draw over a native view.
+  useEffect(() => {
+    if (!nativeTabBar) return
+    void NativeShell.setTabBarVisible({ visible: tabBarVisible && overlayCount === 0 }).catch(() => {})
+  }, [nativeTabBar, tabBarVisible, overlayCount])
 
   useInboxStream()
   useNativeStatusBar()
@@ -89,6 +159,39 @@ export function MobileApp() {
       setDeepLink({ chatId: n.chatId, title: n.title })
     }
   }, [projects, setActiveProject, setActiveWorkspace])
+
+  const openNativeInbox = useNativeInboxSheet(handleOpenNotification)
+
+  useEffect(() => {
+    if (!nativeTabBar) return
+    const handles = [
+      NativeShell.addListener("tabSelected", ({ tab: next }) => {
+        if (isMobileTab(next)) setTab(next)
+      }),
+      NativeShell.addListener("topBarAction", ({ action }) => {
+        if (action === "context") void openNativeContextSheet()
+        else if (action === "inbox") void openNativeInbox().then((ok) => { if (!ok) setNativeInboxOpen(true) })
+        // Back closes whatever registered most recently (the open conversation,
+        // or a sheet over it) — same stack the Android hardware button uses.
+        else if (action === "back") dispatchBack()
+      }),
+      // Only remember a real height: the bar reports 0 while hidden, and we
+      // keep the padding tied to *our* visibility state, not the animation.
+      NativeShell.addListener("layout", ({ tabBarInset }) => {
+        if (tabBarInset > 0) setNativeTabBarHeight(tabBarInset)
+      }),
+      // Same rules as MobileContextSwitcher: a workspace activates its project
+      // too; a project with no workspaces is activated on its own.
+      NativeShell.addListener("contextPicked", ({ projectId, workspaceId }) => {
+        const store = useProjectStore.getState()
+        if (workspaceId != null) store.setActiveWorkspace(workspaceId, projectId)
+        else store.setActiveProject(projectId)
+      }),
+    ]
+    return () => {
+      for (const handle of handles) void handle.then((h) => h.remove()).catch(() => {})
+    }
+  }, [nativeTabBar, openNativeContextSheet, openNativeInbox])
 
   // Tapping a push lands on exactly the same surface as tapping its inbox row.
   useNativePushNotifications(handleOpenNotification)
@@ -347,6 +450,22 @@ export function MobileApp() {
     return null
   }, [projects, activeWorkspaceId])
 
+  // The native top bar mirrors MobileTopBar: project › workspace + bell on
+  // list screens, a lone back button over an open conversation.
+  const inboxUnread = useInboxStore((s) => s.counts.total > 0)
+  const topBarTitle = activeInfo?.project.name ?? "operon"
+  const topBarSubtitle = activeInfo?.workspace.name
+  useEffect(() => {
+    if (!nativeTabBar) return
+    void NativeShell.setTopBar({
+      mode: immersive ? "back" : "context",
+      title: topBarTitle,
+      subtitle: topBarSubtitle,
+      unread: inboxUnread,
+      interactive: overlayCount === 0,
+    }).catch(() => {})
+  }, [nativeTabBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount])
+
   useEffect(() => {
     useTabsStore
       .getState()
@@ -373,7 +492,7 @@ export function MobileApp() {
           left: "1rem",
         }}
       />
-      {!immersive && (
+      {!immersive && !nativeTabBar && (
         <MobileTopBar
           projectName={activeInfo?.project.name ?? null}
           workspaceName={activeInfo?.workspace.name ?? null}
@@ -382,7 +501,16 @@ export function MobileApp() {
         />
       )}
 
-      <main className="min-h-0 flex-1 overflow-hidden">
+      {/* With the native bars the top safe-area inset already includes the
+          navigation bar, so list screens just pad by it; immersive screens
+          carry their own inset (see MobileChatsScreen). */}
+      <main
+        className="min-h-0 flex-1 overflow-hidden"
+        style={{
+          paddingTop: nativeTabBar && !immersive ? "env(safe-area-inset-top)" : undefined,
+          paddingBottom: nativeTabBar && tabBarVisible ? `${nativeTabBarHeight}px` : undefined,
+        }}
+      >
         {tab === "chats" && (
           <MobileChatsScreen
             keyboardOpen={keyboardOpen}
@@ -403,9 +531,16 @@ export function MobileApp() {
         {tab === "more" && <MobileMoreScreen />}
       </main>
 
-      {!keyboardOpen && !immersive && <MobileTabBar active={tab} onChange={setTab} />}
+      {!nativeTabBar && tabBarVisible && <MobileTabBar active={tab} onChange={setTab} />}
 
       <MobileContextSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+      {nativeTabBar && (
+        <MobileInboxSheet
+          open={nativeInboxOpen}
+          onClose={() => setNativeInboxOpen(false)}
+          onNavigate={handleOpenNotification}
+        />
+      )}
       <InstallPrompt />
     </div>
   )

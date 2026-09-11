@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { App as CapacitorApp } from "@capacitor/app"
-import { nativePlatform } from "@/lib/native"
+import { isNativeApp, nativePlatform } from "@/lib/native"
 
 /**
  * Android hardware/gesture back.
@@ -38,7 +38,10 @@ export function useBackHandler(active: boolean, handler: BackHandler): void {
   ref.current = handler
 
   useEffect(() => {
-    if (!active || nativePlatform() !== "android") return
+    // Any packaged app: Android feeds this from the hardware button, iOS from
+    // the native top bar's back button (`MobileApp`). In the browser nothing
+    // ever dispatches, so nothing is registered.
+    if (!active || !isNativeApp()) return
     const entry: BackHandler = () => ref.current()
     stack.push(entry)
     return () => {
@@ -46,6 +49,20 @@ export function useBackHandler(active: boolean, handler: BackHandler): void {
       if (index !== -1) stack.splice(index, 1)
     }
   }, [active])
+}
+
+/**
+ * Run the most recently registered back handler. Peek, don't pop: the entry
+ * is removed by its own cleanup once the handler actually closes something.
+ * Popping here would deregister a handler that declined to act, and the
+ * *next* back press would then exit the app out from under a still-open
+ * overlay. Returns false when nothing is registered.
+ */
+export function dispatchBack(): boolean {
+  const top = stack[stack.length - 1]
+  if (!top) return false
+  top()
+  return true
 }
 
 /**
@@ -61,15 +78,7 @@ export function useAndroidBackButton(onFallback?: () => boolean): void {
   useEffect(() => {
     if (nativePlatform() !== "android") return
     const handle = CapacitorApp.addListener("backButton", () => {
-      // Peek, don't pop. The entry is removed by its own cleanup once the
-      // handler actually closes something. Popping here would deregister a
-      // handler that declined to act, and the *next* back press would then
-      // exit the app out from under a still-open overlay.
-      const top = stack[stack.length - 1]
-      if (top) {
-        top()
-        return
-      }
+      if (dispatchBack()) return
       if (fallback.current?.()) return
       void CapacitorApp.exitApp()
     })

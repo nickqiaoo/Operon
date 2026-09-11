@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { useIntl } from "react-intl"
 import { AnimatePresence, motion, useDragControls, type PanInfo } from "motion/react"
 import { cn } from "@/lib/utils"
+import { useNativeShellOverlay } from "@/hooks/useNativeShellOverlay"
 
 interface MobileSheetProps {
   open: boolean
@@ -25,6 +26,9 @@ interface MobileSheetProps {
 export function MobileSheet({ open, onClose, title, children, sheetClassName, bodyClassName, contentRef }: MobileSheetProps) {
   const intl = useIntl()
   const dragControls = useDragControls()
+  // The iOS tab bar is a native view above the web page; it must step aside
+  // for the sheet or it would float over it.
+  useNativeShellOverlay(open)
 
   const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     // Dismiss when dragged far enough down, or flicked down quickly.
@@ -77,7 +81,7 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
               <div className="h-1 w-9 rounded-full bg-muted-foreground/25" />
               {title && (
                 <div className="w-full px-5 pb-2 pt-3">
-                  <h2 className="text-sm font-semibold text-foreground/90">{title}</h2>
+                  <h2 className="text-base font-semibold text-foreground/90">{title}</h2>
                 </div>
               )}
             </div>

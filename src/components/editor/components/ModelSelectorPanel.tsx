@@ -11,7 +11,6 @@ import kimiLogo from '@/assets/logos/kimi.svg';
 import glmLogo from '@/assets/logos/zhipuai.svg';
 import minimaxLogo from '@/assets/logos/minimax.svg';
 import grokLogo from '@/assets/logos/grok.svg';
-import claudeLogo from '@/assets/logos/claude.svg';
 import opencodeLogo from '@/assets/logos/opencode.svg';
 import vercelLogo from '@/assets/logos/vercel.svg';
 import openrouterLogo from '@/assets/logos/openrouter.svg';
@@ -23,35 +22,65 @@ import antigravityLogo from '@/assets/logos/antigravity.svg';
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import { cn } from '@/lib/utils';
 import { useFloatingPanel, panelCn, panelInnerCn } from './floating-panel-utils';
 
-const PROVIDER_LOGOS: Record<string, string> = {
-  anthropic: anthropicLogo,
+/** Logo file (basename in `src/assets/logos`, and the imageset name in the iOS asset catalog) per provider / agent id. */
+const PROVIDER_LOGO_NAMES: Record<string, string> = {
+  anthropic: 'claude',
+  openai: 'openai',
+  google: 'google',
+  deepseek: 'deepseek',
+  kimi: 'kimi',
+  moonshot: 'kimi',
+  moonshotai: 'kimi',
+  glm: 'zhipuai',
+  zhipuai: 'zhipuai',
+  minimax: 'minimax',
+  grok: 'grok',
+  xai: 'grok',
+  claude: 'claude',
+  opencode: 'opencode',
+  vercel: 'vercel',
+  openrouter: 'openrouter',
+  custom: 'custom',
+  // Agent/adapter ID aliases
+  'claude-code': 'claude',
+  gemini: 'google',
+  codex: 'openai',
+  copilot: 'copilot',
+  cursor: 'cursor',
+  antigravity: 'antigravity',
+};
+
+const LOGO_FILES: Record<string, string> = {
+  claude: anthropicLogo,
   openai: openaiLogo,
   google: googleLogo,
   deepseek: deepseekLogo,
   kimi: kimiLogo,
-  moonshot: kimiLogo,
-  moonshotai: kimiLogo,
-  glm: glmLogo,
   zhipuai: glmLogo,
   minimax: minimaxLogo,
   grok: grokLogo,
-  xai: grokLogo,
-  claude: claudeLogo,
   opencode: opencodeLogo,
   vercel: vercelLogo,
   openrouter: openrouterLogo,
   custom: customLogo,
-  // Agent/adapter ID aliases
-  'claude-code': anthropicLogo,
-  gemini: googleLogo,
-  codex: openaiLogo,
   copilot: copilotLogo,
   cursor: cursorLogo,
   antigravity: antigravityLogo,
 };
+
+/** The logo name for a provider / agent id, or null when there is none. Shared with the iOS shell, whose asset catalog uses the same names. */
+export function providerLogoName(id: string | undefined | null): string | null {
+  if (!id) return null;
+  return PROVIDER_LOGO_NAMES[id] ?? PROVIDER_LOGO_NAMES[id.toLowerCase()] ?? null;
+}
+
+const PROVIDER_LOGOS: Record<string, string> = Object.fromEntries(
+  Object.entries(PROVIDER_LOGO_NAMES).map(([id, name]) => [id, LOGO_FILES[name]]),
+);
 
 export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
   const src = PROVIDER_LOGOS[id] ?? PROVIDER_LOGOS[id?.toLowerCase?.()];
@@ -99,6 +128,32 @@ export function ModelSelectorPanel({
   useEffect(() => {
     if (!panel.open) setModelSearch('');
   }, [panel.open]);
+
+  // iOS: the picker is a system sheet (ModelSheet.swift); the pick comes
+  // back as an event. The web sheet stays for Android and the browser.
+  const nativeSheet = hasNativeTabBar();
+  useEffect(() => {
+    if (!nativeSheet) return;
+    const handle = NativeShell.addListener('modelPicked', ({ id }) => setModel(id));
+    return () => {
+      void handle.then((h) => h.remove()).catch(() => {});
+    };
+  }, [nativeSheet, setModel]);
+  const openPicker = () => {
+    if (!nativeSheet) {
+      panel.toggle();
+      return;
+    }
+    void NativeShell.presentModelSheet({
+      title: intl.formatMessage({ id: 'editor.model.selectTitle', defaultMessage: 'Select model' }),
+      searchPlaceholder: intl.formatMessage({ id: 'editor.modelSearch', defaultMessage: 'Search models...' }),
+      emptyText: availableModels.length === 0
+        ? intl.formatMessage({ id: 'editor.model.noProviders', defaultMessage: 'No providers enabled. Go to Settings -> AI Providers.' })
+        : intl.formatMessage({ id: 'editor.model.noModelsFound', defaultMessage: 'No models found.' }),
+      selectedId: model || undefined,
+      models: availableModels.map((m) => ({ id: m.id, label: m.label, group: m.group, logo: providerLogoName(m.provider) ?? undefined })),
+    }).catch(() => panel.toggle());
+  };
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -187,7 +242,7 @@ export function ModelSelectorPanel({
         data-composer-dismiss-keyboard
         data-testid="chat-model-selector"
         ref={panel.btnRef}
-        onClick={panel.toggle}
+        onClick={openPicker}
         disabled={disabled}
         className={cn('gap-2', buttonClassName)}
       >

@@ -435,6 +435,9 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
  */
 function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
   const intl = useIntl()
+  const isMobile = useIsMobile()
+
+  if (isMobile) return <MobileLogin onSignedIn={onSignedIn} />
 
   return (
     <div className="h-[100dvh] overflow-y-auto bg-background [scroll-padding-top:env(safe-area-inset-top)]">
@@ -500,6 +503,92 @@ function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => 
   )
 }
 
+/**
+ * Phone sign-in: one screen, no scrolling, nothing to read.
+ *
+ * The desktop landing is a two-column page (brand + product intro on the
+ * left, sign-in on the right); stacked into a phone column it turned into an
+ * article with the buttons buried mid-scroll. Here the brand sits centered in
+ * the upper half over a soft glow and the actions are anchored to the bottom,
+ * where a thumb expects them. The product intro and the connection diagram
+ * belong to the marketing site and are dropped on phones entirely.
+ */
+function MobileLogin({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
+  const intl = useIntl()
+
+  return (
+    <div
+      className="relative flex h-[100dvh] flex-col overflow-y-auto bg-background"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.25rem)',
+      }}
+    >
+      {/* Brand glow: one soft pool of the brand color behind the mark, so the
+          page has a center of gravity without any decoration to look at. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[60%]"
+        style={{
+          background:
+            'radial-gradient(60% 45% at 50% 42%, color-mix(in srgb, var(--color-brand) 16%, transparent) 0%, transparent 100%)',
+        }}
+      />
+
+      <div className="relative flex flex-1 flex-col items-center justify-center gap-5 px-8 text-center">
+        <OperonMark className="h-[4.5rem] w-[4.5rem] drop-shadow-[0_8px_24px_rgba(99,88,220,0.28)]" />
+        <div className="space-y-1.5">
+          <h1 className="logo text-[1.75rem] leading-none uppercase text-foreground">operon</h1>
+          <p className="text-sm text-muted-foreground">
+            {intl.formatMessage({ id: 'web.auth.login.tagline', defaultMessage: 'One Interface. Every Agent.' })}
+          </p>
+        </div>
+      </div>
+
+      <div className="relative mx-auto w-full max-w-sm space-y-5 px-6">
+        <p className="px-2 text-center text-xs leading-relaxed text-muted-foreground">
+          {intl.formatMessage({
+            id: 'web.auth.login.desc',
+            defaultMessage: 'Connect your account to reach and control the machines running operon.',
+          })}
+        </p>
+
+        <div className="space-y-2.5">
+          <button
+            type="button"
+            onClick={() => void login('github')}
+            className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-brand text-[15px] font-medium text-brand-fg transition-opacity active:opacity-85"
+          >
+            <Github className="h-[18px] w-[18px]" />
+            {intl.formatMessage({ id: 'web.auth.login.github', defaultMessage: 'Continue with GitHub' })}
+          </button>
+          {/* Sign in with Apple keeps Apple's fixed treatment (see LoginCard). */}
+          <button
+            type="button"
+            onClick={() => void login('apple')}
+            className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-black text-[15px] font-medium text-white transition-opacity active:opacity-85 dark:bg-white dark:text-black"
+          >
+            <AppleMark className="h-[18px] w-[18px]" />
+            {intl.formatMessage({ id: 'web.auth.login.apple', defaultMessage: 'Sign in with Apple' })}
+          </button>
+        </div>
+
+        <ReviewerSignIn onSignedIn={onSignedIn} compact />
+
+        <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground/70">
+          <a href="https://operon.chatcode.top/support" target="_blank" rel="noopener noreferrer">
+            {intl.formatMessage({ id: 'web.auth.footer.support', defaultMessage: 'Support' })}
+          </a>
+          <span aria-hidden="true">·</span>
+          <a href="https://operon.chatcode.top/privacy" target="_blank" rel="noopener noreferrer">
+            {intl.formatMessage({ id: 'web.auth.footer.privacy', defaultMessage: 'Privacy' })}
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LoginCard({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
   const intl = useIntl()
 
@@ -555,7 +644,14 @@ function LoginCard({ onSignedIn }: { onSignedIn: (result: CallbackResult) => voi
  *
  * See `broker/reviewer.go` for why neither OAuth button works for a reviewer.
  */
-function ReviewerSignIn({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
+function ReviewerSignIn({
+  onSignedIn,
+  compact = false,
+}: {
+  onSignedIn: (result: CallbackResult) => void | Promise<void>
+  /** Phone login: the link is a quiet footnote, not a third call to action. */
+  compact?: boolean
+}) {
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState('')
@@ -578,7 +674,11 @@ function ReviewerSignIn({ onSignedIn }: { onSignedIn: (result: CallbackResult) =
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        className={
+          compact
+            ? 'w-full text-center text-[11px] text-muted-foreground/70 underline-offset-4 hover:text-foreground hover:underline'
+            : 'w-full text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline'
+        }
       >
         {intl.formatMessage({ id: 'web.auth.login.reviewer', defaultMessage: 'App Review sign-in' })}
       </button>

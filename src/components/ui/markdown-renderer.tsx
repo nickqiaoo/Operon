@@ -91,12 +91,13 @@ export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRe
         <div ref={codeBlockCopyRef}>
             <Streamdown
                 className={cn(
-                    "prose prose-sm dark:prose-invert max-w-none w-full",
+                    // Phone: system body size (16px); desktop keeps the denser 14px.
+                    "prose prose-sm max-md:prose-base dark:prose-invert max-w-none w-full",
                     "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",
                     // Conversational heading scale: chat output is a reply, not a
                     // document — headings differ from body by one step + weight,
                     // never by poster-size type.
-                    "prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-1.5 prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-sm",
+                    "prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-1.5 prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-sm max-md:prose-h1:text-xl max-md:prose-h2:text-lg max-md:prose-h3:text-base max-md:prose-h4:text-base",
                     "prose-p:leading-[1.4] prose-li:leading-[1.35] prose-p:my-0.5 prose-li:my-0",
                     "break-words",
                     className

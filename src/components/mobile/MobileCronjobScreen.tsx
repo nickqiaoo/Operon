@@ -108,12 +108,12 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
           <FormattedMessage id="mobile.tab.more" defaultMessage="More" />
         </button>
-        <span className="ml-1 text-sm font-semibold text-foreground/90">
+        <span className="ml-1 text-base font-semibold text-foreground/90">
           <FormattedMessage id="mobile.cron.title" defaultMessage="Schedules" />
         </span>
         <div className="ml-auto flex items-center gap-1">
@@ -141,16 +141,16 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <p className="p-6 text-center text-sm text-muted-foreground/70">
+          <p className="p-6 text-center text-base text-muted-foreground/70">
             <FormattedMessage id="mobile.cron.loading" defaultMessage="Loading schedules…" />
           </p>
         ) : sorted.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <CalendarClock className="size-7 text-muted-foreground/50" />
-            <p className="text-sm font-medium text-foreground/85">
+            <p className="text-base font-medium text-foreground/85">
               <FormattedMessage id="mobile.cron.emptyTitle" defaultMessage="No schedules yet" />
             </p>
-            <p className="text-xs text-muted-foreground/70">
+            <p className="text-[13px] text-muted-foreground/70">
               <FormattedMessage
                 id="mobile.cron.emptyDesc"
                 defaultMessage="Create a scheduled task to run agents automatically."

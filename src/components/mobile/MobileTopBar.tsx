@@ -27,13 +27,13 @@ export function MobileTopBar({ projectName, workspaceName, onTapContext, right }
           onClick={onTapContext}
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 px-4 text-left"
         >
-          <span className="truncate text-sm font-semibold text-foreground/90">
+          <span className="truncate text-base font-semibold text-foreground/90">
             {projectName ?? "operon"}
           </span>
           {workspaceName && (
             <>
               <span className="text-muted-foreground/40">›</span>
-              <span className="truncate rounded-md bg-muted/50 px-1.5 py-0.5 text-xs text-foreground/80">
+              <span className="truncate rounded-md bg-muted/50 px-1.5 py-0.5 text-[13px] text-foreground/80">
                 {workspaceName}
               </span>
             </>
