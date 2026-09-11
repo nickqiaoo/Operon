@@ -1,0 +1,11 @@
+# Environment for the native OpenResty front. Read by route.lua via nginx's
+# `env` directive; delivered by the systemd drop-in as an EnvironmentFile.
+#
+# These are the compose bridge's pinned addresses (see docker-compose.yml
+# networks.internal), which the host routes to directly.
+REDIS_HOST=172.30.81.10
+REDIS_PORT=6379
+BROKER_BACKENDS=172.30.81.11:8080,172.30.81.12:8080
+# route.lua short-circuits DNS for IPv4 backends, so this is only a fallback for
+# a hostname-based BROKER_BACKENDS. Alibaba Cloud's intranet resolver.
+DNS_RESOLVER=100.100.2.136
