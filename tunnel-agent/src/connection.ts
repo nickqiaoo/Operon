@@ -43,6 +43,16 @@ export interface AgentOptions {
 }
 
 const MAX_BACKOFF_MS = 15_000
+/**
+ * The broker writes a ping on the SSE downlink every 15s. A stream that has gone
+ * this long without any frame is dead in a way the socket never reported — a
+ * proxy or CDN between us and the broker kept the client side open after the
+ * origin went away (seen when the broker restarts behind a local proxy: the node
+ * sat "connected" while the broker had no record of it). Tear it down and
+ * reconnect; the uplink keepalive alone takes minutes to notice.
+ */
+const DOWNLINK_STALL_MS = 60_000
+const DOWNLINK_CHECK_MS = 15_000
 
 /** Handle to stop an embedded agent (e.g. on logout, when run in-process). */
 export interface AgentHandle {
@@ -79,9 +89,12 @@ export function startAgent(opts: AgentOptions): AgentHandle {
     }
 
     let torn = false
+    let stallTimer: ReturnType<typeof setInterval> | null = null
     const teardown = (): void => {
       if (torn) return
       torn = true
+      if (stallTimer) clearInterval(stallTimer)
+      stallTimer = null
       // Aborting the local fetches stops US reading them; it does not kill the work
       // behind them. Chat turns in particular run to completion and persist locally
       // (server/src/routes/ai.ts deliberately ignores the request signal), so a
@@ -184,9 +197,18 @@ export function startAgent(opts: AgentOptions): AgentHandle {
       const reader = downRes.body.getReader()
       const decoder = new TextDecoder('utf-8')
       let buf = ''
+      let lastFrameAt = Date.now()
+      stallTimer = setInterval(() => {
+        if (torn) return
+        if (Date.now() - lastFrameAt < DOWNLINK_STALL_MS) return
+        console.warn(`[agent] downlink silent for ${Math.round((Date.now() - lastFrameAt) / 1000)}s; reconnecting`)
+        teardown()
+      }, DOWNLINK_CHECK_MS)
+      stallTimer.unref?.()
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
+        lastFrameAt = Date.now()
         buf += decoder.decode(value, { stream: true })
         let sep: number
         while ((sep = buf.indexOf('\n\n')) >= 0) {
