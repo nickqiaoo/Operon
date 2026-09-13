@@ -24,6 +24,13 @@ LISTEN_ADDR=:8080 DATABASE_URL=postgres://operon:dev@127.0.0.1:5433/operon?sslmo
 | `PUBLIC_URL` | `http://127.0.0.1:8080` | public base URL for OAuth callbacks |
 | `REDIS_URL` / `INSTANCE_ADDR` | unset | enable multi-instance routing directory |
 | `ADMIN_TOKEN` | unset | enables protected `/admin/*` lifecycle endpoints |
+| `INTEGRATION_KEK` | unset | 32-byte key (hex/base64) encrypting third-party tokens at rest; required for the Linear integration |
+| `LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` | unset | operon's Linear OAuth App (agent, `actor=app`) |
+| `LINEAR_WEBHOOK_SECRET` | unset | verifies `POST /webhooks/linear` |
+| `GITHUB_APP_ID` / `GITHUB_APP_SLUG` | unset | operon's GitHub App |
+| `GITHUB_APP_PRIVATE_KEY` (or `_PATH`) | unset | the App's private key; only ever lives here |
+| `GITHUB_WEBHOOK_SECRET` | unset | verifies `POST /webhooks/github` |
+| `WEBHOOK_QUEUE_TTL` | `30m` | how long a webhook waits for an offline node |
 
 ## Routes
 
@@ -37,6 +44,12 @@ LISTEN_ADDR=:8080 DATABASE_URL=postgres://operon:dev@127.0.0.1:5433/operon?sslmo
 | `GET /agent/down` | agent SSE downlink (welcome → broker→node frames) |
 | `POST /agent/up?connId=` | agent streaming-POST uplink (node→broker frames, NDJSON) |
 | `ANY /u/{uid}/n/{nid}/api/{rest...}` | transparent proxy to that node's local backend |
+| `GET /integrations/status` | Linear/GitHub install + link state for the signed-in user |
+| `PUT /integrations/routes` | desktop claims the sticky rows it owns (issue it published, PR it opened) → node |
+| `GET /integrations/linear/{install,link}` → `GET /integrations/linear/callback` | install the agent (admin, once per workspace) / link a member's identity |
+| `POST /integrations/linear/graphql` | Linear GraphQL as the workspace agent (token never leaves the broker) |
+| `GET /integrations/github/{install,link}` · `POST /integrations/github/installations/{id}/token` | install the App / mint a repo-scoped installation token |
+| `POST /webhooks/{linear,github}` | signed platform events → routed to the owner's node as a req frame |
 
 ## Files
 

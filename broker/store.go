@@ -108,6 +108,80 @@ func (s *Store) migrate() error {
 			last_seen  BIGINT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id)`,
+		// --- Linear × GitHub integration (docs/linear-github/design.md §5.1) ---
+		// The GitHub login is the member identity on the GitHub side: the user
+		// who commented on a PR is matched back to an operon account by it.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS github_login TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_users_github_login ON users(github_login)`,
+		// One row per Linear workspace: the bot identity plus the app token,
+		// which never leaves the broker (encrypted at rest with INTEGRATION_KEK).
+		`CREATE TABLE IF NOT EXISTS linear_installs (
+			org_id               TEXT PRIMARY KEY,
+			installed_by_user_id TEXT NOT NULL,
+			app_user_id          TEXT NOT NULL,
+			app_user_name        TEXT,
+			workspace_name       TEXT,
+			url_key              TEXT,
+			access_token_enc     TEXT NOT NULL,
+			refresh_token_enc    TEXT,
+			expires_at           BIGINT NOT NULL,
+			created_at           BIGINT NOT NULL,
+			revoked_at           BIGINT
+		)`,
+		// One row per member: which Linear user is which operon user, and the
+		// machine their delegations land on by default.
+		`CREATE TABLE IF NOT EXISTS linear_identities (
+			org_id          TEXT NOT NULL,
+			linear_user_id  TEXT NOT NULL,
+			user_id         TEXT NOT NULL,
+			default_node_id TEXT NOT NULL,
+			display_name    TEXT,
+			created_at      BIGINT NOT NULL,
+			PRIMARY KEY (org_id, linear_user_id)
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_linear_identities_user ON linear_identities(org_id, user_id)`,
+		`CREATE TABLE IF NOT EXISTS github_installs (
+			installation_id      BIGINT PRIMARY KEY,
+			installed_by_user_id TEXT NOT NULL,
+			account_login        TEXT,
+			created_at           BIGINT NOT NULL,
+			revoked_at           BIGINT
+		)`,
+		`CREATE TABLE IF NOT EXISTS github_install_repos (
+			installation_id BIGINT NOT NULL,
+			full_name       TEXT NOT NULL,
+			PRIMARY KEY (installation_id, full_name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_github_install_repos_name ON github_install_repos(full_name)`,
+		// Sticky rows only: which user and node owns a Linear session / issue
+		// and a GitHub PR. Written by the broker on first pickup and by the
+		// desktop for the issues it publishes and the PRs it opens. Nothing
+		// here maps a team or a repository to a machine.
+		`CREATE TABLE IF NOT EXISTS integration_routes (
+			user_id    TEXT NOT NULL,
+			kind       TEXT NOT NULL,
+			key        TEXT NOT NULL,
+			node_id    TEXT NOT NULL,
+			updated_at BIGINT NOT NULL,
+			PRIMARY KEY (user_id, kind, key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_integration_routes_key ON integration_routes(kind, key)`,
+		`CREATE TABLE IF NOT EXISTS webhook_deliveries (
+			id          TEXT PRIMARY KEY,
+			received_at BIGINT NOT NULL
+		)`,
+		// Events for a node that is offline wait here until it reconnects.
+		`CREATE TABLE IF NOT EXISTS webhook_queue (
+			id          TEXT PRIMARY KEY,
+			user_id     TEXT NOT NULL,
+			node_id     TEXT NOT NULL,
+			path        TEXT NOT NULL,
+			headers     TEXT NOT NULL,
+			body        TEXT NOT NULL,
+			enqueued_at BIGINT NOT NULL,
+			expires_at  BIGINT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_webhook_queue_node ON webhook_queue(user_id, node_id, enqueued_at)`,
 	}
 	for _, q := range stmts {
 		if _, err := tx.Exec(q); err != nil {
@@ -191,6 +265,9 @@ func (s *Store) DeleteAccount(userID string) error {
 		`DELETE FROM refresh_sessions WHERE user_id = $1`,
 		`DELETE FROM push_devices WHERE user_id = $1`,
 		`DELETE FROM nodes WHERE user_id = $1`,
+		`DELETE FROM linear_identities WHERE user_id = $1`,
+		`DELETE FROM integration_routes WHERE user_id = $1`,
+		`DELETE FROM webhook_queue WHERE user_id = $1`,
 		`DELETE FROM users WHERE id = $1`,
 	} {
 		if _, err := tx.Exec(q, userID); err != nil {

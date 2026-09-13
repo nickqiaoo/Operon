@@ -46,6 +46,10 @@ import type {
   TaskArtifact,
   ArtifactKind,
   UpsertArtifactInput,
+  TaskSurface,
+  TaskSurfaceInput,
+  TaskSurfaceKind,
+  SurfacePending,
 } from '../types/task.js'
 import type {
   Notification,
@@ -323,6 +327,21 @@ export interface TaskStorageAdapter {
   // Activity feed (events + comments)
   taskAppendActivity(taskId: number, entry: TaskActivityInput): TaskActivity
   taskListActivity(taskId: number): TaskActivity[]
+  taskGetActivity(taskId: number, activityId: number): TaskActivity | null
+
+  // External surfaces (Linear issue / session, GitHub PR — design.md §7)
+  taskSurfaceList(taskId: number): TaskSurface[]
+  taskSurfaceFind(kind: TaskSurfaceKind, externalId: string): TaskSurface | null
+  /** Upsert by (kind, externalId); re-homes the row if the task differs. */
+  taskSurfaceUpsert(input: TaskSurfaceInput): TaskSurface
+  taskSurfaceDelete(id: number): void
+  surfacePendingUpsert(entry: SurfacePending): void
+  surfacePendingGet(approvalId: string): SurfacePending | null
+  surfacePendingListByTask(taskId: number): SurfacePending[]
+  surfacePendingDelete(approvalId: string): void
+  surfacePendingDeleteByChat(chatId: number): void
+  /** True the first time a delivery id is seen. */
+  surfaceDeliveryMark(deliveryId: string): boolean
 
   // Labels
   taskListLabelDefs(projectId: number): TaskLabel[]

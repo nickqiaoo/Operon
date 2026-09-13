@@ -54,12 +54,9 @@
   "mobile.more.status.offline": "离线",
   "mobile.context.title": "切换项目",
   "mobile.context.empty": "还没有项目。",
-
   "common.add": "添加",
   "common.cancel": "取消",
-
   "app.expandSidebar": "展开侧栏",
-
   "settings.back": "返回应用",
   "settings.appearance.language.title": "语言",
   "settings.appearance.language.desc": "选择界面显示语言",
@@ -103,8 +100,6 @@
   "settings.diffPreview.apiKeyPlaceholder": "用于验证 diff 上传的密钥",
   "settings.disconnect": "断开连接",
   "settings.env.desc": "这些变量会应用于服务器进程，并被所有 AI 适配器（Claude Code、Codex、OpenCode 等）继承。适用于代理设置、自定义 API 端点、TLS 覆盖或任何环境级配置。",
-  "settings.github.title": "GitHub",
-  "settings.github.desc": "用于在对话中创建 pull request 的个人访问令牌。",
   "settings.github.patLabel": "个人访问令牌",
   "settings.github.patPlaceholder": "ghp_… 或 github_pat_…",
   "settings.github.patHint": "需要 <code>repo</code> 权限（经典 PAT）或 Pull request + Contents 写入权限（细粒度）。",
@@ -249,7 +244,6 @@
   "settings.repo.removeRepo": "移除仓库",
   "settings.repo.areYouSure": "确定吗？",
   "settings.repo.yesRemove": "确认移除",
-
   "task.toolbar.list": "列表",
   "task.toolbar.board": "看板",
   "task.toolbar.teams": "团队",
@@ -260,33 +254,27 @@
   "task.toolbar.allPriority": "全部优先级",
   "task.toolbar.allTeams": "全部团队",
   "task.toolbar.allAssignees": "全部负责人",
-
   "task.list.empty.title": "暂无任务",
   "task.list.empty.hint": "点击「新建任务」创建一个",
   "task.board.emptyColumn": "暂无任务",
-
   "task.assignee": "负责人",
   "task.unassigned": "未指派",
   "task.noTeam": "无团队",
   "task.descriptionPlaceholder": "添加描述…（支持 markdown）",
-
   "task.status.todo": "待办",
   "task.status.in_progress": "进行中",
   "task.status.in_review": "审核中",
   "task.status.done": "已完成",
   "task.status.cancelled": "已取消",
-
   "task.priority.0": "无优先级",
   "task.priority.1": "低",
   "task.priority.2": "中",
   "task.priority.3": "高",
   "task.priority.4": "紧急",
-
   "task.new.title": "新建任务",
   "task.new.titlePlaceholder": "任务标题",
   "task.new.create": "创建任务",
   "task.new.creating": "创建中…",
-
   "task.detail.back": "任务",
   "task.detail.archivedBadge": "已归档",
   "task.detail.description": "描述",
@@ -315,14 +303,36 @@
   "task.detail.dispatching": "派发中…",
   "task.detail.archive": "归档",
   "task.detail.unarchive": "取消归档",
-
   "task.activity.status": "状态变更 {from} → {to}",
   "task.activity.assigned": "指派了任务",
   "task.activity.unassigned": "取消了指派",
   "task.activity.dispatched": "派发了任务",
   "task.activity.branch": "创建了分支 {branch}",
   "task.activity.updated": "更新了任务",
-
+  "task.activity.event.created": "创建了任务",
+  "task.activity.event.archived": "归档了任务",
+  "task.activity.event.unarchived": "取消归档了任务",
+  "task.activity.event.commentForwarded": "把 {author} 的评论发给了 agent",
+  "task.activity.event.linearPublished": "发布到 Linear，编号 {identifier}",
+  "task.activity.event.linearMentioned": "{creator} 在 {where} 上提到了 agent",
+  "task.activity.event.linearDelegated": "{creator} 把 {where} 委派给了 agent",
+  "task.activity.event.linearSessionOpened": "Linear 在 {where} 上开启了 agent 会话",
+  "task.activity.event.prOpened": "创建了 PR #{number}",
+  "task.activity.event.prPushed": "把 {branch} 推送到了 PR #{number}",
+  "task.activity.event.prClosed": "PR #{number} 未合并即关闭",
+  "task.activity.event.prReopened": "PR #{number} 重新打开",
+  "task.activity.event.prFinalizeFailed": "PR #{number} 已合并，但任务收尾失败：{reason}",
+  "task.activity.event.prAcknowledged": "在 PR #{number} 上回应了 {author}",
+  "task.activity.event.signoffUnverified": "未经验证直接签收，没有运行验证器",
+  "task.activity.event.reviewReady": "等待人工审核，审核后标记完成即合并回父任务",
+  "task.activity.event.verifyStarted": "{agent} 在 {branch} 上开始验证",
+  "task.activity.event.branchMerged": "把 {branch} 合并到了 {target}",
+  "task.activity.event.subtaskMerged": "把子任务 #{number} 合并到了 {branch}",
+  "task.activity.event.parentMerged": "合并到了父分支 {branch}",
+  "task.activity.event.artifactApproved": "批准了 {kind}",
+  "task.actor.system": "系统",
+  "task.actor.human": "用户",
+  "task.actor.you": "你",
   "task.teams.title": "团队",
   "task.teams.newTeam": "新建团队",
   "task.teams.namePlaceholder": "团队名称",
@@ -330,22 +340,18 @@
   "task.teams.emptyTeam": "该团队暂无任务。",
   "task.teams.empty.title": "暂无团队",
   "task.teams.empty.hint": "创建一个团队，或给 epic 添加子任务来自动组建",
-
   "task.dispatch.title": "派发子任务",
   "task.dispatch.hint": "为每个子任务指派一个 agent，然后一次性派发。每个子任务都在从本次变更切出的独立分支上运行。",
   "task.dispatch.setAll": "全部设为",
   "task.dispatch.dispatchAll": "全部派发",
   "task.dispatch.dispatching": "派发中…",
-
   "common.continue": "继续",
   "common.refresh": "刷新",
-
   "appShell.toggleBottomPanel": "切换底部面板 (⌘J)",
   "appShell.toggleRightPanel": "切换右侧面板 (⌘\\)",
   "appShell.closeBottomPanel": "关闭底部面板",
   "appShell.closeTab": "关闭标签页",
   "appShell.openWith": "用其他应用打开…",
-
   "tab.newTab": "新建标签页",
   "tab.files.label": "文件",
   "tab.files.desc": "浏览项目文件",
@@ -385,7 +391,6 @@
   "web.auth.status.revoked": "已吊销",
   "web.auth.switchMachine": "切换机器",
   "workspaceBrowser.refreshTitle": "刷新文件树和预览",
-
   "sidebar.openChannels": "打开频道",
   "sidebar.newWorkspace": "新建工作区",
   "sidebar.collapse": "收起侧栏",
@@ -395,14 +400,12 @@
   "sidebar.skills": "技能",
   "sidebar.schedule": "定时任务",
   "sidebar.settings": "设置",
-
   "update.ready.aria": "更新 v{version} 已就绪，可安装",
   "update.ready.tooltip": "更新 v{version} 已就绪",
   "update.ready.title": "更新已就绪",
   "update.ready.desc": "operon v{version} 已下载完成。现在重启应用完成安装，或继续工作稍后再装。",
   "update.ready.later": "稍后",
   "update.ready.restart": "重启并安装",
-
   "workspace.new.title": "新建工作区",
   "workspace.new.desc": "为这次改动创建一个独立的工作区。",
   "workspace.new.branchName": "分支名称",
@@ -410,7 +413,6 @@
   "workspace.new.worktreeHint": "将创建在 operon 统一管理的工作区目录（~/.operon/worktrees）下，而不是项目根目录旁。",
   "workspace.new.create": "创建工作区",
   "workspace.new.error": "创建工作区失败",
-
   "commit.title": "提交或推送",
   "commit.branch": "分支",
   "commit.changes": "变更",
@@ -422,7 +424,6 @@
   "commit.committing": "提交中…",
   "commit.error.generate": "生成提交信息失败",
   "commit.error.empty": "无法生成提交信息。",
-
   "push.title": "推送更改",
   "push.description": "把最新的提交推送到远程仓库。",
   "push.nextSteps": "后续操作",
@@ -432,12 +433,10 @@
   "push.commitAndPushHint": "暂存所有更改并自动生成提交信息。",
   "push.forcePush": "强制推送",
   "push.working": "处理中…",
-
   "common.loading": "加载中…",
   "common.save": "保存",
   "common.saved": "已保存",
   "common.saveFailed": "保存失败",
-
   "review.scope.unstaged": "未暂存",
   "review.scope.staged": "已暂存",
   "review.scope.commit": "提交",
@@ -488,7 +487,6 @@
   "review.toast.unstagedAll": "已取消暂存所有更改",
   "review.toast.revertedAll": "已还原所有更改",
   "review.toast.actionFailed": "操作失败",
-
   "common.back": "返回",
   "common.copy": "复制",
   "common.copied": "已复制",
@@ -499,7 +497,6 @@
   "common.new": "新建",
   "common.remove": "移除",
   "common.send": "发送",
-
   "channel.empty.title": "未选择频道",
   "channel.empty.hint": "创建一个频道，或从侧栏选择一个",
   "channel.empty.noMessages": "还没有消息",
@@ -511,22 +508,18 @@
   "channel.newMessages": "{count, plural, other {# 条新消息}}",
   "channel.typing": "{name} 正在输入",
   "channel.agentFallback": "Agent",
-
   "channel.mention.noMatch": "没有匹配的成员",
   "channel.mention.noMatchQuery": "没有匹配 <q>@{query}</q> 的成员",
-
   "channel.message.reply": "回复",
   "channel.message.you": "你",
   "channel.message.replyCount": "{count, plural, other {# 条回复}}",
-
+  "channel.message.lastReply": "最后回复 {time}",
   "channel.thread.title": "话题",
   "channel.thread.replyPlaceholder": "在话题中回复…",
-
   "channel.members.title": "#{name} 的成员",
   "channel.members.noAgents": "还没有 agent，请先创建 agent。",
   "channel.members.youAlways": "你（始终在内）",
   "channel.agentCount": "{count, plural, other {# 个 agent}}",
-
   "channel.nav.tasks": "任务",
   "channel.section.threads": "话题",
   "channel.section.channels": "频道",
@@ -536,7 +529,6 @@
   "channel.deleteChannel": "删除频道",
   "channel.noAgents": "还没有 agent",
   "channel.manageAgents": "管理 Agents",
-
   "channel.agent.resetConfirm": "重置该 agent？会话将被清空。",
   "channel.agent.openWorkspace": "打开工作区",
   "channel.agent.stop": "停止",
@@ -549,25 +541,21 @@
   "channel.agent.deleteConfirm": "删除 agent「{name}」？",
   "channel.agent.permission.fullAccess": "完全访问",
   "channel.agent.permission.fullAccessDesc": "自动批准所有工具调用（旧版默认）",
-
   "channel.agentStatus.active": "活跃",
   "channel.agentStatus.idle": "空闲",
   "channel.agentStatus.offline": "离线",
   "channel.agentStatus.completed": "已完成",
-
   "channel.scope.app": "频道",
   "channel.scope.slack": "slack",
   "channel.scope.telegram": "telegram",
   "channel.scope.linear": "linear",
   "channel.scope.task": "任务",
-
   "channel.binding.resetConfirm": "重置绑定「{label}」？聊天会话会被销毁，下一条消息将冷启动。",
   "channel.binding.none": "无活跃会话。",
   "channel.binding.unbound": "未绑定",
   "channel.binding.liveCount": "{total} 个绑定中 {count} 个在线",
   "channel.binding.alreadyOffline": "已离线",
   "channel.binding.resetBinding": "重置此绑定",
-
   "channel.manage.emptyHint": "创建第一个 agent 开始使用",
   "channel.form.editTitle": "编辑 Agent",
   "channel.form.newTitle": "新建 Agent",
@@ -600,7 +588,6 @@
   "channel.form.envHint": "环境变量在会话启动时读取。开关改动需在重置该 agent 后才会生效。",
   "channel.form.saving": "保存中…",
   "channel.form.saveChanges": "保存更改",
-
   "editor.tabs.newChat": "新建对话",
   "editor.tabs.newTerminal": "新建终端",
   "editor.tabs.chatHistory": "对话历史",
@@ -615,9 +602,7 @@
   "editor.time.hoursAgo": "{count} 小时前",
   "editor.time.daysAgo": "{count} 天前",
   "editor.time.monthsAgo": "{count} 个月前",
-
   "editor.diff.empty": "没有可显示的差异",
-
   "editor.file.preview": "预览",
   "editor.file.source": "源码",
   "editor.file.imagePreview": "图片预览",
@@ -630,7 +615,6 @@
   "editor.file.imageLoadError": "无法加载图片预览。",
   "editor.file.sendToChat": "发送到对话",
   "editor.file.noChatTabs": "没有打开的对话标签页",
-
   "editor.input.placeholder": "随便问点什么，@ 提及文件，/ 使用命令…",
   "editor.input.fast": "Fast",
   "editor.input.steerHint": "在模型响应期间补充一条消息",
@@ -638,15 +622,12 @@
   "editor.input.steer": "补充",
   "editor.input.noModels": "没有可用的模型，请先配置一个服务商。",
   "editor.input.goal": "目标",
-
   "editor.chat.loadingOlder": "正在加载更早的消息…",
   "editor.chat.errorOccurred": "发生错误",
   "editor.chat.collapsePrompts": "折叠提示词",
   "editor.chat.expandPrompts": "展开提示词",
-
   "editor.agentPanel.open": "活动面板",
   "editor.agentPanel.trigger": "活动",
-
   "editor.goal.clear": "清除目标",
   "editor.goal.pause": "暂停目标",
   "editor.goal.resume": "继续目标",
@@ -656,40 +637,32 @@
   "editor.goal.status.generic": "目标",
   "editor.goal.status.paused": "目标已暂停",
   "editor.goal.status.usageLimited": "目标已暂停（用量达上限）",
-
   "editor.suggestion.debug": "调试",
   "editor.suggestion.executePlan": "执行计划",
   "editor.suggestion.reviewCode": "审查代码变更",
   "editor.suggestion.reviewPlan": "审查计划",
-
   "editor.compact.loading": "正在压缩对话历史…",
   "editor.compact.done": "上下文已压缩",
   "editor.compact.doneMessages": "上下文已压缩（{original} 条消息 → 模型 {updated} 条）",
   "editor.compact.doneTokens": "上下文已压缩（{original} → {updated} tokens）",
-
   "editor.todos.completed": "任务已完成",
   "editor.todos.progress": "任务（{done}/{total} 已完成）",
   "editor.todos.label": "任务",
-
   "editor.canvas.fromNode": "此对话来自一个工作流节点。",
   "editor.canvas.viewInWorkflow": "在工作流中查看",
   "editor.canvas.continueHint": "可以在这里接着聊，改动不会影响工作流的执行。",
-
   "editor.pr.noChanges": "没有可发布的更改",
   "editor.pr.createFiles": "创建 PR · {count, plural, other {# 个文件}}",
   "editor.pr.createCommits": "创建 PR · 领先 {count, plural, other {# 个提交}}",
-
   "editor.action.share": "分享",
   "editor.action.sendTo": "发送到",
   "editor.action.sendToTab": "发送到标签页",
   "editor.modelSearch": "搜索模型…",
   "editor.tabSearch": "搜索标签页…",
   "editor.openChats": "打开的对话",
-
   "editor.field.title": "标题",
   "editor.field.description": "描述",
   "editor.openLink": "打开",
-
   "editor.prDialog.title": "创建 Pull Request",
   "editor.prDialog.willCommit": "将提交 {count, plural, other {# 个文件}}：{files}",
   "editor.prDialog.andMore": " 另外 {count} 个",
@@ -708,16 +681,13 @@
   "editor.prDialog.created": "已创建 PR #{number}",
   "editor.prDialog.createFailed": "创建 PR 失败",
   "editor.prDialog.defaultCommit": "来自对话的 AI 更改",
-
   "editor.rewind.title": "确认回退",
   "editor.rewind.desc1": "这会把工作区中的所有文件回退到所选检查点。此后的任何更改都将丢失，包括 AI 的修改和你自己的改动。",
   "editor.rewind.note": "<b>注意：</b>回退作用于整个工作区。若其他对话标签页也修改了文件，它们的改动可能同样受影响。",
   "editor.rewind.desc2": "可以用检查点上出现的「撤销」按钮取消这次回退。",
   "editor.rewind.confirm": "回退",
-
   "editor.providerPicker.title": "选择服务商",
   "editor.providerPicker.configureCli": "在设置中配置 CLI 路径",
-
   "editor.linear.title": "分享到 Linear",
   "editor.linear.defaultTitle": "来自 operon 的分享",
   "editor.linear.loadFailed": "加载 Linear 团队失败",
@@ -738,20 +708,15 @@
   "editor.linear.priority.high": "高",
   "editor.linear.priority.medium": "中",
   "editor.linear.priority.low": "低",
-
   "editor.model.selectPlaceholder": "选择模型…",
   "editor.model.noProviders": "还没有启用任何服务商，请前往「设置 → 模型服务商」。",
   "editor.model.noModelsFound": "未找到模型。",
-
   "editor.mention.paths": "路径",
   "editor.mention.noMatches": "无匹配项",
-
   "editor.slash.title": "斜杠命令",
   "editor.slash.typeSkill": "技能",
   "editor.slash.typeCommand": "命令",
-
   "editor.skill.title": "技能",
-
   "editor.plan.keepPlanning": "不，继续规划",
   "editor.plan.startCoding": "好，开始编码",
   "editor.plan.loading": "正在加载计划…",
@@ -760,7 +725,6 @@
   "editor.plan.submitted": "计划已提交。",
   "editor.plan.feedbackPlaceholder": "拒绝时可填写反馈（可选）…",
   "editor.plan.startCodingAutoEdit": "开始编码（自动编辑）",
-
   "editor.ask.toolName": "询问用户",
   "editor.ask.yes": "是",
   "editor.ask.no": "否",
@@ -771,7 +735,6 @@
   "editor.ask.answersProvided": "已提供的回答：",
   "editor.ask.answered": "已回答",
   "editor.ask.cancelled": "已取消",
-
   "editor.codex.aria": "打开账户与速率限制详情",
   "editor.codex.window": "时间窗",
   "editor.codex.weekly": "每周",
@@ -786,12 +749,10 @@
   "editor.codex.resets": "{time} 重置",
   "editor.codex.plan": "套餐：{plan}",
   "editor.codex.noData": "暂无速率限制数据。",
-
   "editor.confirm.requestTool": "助手请求执行此工具的权限。",
   "editor.confirm.requested": "请求权限",
   "editor.confirm.accepted": "已接受",
   "editor.confirm.rejected": "已拒绝",
-
   "editor.orch.runningAgent": "正在运行 agent",
   "editor.orch.background": "后台",
   "editor.orch.hidePrompt": "隐藏提示词",
@@ -802,7 +763,6 @@
   "editor.orch.startedBackground": "已在后台启动",
   "editor.orch.backgroundCompleted": "后台任务已完成",
   "editor.orch.runningBackground": "后台运行中",
-
   "editor.subagent.runningType": "运行 {type} agent 中",
   "editor.subagent.running": "运行 agent 中…",
   "editor.subagent.runningCommand": "运行命令",
@@ -816,11 +776,9 @@
   "editor.subagent.agentBadge": "Agent",
   "editor.subagent.steps": "{count, plural, other {# 步}}",
   "editor.subagent.starting": "启动中…",
-
   "editor.diff.before": "修改前",
   "editor.diff.after": "修改后",
   "editor.diff.cannotGenerate": "无法生成差异预览",
-
   "editor.msg.bgAgentCompleted": "后台 agent 已完成",
   "editor.peerMessage.label": "队友消息",
   "editor.team.disband.title": "解散 {name}？",
@@ -830,11 +788,9 @@
   "editor.team.disband.confirm": "解散",
   "editor.msg.showMore": "展开",
   "editor.msg.showLess": "收起",
-
   "editor.rewind.rewound": "已回退",
   "editor.rewind.undoTooltip": "撤销回退",
   "editor.rewind.undo": "撤销",
-
   "editor.workflow.launching": "启动中",
   "editor.workflow.awaitingApproval": "等待你批准",
   "editor.workflow.hostBuiltIn": "该 agent 自带",
@@ -868,18 +824,14 @@
   "editor.workflow.hideScript": "隐藏脚本",
   "editor.workflow.viewScript": "查看脚本",
   "editor.workflow.scriptLines": "（{count, plural, other {# 行}}）",
-
   "editor.external.completed": "Agent 已完成",
   "editor.external.completedBadge": "已完成",
   "editor.external.tabTitle": "Agent：{desc}",
-
   "editor.turnDiff.edited": "{count, plural, other {已编辑 # 个文件}}",
   "editor.turnDiff.showLess": "收起",
   "editor.turnDiff.showMore": "显示另外 {count, plural, other {# 个文件}}",
-
   "editor.annotation.region": "区域",
   "editor.annotation.remove": "移除注释",
-
   "settings.memory.tab.memory": "记忆",
   "settings.memory.tab.embedding": "嵌入",
   "settings.memory.tab.maintenance": "维护",
@@ -900,7 +852,6 @@
   "settings.memory.page.score": "得分 {score}",
   "settings.memory.page.noTimeline": "暂无时间轴记录。",
   "settings.memory.page.delete": "删除页面",
-
   "settings.embedding.title": "启用记忆嵌入",
   "settings.embedding.desc": "用于记忆提取与检索的本地向量搜索",
   "settings.embedding.models": "模型",
@@ -918,7 +869,6 @@
   "settings.embedding.testButton": "测试嵌入",
   "settings.embedding.testOk": "正常（{dims} 维）",
   "settings.embedding.testFailed": "失败",
-
   "settings.maintenance.title": "记忆维护",
   "settings.maintenance.desc": "每日运行一次，扫描近期对话并提取 agent 可能遗漏的记忆。重复项在写入时即时去重。所有工作在独立会话中完成，不会出现在聊天记录中。",
   "settings.maintenance.enabled.title": "已启用",
@@ -962,7 +912,6 @@
   "settings.maintenance.logEmpty": "（空）",
   "settings.maintenance.logNotFound": "该次运行无日志文件。（启用日志前的运行没有日志文件。）",
   "settings.maintenance.reload": "重新加载",
-
   "settings.mcp.title": "MCP 服务器",
   "settings.mcp.desc": "配置 MCP（Model Context Protocol）服务器，所有服务商都能用。",
   "settings.mcp.empty": "尚未配置任何 MCP 服务器。",
@@ -982,7 +931,6 @@
   "settings.mcp.save": "保存",
   "settings.mcp.saving": "保存中…",
   "settings.mcp.saved": "已保存",
-
   "settings.im.title": "IM 平台",
   "settings.im.desc": "把 IM 机器人接进 operon。{mate} 模式下机器人以 agent 身份加入频道；{interactive} 模式下走向导式流程。来源和模式创建后不可更改，只能删掉重建。",
   "settings.im.loading": "加载中…",
@@ -1033,18 +981,7 @@
   "settings.im.bindingsDialog.readOnly": "只读",
   "settings.im.bindingsDialog.empty": "还没有绑定。机器人被拉进频道或收到私信后会自动出现。",
   "settings.im.bindingsDialog.agentAdded": "agent：{agent} · 添加于 {date}",
-
   "settings.linear.loading": "加载中…",
-  "settings.linear.apiKey.title": "Personal API Key",
-  "settings.linear.apiKey.desc": "将助手消息分享为 Linear Issue。",
-  "settings.linear.apiKey.label": "Personal API Key",
-  "settings.linear.apiKey.hint": "在 Linear → 设置 → API → Personal API keys 中创建密钥。",
-  "settings.linear.apiKey.update": "更新",
-  "settings.linear.apiKey.connect": "连接",
-  "settings.linear.apiKey.disconnect": "断开连接",
-  "settings.linear.apiKey.failedLoad": "加载失败",
-  "settings.linear.apiKey.failedSave": "保存失败",
-  "settings.linear.apiKey.failedDelete": "删除失败",
   "settings.slack.title": "Slack 快速配置",
   "settings.slack.subtitle": "Operon 生成应用清单，你在 Slack 里创建应用，再把两个令牌粘回来。",
   "settings.slack.cancel": "取消",
@@ -1101,7 +1038,6 @@
   "settings.slack.token.step2": "点击右上角的 {yourApps} → 滚动到页面底部，选择 {manageTokens}。",
   "settings.slack.token.step3": "选择你的工作区，点击 {generate}，然后复制这两个值。",
   "settings.slack.token.ttl": "令牌会自动轮换（有效期约 12 小时），Operon 会自动刷新。",
-
   "settings.telegram.title": "Telegram 快速配置",
   "settings.telegram.subtitle": "在 BotFather 建好机器人，把令牌粘过来，剩下的交给 Operon。",
   "settings.telegram.cancel": "取消",
@@ -1156,7 +1092,6 @@
   "settings.telegram.done.howTo.step5": "返回并点击上方的「重新检查」/「标记完成」",
   "settings.telegram.done.applyWarning.title": "部分默认设置未成功应用",
   "settings.telegram.done.applyWarning.desc": "机器人仍然可以正常用，可以到 BotFather 里手动补配置。",
-
   "settings.dialog.title": "设置",
   "settings.dialog.tab.appearance": "外观",
   "settings.dialog.tab.providers": "模型服务商",
@@ -1203,7 +1138,6 @@
   "cronjob.editor.saveChanges": "保存更改",
   "cronjob.editor.createJob": "创建定时任务",
   "cronjob.editor.defaultName": "定时任务",
-
   "cronjob.page.title": "定时任务",
   "cronjob.page.newSchedule": "新建定时任务",
   "cronjob.page.loading": "正在加载定时任务…",
@@ -1213,7 +1147,6 @@
   "cronjob.page.selectSchedule": "选择一个定时任务",
   "cronjob.page.selectScheduleHint": "查看详情和执行历史",
   "cronjob.page.deleteConfirm": "删除定时任务「{name}」？",
-
   "cronjob.history.active": "活跃",
   "cronjob.history.paused": "已暂停",
   "cronjob.history.nextRun": "下次运行：{time}",
@@ -1226,24 +1159,19 @@
   "cronjob.history.emptyHint": "手动运行或等待计划执行。",
   "cronjob.history.openChat": "打开对话",
   "cronjob.history.noChat": "无对话",
-
   "cronjob.listItem.next": "下次：{time}",
   "cronjob.listItem.runNow": "立即运行",
   "cronjob.listItem.workflow": "工作流",
-
   "editor.agentStream.noActivity": "暂无活动",
-
   "editor.toolInput.editFile": "编辑文件",
   "editor.toolInput.replaceAll": "替换全部",
   "editor.toolInput.writeFile": "写入文件",
   "editor.toolInput.fileChanges": "文件变更",
   "editor.toolInput.parameters": "参数",
   "editor.toolInput.linesChars": "{lines} 行 · {chars} 个字符",
-
   "editor.codexPlan.stepsCompleted": "步骤已全部完成",
   "editor.codexPlan.stepsProgress": "步骤（{done}/{total} 已完成）",
   "editor.codexPlan.steps": "步骤",
-
   "browser.back": "后退",
   "browser.forward": "前进",
   "browser.stop": "停止",
@@ -1272,7 +1200,6 @@
   "browser.device.dimensions": "尺寸：",
   "browser.device.rotate": "旋转",
   "browser.device.close": "关闭设备工具栏",
-
   "canvas.workflow": "工作流",
   "canvas.renameWorkflow": "重命名工作流",
   "canvas.results": "结果",
@@ -1294,7 +1221,6 @@
   "canvas.context.fitView": "适应视图",
   "canvas.toolbar.layout": "布局",
   "canvas.toolbar.fit": "适应",
-
   "skill.title": "技能管理器",
   "skill.installed.title": "已安装的技能",
   "skill.installed.badge": "{count} 个活跃",
@@ -1311,11 +1237,9 @@
   "skill.uninstallConfirm": "卸载技能「{name}」？",
   "skill.install": "安装",
   "skill.installing": "安装中",
-
   "appShell.openWithLoading": "加载中…",
   "appShell.openWithNoApps": "未找到应用",
   "appShell.openWithSelectWorkspace": "请先选择工作区",
-
   "settings.saas.title": "远程",
   "settings.saas.desc": "把这台机器连接到 operon，就能在任何地方通过网页端驱动它上面的 agent。请求会通过隧道回到这台电脑，云端只负责转发。",
   "settings.saas.loading": "加载中…",
@@ -1332,7 +1256,6 @@
   "settings.saas.error.signInFailed": "登录失败",
   "settings.saas.error.loadStatus": "加载状态失败",
   "settings.saas.error.startSignIn": "发起登录失败",
-
   "settings.plugins.scopeNote": "插件只会为 <b>Operon agent</b> 添加技能和 MCP 服务器 —— 不会影响 Claude Code、Codex 或其他服务商。",
   "settings.plugins.installed": "已安装",
   "settings.plugins.refresh": "刷新",
@@ -1390,12 +1313,10 @@
   "settings.plugins.installFromSource": "从源安装",
   "settings.plugins.installFromSourceDesc": "直接从 github 仓库、zip 链接或绝对路径安装插件 —— 无需插件市场。",
   "settings.plugins.sourcePlaceholder": "github / zip 链接 / 绝对路径",
-
   "settings.tab.browser": "浏览器",
   "settings.tab.chrome": "Chrome",
   "settings.tab.computer": "电脑",
   "settings.tab.plugins": "插件",
-
   "settings.browserUse.enabled.title": "Browser Use",
   "settings.browserUse.enabled.desc": "允许 agent 操作内置浏览器 —— 打开页面、点击、输入并读取所见内容。开启后会为 agent 安装 Browser 技能，关闭则一并移除。",
   "settings.browserUse.enabled.off": "agent 无法看到浏览器。此前批准过的站点会保留，重新开启后继续生效。",
@@ -1411,7 +1332,6 @@
   "settings.browserUse.refresh": "刷新",
   "settings.browserUse.storedAt": "记录于",
   "settings.browserUse.loading": "加载中…",
-
   "settings.chrome.enabled.title": "Chrome",
   "settings.chrome.enabled.desc": "允许 agent 操作你自己的 Chrome —— 你的标签页、你的登录状态、你的历史记录。开启后会为 agent 安装 Chrome 技能，并注册 Chrome 连接 Operon 所需的本地宿主程序；关闭则一并移除。",
   "settings.chrome.enabled.on": "agent 只在自己打开的标签页中工作；在以你的身份执行操作前（发送、发帖、购买或修改账号设置）会先征求同意。不需要你登录态的临时任务，它们会改用 Operon 自带的浏览器。",
@@ -1433,7 +1353,6 @@
   "settings.chrome.check.host.reinstall": "重新安装",
   "settings.chrome.extensionId": "扩展 ID",
   "settings.chrome.loading": "加载中…",
-
   "settings.computerUse.enabled.title": "Computer Use",
   "settings.computerUse.enabled.desc": "允许 agent 操作本地 Mac 应用 —— 读取窗口内容，并在其中点击、输入、滚动和按键。开启后会为 agent 安装 Computer Use 技能并启动本地引擎；关闭则移除技能并停止引擎。",
   "settings.computerUse.enabled.on": "agent 首次操作某个应用前会先询问，执行有实际后果的动作前会再次确认。批准按对话生效 —— 这里不会记住任何内容。",
@@ -1445,7 +1364,6 @@
   "settings.computerUse.permissions.open": "打开系统设置",
   "settings.computerUse.permissions.refresh": "刷新",
   "settings.computerUse.loading": "加载中…",
-
   "editor.claude.title": "订阅用量",
   "editor.claude.aria": "查看订阅用量详情",
   "editor.claude.plan": "{plan} 套餐",
@@ -1471,16 +1389,13 @@
   "editor.selectedText.remove": "移除选中内容",
   "selection.addToChat": "添加到对话",
   "selection.askInSideChat": "在侧边聊天中提问",
-
   "mobile.chats.loading": "加载中…",
   "sidebar.inbox": "收件箱",
-
   "skill.filter.placeholder": "筛选已安装和技能库中的技能…",
   "skill.noDescription": "暂无描述。",
   "skill.detail.loading": "正在加载 SKILL.md…",
   "skill.detail.emptyBody": "SKILL.md 没有正文内容。",
   "skill.detail.files": "附带文件（{count}）",
-
   "task.teams.manage": "管理团队",
   "task.teams.name": "名称",
   "task.teams.color": "颜色",
@@ -1744,5 +1659,64 @@
   "settings.antigravity.auth.settings": "配置文件",
   "settings.antigravity.auth.chooseHint": "选择「使用 Google 账号」会写入 {file}。如需使用 API key 或 Gemini Enterprise 账号，请自行编辑该文件。",
   "settings.antigravity.auth.useGoogle": "使用 Google 账号",
-  "settings.antigravity.auth.recheck": "重新检查"
+  "settings.github.title": "个人访问令牌",
+  "settings.github.desc": "仅用于对话里手动的 Create PR 按钮。任务的 pull request 走上面的 GitHub App。",
+  "settings.github.app.title": "GitHub App",
+  "settings.github.app.desc": "任务的 pull request 和评论驱动都经过 operon GitHub App。在你的账号或组织上安装一次并选择仓库即可。",
+  "settings.github.app.installed": "已安装",
+  "settings.github.app.signInFirst": "请先在 Remote 页签登录。",
+  "settings.github.app.repoCount": "{count} 个仓库",
+  "settings.github.app.forget": "移除",
+  "settings.github.app.install": "安装 GitHub App",
+  "settings.github.app.manage": "在 GitHub 上管理",
+  "settings.github.app.link": "绑定 GitHub 账号",
+  "settings.github.app.asLogin": "以 @{login} 身份",
+  "settings.github.app.coverage": "仓库覆盖",
+  "settings.github.app.notGithub": "没有 GitHub 远端",
+  "settings.github.app.covered": "已覆盖",
+  "settings.github.app.notCovered": "未覆盖 — 请在此仓库安装 App",
+  "settings.linear.signInFirst": "请先在 Remote 页签登录。Linear agent 通过你的 operon 账号安装。",
+  "settings.linear.agent.title": "工作区 agent",
+  "settings.linear.agent.desc": "operon agent 每个 Linear 工作区只安装一次，之后工作区里的所有人都可以把 issue 委派给它。",
+  "settings.linear.agent.installed": "已安装",
+  "settings.linear.agent.workspace": "工作区",
+  "settings.linear.agent.name": "Agent",
+  "settings.linear.agent.installedBy": "安装者",
+  "settings.linear.agent.you": "你",
+  "settings.linear.agent.teammate": "同事",
+  "settings.linear.agent.notInstalled": "你所在的工作区都还没有安装。",
+  "settings.linear.agent.reinstall": "重新安装",
+  "settings.linear.agent.install": "安装 operon agent",
+  "settings.linear.agent.uninstall": "卸载",
+  "settings.linear.agent.adminHint": "需要 Linear 工作区管理员",
+  "settings.linear.account.title": "我的 Linear 账号",
+  "settings.linear.account.desc": "你在 Linear 里的委派会在这台机器上运行。绑定不会安装任何东西，也不需要管理员。",
+  "settings.linear.account.linked": "已绑定",
+  "settings.linear.account.user": "Linear 用户",
+  "settings.linear.account.workspace": "工作区",
+  "settings.linear.account.relink": "重新绑定",
+  "settings.linear.account.link": "绑定我的 Linear 账号",
+  "settings.linear.account.unlink": "解除绑定",
+  "settings.linear.delegation.title": "来自 Linear 的委派",
+  "settings.linear.delegation.desc": "你在 Linear 里委派给 agent 的 issue，只有带上 repo 标签、且该仓库在这台机器的 operon 里已打开时才会在这里开工。没有标签就什么都不跑，会话里会说明原因。",
+  "settings.linear.delegation.linkFirst": "请先绑定你的 Linear 账号。",
+  "settings.linear.delegation.agent": "执行 agent",
+  "settings.linear.delegation.noAgent": "不指定 — 等我手动开始",
+  "settings.linear.delegation.labelsHint": "给 issue 打的标签，每个已打开的仓库一个：",
+  "settings.linear.delegation.noRepos": "这里打开的项目还没有 GitHub 远程仓库。",
+  "settings.linear.delegation.copy": "复制",
+  "settings.linear.delegation.copied": "已复制 {label}",
+  "task.surfaces.label": "Linear",
+  "task.surfaces.publish": "发布到 Linear",
+  "task.surfaces.pickTeam": "发布到哪个 Linear team？",
+  "task.surfaces.noTeams": "这个 workspace 里没有 team。",
+  "task.surfaces.published": "已发布到 Linear：{identifier}",
+  "task.surfaces.open": "打开",
+  "task.surfaces.linearIssue": "Linear issue",
+  "task.surfaces.state.merged": "已合并",
+  "task.surfaces.state.closed": "已关闭",
+  "task.activity.sendToAgent": "发给 agent",
+  "task.activity.sent": "已发送",
+  "settings.antigravity.auth.recheck": "重新检查",
+  "task.surfaces.githubLabel": "GitHub"
 }

@@ -145,6 +145,10 @@ func routeLabel(p string) string {
 		return "agent_tunnel"
 	case strings.HasPrefix(p, "/admin/"):
 		return "admin"
+	case strings.HasPrefix(p, "/integrations/"):
+		return "integrations"
+	case strings.HasPrefix(p, "/webhooks/"):
+		return "webhook"
 	case p == "/health" || p == "/ready":
 		return "probe"
 	case p == "/metrics":

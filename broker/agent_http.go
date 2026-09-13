@@ -179,6 +179,8 @@ func (s *Server) handleAgentDown(w http.ResponseWriter, r *http.Request) {
 	})
 	go c.heartbeat()
 	slog.Info("broker: agent online", "user", userID, "node", nodeID, "label", label, "session", c.sessionID)
+	// Webhooks that arrived while this node was offline.
+	go s.drainWebhookQueue(userID, nodeID)
 
 	c.runWriteLoop(w) // blocks until the connection ends
 	slog.Info("broker: agent offline", "user", userID, "node", nodeID, "conn", connID)

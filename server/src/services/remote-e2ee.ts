@@ -246,6 +246,9 @@ export function revokeRemoteDevice(id: number): void {
   requireState().storage.setMobilePairingStatus(id, 'revoked', Date.now())
 }
 
+/** Broker-verified webhook deliveries (gateway/surfaces/route.ts) — not E2EE'd. */
+export const WEBHOOK_EVENTS_PREFIX = '/api/integrations/events/'
+
 export function createRemoteE2EEMiddleware(): MiddlewareHandler {
   return async (c, next) => {
     if (c.req.header(REMOTE_TUNNEL_HEADER) !== '1') {
@@ -261,6 +264,15 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
     }
     const isPairingRequest = c.req.path.startsWith('/api/e2ee/pair/') && c.req.header(PAIRING_HEADER) === REMOTE_E2EE_VERSION
     if (isPairingRequest) {
+      await next()
+      return
+    }
+    // Webhook events the broker verified (Linear / GitHub) ride the same
+    // tunnel but come from the broker itself, not from a paired device, so
+    // there is no device key to open them with. The surfaces route does its
+    // own gate (origin marker + tunnel marker; the broker strips the origin
+    // marker off client traffic), so E2EE is skipped for just that prefix.
+    if (c.req.path.startsWith(WEBHOOK_EVENTS_PREFIX)) {
       await next()
       return
     }

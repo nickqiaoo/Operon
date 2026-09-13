@@ -301,12 +301,11 @@ export async function approveArtifact(
   if (!existing || !existing.contentRef) {
     throw new Error(`Task #${task.number} has no written ${input.kind} to approve`)
   }
-  if (task.workspaceId == null) throw new Error(`Task #${task.number} has no worktree`)
-  const workspace = storage.getWorkspace(task.workspaceId)
-  if (!workspace) throw new Error(`Workspace ${task.workspaceId} not found`)
-
   // Approved sha = sha of the file as it stands now on the change branch.
-  const content = await fs.readFile(path.join(workspace.worktreePath, existing.contentRef), 'utf8')
+  const content = await readArtifactContent(storage, task, input.kind)
+  if (content == null) {
+    throw new Error(`Task #${task.number}: ${input.kind} file (${existing.contentRef}) is not readable`)
+  }
   // Gate-0: a spec with unresolved [NEEDS CLARIFICATION] markers cannot be signed (§6/§7).
   if (input.kind === 'spec' && /\[NEEDS CLARIFICATION/i.test(content)) {
     throw new Error(
@@ -326,23 +325,40 @@ export async function approveArtifact(
     actorId: input.approver.id,
     actorName: input.approver.name,
     body: `Approved ${input.kind}`,
-    meta: { artifactKind: input.kind },
+    meta: { event: 'artifact.approved', kind: input.kind, artifactKind: input.kind },
   })
   return artifact
 }
 
 /** Read an artifact's current file content from the task's change-branch worktree (null if absent). */
+/**
+ * Where an artifact file lives right now. While the task has a worktree the
+ * change branch is checked out there; once the worktree is gone (done → merged
+ * → cleaned up) the same relative path sits in the project's main checkout,
+ * because the change merge carried `.operon/changes/task-N/` onto the default
+ * branch. A worktree removed by hand before done is deliberately not covered:
+ * nothing was merged, so the main checkout has no copy and the read yields null.
+ */
+function artifactAbsPath(storage: SddStorage, task: Task, contentRef: string): string | null {
+  if (task.workspaceId != null) {
+    const ws = storage.getWorkspace(task.workspaceId)
+    if (ws) return path.join(ws.worktreePath, contentRef)
+  }
+  const project = storage.getProject(task.projectId)
+  return project ? path.join(project.rootPath, contentRef) : null
+}
+
 export async function readArtifactContent(
   storage: SddStorage,
   task: Task,
   kind: ArtifactKind,
 ): Promise<string | null> {
   const a = storage.taskArtifactGet(task.id, kind)
-  if (!a || !a.contentRef || task.workspaceId == null) return null
-  const ws = storage.getWorkspace(task.workspaceId)
-  if (!ws) return null
+  if (!a || !a.contentRef) return null
+  const abs = artifactAbsPath(storage, task, a.contentRef)
+  if (!abs) return null
   try {
-    return await fs.readFile(path.join(ws.worktreePath, a.contentRef), 'utf8')
+    return await fs.readFile(abs, 'utf8')
   } catch {
     return null
   }
@@ -765,7 +781,7 @@ export async function mergeChildIntoParent(
     actorId: actor.id,
     actorName: actor.name,
     body: `Merged subtask #${child.number} into \`${parent.branchName}\``,
-    meta: { mergedBranch: child.branchName, sha },
+    meta: { event: 'subtask.merged', number: child.number, branch: parent.branchName, mergedBranch: child.branchName, sha },
   })
   storage.taskAppendActivity(child.id, {
     kind: 'system',
@@ -773,7 +789,7 @@ export async function mergeChildIntoParent(
     actorId: actor.id,
     actorName: actor.name,
     body: `Merged into parent \`${parent.branchName}\``,
-    meta: { sha },
+    meta: { event: 'parent.merged', branch: parent.branchName, sha },
   })
   return { parentTaskNumber: parent.number, mergedBranch: child.branchName, sha }
 }

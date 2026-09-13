@@ -29,6 +29,8 @@ type Server struct {
 	apns      *apnsConfig // nil when iOS push isn't configured
 	fcm       *fcmConfig  // nil when Android push isn't configured
 	reviewer  *reviewerConfig
+	// Linear × GitHub Apps: nil-safe, halves disable themselves when unconfigured.
+	integrations *integrationsConfig
 }
 
 func main() {
@@ -85,18 +87,30 @@ func main() {
 		slog.Error("android push notifications disabled", "err", err)
 	}
 
+	integrations, err := newIntegrationsConfig(publicURL)
+	if err != nil {
+		slog.Error("integrations partially disabled", "err", err)
+	}
+
 	s := &Server{
-		reg:       NewRegistry(),
-		store:     store,
-		auth:      auth,
-		oauth:     oauth,
-		chatBufs:  NewChatBufferStore(),
-		conns:     NewConnTable(),
-		dir:       dir,
-		lifecycle: NewLifecycle(dir, os.Getenv("ADMIN_TOKEN")),
-		apns:      apns,
-		fcm:       fcm,
-		reviewer:  newReviewerConfig(),
+		reg:          NewRegistry(),
+		store:        store,
+		auth:         auth,
+		oauth:        oauth,
+		chatBufs:     NewChatBufferStore(),
+		conns:        NewConnTable(),
+		dir:          dir,
+		lifecycle:    NewLifecycle(dir, os.Getenv("ADMIN_TOKEN")),
+		apns:         apns,
+		fcm:          fcm,
+		reviewer:     newReviewerConfig(),
+		integrations: integrations,
+	}
+	if integrations.linearEnabled() {
+		slog.Info("linear integration enabled", "webhookSecret", integrations.linearWebhookSecret != "")
+	}
+	if integrations.githubEnabled() {
+		slog.Info("github app integration enabled", "slug", integrations.githubAppSlug, "webhookSecret", integrations.githubWebhookSecret != "")
 	}
 	if s.reviewer != nil {
 		// Worth one line at startup: it is a password door into a real account,
@@ -109,6 +123,7 @@ func main() {
 		slog.Info("broker: multi-instance mode (publishing routes for front router)", "self", selfAddr)
 	}
 	go s.runDrainLoop(context.Background())
+	go s.runWebhookMaintenance(context.Background())
 
 	reg := registerMetrics(s)
 
@@ -138,6 +153,26 @@ func main() {
 	mux.HandleFunc("DELETE /auth/account", s.handleDeleteAccount)
 	mux.HandleFunc("POST /auth/push/devices", s.handleRegisterPushDevice)
 	mux.HandleFunc("DELETE /auth/push/devices", s.handleDeletePushDevice)
+
+	// Linear × GitHub integration (docs/linear-github/design.md). The install /
+	// link entry points need a user token; the two platform callbacks and the
+	// webhook entry points are reached by the platforms themselves.
+	mux.HandleFunc("GET /integrations/status", s.handleIntegrationsStatus)
+	mux.HandleFunc("PUT /integrations/routes", s.handleRoutesPut)
+	mux.HandleFunc("GET /integrations/linear/install", s.handleLinearInstall)
+	mux.HandleFunc("GET /integrations/linear/link", s.handleLinearLink)
+	mux.HandleFunc("GET /integrations/linear/callback", s.handleLinearCallback)
+	mux.HandleFunc("POST /integrations/linear/graphql", s.handleLinearGraphQL)
+	mux.HandleFunc("DELETE /integrations/linear/{orgId}", s.handleLinearUninstall)
+	mux.HandleFunc("DELETE /integrations/linear/{orgId}/identity", s.handleLinearUnlink)
+	mux.HandleFunc("GET /integrations/github/install", s.handleGitHubInstall)
+	mux.HandleFunc("GET /integrations/github/link", s.handleGitHubLink)
+	mux.HandleFunc("GET /integrations/github/callback", s.handleGitHubAppCallback)
+	mux.HandleFunc("POST /integrations/github/installations/{id}/token", s.handleGitHubInstallationToken)
+	mux.HandleFunc("DELETE /integrations/github/installations/{id}", s.handleGitHubUninstall)
+	mux.HandleFunc("GET /integrations/github/repos/{owner}/{name}", s.handleGitHubRepoLookup)
+	mux.HandleFunc("POST /webhooks/linear", s.handleLinearWebhook)
+	mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
 
 	// Tunnel — node leg is an SSE downlink + discrete batched POSTs for the uplink
 	// (proxy- and CDN-friendly; neither a WS upgrade nor an endless request body).

@@ -37,6 +37,11 @@ type pendingState struct {
 	Challenge   string `json:"c"`
 	RedirectURI string `json:"r"`
 	Provider    string `json:"p"`
+	// Kind "github_link": not a login — an already signed-in user (UserID)
+	// proving which GitHub account is theirs, so integrations can match PR
+	// commenters back to them. The callback records the login and stops.
+	Kind   string `json:"k,omitempty"`
+	UserID string `json:"u,omitempty"`
 }
 
 type pendingCode struct {
@@ -141,6 +146,20 @@ func (o *OAuth) completeApple(ctx context.Context, state, appleCode string) (str
 	return ps.RedirectURI + "?code=" + code, nil
 }
 
+// startGitHubLink begins an identity-only GitHub pass for a signed-in user
+// (Settings → GitHub → Link GitHub account). Same OAuth App, same callback;
+// the state carries who is linking.
+func (o *OAuth) startGitHubLink(ctx context.Context, userID, redirectURI string) (string, error) {
+	if o.gh == nil {
+		return "", errors.New("github not configured")
+	}
+	state := randToken()
+	if err := o.putState(ctx, state, &pendingState{RedirectURI: redirectURI, Provider: "github", Kind: "github_link", UserID: userID}); err != nil {
+		return "", err
+	}
+	return o.gh.AuthCodeURL(state, oauth2.AccessTypeOnline), nil
+}
+
 func (o *OAuth) putState(ctx context.Context, state string, ps *pendingState) error {
 	b, _ := json.Marshal(ps)
 	return o.kv.put(ctx, "oauth:state:"+state, string(b), oauthStateTTL)
@@ -173,13 +192,27 @@ func (o *OAuth) completeGitHub(ctx context.Context, state, ghCode string) (strin
 	if err != nil {
 		return oauthErrorRedirect(ps.RedirectURI, err), err
 	}
-	sub, err := fetchGitHubIdentityWithRetry(ctx, o.gh, tok)
+	sub, login, err := fetchGitHubIdentityWithRetry(ctx, o.gh, tok)
 	if err != nil {
 		return oauthErrorRedirect(ps.RedirectURI, err), err
+	}
+	if ps.Kind == "github_link" {
+		if ps.UserID == "" {
+			return "", errors.New("corrupt state")
+		}
+		if err := o.store.SetUserGitHubLogin(ps.UserID, login); err != nil {
+			return oauthErrorRedirect(ps.RedirectURI, err), err
+		}
+		return redirectWith(ps.RedirectURI, map[string]string{"kind": "github_link", "login": login}), nil
 	}
 	userID, err := o.store.UpsertUser("github", sub)
 	if err != nil {
 		return oauthErrorRedirect(ps.RedirectURI, err), err
+	}
+	// The login is the GitHub-side member identity for integrations; a rename
+	// is picked up on the next sign-in.
+	if login != "" {
+		_ = o.store.SetUserGitHubLogin(userID, login)
 	}
 
 	code := randToken()
@@ -237,25 +270,25 @@ func (o *OAuth) exchangeGitHubToken(ctx context.Context, ghCode string) (*oauth2
 	return nil, lastErr
 }
 
-func fetchGitHubIdentityWithRetry(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (string, error) {
+func fetchGitHubIdentityWithRetry(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (string, string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= githubOAuthAttempts; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, githubOAuthAttemptTimeout)
 		attemptCtx = context.WithValue(attemptCtx, oauth2.HTTPClient, githubHTTPClient)
-		sub, err := fetchGitHubIdentity(attemptCtx, cfg, tok)
+		sub, login, err := fetchGitHubIdentity(attemptCtx, cfg, tok)
 		cancel()
 		if err == nil {
-			return sub, nil
+			return sub, login, nil
 		}
 		lastErr = err
 		if !isRetryableGitHubError(err) || attempt == githubOAuthAttempts {
-			return "", classifyGitHubOAuthError(err)
+			return "", "", classifyGitHubOAuthError(err)
 		}
 		if err := sleepWithContext(ctx, time.Duration(attempt)*250*time.Millisecond); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
-	return "", lastErr
+	return "", "", lastErr
 }
 
 func isRetryableGitHubError(err error) bool {
@@ -312,29 +345,31 @@ func sleepWithContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// fetchGitHubIdentity returns the account key and nothing else. The numeric id
-// is the only field read on purpose: it is immutable (a rename does not change
-// it) and it is all an account needs. The address GitHub would also hand over
-// here has no consumer — see Store.UpsertUser.
-func fetchGitHubIdentity(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (sub string, err error) {
+// fetchGitHubIdentity returns the account key (the immutable numeric id — a
+// rename does not change it) and the login. The login is not identity: it is
+// the name PR comments arrive under, kept so integrations can match a
+// commenter to an account. The address GitHub would also hand over here has
+// no consumer — see Store.UpsertUser.
+func fetchGitHubIdentity(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (sub, login string, err error) {
 	client := cfg.Client(ctx, tok)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	var u struct {
-		ID int64 `json:"id"`
+		ID    int64  `json:"id"`
+		Login string `json:"login"`
 	}
 	if err := json.Unmarshal(body, &u); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if u.ID == 0 {
-		return "", errors.New("github identity fetch failed")
+		return "", "", errors.New("github identity fetch failed")
 	}
-	return hexInt(u.ID), nil
+	return hexInt(u.ID), u.Login, nil
 }
 
 func hexInt(n int64) string {

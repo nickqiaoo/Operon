@@ -125,11 +125,25 @@ export interface TaskListItem extends Task {
   labels: TaskLabel[]
 }
 
+export type TaskSurfaceKind = 'linear_issue' | 'linear_session' | 'github_pr'
+
+/** Where the task is also visible outside operon: Linear issue / session, GitHub PR. */
+export interface TaskSurface {
+  id: number
+  taskId: number
+  kind: TaskSurfaceKind
+  externalId: string
+  url: string | null
+  meta: Record<string, unknown> | null
+  createdAt: number
+}
+
 export interface TaskDetail extends Task {
   labels: TaskLabel[]
   activity: TaskActivity[]
   team: Team | null
   children: TaskListItem[]
+  surfaces: TaskSurface[]
   /** Status of the task's own execution session (null if never dispatched). */
   executionStatus?: BindingStatus | null
 }

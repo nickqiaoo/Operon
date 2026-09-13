@@ -107,6 +107,10 @@ import type {
   TaskArtifact,
   ArtifactKind,
   UpsertArtifactInput,
+  TaskSurface,
+  TaskSurfaceInput,
+  TaskSurfaceKind,
+  SurfacePending,
 } from '../types/task.js'
 import type {
   Notification,
@@ -1904,7 +1908,7 @@ export class SqliteStorage
           actorId: input.actorId ?? null,
           actorName: input.actorName ?? actorType,
           body: 'created this task',
-          meta: null,
+          meta: { event: 'task.created' },
         },
         now,
       )
@@ -1984,6 +1988,7 @@ export class SqliteStorage
       ...task,
       labels: this.taskGetLabels(id),
       activity: this.taskListActivity(id),
+      surfaces: this.taskSurfaceList(id),
       team: task.teamId != null ? this.teamGet(task.teamId) : null,
       children: childTasks.map((t) => ({ ...t, labels: childLabels.get(t.id) ?? [] })),
       // Status of the task's own execution binding (null if never dispatched).
@@ -2071,7 +2076,7 @@ export class SqliteStorage
           actorId: actor?.id ?? null,
           actorName: actor?.name ?? 'You',
           body: archived ? 'archived this task' : 'unarchived this task',
-          meta: null,
+          meta: { event: archived ? 'task.archived' : 'task.unarchived' },
         },
         now,
       )
@@ -2089,6 +2094,142 @@ export class SqliteStorage
       .prepare('SELECT * FROM task_activity WHERE task_id = ? ORDER BY created_at ASC, id ASC')
       .all(taskId) as Array<Record<string, unknown>>
     return rows.map((r) => this.rowToActivity(r))
+  }
+
+  taskGetActivity(taskId: number, activityId: number): TaskActivity | null {
+    const row = this.db
+      .prepare('SELECT * FROM task_activity WHERE task_id = ? AND id = ?')
+      .get(taskId, activityId) as Record<string, unknown> | undefined
+    return row ? this.rowToActivity(row) : null
+  }
+
+  // ---- External surfaces (design.md §7) ----
+
+  private rowToSurface(row: Record<string, unknown>): TaskSurface {
+    const metaRaw = row.meta as string | null
+    return {
+      id: row.id as number,
+      taskId: row.task_id as number,
+      kind: row.kind as TaskSurfaceKind,
+      externalId: row.external_id as string,
+      url: (row.url as string | null) ?? null,
+      meta: metaRaw ? (JSON.parse(metaRaw) as Record<string, unknown>) : null,
+      createdAt: row.created_at as number,
+    }
+  }
+
+  taskSurfaceList(taskId: number): TaskSurface[] {
+    const rows = this.db
+      .prepare('SELECT * FROM task_surfaces WHERE task_id = ? ORDER BY created_at ASC, id ASC')
+      .all(taskId) as Array<Record<string, unknown>>
+    return rows.map((r) => this.rowToSurface(r))
+  }
+
+  taskSurfaceFind(kind: TaskSurfaceKind, externalId: string): TaskSurface | null {
+    const row = this.db
+      .prepare('SELECT * FROM task_surfaces WHERE kind = ? AND external_id = ?')
+      .get(kind, externalId) as Record<string, unknown> | undefined
+    return row ? this.rowToSurface(row) : null
+  }
+
+  taskSurfaceUpsert(input: TaskSurfaceInput): TaskSurface {
+    const existing = this.taskSurfaceFind(input.kind, input.externalId)
+    if (existing) {
+      const meta = { ...(existing.meta ?? {}), ...(input.meta ?? {}) }
+      this.db
+        .prepare('UPDATE task_surfaces SET task_id = ?, url = COALESCE(?, url), meta = ? WHERE id = ?')
+        .run(input.taskId, input.url ?? null, JSON.stringify(meta), existing.id)
+      return this.taskSurfaceFind(input.kind, input.externalId) as TaskSurface
+    }
+    const res = this.db
+      .prepare(
+        `INSERT INTO task_surfaces (task_id, kind, external_id, url, meta, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.taskId,
+        input.kind,
+        input.externalId,
+        input.url ?? null,
+        input.meta != null ? JSON.stringify(input.meta) : null,
+        Date.now(),
+      )
+    return this.taskSurfaceFind(input.kind, input.externalId) ?? {
+      id: res.lastInsertRowid as number,
+      taskId: input.taskId,
+      kind: input.kind,
+      externalId: input.externalId,
+      url: input.url ?? null,
+      meta: input.meta ?? null,
+      createdAt: Date.now(),
+    }
+  }
+
+  taskSurfaceDelete(id: number): void {
+    this.db.prepare('DELETE FROM task_surfaces WHERE id = ?').run(id)
+  }
+
+  private rowToPending(row: Record<string, unknown>): SurfacePending {
+    return {
+      approvalId: row.approval_id as string,
+      taskId: row.task_id as number,
+      chatId: row.chat_id as number,
+      surfaceKind: row.surface_kind as SurfacePending['surfaceKind'],
+      surfaceRef: row.surface_ref as string,
+      toolName: row.tool_name as string,
+      input: JSON.parse((row.input as string) || '{}') as Record<string, unknown>,
+      createdAt: row.created_at as number,
+    }
+  }
+
+  surfacePendingUpsert(entry: SurfacePending): void {
+    this.db
+      .prepare(
+        `INSERT INTO surface_pending (approval_id, task_id, chat_id, surface_kind, surface_ref, tool_name, input, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(approval_id) DO UPDATE SET task_id = excluded.task_id, chat_id = excluded.chat_id,
+           surface_kind = excluded.surface_kind, surface_ref = excluded.surface_ref,
+           tool_name = excluded.tool_name, input = excluded.input`,
+      )
+      .run(
+        entry.approvalId,
+        entry.taskId,
+        entry.chatId,
+        entry.surfaceKind,
+        entry.surfaceRef,
+        entry.toolName,
+        JSON.stringify(entry.input ?? {}),
+        entry.createdAt,
+      )
+  }
+
+  surfacePendingGet(approvalId: string): SurfacePending | null {
+    const row = this.db
+      .prepare('SELECT * FROM surface_pending WHERE approval_id = ?')
+      .get(approvalId) as Record<string, unknown> | undefined
+    return row ? this.rowToPending(row) : null
+  }
+
+  surfacePendingListByTask(taskId: number): SurfacePending[] {
+    const rows = this.db
+      .prepare('SELECT * FROM surface_pending WHERE task_id = ? ORDER BY created_at ASC')
+      .all(taskId) as Array<Record<string, unknown>>
+    return rows.map((r) => this.rowToPending(r))
+  }
+
+  surfacePendingDelete(approvalId: string): void {
+    this.db.prepare('DELETE FROM surface_pending WHERE approval_id = ?').run(approvalId)
+  }
+
+  surfacePendingDeleteByChat(chatId: number): void {
+    this.db.prepare('DELETE FROM surface_pending WHERE chat_id = ?').run(chatId)
+  }
+
+  surfaceDeliveryMark(deliveryId: string): boolean {
+    const res = this.db
+      .prepare('INSERT OR IGNORE INTO surface_deliveries (delivery_id, received_at) VALUES (?, ?)')
+      .run(deliveryId, Date.now())
+    return res.changes > 0
   }
 
   taskListLabelDefs(projectId: number): TaskLabel[] {

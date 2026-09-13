@@ -265,8 +265,10 @@ func sanitizeReqHeaders(h http.Header) map[string][]string {
 	for k, vals := range h {
 		lk := strings.ToLower(k)
 		// Strip the broker session credential — the local backend trusts localhost
-		// and must never receive the browser's broker token.
-		if isHopByHop(lk) || lk == "host" || lk == "content-length" || lk == "authorization" {
+		// and must never receive the browser's broker token. Also strip the
+		// headers only the webhook path sets (x-operon-origin and friends), so a
+		// browser cannot forge an inbound Linear/GitHub event.
+		if isHopByHop(lk) || lk == "host" || lk == "content-length" || lk == "authorization" || isBrokerOnlyHeader(lk) {
 			continue
 		}
 		cp := make([]string, len(vals))

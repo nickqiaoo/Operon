@@ -123,6 +123,23 @@ describe('remote E2EE middleware', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
   })
+
+  it('lets broker-verified webhook events through in required mode without a device key', async () => {
+    const app = new Hono()
+    initRemoteE2EE({ storage, mode: 'required' })
+    app.use('/api/*', createRemoteE2EEMiddleware())
+    app.post('/api/integrations/events/linear', async (c) => c.json({ received: await c.req.json() }))
+    app.get('/api/integrations/status', (c) => c.json({ ok: true }))
+    const webhook = await app.request('/api/integrations/events/linear', {
+      method: 'POST',
+      headers: { [REMOTE_TUNNEL_HEADER]: '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'created' }),
+    })
+    expect(webhook.status).toBe(200)
+    expect(await webhook.json()).toEqual({ received: { action: 'created' } })
+    // Only the events prefix is exempt; the rest of /api/integrations still needs E2EE.
+    expect((await app.request('/api/integrations/status', { headers: { [REMOTE_TUNNEL_HEADER]: '1' } })).status).toBe(426)
+  })
 })
 
 function concat(chunks: Uint8Array[]): Uint8Array {

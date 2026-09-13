@@ -167,6 +167,27 @@ const TOOLS: Tool[] = [
       required: ['task'],
     },
   },
+  {
+    name: TASKBOARD_TOOLS.submitPullRequest,
+    description:
+      'Push the current branch (HEAD) of your task worktree to GitHub and open a pull request for it, or push new commits to the pull request already open for the branch. Commit first: the working tree must be clean. Never targets the default branch. Only the agent assigned to the task may call it; requires the operon GitHub App on the repository.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Task number you are working on' },
+        title: { type: 'string', description: 'Pull request title' },
+        body: {
+          type: 'string',
+          description: 'Pull request description in markdown: what changed and why, how it was tested, the Linear issue URL.',
+        },
+        branch: {
+          type: 'string',
+          description: 'The branch to push HEAD to and open the PR from (your task branch).',
+        },
+      },
+      required: ['task', 'title', 'body', 'branch'],
+    },
+  },
 ]
 
 type TaskBoardRouteStorage = TaskStorageAdapter &
@@ -268,6 +289,13 @@ async function dispatch(
 
     case TASKBOARD_TOOLS.sedimentChange:
       return board.sediment(Number(args.task), args.apply === true, agentId)
+
+    case TASKBOARD_TOOLS.submitPullRequest:
+      return board.submitPullRequest(
+        Number(args.task),
+        { title: String(args.title ?? ''), body: String(args.body ?? ''), branch: String(args.branch ?? '') },
+        agentId,
+      )
 
     default:
       throw new Error(`Unknown tool: ${name}`)

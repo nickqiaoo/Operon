@@ -6,6 +6,8 @@ import type {
 } from '../../storage/interface.js'
 import { broadcastTask } from '../task-events.js'
 import { notifyTaskStatusChange } from '../notification-service.js'
+import { mirrorAgentComment } from '../../gateway/surfaces/surface-sync.js'
+import { submitPullRequest } from '../../gateway/surfaces/pull-request-tool.js'
 import { SDD_WORKFLOW_PROMPT } from '../sdd/sdd-prompt.js'
 import type { CreatedTaskRef } from '@shared/taskboard/tools'
 import {
@@ -372,15 +374,36 @@ export class TaskBoardService {
 
   comment(number: number, body: string, agentId: number): string {
     const task = this.requireTask(number)
+    const agentName = this.agentName(agentId) ?? 'agent'
     this.storage.taskAppendActivity(task.id, {
       kind: 'comment',
       actorType: 'agent',
       actorId: agentId,
-      actorName: this.agentName(agentId) ?? 'agent',
+      actorName: agentName,
       body,
     })
     broadcastTask(this.storage, task.id)
+    // Progress notes are visible on the Linear issue too (design.md §9).
+    mirrorAgentComment(task.id, agentName, body)
     return `Posted to task #${number}.`
+  }
+
+  /**
+   * Push the task branch and open (or update) its pull request. Only the
+   * task's own execution agent may ship it; the worktree carries no
+   * credentials, so this is the one way code leaves the machine.
+   */
+  async submitPullRequest(
+    number: number,
+    input: { title: string; body: string; branch: string },
+    agentId: number,
+  ): Promise<ToolResult> {
+    const task = this.requireTask(number)
+    if (task.assignedAgentId !== agentId) {
+      return toolError(`Only the agent assigned to task #${number} can submit its pull request.`)
+    }
+    const res = await submitPullRequest(this.storage, task, input)
+    return res.isError ? toolError(res.text) : { text: res.text }
   }
 }
 

@@ -183,3 +183,42 @@ func openRedis(redisURL string) *redis.Client {
 	}
 	return rdb
 }
+
+// webhookQueuedChannel carries "uid|nid" notices: a webhook was queued for a node
+// that is not connected to the publishing instance. The owner instance drains
+// it right away instead of on the next maintenance tick — Linear gives an agent
+// ten seconds to acknowledge a session, and the tick alone could eat all of it.
+const webhookQueuedChannel = "webhook:queued"
+
+func (d *Directory) notifyWebhookQueued(ctx context.Context, uid, nid string) {
+	if !d.enabled() {
+		return
+	}
+	if err := d.rdb.Publish(ctx, webhookQueuedChannel, uid+"|"+nid).Err(); err != nil {
+		slog.Warn("broker: webhook queued notify failed", "err", err, "node", nid)
+	}
+}
+
+// subscribeWebhookQueued calls fn for every notice until ctx ends. The go-redis
+// subscription reconnects on its own; a missed notice is covered by the tick.
+func (d *Directory) subscribeWebhookQueued(ctx context.Context, fn func(uid, nid string)) {
+	if !d.enabled() {
+		return
+	}
+	sub := d.rdb.Subscribe(ctx, webhookQueuedChannel)
+	defer sub.Close()
+	ch := sub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case m, ok := <-ch:
+			if !ok {
+				return
+			}
+			if uid, nid, found := strings.Cut(m.Payload, "|"); found {
+				fn(uid, nid)
+			}
+		}
+	}
+}

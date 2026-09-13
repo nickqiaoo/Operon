@@ -22,6 +22,7 @@ import { broadcastTask } from '../services/task-events.js'
 import { ensureParentTeam } from '../services/task-team.js'
 import { onTaskEvent } from '../services/channel-bus.js'
 import { notifyTaskStatusChange } from '../services/notification-service.js'
+import { mirrorHumanComment } from '../gateway/surfaces/surface-sync.js'
 import {
   isValidTaskTransition,
   type CreateTaskInput,
@@ -449,6 +450,8 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
       body: body.body,
     })
     broadcastTask(storage, id)
+    // The same note shows up on the Linear issue, if the task has one.
+    mirrorHumanComment(id, body.actorName?.trim() || 'You', body.body)
 
     // Wake the task's agent so a human comment steers the running turn (or
     // resurrects an idle session) — the local analog of Linear's "post a
@@ -468,6 +471,34 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
       })
     }
     return c.json({ activity, woke })
+  })
+
+  // A comment that arrived from Linear / GitHub by someone other than the
+  // task's owner was only recorded (design.md §8.5). The owner forwards it to
+  // the agent from the desktop, deliberately.
+  router.post('/:id/activities/:activityId/send-to-agent', async (c) => {
+    const id = parseInt(c.req.param('id'), 10)
+    const activityId = parseInt(c.req.param('activityId'), 10)
+    const task = storage.taskGet(id)
+    if (!task) return c.json({ error: 'Not found' }, 404)
+    const activity = storage.taskGetActivity(id, activityId)
+    if (!activity || activity.kind !== 'comment') return c.json({ error: 'Comment not found' }, 404)
+    if (activity.meta?.sent === true) return c.json({ error: 'Already sent' }, 409)
+    if (task.bindingId == null) return c.json({ error: 'Task has no agent session' }, 409)
+    const source = activity.meta?.source === 'github_pr' ? 'GitHub' : 'Linear'
+    const woke = await wakeTaskBinding(
+      task.bindingId,
+      `From ${activity.actorName} on ${source} (forwarded by the task owner):\n\n${activity.body}`,
+    )
+    storage.taskAppendActivity(id, {
+      kind: 'system',
+      actorType: 'system',
+      actorName: 'system',
+      body: `Sent ${activity.actorName}'s comment to the agent`,
+      meta: { event: 'comment.forwarded', author: activity.actorName, forwardedActivityId: activityId },
+    })
+    broadcastTask(storage, id)
+    return c.json({ woke })
   })
 
   return router

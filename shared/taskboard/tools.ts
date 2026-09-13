@@ -15,6 +15,7 @@ export const TASKBOARD_TOOLS = {
   createSpecTask: 'create_spec_task',
   writeArtifact: 'write_artifact',
   sedimentChange: 'sediment_change',
+  submitPullRequest: 'submit_pull_request',
 } as const
 
 export type TaskboardToolName = (typeof TASKBOARD_TOOLS)[keyof typeof TASKBOARD_TOOLS]

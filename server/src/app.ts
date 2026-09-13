@@ -40,6 +40,9 @@ import { initCommitMessageConfigService } from './services/commit-message-config
 import { saasRoutes } from './routes/saas.js'
 import { integrationsRoutes } from './routes/integrations.js'
 import { initIntegrationConfigService } from './services/integration-config.js'
+import { initTaskSurfaceBridge } from './gateway/surfaces/task-surface-bridge.js'
+import { initSurfaceSync } from './gateway/surfaces/surface-sync.js'
+import { initProjectRepos } from './services/integrations/project-repos.js'
 import { pluginApiRoutes } from './routes/plugin-api.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { extensionRoutes } from './routes/extensions.js'
@@ -153,6 +156,11 @@ export async function createApp(deps: AppDeps) {
   initDiffPreviewConfigService(deps.storage)
   initCommitMessageConfigService(deps.storage)
   initIntegrationConfigService(deps.storage)
+  // Linear × GitHub surfaces: stream mirroring, status projection, and the
+  // repo:label → local project lookup (docs/linear-github/design.md).
+  initTaskSurfaceBridge(deps.storage)
+  initSurfaceSync(deps.storage)
+  initProjectRepos(deps.storage)
   initDesktopIdentity(deps.storage)
   const mobileStorage = deps.storage as unknown as import('./storage/interface.js').MobilePairingStorageAdapter
   initRemoteE2EE({ storage: mobileStorage, mode: deps.remoteE2eeMode ?? 'required' })
@@ -266,7 +274,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/diff-preview', diffPreviewConfigRoutes())
   app.route('/api/commit-message', commitMessageConfigRoutes())
   app.route('/api/saas', saasRoutes())
-  app.route('/api/integrations', integrationsRoutes())
+  app.route('/api/integrations', integrationsRoutes(deps.storage))
   app.route('/api/plugin', pluginApiRoutes(deps.storage))
   app.route('/api/plugins', pluginRoutes())
   app.route('/api/extensions', extensionRoutes())

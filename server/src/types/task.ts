@@ -133,12 +133,52 @@ export interface TaskListItem extends Task {
   labels: TaskLabel[]
 }
 
+/**
+ * Where the same task is visible outside operon (docs/linear-github/design.md §7).
+ * The task is the truth; a surface is a Linear issue, the Linear agent session
+ * running on it, or the GitHub pull request opened for it.
+ */
+export type TaskSurfaceKind = 'linear_issue' | 'linear_session' | 'github_pr'
+
+export interface TaskSurface {
+  id: number
+  taskId: number
+  kind: TaskSurfaceKind
+  /** issue id | agent session id | owner/name#number */
+  externalId: string
+  url: string | null
+  meta: Record<string, unknown> | null
+  createdAt: number
+}
+
+export interface TaskSurfaceInput {
+  taskId: number
+  kind: TaskSurfaceKind
+  externalId: string
+  url?: string | null
+  meta?: Record<string, unknown> | null
+}
+
+/** A question / approval the agent posted to a surface and is waiting on. */
+export interface SurfacePending {
+  approvalId: string
+  taskId: number
+  chatId: number
+  surfaceKind: 'linear_session' | 'github_pr'
+  surfaceRef: string
+  toolName: string
+  input: Record<string, unknown>
+  createdAt: number
+}
+
 /** Task plus labels, team, sub-tasks, and full activity feed — detail page shape. */
 export interface TaskDetail extends Task {
   labels: TaskLabel[]
   activity: TaskActivity[]
   team: Team | null
   children: TaskListItem[]
+  /** External surfaces (Linear issue / session, GitHub PR); empty when none. */
+  surfaces: TaskSurface[]
   /**
    * Status of the task's own execution binding (the agent session running IN
    * the task worktree), or null if it was never dispatched. Distinct from any

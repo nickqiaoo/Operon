@@ -25,6 +25,8 @@ import {
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
 import { SDD_CREATE_SPEC_TASK_HINT, SDD_WORKFLOW_PROMPT } from '../sdd/sdd-prompt.js'
+import { SURFACE_PROMPT, observeTaskChatPart, taskHasSurfaces } from '../../gateway/surfaces/task-surface-bridge.js'
+import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
 import {
   changeBranchName,
   mergeChildIntoParent,
@@ -362,6 +364,12 @@ async function startBindingChat(
   } else if (binding.scopeKind === 'app') {
     instructions += `\n\n${SDD_CREATE_SPEC_TASK_HINT}`
   }
+  // A task that is visible on Linear / GitHub gets told how to talk there and
+  // how code leaves the worktree (design.md §12). SDD rules decide when work
+  // may start; this block decides how it is reported and shipped.
+  if (binding.scopeKind === 'task' && taskHasSurfaces(Number(binding.scopeKey))) {
+    instructions += `\n\n${SURFACE_PROMPT}`
+  }
 
   const messages: UIMessage[] = [
     {
@@ -436,12 +444,17 @@ async function startBindingChat(
   console.log(
     `[Orchestrator] startBindingChat: binding=${binding.id} chat started chatId=${ctx.chatId}`,
   )
-  drainAgentChat(ctx)
+  drainAgentChat(ctx, binding)
   return ctx.chatId
 }
 
-function drainAgentChat(ctx: Awaited<ReturnType<typeof startChat>>): void {
+function drainAgentChat(ctx: Awaited<ReturnType<typeof startChat>>, binding?: AgentBinding): void {
   console.log(`[Orchestrator] drainAgentChat: started for chatId=${ctx.chatId}`)
+  // Task sessions mirror their stream to Linear / GitHub when the task has
+  // surfaces (design.md §9). The bridge checks per part (memoized), because a
+  // surface can attach after the session started — desktop dispatch first,
+  // the Linear session only when someone delegates the published issue.
+  const surfaceTaskId = binding?.scopeKind === 'task' ? Number(binding.scopeKey) : null
   ;(async () => {
     const reader = ctx.preparedParts.getReader()
     const errors: string[] = []
@@ -453,6 +466,13 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startChat>>): void {
         const part = value && typeof value === 'object' && 'part' in value
           ? (value as { part?: Record<string, unknown> }).part
           : value
+        if (surfaceTaskId != null && part && typeof part === 'object' && 'type' in part) {
+          try {
+            observeTaskChatPart(surfaceTaskId, ctx.chatId, part as unknown as RuntimeTextStreamPart)
+          } catch (err) {
+            console.warn('[Orchestrator] surface observer failed:', err instanceof Error ? err.message : err)
+          }
+        }
         if (part && typeof part === 'object' && 'type' in part && part.type === 'error') {
           const errMsg =
             'error' in part && part.error instanceof Error
@@ -879,7 +899,7 @@ export async function attemptFinalizeSddParent(
       actorType: 'system',
       actorName: 'system',
       body: 'Signed off without verification — acceptance records that no verifier ran.',
-      meta: { unverified: true },
+      meta: { event: 'signoff.unverified', unverified: true },
     })
   }
   if (acc.status !== 'approved') {
@@ -956,7 +976,7 @@ export async function maybeAutoIntegrate(
     actorType: 'system',
     actorName: 'system',
     body: 'Ready for human review. Mark Done after review to merge this subtask into its parent.',
-    meta: {},
+    meta: { event: 'review.ready' },
   })
   broadcastTask(storage, taskId)
 }
@@ -1038,7 +1058,7 @@ export async function dispatchVerifier(taskId: number, verifierAgentId: number):
     actorType: 'system',
     actorName: 'system',
     body: `Verification started by ${agent.name} on \`${workspace.branchName}\``,
-    meta: { verifierAgentId, branch: workspace.branchName },
+    meta: { event: 'verify.started', agent: agent.name, verifierAgentId, branch: workspace.branchName },
   })
   broadcastTask(storage, taskId)
 
@@ -1184,7 +1204,7 @@ async function mergeTaskBranchToDefault(taskId: number, actor: ArtifactActor): P
       actorId: actor.id,
       actorName: actor.name,
       body: `Merged \`${task.branchName}\` into ${expected ?? status.current ?? 'main'}`,
-      meta: { branch: task.branchName, target: expected ?? status.current },
+      meta: { event: 'branch.merged', branch: task.branchName, target: expected ?? status.current ?? 'main' },
     })
     broadcastTask(storage, task.id)
     return { ok: true }

@@ -21,6 +21,7 @@ import type { ExtensionMarketplaceDTO, OperonExtensionDTO } from '@/types/extens
 import type { PeersConfig, PeersRosterDTO } from '@/types/peers'
 import type { MarketplaceBrowseResult, OperonMarketplaceDetailsDTO, OperonMarketplaceInfoDTO, OperonMcpAuthServerDTO, OperonMcpToolDTO, OperonPluginDTO, OperonPluginInfoDTO } from '@/types/plugin'
 import type { MobilePairingSummary } from '@/types/mobile'
+import type { GithubCoverageProject, IntegrationAppStatus, LinearDelegationConfig, LinearPublishOptions } from '@/types/integrations'
 import type {
   IMChannelBinding,
   IMMessageRecord,
@@ -901,13 +902,35 @@ export const api = {
   commitMessageSaveConfig: (config: { providerId?: string; modelId?: string }) =>
     put<{ success: boolean; providerId: string; modelId: string }>('/commit-message', config),
 
-  // --- Integrations: Linear ---
-  integrationLinearGet: () =>
-    get<{ configured: boolean; apiKey: string; workspaceName: string }>('/integrations/linear'),
-  integrationLinearSave: (apiKey: string) =>
-    put<{ configured: boolean; apiKey: string; workspaceName: string }>('/integrations/linear', { apiKey }),
-  integrationLinearDelete: () =>
-    del<{ success: boolean }>('/integrations/linear'),
+  // --- Integrations: Linear × GitHub Apps (docs/linear-github/design.md) ---
+  integrationAppStatus: () => get<IntegrationAppStatus>('/integrations/app/status'),
+  integrationLinearInstall: () =>
+    softPost<{ authorizeUrl?: string; error?: string; code?: string }>('/integrations/linear/app/install', {}),
+  integrationLinearLink: () =>
+    softPost<{ authorizeUrl?: string; error?: string; code?: string }>('/integrations/linear/app/link', {}),
+  integrationLinearUnlink: (orgId: string) =>
+    softPost<{ success?: boolean; error?: string }>('/integrations/linear/app/unlink', { orgId }),
+  integrationLinearUninstall: (orgId: string) =>
+    softPost<{ success?: boolean; error?: string }>('/integrations/linear/app/uninstall', { orgId }),
+  integrationGithubAppInstall: () =>
+    softPost<{ authorizeUrl?: string; error?: string; code?: string }>('/integrations/github/app/install', {}),
+  integrationGithubAppLink: () =>
+    softPost<{ authorizeUrl?: string; error?: string; code?: string }>('/integrations/github/app/link', {}),
+  integrationGithubCoverage: () =>
+    get<{ projects: GithubCoverageProject[] }>('/integrations/github/app/coverage'),
+  integrationGithubForgetInstallation: (installationId: number) =>
+    del<{ success: boolean }>(`/integrations/github/app/installations/${installationId}`),
+  integrationLinearDelegationSave: (config: LinearDelegationConfig) =>
+    put<{ delegation: LinearDelegationConfig }>('/integrations/linear/delegation', config),
+  integrationLinearPublishOptions: (projectId: number) =>
+    get<LinearPublishOptions>(`/integrations/linear/publish-options?projectId=${projectId}`),
+  integrationLinearPublishTask: (input: { taskId: number; teamId?: string; projectId?: string }) =>
+    post<{ issue: { id: string; identifier: string; url: string; title: string }; alreadyPublished?: boolean }>(
+      '/integrations/linear/publish-task',
+      input,
+    ),
+  taskSendActivityToAgent: (taskId: number, activityId: number) =>
+    post<{ woke: boolean }>(`/tasks/${taskId}/activities/${activityId}/send-to-agent`, {}),
   integrationLinearTeams: () =>
     get<{
       teams: Array<{
@@ -922,6 +945,7 @@ export const api = {
     get<{
       projects: Array<{ id: string; name: string }>
       labels: Array<{ id: string; name: string; color: string }>
+      states?: Array<{ id: string; name: string; type: string; position: number }>
     }>(`/integrations/linear/teams/${encodeURIComponent(teamId)}`),
   integrationLinearCreateIssue: (input: {
     teamId: string

@@ -12,7 +12,17 @@ import {
   Archive,
   ArchiveRestore,
   ShieldCheck,
+  Send,
+  Loader2,
+  UserRound,
+  CircleDot,
+  Sparkles,
 } from 'lucide-react'
+import { LinearIcon } from '@/components/icons/LinearIcon'
+import { GithubIcon } from '@/components/icons/GithubIcon'
+import { toast } from 'sonner'
+import { api } from '@/lib/api'
+import { openExternalUrl } from '@/lib/open-external'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -26,14 +36,15 @@ import { useIntl, FormattedMessage, type IntlShape } from 'react-intl'
 import { useTaskStore } from '@/stores/task-store'
 import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, relativeTime } from './task-meta'
 import { SddArtifactsPanel } from './SddArtifactsPanel'
-import { STATUS_MESSAGES, priorityMessage } from './task-i18n'
+import { STATUS_MESSAGES, ACTOR_MESSAGES, priorityMessage, activityEventMessage } from './task-i18n'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   isValidTaskTransition,
 } from '@/types/task'
-import type { TaskActivity, TaskDetail, TaskPriority, TaskStatus, PreparedSubtask, UpdateTaskInput } from '@/types/task'
+import type { TaskActivity, TaskDetail, TaskPriority, TaskStatus, PreparedSubtask, TaskSurface, UpdateTaskInput } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
+import type { LinearPublishOptions } from '@/types/integrations'
 import { DispatchDialog } from './DispatchDialog'
 import { VerifyDialog } from './VerifyDialog'
 import { cn } from '@/lib/utils'
@@ -160,7 +171,9 @@ export function TaskDetailView({
           )}
         </div>
 
-        <div className="md:flex-1 md:overflow-y-auto md:min-h-0 px-6 py-5 space-y-6 max-w-3xl">
+        <div className="md:flex-1 md:overflow-y-auto md:min-h-0 px-6 py-5">
+          {/* Reading width, centered: the column keeps a text-friendly measure and splits leftover space evenly on wide windows. */}
+          <div className="mx-auto w-full max-w-3xl space-y-6">
           {/* Title */}
           {editingTitle ? (
             <input
@@ -207,7 +220,7 @@ export function TaskDetailView({
                   }
                 }}
                 placeholder={intl.formatMessage({ id: 'task.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported)' })}
-                className="w-full min-h-[120px] text-sm bg-muted/30 border border-border/50 rounded-lg p-3 outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20 resize-y"
+                className="w-full min-h-[120px] text-sm bg-muted/30 border border-border/50 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y"
               />
             ) : (
               <div
@@ -237,6 +250,22 @@ export function TaskDetailView({
           {/* SDD artifacts (spec/plan/acceptance + human approval gates) */}
           {detail.sddManaged && <SddArtifactsPanel task={detail} />}
 
+          {/* Activity — timeline, oldest first, composer pinned at the end */}
+          <div>
+            <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 mb-3">
+              <FormattedMessage id="task.detail.activity" defaultMessage="Activity" />
+            </div>
+            <div className="relative">
+              {/* Vertical rail; markers sit on top of it with a bg-background ring so it reads as one continuous line. */}
+              <div aria-hidden className="absolute left-[11px] top-2 bottom-2 w-px bg-border/50 dark:bg-border/35" />
+              <div className="space-y-1">
+                {detail.activity.map((a) => (
+                  <ActivityItem key={a.id} activity={a} taskId={detail.id} />
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Comment composer */}
           <div className="flex flex-col gap-2">
             <textarea
@@ -250,7 +279,7 @@ export function TaskDetailView({
                   ? intl.formatMessage({ id: 'task.detail.commentPlaceholderWake', defaultMessage: 'Leave a comment — wakes the agent… (⌘↵ to send)' })
                   : intl.formatMessage({ id: 'task.detail.commentPlaceholder', defaultMessage: 'Leave a comment… (⌘↵ to send)' })
               }
-              className="w-full min-h-[64px] text-sm bg-muted/30 border border-border/50 rounded-lg p-3 outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20 resize-y"
+              className="w-full min-h-[64px] text-sm bg-muted/30 border border-border/50 dark:border-border/35 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y"
             />
             <div className="flex justify-end">
               <Button
@@ -264,17 +293,6 @@ export function TaskDetailView({
               </Button>
             </div>
           </div>
-
-          {/* Activity */}
-          <div>
-            <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 mb-3">
-              <FormattedMessage id="task.detail.activity" defaultMessage="Activity" />
-            </div>
-            <div className="space-y-3">
-              {detail.activity.map((a) => (
-                <ActivityItem key={a.id} activity={a} />
-              ))}
-            </div>
           </div>
         </div>
       </div>
@@ -371,6 +389,22 @@ export function TaskDetailView({
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.labelsLabel', defaultMessage: 'Labels' })}>
             <LabelPicker detail={detail} />
           </PropertyRow>
+
+          <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.label', defaultMessage: 'Linear' })}>
+            <SurfacesBlock detail={detail} />
+          </PropertyRow>
+
+          {detail.surfaces.some((s) => s.kind === 'github_pr') && (
+            <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.githubLabel', defaultMessage: 'GitHub' })}>
+              <div className="space-y-1.5">
+                {detail.surfaces
+                  .filter((s) => s.kind === 'github_pr')
+                  .map((s) => (
+                    <SurfaceRow key={s.id} surface={s} />
+                  ))}
+              </div>
+            </PropertyRow>
+          )}
 
           {detail.branchName && (
             <PropertyRow label={intl.formatMessage({ id: 'task.detail.branchLabel', defaultMessage: 'Branch' })}>
@@ -818,28 +852,296 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
   )
 }
 
-function ActivityItem({ activity: a }: { activity: TaskActivity }) {
+/**
+ * Where else this task is visible (docs/linear-github/design.md §13): the
+ * Linear issue, the agent session on it, the pull request. Tasks without a
+ * Linear issue can be published from here.
+ */
+function SurfacesBlock({ detail }: { detail: TaskDetail }) {
+  const [open, setOpen] = useState(false)
+  const [options, setOptions] = useState<LinearPublishOptions | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [publishing, setPublishing] = useState<string | null>(null)
+  const hasIssue = detail.surfaces.some((s) => s.kind === 'linear_issue')
+
+  // The team is chosen at publish time (there is no project ↔ team binding);
+  // the one used last for this project is marked as the suggestion.
+  const load = async () => {
+    setLoading(true)
+    try {
+      setOptions(await api.integrationLinearPublishOptions(detail.projectId))
+    } catch (error) {
+      toastTaskError(error, 'Could not load Linear teams')
+      setOpen(false)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const publish = async (teamId: string) => {
+    setPublishing(teamId)
+    try {
+      const res = await api.integrationLinearPublishTask({ taskId: detail.id, teamId })
+      const url = res.issue.url
+      toast.success(
+        <span className="flex items-center gap-2">
+          <FormattedMessage
+            id="task.surfaces.published"
+            defaultMessage="Published to Linear as {identifier}"
+            values={{ identifier: res.issue.identifier }}
+          />
+          {url && (
+            <button type="button" className="underline" onClick={() => openExternalUrl(url)}>
+              <FormattedMessage id="task.surfaces.open" defaultMessage="Open" />
+            </button>
+          )}
+        </span>,
+      )
+      setOpen(false)
+    } catch (error) {
+      toastTaskError(error, 'Publish to Linear failed')
+    } finally {
+      setPublishing(null)
+    }
+  }
+
+  // One row: the issue. The agent session lives on that same Linear page, so
+  // it gets no row of its own; pull requests have their own block.
+  return (
+    <div className="space-y-1.5">
+      {detail.surfaces
+        .filter((s) => s.kind === 'linear_issue')
+        .map((s) => (
+          <SurfaceRow key={s.id} surface={s} />
+        ))}
+      {!hasIssue && (
+        <Popover
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next)
+            if (next && !options) void load()
+          }}
+        >
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="ghost" className="w-full gap-2 h-8 justify-start text-xs">
+              <LinearIcon className="w-3.5 h-3.5" />
+              <FormattedMessage id="task.surfaces.publish" defaultMessage="Publish to Linear" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            className="w-60 p-0 overflow-hidden rounded-lg border border-border/50 bg-popover/95 backdrop-blur-sm shadow-float"
+          >
+            <div className="px-2 pt-2 pb-1 text-[11px] text-muted-foreground">
+              <FormattedMessage id="task.surfaces.pickTeam" defaultMessage="Publish to which Linear team?" />
+            </div>
+            <div className="max-h-52 overflow-y-auto p-1">
+              {loading && (
+                <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <FormattedMessage id="common.loading" defaultMessage="Loading…" />
+                </div>
+              )}
+              {!loading && options?.teams.length === 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  <FormattedMessage id="task.surfaces.noTeams" defaultMessage="No teams in this workspace." />
+                </div>
+              )}
+              {options?.teams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={publishing !== null}
+                  onClick={() => void publish(t.id)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary-hover text-sm transition-colors disabled:opacity-60"
+                >
+                  <span className="font-mono text-[11px] text-muted-foreground w-10 shrink-0 text-left">{t.key}</span>
+                  <span className="flex-1 text-left truncate">{t.name}</span>
+                  {publishing === t.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  ) : (
+                    options.defaultTeamId === t.id && <Check className="w-3.5 h-3.5 text-primary" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+    </div>
+  )
+}
+
+function SurfaceRow({ surface: s }: { surface: TaskSurface }) {
   const intl = useIntl()
-  if (a.kind === 'comment') {
+  const meta = s.meta ?? {}
+  let label: string
+  let state: string | null = null
+  if (s.kind === 'linear_issue') {
+    label = String(meta.identifier ?? intl.formatMessage({ id: 'task.surfaces.linearIssue', defaultMessage: 'Linear issue' }))
+  } else if (s.kind === 'linear_session') {
+    return null
+  } else {
+    const n = meta.number ?? s.externalId.split('#')[1]
+    label = `PR #${String(n ?? '')}`
+    // Open is the normal case and says nothing; only merged / closed is worth a word.
+    state = meta.merged
+      ? intl.formatMessage({ id: 'task.surfaces.state.merged', defaultMessage: 'merged' })
+      : meta.state === 'closed'
+        ? intl.formatMessage({ id: 'task.surfaces.state.closed', defaultMessage: 'closed' })
+        : null
+  }
+  // Same shape as the Linear row: label, then the link icon right next to it.
+  const Brand = s.kind === 'github_pr' ? GithubIcon : LinearIcon
+  const inner = (
+    <>
+      <Brand className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{label}</span>
+      {state && <span className="text-muted-foreground/60 shrink-0">· {state}</span>}
+      {s.url && <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />}
+    </>
+  )
+  const cn_ = 'flex items-center gap-1.5 w-full text-xs text-foreground/80 bg-muted/30 rounded-md px-2 py-1.5'
+  if (s.url) {
+    const url = s.url
     return (
-      <div className="flex flex-col gap-1 rounded-lg bg-muted/20 p-3">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-medium text-foreground/80">{a.actorName}</span>
-          <span className="text-muted-foreground/40">{relativeTime(a.createdAt)}</span>
-        </div>
-        <div className="text-sm text-foreground/80">
-          <MarkdownRenderer content={a.body} />
+      <button type="button" className={cn(cn_, 'hover:bg-secondary-hover text-left')} onClick={() => openExternalUrl(url)}>
+        {inner}
+      </button>
+    )
+  }
+  return <div className={cn_}>{inner}</div>
+}
+
+/**
+ * Compact markdown for comment bodies. A comment is a reply inside a
+ * thread, not a document: headings step down one more notch than chat and
+ * vertical rhythm is tightened so an agent reply doesn't fill a screen.
+ */
+const COMMENT_MARKDOWN_CLASS =
+  'prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-h4:text-sm ' +
+  'prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 ' +
+  'prose-code:text-[12px] prose-pre:my-2'
+
+function actorLabel(a: TaskActivity, intl: IntlShape): string {
+  if (a.actorType === 'system') return intl.formatMessage(ACTOR_MESSAGES.system)
+  if (a.actorName === 'You') return intl.formatMessage(ACTOR_MESSAGES.You)
+  if (a.actorName === 'human') return intl.formatMessage(ACTOR_MESSAGES.human)
+  return a.actorName
+}
+
+function ActorIcon({ activity: a }: { activity: TaskActivity }) {
+  const cls = 'w-3 h-3'
+  if (a.actorType === 'agent') return <Bot className={cls} />
+  if (a.actorType === 'human') return <UserRound className={cls} />
+  return <Sparkles className={cls} />
+}
+
+function EventIcon({ activity: a }: { activity: TaskActivity }) {
+  const cls = 'w-3 h-3'
+  switch (a.kind) {
+    case 'status':
+      return <CircleDot className={cls} />
+    case 'assign':
+      return <UserRound className={cls} />
+    case 'dispatch':
+      return <Zap className={cls} />
+    case 'branch':
+      return <GitBranch className={cls} />
+    case 'verify':
+    case 'gate':
+      return <ShieldCheck className={cls} />
+    default:
+      return <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
+  }
+}
+
+/** Marker that sits on the timeline rail: ringed with the page background so the rail appears to pass behind it. */
+function TimelineMarker({ children, emphasis }: { children: React.ReactNode; emphasis?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-4 ring-background',
+        emphasis
+          ? 'bg-muted text-foreground/80 dark:bg-muted'
+          : 'bg-background text-muted-foreground/70 border border-border/50 dark:border-border/35',
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+function ActivityItem({ activity: a, taskId }: { activity: TaskActivity; taskId: number }) {
+  const intl = useIntl()
+  const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
+  const absoluteTime = new Date(a.createdAt).toLocaleString()
+  if (a.kind === 'comment') {
+    const meta = a.meta ?? {}
+    const source = meta.source === 'github_pr' ? 'GitHub' : meta.source ? 'Linear' : null
+    const forwardable = meta.actor === 'other' && meta.sent !== true
+    const sendToAgent = async () => {
+      setSending(true)
+      try {
+        await api.taskSendActivityToAgent(taskId, a.id)
+        setSent(true)
+      } catch (error) {
+        toastTaskError(error, 'Send to agent failed')
+      } finally {
+        setSending(false)
+      }
+    }
+    return (
+      <div className="flex items-start gap-3 py-2">
+        <TimelineMarker emphasis>
+          <ActorIcon activity={a} />
+        </TimelineMarker>
+        <div className="min-w-0 flex-1 rounded-lg border border-border/50 dark:border-border/35 bg-popover shadow-card">
+          <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5 text-xs">
+            <span className="font-medium text-foreground/85">{actorLabel(a, intl)}</span>
+            {source && (
+              <span className="rounded px-1.5 py-0.5 text-[10px] bg-muted/40 text-muted-foreground border border-border/40">
+                {source}
+              </span>
+            )}
+            <span className="text-muted-foreground/60 tabular-nums" title={absoluteTime}>{relativeTime(a.createdAt)}</span>
+            {forwardable && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-6 gap-1 px-2 text-[11px]"
+                disabled={sending || sent}
+                onClick={() => void sendToAgent()}
+              >
+                <Send className="w-3 h-3" />
+                {sent
+                  ? <FormattedMessage id="task.activity.sent" defaultMessage="Sent" />
+                  : <FormattedMessage id="task.activity.sendToAgent" defaultMessage="Send to agent" />}
+              </Button>
+            )}
+          </div>
+          <div className="px-3 py-2 text-sm text-foreground/85">
+            <MarkdownRenderer content={a.body} className={COMMENT_MARKDOWN_CLASS} />
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground/60 px-1">
-      <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
-      <span className="font-medium text-foreground/60">{a.actorName}</span>
-      <span>{describeEvent(a, intl)}</span>
-      <span className="text-muted-foreground/30">{relativeTime(a.createdAt)}</span>
+    <div className="flex items-center gap-3 py-1 text-xs">
+      <TimelineMarker>
+        <EventIcon activity={a} />
+      </TimelineMarker>
+      <div className="min-w-0 flex-1 flex items-baseline gap-1.5">
+        <span className="font-medium text-foreground/85 shrink-0">{actorLabel(a, intl)}</span>
+        <span className="text-muted-foreground truncate">{describeEvent(a, intl)}</span>
+      </div>
+      <span className="shrink-0 text-muted-foreground/60 tabular-nums" title={absoluteTime}>
+        {relativeTime(a.createdAt)}
+      </span>
     </div>
   )
 }
@@ -870,8 +1172,19 @@ function describeEvent(a: TaskActivity, intl: IntlShape): string {
         { id: 'task.activity.branch', defaultMessage: 'created branch {branch}' },
         { branch: String(meta.branch ?? '') },
       )
-    case 'system':
+    case 'system': {
+      // Structured events carry a code + params next to the English body;
+      // render those through i18n and fall back to the body otherwise.
+      const message = activityEventMessage(meta.event)
+      if (message) {
+        const values: Record<string, string> = {}
+        for (const [k, v] of Object.entries(meta)) {
+          if (typeof v === 'string' || typeof v === 'number') values[k] = String(v)
+        }
+        return intl.formatMessage(message, values)
+      }
       return a.body || intl.formatMessage({ id: 'task.activity.updated', defaultMessage: 'updated the task' })
+    }
     default:
       return a.body
   }
