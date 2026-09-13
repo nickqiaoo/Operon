@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.3.33] - 2026-09-13
+
+### Changed
+
+- The iOS app has a native tab bar and navigation bar, and the inbox, agent picker, model picker, context usage and subscription usage open as native sheets.
+- Phones get a dedicated sign-in screen, larger chat text, and layouts that stay clear of the notch and the tab bar.
+- The Android app gets the same native navigation bar and system sheets.
+- Linear and GitHub can now be installed as apps: delegate a Linear issue to Operon and it becomes a task in the repo named by its `repo:owner/name` label, run by your default agent, with progress posted back to the issue.
+- Task status, title, description, priority and comments stay in sync with the linked Linear issue in both directions.
+- Agents can open pull requests on their own, and PR comments from the task owner send them back to work.
+- Tasks can be published to Linear from the task page.
+- Replies under a channel message are easier to spot and show when the last one came in.
+- The desktop reconnects on its own when its remote-access connection silently drops.
+
 ## [1.3.32] - 2026-09-07
 
 ### Changed
