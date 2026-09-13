@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the iOS ProviderLogos asset catalog. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="240.0"
+    android:viewportHeight="300.0">
+    <path
+        android:pathData="M 180 240 H 60 V 120 H 180 V 240 Z"
+        android:fillColor="#FF303132" />
+    <path
+        android:pathData="M 180 60 H 60 V 240 H 180 V 60 Z M 240 300 H 0 V 0 H 240 V 300 Z"
+        android:fillColor="#FFDEE1E1" />
+</vector>

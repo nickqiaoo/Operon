@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The shell's palette, as theme attributes.
+
+  Indirection through attributes rather than a values/values-night pair,
+  because the app's light/dark setting is its own and must not follow the
+  system's. The obvious way to do that — resolve resources against a context
+  whose night bit is overridden — does not survive: the platform rebases an
+  activity-derived context's configuration back onto the activity's own as
+  soon as anything touches the window, so a sheet built that way came up with
+  dark text on a light ground. Two real themes cannot be rebased away.
+-->
+<resources>
+    <attr name="operonBackground" format="color" />
+    <attr name="operonForeground" format="color" />
+    <attr name="operonMuted" format="color" />
+    <attr name="operonMutedForeground" format="color" />
+    <attr name="operonDivider" format="color" />
+    <attr name="operonSheetGround" format="color" />
+    <attr name="operonCard" format="color" />
+    <attr name="operonBrand" format="color" />
+    <attr name="operonStatusWarn" format="color" />
+    <attr name="operonStatusError" format="color" />
+    <attr name="operonTile" format="color" />
+    <attr name="operonRowPressed" format="color" />
+</resources>

@@ -202,7 +202,7 @@ export function ComingSoonSection() {
  * or a browser that cached the previous build can never hand someone a stale
  * APK. Update this and drop the new file into `public/download/` together.
  */
-const ANDROID_APK_URL = '/download/operon-1.0.4.apk'
+const ANDROID_APK_URL = '/download/operon-1.0.5.apk'
 const IOS_APP_STORE_URL = 'https://apps.apple.com/us/app/operon-ai/id6797370866'
 
 function AndroidIcon() {

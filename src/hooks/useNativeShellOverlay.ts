@@ -20,7 +20,7 @@ function notify() {
   for (const listener of listeners) listener()
 }
 
-/** Hold a slot while `active`. No-op outside the iOS app. */
+/** Hold a slot while `active`. No-op outside the packaged apps. */
 export function useNativeShellOverlay(active: boolean): void {
   useEffect(() => {
     if (!active || !hasNativeTabBar()) return

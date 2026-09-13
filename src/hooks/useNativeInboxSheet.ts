@@ -4,7 +4,7 @@ import { useInboxStore } from "@/stores/inbox-store"
 import { INBOX_KIND_SYMBOL, inboxRelativeTime } from "@/components/inbox/InboxItem"
 import type { Notification } from "@/types/notification"
 
-// The inbox as a native iOS sheet (InboxSheet.swift). The store stays the
+// The inbox as a native sheet (InboxSheet.swift / InboxSheet.kt). The store stays the
 // only owner: while the sheet is up every store change is pushed over as a
 // fresh snapshot, and every control in the sheet comes back as an intent that
 // runs the same store action the web InboxPanel would.

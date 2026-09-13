@@ -74,7 +74,7 @@ export function NewTaskDialog({ agents, onClose, onCreated }: NewTaskDialogProps
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={intl.formatMessage({ id: 'task.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported)' })}
-            className="w-full min-h-[100px] text-sm bg-muted/20 rounded-lg p-3 outline-none focus:ring-2 focus:ring-primary/20 resize-y placeholder:text-muted-foreground/40"
+            className="w-full min-h-[100px] text-sm bg-muted/20 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y placeholder:text-muted-foreground/40"
           />
 
           <div className="flex items-center gap-2">

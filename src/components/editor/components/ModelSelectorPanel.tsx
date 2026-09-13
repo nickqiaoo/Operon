@@ -26,7 +26,7 @@ import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import { cn } from '@/lib/utils';
 import { useFloatingPanel, panelCn, panelInnerCn } from './floating-panel-utils';
 
-/** Logo file (basename in `src/assets/logos`, and the imageset name in the iOS asset catalog) per provider / agent id. */
+/** Logo file (basename in `src/assets/logos`; also the iOS imageset and the Android drawable suffix) per provider / agent id. */
 const PROVIDER_LOGO_NAMES: Record<string, string> = {
   anthropic: 'claude',
   openai: 'openai',
@@ -72,7 +72,7 @@ const LOGO_FILES: Record<string, string> = {
   antigravity: antigravityLogo,
 };
 
-/** The logo name for a provider / agent id, or null when there is none. Shared with the iOS shell, whose asset catalog uses the same names. */
+/** The logo name for a provider / agent id, or null when there is none. Shared with both native shells, which name their own assets to match. */
 export function providerLogoName(id: string | undefined | null): string | null {
   if (!id) return null;
   return PROVIDER_LOGO_NAMES[id] ?? PROVIDER_LOGO_NAMES[id.toLowerCase()] ?? null;
@@ -129,8 +129,9 @@ export function ModelSelectorPanel({
     if (!panel.open) setModelSearch('');
   }, [panel.open]);
 
-  // iOS: the picker is a system sheet (ModelSheet.swift); the pick comes
-  // back as an event. The web sheet stays for Android and the browser.
+  // Packaged apps: the picker is a system sheet (ModelSheet.swift /
+  // ModelSheet.kt); the pick comes back as an event. The web sheet stays
+  // for the browser.
   const nativeSheet = hasNativeTabBar();
   useEffect(() => {
     if (!nativeSheet) return;

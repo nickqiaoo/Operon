@@ -28,7 +28,7 @@ export function MobileContextUsage(props: MobileContextUsageProps) {
   const [open, setOpen] = useState(false);
   const title = intl.formatMessage({ id: 'editor.context.title', defaultMessage: 'Context window' });
 
-  // iOS: the same numbers as ContextDetailedContent, as a native info sheet.
+  // Packaged apps: the same numbers as ContextDetailedContent, as a native info sheet.
   const openSheet = () => {
     if (!hasNativeTabBar()) {
       setOpen(true);

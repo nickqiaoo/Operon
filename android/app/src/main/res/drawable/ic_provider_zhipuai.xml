@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the iOS ProviderLogos asset catalog. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="40.0"
+    android:viewportHeight="40.0">
+    <path
+        android:pathData="M 20.1312 7.50002 L 17.4088 11.1913 H 5.81625 L 8.5375 7.50002 H 20.1325 H 20.1312 Z M 34.0675 28.81 L 31.3475 32.5 H 19.795 L 22.5125 28.81 H 34.0675 Z M 35 7.50002 L 16.58 32.5 H 5 L 23.42 7.50002 H 35 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The native chrome, added over Capacitor's web view (ShellChrome.kt).
+
+  This layer is deliberately mostly empty: with nothing clickable under the
+  finger, a ViewGroup does not consume the touch, so taps in the middle fall
+  straight through to the web view underneath. Only the two bars take input.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/operon_top_bar_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/operon_top_bar"
+            style="@style/Widget.Operon.TopAppBar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:contentInsetStartWithNavigation="0dp">
+
+            <!-- The project › workspace title is a button, not the toolbar's
+                 own title: tapping it opens the context sheet. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/operon_context_button"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="260dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/operonForeground"
+                app:icon="@drawable/ic_chevron_down"
+                app:iconGravity="textEnd"
+                app:iconSize="14dp"
+                app:iconTint="?attr/operonMutedForeground" />
+        </com.google.android.material.appbar.MaterialToolbar>
+
+        <View
+            android:id="@+id/operon_top_bar_divider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?attr/operonDivider" />
+    </LinearLayout>
+
+    <!--
+      The gesture/navigation bar band. The web view stops above it (the shell
+      gives it a bottom margin, since Android reports no safe-area inset there),
+      so without this the window background shows through — and that is a fixed
+      colour which would be wrong under one of the two themes. Painted
+      separately from the tab bar because it must stay while the bar is hidden,
+      which is exactly when it would otherwise be visible.
+    -->
+    <View
+        android:id="@+id/operon_nav_band"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="bottom"
+        android:background="?attr/operonBackground" />
+
+    <LinearLayout
+        android:id="@+id/operon_tab_bar_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?attr/operonDivider" />
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/operon_tab_bar"
+            style="@style/Widget.Operon.NavigationBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:menu="@menu/operon_tabs" />
+    </LinearLayout>
+
+</FrameLayout>

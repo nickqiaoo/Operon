@@ -22,6 +22,7 @@ import {
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
 import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavigator';
+import { nativeTopBarTakesSpace } from '@/lib/native';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import {
   PromptInputProvider,
@@ -917,8 +918,11 @@ function ChatPanelContent({
           className={cn(
             "w-full max-w-4xl mx-auto px-4 pt-5 pb-4 gap-1",
             // Phone: the transcript runs under the status bar and the floating
-            // back button; start the first message just below them.
-            isMobile && "pt-[calc(env(safe-area-inset-top)+3rem)] group-data-[keyboard-open=true]/mobile-shell:pb-44"
+            // back button; start the first message just below them. Not where
+            // the native top bar is a real bar above the web view (Android) —
+            // there is nothing to run under, so the room is already made.
+            isMobile && "group-data-[keyboard-open=true]/mobile-shell:pb-44",
+            isMobile && !nativeTopBarTakesSpace() && "pt-[calc(env(safe-area-inset-top)+3rem)]"
           )}
         >
           {chatLoadingMore && (

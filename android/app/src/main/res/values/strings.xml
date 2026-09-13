@@ -4,4 +4,9 @@
     <string name="title_activity_main">Operon</string>
     <string name="package_name">top.chatcode.operon.app</string>
     <string name="custom_url_scheme">top.chatcode.operon.app</string>
+    <!-- Native shell. Only content descriptions live here; every visible
+         string is sent from JS so it follows the app's own locale. -->
+    <string name="operon_inbox">Inbox</string>
+    <string name="operon_back">Back</string>
+    <string name="operon_dismiss">Dismiss</string>
 </resources>

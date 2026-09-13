@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The four phone destinations. Order and ids must match MOBILE_TABS in
+  src/components/mobile/MobileTabBar.tsx — the web app owns navigation and this
+  bar only mirrors it. Titles here are placeholders; the real ones arrive
+  localized over NativeShell.configure.
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/operon_tab_chats"
+        android:icon="@drawable/ic_message_square"
+        android:title="Chats" />
+    <item
+        android:id="@+id/operon_tab_channel"
+        android:icon="@drawable/ic_layout_dashboard"
+        android:title="Board" />
+    <item
+        android:id="@+id/operon_tab_changes"
+        android:icon="@drawable/ic_file_diff"
+        android:title="Changes" />
+    <item
+        android:id="@+id/operon_tab_more"
+        android:icon="@drawable/ic_menu"
+        android:title="More" />
+</menu>

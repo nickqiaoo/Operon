@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
 import { useIntl } from "react-intl"
-import { hasNativeTabBar, NativeShell, nativePlatform } from "@/lib/native"
+import { hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace } from "@/lib/native"
 import { useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
 import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
 import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
@@ -39,7 +39,7 @@ type NotificationTarget = Partial<
 export function MobileApp() {
   const [tab, setTab] = useState<MobileTab>("chats")
   const [switcherOpen, setSwitcherOpen] = useState(false)
-  // iOS only: the inbox sheet opened from the native bell.
+  // Packaged apps only: the inbox sheet opened from the native bell.
   const [nativeInboxOpen, setNativeInboxOpen] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   // A screen can ask for the full viewport (chat transcript): the context bar
@@ -60,8 +60,9 @@ export function MobileApp() {
   const theme = useThemeStore((s) => s.theme)
   const intl = useIntl()
 
-  // iOS draws the bottom bar natively (system tab bar, Liquid Glass on iOS 26)
-  // and this shell just mirrors tab state over `NativeShell`. `tabBarHeight` is
+  // Both packaged apps draw the bottom bar natively — a system tab bar on iOS
+  // (Liquid Glass on iOS 26), a Material 3 navigation bar on Android — and
+  // this shell just mirrors tab state over `NativeShell`. `tabBarHeight` is
   // how much of the bottom the bar covers; the screen pads itself by it while
   // the bar is showing so nothing ends up underneath.
   const nativeTabBar = useMemo(() => hasNativeTabBar(), [])
@@ -84,8 +85,9 @@ export function MobileApp() {
     }
   }, [nativeTabBar, intl])
 
-  // The picker is a system sheet on iOS (ContextSheet.swift); the web
-  // MobileContextSwitcher stays for Android and the browser. Data is read at
+  // The picker is a system sheet in the packaged apps (ContextSheet.swift /
+  // ContextSheet.kt); the web MobileContextSwitcher stays for the browser
+  // and as the fallback. Data is read at
   // tap time, not mirrored continuously — a sheet lives for a few seconds.
   const openNativeContextSheet = useCallback(async () => {
     const store = useProjectStore.getState()
@@ -501,13 +503,18 @@ export function MobileApp() {
         />
       )}
 
-      {/* With the native bars the top safe-area inset already includes the
-          navigation bar, so list screens just pad by it; immersive screens
-          carry their own inset (see MobileChatsScreen). */}
+      {/* On iOS the top safe-area inset already includes the native navigation
+          bar, so list screens just pad by it; immersive screens carry their own
+          inset (see MobileChatsScreen). Android needs none of this: its shell
+          moves the web view below the bars instead of drawing over it, so the
+          space is already gone, and padding again would double it. */}
       <main
         className="min-h-0 flex-1 overflow-hidden"
         style={{
-          paddingTop: nativeTabBar && !immersive ? "env(safe-area-inset-top)" : undefined,
+          paddingTop:
+            nativeTabBar && !immersive && !nativeTopBarTakesSpace()
+              ? "env(safe-area-inset-top)"
+              : undefined,
           paddingBottom: nativeTabBar && tabBarVisible ? `${nativeTabBarHeight}px` : undefined,
         }}
       >

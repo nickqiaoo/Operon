@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themes for the native shell only.
+
+  Capacitor's BridgeActivity calls setTheme(AppCompat.NoActionBar) in its own
+  onCreate, so the activity theme is not ours to set — and switching the app
+  between light and dark through AppCompatDelegate would recreate the activity
+  and tear down the web view with it. Instead every native view is inflated
+  through a ContextThemeWrapper over one of the two themes below, which is also
+  how the shell follows the app's own light/dark setting rather than the
+  system's. See attrs_operon.xml for why this is two themes and not one theme
+  with values-night.
+
+  Each pair is Light first, then `.Dark` overriding only the palette.
+-->
+<resources>
+
+    <!-- ================= Shell (bars) ================= -->
+
+    <style name="Theme.Operon.Shell" parent="Theme.Material3.Light.NoActionBar">
+        <item name="operonBackground">@color/operon_background_light</item>
+        <item name="operonForeground">@color/operon_foreground_light</item>
+        <item name="operonMuted">@color/operon_muted_light</item>
+        <item name="operonMutedForeground">@color/operon_muted_foreground_light</item>
+        <item name="operonDivider">@color/operon_divider_light</item>
+        <item name="operonSheetGround">@color/operon_sheet_ground_light</item>
+        <item name="operonCard">@color/operon_card_light</item>
+        <item name="operonBrand">@color/operon_brand_light</item>
+        <item name="operonStatusWarn">@color/operon_status_warn_light</item>
+        <item name="operonStatusError">@color/operon_status_error_light</item>
+        <item name="operonTile">@color/operon_tile_light</item>
+        <item name="operonRowPressed">@color/operon_row_pressed_light</item>
+
+        <item name="colorPrimary">?attr/operonBrand</item>
+        <item name="colorOnPrimary">?attr/operonBackground</item>
+        <item name="colorSurface">?attr/operonBackground</item>
+        <item name="colorOnSurface">?attr/operonForeground</item>
+        <item name="colorSurfaceContainer">?attr/operonMuted</item>
+        <item name="colorSurfaceVariant">?attr/operonMuted</item>
+        <item name="colorOnSurfaceVariant">?attr/operonMutedForeground</item>
+        <item name="colorOutline">?attr/operonMutedForeground</item>
+        <item name="colorOutlineVariant">?attr/operonDivider</item>
+        <item name="colorError">?attr/operonStatusError</item>
+        <!-- Material derives this from colorPrimary, which made every
+             selected control a lilac wash. The app's selected state is a
+             muted surface. -->
+        <item name="colorSecondaryContainer">?attr/operonMuted</item>
+        <item name="colorOnSecondaryContainer">?attr/operonForeground</item>
+        <item name="android:colorBackground">?attr/operonBackground</item>
+    </style>
+
+    <style name="Theme.Operon.Shell.Dark" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="operonBackground">@color/operon_background_dark</item>
+        <item name="operonForeground">@color/operon_foreground_dark</item>
+        <item name="operonMuted">@color/operon_muted_dark</item>
+        <item name="operonMutedForeground">@color/operon_muted_foreground_dark</item>
+        <item name="operonDivider">@color/operon_divider_dark</item>
+        <item name="operonSheetGround">@color/operon_sheet_ground_dark</item>
+        <item name="operonCard">@color/operon_card_dark</item>
+        <item name="operonBrand">@color/operon_brand_dark</item>
+        <item name="operonStatusWarn">@color/operon_status_warn_dark</item>
+        <item name="operonStatusError">@color/operon_status_error_dark</item>
+        <item name="operonTile">@color/operon_tile_dark</item>
+        <item name="operonRowPressed">@color/operon_row_pressed_dark</item>
+
+        <item name="colorPrimary">?attr/operonBrand</item>
+        <item name="colorOnPrimary">?attr/operonBackground</item>
+        <item name="colorSurface">?attr/operonBackground</item>
+        <item name="colorOnSurface">?attr/operonForeground</item>
+        <item name="colorSurfaceContainer">?attr/operonMuted</item>
+        <item name="colorSurfaceVariant">?attr/operonMuted</item>
+        <item name="colorOnSurfaceVariant">?attr/operonMutedForeground</item>
+        <item name="colorOutline">?attr/operonMutedForeground</item>
+        <item name="colorOutlineVariant">?attr/operonDivider</item>
+        <item name="colorError">?attr/operonStatusError</item>
+        <!-- Material derives this from colorPrimary, which made every
+             selected control a lilac wash. The app's selected state is a
+             muted surface. -->
+        <item name="colorSecondaryContainer">?attr/operonMuted</item>
+        <item name="colorOnSecondaryContainer">?attr/operonForeground</item>
+        <item name="android:colorBackground">?attr/operonBackground</item>
+    </style>
+
+    <!-- ================= Bars ================= -->
+
+    <!-- Flat on the app's own background with a single hairline, per the app's
+         rule that a divider and a fill must not both separate the same two
+         surfaces. -->
+    <style name="Widget.Operon.TopAppBar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">?attr/operonBackground</item>
+        <item name="titleTextColor">?attr/operonForeground</item>
+        <item name="subtitleTextColor">?attr/operonMutedForeground</item>
+        <item name="colorControlNormal">?attr/operonForeground</item>
+    </style>
+
+    <style name="Widget.Operon.NavigationBar" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:background">?attr/operonBackground</item>
+        <!-- Material 3 tints a raised surface towards colorPrimary, which put a
+             lilac wash over the bar. The bar is separated by its hairline and
+             nothing else, so the elevation goes to zero and the tint with it. -->
+        <item name="elevation">0dp</item>
+        <item name="backgroundTint">?attr/operonBackground</item>
+        <item name="itemIconTint">@color/operon_nav_item</item>
+        <item name="itemTextColor">@color/operon_nav_item</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.Operon.NavigationBar.Indicator</item>
+        <item name="labelVisibilityMode">labeled</item>
+    </style>
+
+    <style name="Widget.Operon.NavigationBar.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">?attr/operonMuted</item>
+    </style>
+
+    <!-- ================= Sheets ================= -->
+
+    <!-- Material's modal bottom sheet is the counterpart of the iOS sheet
+         presentation controller: same role, same dismissal gestures. -->
+    <style name="Theme.Operon.BottomSheet" parent="Theme.Material3.Light.BottomSheetDialog">
+        <item name="operonBackground">@color/operon_background_light</item>
+        <item name="operonForeground">@color/operon_foreground_light</item>
+        <item name="operonMuted">@color/operon_muted_light</item>
+        <item name="operonMutedForeground">@color/operon_muted_foreground_light</item>
+        <item name="operonDivider">@color/operon_divider_light</item>
+        <item name="operonSheetGround">@color/operon_sheet_ground_light</item>
+        <item name="operonCard">@color/operon_card_light</item>
+        <item name="operonBrand">@color/operon_brand_light</item>
+        <item name="operonStatusWarn">@color/operon_status_warn_light</item>
+        <item name="operonStatusError">@color/operon_status_error_light</item>
+        <item name="operonTile">@color/operon_tile_light</item>
+        <item name="operonRowPressed">@color/operon_row_pressed_light</item>
+
+        <item name="colorPrimary">?attr/operonBrand</item>
+        <item name="colorSurface">?attr/operonSheetGround</item>
+        <item name="colorOnSurface">?attr/operonForeground</item>
+        <item name="colorOnSurfaceVariant">?attr/operonMutedForeground</item>
+        <item name="colorSurfaceContainerLow">?attr/operonSheetGround</item>
+        <item name="colorError">?attr/operonStatusError</item>
+        <!-- Material derives this from colorPrimary, which made every
+             selected control a lilac wash. The app's selected state is a
+             muted surface. -->
+        <item name="colorSecondaryContainer">?attr/operonMuted</item>
+        <item name="colorOnSecondaryContainer">?attr/operonForeground</item>
+        <item name="bottomSheetStyle">@style/Widget.Operon.BottomSheet</item>
+        <item name="android:colorBackground">?attr/operonSheetGround</item>
+        <!-- Self reference: BottomSheetDialog reads this off the context it
+             is given, and falls back to Design Light when it is missing. -->
+        <item name="bottomSheetDialogTheme">@style/Theme.Operon.BottomSheet</item>
+    </style>
+
+    <style name="Theme.Operon.BottomSheet.Dark" parent="Theme.Material3.Dark.BottomSheetDialog">
+        <item name="operonBackground">@color/operon_background_dark</item>
+        <item name="operonForeground">@color/operon_foreground_dark</item>
+        <item name="operonMuted">@color/operon_muted_dark</item>
+        <item name="operonMutedForeground">@color/operon_muted_foreground_dark</item>
+        <item name="operonDivider">@color/operon_divider_dark</item>
+        <item name="operonSheetGround">@color/operon_sheet_ground_dark</item>
+        <item name="operonCard">@color/operon_card_dark</item>
+        <item name="operonBrand">@color/operon_brand_dark</item>
+        <item name="operonStatusWarn">@color/operon_status_warn_dark</item>
+        <item name="operonStatusError">@color/operon_status_error_dark</item>
+        <item name="operonTile">@color/operon_tile_dark</item>
+        <item name="operonRowPressed">@color/operon_row_pressed_dark</item>
+
+        <item name="colorPrimary">?attr/operonBrand</item>
+        <item name="colorSurface">?attr/operonSheetGround</item>
+        <item name="colorOnSurface">?attr/operonForeground</item>
+        <item name="colorOnSurfaceVariant">?attr/operonMutedForeground</item>
+        <item name="colorSurfaceContainerLow">?attr/operonSheetGround</item>
+        <item name="colorError">?attr/operonStatusError</item>
+        <!-- Material derives this from colorPrimary, which made every
+             selected control a lilac wash. The app's selected state is a
+             muted surface. -->
+        <item name="colorSecondaryContainer">?attr/operonMuted</item>
+        <item name="colorOnSecondaryContainer">?attr/operonForeground</item>
+        <item name="bottomSheetStyle">@style/Widget.Operon.BottomSheet</item>
+        <item name="android:colorBackground">?attr/operonSheetGround</item>
+        <item name="bottomSheetDialogTheme">@style/Theme.Operon.BottomSheet.Dark</item>
+    </style>
+
+    <style name="Widget.Operon.BottomSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">?attr/operonSheetGround</item>
+    </style>
+
+</resources>

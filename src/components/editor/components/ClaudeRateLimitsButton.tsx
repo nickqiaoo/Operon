@@ -197,7 +197,7 @@ export function MobileClaudeRateLimits({ rateLimits, className }: ClaudeRateLimi
   const [open, setOpen] = useState(false);
   const windows = useMemo(() => collectWindows(rateLimits), [rateLimits]);
 
-  // iOS: the same blocks as ClaudeRateLimitsContent, as a native info sheet.
+  // Packaged apps: the same blocks as ClaudeRateLimitsContent, as a native info sheet.
   const openSheet = () => {
     if (!hasNativeTabBar()) {
       setOpen(true);

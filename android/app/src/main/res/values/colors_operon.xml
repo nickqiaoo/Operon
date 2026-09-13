@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The native shell's palette, taken from the web tokens in
+  src/styles/globals.css so the bars and sheets sit in the same light as the
+  page behind them.
+
+  Both halves live here rather than in values/ and values-night/: which one
+  applies is decided by the app's own theme setting, not the device's, so it
+  is picked by theme (see themes_operon.xml) instead of by resource qualifier.
+-->
+<resources>
+    <!-- Light -->
+    <color name="operon_background_light">#FFFFFFFF</color>
+    <color name="operon_foreground_light">#FF1A1B23</color>
+    <color name="operon_muted_light">#FFEDF0F5</color>
+    <color name="operon_muted_foreground_light">#FF687084</color>
+    <!-- Structural line at the documented border/50; the solid token would
+         read a step heavier than every other rule in the app. -->
+    <color name="operon_divider_light">#80DFE3EB</color>
+    <!-- Sheets: a grey ground with white cards on it, the same two-level
+         grouping the iOS sheets get from systemGroupedBackground. -->
+    <color name="operon_sheet_ground_light">#FFEDF0F5</color>
+    <color name="operon_card_light">#FFFFFFFF</color>
+    <color name="operon_brand_light">#FF6358DC</color>
+    <color name="operon_status_warn_light">#FFB45309</color>
+    <color name="operon_status_error_light">#FFB91C1C</color>
+    <!-- Quiet fills: the logo tile behind a provider glyph, and row press
+         feedback. Alpha over the card, so they follow whatever it is. -->
+    <color name="operon_tile_light">#141A1B23</color>
+    <color name="operon_row_pressed_light">#0F1A1B23</color>
+
+    <!-- Dark -->
+    <color name="operon_background_dark">#FF0B0B0D</color>
+    <color name="operon_foreground_dark">#FFF0F0F2</color>
+    <color name="operon_muted_dark">#FF1B1B1F</color>
+    <color name="operon_muted_foreground_dark">#FFAAAAB2</color>
+    <color name="operon_divider_dark">#592B2B31</color>
+    <!-- Dark inverts the grouping: the ground is the canvas and the cards are
+         the lighter popover surface, keeping background &lt; popover. -->
+    <color name="operon_sheet_ground_dark">#FF0B0B0D</color>
+    <color name="operon_card_dark">#FF1A1A1E</color>
+    <color name="operon_brand_dark">#FF8B7DF0</color>
+    <color name="operon_status_warn_dark">#FFFCD34D</color>
+    <color name="operon_status_error_dark">#FFFCA5A5</color>
+    <color name="operon_tile_dark">#1AFFFFFF</color>
+    <color name="operon_row_pressed_dark">#14FFFFFF</color>
+</resources>

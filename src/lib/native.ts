@@ -131,16 +131,23 @@ export async function nativeAuthenticate(url: string, callbackScheme: string): P
   }
 }
 
-// ---- native shell (iOS system tab bar) ----
+// ---- native shell (system tab bar) ----
 
 /**
- * Thin bridge to `NativeShellPlugin.swift` (iOS only).
+ * Thin bridge to the native shell: `NativeShellPlugin.swift` on iOS,
+ * `NativeShellPlugin.kt` on Android.
  *
- * On iOS the bottom tab bar is the system `UITabBarController` bar (Liquid
- * Glass on iOS 26) drawn over the web view; the web app stays the source of
- * truth for which tab is active and just mirrors it over this plugin. Titles
- * are sent from JS so they follow the app's locale. `tabBarInset` is how much
- * of the web view's bottom the bar covers, which the shell pads its content by.
+ * Both packaged apps draw the bottom tab bar and the top bar natively — a
+ * `UITabBarController` bar (Liquid Glass on iOS 26) and a Material 3
+ * navigation bar respectively — over the web view; the web app stays the
+ * source of truth for which tab is active and just mirrors it over this
+ * plugin. Titles are sent from JS so they follow the app's locale.
+ * `tabBarInset` is how much of the web view's bottom the bar covers, which the
+ * shell pads its content by.
+ *
+ * The contract is deliberately platform-neutral. Where the two shells cannot
+ * behave identically they say so at the method that differs, rather than
+ * growing a platform branch here.
  */
 export interface NativeShellPlugin {
   configure(options: { tabs: { id: string; title: string }[] }): Promise<{ tabBarInset: number }>
@@ -257,7 +264,28 @@ export type NativeTopBarAction = 'context' | 'inbox' | 'back'
 
 export const NativeShell = registerPlugin<NativeShellPlugin>('NativeShell')
 
-/** True when the packaged app draws the tab bar and top bar natively (iOS). */
+/**
+ * True when the packaged app draws the tab bar and top bar natively — iOS and
+ * Android both do.
+ *
+ * Gated on the plugin being present rather than on the platform: the native
+ * shells ship on their own cadence (App Store and Play review), so a build of
+ * the web bundle can meet an older shell that has no `NativeShell` in it, and
+ * must then fall back to the web bars.
+ */
 export function hasNativeTabBar(): boolean {
-  return isNativeApp() && nativePlatform() === 'ios' && Capacitor.isPluginAvailable('NativeShell')
+  return isNativeApp() && Capacitor.isPluginAvailable('NativeShell')
+}
+
+/**
+ * True when the native top bar takes real space out of the web view instead of
+ * floating over it — which is what the Android shell does.
+ *
+ * iOS floats its navigation bar and grows `env(safe-area-inset-top)` to match,
+ * so content pads itself by that inset. Android has no equivalent hook, so its
+ * shell moves the web view down instead; the space is already gone by the time
+ * the page is laid out, and padding again would double it.
+ */
+export function nativeTopBarTakesSpace(): boolean {
+  return hasNativeTabBar() && nativePlatform() === 'android'
 }

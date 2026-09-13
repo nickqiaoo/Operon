@@ -103,8 +103,8 @@ export function MobileChannelScreen({
     )
   }
 
-  // iOS: the system alert with a text field is the native shape of "name
-  // one thing"; the web sheet stays for Android and the browser.
+  // Packaged apps: the system alert with a text field is the native shape of
+  // "name one thing"; the web sheet stays for the browser.
   const startCreating = async () => {
     if (!hasNativeTabBar()) {
       setCreating(true)

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The inbox bell, shown only in `context` mode. -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/operon_action_inbox"
+        android:icon="@drawable/ic_bell"
+        android:title="@string/operon_inbox"
+        app:showAsAction="always" />
+</menu>

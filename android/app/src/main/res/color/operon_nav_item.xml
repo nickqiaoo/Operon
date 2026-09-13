@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tab tint. The selected tab is full-strength foreground and the rest are
+  muted, matching MobileTabBar on the web rather than Material's default
+  primary-on-selected, which would put brand purple in the bar.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="?attr/operonForeground" android:state_checked="true" />
+    <item android:color="?attr/operonMutedForeground" />
+</selector>

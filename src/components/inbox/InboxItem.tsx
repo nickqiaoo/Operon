@@ -23,7 +23,13 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   workflow_approval: ShieldCheck,
 }
 
-/** SF Symbol per kind for the native iOS inbox sheet — the same mapping as KIND_ICON. */
+/**
+ * Symbol per kind for the native inbox sheets — the same mapping as KIND_ICON.
+ *
+ * Named in SF Symbols because iOS can use these directly; the Android shell
+ * translates them to its own icons (`InboxSheet.iconFor`). One vocabulary with
+ * a translation on one side beats two tables to keep in step.
+ */
 export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
   chat_complete: "message",
   chat_needs_input: "exclamationmark.circle",

@@ -156,8 +156,8 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
   }
 
   const openPicker = async () => {
-    // iOS: a system sheet (AgentSheet.swift) with the same rows; the web
-    // sheet stays for Android and the browser, and as the fallback.
+    // Packaged apps: a system sheet (AgentSheet.swift / AgentSheet.kt) with
+    // the same rows; the web sheet stays for the browser and as the fallback.
     if (hasNativeTabBar()) {
       const list = await loadProviders()
       try {
@@ -243,7 +243,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
               "linear-gradient(to bottom, color-mix(in srgb, var(--color-background) 82%, transparent) 0%, color-mix(in srgb, var(--color-background) 55%, transparent) env(safe-area-inset-top), transparent 100%)",
           }}
         />
-        {/* On iOS the back button is the native navigation bar's (see
+        {/* In the packaged apps the back button is the native top bar's (see
             MobileApp / NativeShell); it reaches us through the back-handler
             stack registered above. */}
         {!hasNativeTabBar() && (
