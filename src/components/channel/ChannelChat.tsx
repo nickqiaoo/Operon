@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Send, Users, ChevronDown, Hash } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Users, ChevronDown, Hash } from 'lucide-react'
 import { AgentAvatar } from './AgentAvatar'
 import { MentionPicker, detectMentionToken, useMentionMatches, useMentionState } from './MentionPicker'
 import type { Agent } from '@/types/channel'
@@ -9,6 +8,8 @@ import { useChannelStore } from '@/stores/channel-store'
 import { useChannel } from '@/hooks/useChannel'
 import { ChannelMessageItem } from './ChannelMessageItem'
 import { ThreadPanel } from './ThreadPanel'
+import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './ComposerFrame'
+import { useScrollActivity } from '@/hooks/useScrollActivity'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
 import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
 
@@ -41,6 +42,8 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [mention, setMention] = useMentionState()
+  // Scrollbar shows only while scrolling; see .transcript-scrollbar.
+  useScrollActivity(scrollRef)
 
   // Resizable thread panel width, restored from localStorage on first render.
   const threadWrapperRef = useRef<HTMLDivElement | null>(null)
@@ -294,7 +297,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
             <div className="flex-1 min-h-0 relative overflow-hidden">
               <div
                 ref={scrollRef}
-                className="h-full overflow-y-auto overflow-x-hidden code-scrollbar"
+                className="h-full overflow-y-auto overflow-x-hidden transcript-scrollbar"
                 onScroll={handleScroll}
               >
                 {loading ? (
@@ -379,13 +382,13 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
             </div>
 
             {/* Input */}
-            {/* Same as the thread composer: the input's own border is the edge. */}
+            {/* Same frame as the thread composer (ComposerFrame): the input's own border is the edge. */}
             {/* The extra bottom padding is the phone keyboard (0 everywhere
                 else): the shell keeps its full height with the keyboard as an
                 overlay, so the composer has to make room for it itself. The
                 transcript above is `flex-1`, so it gives up exactly that much. */}
             <div className="shrink-0 p-3 pb-[calc(0.75rem+var(--keyboard-height))]">
-              <div className="relative max-w-4xl mx-auto flex items-end gap-2 bg-popover/90 border border-border/60 rounded-xl px-3 py-2.5 shadow-input dark:border-border/35 dark:bg-popover/85">
+              <ComposerFrame className="max-w-4xl mx-auto">
                 {mention.open && (
                   <MentionPicker
                     agents={mentionMatches}
@@ -405,19 +408,10 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   onBlur={() => setMention((s) => ({ ...s, open: false }))}
                   placeholder={intl.formatMessage({ id: 'channel.inputPlaceholder', defaultMessage: 'Message this channel... (type @ to mention)' })}
                   rows={1}
-                  className="flex-1 bg-transparent text-sm leading-6 resize-none outline-none text-foreground placeholder:text-muted-foreground/40 max-h-40 min-h-[2.25rem] overflow-y-auto py-1"
+                  className={COMPOSER_TEXTAREA_CLASS}
                 />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void handleSend()}
-                  disabled={!input.trim()}
-                  className="h-9 px-3 gap-1.5 text-xs shrink-0"
-                >
-                  <Send className="w-3 h-3" />
-                  <FormattedMessage id="common.send" defaultMessage="Send" />
-                </Button>
-              </div>
+                <ComposerSendButton disabled={!input.trim()} onClick={() => void handleSend()} />
+              </ComposerFrame>
             </div>
       </div>
 
@@ -449,6 +443,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           </div>
           {threadRootId && (
             <ThreadPanel
+              channelName={channel?.name ?? null}
               rootMessage={rootMessage}
               replies={threadMessages}
               agents={agents}

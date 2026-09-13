@@ -97,7 +97,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
     )
   }
 
-  const inputCn = "w-full px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/60 focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40"
+  const inputCn = "w-full px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/60 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40"
   const hasManualOverride = path.trim().length > 0
   const isInvalidOverride = hasManualOverride && source !== "manual"
   const statusLabel = source === "manual"

@@ -123,11 +123,24 @@ function TeamCard({
 }) {
   const [open, setOpen] = useState(false)
 
-  const members = useMemo(() => {
-    const ids = new Set<number>()
-    for (const t of bucket.tasks) if (t.assignedAgentId != null) ids.add(t.assignedAgentId)
-    return agents.filter((a) => ids.has(a.id))
-  }, [bucket.tasks, agents])
+  // A member is a session, not an agent profile: the same agent dispatched to
+  // two tasks is two workers in two worktrees (and two peers in the inbox), so
+  // there is one entry per assigned task. A task whose agent was deleted since
+  // still counts — it did the work — and shows with a neutral avatar.
+  const members = useMemo<TeamMember[]>(
+    () =>
+      bucket.tasks
+        .filter((t) => t.assignedAgentId != null && t.status !== 'cancelled')
+        .map((t) => {
+          const agent = agents.find((a) => a.id === t.assignedAgentId) ?? null
+          const session =
+            t.workspaceId != null
+              ? sessions.find((s) => s.workspaceId === t.workspaceId && s.agentId === t.assignedAgentId)
+              : undefined
+          return { task: t, agent, status: session?.status ?? 'offline' }
+        }),
+    [bucket.tasks, agents, sessions],
+  )
 
   const total = bucket.tasks.filter((t) => t.status !== 'cancelled').length
   const done = bucket.tasks.filter((t) => t.status === 'done').length
@@ -174,7 +187,7 @@ function TeamCard({
           <div className="flex-1" />
 
           <div className="hidden sm:contents">
-            <MemberStack members={members} sessions={sessions} />
+            <MemberStack members={members} />
           </div>
 
           <div className="flex items-center gap-2 w-28 sm:w-40 shrink-0">
@@ -388,7 +401,13 @@ function TeamManagePopover({
   )
 }
 
-function MemberStack({ members, sessions }: { members: Agent[]; sessions: AgentSession[] }) {
+interface TeamMember {
+  task: TaskListItem
+  agent: Agent | null
+  status: AgentSession['status']
+}
+
+function MemberStack({ members }: { members: TeamMember[] }) {
   if (members.length === 0) {
     return <span className="text-[11px] text-muted-foreground/40 shrink-0"><FormattedMessage id="task.teams.noMembers" defaultMessage="No members" /></span>
   }
@@ -397,18 +416,15 @@ function MemberStack({ members, sessions }: { members: Agent[]; sessions: AgentS
   return (
     <div className="flex items-center shrink-0">
       <div className="flex -space-x-2">
-        {shown.map((a) => {
-          const status = sessions.find((s) => s.agentId === a.id)?.status ?? 'offline'
-          return (
-            <span
-              key={a.id}
-              className="ring-2 ring-background rounded-full"
-              title={`${a.name} · ${status}`}
-            >
-              <AgentAvatar provider={a.provider} size="sm" />
-            </span>
-          )
-        })}
+        {shown.map((m) => (
+          <span
+            key={m.task.id}
+            className="ring-2 ring-background rounded-full"
+            title={`${m.agent?.name ?? `agent-${m.task.assignedAgentId}`}@task-${m.task.number} · ${m.status}`}
+          >
+            <AgentAvatar provider={m.agent?.provider ?? null} size="sm" />
+          </span>
+        ))}
       </div>
       {extra > 0 && (
         <span className="ml-1 text-[11px] text-muted-foreground/50 tabular-nums">+{extra}</span>

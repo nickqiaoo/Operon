@@ -39,7 +39,7 @@ const SLACK_APPS_URL = "https://api.slack.com/apps"
 const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1"
 
 const inputCn =
-  "w-full px-3 py-2 text-sm bg-background/80 rounded-xl border border-border/50 focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40"
+  "w-full px-3 py-2 text-sm bg-background/80 rounded-xl border border-border/50 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40"
 const tokenCn = inputCn + " font-mono pr-10"
 
 export function SlackQuickSetupDialog({
@@ -369,7 +369,7 @@ function ManifestStep({ manifest }: { manifest: string }) {
       <Step number={1} title={intl.formatMessage({ id: "settings.slack.manifest.step1.title", defaultMessage: "Copy the manifest" })}>
         <div className="relative">
           <textarea
-            className="w-full h-44 px-3 py-2 text-[11px] font-mono leading-relaxed bg-muted/20 rounded-xl border border-border/50 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none code-scrollbar"
+            className="w-full h-44 px-3 py-2 text-[11px] font-mono leading-relaxed bg-muted/20 rounded-xl border border-border/50 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-none code-scrollbar"
             value={manifest}
             readOnly
             spellCheck={false}

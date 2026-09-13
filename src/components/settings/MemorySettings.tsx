@@ -158,7 +158,7 @@ export function MemorySettings() {
                                     if (!e.target.value.trim()) setSearchResults(null)
                                 }}
                                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                                className="w-full h-9 pl-9 pr-3 bg-muted/20 rounded-lg border border-border/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                className="w-full h-9 pl-9 pr-3 bg-muted/20 rounded-lg border border-border/50 text-sm focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10"
                                 placeholder={intl.formatMessage({ id: "settings.memory.search.placeholder", defaultMessage: "Hybrid search memory pages..." })}
                             />
                         </div>

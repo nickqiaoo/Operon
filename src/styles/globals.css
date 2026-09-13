@@ -422,6 +422,21 @@
   background: var(--scrollbar-thumb);
 }
 
+/* Activity-revealed overlay scrollbar for long transcripts (channel / chat
+   message lists). `.code-scrollbar` reveals on hover, but in a message list the
+   pointer is almost always inside the container, so the bar never rests. This
+   one only shows while `data-scrolling="true"` is set — see useScrollActivity —
+   then fades out, like the macOS overlay bar. */
+.transcript-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+.transcript-scrollbar[data-scrolling="true"] {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 :root[data-code-theme="dark"] {
   --code-bg: #1e1e1e;
   --code-fg: #d4d4d4;

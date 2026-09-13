@@ -1,14 +1,17 @@
 import { useRef, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { X, Send } from 'lucide-react'
+import { X } from 'lucide-react'
 import { AgentAvatar, UserAvatar } from './AgentAvatar'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
+import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './ComposerFrame'
 import type { ChannelMessage, Agent } from '@/types/channel'
 
 interface ThreadPanelProps {
+  /** Which channel the thread belongs to — shown in the header so a resized or long-open panel keeps its context. */
+  channelName: string | null
   rootMessage: ChannelMessage | null
   replies: ChannelMessage[]
   agents: Agent[]
@@ -24,6 +27,7 @@ interface ThreadPanelProps {
 }
 
 export function ThreadPanel({
+  channelName,
   rootMessage,
   replies,
   agents,
@@ -61,9 +65,16 @@ export function ThreadPanel({
       {/* Header — fixed h-10, matching the channel header on the left so both
           bottom borders land on the same line regardless of their contents. */}
       <div className="flex h-10 items-center justify-between px-4 border-b border-border/40 shrink-0 bg-sidebar">
-        <span className="text-sm font-semibold text-foreground">
-          <FormattedMessage id="channel.thread.title" defaultMessage="Thread" />
-        </span>
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="text-sm font-semibold text-foreground shrink-0">
+            <FormattedMessage id="channel.thread.title" defaultMessage="Thread" />
+          </span>
+          {channelName && (
+            <span className="truncate text-xs text-muted-foreground/70">
+              <span aria-hidden="true">· </span>#{channelName}
+            </span>
+          )}
+        </div>
         <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full text-muted-foreground hover:bg-muted/50" onClick={onClose}>
           <X className="w-3.5 h-3.5" />
         </Button>
@@ -111,29 +122,21 @@ export function ThreadPanel({
         </div>
       </ScrollArea>
 
-      {/* Reply input */}
+      {/* Reply input — the same ComposerFrame as the channel composer. */}
       {/* No top border: the composer already has its own rounded border, so a
           rule above it is a second divider doing the same job. */}
       <div className="shrink-0 p-3">
-        <div className="flex items-end gap-2 bg-popover/80 border border-border/40 rounded-lg px-3 py-2">
+        <ComposerFrame>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={intl.formatMessage({ id: 'channel.thread.replyPlaceholder', defaultMessage: 'Reply in thread...' })}
             rows={1}
-            className="flex-1 bg-transparent text-sm resize-none outline-none text-foreground placeholder:text-muted-foreground/50 max-h-32"
+            className={COMPOSER_TEXTAREA_CLASS}
           />
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={handleSend}
-            disabled={!input.trim()}
-            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-tint disabled:opacity-30"
-          >
-            <Send className="w-3.5 h-3.5" />
-          </Button>
-        </div>
+          <ComposerSendButton disabled={!input.trim()} onClick={handleSend} />
+        </ComposerFrame>
       </div>
     </div>
   )

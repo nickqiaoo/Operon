@@ -21,10 +21,10 @@ import { api } from "@/lib/api"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 
 const inputCn =
-  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40 transition-colors"
+  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 transition-colors"
 
 const textareaCn =
-  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40 font-mono resize-none transition-colors"
+  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 font-mono resize-none transition-colors"
 
 const cleanTriggerCn =
   "w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors"

@@ -239,7 +239,7 @@ export function AskUserQuestionRenderer({
                         setShowOther((prev) => ({ ...prev, [qKey(question)]: true }));
                       }}
                       placeholder={question.placeholder ?? intl.formatMessage({ id: 'editor.ask.answerPlaceholder', defaultMessage: 'Enter your answer...' })}
-                      className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/50"
+                      className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-tint/40 placeholder:text-muted-foreground/50"
                       autoFocus
                     />
                   ) : (
@@ -315,7 +315,7 @@ export function AskUserQuestionRenderer({
                       value={otherTexts[qKey(question)] ?? ''}
                       onChange={(e) => handleOtherTextChange(qKey(question), e.target.value)}
                       placeholder={question.placeholder ?? intl.formatMessage({ id: 'editor.ask.answerPlaceholder', defaultMessage: 'Enter your answer...' })}
-                      className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/50"
+                      className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-tint/40 placeholder:text-muted-foreground/50"
                       autoFocus
                     />
                   )}

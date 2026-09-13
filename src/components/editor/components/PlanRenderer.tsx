@@ -123,7 +123,7 @@ export function PlanRenderer({
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 placeholder={intl.formatMessage({ id: 'editor.plan.feedbackPlaceholder', defaultMessage: 'Optional feedback if rejecting...' })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/50"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-tint/40 placeholder:text-muted-foreground/50"
               />
             </div>
           )}

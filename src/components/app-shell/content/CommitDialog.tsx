@@ -16,7 +16,7 @@ import { api } from "@/lib/api"
 import { useGitWorkflow } from "./use-git-workflow"
 
 const textareaCn =
-  "w-full px-3 py-2 text-sm bg-background/50 rounded-xl border border-transparent hover:bg-background/70 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/40 resize-none transition-colors"
+  "w-full px-3 py-2 text-sm bg-background/50 rounded-xl border border-transparent hover:bg-background/70 focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 resize-none transition-colors"
 
 /** Codex next-step actions shown in the unified commit/push modal. */
 type NextStep = "commit" | "commit-and-push" | "push"

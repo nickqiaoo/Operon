@@ -138,16 +138,36 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
           </div>
 
           {message.replyCount > 0 && (
+            // Thread entry. Reads as a link (tint + underline on hover) rather
+            // than muted metadata: in a channel the clarifying questions and
+            // specs live in the thread, so this is the one thing under a
+            // message that must not be missed. It hugs the bubble's edge, so it
+            // mirrors with the bubble for the user's own messages.
             <button
+              type="button"
               onClick={() => onReply(message.id)}
-              className={cn('flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-1', isUser && 'flex-row-reverse')}
+              className={cn(
+                'group/thread mt-1 -mx-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs transition-colors hover:bg-secondary-hover',
+                isUser && 'flex-row-reverse',
+              )}
             >
-              <MessageSquare className="w-3 h-3" />
-              <FormattedMessage
-                id="channel.message.replyCount"
-                defaultMessage="{count, plural, one {# reply} other {# replies}}"
-                values={{ count: message.replyCount }}
-              />
+              <MessageSquare className="h-3.5 w-3.5 text-link" />
+              <span className="font-medium text-link group-hover/thread:underline underline-offset-2">
+                <FormattedMessage
+                  id="channel.message.replyCount"
+                  defaultMessage="{count, plural, one {# reply} other {# replies}}"
+                  values={{ count: message.replyCount }}
+                />
+              </span>
+              {message.lastReplyAt != null && (
+                <span className="text-muted-foreground/70 tabular-nums">
+                  <FormattedMessage
+                    id="channel.message.lastReply"
+                    defaultMessage="Last reply {time}"
+                    values={{ time: formatReplyTime(message.lastReplyAt) }}
+                  />
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -172,4 +192,13 @@ function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/** Same-day replies show just the clock; older ones add the date so "14:49" can't be mistaken for today. */
+function formatReplyTime(ts: number): string {
+  const d = new Date(ts)
+  const now = new Date()
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  if (sameDay) return formatTime(ts)
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
