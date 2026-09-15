@@ -1,3 +1,5 @@
+import type { PendingInputSummary } from '@shared/pending-input'
+import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { api } from './api'
 import { subscribeSse, type SseSubscription } from './sse.js'
 
@@ -5,14 +7,13 @@ import { subscribeSse, type SseSubscription } from './sse.js'
  * One stream carrying turn presence for EVERY chat, fanned out to per-chat
  * listeners here.
  *
- * This used to be one SSE connection per open conversation. The desktop renderer
- * reaches the local server at `http://127.0.0.1:<port>/api` over plain HTTP/1.1,
- * where Chromium allows 6 sockets per origin and never multiplexes, and a stream
- * that stays open holds one for its whole life. Three global streams plus three
- * chat tabs filled the pool; after that every request — sending a message
- * included — sat queued behind connections that never close, so the app looked
- * frozen rather than slow. Presence was the only one of those that grew with
- * use, which is why it is the one that got merged.
+ * This used to be one SSE connection per open conversation. It was merged when
+ * the desktop renderer was still bound by Chromium's 6-sockets-per-origin cap on
+ * the plain HTTP/1.1 local API, where per-chat streams filled the pool and queued
+ * every other request. That cap is now lifted for the local API
+ * (`ignore-connections-limit` in `electron/main.ts`), so the merge is no longer
+ * load-bearing; it stays because one stream per window is still cheaper than one
+ * per conversation and nothing needs the per-chat connection back.
  *
  * The per-chat contract is preserved exactly, so callers did not have to change:
  * subscribing yields a status for that chat immediately, then one per turn
@@ -27,8 +28,15 @@ export interface LiveTurnStatus {
 }
 
 type Frame =
-  | { type: 'sync'; statuses: LiveTurnStatus[] }
+  | {
+      type: 'sync'
+      statuses: LiveTurnStatus[]
+      /** Absent from servers that predate pending input. */
+      pendingInput?: Array<{ chatId: number; pending: PendingInputSummary[] }>
+    }
   | { type: 'presence'; status: LiveTurnStatus }
+  /** A chat's whole pending list after any change; empty means nothing left. */
+  | { type: 'pending-input'; chatId: number; pending: PendingInputSummary[] }
 
 interface Subscriber {
   onStatus: (status: LiveTurnStatus) => void
@@ -45,6 +53,9 @@ const subscribers = new Map<number, Set<Subscriber>>()
 let activeByChat = new Map<number, LiveTurnStatus>()
 
 let subscription: SseSubscription | null = null
+
+/** App-level watchers of pending input; they hold the stream open like chat subscribers do. */
+let pendingInputWatchers = 0
 
 const idleStatus = (chatId: number): LiveTurnStatus => ({
   chatId,
@@ -69,6 +80,7 @@ function ensureStream(): void {
     url: () => api.aiLiveStatusStreamUrl(),
     onEvent: (frame) => {
       if (frame.type === 'sync') {
+        useChatPendingInputStore.getState().sync(frame.pendingInput ?? [])
         const next = new Map<number, LiveTurnStatus>()
         for (const status of frame.statuses) next.set(status.chatId, status)
         const previous = activeByChat
@@ -78,6 +90,10 @@ function ensureStream(): void {
         // the stream was down (present before, absent now → idle).
         const touched = new Set<number>([...previous.keys(), ...next.keys(), ...subscribers.keys()])
         for (const chatId of touched) deliver(statusFor(chatId))
+        return
+      }
+      if (frame.type === 'pending-input') {
+        useChatPendingInputStore.getState().set(frame.chatId, frame.pending)
         return
       }
       if (frame.type !== 'presence') return
@@ -95,12 +111,30 @@ function ensureStream(): void {
 }
 
 function releaseStream(): void {
-  if (subscribers.size > 0) return
+  if (subscribers.size > 0 || pendingInputWatchers > 0) return
   subscription?.close()
   subscription = null
   // Nothing is listening, so this view is about to go stale; the next connect
   // sends a fresh sync anyway.
   activeByChat = new Map()
+  useChatPendingInputStore.getState().sync([])
+}
+
+/**
+ * Keep `useChatPendingInputStore` current for every chat — tab markers and
+ * external-agent cards read it, including for chats no panel is showing. Returns
+ * a release.
+ */
+export function watchPendingInput(): () => void {
+  pendingInputWatchers += 1
+  ensureStream()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    pendingInputWatchers -= 1
+    releaseStream()
+  }
 }
 
 /**

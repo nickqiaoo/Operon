@@ -147,19 +147,27 @@ export function buildMcpServersForCli(
   // Codex already owns a stdio `node_repl` in its user config. Passing any
   // same-named Operon entry can merge `command` and `url` into one invalid
   // Codex MCP config ("url is not supported for stdio").
+  //
+  // OpenCode shares one MCP client per server name across a directory, so a
+  // sessionId here would hand every tab the first tab's kernel. Its entry names
+  // no conversation and each call carries it instead (see external_agent below).
   if (providerId === 'codex') {
     delete servers['node_repl']
   } else if (options?.chatId != null && nodeReplEnabled) {
     servers['node_repl'] = {
       type: 'http',
-      url: withApiToken(`http://127.0.0.1:${appPort}/api/node-repl-mcp?sessionId=${options.chatId}`),
+      url: withApiToken(
+        providerId === 'opencode'
+          ? `http://127.0.0.1:${appPort}/api/node-repl-mcp`
+          : `http://127.0.0.1:${appPort}/api/node-repl-mcp?sessionId=${options.chatId}`,
+      ),
     }
   }
 
   // external_agent = "hand this off to a DIFFERENT agent", so the caller is not
   // one of the choices: delegating to yourself is just doing the work.
   //
-  // Only the caller rides the URL; the route derives the list live (same reasoning
+  // Caller and stable chat identity ride the URL; the route derives the list live (same reasoning
   // as `workflow` below). Baking the list in made the URL depend on
   // `isAdapterAvailable`, a live probe — one CLI appearing or timing out rewrote the
   // URL, which changed the session-reuse fingerprint and silently rebuilt the
@@ -169,11 +177,17 @@ export function buildMcpServersForCli(
   // otherwise keyed by. Comparing the CLI name against provider ids is why the
   // caller was never actually excluded: Operon runs as provider `custom` but CLI
   // name `operon`, so it kept listing itself as a delegation target.
+  //
+  // OpenCode is the exception: it keeps one MCP client per server name for a whole
+  // directory, so a chat id here would be the first tab's for every tab. Its URL
+  // carries no conversation, and a plugin tags each call with the calling session
+  // instead (agent-runtime caller-identity.ts, resolved in mcp-caller.ts).
+  const urlChatId = providerId === 'opencode' ? '' : (options?.chatId ?? '')
   servers['external_agent'] = {
     type: 'http',
     url: withApiToken(
       `http://127.0.0.1:${appPort}/api/external-agent-mcp` +
-      `?caller=${encodeURIComponent(callerProviderId ?? '')}`,
+      `?caller=${encodeURIComponent(callerProviderId ?? '')}&chatId=${urlChatId}`,
     ),
   }
 
@@ -185,7 +199,7 @@ export function buildMcpServersForCli(
   servers['workflow'] = {
     type: 'http',
     url: withApiToken(
-      `http://127.0.0.1:${appPort}/api/workflow-mcp?sessionId=${options?.chatId ?? ''}` +
+      `http://127.0.0.1:${appPort}/api/workflow-mcp?sessionId=${urlChatId}` +
       `&cwd=${encodeURIComponent(options?.cwd ?? '')}`,
     ),
   }

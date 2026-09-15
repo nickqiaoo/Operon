@@ -35,6 +35,12 @@ export function notify(storage: NotificationStorageAdapter, input: NotifyInput):
         projectId: notification.projectId ?? undefined,
         workspaceId: notification.workspaceId ?? undefined,
         kind: notification.kind,
+      }, () => {
+        // Held while the user was at the desktop: still worth a push only if
+        // nobody has read, archived, or superseded the row since (an answered
+        // approval marks it read; a finished turn turns it into chat_complete).
+        const row = storage.notificationGet(notification.id)
+        return row != null && row.readAt == null && row.archivedAt == null && row.kind === notification.kind
       })
     }
   } catch (err) {

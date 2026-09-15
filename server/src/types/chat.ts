@@ -1,6 +1,8 @@
 export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side' | 'teammate'
 
 export interface ChatMetadata {
+  /** An independent, server-owned external-agent conversation (not a fork). */
+  externalAgent?: import('../../../shared/external-agent.js').ExternalAgentBinding
   /** canvas chat fields */
   workflowId?: number
   runId?: number

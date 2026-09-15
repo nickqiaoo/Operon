@@ -22,6 +22,7 @@ import type {
   SessionDisposeReason,
   SlashCommandItem,
 } from '../../types.js'
+import { RuntimeInjectionUnavailableError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { buildClaudeRuntimeSettings } from './config.js'
 import { convertToClaudeMessages } from './message-mapper.js'
@@ -630,7 +631,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
       this.inputQueue !== inputQueue ||
       this.messageLoopDead
     ) {
-      throw new Error('No active Claude Code session to inject into')
+      throw new RuntimeInjectionUnavailableError('No active Claude Code session to inject into')
     }
     this.logger.info('Injecting follow-up into warm session')
     inputQueue.enqueue({

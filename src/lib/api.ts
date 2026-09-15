@@ -456,6 +456,7 @@ export const api = {
     ),
   aiWorkflowStop: (runId: string) =>
     post<{ stopped: boolean }>(`/ai/workflow/run/${encodeURIComponent(runId)}/stop`, {}),
+  externalAgentFeedUrl: async () => `${await getBaseUrl()}/external-agents/feed`,
   aiWorkflowFeedUrl: async (limit = 30) => `${await getBaseUrl()}/ai/workflow/feed?limit=${limit}`,
   /** Presence for every chat on one stream — see `lib/live-turn-events.ts`. */
   aiLiveStatusStreamUrl: async () => `${await getBaseUrl()}/ai/chat/live-status`,

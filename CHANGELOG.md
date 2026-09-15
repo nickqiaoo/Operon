@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.3.35] - 2026-09-15
+
+### Changed
+
+- Chat tabs show a warning mark when the agent is waiting for your answer, approval or plan review.
+- External agent cards show what the agent is waiting for, and let you allow or deny a tool request right from the card.
+- External agents keep running and report back even when the tab that launched them is closed.
+- Phone pushes are held while you are using the computer and sent once you step away; the iOS app no longer shows a banner for events it is already displaying.
+- Several OpenCode tabs open at once no longer mix up each other's tool calls.
+- Sub-agent tabs show the model they actually run instead of the first one in the list.
+- Antigravity file searches that fail no longer spin forever.
+
 ## [1.3.34] - 2026-09-14
 
 ### Changed

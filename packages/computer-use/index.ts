@@ -50,5 +50,5 @@ export type { NodeReplTool, NodeReplSurface } from "./adapters/tool.ts";
 export { buildNodeReplBanner } from "./banner.ts";
 
 // ---- MCP server adapter: node_repl as an MCP server exposing a `js` tool ----
-export { buildNodeReplMcpServer } from "./adapters/mcp.ts";
-export type { NodeReplMcpServer, NodeReplMcpServerOptions } from "./adapters/mcp.ts";
+export { buildNodeReplMcpServer, listNodeReplTools } from "./adapters/mcp.ts";
+export type { NodeReplCallExtra, NodeReplMcpServer, NodeReplMcpServerOptions } from "./adapters/mcp.ts";

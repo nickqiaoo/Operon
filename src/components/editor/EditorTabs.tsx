@@ -1,4 +1,4 @@
-import { Bot, History, LayoutDashboard, Loader2, Plus, SquareTerminal, Users, X } from "lucide-react"
+import { Bot, CircleAlert, History, LayoutDashboard, Loader2, Plus, SquareTerminal, Users, X } from "lucide-react"
 import googleLogo from "@/assets/logos/google.svg"
 import openaiLogo from "@/assets/logos/openai.svg"
 import anthropicLogo from "@/assets/logos/claude.svg"
@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils"
 import type { EditorTab } from "@/types/editor"
 import { useEditorStore } from "@/stores/editor-store"
 import { useStreamingStore } from "@/stores/streaming-store"
+import { useChatPendingInputStore } from "@/stores/chat-pending-input-store"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FileIcon } from "@/components/FileIcon"
@@ -115,6 +116,7 @@ export function EditorTabs({
   // user isn't looking at, which is the whole point of showing it up here.
   const streamingTabIds = useStreamingStore((s) => s.streamingTabIds)
   const unseenTabIds = useStreamingStore((s) => s.unseenTabIds)
+  const pendingInputByChat = useChatPendingInputStore((s) => s.pendingByChat)
 
   // Cached per workspace, so opening this right after a switch can only ever
   // show this workspace's conversations or a skeleton — never the ones from the
@@ -197,7 +199,19 @@ export function EditorTabs({
               <img src={providerLogos[tab.providerId ?? tab.provider ?? 'google'] ?? googleLogo} alt="model" className="absolute left-2 size-3.5 shrink-0 dark:invert" />
             )}
             <span className="truncate font-medium">{tab.title}</span>
-            {streamingTabIds.has(tab.id) ? (
+            {tab.chatId != null && pendingInputByChat.has(tab.chatId) ? (
+              // Blocked on the user. Wins over the spinner: the turn is still
+              // technically running, but nothing happens until someone answers.
+              <span
+                className="ml-1 flex shrink-0 items-center"
+                title={intl.formatMessage({ id: "editor.tabs.needsInput", defaultMessage: "Waiting for your input" })}
+              >
+                <CircleAlert className="size-3 text-status-warn" aria-hidden />
+                <span className="sr-only">
+                  <FormattedMessage id="editor.tabs.needsInput" defaultMessage="Waiting for your input" />
+                </span>
+              </span>
+            ) : streamingTabIds.has(tab.id) ? (
               <span
                 className="ml-1 flex shrink-0 items-center"
                 title={intl.formatMessage({ id: "editor.tabs.generating", defaultMessage: "Generating…" })}
@@ -389,7 +403,7 @@ export function EditorTabs({
                         </span>
                         {isSubAgent && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 shrink-0">
-                            <FormattedMessage id="editor.history.subAgent" defaultMessage="Sub Agent" />
+                            Subagent
                           </span>
                         )}
                         {isCanvas && (

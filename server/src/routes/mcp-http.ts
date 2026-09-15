@@ -75,7 +75,7 @@ export async function serveMcpStatefulOverHono(
   return RESPONSE_ALREADY_SENT
 }
 
-async function readJsonBody(incoming: HttpBindings['incoming']): Promise<unknown> {
+export async function readJsonBody(incoming: HttpBindings['incoming']): Promise<unknown> {
   const chunks: Buffer[] = []
   for await (const chunk of incoming) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
@@ -169,7 +169,12 @@ async function connectStatefulTransport(
  * `req`/`res` off `c.env`). Returns the node-server sentinel so Hono knows the
  * response was already written by the transport.
  */
-export async function serveMcpOverHono(c: Context, server: Server): Promise<Response> {
+export async function serveMcpOverHono(
+  c: Context,
+  server: Server,
+  /** A POST body the route already read (see mcp-caller.ts); the stream is spent then. */
+  parsedBody?: unknown,
+): Promise<Response> {
   const { incoming, outgoing } = c.env as HttpBindings
   // Stateless: a fresh transport per request, no session id.
   const transport = new StreamableHTTPServerTransport({
@@ -181,8 +186,8 @@ export async function serveMcpOverHono(c: Context, server: Server): Promise<Resp
     void server.close()
   })
   await server.connect(transport)
-  // The transport reads the body straight off the Node stream — we must NOT have
-  // consumed it via c.req.json()/text() beforehand (only query/headers are read).
-  await transport.handleRequest(incoming, outgoing)
+  // Without `parsedBody` the transport reads the body straight off the Node
+  // stream — it must NOT have been consumed via c.req.json()/text() beforehand.
+  await transport.handleRequest(incoming, outgoing, parsedBody)
   return RESPONSE_ALREADY_SENT
 }

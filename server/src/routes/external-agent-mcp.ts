@@ -1,254 +1,103 @@
-/**
- * External Agent MCP Server.
- *
- * Exposes one tool:
- *   - external_agent_run  : Launch an external agent to work on a task
- *
- * Mounted at /api/external-agent-mcp in app.ts. The URL carries only ?caller=<id>;
- * the available-agent list is derived per request so a CLI appearing or timing out
- * does not rewrite the URL (which would change the session-reuse fingerprint).
- * Transport is the official MCP SDK Streamable HTTP (see ./mcp-http.ts) so strict
- * clients (Codex's rmcp) can handshake.
- */
-
+/** Server-owned, resumable external agent conversations. */
 import { Hono, type Context } from 'hono'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  type Tool,
-} from '@modelcontextprotocol/sdk/types.js'
-import { getProviderModels, getSessionManager } from '../services/ai.js'
-import { isAdapterAvailable } from '../services/adapter/bundled-cli-paths.js'
+import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
+import { getProviders } from '../services/ai/providers.js'
+import { agentModelCatalog } from '../services/agents/model-catalog.js'
+import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalAgentStatus } from '../services/external-agent.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
-import { subagentMode } from '../services/agents/subagent-mode.js'
+import { resolveMcpCallerChat } from './mcp-caller.js'
 
-// ---- Tool definitions ----
-
-// Every id here must also be registered in SUBAGENT_MODE (subagent-mode.test.ts
-// enforces it) — an unregistered one makes the tool call throw.
 export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity'] as const
 
-const EXTERNAL_AGENT_RUN_PROMPT =
-  'Delegate a task to an external coding agent (e.g. Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, GitHub Copilot). ' +
-  'When the user explicitly mentions an agent by name (e.g. "use Claude Code to ...", "let Codex handle ...", ' +
-  '"ask Cursor to ..."), you MUST call this tool IMMEDIATELY as your FIRST action — do NOT read files, ' +
-  'run commands, or gather context beforehand. The external agent has its own tools and will handle everything itself. ' +
-  'Write a self-contained prompt because the agent runs in a separate session and cannot see this conversation. ' +
-  'IMPORTANT: After calling this tool, check whether later steps depend on the agent result. ' +
-  'If the user specified a sequence (e.g. "first plan, then execute", "do X then Y"), ' +
-  'you MUST STOP and WAIT for the agent result before proceeding to the next step. ' +
-  'Only continue working on independent tasks that do not depend on the agent output.'
-
-// Curated model hints per agent, shown in the tool's `model` arg description.
-// This is display-only guidance — the arg is free-form and CallTool never
-// validates against it, so any valid id still works (see the note in
-// buildModelDescription). Agents whose live catalog is small and universal get a
-// hand-picked list here; cursor's real list is ~150 effort/fast permutations, so
-// only its headline models are surfaced. Agents NOT listed (opencode) fetch
-// their catalog dynamically because it is account/BYOK-specific and can't be
-// hardcoded product-wide.
-const STATIC_AGENT_MODELS: Record<string, string[]> = {
-  'claude-code': ['default', 'best', 'fable', 'opus', 'sonnet', 'haiku', 'sonnet[1m]', 'opus[1m]', 'opusplan'],
-  'codex': ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
-  kimi: ['kimi-code'],
-  grok: ['grok-4.6'],
-  // Hand-listed rather than fetched: antigravity advertises its models only on
-  // `session/new`, so enumerating them spawns a ~765MB binary and costs several
-  // seconds — too much to pay while building a tool description.
-  antigravity: [
-    'gemini-3.8-flash-high',
-    'gemini-3.8-flash-medium',
-    'gemini-3.8-flash-low',
-    'gemini-3.7-flash-high',
-    'gemini-pro-agent',
-    'gemini-3.1-pro-low',
-  ],
-  // Representative subset of cursor-agent's ~150 models (base variants, no
-  // -fast/-thinking/-<effort> permutations). Full list stays available via the
-  // in-app picker; this is only the external-agent hint.
-  cursor: [
-    'auto',
-    'composer-2.5',
-    'gpt-5.5-high',
-    'gpt-5.3-codex',
-    'claude-opus-4-8-high',
-    'claude-sonnet-5-high',
-    'gemini-3.1-pro',
-    'grok-4.5-high',
-  ],
-  copilot: ['auto', 'gpt-5.4', 'gpt-5-mini', 'gpt-4.1', 'claude-haiku-4.5'],
+const MODEL_TOOL = 'external_agent_list_models'
+const requiredText = (args: Record<string, unknown>, key: string): string => {
+  const value = args[key]
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${key} is required`)
+  return value.trim()
 }
 
-async function fetchDynamicAgentModels(agentId: string): Promise<string[]> {
-  try {
-    const modelsResult = await getProviderModels(agentId)
-    return modelsResult.configOptions
-      ?.find((o) => o.category === 'model')
-      ?.options?.map((o) => o.value) ?? []
-  } catch {
-    return [] // skip if the provider is unavailable / fails to enumerate models
-  }
-}
-
-async function getAgentModelsMap(availableAgents: string[]): Promise<Record<string, string[]>> {
-  const entries = await Promise.all(
-    availableAgents.map(async (agentId): Promise<[string, string[]]> => {
-      const models = STATIC_AGENT_MODELS[agentId] ?? (await fetchDynamicAgentModels(agentId))
-      return [agentId, models]
-    }),
-  )
-  return Object.fromEntries(entries.filter(([, models]) => models.length > 0))
-}
-
-// Cap how many model ids are listed per agent in the tool description. Dynamic
-// providers (copilot, cursor, opencode) can enumerate dozens-to-hundreds of
-// models; dumping them all bloats the tool schema and adds no signal. The `model`
-// arg is a free-form string (CallTool never validates it against this list), so
-// truncating the hint is safe — any unlisted valid id still works.
-const MAX_MODELS_LISTED_PER_AGENT = 12
-
-function buildModelDescription(agentModels: Record<string, string[]>): string {
-  const lines = Object.entries(agentModels)
-    .map(([agent, models]) => {
-      const shown = models.slice(0, MAX_MODELS_LISTED_PER_AGENT)
-      const more = models.length - shown.length
-      return `${agent}: ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}`
-    })
-    .join('; ')
-  return lines
-    ? `Optional model ID override. Common models per agent — ${lines}. ` +
-      'Any valid model id for the chosen agent is accepted even if not listed here. ' +
-      'If omitted, the agent uses its default model.'
-    : 'Optional model ID override for the external agent'
-}
-
-function buildTools(availableAgents: string[], agentModels: Record<string, string[]>) {
-  if (availableAgents.length === 0) return []
-
-  return [
+export function buildExternalAgentMcpServer(availableAgents: string[], parentChatId: number): Server {
+  const server = new Server({ name: 'external_agent', version: '2.0.0' }, { capabilities: { tools: {} } })
+  const agentId = { type: 'string', description: 'agent_id returned by external_agent_run. Reuses its existing conversation.' }
+  const prompt = { type: 'string', description: 'Instructions for this turn.' }
+  const tools: Tool[] = [
+    {
+      name: MODEL_TOOL,
+      description: 'Dynamically list available external agents, their current models and model choices. Before creating an agent, query this and ask the user to choose the agent and model. Preserve choices already given. Large lists return groups; narrow them with query.',
+      inputSchema: { type: 'object', properties: {
+        agentTypes: { type: 'array', items: { type: 'string' }, description: 'Only these agents; omit for all available external agents.' },
+        query: { type: 'string', description: 'Filter model IDs and names, e.g. sonnet or gpt.' },
+      } },
+    },
     {
       name: 'external_agent_run',
-      description: EXTERNAL_AGENT_RUN_PROMPT,
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agent_type: {
-            type: 'string',
-            enum: availableAgents,
-            description: `Which external agent to run. MUST be one of the enum values exactly: ${availableAgents.join(', ')}. Use hyphens, not underscores (e.g. "claude-code", NOT "claude_code").`,
-          },
-          prompt: {
-            type: 'string',
-            description:
-              'Instructions for the external agent. Include the goal, constraints, and required context.',
-          },
-          description: {
-            type: 'string',
-            description: 'A short summary for display purposes',
-          },
-          model: {
-            type: 'string',
-            description: buildModelDescription(agentModels),
-          },
-        },
-        required: ['agent_type', 'prompt', 'description'],
-      },
+      description: `Delegate to an external agent in a new chat tab. See /operon-external-agent. First call ${MODEL_TOOL} and ask the user which agent AND model to use; do not pick silently or re-ask choices already given. Both agent_type and model are required; model:'default' means the user accepts that agent's own model. Set selection_confirmed:true only after the user chose. Include a self-contained prompt: the child cannot see this conversation. Returns immediately; results arrive here automatically. If your next step depends on the result, end this turn and wait. Do not poll. Follow up using external_agent_send with the returned agent_id.`,
+      inputSchema: { type: 'object', properties: {
+        agent_type: { type: 'string', enum: availableAgents }, prompt,
+        description: { type: 'string', description: 'Short task title.' },
+        model: { type: 'string', description: `An ID from ${MODEL_TOOL}, or 'default' explicitly accepted by the user.` },
+        selection_confirmed: { type: 'boolean', description: 'True only when the user has chosen both the agent and model.' },
+      }, required: ['agent_type', 'prompt', 'description', 'model', 'selection_confirmed'] },
+    },
+    {
+      name: 'external_agent_send',
+      description: 'Continue an existing external agent conversation. Keeps its context and model. No new model question is needed. Never use it to answer a question the agent asked the user: tell the user instead. Queues if busy; returns immediately. The result will arrive automatically, including when the user continues from the child tab. End your turn if waiting on its result.',
+      inputSchema: { type: 'object', properties: { agent_id: agentId, prompt }, required: ['agent_id', 'prompt'] },
+    },
+    {
+      name: 'external_agent_status', description: 'Inspect an external agent and its latest result when needed. Do not repeatedly poll: results are delivered automatically.',
+      inputSchema: { type: 'object', properties: { agent_id: agentId }, required: ['agent_id'] },
+    },
+    {
+      name: 'external_agent_stop', description: 'Stop the current turn and cancel queued messages. Keeps the child conversation available for follow-up. Closing its tab does not stop execution.',
+      inputSchema: { type: 'object', properties: { agent_id: agentId }, required: ['agent_id'] },
     },
   ]
-}
-
-// ---- MCP server (official SDK) ----
-
-function buildExternalAgentMcpServer(availableAgents: string[]): Server {
-  const server = new Server(
-    { name: 'external_agent', version: '1.0.0' },
-    { capabilities: { tools: {} } },
-  )
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const agentModels = await getAgentModelsMap(availableAgents)
-    return { tools: buildTools(availableAgents, agentModels) as Tool[] }
-  })
-
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }))
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const { name, arguments: rawArgs } = req.params
-    if (name !== 'external_agent_run') {
-      return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
-    }
-
-    const args = (rawArgs ?? {}) as Record<string, unknown>
-    const agentType = String(args.agent_type ?? '')
-    const prompt = String(args.prompt ?? '')
-    const description = String(args.description ?? '')
-    const model = args.model ? String(args.model) : undefined
-
-    if (!availableAgents.includes(agentType)) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Invalid agent_type: ${agentType}. Supported agents: ${availableAgents.join(', ')}`,
-          },
-        ],
+    const args = (req.params.arguments ?? {}) as Record<string, unknown>
+    const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] })
+    try {
+      const name = req.params.name
+      if (name === MODEL_TOOL) {
+        const requested = Array.isArray(args.agentTypes) ? args.agentTypes.filter((id): id is string => typeof id === 'string') : []
+        if (requested.some((id) => !availableAgents.includes(id))) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
+        return json({ agents: await agentModelCatalog(requested.length ? requested : availableAgents,
+          typeof args.query === 'string' ? args.query.trim() || undefined : undefined, MODEL_TOOL) })
       }
-    }
-
-    const taskId = `ext-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            task_id: taskId,
-            agent_type: agentType,
-            prompt,
-            description,
-            model,
-            // The spawned tab is a sub-agent: nobody is watching it, so it runs in
-            // the provider's non-interactive mode instead of whatever the picker
-            // last left selected. Resolved here because the table lives server-side
-            // (services/agents/subagent-mode.ts) — the frontend just forwards it.
-            mode: subagentMode(agentType),
-            status: 'pending',
-            message:
-              'External agent task created. The task will run in a separate session. When the agent finishes, its result will be delivered to you as a new user message. ' +
-              'CRITICAL: If subsequent steps depend on this result, you MUST end your current response immediately with a short status message — do NOT call any more tools, do NOT use sleep or polling. ' +
-              'The notification can only arrive as a new user message after your current turn ends. Simply stop responding and wait.',
-          }),
-        },
-      ],
+      if (!Number.isSafeInteger(parentChatId) || parentChatId <= 0) throw new Error('This tool requires a parent chat context')
+      if (name === 'external_agent_run') {
+        const providerId = requiredText(args, 'agent_type')
+        const model = requiredText(args, 'model')
+        if (!availableAgents.includes(providerId)) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
+        if (args.selection_confirmed !== true) throw new Error(`Call ${MODEL_TOOL} and ask the user to choose the agent and model, then set selection_confirmed:true.`)
+        return json(await createExternalAgent({ parentChatId, providerId, model,
+          prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description') }))
+      }
+      const id = requiredText(args, 'agent_id')
+      if (name === 'external_agent_send') return json(sendExternalAgent(parentChatId, id, requiredText(args, 'prompt')))
+      if (name === 'external_agent_status') return json(getExternalAgentStatus(parentChatId, id))
+      if (name === 'external_agent_stop') return json(stopExternalAgent(parentChatId, id))
+      throw new Error(`Unknown tool: ${name}`)
+    } catch (error) {
+      return { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true }
     }
   })
-
   return withCodexElicitationFallback(server)
 }
 
-// ---- Hono router ----
-
 export function externalAgentMcpRoutes() {
   const router = new Hono()
-
-  const handle = (c: Context) => {
-    // Derived per request, not read off the URL: availability comes from a live
-    // probe, so freezing it into the URL at session-creation time made the
-    // session-reuse fingerprint flap whenever a CLI came or went.
-    const caller = c.req.query('caller') ?? ''
-    const availableAgents = getSessionManager()
-      .listProviders()
-      .map((p: { id: string }) => p.id)
-      .filter(
-        (id: string) =>
-          id !== caller &&
-          isAdapterAvailable(id) &&
-          SUPPORTED_EXTERNAL_AGENT_IDS.includes(id as (typeof SUPPORTED_EXTERNAL_AGENT_IDS)[number]),
-      )
-    return serveMcpOverHono(c, buildExternalAgentMcpServer(availableAgents))
+  const handle = async (c: Context) => {
+    const caller = await resolveMcpCallerChat(c, 'chatId')
+    if (!caller.ok) return caller.response
+    const available = getProviders().filter((p) => p.available &&
+      SUPPORTED_EXTERNAL_AGENT_IDS.includes(p.id as (typeof SUPPORTED_EXTERNAL_AGENT_IDS)[number])).map((p) => p.id)
+    return serveMcpOverHono(c, buildExternalAgentMcpServer(available, caller.chatId ?? 0), caller.body)
   }
-
   router.post('/', handle)
   router.get('/', handle)
   router.delete('/', handle)
-
   return router
 }

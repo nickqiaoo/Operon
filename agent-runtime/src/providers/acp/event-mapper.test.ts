@@ -229,6 +229,23 @@ describe('AcpEventMapper', () => {
     expect(types(parts)).toContain('finish')
   })
 
+  it('settles a tool call that never reported a result when the turn ends', () => {
+    const mapper = new AcpEventMapper('sess-dangling', 'gemini', [])
+    mapper.startStep()
+    mapper.handleUpdate({
+      sessionUpdate: 'tool_call',
+      toolCallId: 't-dangling',
+      title: 'Running search_directory',
+      kind: 'search',
+      status: 'in_progress',
+      rawInput: { query: 'x' },
+    } as acp.SessionNotification['update'])
+    const parts = mapper.finalize('end_turn')
+    const error = parts.find((p) => p.type === 'tool-error') as { toolCallId: string } | undefined
+    expect(error?.toolCallId).toBe('t-dangling')
+    expect(types(parts).indexOf('tool-error')).toBeLessThan(types(parts).indexOf('finish'))
+  })
+
   it('reports zero usage when no parseUsage hook is supplied', () => {
     const mapper = new AcpEventMapper('sess-usage-0', 'grok-4.5', [])
     mapper.startStep()

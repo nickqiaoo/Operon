@@ -31,7 +31,6 @@ describe('resolveMcpServersForSession', () => {
   it.each([
     'claude-code',
     'kimi',
-    'opencode',
     'cursor',
     'grok',
     'copilot',
@@ -42,6 +41,24 @@ describe('resolveMcpServersForSession', () => {
       type: 'http',
       url: 'http://127.0.0.1:3100/api/node-repl-mcp?sessionId=42',
     })
+  })
+
+  it('leaves the conversation off shared OpenCode registrations and on everyone else\'s', () => {
+    const opencode = resolveMcpServersForSession('opencode', { chatId: 42, cwd: '/w' })
+    expect(opencode?.node_repl).toEqual({ type: 'http', url: 'http://127.0.0.1:3100/api/node-repl-mcp' })
+    expect(opencode?.external_agent?.type === 'http' && opencode.external_agent.url).toBe(
+      'http://127.0.0.1:3100/api/external-agent-mcp?caller=opencode&chatId=',
+    )
+    expect(opencode?.workflow?.type === 'http' && opencode.workflow.url).toBe(
+      'http://127.0.0.1:3100/api/workflow-mcp?sessionId=&cwd=%2Fw',
+    )
+    const claude = resolveMcpServersForSession('claude-code', { chatId: 42, cwd: '/w' })
+    expect(claude?.external_agent?.type === 'http' && claude.external_agent.url).toBe(
+      'http://127.0.0.1:3100/api/external-agent-mcp?caller=claude-code&chatId=42',
+    )
+    expect(claude?.workflow?.type === 'http' && claude.workflow.url).toBe(
+      'http://127.0.0.1:3100/api/workflow-mcp?sessionId=42&cwd=%2Fw',
+    )
   })
 
   it('does not override the node_repl owned by Codex', () => {

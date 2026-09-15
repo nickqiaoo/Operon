@@ -241,6 +241,12 @@ export interface RuntimeSessionParams {
    * side chat forks once, not on every turn.
    */
   forkFrom?: RuntimeForkSource
+  /**
+   * The host's id for this conversation. Providers that share one MCP
+   * registration across sessions (OpenCode) cannot bake it into server URLs, so
+   * they report it per call instead; see `resolveOpencodeCaller`.
+   */
+  hostConversationId?: string
 }
 
 export interface RuntimeForkSource {
@@ -299,6 +305,9 @@ export type DynamicSetApplied = Array<keyof DynamicSetPayload>
  * going away, and everything it owns can go with it.
  */
 export type SessionDisposeReason = 'discard' | 'rebuild'
+
+/** A provider rejected injection before enqueueing or sending anything. Safe to retry later. */
+export class RuntimeInjectionUnavailableError extends Error {}
 
 export interface RuntimeSession {
   stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart>

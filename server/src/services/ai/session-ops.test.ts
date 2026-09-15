@@ -23,7 +23,8 @@ vi.mock('./state.js', () => ({
   }),
 }));
 
-vi.mock('@operon/agent-runtime', () => ({
+vi.mock('@operon/agent-runtime', async (original) => ({
+  ...await original<typeof import('@operon/agent-runtime')>(),
   getClaudeAccountUsage: runtimeMock.getClaudeAccountUsage,
 }));
 
@@ -80,6 +81,7 @@ describe('injectIntoChat', () => {
 
     await expect(injectIntoChat(7, ' Focus on edge cases ', 'user-1')).resolves.toEqual({
       success: true,
+      delivery: 'accepted',
       message: steerMessage,
     });
     expect(injectMessage).toHaveBeenCalledWith('Focus on edge cases');
@@ -92,6 +94,41 @@ describe('injectIntoChat', () => {
       steerMessage,
     );
   });
+
+  it('distinguishes accepted injection from a failed transcript save', async () => {
+    const injectMessage = vi.fn().mockResolvedValue(undefined);
+    stateMock.getSession.mockReturnValue({
+      activeRequest: { requestId: 'request-1' }, runtime: { injectMessage },
+    });
+    helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer', role: 'user', parts: [] });
+    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: false, error: 'disk full' });
+    const { injectIntoChat } = await loadSessionOps();
+    await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ success: false, delivery: 'accepted', error: 'disk full' });
+    expect(injectMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a definite provider rejection retryable', async () => {
+    const injectMessage = vi.fn();
+    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'request' }, runtime: { injectMessage } });
+    const { injectIntoChat } = await loadSessionOps();
+    const { RuntimeInjectionUnavailableError } = await import('@operon/agent-runtime');
+    injectMessage.mockRejectedValue(new RuntimeInjectionUnavailableError('Not ready'));
+    await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ delivery: 'not-sent' });
+  });
+
+  it('does not inject into a replacement request and treats provider errors as uncertain', async () => {
+    const injectMessage = vi.fn().mockRejectedValue(new Error('connection lost'));
+    stateMock.getSession.mockReturnValue({
+      activeRequest: { requestId: 'new-request' }, runtime: { injectMessage },
+    });
+    const { injectIntoChat } = await loadSessionOps();
+    await expect(injectIntoChat(7, 'result', undefined, { expectedRequestId: 'old-request' }))
+      .resolves.toMatchObject({ delivery: 'not-sent' });
+    expect(injectMessage).not.toHaveBeenCalled();
+    await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ delivery: 'unknown' });
+    expect(persistenceMock.persistInjectedUserMessageWithRetry).not.toHaveBeenCalled();
+  });
+
 });
 
 describe('getClaudeUsageLimits', () => {

@@ -1,3 +1,4 @@
+import { writeOpencodeCallerPlugin } from './caller-identity.js'
 import { createTimeoutError, extractErrorMessage } from './errors.js'
 import { getLogger } from './logger.js'
 import {
@@ -134,6 +135,10 @@ export class OpencodeClientManager {
         hostname: this.options.hostname,
         port: this.options.port,
         timeout: this.options.serverTimeout,
+        // Tags first-party MCP calls with the calling session (caller-identity.ts).
+        // A server this process did not start lacks it, and those calls fail
+        // with a clear error instead of reaching the wrong conversation.
+        config: { plugin: [writeOpencodeCallerPlugin()] },
       })
       // Recorded so the next launch can tell this process apart from one the
       // user started, and reclaim only this one.

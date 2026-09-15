@@ -34,7 +34,7 @@
  */
 
 import type { PermissionDecision, RuntimeSession, RuntimeStreamPart, RuntimeTextStreamPart } from '@operon/agent-runtime'
-import { observeApprovalPart, resolvePendingApproval } from '../ai/approval-inbox.js'
+import { observePendingInputPart, resolvePendingApproval } from '../ai/chat-pending-input.js'
 
 type ApprovalRequestPart = Extract<RuntimeTextStreamPart, { type: 'tool-approval-request' }>
 
@@ -234,13 +234,13 @@ export function watchDetachedApprovals(params: {
     } catch (err) {
       console.error(`[Workflow] ${agentId}: surfacing to the run failed:`, err)
     }
-    // Only the approval part is forwarded to the inbox: `observeApprovalPart`
+    // Only the approval part is forwarded to the inbox: `observePendingInputPart`
     // clears a chat's whole pending map on finish/abort/error, and this
     // sub-agent's stream ending must not wipe the PARENT conversation's own
     // pending approvals.
     if (parentChatId > 0 && surfaceToInbox) {
       try {
-        observeApprovalPart(parentChatId, part, true, agentId, toolInput)
+        observePendingInputPart(parentChatId, part, { userFacing: true, origin: agentId, toolInput })
       } catch (err) {
         console.error(`[Workflow] ${agentId}: inbox surfacing failed:`, err)
       }

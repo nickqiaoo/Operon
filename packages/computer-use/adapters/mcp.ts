@@ -1,6 +1,13 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolRequest,
+  CallToolResult,
+  ListToolsResult,
+  ServerNotification,
+  ServerRequest,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createComputerUse, type CreateComputerUseOptions } from "../createComputerUse.ts";
 import {
@@ -51,7 +58,7 @@ const jsTool = (surfaces: readonly NodeReplSurface[]) => ({
   name: "js",
   description: buildNodeReplToolDescription(surfaces),
   inputSchema: {
-    type: "object",
+    type: "object" as const,
     properties: {
       source: {
         type: "string",
@@ -72,9 +79,9 @@ const JS_RESET_TOOL = {
   inputSchema: { type: "object", properties: {} },
 } as const;
 
-export interface NodeReplMcpServer {
-  server: Server;
-  dispose(): Promise<void>;
+/** The tools a session built with `surfaces` exposes. Needs no session to answer. */
+export function listNodeReplTools(surfaces: readonly NodeReplSurface[] = ALL_NODE_REPL_SURFACES): ListToolsResult {
+  return { tools: [jsTool(surfaces), JS_RESET_TOOL] };
 }
 
 const elicitResultSchema = z
@@ -85,8 +92,18 @@ const elicitResultSchema = z
  *  to that request's context. */
 type NotifySink = (params: Record<string, unknown>) => void;
 
+export type NodeReplCallExtra = Pick<RequestHandlerExtra<ServerRequest, ServerNotification>, "sendNotification">;
+
 export interface NodeReplMcpServer {
   server: Server;
+  /**
+   * The same handlers `server` is wired to, for a host that fronts several
+   * sessions with one MCP endpoint and picks the session per call. That path
+   * never connects `server`, so the host must supply `integration.requestElicitation`:
+   * the MCP elicitation fallback needs a connected client.
+   */
+  listTools(): ListToolsResult;
+  callTool(req: CallToolRequest, extra: NodeReplCallExtra): Promise<CallToolResult>;
   dispose(): Promise<void>;
 }
 
@@ -122,7 +139,6 @@ export async function buildNodeReplMcpServer(
 
   const surfaces = opts.surfaces ?? ALL_NODE_REPL_SURFACES;
   const outputTokenLimit = opts.outputTokenLimit ?? DEFAULT_OUTPUT_TOKEN_LIMIT;
-  const tools = [jsTool(surfaces), JS_RESET_TOOL];
 
   // Live push channel for the current tools/call, set by the handler for the
   // duration of the run. Assumes execution is serial.
@@ -187,9 +203,9 @@ export async function buildNodeReplMcpServer(
   });
   const session = cu.createSession();
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  const listTools = (): ListToolsResult => listNodeReplTools(surfaces);
 
-  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+  const callTool = async (req: CallToolRequest, extra: NodeReplCallExtra): Promise<CallToolResult> => {
     if (req.params.name === "js_reset") {
       try {
         await session.reset();
@@ -255,9 +271,12 @@ export async function buildNodeReplMcpServer(
     } finally {
       sink = undefined;
     }
-  });
+  };
 
-  return { server, dispose: () => cu.dispose() };
+  server.setRequestHandler(ListToolsRequestSchema, async () => listTools());
+  server.setRequestHandler(CallToolRequestSchema, (req, extra) => callTool(req, extra));
+
+  return { server, listTools, callTool, dispose: () => cu.dispose() };
 }
 
 /**

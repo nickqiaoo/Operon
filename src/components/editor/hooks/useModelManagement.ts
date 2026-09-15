@@ -116,6 +116,7 @@ interface ProviderConfig {
 }
 
 export interface InitialModelOptions {
+  preserveModel?: boolean;
   modeId?: string;
   serviceTier?: string;
 }
@@ -349,12 +350,18 @@ export function useModelManagement(
 
   // Auto-select first available model when the list changes
   useEffect(() => {
-    if (availableModels.length > 0 && (!model || !availableModels.find((m) => m.id === model))) {
+    if (availableModels.length > 0 && (!model || (!initialOptions?.preserveModel && !availableModels.find((m) => m.id === model)))) {
       setModelState(availableModels[0].id);
     }
-  }, [availableModels, model]);
+  }, [availableModels, model, initialOptions?.preserveModel]);
 
-  const selectedModel = availableModels.find((item) => item.id === model) ?? availableModels[0];
+  // A server-owned chat may use a valid model absent from a short UI catalog.
+  // Keep its actual model visible instead of labeling it as the first entry.
+  const visibleModels: DynamicModel[] = initialOptions?.preserveModel && model && !availableModels.some((item) => item.id === model)
+    ? [{ id: model, label: model === 'default' ? 'Default' : model,
+        providerId: providerId ?? '', provider: providerId ?? '', group: providerId ?? '', hasThinking: false }, ...availableModels]
+    : availableModels;
+  const selectedModel = visibleModels.find((item) => item.id === model) ?? visibleModels[0];
   const currentProviderId = selectedModel?.providerId;
 
   // When the selected model doesn't support 'auto' / fast mode, drop those
@@ -454,7 +461,7 @@ export function useModelManagement(
 
   return {
     model, setModel,
-    availableModels, selectedModel,
+    availableModels: visibleModels, selectedModel,
     currentProviderConfig,
     modeOptions, currentMode,
     serviceTierOptions, currentServiceTier,

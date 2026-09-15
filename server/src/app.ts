@@ -23,6 +23,7 @@ import { sddRoutes } from './routes/sdd.js'
 import { workspaceChatMcpRoutes } from './routes/workspace-chat-mcp.js'
 import { taskBoardMcpRoutes } from './routes/task-board-mcp.js'
 import { mcpRoutes } from './routes/mcp.js'
+import { externalAgentRoutes } from './routes/external-agent.js'
 import { externalAgentMcpRoutes } from './routes/external-agent-mcp.js'
 import { workflowMcpRoutes } from './routes/workflow-mcp.js'
 import { sweepInterruptedRuns } from './services/workflow/store.js'
@@ -76,6 +77,7 @@ import { syncComputerUseSkill } from './services/computer-use-skill.js'
 import { getComputerUseConfig, initComputerUseConfig } from './services/computer-use-config.js'
 import { syncChromeUseSkill } from './services/chrome-use-skill.js'
 import { syncSiteAdaptersSkill } from './services/site-adapters-skill.js'
+import { syncExternalAgentSkill } from './services/external-agent-skill.js'
 import { syncWorkflowSkill } from './services/workflow-skill.js'
 import { getChromeUseConfig, initChromeUseConfig } from './services/chrome-use-config.js'
 import type { SqliteStorage } from './storage/sqlite.js'
@@ -110,6 +112,7 @@ export async function createApp(deps: AppDeps) {
   if (process.env.NODE_ENV !== 'test') {
     for (const [label, sync] of [
       ['Workflow', () => syncWorkflowSkill(true)],
+      ['ExternalAgent', () => syncExternalAgentSkill(true)],
       ['Browser Use', () => syncBrowserUseSkill(getBrowserUseConfig().enabled)],
       ['Computer Use', () => syncComputerUseSkill(getComputerUseConfig().enabled)],
       ['Chrome', () => syncChromeUseSkill(getChromeUseConfig().enabled)],
@@ -266,6 +269,7 @@ export async function createApp(deps: AppDeps) {
   }
   app.route('/api/mcp', mcpRoutes())
   app.route('/api/external-agent-mcp', externalAgentMcpRoutes())
+  app.route('/api/external-agents', externalAgentRoutes())
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())

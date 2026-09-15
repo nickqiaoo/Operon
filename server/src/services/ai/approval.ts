@@ -2,7 +2,7 @@ import type { UIMessage } from 'ai'
 import type { PermissionDecision } from '@operon/agent-runtime'
 import type { ApprovalResponseSnapshot, PermissionOutcome, PermissionOutcomeKind } from './types.js'
 import { getSessionManager } from './state.js'
-import { resolvePendingApproval } from './approval-inbox.js'
+import { resolvePendingApproval } from './chat-pending-input.js'
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null

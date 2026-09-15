@@ -2,7 +2,7 @@
 export type * from './types.js'
 // Values (not just types) the host needs at runtime — the error class lets a
 // host tell a message written for the user from an internal failure.
-export { UserFacingRuntimeError, isUserFacingRuntimeError } from './types.js'
+export { UserFacingRuntimeError, isUserFacingRuntimeError, RuntimeInjectionUnavailableError } from './types.js'
 
 export { SessionManager } from './session-manager.js'
 export { setRuntimeHost, getRuntimeHost, type RuntimeHost } from './host.js'
@@ -38,6 +38,7 @@ export interface RuntimeProviderClass {
 }
 
 export { disposeOpencodeServer } from './providers/opencode/index.js'
+export { OPENCODE_CALLER_ARG, resolveOpencodeCaller } from './providers/opencode/caller-identity.js'
 export { FakeRuntimeProvider } from './providers/fake/index.js'
 export type { FakeScript, FakeScriptCtx, FakeSessionState } from './providers/fake/index.js'
 export { BUILTIN_SCRIPT_NAMES } from './providers/fake/scripts/index.js'

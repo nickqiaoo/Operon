@@ -15,22 +15,46 @@ export const ACP_PROTOCOL_VERSION = 1
  */
 const DROPPED_SESSION_UPDATES = new Set(['session_info_update'])
 
-function shouldDropLine(line: string): boolean {
+/**
+ * Rewrite one stdout line before the SDK parses it: `null` drops it, a string
+ * replaces it.
+ *
+ * Besides dropping proprietary variants, this repairs `tool_call_update`s whose
+ * `rawOutput` is not an object. The schema requires an object and the SDK
+ * rejects the whole notification otherwise — antigravity sends a bare string
+ * (`"Tool execution failed"`) for search_directory / find_file, so their
+ * completed/failed status never arrived and those calls spun forever in the UI.
+ * Wrapping it as `{ output }` keeps the text where the event mapper looks.
+ */
+export function rewriteLine(line: string): string | null {
   const trimmed = line.trim()
-  if (!trimmed) return false
+  if (!trimmed) return line
+  let msg: { method?: unknown; params?: { update?: Record<string, unknown> } }
   try {
-    const msg = JSON.parse(trimmed) as { method?: unknown; params?: { update?: { sessionUpdate?: unknown } } }
-    if (msg.method === 'session/update') {
-      const variant = msg.params?.update?.sessionUpdate
-      return typeof variant === 'string' && DROPPED_SESSION_UPDATES.has(variant)
-    }
+    msg = JSON.parse(trimmed) as typeof msg
   } catch {
     // Unparseable line — leave it for the SDK to handle/report.
+    return line
   }
-  return false
+  if (msg.method !== 'session/update') return line
+  const update = msg.params?.update
+  if (!update) return line
+  const variant = update.sessionUpdate
+  if (typeof variant === 'string' && DROPPED_SESSION_UPDATES.has(variant)) return null
+  const rawOutput = update.rawOutput
+  if (
+    (variant === 'tool_call' || variant === 'tool_call_update') &&
+    rawOutput !== undefined &&
+    rawOutput !== null &&
+    (typeof rawOutput !== 'object' || Array.isArray(rawOutput))
+  ) {
+    update.rawOutput = { output: typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput) }
+    return `${JSON.stringify(msg)}${line.endsWith('\n') ? '\n' : ''}`
+  }
+  return line
 }
 
-/** Newline-delimited passthrough that drops proprietary notification lines. */
+/** Newline-delimited passthrough that drops or repairs notification lines. */
 function createNotificationFilter(): Transform {
   let buffer = ''
   return new Transform({
@@ -41,12 +65,12 @@ function createNotificationFilter(): Transform {
       while ((index = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, index + 1)
         buffer = buffer.slice(index + 1)
-        if (!shouldDropLine(line)) out += line
+        out += rewriteLine(line) ?? ''
       }
       cb(null, out)
     },
     flush(cb) {
-      cb(null, buffer && !shouldDropLine(buffer) ? buffer : '')
+      cb(null, buffer ? (rewriteLine(buffer) ?? '') : '')
     },
   })
 }

@@ -8,9 +8,9 @@
  * way out of that state, so a regression shows up as a hang here rather than in
  * a live workflow.
  *
- * The inbox side-effect is exercised for real (not stubbed): with no notification
- * storage registered in a test process, `observeApprovalPart` returns before
- * touching it, which also proves surfacing can't throw into the stream watcher.
+ * The pending-input side-effect is exercised for real (not stubbed): the
+ * registry is in-memory, and its subscribers are guarded, which also proves
+ * surfacing can't throw into the stream watcher.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'

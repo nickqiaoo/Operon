@@ -10,6 +10,7 @@ import type {
   RuntimeStreamParams,
   SessionDisposeReason,
 } from '../../types.js'
+import { bindOpencodeCaller, unbindOpencodeCaller } from './caller-identity.js'
 import { OpencodeClientManager } from './client-manager.js'
 import { extractErrorMessage, isAbortError } from './errors.js'
 import {
@@ -185,6 +186,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
   private readonly logger: OpencodeLogger
   private readonly settings: OpencodeSettings
   private sessionId: string | undefined
+  private readonly hostConversationId: string | undefined
   private abortController: AbortController | null = null
   private mcpRegistered = false
   private mcpReadyPromise: Promise<void> = Promise.resolve()
@@ -203,6 +205,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     this.currentModelId = params.modelId ?? 'opencode/big-pickle'
     this.currentModeId = params.modeId ?? 'build'
     this.sessionId = params.sessionId
+    this.hostConversationId = params.hostConversationId
     this.boundaryPending = params.forkFrom != null && !params.sessionId
     const mcpServers = params.mcpServers as Record<string, OpencodeMcpServerEntry> | undefined
     console.log('[opencode-session] MCP servers:', mcpServers ? Object.keys(mcpServers).join(', ') : '(none)')
@@ -448,6 +451,11 @@ export class OpencodeRuntimeSession implements RuntimeSession {
 
   async dispose(reason: SessionDisposeReason = 'discard'): Promise<void> {
     this.abort()
+    // A rebuild hands the same OpenCode session to its replacement, which may
+    // already have bound it; only a discarded conversation gives the id up.
+    if (reason === 'discard' && this.sessionId && this.hostConversationId) {
+      unbindOpencodeCaller(this.sessionId, this.hostConversationId)
+    }
     // A 'rebuild' is the same conversation getting a fresh session (fast mode
     // toggled, MCP map changed), so the fork has to outlive it — the new session
     // resumes it by id.
@@ -691,6 +699,14 @@ export class OpencodeRuntimeSession implements RuntimeSession {
   }
 
   private async getOrCreateSession(): Promise<string> {
+    const sessionId = await this.resolveSession()
+    // Every turn, not only on creation: a resumed session gets its binding back
+    // after an app restart, before the model can call a tool.
+    if (this.hostConversationId) bindOpencodeCaller(sessionId, this.hostConversationId)
+    return sessionId
+  }
+
+  private async resolveSession(): Promise<string> {
     if (this.sessionId && !this.settings.createNewSession) {
       this.logger.info(`Reusing session ${this.sessionId}`)
       return this.sessionId

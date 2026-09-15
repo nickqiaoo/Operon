@@ -1,3 +1,4 @@
+import { stripOpencodeCallerArg } from './caller-identity.js'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type {
@@ -722,7 +723,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
         })
         streamState.inputStarted = true
       }
-      const input = JSON.stringify(part.state.input)
+      const input = JSON.stringify(stripOpencodeCallerArg(part.state.input))
       if (input !== streamState.lastInput) {
         const delta = streamState.lastInput && input.startsWith(streamState.lastInput)
           ? input.slice(streamState.lastInput.length)
@@ -752,7 +753,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
       break
     }
     case 'completed': {
-      const input = JSON.stringify(part.state.input)
+      const input = JSON.stringify(stripOpencodeCallerArg(part.state.input))
       if (!streamState.inputStarted) {
         parts.push({ type: 'tool-input-start', id: part.callID, toolName, providerExecuted: true, dynamic: true })
         streamState.inputStarted = true
@@ -784,7 +785,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
       break
     }
     case 'error': {
-      const input = JSON.stringify(part.state.input)
+      const input = JSON.stringify(stripOpencodeCallerArg(part.state.input))
       if (!streamState.inputStarted) {
         parts.push({ type: 'tool-input-start', id: part.callID, toolName, providerExecuted: true, dynamic: true })
         streamState.inputStarted = true

@@ -111,17 +111,30 @@ export function aiRoutes(storage: SddStorage) {
         if (closed) return
         stream.writeSSE({ data: JSON.stringify({ type: 'presence', status }) }).catch(close)
       })
+      // What each chat is waiting on a person for (chat-pending-input.ts). Same
+      // subscribe-before-snapshot order, same idempotent frames: each one carries
+      // the chat's whole pending list, not a delta.
+      const unsubPending = aiService.subscribePendingInput((change) => {
+        if (closed) return
+        const pending = change.pending.map(aiService.summarizePendingInput)
+        stream.writeSSE({ data: JSON.stringify({ type: 'pending-input', chatId: change.chatId, pending }) }).catch(close)
+      })
 
       // Every chat currently running a turn. A chat missing from this list has no
       // live turn, which is how one stream answers for conversations the client
       // never named.
       await stream
         .writeSSE({
-          data: JSON.stringify({ type: 'sync', statuses: aiService.listActiveLiveTurnStatuses() }),
+          data: JSON.stringify({
+            type: 'sync',
+            statuses: aiService.listActiveLiveTurnStatuses(),
+            pendingInput: aiService.listChatsAwaitingInput(),
+          }),
         })
         .catch(close)
       await untilClosed
       unsub()
+      unsubPending()
     })
   })
 

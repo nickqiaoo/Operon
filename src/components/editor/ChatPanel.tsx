@@ -31,6 +31,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useEditorStore } from '@/stores/editor-store';
+import { useExternalAgentsStore } from '@/stores/external-agents-store';
 import { useStreamingStore } from '@/stores/streaming-store';
 import {
   Context,
@@ -251,7 +252,7 @@ function ChatPanelContent({
   const modelManagement = useModelManagement(
     tab?.options?.modelId ?? recentOptionsState.options.modelId ?? '',
     providerId,
-    recentOptionsState.options,
+    { ...recentOptionsState.options, preserveModel: tab?.isSubAgent === true },
   );
   const {
     model, setModel, availableModels, selectedModel,
@@ -393,7 +394,7 @@ function ChatPanelContent({
     sendMessage,
     chatBodyRef,
     setModel,
-    canDynamicSwitch,
+    canDynamicSwitch: canDynamicSwitch && tab?.isSubAgent !== true,
     cycleMode: cycleModeAndRemember,
     modeOptions,
     currentMode,
@@ -440,7 +441,6 @@ function ChatPanelContent({
   }, [historyLoaded, historyDbChatId, resumeOnAttach]);
   const {
     firstUserTitle,
-    lastAssistant,
     compactedInfo,
     latestTodos,
     contextUsage,
@@ -479,7 +479,6 @@ function ChatPanelContent({
   const displayedClaudeRateLimits = isClaudeCode ? polledClaudeRateLimits : null;
 
   const {
-    externalAgentTasks,
     externalAgentNotificationsByTaskId,
   } = useChatIndexState({
     chatId,
@@ -637,10 +636,6 @@ function ChatPanelContent({
     setInput,
     firstUserTitle,
     updateTabTitle,
-    externalAgentTasks,
-    externalAgentNotificationsByTaskId,
-    lastAssistant,
-    currentDbChatId: dbChatIdRef.current,
   });
 
   const chatActions = useChatActions(sendMessage, openChatTab, selectedModel?.providerId ?? providerId);
@@ -835,13 +830,18 @@ function ChatPanelContent({
     chatLoadMore(messages);
   }, [chatLoadMore, messages]);
 
+  // Server-delivered child results do not appear in this tab's local steer tray.
+  // Subscribe only to the derived flag, then reconcile history when its turn ends.
+  const hasExternalChildren = useExternalAgentsStore((state) =>
+    [...state.agents.values()].some((agent) => agent.parentChatId === (tab?.chatId ?? dbChatId)),
+  );
   const sentSteerCount = liveSteers.reduce(
     (count, item) => count + (item.status === 'sent' && item.messageId ? 1 : 0),
     0,
   );
 
   useEffect(() => {
-    if (isGenerating || sentSteerCount === 0) return;
+    if (!historyLoaded || isGenerating || (sentSteerCount === 0 && !hasExternalChildren)) return;
 
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
     if (!currentChatId) return;
@@ -875,7 +875,7 @@ function ChatPanelContent({
     return () => {
       active = false;
     };
-  }, [dbChatIdRef, isGenerating, sentSteerCount, setMessages, tab?.chatId]);
+  }, [dbChatIdRef, historyLoaded, isGenerating, hasExternalChildren, sentSteerCount, setMessages, tab?.chatId]);
 
   useEffect(() => {
     setLiveSteers([]);
@@ -1196,7 +1196,7 @@ function ChatPanelContent({
           currentMode={currentMode}
           cycleMode={handleCycleMode}
           modeButtonClass={modeButtonClass}
-          supportsDynamicSwitch={canDynamicSwitch}
+          supportsDynamicSwitch={canDynamicSwitch && tab?.isSubAgent !== true}
           canSteer={isGenerating && supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)}
           steerPending={steerPending}
           onSteer={handleSteer}

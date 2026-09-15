@@ -12,7 +12,7 @@ import type {
   RuntimeSessionParams,
   RuntimeStreamParams,
 } from '../../types.js'
-import { UserFacingRuntimeError } from '../../types.js'
+import { UserFacingRuntimeError, RuntimeInjectionUnavailableError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { buildRuntimeEnv } from '../../runtime-env.js'
@@ -1130,7 +1130,7 @@ export class CodexRuntimeSession implements RuntimeSession {
 
   async injectMessage(content: string): Promise<void> {
     if (!this.codexSession) {
-      throw new Error('[CodexRuntime] No active Codex session')
+      throw new RuntimeInjectionUnavailableError('[CodexRuntime] No active Codex session')
     }
     this.logger.info(`Injecting follow-up into thread ${this.threadId ?? 'unknown'}`)
     await this.codexSession.injectMessage(content)

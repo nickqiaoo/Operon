@@ -14,6 +14,7 @@ import type { NotificationSeverity } from '../types/notification.js'
 import { getSaasConfig } from '../gateway/saas/config.js'
 import { BROKER_URL } from '../gateway/saas/broker.js'
 import { brokerHttpBase } from '../../../tunnel-agent/src/saasConfig.js'
+import { isDesktopUserPresent } from './desktop-presence.js'
 
 export interface PushMessage {
   /** Gate: only 'action' — something is actually blocked on you — reaches a phone. */
@@ -39,11 +40,26 @@ const PUSH_TIMEOUT_MS = 5_000
  * it is a list you choose to look at — but a notification is an interruption,
  * and a source that fires in a tight loop would otherwise ring once per event.
  * Backstop only: the callers are expected not to produce bursts in the first
- * place (see observeApprovalPart).
+ * place (see the `first` flag in chat-pending-input.ts).
  */
 const PUSH_MIN_INTERVAL_MS = 60_000
 
 const lastPushBySource = new Map<string, number>()
+
+/**
+ * While the user is at the desktop, a push is held instead of sent: the
+ * approval is already on the screen in front of them. It is re-checked on this
+ * cadence and goes out once they step away — or is dropped once they deal with
+ * it. Presence itself carries the "stepped away" delay (see the desktop probe's
+ * idle threshold), so this only needs to be fine enough not to add much to it.
+ */
+const DEFERRED_RECHECK_MS = 30_000
+
+/** Matches the broker's apns-expiration: past this the push would not be delivered anyway. */
+const DEFERRED_MAX_MS = 60 * 60_000
+
+/** One held push per source; a newer event for the same source replaces it. */
+const deferredBySource = new Map<string, ReturnType<typeof setTimeout>>()
 
 /**
  * Deliver to the user's phones, if this is worth interrupting them for.
@@ -58,17 +74,72 @@ const lastPushBySource = new Map<string, number>()
  * Widening this later (e.g. "push chat_complete once you have been away from
  * the desktop for ten minutes") is additive. Starting wide and walking it back
  * is not — the permission is already revoked.
+ *
+ * `stillPending` reports whether the event still needs the user (inbox row
+ * unread, approval unanswered). It is consulted only when the push was held
+ * because the user was at the desktop; omitting it means "always still pending".
  */
-export function relayPush(message: PushMessage): void {
+export function relayPush(message: PushMessage, stillPending?: () => boolean): void {
   if (message.severity !== 'action') return
   if (!message.title) return
+  if (!getSaasConfig().nodeToken) return
 
+  cancelDeferred(message.sourceKey)
+  if (!isDesktopUserPresent()) {
+    logPush('sending now, user not at desktop', message)
+    sendPush(message)
+    return
+  }
+
+  logPush('holding, user at desktop', message)
+  const heldAt = Date.now()
+  const recheck = () => {
+    deferredBySource.delete(message.sourceKey)
+    if (stillPending && !stillPending()) {
+      logPush('dropped, handled while held', message)
+      return
+    }
+    if (Date.now() - heldAt >= DEFERRED_MAX_MS) {
+      logPush('dropped, held past expiration', message)
+      return
+    }
+    if (isDesktopUserPresent()) {
+      schedule()
+      return
+    }
+    logPush('sending after hold, user left desktop', message)
+    sendPush(message)
+  }
+  const schedule = () => {
+    const timer = setTimeout(recheck, DEFERRED_RECHECK_MS)
+    timer.unref?.()
+    deferredBySource.set(message.sourceKey, timer)
+  }
+  schedule()
+}
+
+/** One line per decision, so "why did my phone buzz" can be answered from operon.log. */
+function logPush(decision: string, message: PushMessage): void {
+  console.log(`[Push] ${decision}: source=${message.sourceKey} kind=${message.kind ?? '-'}`)
+}
+
+function cancelDeferred(sourceKey: string): void {
+  const timer = deferredBySource.get(sourceKey)
+  if (timer === undefined) return
+  clearTimeout(timer)
+  deferredBySource.delete(sourceKey)
+}
+
+function sendPush(message: PushMessage): void {
   const cfg = getSaasConfig()
   if (!cfg.nodeToken) return
 
   const now = Date.now()
   const last = lastPushBySource.get(message.sourceKey)
-  if (last !== undefined && now - last < PUSH_MIN_INTERVAL_MS) return
+  if (last !== undefined && now - last < PUSH_MIN_INTERVAL_MS) {
+    logPush('skipped, throttled', message)
+    return
+  }
   pruneThrottleMap(now)
   lastPushBySource.set(message.sourceKey, now)
 

@@ -18,7 +18,8 @@ vi.mock('./sse.js', () => ({
 
 vi.mock('./api', () => ({ api: { aiLiveStatusStreamUrl: async () => '/stream' } }))
 
-const { subscribeChatPresence } = await import('./live-turn-events')
+const { subscribeChatPresence, watchPendingInput } = await import('./live-turn-events')
+const { useChatPendingInputStore } = await import('@/stores/chat-pending-input-store')
 
 type Status = { chatId: number; active: boolean; turnId: string | null; startedAt: number | null }
 const running = (chatId: number, turnId = 't1'): Status => ({ chatId, active: true, turnId, startedAt: 1 })
@@ -111,5 +112,41 @@ describe('subscribeChatPresence', () => {
     expect(aFailed).toBe(true)
     expect(bFailed).toBe(true)
     offA(); offB()
+  })
+})
+
+describe('watchPendingInput', () => {
+  const ask = (approvalId: string) => ({ approvalId, toolName: 'Bash', requestedAt: 1, userFacing: true })
+  const pendingOf = (chatId: number) => useChatPendingInputStore.getState().pendingByChat.get(chatId)
+
+  it('mirrors every chat\'s pending input and holds the shared stream open', () => {
+    const release = watchPendingInput()
+    const offChat = subscribeChatPresence(50, { onStatus: () => {} })
+    expect(live()).toHaveLength(1)
+
+    live()[0].emit({ type: 'sync', statuses: [], pendingInput: [{ chatId: 51, pending: [ask('a')] }, { chatId: 52, pending: [] }] })
+    expect(pendingOf(51)).toEqual([ask('a')])
+    expect(pendingOf(52)).toBeUndefined()
+
+    live()[0].emit({ type: 'pending-input', chatId: 53, pending: [ask('b'), ask('c')] })
+    live()[0].emit({ type: 'pending-input', chatId: 51, pending: [] })
+    expect(pendingOf(51)).toBeUndefined()
+    expect(pendingOf(53)).toHaveLength(2)
+
+    // A chat panel going away does not close the stream the tab markers need.
+    offChat()
+    expect(live()).toHaveLength(1)
+
+    release()
+    expect(live()).toHaveLength(0)
+    expect(useChatPendingInputStore.getState().pendingByChat.size).toBe(0)
+  })
+
+  it('treats a sync from an older server as nothing pending', () => {
+    const release = watchPendingInput()
+    live()[0].emit({ type: 'pending-input', chatId: 60, pending: [ask('a')] })
+    live()[0].emit({ type: 'sync', statuses: [] })
+    expect(pendingOf(60)).toBeUndefined()
+    release()
   })
 })

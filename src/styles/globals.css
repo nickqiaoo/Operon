@@ -637,6 +637,21 @@ samp {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * Streamdown's fullscreen mermaid / table views put the exit button 16px from
+ * the window top, inside the 40px top-bar drag strip. The OS drag region wins
+ * over any z-index, so hover flickers and clicks miss. Push the button below
+ * the strip. (Don't solve this with `body:has(...)`: it re-evaluates on every
+ * node mermaid appends to <body> while measuring and stalls rendering.)
+ */
+body > div > button[title="Exit fullscreen"] {
+  top: 3rem !important;
+}
+
+[data-streamdown="table-fullscreen"] > div > div:first-child {
+  padding-top: 3rem !important;
+}
+
 .heading-section {
   @apply text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium;
 }

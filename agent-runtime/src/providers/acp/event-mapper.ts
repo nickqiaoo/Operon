@@ -441,6 +441,24 @@ export class AcpEventMapper {
     const finishReason = mapStopReason(stopReason)
     this.closeOpenContent(parts)
 
+    // The prompt has returned, so no result is coming for a call that never got
+    // one. Settle it rather than leave the UI spinning on it forever — whatever
+    // the agent's reason for not reporting (a malformed update, a cancel).
+    for (const [toolCallId, state] of this.toolStates) {
+      if (state.resultEmitted || !state.inputStarted) continue
+      const toolCall = this.ensureToolCall(parts, toolCallId, state.toolName, undefined, true)
+      parts.push({
+        type: 'tool-error',
+        toolCallId,
+        toolName: toolCall.toolName,
+        input: toolCall.input,
+        error: new Error(stopReason === 'cancelled' ? 'Tool call cancelled' : 'Tool call ended without a result'),
+        providerExecuted: true,
+        dynamic: true,
+      })
+      state.resultEmitted = true
+    }
+
     // ACP carries no standard usage; agents that report it put a breakdown on the
     // prompt response's `_meta`. Parse it here (provider-specific shape) so the
     // finish-step/finish parts below carry real token counts instead of zeros.

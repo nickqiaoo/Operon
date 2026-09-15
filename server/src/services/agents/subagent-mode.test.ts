@@ -8,8 +8,12 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('../ai.js', () => ({ getProviderModels: async () => ({}), getSessionManager: () => ({}) }))
-vi.mock('../adapter/bundled-cli-paths.js', () => ({ isAdapterAvailable: () => true }))
+vi.mock('../ai/providers.js', () => ({ getProviders: () => [], getProviderModels: async () => ({}) }))
+vi.mock('../ai/provider-models-cache.js', () => ({ warmAllProviders: async () => {} }))
+vi.mock('../external-agent.js', () => ({
+  createExternalAgent: vi.fn(), sendExternalAgent: vi.fn(),
+  stopExternalAgent: vi.fn(), getExternalAgentStatus: vi.fn(),
+}))
 
 const { SUPPORTED_EXTERNAL_AGENT_IDS } = await import('../../routes/external-agent-mcp.js')
 const { subagentMode } = await import('./subagent-mode.js')

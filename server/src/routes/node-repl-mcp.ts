@@ -31,12 +31,14 @@
  * to our own backend. If a client does supply `_meta`, the
  * `@operon/computer-use` adapter prefers that.
  *
- * Mounted at `/api/node-repl-mcp?sessionId=<id>` (see app.ts).
+ * Mounted at `/api/node-repl-mcp?sessionId=<id>` (see app.ts). OpenCode mounts it
+ * without a sessionId and tags each call instead; see buildCallerRoutedServer.
  */
 
 import { Hono, type Context } from 'hono'
 import {
   buildNodeReplMcpServer,
+  listNodeReplTools,
   createTomlConfigStore,
   CuaDriverService,
   CUA_DRIVER_SOCKET_ENV,
@@ -51,10 +53,14 @@ import {
 } from '@operon/browser-use'
 import { OPERON_SITE_ADAPTERS_PATH_ENV } from '@operon/site-adapters'
 import { createRuntimeLogger } from '@operon/agent-runtime'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
+  serveMcpOverHono,
   serveMcpStatefulOverHono,
   type StatefulMcpTransportHolder,
 } from './mcp-http.js'
+import { resolveMcpCallerChat, UNKNOWN_CALLER_MESSAGE } from './mcp-caller.js'
 import { getBrowserUseConfig } from '../services/browser-use-config.js'
 import { getComputerUseConfig } from '../services/computer-use-config.js'
 import { getChromeUseConfig } from '../services/chrome-use-config.js'
@@ -194,8 +200,11 @@ const KERNEL_EXEC_ARGV = PACKAGED_RUNTIME_DIR
   ? ['--experimental-vm-modules']
   : ['--import', 'tsx', '--experimental-vm-modules']
 
+type BuiltNodeRepl = Awaited<ReturnType<typeof buildNodeReplMcpServer>>
+
 interface Entry extends StatefulMcpTransportHolder {
-  server: Awaited<ReturnType<typeof buildNodeReplMcpServer>>['server']
+  server: BuiltNodeRepl['server']
+  callTool: BuiltNodeRepl['callTool']
   dispose: () => Promise<void>
   lastUsed: number
   /**
@@ -407,6 +416,41 @@ async function entryFor(sessionId: string): Promise<Entry> {
   return await p
 }
 
+function enabledSurfaces(): NodeReplSurface[] {
+  return [
+    ...(getComputerUseConfig().enabled ? (['computer'] as const) : []),
+    ...(getBrowserUseConfig().enabled ? (['browser'] as const) : []),
+    ...(getChromeUseConfig().enabled ? (['chrome'] as const) : []),
+  ]
+}
+
+/**
+ * One endpoint for every conversation of a client that cannot hold a URL per
+ * conversation — OpenCode, which shares one MCP client per server name across a
+ * directory. Each tools/call names its conversation instead (see mcp-caller.ts)
+ * and runs in that conversation's own session, the same Entry a URL-scoped
+ * client would reach.
+ *
+ * Stateless is enough here. The stateful transport exists for the MCP
+ * elicitation back-channel, but a session with a chat id asks the user through
+ * the host (`requestOperonElicitation`), never through the client.
+ *
+ * tools/list carries no conversation, so it describes the current toggles; a
+ * session built before a toggle flipped keeps the surfaces it was built with.
+ */
+function buildCallerRoutedServer(chatId: number | null): Server {
+  const server = new Server({ name: 'node_repl', version: '0.1.0' }, { capabilities: { tools: {}, logging: {} } })
+  server.setRequestHandler(ListToolsRequestSchema, async () => listNodeReplTools(enabledSurfaces()))
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+    if (chatId == null) {
+      return { content: [{ type: 'text', text: UNKNOWN_CALLER_MESSAGE }], isError: true }
+    }
+    const entry = await entryFor(String(chatId))
+    return entry.callTool(req, extra)
+  })
+  return server
+}
+
 async function buildEntry(sessionId: string): Promise<Entry> {
   // Only start the daemon when Computer Use is on. With it off, a model calling
   // `computer.*` fails to reach the socket and gets an error, while Browser Use,
@@ -419,11 +463,7 @@ async function buildEntry(sessionId: string): Promise<Entry> {
   // Baked in at creation, like the URL and the kernel itself. A toggle flipped
   // later cannot reach a live session; the route's own check catches the case
   // where all three went off.
-  const surfaces: NodeReplSurface[] = [
-    ...(getComputerUseConfig().enabled ? (['computer'] as const) : []),
-    ...(getBrowserUseConfig().enabled ? (['browser'] as const) : []),
-    ...(getChromeUseConfig().enabled ? (['chrome'] as const) : []),
-  ]
+  const surfaces = enabledSurfaces()
   const chatId = Number(sessionId)
   const hostElicitation = Number.isSafeInteger(chatId) && chatId > 0
     ? (request: { message: string; meta?: unknown }) => requestOperonElicitation(chatId, request)
@@ -508,9 +548,12 @@ export function nodeReplMcpRoutes() {
     }
     const sessionId = c.req.header('x-session-id') ?? c.req.query('sessionId')
     if (!sessionId) {
-      // Without an identity there is no way to pick a kernel, and no way for
-      // browser-client to find the right backend.
-      return c.json({ error: 'node-repl-mcp requires a sessionId' }, 400)
+      // No conversation in the URL: a shared registration whose calls each name
+      // their own. A call that names none fails rather than picking a kernel.
+      const caller = await resolveMcpCallerChat(c, 'sessionId')
+      if (!caller.ok) return caller.response
+      await ensureComputerUseService()
+      return serveMcpOverHono(c, buildCallerRoutedServer(caller.chatId), caller.body)
     }
     // Existing sessions used to bypass ensureComputerUseService entirely. Check
     // on every MCP request so a daemon crash heals before the next computer.* call.

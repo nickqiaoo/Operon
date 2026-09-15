@@ -160,9 +160,9 @@ export async function persistAssistantMessageWithRetry(params: {
   modelId?: string
   providerId?: string
   sessionId?: string
-}): Promise<void> {
+}): Promise<boolean> {
   const chatHistoryService = getChatHistoryService()
-  if (!chatHistoryService || params.chatId <= 0) return
+  if (!chatHistoryService || params.chatId <= 0) return false
 
   const initialResult = chatHistoryService.patchChat(
     params.chatId,
@@ -176,7 +176,7 @@ export async function persistAssistantMessageWithRetry(params: {
     params.sessionId
   )
 
-  if (initialResult.success) return
+  if (initialResult.success) return true
 
   const latestMeta = chatHistoryService.getChatMeta(params.chatId)
   if (!latestMeta) {
@@ -185,7 +185,7 @@ export async function persistAssistantMessageWithRetry(params: {
       baseRevision: params.baseRevision,
       conflictRevision: initialResult.revision,
     })
-    return
+    return false
   }
 
   const retryResult = chatHistoryService.patchChat(
@@ -209,6 +209,7 @@ export async function persistAssistantMessageWithRetry(params: {
       retryConflictRevision: retryResult.revision,
     })
   }
+  return retryResult.success
 }
 
 export const hasPersistableAssistantMessage = (message: UIMessage): boolean =>

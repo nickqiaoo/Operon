@@ -11,7 +11,14 @@ export { mergeConsecutiveSameRole } from './ai/message-utils.js'
 
 // Approval / Permission
 export { applyApprovalResponseToHistory, handlePermissionResponse } from './ai/approval.js'
-export { listPendingApprovals, type PendingApproval } from './ai/approval-inbox.js'
+export {
+  listPendingApprovals,
+  listChatsAwaitingInput,
+  subscribePendingInput,
+  summarizePendingInput,
+  type PendingApproval,
+  type PendingInputSummary,
+} from './ai/chat-pending-input.js'
 
 // Rewind / Checkpoints
 export { rewindToCheckpoint, undoRewind, listCheckpoints, getTurnDiffs, getTurnFileDiffs } from './ai/rewind.js'

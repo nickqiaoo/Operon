@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, powerMonitor } from 'electron'
 import { spawn, execFile } from 'child_process'
 import http from 'node:http'
 import fs from 'fs'
@@ -17,6 +17,7 @@ import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tra
 import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js'
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
 import { stopComputerUseEngine } from '../server/src/services/computer-use-lifecycle.js'
+import { isUserAtDesktop, setDesktopPresenceProbe } from '../server/src/services/desktop-presence.js'
 import { disposeClaudeUsageProbe } from '@operon/agent-runtime'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
 import { registerBrowserUseIpc, startIabBackend, stopIabBackend } from './browser-use-driver.js'
@@ -158,6 +159,8 @@ console.log(`--- Operon started (${process.execPath}) ---`)
 console.log(`Log file: ${logFile}`)
 
 let mainWindow: BrowserWindow | null = null
+/** Seconds without input before the desktop user counts as away (phone pushes resume). */
+const DESKTOP_IDLE_THRESHOLD_S = 120
 let serverPort: number | null = null
 
 const macAppNames: Record<OpenInIdeApp, string | null> = {
@@ -794,6 +797,16 @@ app.whenReady().then(async () => {
   if (IS_CHROME_NATIVE_HOST) return
   // Start Hono HTTP server
   serverPort = await startHonoServer()
+
+  // Hold phone pushes while the user is at this computer: keyboard/mouse input
+  // within the last two minutes and the screen unlocked. Window focus is not
+  // required (see isUserAtDesktop) — switching to another app is not leaving.
+  setDesktopPresenceProbe(() =>
+    isUserAtDesktop({
+      windowOpen: mainWindow != null && !mainWindow.isDestroyed(),
+      idleState: powerMonitor.getSystemIdleState(DESKTOP_IDLE_THRESHOLD_S),
+    })
+  )
 
   // SqliteVecStore is lazily initialized on first embedding call (auto-detects dimensions)
 

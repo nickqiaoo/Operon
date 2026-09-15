@@ -1,7 +1,14 @@
-import { ExternalLinkIcon } from 'lucide-react'
+import { useState } from 'react'
+import { CircleAlert, ExternalLinkIcon, Loader2 } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
+import { needsConversationToAnswer, type PendingInputSummary } from '@shared/pending-input'
+import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
+import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useEditorStore } from '@/stores/editor-store'
-import { getTabInfoForTask } from '@/hooks/useExternalAgentBus'
+import { useExternalAgentsStore } from '@/stores/external-agents-store'
+import { parseExternalAgentRun } from '@/hooks/useExternalAgent'
+import type { UIMessage } from 'ai'
 
 /**
  * Check if a tool part is an external agent run tool.
@@ -11,7 +18,7 @@ export function isExternalAgentTool(toolPart: { toolName?: string; name?: string
   return (
     name === 'external_agent_run' ||
     name === 'mcp__external_agent__external_agent_run' ||
-    name.endsWith('external_agent_run')
+    name.endsWith('external_agent_run') || name.endsWith('external_agent_send')
   )
 }
 
@@ -21,6 +28,8 @@ export interface ExternalAgentResultMetadata {
   description: string
   childChatId: string
   dbChatId?: number
+  status?: string
+  agentId?: string
 }
 
 /**
@@ -45,6 +54,8 @@ export function parseExternalAgentResult(text: string): ExternalAgentResultMetad
 
   return {
     taskId: taskIdMatch[1],
+    status: text.match(/<status>(.*?)<\/status>/)?.[1],
+    agentId: text.match(/<agent-id>(.*?)<\/agent-id>/)?.[1],
     agentType: agentTypeMatch[1],
     description: descriptionMatch[1],
     childChatId: childChatIdMatch[1],
@@ -126,16 +137,15 @@ export function ExternalAgentToolRenderer({
   const rawArgs = (toolPart.args ?? toolPart.input ?? {}) as Record<string, unknown>
   // MCP dynamic tools wrap actual args in "arguments", direct tools have them at top level
   const args = (rawArgs.arguments as Record<string, unknown>) ?? rawArgs
-  const agentType = (args.agent_type as string) ?? 'agent'
-  const description = (args.description as string) ?? ''
+  const parsed = parseExternalAgentRun({ ...toolPart, type: 'dynamic-tool', toolName: 'external_agent_run' } as UIMessage['parts'][number])
+  const agentId = parsed?.agentId ?? (typeof args.agent_id === 'string' ? args.agent_id : undefined)
+  const live = useExternalAgentsStore((s) => agentId ? s.agents.get(agentId) : undefined)
+  const agentType = live?.providerId ?? parsed?.agentType ?? (args.agent_type as string) ?? 'agent'
+  const description = live?.description ?? parsed?.description ?? (args.description as string) ?? ''
 
-  const taskId = extractExternalAgentTaskId(toolPart)
-
-  // Merge transient in-memory mapping with persisted completion metadata.
-  // The dbChatId only exists in the persisted notification payload.
-  const taskInfo = taskId ? getTabInfoForTask(taskId) : undefined
-
-  const targetTabId = taskInfo?.tabId ?? notificationInfo?.childChatId
+  const childId = live?.childChatId ?? parsed?.childChatId
+  const pending = useChatPendingInputStore((s) => (childId != null ? s.pendingByChat.get(childId) : undefined))
+  const targetTabId = childId ? `chat:${childId}` : notificationInfo?.childChatId
   const tabExists = targetTabId ? tabs.some((t) => t.id === targetTabId) : false
   const canClick = !!targetTabId
 
@@ -150,8 +160,8 @@ export function ExternalAgentToolRenderer({
       setActiveTab(targetTabId)
     } else {
       // Reopen from history
-      const title = intl.formatMessage({ id: 'editor.external.tabTitle', defaultMessage: 'Agent: {desc}' }, { desc: taskInfo?.description ?? notificationInfo?.description ?? description })
-      const providerId = taskInfo?.providerId ?? notificationInfo?.agentType ?? agentType
+      const title = intl.formatMessage({ id: 'editor.external.tabTitle', defaultMessage: 'Agent: {desc}' }, { desc: notificationInfo?.description ?? description })
+      const providerId = notificationInfo?.agentType ?? agentType
       openChatTab(targetTabId, title, undefined, providerId, true)
       if (dbChatId !== undefined) {
         setTabChatId(targetTabId, dbChatId)
@@ -161,7 +171,7 @@ export function ExternalAgentToolRenderer({
 
   return (
     <div
-      className={`flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm ${canClick ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}`}
+      className={`rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm ${canClick ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}`}
       onClick={canClick ? handleClick : undefined}
     >
       <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -169,7 +179,115 @@ export function ExternalAgentToolRenderer({
         <span className="font-medium text-foreground">{agentType}</span>
         <span className="text-muted-foreground/70">-</span>
         <span>{description}</span>
+        {childId != null && pending?.length ? (
+          <span className="text-xs text-status-warn">
+            <FormattedMessage id="editor.external.waitingForYou" defaultMessage="waiting for you" />
+          </span>
+        ) : live ? (
+          <span className="text-xs text-muted-foreground">{live.status}</span>
+        ) : null}
       </div>
+      {childId != null && pending?.length ? (
+        <ExternalAgentPendingInput childChatId={childId} pending={pending} onOpen={handleClick} />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * What the child chat is blocked on, answerable from the parent.
+ *
+ * The child usually runs in a background tab, so without this the parent just
+ * shows "running" while nothing happens. A plain approval is answered here, with
+ * the request's own preview so it is not approved blind; a question or a plan
+ * needs the child's own UI, so those only offer to open it. Answers go through
+ * the same permission response as the child tab and the inbox, and the
+ * live-status stream clears every surface once one of them answers.
+ */
+function ExternalAgentPendingInput({
+  childChatId,
+  pending,
+  onOpen,
+}: {
+  childChatId: number
+  pending: PendingInputSummary[]
+  onOpen: () => void
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  const decide = async (approvalId: string, outcome: 'allow' | 'deny') => {
+    setBusyId(approvalId)
+    try {
+      const res = await api.aiPermissionResponse({ id: approvalId, outcome, chatId: childChatId })
+      if (!res.success) {
+        // Stale (answered elsewhere, or timed out): take the server's word for what is left.
+        const fresh = await api.aiPendingApprovals(childChatId)
+        useChatPendingInputStore.getState().set(childChatId, (fresh.approvals ?? []).map((a) => ({ userFacing: true, ...a })))
+      }
+    } catch (error) {
+      console.warn('[external-agent] permission response failed', error)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-2 border-t border-border/40 pt-2" onClick={(event) => event.stopPropagation()}>
+      {pending.map((item) => (
+        <div key={item.approvalId} className="flex items-start gap-2">
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-status-warn" />
+          <div className="min-w-0 flex-1">
+            <div className="text-xs text-foreground">
+              {item.toolName === 'AskUserQuestion' ? (
+                <FormattedMessage id="editor.external.pendingQuestion" defaultMessage="The agent asked you a question" />
+              ) : needsConversationToAnswer(item) ? (
+                <FormattedMessage id="editor.external.pendingPlan" defaultMessage="The agent proposed a plan for review" />
+              ) : (
+                <FormattedMessage
+                  id="editor.external.pendingApproval"
+                  defaultMessage="Approval requested · {tool}"
+                  values={{ tool: <span className="font-mono text-muted-foreground">{item.toolName}</span> }}
+                />
+              )}
+            </div>
+            {item.inputPreview && !needsConversationToAnswer(item) ? (
+              <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={item.inputPreview}>
+                {item.inputPreview}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {needsConversationToAnswer(item) ? (
+              <Button size="sm" variant="secondary" className="h-7 gap-1.5 text-xs" onClick={onOpen}>
+                <ExternalLinkIcon className="h-3.5 w-3.5" />
+                <FormattedMessage id="editor.external.openToAnswer" defaultMessage="Open" />
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  disabled={busyId === item.approvalId}
+                  onClick={() => void decide(item.approvalId, 'deny')}
+                >
+                  <FormattedMessage id="editor.external.deny" defaultMessage="Deny" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={busyId === item.approvalId}
+                  onClick={() => void decide(item.approvalId, 'allow')}
+                >
+                  {busyId === item.approvalId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  <FormattedMessage id="editor.external.allow" defaultMessage="Allow" />
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -224,7 +342,7 @@ export function ExternalAgentResultRenderer({ text }: { text: string }) {
         <span className="text-muted-foreground/70">-</span>
         <span>{parsed.description}</span>
       </div>
-      <span className="text-xs text-green-600 dark:text-green-400"><FormattedMessage id="editor.external.completedBadge" defaultMessage="Completed" /></span>
+      <span className="text-xs text-muted-foreground">{parsed.status ?? 'completed'}</span>
     </div>
   )
 }

@@ -6,6 +6,8 @@ import { CENTER_CONTENT_MIN_WIDTH } from "./constants"
 import { RightPanel } from "./RightPanel"
 import { PanelTabsProvider } from "./tabs/PanelTabsProvider"
 import { useWorkflowTab } from "./useWorkflowTab"
+import { ExternalAgentsSync } from "@/components/editor/components/ExternalAgentsSync"
+import { PendingInputSync } from "@/components/editor/components/PendingInputSync"
 import { WorkflowRunsSync } from "@/components/editor/components/WorkflowRunsSync"
 
 interface AppShellProps {
@@ -42,6 +44,8 @@ export function AppShell({ children, className }: AppShellProps) {
           conversation, and a detached run must keep being watched when you
           switch chats or close the panel. */}
       <WorkflowRunsSync />
+      <ExternalAgentsSync />
+      <PendingInputSync />
       <div
         className={cn(
           "relative flex h-full min-h-0 w-full flex-col bg-background",

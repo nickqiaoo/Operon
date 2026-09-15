@@ -59,7 +59,9 @@ const config: CapacitorConfig = {
       resize: KeyboardResize.None,
     },
     PushNotifications: {
-      presentationOptions: ['badge', 'sound', 'alert'],
+      // No banner or sound while the app is open: it already shows the same
+      // event live, so a system alert on top would just repeat it.
+      presentationOptions: ['badge'],
     },
   },
 }

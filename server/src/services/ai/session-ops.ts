@@ -1,9 +1,10 @@
+import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
 import type { UIMessage } from 'ai'
-import { getSessionManager } from './state.js'
+import { getSessionManager, getChatStorage } from './state.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
-import { getClaudeAccountUsage } from '@operon/agent-runtime'
+import { getClaudeAccountUsage, RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
 import type {
   DetailedContextUsage,
   DynamicSetPayload,
@@ -21,7 +22,7 @@ let claudeUsageInFlight: Promise<RuntimeUsageLimits | null> | null = null
 export function handleSessionCleanup(chatId: number): boolean {
   const sessionManager = getSessionManager()
   // Don't destroy sessions owned by channel agents — closing the UI tab should not kill the agent
-  if (isAgentOwnedChat(chatId)) {
+  if (getChatStorage()?.getChatMeta(chatId)?.metadata?.externalAgent || isAgentOwnedChat(chatId)) {
     console.log(`[Adapter] Skipping cleanup for agent-owned session chatId=${chatId}`)
     return true
   }
@@ -32,9 +33,10 @@ export function handleSessionCleanup(chatId: number): boolean {
 }
 
 export function abortChat(chatId: number): boolean {
+  const managed = abortManagedChatTurn(chatId)
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
-  if (!session) return false
+  if (!session) return managed
   try {
     const activeRequest = session.activeRequest
     if (activeRequest) {
@@ -49,45 +51,64 @@ export function abortChat(chatId: number): boolean {
   }
 }
 
+export interface ChatInjectionResult {
+  success: boolean
+  /** Provider acceptance is distinct from saving the local transcript. */
+  delivery: 'accepted' | 'not-sent' | 'unknown'
+  error?: string
+  message?: UIMessage
+}
+
 export async function injectIntoChat(
   chatId: number,
   content: string,
   turnMessageId?: string,
-): Promise<{ success: boolean; error?: string; message?: UIMessage }> {
+  options?: { message?: UIMessage; expectedRequestId?: string },
+): Promise<ChatInjectionResult> {
   const sessionManager = getSessionManager()
   const trimmed = content.trim()
   if (!trimmed) {
-    return { success: false, error: 'Message is empty' }
+    return { success: false, delivery: 'not-sent', error: 'Message is empty' }
   }
 
   const session = sessionManager.get(chatId)
   if (!session) {
     console.warn(`[AI] injectIntoChat(${chatId}): session not found`)
-    return { success: false, error: 'Session not found' }
+    return { success: false, delivery: 'not-sent', error: 'Session not found' }
   }
 
   if (!session.activeRequest) {
     console.warn(`[AI] injectIntoChat(${chatId}): no active request — session may have already finished`)
-    return { success: false, error: 'Session is not currently generating' }
+    return { success: false, delivery: 'not-sent', error: 'Session is not currently generating' }
   }
 
   if (typeof session.runtime.injectMessage !== 'function') {
     console.warn(`[AI] injectIntoChat(${chatId}): provider does not support inject`)
-    return { success: false, error: 'Current provider does not support steer' }
+    return { success: false, delivery: 'not-sent', error: 'Current provider does not support steer' }
   }
 
+  if (options?.expectedRequestId && session.activeRequest.requestId !== options.expectedRequestId) {
+    return { success: false, delivery: 'not-sent', error: 'Active request changed' }
+  }
+
+  let accepted = false
   try {
     await session.runtime.injectMessage(trimmed)
-    const steerMessage = createSteerUserMessage(trimmed, turnMessageId)
+    accepted = true
+    const generated = createSteerUserMessage(trimmed, turnMessageId)
+    const steerMessage = options?.message
+      ? { ...options.message, metadata: { ...options.message.metadata ?? {}, ...generated.metadata ?? {} } }
+      : generated
     const persistResult = persistInjectedUserMessageWithRetry(chatId, steerMessage)
     if (!persistResult.success) {
-      return { success: false, error: persistResult.error ?? 'Failed to persist steer message' }
+      return { success: false, delivery: 'accepted', error: persistResult.error ?? 'Failed to persist steer message' }
     }
-    return { success: true, message: steerMessage }
+    return { success: true, delivery: 'accepted', message: steerMessage }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to inject message'
     console.error(`[AI] Inject failed for chat ${chatId}:`, error)
-    return { success: false, error: message }
+    return { success: false, delivery: accepted ? 'accepted' :
+      error instanceof RuntimeInjectionUnavailableError ? 'not-sent' : 'unknown', error: message }
   }
 }
 
