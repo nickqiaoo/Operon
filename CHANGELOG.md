@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.3.34] - 2026-09-14
+
+### Changed
+
+- Scrolling over a Mermaid diagram in Markdown now scrolls the page; hold Ctrl (or pinch) to zoom the diagram.
+- Mermaid diagrams use the same compact frame as code blocks, and stay readable in dark mode.
+- The file preview has find: press ⌘F (Ctrl+F) to search the open file, with match case, whole word and regex.
+- Opening another file in the file preview keeps the current one open in a strip of up to 8 files; the least recently viewed one closes first, and the file tree follows whichever file is on screen.
+- Reopening the file tree reveals and scrolls to the file you were viewing.
+- On web and mobile, a failed machine list shows the reason and a Retry button instead of an empty list or a false "Offline".
+- Extensions and Linear settings say when they are unavailable on the connected machine instead of showing an error.
+
 ## [1.3.33] - 2026-09-13
 
 ### Changed
