@@ -37,6 +37,8 @@ export function TabContent({ panelId, tab, isActive }: TabContentProps) {
           tabId={tab.tabId}
           rootPath={tab.payload.rootPath}
           selectedPath={tab.payload.selectedPath}
+          openPaths={tab.payload.openPaths}
+          recentPaths={tab.payload.recentPaths}
           gotoLine={tab.payload.gotoLine}
           gotoNonce={tab.payload.gotoNonce}
         />

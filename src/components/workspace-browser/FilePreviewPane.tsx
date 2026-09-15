@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { FormattedMessage } from "react-intl"
 import { useSelectedTextStore } from "@/stores/selected-text-store"
 import { ChevronRight, Code, Eye, FileIcon } from "lucide-react"
@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { MarkdownToc } from "@/components/ui/markdown-toc"
 import { SelectionToolbar, type SelectionAction } from "@/components/ui/selection-toolbar"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import { getImageMediaType, readFileForPreview } from "@/lib/file-preview"
 import { basename } from "@/lib/workspace-files"
@@ -17,6 +16,9 @@ import { useThemeStore } from "@/stores/theme-store"
 import { createPierreFileOptions } from "@shared/tool-rendering/diff"
 import { useLineComments, type CommentMeta } from "@/components/editor/comments/useLineComments"
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl"
+import { isMacPlatform } from "@/lib/shortcuts/accelerator"
+import { FindBar } from "./FindBar"
+import { FIND_HIGHLIGHT_CSS, useTextFind, type FindOptions, type TextFindTarget } from "./useTextFind"
 
 interface FilePreviewPaneProps {
   selectedPath: string | null
@@ -34,6 +36,11 @@ interface FilePreviewPaneProps {
   leftAccessory?: ReactNode
   /** Changing this re-reads the file from disk (manual refresh). */
   reloadNonce?: number
+  /**
+   * False while this pane is mounted but hidden behind another open file. Only
+   * the active pane answers ⌘F and paints find highlights.
+   */
+  active?: boolean
   className?: string
 }
 
@@ -52,6 +59,7 @@ export function FilePreviewPane({
   rightAccessory,
   leftAccessory,
   reloadNonce,
+  active = true,
   className,
 }: FilePreviewPaneProps) {
   const [content, setContent] = useState<string | null>(null)
@@ -65,6 +73,14 @@ export function FilePreviewPane({
   // Container for the selection toolbar. Covers both view modes — the actions
   // themselves are what differ.
   const previewRef = useRef<HTMLDivElement | null>(null)
+  const findInputRef = useRef<HTMLInputElement | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState("")
+  const [findOptions, setFindOptions] = useState<FindOptions>({
+    caseSensitive: false,
+    wholeWord: false,
+    regex: false,
+  })
 
   const imageMediaType = useMemo(
     () => (selectedPath != null ? getImageMediaType(selectedPath) : null),
@@ -117,6 +133,9 @@ export function FilePreviewPane({
       enableGutterUtility: true,
       lineHoverHighlight: "line" as const,
       onGutterUtilityClick,
+      // The source view lives in a shadow root, out of reach of the document's
+      // `::highlight()` rules.
+      unsafeCSS: FIND_HIGHLIGHT_CSS,
     }),
     [themeType, onGutterUtilityClick]
   )
@@ -183,19 +202,90 @@ export function FilePreviewPane({
   }, [isRasterImage, selectedPath, reloadNonce])
 
   useEffect(() => {
-    if (selectedPath == null || isRasterImage) {
-      setViewMode("source")
-      return
-    }
+    setViewMode(selectedPath != null && !isRasterImage && isMarkdown ? "preview" : "source")
+  }, [selectedPath, isRasterImage, isMarkdown])
 
-    // Line jumps and line comments operate on source rows, not rendered markdown.
-    if (gotoLine != null) {
-      setViewMode("source")
-      return
-    }
+  // Line jumps and line comments operate on source rows, not rendered markdown.
+  // Kept apart from the default above so a pane losing its jump (another file
+  // became active) doesn't throw away the view mode the user picked.
+  useEffect(() => {
+    if (gotoLine != null) setViewMode("source")
+  }, [gotoLine, gotoNonce])
 
-    setViewMode(isMarkdown ? "preview" : "source")
-  }, [selectedPath, isRasterImage, isMarkdown, gotoLine, gotoNonce])
+  const showingMarkdownPreview = isMarkdown && viewMode === "preview"
+  const getFindTarget = useCallback((): TextFindTarget | null => {
+    if (showingMarkdownPreview) {
+      const root = markdownRef.current
+      if (root == null) return null
+      // Diagram labels and copy/zoom buttons aren't part of the document text.
+      return { root, accept: (text) => text.parentElement?.closest("svg, button") == null }
+    }
+    const root = contentRef.current?.querySelector(".pierre-diff-file-view")?.shadowRoot
+    if (root == null) return null
+    // Only the code column — not the line-number gutter.
+    return { root, accept: (text) => text.parentElement?.closest("[data-content]") != null }
+  }, [showingMarkdownPreview])
+  const findContentKey = useMemo(() => ({}), [content, viewMode, reloadNonce])
+  const find = useTextFind({
+    getTarget: getFindTarget,
+    enabled: active && findOpen,
+    query: findQuery,
+    options: findOptions,
+    contentKey: findContentKey,
+  })
+
+  const openFind = useCallback(() => {
+    const selection = window.getSelection()
+    const selected = selection?.toString() ?? ""
+    const anchor = selection?.anchorNode ?? null
+    // Seed with a short single-line selection made inside this preview.
+    if (
+      selected.trim().length > 0 &&
+      selected.length <= 200 &&
+      !selected.includes("\n") &&
+      anchor != null &&
+      previewRef.current?.contains(anchor)
+    ) {
+      setFindQuery(selected)
+    }
+    setFindOpen(true)
+    requestAnimationFrame(() => {
+      findInputRef.current?.focus()
+      findInputRef.current?.select()
+    })
+  }, [])
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false)
+    previewRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  // ⌘F / Ctrl+F while focus is anywhere in this file browser — the preview
+  // itself or the tree beside it (`data-find-scope`). ⌘G / ⇧⌘G step matches.
+  useEffect(() => {
+    if (!active || selectedPath == null || isRasterImage) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = isMacPlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+      if (!mod || e.altKey) return
+      const key = e.key.toLowerCase()
+      if (key !== "f" && key !== "g") return
+      const pane = previewRef.current
+      if (pane == null || !(e.target instanceof Node)) return
+      const scope = pane.closest("[data-find-scope]") ?? pane
+      if (!scope.contains(e.target)) return
+      if (key === "f") {
+        if (e.shiftKey) return
+        e.preventDefault()
+        openFind()
+      } else if (findOpen) {
+        e.preventDefault()
+        if (e.shiftKey) find.previous()
+        else find.next()
+      }
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [active, selectedPath, isRasterImage, findOpen, find.next, find.previous, openFind])
 
   useEffect(() => {
     if (gotoLine == null || isRasterImage || content == null || viewMode !== "source") return
@@ -259,8 +349,19 @@ export function FilePreviewPane({
           </div>
         )}
       </div>
-      <div ref={previewRef} className="relative min-h-0 flex-1">
+      <div ref={previewRef} tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
         <SelectionToolbar containerRef={previewRef} actions={selectionActions} />
+        {findOpen && !isRasterImage && content != null && (
+          <FindBar
+            ref={findInputRef}
+            query={findQuery}
+            onQueryChange={setFindQuery}
+            options={findOptions}
+            onOptionsChange={setFindOptions}
+            find={find}
+            onClose={closeFind}
+          />
+        )}
         {error != null ? (
           <div className="flex h-full items-center justify-center px-4 text-xs text-destructive">
             {error}
@@ -283,14 +384,12 @@ export function FilePreviewPane({
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             Loading…
           </div>
-        ) : isMarkdown && viewMode === "preview" ? (
-          // `[&>div]:!block` defeats the radix viewport's inner `display:table`
-          // wrapper, which otherwise sizes to content instead of to the pane.
-          <ScrollArea className="h-full w-full" viewportClassName="[&>div]:!block">
+        ) : showingMarkdownPreview ? (
+          <div className="h-full w-full overflow-auto code-scrollbar">
             <div ref={markdownRef} className="min-w-0 px-4 py-5 sm:px-6 sm:py-6">
               <MarkdownRenderer content={content} />
             </div>
-          </ScrollArea>
+          </div>
         ) : (
           <div ref={contentRef} className="h-full w-full overflow-auto code-scrollbar">
             <PierreFile<CommentMeta>

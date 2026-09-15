@@ -13,6 +13,13 @@ export type TabPayload =
       type: "workspace-browser"
       rootPath: string
       selectedPath: string | null
+      /**
+       * Files open in the preview strip, in display order. Absent on tabs from
+       * before the strip existed — see `previewFilesOf`.
+       */
+      openPaths?: string[]
+      /** `openPaths` ordered least → most recently viewed; drives eviction. */
+      recentPaths?: string[]
       /** 1-based source line requested by a file citation click. */
       gotoLine?: number
       /** Bumped so repeated clicks on the same line still scroll. */

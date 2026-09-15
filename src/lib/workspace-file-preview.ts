@@ -3,6 +3,7 @@ import { useAppShellStore } from "@/stores/app-shell-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { basename, toAbsolutePath } from "@/lib/workspace-files"
+import { openPreviewFile, previewFilesOf } from "@/lib/workspace-preview-files"
 
 interface OpenWorkspaceFilePreviewOptions {
   line?: number
@@ -54,10 +55,19 @@ export function openWorkspaceFilePreview(
         : 1
       : undefined
 
+  // Open alongside the files already in the strip rather than replacing the
+  // one being read.
+  const files = openPreviewFile(
+    existing?.payload.type === "workspace-browser"
+      ? previewFilesOf(existing.payload)
+      : { openPaths: [], recentPaths: [] },
+    absolutePath
+  )
   const payload = {
     type: "workspace-browser" as const,
     rootPath,
     selectedPath: absolutePath,
+    ...files,
     ...(line != null ? { gotoLine: line, gotoNonce } : {}),
   }
   const title = basename(absolutePath)

@@ -586,9 +586,14 @@
      lift itself clear of the keyboard with `var(--keyboard-height)`. Declared
      here so desktop — where nothing ever sets it — reads a plain 0px. */
   --keyboard-height: 0px;
+  /* File preview find: every match / the current one (CSS Custom Highlight API). */
+  --find-match: rgba(234, 179, 8, 0.28);
+  --find-match-current: rgba(249, 115, 22, 0.5);
 }
 
 .dark {
+  --find-match: rgba(234, 179, 8, 0.25);
+  --find-match-current: rgba(249, 115, 22, 0.55);
   /* Dark mode: deeper black shadows are needed to lift surfaces off the dark
      canvas; a faint white hairline replaces the slate outline. */
   --elevation-card: 0 12px 30px -24px rgba(0, 0, 0, 0.9);
@@ -803,6 +808,15 @@ samp {
 
 [data-code-copy-btn][data-copied] {
   opacity: 1;
+}
+
+/* Find-in-file matches in the rendered markdown preview. The source view is in
+   a Pierre shadow root and carries the same rules via FIND_HIGHLIGHT_CSS. */
+::highlight(file-find-match) {
+  background-color: var(--find-match);
+}
+::highlight(file-find-current) {
+  background-color: var(--find-match-current);
 }
 
 

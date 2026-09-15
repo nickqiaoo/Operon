@@ -1718,5 +1718,16 @@
   "task.activity.sendToAgent": "发给 agent",
   "task.activity.sent": "已发送",
   "settings.antigravity.auth.recheck": "重新检查",
-  "task.surfaces.githubLabel": "GitHub"
+  "task.surfaces.githubLabel": "GitHub",
+  "filePreview.find.placeholder": "查找",
+  "filePreview.find.invalid": "无效的表达式",
+  "filePreview.find.noResults": "无结果",
+  "filePreview.find.position": "第 {current} 项，共 {total} 项",
+  "filePreview.find.matchCase": "区分大小写",
+  "filePreview.find.wholeWord": "全字匹配",
+  "filePreview.find.regex": "使用正则表达式",
+  "filePreview.find.previous": "上一个匹配项",
+  "filePreview.find.next": "下一个匹配项",
+  "filePreview.find.close": "关闭",
+  "workspaceBrowser.closeFile": "关闭 {name}"
 }

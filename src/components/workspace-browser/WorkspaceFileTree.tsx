@@ -73,7 +73,7 @@ export function WorkspaceFileTree({
       })
       .then((paths) => {
         if (cancelled) return
-        // Include selectedPath in the initial set so it shows expanded.
+        // Seed the selected file; TreeInner reveals it after loading its parents.
         const merged = new Set(paths)
         if (selectedPath != null && selectedPath.startsWith(rootPath)) {
           merged.add(toTreePath(rootPath, selectedPath, false))
@@ -251,6 +251,50 @@ function TreeInner({
     return unsubscribe
   }, [model, loadDir, reconcile])
 
+  // Surface file selections to the consumer. Declared before the reveal effect
+  // below, which writes it to keep its own selection from echoing back.
+  const selectedPaths = useFileTreeSelection(model)
+  const lastSelectedRef = useRef<string | null>(selectedPath)
+
+  // Follow the file on screen, wherever it was picked — this tree, the preview's
+  // file strip, back/forward, a citation in chat — and also on first mount
+  // (reopening the pane creates a closed tree). Load and expand its ancestors,
+  // including directories hidden by flattening, then select it and scroll to it.
+  useEffect(() => {
+    if (selectedPath == null || !selectedPath.startsWith(`${rootPath}/`)) return
+    const treePath = toTreePath(rootPath, selectedPath, false)
+    lastSelectedRef.current = selectedPath
+    let cancelled = false
+    const reveal = async () => {
+      const segments = treePath.split("/")
+      for (let depth = 1; depth < segments.length; depth++) {
+        const dir = `${segments.slice(0, depth).join("/")}/`
+        const item = model.getItem(dir)
+        const expanded = item != null && "isExpanded" in item && item.isExpanded()
+        if (expanded && loadedDirsRef.current.has(dir)) continue
+        const children = await loadDir(dir)
+        if (cancelled) return
+        reconcile(dir, children)
+        loadedDirsRef.current.add(dir)
+        const loaded = model.getItem(dir)
+        if (loaded != null && "expand" in loaded) loaded.expand()
+      }
+      if (cancelled) return
+      for (const path of model.getSelectedPaths()) {
+        if (path !== treePath) model.getItem(path)?.deselect()
+      }
+      const target = model.getItem(treePath)
+      if (target != null && !target.isSelected()) target.select()
+      model.scrollToPath(treePath, { focus: false, offset: "nearest" })
+    }
+    void reveal().catch((err) => {
+      if (!cancelled) console.error("WorkspaceFileTree: failed to reveal", treePath, err)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [model, rootPath, selectedPath, loadDir, reconcile])
+
   // Manual refresh: invalidate this root's directory cache, then re-read the
   // root + every currently-expanded directory and reconcile in place (keeps
   // expansion + selection). Not watcher-driven — matches codex's file tree.
@@ -276,18 +320,28 @@ function TreeInner({
     }
   }, [apiRef, queryClient, rootPath, loadDir, reconcile])
 
-  // Surface file selections to the consumer.
-  const selectedPaths = useFileTreeSelection(model)
-  const lastSelectedRef = useRef<string | null>(selectedPath)
+  // Report only when the tree's selection itself changes. Consumers pass a fresh
+  // `onSelectFile` every render; re-running on that would re-report the tree's
+  // stale selection right after the file changed elsewhere (strip, back/forward)
+  // and bounce the preview between the old and new file until the reveal above
+  // caught up — ~50 full re-layouts per switch.
+  // Pierre also re-emits the *unchanged* selection while the reveal effect
+  // moves it, so compare against the tree's own previous selection too:
+  // only a row that differs from what the tree last had is a user pick.
+  const onSelectFileRef = useRef(onSelectFile)
+  onSelectFileRef.current = onSelectFile
+  const lastTreeSelectionRef = useRef<string | null>(null)
   useEffect(() => {
-    if (selectedPaths.length === 0) return
     const treePath = selectedPaths[0]
-    if (treePath == null || isDirectoryPath(treePath)) return
+    if (treePath == null) return
+    const previousTreePath = lastTreeSelectionRef.current
+    lastTreeSelectionRef.current = treePath
+    if (treePath === previousTreePath || isDirectoryPath(treePath)) return
     const absolutePath = toAbsolutePath(rootPath, treePath)
     if (lastSelectedRef.current === absolutePath) return
     lastSelectedRef.current = absolutePath
-    onSelectFile(absolutePath)
-  }, [selectedPaths, rootPath, onSelectFile])
+    onSelectFileRef.current(absolutePath)
+  }, [selectedPaths, rootPath])
 
   return (
     <PierreFileTree
