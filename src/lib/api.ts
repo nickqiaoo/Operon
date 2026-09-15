@@ -1005,7 +1005,7 @@ export const api = {
 
   // --- Extensions (file extensions on the operon harness; session-independent) ---
   extensionsList: () =>
-    softGet<{ extensions?: OperonExtensionDTO[]; error?: string }>('/extensions/list'),
+    get<{ extensions?: OperonExtensionDTO[]; error?: string }>('/extensions/list'),
   extensionsLoad: (id: string) =>
     softPost<{ ok?: true; error?: string }>('/extensions/load', { id }),
   extensionsReload: (id: string) =>
@@ -1017,7 +1017,7 @@ export const api = {
   extensionsInstall: (input: { url?: string; zipBase64?: string; sha256?: string }) =>
     softPost<{ extension?: OperonExtensionDTO; error?: string }>('/extensions/install', input),
   extensionsMarketplace: () =>
-    softGet<ExtensionMarketplaceDTO & { error?: string }>('/extensions/marketplace'),
+    get<ExtensionMarketplaceDTO & { error?: string }>('/extensions/marketplace'),
   extensionsMarketplaceInstall: (id: string) =>
     softPost<{ extension?: OperonExtensionDTO; error?: string }>('/extensions/marketplace/install', { id }),
 

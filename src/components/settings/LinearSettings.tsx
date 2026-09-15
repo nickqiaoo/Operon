@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { api } from "@/lib/api"
+import { ApiError } from "@/lib/api-client"
 import { runIntegrationFlow } from "@/lib/integration-flow"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import type { Agent } from "@/types/channel"
@@ -25,14 +26,21 @@ export function LinearSettings() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [unavailable, setUnavailable] = useState(false)
 
   const refresh = useCallback(async () => {
+    setUnavailable(false)
     try {
       const res = await api.integrationAppStatus()
       setStatus(res)
       setError(res.brokerError ?? null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : intl.formatMessage({ id: "settings.loadFailed", defaultMessage: "Failed to load" }))
+      if (e instanceof ApiError && e.status === 404) {
+        setUnavailable(true)
+        setError(null)
+      } else {
+        setError(e instanceof Error ? e.message : intl.formatMessage({ id: "settings.loadFailed", defaultMessage: "Failed to load" }))
+      }
     } finally {
       setLoading(false)
     }
@@ -87,6 +95,14 @@ export function LinearSettings() {
       <div className="flex items-center gap-2 text-muted-foreground text-sm">
         <Loader2 className="h-4 w-4 animate-spin" />
         <FormattedMessage id="common.loading" defaultMessage="Loading…" />
+      </div>
+    )
+  }
+
+  if (unavailable || (status?.saasConnected && !status.brokerError && !status.linear.enabled)) {
+    return (
+      <div className="rounded-lg border border-border/40 bg-muted/10 p-4 text-xs text-muted-foreground">
+        {unavailable ? 'Linear is currently unavailable on this machine.' : 'Linear is not enabled.'}
       </div>
     )
   }

@@ -114,6 +114,13 @@ export function getBaseUrlSync(): string | null {
   return _baseUrl
 }
 
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 /**
  * The one place a request's HTTP status is turned into either a value or a
  * throw. Exported because `api.ts` used to carry its own fetch helpers that
@@ -139,7 +146,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   })
   if (!res.ok) {
     const err = asRecord(await res.json().catch(() => null))
-    throw new Error(errorMessage(err, `${res.status} ${res.statusText}`))
+    throw new ApiError(res.status, errorMessage(err, `${res.status} ${res.statusText}`))
   }
   return res.json() as Promise<T>
 }

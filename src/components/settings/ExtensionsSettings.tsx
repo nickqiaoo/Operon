@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { api } from "@/lib/api"
+import { ApiError } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import type { ExtensionMarketplaceEntryDTO, ExtensionRepairOutcome, OperonExtensionDTO, OperonExtensionState } from "@/types/extension"
 import { TeamsSettings } from "./TeamsSettings"
@@ -58,7 +59,9 @@ export function ExtensionsSettings() {
   const intl = useIntl()
   const [items, setItems] = useState<OperonExtensionDTO[]>([])
   const [marketplace, setMarketplace] = useState<ExtensionMarketplaceEntryDTO[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [unavailable, setUnavailable] = useState(false)
+  const [marketUnavailable, setMarketUnavailable] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [marketError, setMarketError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -78,9 +81,19 @@ export function ExtensionsSettings() {
     setLoading(true)
     setError(null)
     setMarketError(null)
+    setUnavailable(false)
+    setMarketUnavailable(false)
     const [installedResult, marketResult] = await Promise.all([
-      api.extensionsList().catch((reason: unknown) => ({ extensions: [], error: reason instanceof Error ? reason.message : String(reason) })),
-      api.extensionsMarketplace().catch((reason: unknown) => ({ generatedAt: "", extensions: [], error: reason instanceof Error ? reason.message : String(reason) })),
+      api.extensionsList().catch((reason: unknown) => {
+        const missing = reason instanceof ApiError && reason.status === 404
+        setUnavailable(missing)
+        return { extensions: [], error: missing ? undefined : reason instanceof Error ? reason.message : String(reason) }
+      }),
+      api.extensionsMarketplace().catch((reason: unknown) => {
+        const missing = reason instanceof ApiError && reason.status === 404
+        setMarketUnavailable(missing)
+        return { generatedAt: "", extensions: [], error: missing ? undefined : reason instanceof Error ? reason.message : String(reason) }
+      }),
     ])
     if (installedResult.error) setError(installedResult.error)
     else setItems(installedResult.extensions ?? [])
@@ -175,6 +188,10 @@ export function ExtensionsSettings() {
     else void run(extension.id, () => api.extensionsLoad(extension.id))
   }
 
+  if (unavailable && !loading) {
+    return <EmptyBlock message="Extensions are currently unavailable on this machine." />
+  }
+
   const ConfigureView = configuring ? CONFIGURE_VIEWS[configuring] : undefined
   if (configuring && ConfigureView) {
     const extension = items.find((item) => item.id === configuring)
@@ -220,7 +237,9 @@ export function ExtensionsSettings() {
         </div>
         {actionError ? <InlineMessage tone="error" message={actionError} /> : null}
         {notice ? <InlineMessage tone="success" message={notice} /> : null}
-        {marketError ? (
+        {marketUnavailable ? (
+          <EmptyBlock message="The extension marketplace is currently unavailable on this machine." />
+        ) : marketError ? (
           <div className="rounded-xl border border-status-error/15 bg-status-error/5 p-4">
             <InlineMessage tone="error" message={marketError} />
           </div>
