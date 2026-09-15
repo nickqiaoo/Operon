@@ -25,7 +25,9 @@ import { subagentMode } from '../services/agents/subagent-mode.js'
 
 // ---- Tool definitions ----
 
-const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity'] as const
+// Every id here must also be registered in SUBAGENT_MODE (subagent-mode.test.ts
+// enforces it) — an unregistered one makes the tool call throw.
+export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity'] as const
 
 const EXTERNAL_AGENT_RUN_PROMPT =
   'Delegate a task to an external coding agent (e.g. Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, GitHub Copilot). ' +

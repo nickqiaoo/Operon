@@ -40,6 +40,10 @@ const SUBAGENT_MODE: Record<string, string> = {
   cursor: 'agent',
   // interactive | plan | autopilot                            (providers/copilot/config.ts)
   copilot: 'autopilot',
+  // default | plan | auto | bypassPermissions                 (providers/grok/config.ts)
+  grok: 'bypassPermissions',
+  // default | auto_edit | yolo                                (providers/antigravity/config.ts)
+  antigravity: 'yolo',
 }
 
 /**
