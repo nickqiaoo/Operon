@@ -1,5 +1,5 @@
 
-import { memo, useCallback, useMemo, type AnchorHTMLAttributes } from "react";
+import { memo, useCallback, useEffect, useMemo, type AnchorHTMLAttributes } from "react";
 import { safeCode } from "@/lib/streamdown-code";
 import { openExternalUrl } from "@/lib/open-external";
 import { cjk } from "@streamdown/cjk";
@@ -13,6 +13,7 @@ import type { PluggableList } from "unified";
 import { cn } from "@/lib/utils";
 import { openWorkspaceFilePreview } from "@/lib/workspace-file-preview";
 import { useCodeBlockCopy } from "@/hooks/useCodeBlockCopy";
+import { useResolvedMode } from "@/hooks/useResolvedMode";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
 import { InlineFileCode } from "@/components/editor/FileCitationChip";
 
@@ -69,6 +70,14 @@ function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnc
 
 const markdownComponents = { a: MarkdownLink, inlineCode: InlineFileCode };
 
+// Mermaid's "default" theme draws labels and arrows in near-black, which vanish
+// on the dark surface. Diagrams re-render when this object changes identity, so
+// keep one stable instance per mode.
+const mermaidOptions = {
+    light: { config: { theme: "default" as const } },
+    dark: { config: { theme: "dark" as const } },
+};
+
 export interface MarkdownRendererProps {
     content: string;
     className?: string;
@@ -82,6 +91,26 @@ export interface MarkdownRendererProps {
 
 export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRendererProps) => {
     const codeBlockCopyRef = useCodeBlockCopy();
+    const mode = useResolvedMode();
+
+    // Streamdown's mermaid pan-zoom hijacks every wheel event (preventDefault +
+    // zoom), so scrolling a document past a diagram gets stuck zooming it. Stop
+    // plain wheel events in the capture phase before they reach that listener so
+    // the page scrolls normally; ctrl+wheel (and trackpad pinch, which the
+    // browser reports with ctrlKey) still reaches it and zooms.
+    useEffect(() => {
+        const container = codeBlockCopyRef.current;
+        if (!container) return;
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey) return;
+            if (!(e.target instanceof Element)) return;
+            if (!e.target.closest('[data-streamdown="mermaid"]')) return;
+            e.stopPropagation();
+        };
+        container.addEventListener("wheel", handleWheel, { capture: true, passive: true });
+        return () => container.removeEventListener("wheel", handleWheel, { capture: true });
+    }, [codeBlockCopyRef]);
+
     const remarkPlugins = useMemo<PluggableList>(
         () => (breaks ? remarkPluginsWithBreaks : remarkPluginsBase),
         [breaks]
@@ -103,6 +132,7 @@ export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRe
                     className
                 )}
                 plugins={{ code, mermaid, math, cjk }}
+                mermaid={mermaidOptions[mode]}
                 controls={{ table: false, code: false }}
                 rehypePlugins={rehypePlugins}
                 remarkPlugins={remarkPlugins}

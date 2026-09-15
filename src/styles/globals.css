@@ -819,6 +819,107 @@ samp {
   background-color: var(--find-match-current);
 }
 
+/*
+ * Streamdown mermaid block: same compact single-container look as code blocks.
+ * Streamdown's own utility classes (e.g. -mt-10, border-sidebar, bg-sidebar/80)
+ * are not scanned by Tailwind here, so its action overlay falls out of the
+ * header into its own row and its frame degrades to a currentColor (black)
+ * border. Lay the pieces out explicitly instead.
+ */
+[data-streamdown="mermaid-block"] {
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden;
+  background-color: var(--color-muted) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Header row ("mermaid" label): compact with subtle separator */
+[data-streamdown="mermaid-block"] > div:first-child {
+  height: auto !important;
+  padding: 0.375rem 0.75rem !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+/* Actions overlay: pull it back up onto the header row, right-aligned */
+[data-streamdown="mermaid-block"] > div:has([data-streamdown="mermaid-block-actions"]) {
+  position: relative;
+  top: 0 !important;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 1.75rem !important;
+  margin-top: -1.75rem !important;
+  padding-right: 0.5rem;
+  pointer-events: none;
+}
+
+/* Actions cluster: no frame, no fill — plain icon buttons like the code copy button */
+[data-streamdown="mermaid-block-actions"] {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+[data-streamdown="mermaid-block"]:hover [data-streamdown="mermaid-block-actions"],
+[data-streamdown="mermaid-block-actions"]:focus-within {
+  opacity: 1;
+}
+
+[data-streamdown="mermaid-block-actions"] > button,
+[data-streamdown="mermaid-block-actions"] > div > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border-radius: 0.375rem;
+  color: var(--color-muted-foreground);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+[data-streamdown="mermaid-block-actions"] > button:hover,
+[data-streamdown="mermaid-block-actions"] > div > button:hover {
+  color: var(--color-foreground);
+  background-color: color-mix(in srgb, var(--color-foreground) 10%, transparent);
+}
+
+/* Diagram area: flush with the container, no inner frame */
+[data-streamdown="mermaid-block"] > div:last-child {
+  border: none !important;
+  border-radius: 0 !important;
+  background-color: var(--color-background) !important;
+}
+
+/*
+ * Pan/zoom stage: streamdown's min-h-28 isn't generated either, so a short
+ * diagram collapses below the height of the zoom controls (three stacked
+ * buttons, ~100px) and the controls get clipped by the block's overflow.
+ */
+[data-streamdown="mermaid"] > div {
+  min-height: 7rem;
+  padding: 0.5rem 0;
+}
+
+/*
+ * The rendered <svg width="100%"> sits in an auto-width flex item, so it has
+ * no reference width and falls back to the SVG default of 300px. Give the
+ * wrapper the full column so the diagram scales to min(column, natural width).
+ */
+[data-streamdown="mermaid"] [role="img"] {
+  width: 100%;
+}
+
 
 /* Panels now use utility classes for a flat design */
 
