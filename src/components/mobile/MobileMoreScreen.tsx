@@ -39,6 +39,8 @@ export function MobileMoreScreen() {
   // the user opens More). Starts in "checking" until fetchNodes() resolves.
   const [node, setNode] = useState<WebNode | null>(null)
   const [nodeLoading, setNodeLoading] = useState(__APP_TARGET__ === "web")
+  const [nodeError, setNodeError] = useState<string | null>(null)
+  const [nodeReloadNonce, setNodeReloadNonce] = useState(0)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [analyticsOn, setAnalyticsOn] = useState(() => !isAnalyticsOptedOut())
@@ -55,9 +57,15 @@ export function MobileMoreScreen() {
     let active = true
     const selectedId = getSelectedNodeId()
     setNodeLoading(true)
+    setNodeError(null)
     void fetchNodes()
-      .then((nodes) => {
-        if (active) setNode(nodes.find((n) => n.nodeId === selectedId) ?? null)
+      .then((result) => {
+        if (!active) return
+        if (result.ok) {
+          setNode(result.nodes.find((n) => n.nodeId === selectedId) ?? null)
+        } else {
+          setNodeError(result.message)
+        }
       })
       .finally(() => {
         if (active) setNodeLoading(false)
@@ -65,7 +73,7 @@ export function MobileMoreScreen() {
     return () => {
       active = false
     }
-  }, [])
+  }, [nodeReloadNonce])
 
   // Forget the chosen node and reload — the web auth gate then shows the
   // machine picker again (boot() sees authed + no node → picker phase).
@@ -104,8 +112,16 @@ export function MobileMoreScreen() {
                 <span className="truncate text-base text-foreground/85">
                   {node?.label || getSelectedNodeLabel() || intl.formatMessage({ id: "mobile.more.machineFallback", defaultMessage: "machine" })}
                 </span>
-                <MachineStatusBadge loading={nodeLoading} node={node} />
+                <MachineStatusBadge loading={nodeLoading} node={node} error={nodeError} />
               </div>
+              {nodeError && (
+                <div role="alert" className="space-y-2 border-t border-border/40 px-4 py-3 text-xs text-muted-foreground">
+                  <p>{nodeError}</p>
+                  <Button size="sm" variant="ghost" onClick={() => setNodeReloadNonce((n) => n + 1)}>
+                    Retry
+                  </Button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={switchMachine}
@@ -309,17 +325,19 @@ export function MobileMoreScreen() {
   )
 }
 
-function MachineStatusBadge({ loading, node }: { loading: boolean; node: WebNode | null }) {
+function MachineStatusBadge({ loading, node, error }: { loading: boolean; node: WebNode | null; error: string | null }) {
   const intl = useIntl()
-  // node === null after load means the selected machine is no longer in the
-  // user's node list (removed/unreachable) — treat it as offline.
+  // Only a successful list can establish online/offline status. Request
+  // failures leave the status unknown and show a retryable error instead.
   const { label, className } = loading
     ? { label: intl.formatMessage({ id: "mobile.more.status.checking", defaultMessage: "Checking…" }), className: "bg-muted text-muted-foreground" }
-    : node?.revoked
-      ? { label: intl.formatMessage({ id: "mobile.more.status.revoked", defaultMessage: "Revoked" }), className: "bg-red-500/10 text-red-500" }
-      : node?.online
-        ? { label: intl.formatMessage({ id: "mobile.more.status.online", defaultMessage: "Online" }), className: "bg-emerald-500/10 text-emerald-500" }
-        : { label: intl.formatMessage({ id: "mobile.more.status.offline", defaultMessage: "Offline" }), className: "bg-amber-500/10 text-amber-500" }
+    : error
+      ? { label: 'Unavailable', className: 'bg-muted text-muted-foreground' }
+      : node?.revoked
+        ? { label: intl.formatMessage({ id: "mobile.more.status.revoked", defaultMessage: "Revoked" }), className: "bg-red-500/10 text-red-500" }
+        : node?.online
+          ? { label: intl.formatMessage({ id: "mobile.more.status.online", defaultMessage: "Online" }), className: "bg-emerald-500/10 text-emerald-500" }
+          : { label: intl.formatMessage({ id: "mobile.more.status.offline", defaultMessage: "Offline" }), className: "bg-amber-500/10 text-amber-500" }
   return (
     <span
       className={cn(

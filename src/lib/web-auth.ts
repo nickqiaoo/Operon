@@ -573,14 +573,31 @@ export function isCallbackRoute(): boolean {
 
 // ---- nodes ----
 
-export async function fetchNodes(): Promise<WebNode[]> {
-  if (!(await ensureAccessToken())) return []
+type NodeListResult =
+  | { ok: true; nodes: WebNode[] }
+  | { ok: false; message: string }
+
+export async function fetchNodes(): Promise<NodeListResult> {
+  if (!(await ensureAccessToken())) {
+    return { ok: false, message: "Couldn't verify your sign-in. Check your connection and retry, or sign in again." }
+  }
   try {
     const res = await fetchWithTimeout(`${BROKER}/auth/nodes`, { method: 'GET' })
-    if (!res.ok) return []
-    return (await res.json()) as WebNode[]
-  } catch {
-    return []
+    if (res.status === 401) {
+      return { ok: false, message: 'Your session has expired. Please sign in again.' }
+    }
+    if (!res.ok) {
+      return { ok: false, message: "Couldn't load machines. Please try again shortly." }
+    }
+    return { ok: true, nodes: (await res.json()) as WebNode[] }
+  } catch (error) {
+    const timedOut = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+    return {
+      ok: false,
+      message: timedOut
+        ? 'Loading machines timed out. Check your network or VPN connection and retry.'
+        : "Couldn't load machines. Check your network or VPN connection and retry.",
+    }
   }
 }
 

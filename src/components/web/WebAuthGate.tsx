@@ -62,6 +62,7 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [nodes, setNodes] = useState<WebNode[]>([])
   const [loadingNodes, setLoadingNodes] = useState(false)
+  const [nodesError, setNodesError] = useState<string | null>(null)
   const [pairingNode, setPairingNode] = useState<{ nodeId: string; label: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
@@ -194,13 +195,19 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
 
   const loadNodes = async () => {
     setLoadingNodes(true)
+    setNodesError(null)
     try {
       // Revoked nodes are dropped rather than listed as unpickable: signing a
       // machine out is meant to remove it, and a row that can only be looked at
       // reads as an error. They stay in the broker's response for
       // MobileMoreScreen, which has to tell a user their *selected* machine was
       // revoked.
-      setNodes((await fetchNodes()).filter((n) => !n.revoked))
+      const result = await fetchNodes()
+      if (result.ok) {
+        setNodes(result.nodes.filter((n) => !n.revoked))
+      } else {
+        setNodesError(result.message)
+      }
     } finally {
       setLoadingNodes(false)
     }
@@ -306,6 +313,11 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {intl.formatMessage({ id: 'web.auth.loadingMachines', defaultMessage: 'Loading machines…' })}
               </div>
+            ) : nodesError ? (
+              <div role="alert" className="space-y-2 rounded-lg border border-border/50 p-4 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Couldn't load machines</p>
+                <p>{nodesError}</p>
+              </div>
             ) : nodes.length === 0 ? (
               <div className="space-y-2 rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
                 <p>
@@ -359,9 +371,9 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
               </div>
             )}
             <div className="flex items-center justify-between pt-1">
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => void loadNodes()}>
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={loadingNodes} onClick={() => void loadNodes()}>
                 <RefreshCw className="h-3.5 w-3.5" />
-                {intl.formatMessage({ id: 'web.auth.refresh', defaultMessage: 'Refresh' })}
+                {nodesError ? 'Retry' : intl.formatMessage({ id: 'web.auth.refresh', defaultMessage: 'Refresh' })}
               </Button>
               <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => logout()}>
                 <LogOut className="h-3.5 w-3.5" />

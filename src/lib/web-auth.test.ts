@@ -69,8 +69,56 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+})
+
+describe('machine list failures', () => {
+  beforeEach(() => {
+    const claims = btoa(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600 }))
+    stubs.local.setItem('operon.web.access', `header.${claims}.signature`)
+  })
+
+  it('only returns an empty machine list after a successful response', async () => {
+    const { fetchNodes } = await importWebAuth()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('[]')))
+    expect(await fetchNodes()).toEqual({ ok: true, nodes: [] })
+  })
+
+  it('reports a network failure and recovers on retry', async () => {
+    const { fetchNodes } = await importWebAuth()
+    const nodes = [{ nodeId: 'machine', label: 'Mac', online: true, revoked: false }]
+    vi.stubGlobal('fetch', vi.fn()
+      .mockRejectedValueOnce(new TypeError('Load failed'))
+      .mockResolvedValueOnce(new Response(JSON.stringify(nodes))))
+    expect(await fetchNodes()).toEqual({ ok: false, message: expect.stringContaining('network or VPN') })
+    expect(await fetchNodes()).toEqual({ ok: true, nodes })
+  })
+
+  it('reports a timeout when the machine list request exceeds its deadline', async () => {
+    const { fetchNodes } = await importWebAuth()
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn((_input: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    })))
+    const result = fetchNodes()
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(await result).toEqual({ ok: false, message: expect.stringContaining('timed out') })
+  })
+
+  it.each([401, 503])('does not turn HTTP %s into an empty list', async (status) => {
+    const { fetchNodes } = await importWebAuth()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status })))
+    expect(await fetchNodes()).toEqual({ ok: false, message: expect.any(String) })
+  })
+
+  it('reports failed authentication instead of claiming there are no machines', async () => {
+    const { fetchNodes } = await importWebAuth()
+    stubs.local.clear()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Load failed')))
+    expect(await fetchNodes()).toEqual({ ok: false, message: expect.stringContaining('sign-in') })
+  })
 })
 
 describe('PKCE verifier storage', () => {
