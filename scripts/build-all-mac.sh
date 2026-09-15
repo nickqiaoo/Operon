@@ -8,6 +8,33 @@ if [ -f .env ]; then
   set +a
 fi
 
+# Node's fetch ignores the macOS system proxy, so downloads like fetch:cua-driver
+# (GitHub release assets) go direct and get reset. Mirror the system HTTPS proxy
+# into the env vars Node reads, unless the caller already set one.
+if [ -z "$HTTPS_PROXY" ] && [ -z "$https_proxy" ]; then
+  proxy_info="$(scutil --proxy 2>/dev/null || true)"
+  if echo "$proxy_info" | grep -q 'HTTPSEnable : 1'; then
+    proxy_host="$(echo "$proxy_info" | awk '/HTTPSProxy :/ {print $3}')"
+    proxy_port="$(echo "$proxy_info" | awk '/HTTPSPort :/ {print $3}')"
+    if [ -n "$proxy_host" ] && [ -n "$proxy_port" ]; then
+      export HTTPS_PROXY="http://$proxy_host:$proxy_port" HTTP_PROXY="http://$proxy_host:$proxy_port"
+      export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
+      echo "=== Using system proxy $HTTPS_PROXY ==="
+    fi
+  fi
+fi
+if [ -n "$HTTPS_PROXY$https_proxy" ]; then
+  export NODE_USE_ENV_PROXY=1
+fi
+
+# Pin the SDK to the selected Xcode's own. Otherwise xcrun can hand native builds
+# the newer Command Line Tools SDK, whose .tbd stubs an older ld can't read
+# ("unknown architecture arm64e.x1-macos").
+if [ -z "$SDKROOT" ]; then
+  SDKROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+  [ -n "$SDKROOT" ] && export SDKROOT && echo "=== Using SDK $SDKROOT ==="
+fi
+
 echo "=== TypeScript check ==="
 tsc
 

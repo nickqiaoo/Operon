@@ -89,17 +89,31 @@ if (
   process.exit(0);
 }
 
+/** GitHub release downloads through a proxy drop mid-handshake often enough
+ *  (ECONNRESET) that one attempt fails a whole build-all; retry with backoff. */
+async function fetchWithRetry(url, read, attempts = 5) {
+  for (let i = 1; ; i++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`cua-driver: ${url} returned ${res.status}`);
+      return await read(res);
+    } catch (err) {
+      if (i >= attempts) throw err;
+      const delay = 1000 * 2 ** (i - 1);
+      console.warn(`cua-driver: ${err.cause?.code ?? err.message}, retrying in ${delay / 1000}s (${i}/${attempts - 1})`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 console.log(`cua-driver: downloading ${VERSION}…`);
-const response = await fetch(URL);
-if (!response.ok) throw new Error(`cua-driver: ${URL} returned ${response.status}`);
-const archive = Buffer.from(await response.arrayBuffer());
+const archive = await fetchWithRetry(URL, async (res) => Buffer.from(await res.arrayBuffer()));
 
 // The release publishes `checksums.txt` alongside the assets. Verifying against
 // it is what makes downloading a binary we then ship inside our own signed app
 // defensible at all.
-const checksums = await fetch(URL.replace(ASSET, "checksums.txt"));
-if (!checksums.ok) throw new Error(`cua-driver: checksums.txt returned ${checksums.status}`);
-const expected = (await checksums.text())
+const checksumsText = await fetchWithRetry(URL.replace(ASSET, "checksums.txt"), (res) => res.text());
+const expected = checksumsText
   .split("\n")
   .map((line) => line.trim().split(/\s+/))
   .find(([, name]) => name?.replace(/^\*/, "") === ASSET)?.[0];

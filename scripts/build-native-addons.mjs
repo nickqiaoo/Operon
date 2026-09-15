@@ -10,7 +10,7 @@
  * fetched as an upstream release binary by `scripts/fetch-cua-driver.mjs`, so
  * neither is built or shipped. The Swift package is still in `native/computer-use`.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,10 +25,24 @@ const requestedArch = process.env.TARGET_ARCH ?? process.env.npm_config_arch ?? 
 
 await mkdir(destinationDir, { recursive: true });
 
+// Pin the SDK to the selected Xcode's own. Without SDKROOT, xcrun's default SDK
+// on a newer macOS is the Command Line Tools one (MacOSX27.0.sdk on macOS 27),
+// while clang/ld come from xcode-select — and an older ld can't read a newer
+// SDK's .tbd stubs ("unknown architecture arm64e.x1-macos"), so linking fails.
+const env = { ...process.env };
+if (!env.SDKROOT) {
+  try {
+    env.SDKROOT = execFileSync("xcrun", ["--sdk", "macosx", "--show-sdk-path"], { encoding: "utf8" }).trim();
+  } catch {
+    // Leave it to node-gyp's default lookup.
+  }
+}
+
 const nodeGyp = path.join(root, "node_modules", "node-gyp", "bin", "node-gyp.js");
 await new Promise((resolve, reject) => {
   const child = spawn(process.execPath, [nodeGyp, "rebuild", "--arch", requestedArch], {
     cwd: peerAuthAddonDir,
+    env,
     stdio: "inherit",
   });
   child.once("error", reject);
