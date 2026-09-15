@@ -456,9 +456,15 @@ export function WorkflowRunDetail({
   const totalDuration = run ? formatDuration((run.endedAt ?? Date.now()) - run.startedAt) : null;
 
   return (
-    <div className="group/run px-4 py-3 transition-colors hover:bg-muted/10">
-      {/* Header */}
-      <div className="flex items-start gap-2">
+    <div className="group/run">
+      {/* Header. The whole row is the hit area and the hover surface, edge to
+          edge like the dividers around it: highlighting only the text block left
+          the icon and chevron hanging outside a floating pill. Clicks on the
+          inner button bubble here, so this is the single toggle. */}
+      <div
+        onClick={() => setOpen((v) => !v)}
+        className="group/head flex cursor-pointer items-start gap-2 px-4 py-3 transition-colors hover:bg-accent-hover"
+      >
         <WorkflowIcon
           className={cn(
             'mt-0.5 h-4 w-4 shrink-0',
@@ -470,14 +476,8 @@ export function WorkflowRunDetail({
         />
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className={cn(
-            'flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-1.5 py-0.5 text-left',
-            // The row is the only way to fold a run open/closed; without this it
-            // read as static text.
-            '-mx-1.5 cursor-pointer transition-colors hover:bg-muted/50',
-          )}
+          className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <span className="flex flex-wrap items-center gap-2">
             <span className="truncate text-sm font-semibold">{name}</span>
@@ -496,7 +496,11 @@ export function WorkflowRunDetail({
         {status === 'running' && run && (
           <button
             type="button"
-            onClick={() => void api.aiWorkflowStop(run.runId)}
+            onClick={(e) => {
+              // Stopping must not also fold the row.
+              e.stopPropagation()
+              void api.aiWorkflowStop(run.runId)
+            }}
             className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground/50 transition-colors hover:bg-status-error/10 hover:text-status-error"
             aria-label={intl.formatMessage({ id: 'editor.workflow.stop', defaultMessage: 'Stop' })}
           >
@@ -506,11 +510,10 @@ export function WorkflowRunDetail({
         {/* Fold affordance. The header was clickable but said nothing about it,
             so a finished run read as static text with no way back into it. Not a
             second focusable control — the header button owns aria-expanded; this
-            only mirrors its state and widens the click target. */}
+            only mirrors its state. */}
         <div
           aria-hidden
-          onClick={() => setOpen((v) => !v)}
-          className="mt-0.5 shrink-0 cursor-pointer rounded p-1 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+          className="mt-0.5 shrink-0 p-1 text-muted-foreground/50 transition-colors group-hover/head:text-foreground"
         >
           <ChevronDownIcon
             className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')}
@@ -519,7 +522,7 @@ export function WorkflowRunDetail({
       </div>
 
       {open && (
-        <div className="mt-3 space-y-3">
+        <div className="space-y-3 px-4 pb-3">
           {/* Vital signs — only for the run that is open. Collapsed rows get the
               same numbers inline in the header. */}
           <div className="grid grid-cols-4 gap-3 rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
