@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 
 interface SkillChipsProps {
   skills: { name: string }[];
@@ -15,6 +15,7 @@ export function SkillChips({ skills, onRemove }: SkillChipsProps) {
           key={skill.name}
           className="inline-flex items-center gap-1 rounded-lg bg-tint-muted px-2 py-1 text-xs font-medium text-tint"
         >
+          <Sparkles aria-hidden="true" className="size-3 shrink-0 opacity-70" />
           <span>{skill.name}</span>
           <button
             type="button"

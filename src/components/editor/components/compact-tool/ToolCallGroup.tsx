@@ -52,10 +52,10 @@ function GroupStatusIndicator({ toolParts }: { toolParts: ToolInvocationPart[] }
   const hasError = states.some((s) => s === 'output-error' || s === 'output-denied');
   const hasApproval = states.some((s) => s === 'approval-requested');
 
-  if (hasApproval) return <span className="size-2 rounded-full bg-yellow-500 animate-pulse" />;
-  if (hasRunning) return <LoaderIcon className="size-3 animate-spin text-muted-foreground" />;
-  if (hasError) return <XIcon className="size-3 text-destructive" />;
-  return <CheckIcon className="size-3 text-green-600 dark:text-green-400" />;
+  if (hasApproval) return <span className="block size-2 rounded-full bg-status-warn animate-pulse" />;
+  if (hasRunning) return <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />;
+  if (hasError) return <XIcon className="size-3.5 text-status-error" />;
+  return <CheckIcon className="size-3.5 text-status-ok" />;
 }
 
 /** Renders one part inside a work group: a compact tool row, or a foldable thought. */

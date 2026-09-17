@@ -681,9 +681,6 @@
   "editor.prDialog.created": "已创建 PR #{number}",
   "editor.prDialog.createFailed": "创建 PR 失败",
   "editor.prDialog.defaultCommit": "来自对话的 AI 更改",
-  "editor.rewind.title": "确认回退",
-  "editor.rewind.desc1": "这会把工作区中的所有文件回退到所选检查点。此后的任何更改都将丢失，包括 AI 的修改和你自己的改动。",
-  "editor.rewind.note": "<b>注意：</b>回退作用于整个工作区。若其他对话标签页也修改了文件，它们的改动可能同样受影响。",
   "editor.rewind.desc2": "可以用检查点上出现的「撤销」按钮取消这次回退。",
   "editor.rewind.confirm": "回退",
   "editor.providerPicker.title": "选择服务商",
@@ -1736,5 +1733,12 @@
   "filePreview.find.previous": "上一个匹配项",
   "filePreview.find.next": "下一个匹配项",
   "filePreview.find.close": "关闭",
-  "workspaceBrowser.closeFile": "关闭 {name}"
+  "workspaceBrowser.closeFile": "关闭 {name}",
+  "editor.rewind.undoTitle": "撤销这一轮？",
+  "editor.rewind.rewindTitle": "回退到此处？",
+  "editor.rewind.undoDesc": "这一轮改过的文件会恢复到这一轮开始之前的样子。",
+  "editor.rewind.rewindDesc": "本对话从这条消息起改过的文件，都会恢复到这条消息发出之前的样子。之后对这些文件的修改（无论是本对话还是你自己改的）都会丢失。",
+  "editor.rewind.messagesKept": "只回退文件，对话记录保持不变。",
+  "editor.rewind.toHere": "回退到此处",
+  "editor.codex.title": "速率限制"
 }

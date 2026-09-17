@@ -34,6 +34,20 @@ object InfoSheet {
         val indent: Boolean,
     )
 
+    /** Bar fill level, separate from [Tone] so the bar can go green → orange → red while its label stays quiet. */
+    enum class BarTone {
+        OK, WARN, ERROR;
+
+        companion object {
+            fun from(raw: String?): BarTone? = when (raw) {
+                "ok" -> OK
+                "warn" -> WARN
+                "error" -> ERROR
+                else -> null
+            }
+        }
+    }
+
     enum class Tone {
         NORMAL, WARN, ERROR;
 
@@ -52,6 +66,8 @@ object InfoSheet {
         /** 0…1 */
         val progress: Double?,
         val tone: Tone,
+        /** null: the bar follows [tone]. */
+        val barTone: BarTone?,
         val footer: String?,
         val rows: List<Row>,
     )
@@ -121,7 +137,7 @@ object InfoSheet {
                     setProgressCompat((progress.coerceIn(0.0, 1.0) * 1000).toInt(), false)
                     trackCornerRadius = context.dp(3)
                     trackThickness = context.dp(6)
-                    setIndicatorColor(barColor(context, section.tone))
+                    setIndicatorColor(barColor(context, section))
                     trackColor = context.color(R.attr.operonTile)
                     layoutParams = SheetUi.matchWidth().apply { topMargin = context.dp(8) }
                 },
@@ -214,7 +230,14 @@ object InfoSheet {
         Tone.ERROR -> context.color(R.attr.operonStatusError)
     }
 
-    private fun barColor(context: Context, tone: Tone): Int = when (tone) {
+    private fun barColor(context: Context, section: Section): Int = when (section.barTone) {
+        BarTone.OK -> context.color(R.attr.operonFillOk)
+        BarTone.WARN -> context.color(R.attr.operonFillWarn)
+        BarTone.ERROR -> context.color(R.attr.operonFillError)
+        null -> toneBarColor(context, section.tone)
+    }
+
+    private fun toneBarColor(context: Context, tone: Tone): Int = when (tone) {
         Tone.NORMAL -> context.color(R.attr.operonBrand)
         Tone.WARN -> context.color(R.attr.operonStatusWarn)
         Tone.ERROR -> context.color(R.attr.operonStatusError)

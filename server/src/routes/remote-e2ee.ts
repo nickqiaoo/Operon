@@ -9,6 +9,8 @@ import {
 import {
   approveRemotePairing,
   claimRemotePairing,
+  getPairingApprovalNonce,
+  requiresSecureApproval,
   getRemotePairingStatus,
   inspectRemotePairing,
   listRemoteDevices,
@@ -65,9 +67,23 @@ export function remoteE2EERoutes(): Hono {
     return c.json(inspectRemotePairing(c.req.param('pairingId')))
   })
 
+  // Approval is the one call that mints a persistent, internet-reachable
+  // credential, so it does not settle for the api-token gate. Where the host
+  // offers a channel a same-user HTTP caller cannot reach (Electron IPC), this
+  // route is closed and the desktop UI approves through that instead. Headless
+  // servers have no such channel and keep this path, reading the nonce straight
+  // out of memory below — there it is bookkeeping, not a barrier. That downgrade
+  // is inherent rather than sloppy: on a headless box every credential the UI
+  // can obtain, a same-user attacker can obtain too.
   app.post('/pair/session/:pairingId/approve', (c) => {
     if (isRemote(c)) return c.json({ error: 'local_only' }, 403)
-    return c.json(approveRemotePairing(c.req.param('pairingId')))
+    if (requiresSecureApproval()) {
+      return c.json({ error: 'approval_requires_desktop_ui' }, 403)
+    }
+    const pairingId = c.req.param('pairingId')
+    const nonce = getPairingApprovalNonce(pairingId)
+    if (!nonce) return c.json({ error: 'Pairing request is missing or expired' }, 400)
+    return c.json(approveRemotePairing(pairingId, nonce))
   })
 
   app.post('/pair/session/:pairingId/reject', (c) => {

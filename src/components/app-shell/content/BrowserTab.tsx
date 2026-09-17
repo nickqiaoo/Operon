@@ -11,6 +11,16 @@ import type { PanelId } from "@/components/app-shell/tabs/types"
 /** No page loaded yet — show the local-servers landing instead of the webview. */
 const isLandingUrl = (url: string): boolean => url === "" || url === "about:blank"
 
+/**
+ * Page titles are usually "<page> - <site tagline>" or "<page> · <repo> · GitHub";
+ * the tab only has room for the leading part. Hyphens without spaces
+ * ("Wi-Fi") are part of a word, so only spaced separators split.
+ */
+function shortPageTitle(title: string): string {
+  const head = title.split(/\s+[-–—|·•]\s+/)[0]?.trim() ?? ""
+  return head.length >= 2 ? head : title
+}
+
 interface BrowserTabProps {
   panelId: PanelId
   tabId: string
@@ -69,12 +79,14 @@ export function BrowserTab({
   // at once, so a strip of identical "New tab" labels would be unreadable.
   // Falls back to the URL until `page-title-updated` arrives.
   useEffect(() => {
-    const title = isLanding ? "New tab" : wvState.title || url
+    const title = isLanding ? "New tab" : shortPageTitle(wvState.title || url)
+    const iconUrl = isLanding ? undefined : (wvState.favicon ?? undefined)
     const store = useTabsStore.getState()
+    const current = store[panelId].tabs.find((t) => t.tabId === tabId)
     // updateTab always writes a new tab object; skip the no-op store churn.
-    if (store[panelId].tabs.find((t) => t.tabId === tabId)?.title === title) return
-    store.updateTab(panelId, tabId, { title })
-  }, [panelId, tabId, isLanding, wvState.title, url])
+    if (current?.title === title && current.iconUrl === iconUrl) return
+    store.updateTab(panelId, tabId, { title, iconUrl })
+  }, [panelId, tabId, isLanding, wvState.title, wvState.favicon, url])
 
   // Track bounds.
   useEffect(() => {

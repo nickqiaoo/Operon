@@ -84,7 +84,7 @@ export function InboxPanel({ onItemClick, selectedId, hideHeader }: InboxPanelPr
       </div>
 
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2"
+        className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 scroll-fade-y"
         onScroll={handleScroll}
       >
         {loading && items.length === 0 ? (

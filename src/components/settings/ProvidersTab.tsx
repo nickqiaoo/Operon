@@ -440,7 +440,7 @@ export function ProvidersTab() {
     <div className="grid min-h-[520px] gap-4 lg:grid-cols-[232px_minmax(0,1fr)] lg:gap-5">
 
       {/* Left column */}
-      <div className="flex flex-col rounded-2xl border border-border/60 bg-muted/15 p-2">
+      <div className="flex flex-col rounded-xl border border-border/60 bg-muted/15 p-2">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 pb-2">
           <FormattedMessage id="settings.providers.heading" defaultMessage="Providers" />
         </p>
@@ -473,7 +473,7 @@ export function ProvidersTab() {
       </div>
 
       {/* Right column */}
-      <div className="min-w-0 rounded-2xl border border-border/60 bg-background/80 p-4 sm:p-5">
+      <div className="min-w-0 rounded-xl border border-border/60 bg-background/80 p-4 sm:p-5">
         <ProviderPanel
           key={selectedId}
           provider={selectedProvider}

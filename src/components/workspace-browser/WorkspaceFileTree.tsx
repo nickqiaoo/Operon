@@ -26,6 +26,49 @@ const isImmediateChild = (treeDir: string, candidate: string): boolean => {
   return rest.length > 0 && !rest.includes("/")
 }
 
+/**
+ * How long a directory load runs before its row shows a spinner. Local reads
+ * finish well under this, so they never flash one; remote (web → tunnel) reads
+ * can take long enough that an expand with no feedback looks frozen.
+ */
+const DIR_LOADING_DELAY_MS = 150
+
+const DIR_LOADING_STYLE_ID = "operon-dir-loading"
+
+/**
+ * Style rules that swap each loading directory's chevron for a spinner.
+ *
+ * Pierre has no loading state for rows and only re-renders on model changes, so
+ * the indicator is a stylesheet keyed on `data-item-path` inside the tree's
+ * shadow root. Being CSS, it also follows the path when the virtualized list
+ * hands that row to a different DOM node mid-scroll.
+ */
+const buildDirLoadingCss = (treeDirs: Iterable<string>): string => {
+  const icons = Array.from(
+    treeDirs,
+    (dir) => `[data-type='item'][data-item-path="${CSS.escape(dir)}"] > [data-item-section='icon']`
+  )
+  if (icons.length === 0) return ""
+  return `
+${icons.join(",\n")} { position: relative; }
+${icons.map((icon) => `${icon} > [data-icon-name='file-tree-icon-chevron']`).join(",\n")} { visibility: hidden; }
+${icons.map((icon) => `${icon}::after`).join(",\n")} {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--trees-fg-muted);
+  border-right-color: transparent;
+  animation: operon-dir-loading-spin 0.7s linear infinite;
+}
+@keyframes operon-dir-loading-spin { to { transform: rotate(360deg); } }
+`
+}
+
 export interface WorkspaceFileTreeHandle {
   refresh: () => void
 }
@@ -158,6 +201,16 @@ function TreeInner({
       search: true,
       // Pierre only renders coloured glyphs in the `complete` set.
       icons: { set: "complete" as const, colored: true },
+      // Pierre rings whichever row has focus, so a mouse click leaves a dark
+      // frame on the row. Keep the ring for keyboard navigation (`:focus-visible`)
+      // and drop it when the row was focused by the pointer. Rows only carry
+      // `:focus` when they hold DOM focus themselves, so the ring Pierre draws on
+      // the active match while typing in search stays.
+      unsafeCSS: `
+        [data-type='item'][data-item-focused='true']:focus:not(:focus-visible)::before {
+          outline-color: transparent;
+        }
+      `,
       initialSelectedPaths:
         selectedPath != null && selectedPath.startsWith(rootPath)
           ? [toTreePath(rootPath, selectedPath, false)]
@@ -172,6 +225,46 @@ function TreeInner({
 
   const mode = useResolvedMode()
   const { model } = useFileTree(fileTreeOptions)
+
+  /** In-flight loads per directory; a count because reveal and expand can overlap. */
+  const loadingDirsRef = useRef<Map<string, number>>(new Map())
+
+  const syncDirLoadingStyle = useCallback(() => {
+    const shadowRoot = model.getFileTreeContainer()?.shadowRoot
+    if (shadowRoot == null) return
+    let style = shadowRoot.getElementById(DIR_LOADING_STYLE_ID)
+    if (style == null) {
+      style = document.createElement("style")
+      style.id = DIR_LOADING_STYLE_ID
+      shadowRoot.appendChild(style)
+    }
+    style.textContent = buildDirLoadingCss(loadingDirsRef.current.keys())
+  }, [model])
+
+  /** Show a spinner on the directory's row if its load outlasts the delay. */
+  const trackDirLoading = useCallback(
+    <T,>(treeDir: string, load: Promise<T>): Promise<T> => {
+      let shown = false
+      const timer = setTimeout(() => {
+        shown = true
+        const loading = loadingDirsRef.current
+        loading.set(treeDir, (loading.get(treeDir) ?? 0) + 1)
+        syncDirLoadingStyle()
+      }, DIR_LOADING_DELAY_MS)
+      const settle = () => {
+        clearTimeout(timer)
+        if (!shown) return
+        const loading = loadingDirsRef.current
+        const remaining = (loading.get(treeDir) ?? 1) - 1
+        if (remaining > 0) loading.set(treeDir, remaining)
+        else loading.delete(treeDir)
+        syncDirLoadingStyle()
+      }
+      load.then(settle, settle)
+      return load
+    },
+    [syncDirLoadingStyle]
+  )
 
   /** Read a directory's immediate children through the query cache. */
   const loadDir = useCallback(
@@ -237,7 +330,7 @@ function TreeInner({
         const loaded = loadedDirsRef.current.has(path)
         if (expanded && !loaded) {
           loadedDirsRef.current.add(path)
-          loadDir(path)
+          trackDirLoading(path, loadDir(path))
             .then((children) => reconcile(path, children))
             .catch((err) => {
               console.error("WorkspaceFileTree: failed to load", path, err)
@@ -249,7 +342,7 @@ function TreeInner({
       }
     })
     return unsubscribe
-  }, [model, loadDir, reconcile])
+  }, [model, loadDir, reconcile, trackDirLoading])
 
   // Surface file selections to the consumer. Declared before the reveal effect
   // below, which writes it to keep its own selection from echoing back.
@@ -272,7 +365,7 @@ function TreeInner({
         const item = model.getItem(dir)
         const expanded = item != null && "isExpanded" in item && item.isExpanded()
         if (expanded && loadedDirsRef.current.has(dir)) continue
-        const children = await loadDir(dir)
+        const children = await trackDirLoading(dir, loadDir(dir))
         if (cancelled) return
         reconcile(dir, children)
         loadedDirsRef.current.add(dir)
@@ -293,7 +386,7 @@ function TreeInner({
     return () => {
       cancelled = true
     }
-  }, [model, rootPath, selectedPath, loadDir, reconcile])
+  }, [model, rootPath, selectedPath, loadDir, reconcile, trackDirLoading])
 
   // Manual refresh: invalidate this root's directory cache, then re-read the
   // root + every currently-expanded directory and reconcile in place (keeps
@@ -357,6 +450,10 @@ function TreeInner({
           // class); pin color-scheme to our resolved mode so colors track the
           // app theme, then match the app surface instead of Pierre's #f8f8f8.
           colorScheme: mode,
+          // The ellipsis on a long name fades in over 100ms by default. The list
+          // is virtualized, so scrolling keeps handing rows new names; for those
+          // 100ms the overflowing text shows through, which reads as flicker.
+          "--truncate-marker-fade-in-duration": "0ms",
           "--trees-bg-override": "var(--color-background)",
           "--trees-fg-override": "var(--color-foreground)",
           "--trees-selected-fg-override": "var(--color-foreground)",

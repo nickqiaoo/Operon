@@ -98,7 +98,7 @@ import { isCanvasChatId } from '@/lib/canvas-utils';
 import { trackEvent } from '@/lib/analytics';
 import { AutoScrollManager } from './components/AutoScrollManager';
 import { ChatWaitingIndicator } from './components/ChatWaitingIndicator';
-import { CodexRateLimitsButton } from './components/CodexRateLimitsButton';
+import { CodexRateLimitsButton, MobileCodexRateLimits } from './components/CodexRateLimitsButton';
 import { ClaudeRateLimitsButton, MobileClaudeRateLimits } from './components/ClaudeRateLimitsButton';
 import { useChatNotifications } from '@/hooks/useNotification';
 import { useVisibleChatInboxRead } from '@/hooks/useVisibleChatInboxRead';
@@ -547,6 +547,7 @@ function ChatPanelContent({
   const {
     rewindDialogOpen,
     setRewindDialogOpen,
+    rewindMode,
     rewindedCheckpoint,
     pendingConflicts,
     handleRewindToCheckpoint,
@@ -885,6 +886,7 @@ function ChatPanelContent({
     <div ref={transcriptRef} className="h-full flex flex-col relative">
       <RewindConfirmDialog
         open={rewindDialogOpen}
+        mode={rewindMode}
         onOpenChange={setRewindDialogOpen}
         onCancel={cancelRewind}
         onConfirm={confirmRewind}
@@ -915,6 +917,9 @@ function ChatPanelContent({
           onLoadMore={handleLoadMoreHistory}
         />
         <ConversationContent
+          // Fade the edges that meet the tab bar and the composer toolbar
+          // instead of clipping a half-cut row of text there.
+          scrollClassName="scroll-fade-y"
           className={cn(
             "w-full max-w-4xl mx-auto px-4 pt-5 pb-4 gap-1",
             // Phone: the transcript runs under the status bar and the floating
@@ -1085,11 +1090,18 @@ function ChatPanelContent({
             </Button>
           ) : null}
           {(providerId === 'codex' || selectedModel?.providerId === 'codex') && codexUsageDetails ? (
-            <CodexRateLimitsButton
-              account={codexUsageDetails.account}
-              rateLimits={codexUsageDetails.rateLimits}
-              className="shrink-0 @max-[460px]:gap-1 @max-[460px]:px-2"
-            />
+            isMobile ? (
+              <MobileCodexRateLimits
+                account={codexUsageDetails.account}
+                rateLimits={codexUsageDetails.rateLimits}
+              />
+            ) : (
+              <CodexRateLimitsButton
+                account={codexUsageDetails.account}
+                rateLimits={codexUsageDetails.rateLimits}
+                className="shrink-0 @max-[460px]:gap-1 @max-[460px]:px-2"
+              />
+            )
           ) : null}
           {isClaudeCode && displayedClaudeRateLimits ? (
             isMobile ? (

@@ -28,6 +28,9 @@
         <item name="operonBrand">@color/operon_brand_light</item>
         <item name="operonStatusWarn">@color/operon_status_warn_light</item>
         <item name="operonStatusError">@color/operon_status_error_light</item>
+        <item name="operonFillOk">@color/operon_fill_ok_light</item>
+        <item name="operonFillWarn">@color/operon_fill_warn_light</item>
+        <item name="operonFillError">@color/operon_fill_error_light</item>
         <item name="operonTile">@color/operon_tile_light</item>
         <item name="operonRowPressed">@color/operon_row_pressed_light</item>
 
@@ -60,6 +63,9 @@
         <item name="operonBrand">@color/operon_brand_dark</item>
         <item name="operonStatusWarn">@color/operon_status_warn_dark</item>
         <item name="operonStatusError">@color/operon_status_error_dark</item>
+        <item name="operonFillOk">@color/operon_fill_ok_dark</item>
+        <item name="operonFillWarn">@color/operon_fill_warn_dark</item>
+        <item name="operonFillError">@color/operon_fill_error_dark</item>
         <item name="operonTile">@color/operon_tile_dark</item>
         <item name="operonRowPressed">@color/operon_row_pressed_dark</item>
 
@@ -125,6 +131,9 @@
         <item name="operonBrand">@color/operon_brand_light</item>
         <item name="operonStatusWarn">@color/operon_status_warn_light</item>
         <item name="operonStatusError">@color/operon_status_error_light</item>
+        <item name="operonFillOk">@color/operon_fill_ok_light</item>
+        <item name="operonFillWarn">@color/operon_fill_warn_light</item>
+        <item name="operonFillError">@color/operon_fill_error_light</item>
         <item name="operonTile">@color/operon_tile_light</item>
         <item name="operonRowPressed">@color/operon_row_pressed_light</item>
 
@@ -157,6 +166,9 @@
         <item name="operonBrand">@color/operon_brand_dark</item>
         <item name="operonStatusWarn">@color/operon_status_warn_dark</item>
         <item name="operonStatusError">@color/operon_status_error_dark</item>
+        <item name="operonFillOk">@color/operon_fill_ok_dark</item>
+        <item name="operonFillWarn">@color/operon_fill_warn_dark</item>
+        <item name="operonFillError">@color/operon_fill_error_dark</item>
         <item name="operonTile">@color/operon_tile_dark</item>
         <item name="operonRowPressed">@color/operon_row_pressed_dark</item>
 

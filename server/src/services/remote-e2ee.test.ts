@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import {
   E2EE_CONTEXT_HEADER,
@@ -7,8 +7,10 @@ import {
   E2EE_INNER_CONTENT_TYPE_HEADER,
   E2EE_KEY_HEADER,
   REMOTE_TUNNEL_HEADER,
+  base64ToBytes,
   bytesToBase64,
   decodeStreamFrame,
+  pairingAad,
   requestAad,
   responseContext,
   responseFrameAad,
@@ -18,8 +20,23 @@ import {
 import type { MobilePairingStorageAdapter, StorageAdapter } from '../storage/interface.js'
 import type { CreateMobilePairingInput, MobilePairingRow, MobilePairingStatus } from '../types/mobile.js'
 import { fingerprintPublicKey, initDesktopIdentity } from './mobile/identity.js'
-import { createDeviceKeypair, deriveRemoteDirectionKeys, open, seal } from '../../../src/lib/e2ee/crypto.js'
-import { createRemoteE2EEMiddleware, initRemoteE2EE } from './remote-e2ee.js'
+import { createDeviceKeypair, derivePairingKey, deriveRemoteDirectionKeys, open, seal } from '../../../src/lib/e2ee/crypto.js'
+import {
+  approveRemotePairing,
+  claimRemotePairing,
+  createRemoteE2EEMiddleware,
+  getPairingApprovalNonce,
+  initRemoteE2EE,
+  requiresSecureApproval,
+  startRemotePairing,
+} from './remote-e2ee.js'
+import { remoteE2EERoutes } from '../routes/remote-e2ee.js'
+
+// startRemotePairing refuses without a connected node; the values are otherwise
+// opaque to the approval path under test.
+vi.mock('../gateway/saas/config.js', () => ({
+  getSaasConfig: () => ({ nodeId: 'node-test', nodeToken: 'token-test' }),
+}))
 
 let storage: TestStorage
 let pairing: StoredRemotePairing
@@ -151,6 +168,97 @@ function concat(chunks: Uint8Array[]): Uint8Array {
   }
   return output
 }
+
+/**
+ * Approving a device is the only local call that mints a persistent,
+ * internet-reachable credential, so it does not rest on the api-token gate —
+ * which by design does not stop a same-user process. These cover the two
+ * barriers that replace it: the nonce, and the closed HTTP route.
+ */
+describe('device pairing approval', () => {
+  /** Drive a pairing to the 'pending' state the Approve button acts on. */
+  const claimPairing = (payload: ReturnType<typeof startRemotePairing>) => {
+    const device = createDeviceKeypair()
+    const claim = {
+      deviceId: crypto.randomUUID(),
+      deviceName: 'Test phone',
+      platform: 'ios' as const,
+      devicePublicKey: bytesToBase64(device.publicKey),
+      deviceFingerprint: fingerprintPublicKey(device.publicKey),
+    }
+    const key = derivePairingKey(base64ToBytes(payload.pairingSecret), payload.pairingId)
+    claimRemotePairing({
+      pairingId: payload.pairingId,
+      envelope: seal(utf8(JSON.stringify(claim)), key, pairingAad(payload.pairingId, 'claim')),
+    })
+    return claim
+  }
+
+  it('rejects an approval that does not carry the pairing nonce', () => {
+    initRemoteE2EE({ storage, mode: 'required', secureApprovalChannel: true })
+    const payload = startRemotePairing()
+    claimPairing(payload)
+
+    expect(() => approveRemotePairing(payload.pairingId, 'not-the-nonce')).toThrow(/operon window/)
+    expect(() => approveRemotePairing(payload.pairingId, '')).toThrow(/operon window/)
+    // Still pending: a failed approval must not be a partial one.
+    expect(storage.getMobilePairingByNonce(payload.pairingId)?.status).toBe('pending')
+  })
+
+  it('confirms with the nonce and tells the host exactly once', () => {
+    const confirmed: string[] = []
+    initRemoteE2EE({
+      storage,
+      mode: 'required',
+      secureApprovalChannel: true,
+      onPairingConfirmed: (p) => confirmed.push(p.mobileFingerprint),
+    })
+    const payload = startRemotePairing()
+    const claim = claimPairing(payload)
+
+    const summary = approveRemotePairing(payload.pairingId, getPairingApprovalNonce(payload.pairingId)!)
+    expect(summary.status).toBe('confirmed')
+    expect(confirmed).toEqual([claim.deviceFingerprint])
+  })
+
+  it('never exposes the nonce through the pairing payload', () => {
+    initRemoteE2EE({ storage, mode: 'required', secureApprovalChannel: true })
+    const payload = startRemotePairing()
+    const nonce = getPairingApprovalNonce(payload.pairingId)
+
+    expect(nonce).toBeTruthy()
+    expect(JSON.stringify(payload)).not.toContain(nonce!)
+  })
+
+  it('closes the HTTP approve route when the host has a secure channel', async () => {
+    initRemoteE2EE({ storage, mode: 'required', secureApprovalChannel: true })
+    const payload = startRemotePairing()
+    claimPairing(payload)
+    expect(requiresSecureApproval()).toBe(true)
+
+    const app = new Hono()
+    app.route('/api/e2ee', remoteE2EERoutes())
+    const res = await app.request(`/api/e2ee/pair/session/${payload.pairingId}/approve`, { method: 'POST' })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'approval_requires_desktop_ui' })
+    expect(storage.getMobilePairingByNonce(payload.pairingId)?.status).toBe('pending')
+  })
+
+  it('keeps the HTTP route usable for headless hosts, which have no better channel', async () => {
+    initRemoteE2EE({ storage, mode: 'required', secureApprovalChannel: false })
+    const payload = startRemotePairing()
+    claimPairing(payload)
+    expect(requiresSecureApproval()).toBe(false)
+
+    const app = new Hono()
+    app.route('/api/e2ee', remoteE2EERoutes())
+    const res = await app.request(`/api/e2ee/pair/session/${payload.pairingId}/approve`, { method: 'POST' })
+
+    expect(res.status).toBe(200)
+    expect(storage.getMobilePairingByNonce(payload.pairingId)?.status).toBe('confirmed')
+  })
+})
 
 class TestStorage implements StorageAdapter, MobilePairingStorageAdapter {
   private readonly values = new Map<string, unknown>()

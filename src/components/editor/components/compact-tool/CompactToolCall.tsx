@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { CheckIcon, XIcon, ChevronRightIcon, LoaderIcon } from 'lucide-react';
+import { CheckIcon, XIcon, ChevronRightIcon } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -16,9 +16,10 @@ import {
   ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
 import type { ConfirmationProps } from '@/components/ai-elements/confirmation';
-import { ToolInput, ToolOutput } from '@/components/ai-elements/tool';
+import { ToolDescription, ToolInput, ToolOutput, ToolStatusIcon } from '@/components/ai-elements/tool';
 import type { ToolPart } from '@/components/ai-elements/tool';
 import { cn } from '@/lib/utils';
+import { ToolIcon } from './ToolIcon';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
 import { ToolInputDiff } from '../ToolInputDiff';
@@ -40,24 +41,6 @@ type ToolInvocationPart = ToolPartLike & {
   approval?: NonNullable<ConfirmationProps['approval']>;
   toolCallId?: string;
 };
-
-function StatusIndicator({ state }: { state: string }) {
-  switch (state) {
-    case 'input-streaming':
-    case 'input-available':
-      return <LoaderIcon className="size-3 animate-spin text-muted-foreground" />;
-    case 'output-available':
-    case 'approval-responded':
-      return <CheckIcon className="size-3 text-green-600 dark:text-green-400" />;
-    case 'output-error':
-    case 'output-denied':
-      return <XIcon className="size-3 text-destructive" />;
-    case 'approval-requested':
-      return <span className="size-2 rounded-full bg-yellow-500 animate-pulse" />;
-    default:
-      return null;
-  }
-}
 
 export function CompactToolCall({
   toolPart,
@@ -116,7 +99,7 @@ export function CompactToolCall({
       {...(needsApproval ? { open: true } : {})}
       className={cn(
         'group/compact',
-        state === 'output-error' && 'text-destructive',
+        state === 'output-error' && 'text-status-error',
       )}
     >
       <CollapsibleTrigger
@@ -125,6 +108,7 @@ export function CompactToolCall({
         className="flex w-full items-center gap-1.5 text-left"
       >
         <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/compact:rotate-90" />
+        <ToolIcon toolName={toolName} />
         {/* The name identifies the row, so it truncates last. Flex distributes
             shrinkage by basis, so leaving it shrinkable clipped even a 4-char
             "Bash" down to "Ba…" whenever the command beside it was long. With a
@@ -143,12 +127,10 @@ export function CompactToolCall({
           {formatToolDisplayName(toolName)}
         </span>
         {commandDescription && (
-          <code className="min-w-0 truncate text-xs text-muted-foreground/70 font-mono">
-            {commandDescription}
-          </code>
+          <ToolDescription value={commandDescription} className="text-muted-foreground/70" />
         )}
         <span className="ml-auto shrink-0">
-          <StatusIndicator state={state} />
+          <ToolStatusIcon state={state} />
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="pl-[18px] pb-1">
@@ -165,11 +147,11 @@ export function CompactToolCall({
                 <FormattedMessage id="editor.confirm.requestTool" defaultMessage="The assistant requests permission to execute this tool." />
               </ConfirmationRequest>
               <ConfirmationAccepted>
-                <CheckIcon className="size-4 text-green-600 dark:text-green-400" />
+                <CheckIcon className="size-4 text-status-ok" />
                 <span><FormattedMessage id="editor.confirm.accepted" defaultMessage="Accepted" /></span>
               </ConfirmationAccepted>
               <ConfirmationRejected>
-                <XIcon className="size-4 text-destructive" />
+                <XIcon className="size-4 text-status-error" />
                 <span><FormattedMessage id="editor.confirm.rejected" defaultMessage="Rejected" /></span>
               </ConfirmationRejected>
             </ConfirmationTitle>

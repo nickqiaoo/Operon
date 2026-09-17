@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
@@ -23,6 +23,8 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
 );
 
 export type ConversationContentProps = Omit<ComponentProps<"div">, "children"> & {
+  /** Classes for the scrolling element (the outer div), e.g. `scroll-fade-y`. */
+  scrollClassName?: string;
   children?:
   | ReactNode
   | ((context: ReturnType<typeof useStickToBottomContext>) => ReactNode);
@@ -30,15 +32,62 @@ export type ConversationContentProps = Omit<ComponentProps<"div">, "children"> &
 
 export const ConversationContent = ({
   className,
+  scrollClassName,
   children,
   ...props
 }: ConversationContentProps) => {
   const context = useStickToBottomContext();
-  const { scrollRef, contentRef } = context;
+  const { scrollRef, contentRef, state, scrollToBottom } = context;
   const content = typeof children === "function" ? children(context) : children;
 
+  // When the scroller narrows (e.g. a side panel animating open), the content
+  // reflows taller. The library only catches up on the next frame with a
+  // spring, which reads as a visible slide. Pin the bottom inside the
+  // ResizeObserver callback instead: it runs after layout but before paint,
+  // so the frame is already painted bottom-anchored and the text grows upward.
+  //
+  // Don't trust `state.isAtBottom` alone for this: when the scroller widens the
+  // browser clamps scrollTop downward, and the library sometimes (timing race
+  // in its resize-vs-scroll bookkeeping) reads that as the user scrolling up
+  // and drops the lock. So track "at bottom" from geometry at scroll time, and
+  // once the width settles, hand the lock back to the library if it lost it.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const gap = () => el.scrollHeight - el.clientHeight - el.scrollTop;
+    let pinned = state.isAtBottom || gap() <= 2;
+    let lastWidth = el.clientWidth;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const onScroll = () => {
+      pinned = state.isAtBottom || gap() <= 2;
+    };
+    const observer = new ResizeObserver(() => {
+      const width = el.clientWidth;
+      if (width === lastWidth) return;
+      lastWidth = width;
+      if (!pinned) return;
+      el.scrollTop = el.scrollHeight - el.clientHeight;
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        if (!state.isAtBottom && gap() <= 2) {
+          state.escapedFromLock = false;
+          void scrollToBottom({ animation: "instant" });
+        }
+      }, 100);
+    });
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+      clearTimeout(settleTimer);
+    };
+  }, [scrollRef, state, scrollToBottom]);
+
   return (
-    <div ref={scrollRef} className="h-full w-full overflow-y-auto code-scrollbar">
+    <div ref={scrollRef} className={cn("h-full w-full overflow-y-auto code-scrollbar", scrollClassName)}>
       <div
         ref={contentRef}
         data-testid="message-list"

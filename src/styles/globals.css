@@ -724,6 +724,15 @@ body > div > button[title="Exit fullscreen"] {
   background-clip: padding-box;
 }
 
+/* Streamdown (Shiki) code blocks: light theme token colors. streamdown 2.x puts
+   each token's color in `--sdm-c` and applies it with the Tailwind class
+   `text-[var(--sdm-c,inherit)]`, but that class lives in node_modules, which
+   Tailwind does not scan — so it never gets generated and every token falls
+   back to plain foreground. */
+[data-streamdown="code-block-body"] span[style*="--sdm-c"] {
+  color: var(--sdm-c, inherit);
+}
+
 /* Streamdown (Shiki) code blocks: ensure dark theme tokens use dark colors */
 .dark [data-streamdown="code-block-body"] span {
   color: var(--shiki-dark, currentColor) !important;
@@ -738,10 +747,12 @@ body > div > button[title="Exit fullscreen"] {
   border-color: var(--color-border) !important;
 }
 
-/* Code block header: compact with subtle separator */
+/* Code block header: compact with subtle separator. 4px + the 18px copy
+   button + 4px lands the row at ~27px; it used to be 35px, which on a one-line
+   block made the label strip nearly as tall as the code under it. */
 [data-streamdown="code-block-header"] {
   height: auto !important;
-  padding: 0.375rem 0.75rem !important;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem !important;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
 }
 
@@ -754,7 +765,7 @@ body > div > button[title="Exit fullscreen"] {
 }
 
 [data-streamdown="code-block-body"] pre {
-  padding: 0.75rem !important;
+  padding: 0.5rem 0.75rem !important;
   margin: 0 !important;
   border-radius: 0 !important;
 }
@@ -785,7 +796,7 @@ body > div > button[title="Exit fullscreen"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.25rem;
+  padding: 0.125rem;
   border-radius: 0.375rem;
   color: var(--color-muted-foreground);
   background: transparent;
@@ -935,6 +946,66 @@ body > div > button[title="Exit fullscreen"] {
   width: 100%;
 }
 
+
+/*
+ * Edge fade for a scroll area that butts against fixed chrome (a toolbar, the
+ * composer, a nav footer). A hard clip leaves a half-cut row of text on the
+ * boundary; fading the last few pixels reads as "more content this way".
+ *
+ * Only an edge with content beyond it fades: the fade sizes are driven by a
+ * scroll-linked animation, so at the top there is no top fade, at the end no
+ * bottom fade, and a container that does not scroll at all has an inactive
+ * timeline and keeps both at 0. `mask-image` (not a background-colored overlay)
+ * so it works on any surface, translucent ones included.
+ *
+ * The second mask layer keeps a strip on the right fully opaque, so a native
+ * scrollbar in the container is not dimmed along with the content. Set
+ * `--scroll-fade-gutter: 0px` where the scrollbar lives outside the element
+ * (Radix ScrollArea).
+ */
+@property --scroll-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --scroll-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes scroll-fade-top {
+  from { --scroll-fade-top: 0px; }
+  to { --scroll-fade-top: var(--scroll-fade-size); }
+}
+
+@keyframes scroll-fade-bottom {
+  from { --scroll-fade-bottom: var(--scroll-fade-size); }
+  to { --scroll-fade-bottom: 0px; }
+}
+
+@utility scroll-fade-y {
+  --scroll-fade-size: 24px;
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--scroll-fade-top),
+      #000 calc(100% - var(--scroll-fade-bottom)),
+      transparent 100%
+    ),
+    linear-gradient(#000, #000);
+  mask-size: 100% 100%, var(--scroll-fade-gutter, 12px) 100%;
+  mask-position: 0 0, 100% 0;
+  mask-repeat: no-repeat;
+  /* `animation` resets the timeline and range, so they must come after it. */
+  animation: scroll-fade-top linear both, scroll-fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0px var(--scroll-fade-size),
+    calc(100% - var(--scroll-fade-size)) 100%;
+}
 
 /* Panels now use utility classes for a flat design */
 

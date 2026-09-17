@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.3.36] - 2026-09-17
+
+### Changed
+
+- Opening or closing the right panel keeps the chat pinned to the bottom; narrowing text grows upward instead of sliding.
+- Approving a new phone or browser now only works from the desktop window, and every new device shows up in the inbox and as a system notification.
+- Diff cards offer Undo only on the latest turn that changed files; older turns can be rewound from the user message with "Rewind to here". Rewinding never touches the conversation.
+- Codex rate limits open on hover on desktop and in a sheet on mobile; Claude and Codex usage bars turn green, orange and red as a limit gets close.
+- Tool calls show an icon for their kind, keep the file name visible in long paths, and no longer jump from a card to a row when they finish.
+- Browser tabs show the page's favicon and a shorter title.
+- Slow folders in the file tree show a spinner while they load, and long names no longer flicker while scrolling.
+- Code blocks show syntax colors in light theme and have a more compact header.
+- Scroll areas next to toolbars and the composer fade at the edge instead of cutting a line in half.
+- Settings tabs are grouped, with AI Providers first.
+
 ## [1.3.35] - 2026-09-15
 
 ### Changed

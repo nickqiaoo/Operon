@@ -714,12 +714,12 @@ function PluginDetail({
 
       {/* Brand hero with example prompts — the visual focal point */}
       {examplePrompts.length > 0 && (
-        <div className="overflow-hidden rounded-2xl p-5 sm:p-8" style={heroBackground(brand)}>
+        <div className="overflow-hidden rounded-xl p-5 sm:p-8" style={heroBackground(brand)}>
           <div className="mx-auto flex max-w-2xl flex-col gap-2.5">
             {examplePrompts.map((p) => (
               <div
                 key={p}
-                className="flex items-center gap-3 rounded-2xl border border-white/50 bg-background/75 px-4 py-3 shadow-card backdrop-blur-sm dark:border-white/10 dark:bg-background/60"
+                className="flex items-center gap-3 rounded-lg border border-white/50 bg-background/75 px-4 py-3 shadow-card backdrop-blur-sm dark:border-white/10 dark:bg-background/60"
               >
                 <PluginLogo url={logo?.logoUrl} name={name} color={brand} size="sm" />
                 <span className="shrink-0 text-sm font-semibold" style={brand ? { color: brand } : undefined}>
@@ -1405,7 +1405,7 @@ function PluginLogo({
   const src = viaBroker ? objectUrl : url
   const dim =
     size === "xl"
-      ? "h-16 w-16 rounded-2xl text-2xl"
+      ? "h-16 w-16 rounded-xl text-2xl"
       : size === "lg"
         ? "h-10 w-10 rounded-lg text-sm"
         : size === "sm"

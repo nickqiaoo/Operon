@@ -24,6 +24,9 @@
     <color name="operon_brand_light">#FF6358DC</color>
     <color name="operon_status_warn_light">#FFB45309</color>
     <color name="operon_status_error_light">#FFB91C1C</color>
+    <color name="operon_fill_ok_light">#FF3DB87A</color>
+    <color name="operon_fill_warn_light">#FFE5845C</color>
+    <color name="operon_fill_error_light">#FFEF4444</color>
     <!-- Quiet fills: the logo tile behind a provider glyph, and row press
          feedback. Alpha over the card, so they follow whatever it is. -->
     <color name="operon_tile_light">#141A1B23</color>
@@ -42,6 +45,9 @@
     <color name="operon_brand_dark">#FF8B7DF0</color>
     <color name="operon_status_warn_dark">#FFFCD34D</color>
     <color name="operon_status_error_dark">#FFFCA5A5</color>
+    <color name="operon_fill_ok_dark">#FF4FCC8E</color>
+    <color name="operon_fill_warn_dark">#FFF09570</color>
+    <color name="operon_fill_error_dark">#FF991B1B</color>
     <color name="operon_tile_dark">#1AFFFFFF</color>
     <color name="operon_row_pressed_dark">#14FFFFFF</color>
 </resources>

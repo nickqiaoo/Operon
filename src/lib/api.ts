@@ -884,8 +884,13 @@ export const api = {
     get<{ status: RemotePairingStatus['status']; expiresAt?: number; pairing?: MobilePairingSummary }>(
       `/e2ee/pair/session/${encodeURIComponent(pairingId)}`,
     ),
-  remoteE2eePairApprove: (pairingId: string) =>
-    post<MobilePairingSummary>(`/e2ee/pair/session/${encodeURIComponent(pairingId)}/approve`, {}),
+  // IPC first: in the desktop app the HTTP route answers 403, because approving
+  // a device mints a persistent, internet-reachable credential and the api-token
+  // gate does not stop a same-user process. The HTTP call is the fallback for
+  // headless/browser hosts, which have no channel an attacker could not use too.
+  remoteE2eePairApprove: (pairingId: string): Promise<MobilePairingSummary> =>
+    window.electronAPI?.approveRemotePairing?.(pairingId)
+      ?? post<MobilePairingSummary>(`/e2ee/pair/session/${encodeURIComponent(pairingId)}/approve`, {}),
   remoteE2eePairReject: (pairingId: string) =>
     post<{ ok: true }>(`/e2ee/pair/session/${encodeURIComponent(pairingId)}/reject`, {}),
   remoteE2eeDevices: () => get<{ devices: MobilePairingSummary[] }>('/e2ee/devices'),

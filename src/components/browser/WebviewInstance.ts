@@ -37,6 +37,8 @@ export interface WebviewSyncOptions {
 export interface WebviewState {
   url: string
   title: string
+  /** Page icon (read at dom-ready, then from `page-favicon-updated`); null until known. */
+  favicon: string | null
   canGoBack: boolean
   canGoForward: boolean
   isLoading: boolean
@@ -58,6 +60,14 @@ export interface WebviewState {
 }
 
 type StateListener = (state: WebviewState) => void
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host
+  } catch {
+    return null
+  }
+}
 
 /** Markdown context block describing the annotation target (sent to the agent). */
 const formatAnchorContext = (a: Anchor): string => {
@@ -167,6 +177,9 @@ export class WebviewInstance {
   private lastVisibleBounds: WebviewBounds | null = null
   private lastSyncOptions: WebviewSyncOptions = {}
   private state: WebviewState
+  /** Host of the page `state.favicon` came from (not `state.url`, which
+   *  navigate() sets optimistically before the new page commits). */
+  private faviconHost: string | null = null
   private readonly listeners = new Set<StateListener>()
   private disposed = false
   /** Unsubscribe from the annotations store (pins derive from it). */
@@ -190,6 +203,7 @@ export class WebviewInstance {
     this.state = {
       url: initialUrl,
       title: initialUrl,
+      favicon: null,
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
@@ -763,6 +777,18 @@ export class WebviewInstance {
     })
   }
 
+  private setFavicon(favicon: string | null): void {
+    // getURL() is the committed page — the one the icon was reported for.
+    let committed: string
+    try {
+      committed = this.webview.getURL()
+    } catch {
+      committed = this.state.url
+    }
+    this.faviconHost = favicon == null ? null : hostOf(committed)
+    if (favicon !== this.state.favicon) this.updateState({ favicon })
+  }
+
   private updateState(patch: Partial<WebviewState>): void {
     this.state = { ...this.state, ...patch }
     for (const listener of this.listeners) listener(this.state)
@@ -807,6 +833,10 @@ export class WebviewInstance {
     this.webview.addEventListener("did-navigate", (event) => {
       this.updateState({
         url: event.url,
+        // Another site: drop the old icon until this one reports. Same host
+        // keeps it — a reload doesn't re-fire page-favicon-updated when the
+        // icon is unchanged, so clearing here would lose it for good.
+        favicon: hostOf(event.url) === this.faviconHost ? this.state.favicon : null,
         loadError: null,
         canGoBack: this.webview.canGoBack?.() ?? false,
         canGoForward: this.webview.canGoForward?.() ?? false,
@@ -821,6 +851,26 @@ export class WebviewInstance {
     this.webview.addEventListener("page-title-updated", (event) => {
       this.updateState({ title: event.title || this.state.url })
       recordServerVisit(this.state.url, event.title)
+    })
+    this.webview.addEventListener("page-favicon-updated", (event) => {
+      this.setFavicon(event.favicons[0] ?? null)
+    })
+    // Chromium only reports favicons once the page finishes loading, which on a
+    // heavy site is many seconds. The <link> tags are there at dom-ready, so
+    // read them then; page-favicon-updated still corrects it afterwards.
+    this.webview.addEventListener("dom-ready", () => {
+      const url = this.state.url
+      this.webview
+        .executeJavaScript(
+          `document.querySelector('link[rel~="icon"][href]')?.href ?? null`
+        )
+        .then((href: unknown) => {
+          if (typeof href !== "string" || this.disposed || this.state.url !== url) return
+          this.setFavicon(href)
+        })
+        .catch(() => {
+          // Page navigated away mid-call; page-favicon-updated covers it.
+        })
     })
 
     // Top-level navigation failures. `isMainFrame` distinguishes from

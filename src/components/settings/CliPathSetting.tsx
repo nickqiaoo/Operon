@@ -107,7 +107,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
       : intl.formatMessage({ id: "settings.cli.notFound", defaultMessage: "Not found" })
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-muted/10 p-4 space-y-3">
+    <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium">{label}</div>

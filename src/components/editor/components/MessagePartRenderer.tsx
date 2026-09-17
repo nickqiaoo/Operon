@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai';
 import { useState, useCallback, type ReactElement } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { CheckCircle2Icon, CheckIcon, CopyIcon } from 'lucide-react';
+import { CheckCircle2Icon, CheckIcon, CopyIcon, HistoryIcon, SparklesIcon } from 'lucide-react';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import {
   Message,
@@ -16,7 +16,7 @@ import type { EditorTab } from '@/types/editor';
 import { PlanRenderer } from './PlanRenderer';
 import { ShareButton } from './ShareButton';
 import { SubAgentRenderer } from './SubAgentRenderer';
-import { ToolInvocationRenderer } from './ToolInvocationRenderer';
+import { CompactToolCall } from './compact-tool/CompactToolCall';
 import { AskUserQuestionRenderer, isAskUserQuestionTool } from './AskUserQuestionRenderer';
 import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
@@ -63,9 +63,13 @@ function isSteerUserMessage(message: UIMessage): boolean {
 }
 
 function SkillTag({ name }: { name: string }) {
+  // items-baseline + a self-centered icon keeps the tag's baseline on its text,
+  // so it still lines up with the message text beside it (the parent row is
+  // baseline-aligned, and a leading svg would otherwise set the baseline).
   return (
-    <span className="inline-flex items-center rounded-md bg-tint-muted px-1.5 py-px text-sm text-tint">
-      {name}
+    <span className="inline-flex items-baseline gap-1 rounded-md bg-tint-muted px-1.5 py-px text-sm text-tint">
+      <SparklesIcon aria-hidden="true" className="size-3 shrink-0 self-center opacity-70" />
+      <span>{name}</span>
     </span>
   );
 }
@@ -139,6 +143,11 @@ interface MessagePartRendererProps {
   SendToButton: (props: { availableModels: SendToModel[]; onSendTo: (modelId: string, providerId: string) => void; onOpen?: () => void }) => ReactElement;
   childParts?: MessagePart[];
   externalAgentNotificationsByTaskId?: ReadonlyMap<string, ExternalAgentResultMetadata>;
+  /**
+   * Rewind files to the checkpoint taken just before this user message was sent.
+   * Only set on user messages whose turn (or a later one) has a checkpoint.
+   */
+  onRewindToHere?: () => void;
 }
 
 export function MessagePartRenderer({
@@ -158,7 +167,9 @@ export function MessagePartRenderer({
   SendToButton,
   childParts,
   externalAgentNotificationsByTaskId,
+  onRewindToHere,
 }: MessagePartRendererProps) {
+  const intl = useIntl();
   // Handle tool invocations
   if (part.type === 'dynamic-tool' || (part.type as string).startsWith('tool-')) {
     const toolPart = part as ToolPartLike;
@@ -368,8 +379,10 @@ export function MessagePartRenderer({
       }
     }
 
+    // Same one-line row the finished call collapses into, so a running tool
+    // doesn't render as a card and then jump to a row when it completes.
     return (
-      <ToolInvocationRenderer
+      <CompactToolCall
         toolPart={toolPart}
         messageId={message.id}
         partIndex={partIndex}
@@ -510,6 +523,14 @@ export function MessagePartRenderer({
             onSendTo={(modelId: string, providerId: string) => onSendTo(modelId, providerId, getMessageText(message))}
             onOpen={onSendToOpen}
           />
+          {onRewindToHere ? (
+            <MessageAction
+              onClick={onRewindToHere}
+              tooltip={intl.formatMessage({ id: 'editor.rewind.toHere', defaultMessage: 'Rewind to here' })}
+            >
+              <HistoryIcon className="size-3" />
+            </MessageAction>
+          ) : null}
         </MessageActions>
       )}
     </Message>

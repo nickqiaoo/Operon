@@ -17,6 +17,9 @@ struct InfoSheetSection: Identifiable {
         let indent: Bool
     }
     enum Tone: String { case normal, warn, error }
+    /// Bar fill level, separate from `tone` so a bar can go green → orange → red
+    /// while its label stays quiet until the limit is close.
+    enum BarTone: String { case ok, warn, error }
 
     let id = UUID()
     let header: String?
@@ -24,6 +27,8 @@ struct InfoSheetSection: Identifiable {
     /// 0…1
     let progress: Double?
     let tone: Tone
+    /// nil: the bar follows `tone`.
+    let barTone: BarTone?
     let footer: String?
     let rows: [Row]
 }
@@ -126,6 +131,13 @@ struct InfoSheetView: View {
     }
 
     private func barTint(for section: InfoSheetSection) -> Color {
+        if let barTone = section.barTone {
+            switch barTone {
+            case .ok: return fillOk
+            case .warn: return fillWarn
+            case .error: return fillError
+            }
+        }
         switch section.tone {
         case .normal: return brand
         case .warn: return .orange
@@ -133,6 +145,22 @@ struct InfoSheetView: View {
         }
     }
 }
+
+/// Fill tokens from globals.css (light / dark): `--color-accent-green`,
+/// `--color-accent-warm`, `--color-destructive` — the colors the web bars use.
+private func dynamicFill(light: UInt32, dark: UInt32) -> Color {
+    func color(_ hex: UInt32) -> UIColor {
+        UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: 1)
+    }
+    return Color(UIColor { trait in trait.userInterfaceStyle == .dark ? color(dark) : color(light) })
+}
+
+private let fillOk = dynamicFill(light: 0x3DB87A, dark: 0x4FCC8E)
+private let fillWarn = dynamicFill(light: 0xE5845C, dark: 0xF09570)
+private let fillError = dynamicFill(light: 0xEF4444, dark: 0x991B1B)
 
 extension Color {
     /// `#rrggbb` / `#rgb`; nil for anything else (CSS variables, hsl()…).

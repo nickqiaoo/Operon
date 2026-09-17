@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { OpenInIdeRequest, OpenInIdeResult } from '../src/types/open-in-ide.ts'
 import type { OpenWithApp, OpenWithRequest, OpenWithResult } from '../src/types/open-with.ts'
 import type { LocalServerProbe } from '../src/types/local-server.ts'
+import type { MobilePairingSummary } from '../src/types/mobile.ts'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Server port discovery (needed to bootstrap HTTP client)
@@ -49,6 +50,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('updater:status', listener)
     return () => ipcRenderer.removeListener('updater:status', listener)
   },
+
+  // Device-pairing approval. Routed over IPC rather than the local HTTP server
+  // on purpose: approving a device mints a persistent, internet-reachable
+  // credential, and the api-token gate does not stop a same-user process.
+  approveRemotePairing: (pairingId: string): Promise<MobilePairingSummary> =>
+    ipcRenderer.invoke('e2ee:approve-pairing', pairingId),
 
   // Notifications
   showNotification: (payload: { title: string; body: string }) =>

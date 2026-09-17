@@ -11,6 +11,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react"
+import { useState } from "react"
 import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import type { Tab, TabPayload } from "./types"
@@ -41,6 +42,25 @@ function getTabIcon(payload: TabPayload): LucideIcon {
     case "placeholder":
       return SquareTerminal
   }
+}
+
+/** A page's favicon when it has one; the type icon while it loads or if it 404s. */
+function TabIcon({ iconUrl, fallback: Fallback }: { iconUrl?: string; fallback: LucideIcon }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  if (iconUrl == null || iconUrl === failedUrl) {
+    return <Fallback className="h-3.5 w-3.5 shrink-0" aria-hidden />
+  }
+  return (
+    <img
+      src={iconUrl}
+      alt=""
+      aria-hidden
+      draggable={false}
+      referrerPolicy="no-referrer"
+      onError={() => setFailedUrl(iconUrl)}
+      className="h-3.5 w-3.5 shrink-0 rounded object-contain"
+    />
+  )
 }
 
 export function TabBarItem({ tab, isActive, onActivate, onClose }: TabBarItemProps) {
@@ -94,7 +114,7 @@ export function TabBarItem({ tab, isActive, onActivate, onClose }: TabBarItemPro
         isDragging && "opacity-50"
       )}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <TabIcon iconUrl={tab.iconUrl} fallback={Icon} />
       {/* Ellipsis, not a fade: a gradient that eats the last 14px of every title
           — long or short — reads as a rendering fault, not as "there's more". */}
       <span className="min-w-0 flex-1 truncate">{tab.title}</span>

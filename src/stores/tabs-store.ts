@@ -33,7 +33,7 @@ interface TabsActions {
   updateTab: (
     panel: PanelId,
     tabId: string,
-    patch: Partial<Pick<Tab, "title" | "icon" | "payload">>
+    patch: Partial<Pick<Tab, "title" | "icon" | "iconUrl" | "payload">>
   ) => void
   /**
    * Move a tab from one panel to another. `targetIndex === null` appends.

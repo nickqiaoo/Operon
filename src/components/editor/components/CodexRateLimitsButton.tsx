@@ -1,12 +1,15 @@
 'use client';
 
 import { Gauge } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useIntl, type IntlShape } from 'react-intl';
+import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Progress } from '@/components/ui/progress';
+import { nativeUsageTones, usageBarTone, usageTextTone } from './rate-limit-tone';
 import { cn } from '@/lib/utils';
+import { hasNativeTabBar, NativeShell, type NativeInfoSection } from '@/lib/native';
 import type { ContextUsageMetadata, RateLimitSnapshot } from '../utils/chatMetadata';
 
 type CodexAccountState = NonNullable<ContextUsageMetadata['codexAccount']>;
@@ -91,17 +94,10 @@ const getTriggerUsedPercent = (snapshots: RateLimitSnapshot[]): number | null =>
   return Math.max(...usedValues);
 };
 
-const usedTone = (used: number): string => {
-  if (used >= 100) return 'text-destructive';
-  if (used >= 85) return 'text-amber-600 dark:text-amber-500';
-  return 'text-muted-foreground';
-};
-
 const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: IntlShape) => {
   if (!windowValue) return null;
 
   const usedPercent = normalizePercentValue(windowValue.usedPercent);
-  const high = usedPercent >= 85;
 
   return (
     <div className="space-y-2 rounded-xl bg-muted/40 px-3 py-2.5">
@@ -109,11 +105,11 @@ const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: Intl
         <span className="text-muted-foreground">
           {formatWindowLabel(windowValue.windowDurationMins, intl)}
         </span>
-        <span className={cn('font-mono', high ? usedTone(usedPercent) : 'text-foreground')}>
+        <span className={cn('font-mono', usageTextTone(usedPercent, 'text-foreground'))}>
           {intl.formatMessage({ id: 'editor.codex.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(usedPercent) })}
         </span>
       </div>
-      <Progress className="h-1.5 bg-muted/70" value={usedPercent} />
+      <Progress className="h-1.5 bg-muted/70" indicatorClassName={usageBarTone(usedPercent)} value={usedPercent} />
       <div className="flex items-center justify-end gap-3 text-[11px] text-muted-foreground">
         <span>{intl.formatMessage({ id: 'editor.codex.resets', defaultMessage: 'Resets {time}' }, { time: formatResetTime(windowValue.resetsAt, intl) })}</span>
       </div>
@@ -121,6 +117,64 @@ const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: Intl
   );
 };
 
+/** Shared hover-card / sheet body — each limit with its windows. */
+function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] }) {
+  const intl = useIntl();
+  return (
+    <div className="space-y-2.5">
+      {snapshots.length > 0 ? (
+        snapshots.map((snapshot) => (
+          <div className="space-y-2" key={getSnapshotKey(snapshot)}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {snapshot.limitName ?? snapshot.limitId ?? intl.formatMessage({ id: 'editor.codex.default', defaultMessage: 'Default' })}
+                </p>
+                {snapshot.planType ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {intl.formatMessage({ id: 'editor.codex.plan', defaultMessage: 'Plan: {plan}' }, { plan: snapshot.planType })}
+                  </p>
+                ) : null}
+              </div>
+              {snapshot.credits ? (
+                <div className="text-right text-[11px] text-muted-foreground">
+                  <p>{snapshot.credits.unlimited
+                    ? intl.formatMessage({ id: 'editor.codex.unlimitedCredits', defaultMessage: 'Unlimited credits' })
+                    : intl.formatMessage({ id: 'editor.codex.credits', defaultMessage: 'Credits' })}</p>
+                  {!snapshot.credits.unlimited && snapshot.credits.balance ? (
+                    <p className="font-mono text-foreground">{snapshot.credits.balance}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            {renderWindowBlock(snapshot.primary, intl)}
+            {renderWindowBlock(snapshot.secondary, intl)}
+          </div>
+        ))
+      ) : (
+        <div className="rounded-lg bg-muted/35 px-3 py-3 text-sm text-muted-foreground">
+          {intl.formatMessage({ id: 'editor.codex.noData', defaultMessage: 'No rate limit data yet.' })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const triggerClassName =
+  'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs text-muted-foreground shadow-none hover:bg-muted/40 hover:text-foreground';
+
+function TriggerContent({ usedPercent }: { usedPercent: number | null }) {
+  return (
+    <>
+      {usedPercent != null ? (
+        <span className={cn('font-mono text-xs', usageTextTone(usedPercent))}>{formatPercent(usedPercent)}</span>
+      ) : null}
+      <Gauge className={cn('size-3.5', usedPercent != null ? usageTextTone(usedPercent) : undefined)} />
+    </>
+  );
+}
+
+/** Desktop: account and rate limits on hover, like the context usage chip beside it. */
 export function CodexRateLimitsButton({
   account,
   rateLimits,
@@ -135,66 +189,110 @@ export function CodexRateLimitsButton({
   }
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <HoverCard closeDelay={300} openDelay={0}>
+      <HoverCardTrigger asChild>
         <Button
           aria-label={intl.formatMessage({ id: 'editor.codex.aria', defaultMessage: 'Open account and rate limit details' })}
-          className={cn(
-            'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs text-muted-foreground shadow-none hover:bg-muted/40 hover:text-foreground',
-            className,
-          )}
+          className={cn(triggerClassName, className)}
           size="sm"
           type="button"
           variant="outline"
         >
-          {usedPercent != null ? (
-            <span className={cn('font-mono text-xs', usedTone(usedPercent))}>{formatPercent(usedPercent)}</span>
-          ) : null}
-          <Gauge className={cn('size-3.5', usedPercent != null ? usedTone(usedPercent) : undefined)} />
+          <TriggerContent usedPercent={usedPercent} />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
+      </HoverCardTrigger>
+      <HoverCardContent
         align="start"
-        className="w-[360px] rounded-2xl border border-border/40 bg-background/95 p-3 shadow-float backdrop-blur"
+        className="w-[360px] rounded-xl border border-border/40 bg-background/95 p-3 shadow-float backdrop-blur"
         side="top"
       >
-        <div className="space-y-2.5">
-          {snapshots.length > 0 ? (
-            snapshots.map((snapshot) => (
-              <div className="space-y-2" key={getSnapshotKey(snapshot)}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      {snapshot.limitName ?? snapshot.limitId ?? intl.formatMessage({ id: 'editor.codex.default', defaultMessage: 'Default' })}
-                    </p>
-                    {snapshot.planType ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {intl.formatMessage({ id: 'editor.codex.plan', defaultMessage: 'Plan: {plan}' }, { plan: snapshot.planType })}
-                      </p>
-                    ) : null}
-                  </div>
-                  {snapshot.credits ? (
-                    <div className="text-right text-[11px] text-muted-foreground">
-                      <p>{snapshot.credits.unlimited
-                        ? intl.formatMessage({ id: 'editor.codex.unlimitedCredits', defaultMessage: 'Unlimited credits' })
-                        : intl.formatMessage({ id: 'editor.codex.credits', defaultMessage: 'Credits' })}</p>
-                      {!snapshot.credits.unlimited && snapshot.credits.balance ? (
-                        <p className="font-mono text-foreground">{snapshot.credits.balance}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-                {renderWindowBlock(snapshot.primary, intl)}
-                {renderWindowBlock(snapshot.secondary, intl)}
-              </div>
-            ))
-          ) : (
-            <div className="rounded-2xl bg-muted/35 px-3 py-3 text-sm text-muted-foreground">
-              {intl.formatMessage({ id: 'editor.codex.noData', defaultMessage: 'No rate limit data yet.' })}
-            </div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+        <CodexRateLimitsContent snapshots={snapshots} />
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+/**
+ * Mobile: touch has no hover, so the same trigger opens a sheet on tap — the
+ * native info sheet in the packaged apps, a web bottom sheet otherwise.
+ */
+export function MobileCodexRateLimits({
+  account,
+  rateLimits,
+  className,
+}: CodexRateLimitsButtonProps) {
+  const intl = useIntl();
+  const [open, setOpen] = useState(false);
+  const snapshots = useMemo(() => collectSnapshots(rateLimits), [rateLimits]);
+  const usedPercent = getTriggerUsedPercent(snapshots);
+
+  const title = intl.formatMessage({ id: 'editor.codex.title', defaultMessage: 'Rate limits' });
+
+  const openSheet = () => {
+    if (!hasNativeTabBar()) {
+      setOpen(true);
+      return;
+    }
+    const namePrefix = snapshots.length > 1;
+    const sections: NativeInfoSection[] = snapshots.flatMap((snapshot) => {
+      const name = getSnapshotLabel(snapshot);
+      const windowSections = [snapshot.primary, snapshot.secondary].flatMap((windowValue) => {
+        if (!windowValue) return [];
+        const used = normalizePercentValue(windowValue.usedPercent);
+        const label = formatWindowLabel(windowValue.windowDurationMins, intl);
+        return [{
+          header: namePrefix ? `${name} · ${label}` : label,
+          value: intl.formatMessage({ id: 'editor.codex.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(used) }),
+          progress: used / 100,
+          ...nativeUsageTones(used),
+          footer: intl.formatMessage({ id: 'editor.codex.resets', defaultMessage: 'Resets {time}' }, { time: formatResetTime(windowValue.resetsAt, intl) }),
+        }];
+      });
+      const credits = snapshot.credits;
+      if (!credits) return windowSections;
+      return [
+        ...windowSections,
+        {
+          rows: [{
+            label: credits.unlimited
+              ? intl.formatMessage({ id: 'editor.codex.unlimitedCredits', defaultMessage: 'Unlimited credits' })
+              : intl.formatMessage({ id: 'editor.codex.credits', defaultMessage: 'Credits' }),
+            value: !credits.unlimited && credits.balance ? String(credits.balance) : undefined,
+          }],
+        },
+      ];
+    });
+    const plan = snapshots.find((snapshot) => snapshot.planType)?.planType;
+    void NativeShell.presentInfoSheet({
+      title,
+      caption: plan
+        ? intl.formatMessage({ id: 'editor.codex.plan', defaultMessage: 'Plan: {plan}' }, { plan })
+        : undefined,
+      sections,
+    }).catch(() => setOpen(true));
+  };
+
+  if (!account && snapshots.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      <Button
+        aria-label={intl.formatMessage({ id: 'editor.codex.aria', defaultMessage: 'Open account and rate limit details' })}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={cn(triggerClassName, className)}
+        onClick={openSheet}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <TriggerContent usedPercent={usedPercent} />
+      </Button>
+      <MobileSheet open={open} onClose={() => setOpen(false)} title={title}>
+        <CodexRateLimitsContent snapshots={snapshots} />
+      </MobileSheet>
+    </>
   );
 }

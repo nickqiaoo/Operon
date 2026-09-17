@@ -142,7 +142,7 @@ export function ChannelPage({ projectId, projectName, onBack, onOpenWorkspace, i
 function EmptyState() {
   return (
     <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4 bg-background">
-      <div className="size-16 rounded-2xl border border-border/40 bg-popover/70 flex items-center justify-center">
+      <div className="size-16 rounded-xl border border-border/40 bg-popover/70 flex items-center justify-center">
         <MessageSquare className="h-7 w-7 opacity-35" />
       </div>
       <div className="text-center space-y-1">

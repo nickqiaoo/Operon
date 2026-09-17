@@ -237,6 +237,8 @@ export interface NativeInfoSection {
   /** 0…1 */
   progress?: number
   tone?: 'normal' | 'warn' | 'error'
+  /** Bar fill level; falls back to `tone` when omitted (and on older app builds). */
+  barTone?: 'ok' | 'warn' | 'error'
   footer?: string
   rows?: { label: string; value?: string; detail?: string; color?: string; indent?: boolean }[]
 }

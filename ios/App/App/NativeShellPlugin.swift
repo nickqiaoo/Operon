@@ -173,6 +173,7 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
                 value: raw["value"] as? String,
                 progress: raw["progress"] as? Double,
                 tone: InfoSheetSection.Tone(rawValue: raw["tone"] as? String ?? "") ?? .normal,
+                barTone: (raw["barTone"] as? String).flatMap(InfoSheetSection.BarTone.init(rawValue:)),
                 footer: raw["footer"] as? String,
                 rows: rows
             )

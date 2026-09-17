@@ -70,7 +70,7 @@ const OPERON_FILES: ConfigFileDefinition[] = [
 ]
 
 export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
-    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "appearance")
+    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "providers")
     // On phones the two panes can't sit side by side, so we drill down:
     // the category list fills the screen, and picking one swaps to its detail
     // pane (the in-pane back button returns to the list). Ignored at md+, where
@@ -84,14 +84,12 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
     }
 
     const tabs = useMemo(() => [
+        // General — model access first: nothing else works until a provider is set up.
+        { id: "providers", label: <FormattedMessage id="settings.tab.providers" defaultMessage="AI Providers" />, icon: Cpu },
         { id: "appearance", label: <FormattedMessage id="settings.tab.appearance" defaultMessage="Appearance" />, icon: Palette },
         { id: "notifications", label: <FormattedMessage id="settings.tab.notifications" defaultMessage="Notifications" />, icon: Bell },
         { id: "shortcuts", label: <FormattedMessage id="settings.tab.shortcuts" defaultMessage="Keyboard shortcuts" />, icon: Keyboard },
-        // Logs read the local operon.log via electronAPI — unavailable on the web build.
-        ...(__APP_TARGET__ === 'web' ? [] : [{ id: "logs", label: <FormattedMessage id="settings.tab.logs" defaultMessage="Logs" />, icon: FileText }]),
-        ...(__ENABLE_MEMORY__ ? [{ id: "memory" as const, label: <FormattedMessage id="settings.tab.memory" defaultMessage="Memory" />, icon: Brain }] : []),
-        { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
-        { id: "env", label: <FormattedMessage id="settings.tab.env" defaultMessage="Env" />, icon: Server },
+        // Agents
         { id: "code", label: <FormattedMessage id="settings.tab.claudeCode" defaultMessage="Claude Code" />, icon: ClaudeCodeIcon },
         { id: "codex", label: <FormattedMessage id="settings.tab.codex" defaultMessage="Codex" />, icon: CodexIcon },
         { id: "opencode", label: <FormattedMessage id="settings.tab.opencode" defaultMessage="OpenCode" />, icon: OpenCodeIcon },
@@ -100,21 +98,28 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "copilot", label: <FormattedMessage id="settings.tab.copilot" defaultMessage="Copilot" />, icon: CopilotIcon },
         { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
-        // "Remote" is the desktop-side control panel for THIS feature (loopback
-        // OAuth → register node). Meaningless from the web client, which is already remote.
-        ...(__APP_TARGET__ === 'web' ? [] : [{ id: "saas", label: <FormattedMessage id="settings.tab.saas" defaultMessage="Remote" />, icon: Cloud }]),
+        // Agent capabilities
+        { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
         { id: "plugins", label: <FormattedMessage id="settings.tab.plugins" defaultMessage="Plugins" />, icon: Blocks },
         { id: "extensions", label: <FormattedMessage id="settings.tab.extensions" defaultMessage="Extensions" />, icon: Puzzle },
+        ...(__ENABLE_MEMORY__ ? [{ id: "memory" as const, label: <FormattedMessage id="settings.tab.memory" defaultMessage="Memory" />, icon: Brain }] : []),
+        { id: "env", label: <FormattedMessage id="settings.tab.env" defaultMessage="Env" />, icon: Server },
         // All three drive local hardware from the desktop app: the in-app browser, the user's
         // own Chrome via a native host, and a native engine on this machine. None means
         // anything from the web client, which is already remote.
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "browser" as const, label: <FormattedMessage id="settings.tab.browser" defaultMessage="Browser" />, icon: Globe }]),
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "chrome" as const, label: <FormattedMessage id="settings.tab.chrome" defaultMessage="Chrome" />, icon: Chrome }]),
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "computer" as const, label: <FormattedMessage id="settings.tab.computer" defaultMessage="Computer" />, icon: MonitorCog }]),
-        { id: "gateway", label: <FormattedMessage id="settings.tab.gateway" defaultMessage="Gateway" />, icon: MessageSquare },
-        { id: "linear", label: <FormattedMessage id="settings.tab.linear" defaultMessage="Linear" />, icon: LinearIcon },
+        // Integrations
         { id: "github", label: <FormattedMessage id="settings.tab.github" defaultMessage="GitHub" />, icon: Github },
-        { id: "providers", label: <FormattedMessage id="settings.tab.providers" defaultMessage="AI Providers" />, icon: Cpu },
+        { id: "linear", label: <FormattedMessage id="settings.tab.linear" defaultMessage="Linear" />, icon: LinearIcon },
+        { id: "gateway", label: <FormattedMessage id="settings.tab.gateway" defaultMessage="Gateway" />, icon: MessageSquare },
+        // "Remote" is the desktop-side control panel for THIS feature (loopback
+        // OAuth → register node). Meaningless from the web client, which is already remote.
+        ...(__APP_TARGET__ === 'web' ? [] : [{ id: "saas", label: <FormattedMessage id="settings.tab.saas" defaultMessage="Remote" />, icon: Cloud }]),
+        // Diagnostics
+        // Logs read the local operon.log via electronAPI — unavailable on the web build.
+        ...(__APP_TARGET__ === 'web' ? [] : [{ id: "logs", label: <FormattedMessage id="settings.tab.logs" defaultMessage="Logs" />, icon: FileText }]),
     ], [])
 
     const activeProject = activeTab.startsWith("repo:")
@@ -132,7 +137,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                 style={{ paddingTop: "env(safe-area-inset-top)" }}
             >
                 <div className="hidden h-10 drag-region shrink-0 md:block" />
-                <div className="p-4 pt-0 flex flex-col gap-2 flex-1 overflow-auto code-scrollbar">
+                <div className="p-4 pt-0 flex flex-col gap-2 flex-1 overflow-auto code-scrollbar scroll-fade-y">
                     <Button
                         data-testid="settings-back-button"
                         variant="ghost"
@@ -193,7 +198,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
             {/* Main Content — full screen on phones (detail view), flex-1 at md+ */}
             <div
                 className={cn(
-                    "overflow-auto bg-background code-scrollbar md:block md:flex-1",
+                    "overflow-auto bg-background code-scrollbar md:block md:flex-1 md:scroll-fade-y",
                     mobileDetail ? "block flex-1" : "hidden"
                 )}
             >

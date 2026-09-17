@@ -334,10 +334,14 @@ function PreviewFileStrip({
               }
             }}
             className={cn(
-              "group flex h-7 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-1 text-xs transition-colors",
+              "group flex h-7 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pl-2 pr-1 text-xs transition-colors",
+              // The selected tab sits on the base secondary surface — the pressed
+              // `secondary-active` read as a dark block against the white pane.
+              // Hover matches it so an unselected tab never looks heavier than
+              // the selected one; text color still tells them apart.
               isSelected
-                ? "bg-secondary-active text-foreground"
-                : "text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
+                ? "bg-secondary text-foreground"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
             )}
             onClick={() => onSelect(path)}
           >
@@ -357,7 +361,7 @@ function PreviewFileStrip({
                 onClose(path)
               }}
               className={cn(
-                "flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary-active hover:text-foreground",
+                "flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary-active hover:text-foreground",
                 isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               )}
             >

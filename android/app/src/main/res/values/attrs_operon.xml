@@ -21,6 +21,10 @@
     <attr name="operonBrand" format="color" />
     <attr name="operonStatusWarn" format="color" />
     <attr name="operonStatusError" format="color" />
+    <!-- Solid fills (globals.css accent-green / accent-warm / destructive), for bars. -->
+    <attr name="operonFillOk" format="color" />
+    <attr name="operonFillWarn" format="color" />
+    <attr name="operonFillError" format="color" />
     <attr name="operonTile" format="color" />
     <attr name="operonRowPressed" format="color" />
 </resources>

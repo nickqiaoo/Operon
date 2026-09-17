@@ -167,6 +167,10 @@ export function ChangedFilesTreeInner({
           // Pierre's tree defaults to its own #f8f8f8 gray surface, which
           // reads darker than our app background. Pin it to the app surface so
           // the tree blends with the toolbar/filter row above it.
+          // The ellipsis on a long name fades in over 100ms by default. The list
+          // is virtualized, so scrolling keeps handing rows new names; for those
+          // 100ms the overflowing text shows through, which reads as flicker.
+          "--truncate-marker-fade-in-duration": "0ms",
           "--trees-bg-override": "var(--color-background)",
           "--trees-fg-override": "var(--color-foreground)",
           "--trees-selected-fg-override": "var(--color-foreground)",

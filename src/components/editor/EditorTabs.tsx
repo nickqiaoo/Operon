@@ -261,7 +261,7 @@ export function EditorTabs({
           <DropdownMenuTrigger asChild>
             <button
               data-testid="new-tab-button"
-              className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-background/50 hover:text-foreground transition-colors shrink-0"
+              className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:bg-background/50 hover:text-foreground transition-colors shrink-0"
               title={intl.formatMessage({ id: "tab.newTab", defaultMessage: "New tab" })}
               aria-label={intl.formatMessage({ id: "tab.newTab", defaultMessage: "New tab" })}
             >

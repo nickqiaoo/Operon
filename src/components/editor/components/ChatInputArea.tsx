@@ -398,7 +398,7 @@ export function ChatInputArea({
         // 38 — matching weight, just softer. The per-mode palette used to
         // override this with `/40`, which is 26, and read as a border that had
         // gone missing.
-        'rounded-2xl bg-popover/90 overflow-hidden border border-border/60 transition-[box-shadow,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
+        'rounded-xl bg-popover/90 overflow-hidden border border-border/60 transition-[box-shadow,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
         composerCompact
           ? 'shadow-none'
           : 'shadow-input',
@@ -443,7 +443,7 @@ export function ChatInputArea({
                 {mentionOverlayParts.map((part, index) => (
                   <span
                     key={`${index}-${part.text.length}`}
-                    className={part.isMention ? 'rounded-[4px] bg-muted/80 text-transparent [box-shadow:inset_0_0_0_1px_var(--color-border)]' : 'text-transparent'}
+                    className={part.isMention ? 'rounded bg-muted/80 text-transparent [box-shadow:inset_0_0_0_1px_var(--color-border)]' : 'text-transparent'}
                   >
                     {part.text}
                   </span>

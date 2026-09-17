@@ -11,6 +11,7 @@ import { PostHog } from 'posthog-node'
 import { createNodeAnalytics } from './analytics'
 import { startServer } from '../server/src/start.js'
 import { getApiToken, isApiTokenAuthDisabled } from '../server/src/services/api-token.js'
+import { approveRemotePairing, getPairingApprovalNonce } from '../server/src/services/remote-e2ee.js'
 import { disposeOpencodeServer } from '@operon/agent-runtime'
 import { cleanupAllTerminals } from '../server/src/services/terminal.js'
 import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tracing.js'
@@ -494,6 +495,18 @@ async function startHonoServer(): Promise<number> {
     remoteE2eeMode: app.isPackaged
       ? 'required'
       : process.env.OPERON_REMOTE_E2EE === 'off' ? 'off' : 'required',
+    // The renderer approves over IPC (see 'e2ee:approve-pairing'), so the HTTP
+    // route can be closed outright — a same-user process holding the api token
+    // still cannot grant itself a device.
+    secureApprovalChannel: true,
+    onDevicePaired: (pairing) => {
+      if (!Notification.isSupported()) return
+      new Notification({
+        title: 'New device paired',
+        body: `${pairing.mobileLabel || 'A device'} can now reach this machine remotely. Revoke it in Settings if this was not you.`,
+        silent: false,
+      }).show()
+    },
   })
   return port
 }
@@ -810,6 +823,20 @@ app.whenReady().then(async () => {
 
   // SqliteVecStore is lazily initialized on first embedding call (auto-detects dimensions)
 
+  // Device-pairing approval, deliberately NOT reachable over HTTP.
+  //
+  // This is the one local operation that mints a persistent, internet-reachable
+  // credential for this machine, so it must not rest on the api-token gate,
+  // which by design does not stop a same-user process (api-token.ts). IPC is
+  // reachable only from our renderer. The nonce never leaves this process: the
+  // renderer passes a pairingId and gets a result, so even a compromised
+  // renderer cannot replay approvals for pairings it did not start on screen.
+  ipcMain.handle('e2ee:approve-pairing', (_event, pairingId: string) => {
+    const nonce = getPairingApprovalNonce(pairingId)
+    if (!nonce) throw new Error('Pairing request is missing or expired')
+    return approveRemotePairing(pairingId, nonce)
+  })
+
   ipcMain.handle('server:get-port', () => serverPort)
   // The api token travels renderer-ward over IPC only — never through a file a
   // web page or another app could discover. null = auth disabled (tests/dev).
@@ -917,8 +944,10 @@ app.whenReady().then(async () => {
         const url = new URL(details.url)
         if (url.protocol === 'http:' || url.protocol === 'https:') {
           const host = url.hostname
+          // Images pass too: the browser tab strip shows each page's favicon
+          // from its own origin, and an image fetch can't call a service.
           if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
-            || host.endsWith('.posthog.com')) {
+            || host.endsWith('.posthog.com') || details.resourceType === 'image') {
             callback({ cancel: false })
             return
           }

@@ -98,7 +98,7 @@ function TaskDetailPane({
         onOpen={() => onOpenSource(notification)}
         openLabel="Open in board"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 scroll-fade-y">
         <div className="mx-auto max-w-2xl">
           {loading && !detail ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
@@ -308,7 +308,7 @@ function ChatDetailPane({
         onOpen={() => onOpenSource(notification)}
         openLabel="Open conversation"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 scroll-fade-y">
         <div className={cn("mx-auto flex max-w-2xl flex-col gap-5")}>
           <div className="flex items-center gap-2 text-muted-foreground">
             <MessageSquare className="size-4" />

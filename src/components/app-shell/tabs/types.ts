@@ -65,6 +65,8 @@ export interface Tab {
   title: string
   /** lucide icon name; renderer maps it to a component. Optional for now. */
   icon?: string
+  /** Image URL shown instead of `icon` (a browser tab's favicon). */
+  iconUrl?: string
   /** A non-closable tab still gets dragged/activated but ignores close clicks. */
   isClosable: boolean
   payload: TabPayload

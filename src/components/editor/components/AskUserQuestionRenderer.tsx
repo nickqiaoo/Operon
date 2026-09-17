@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { CheckIcon, XIcon } from 'lucide-react';
+import { CheckIcon, XIcon, MessageCircleQuestionIcon } from 'lucide-react';
 import {
   Confirmation,
   ConfirmationAccepted,
@@ -216,7 +216,7 @@ export function AskUserQuestionRenderer({
 
   return (
     <Tool key={`${messageId}-${partIndex}`} {...(shouldExpand ? { open: true } : {})}>
-      <ToolHeader type="dynamic-tool" toolName={intl.formatMessage({ id: 'editor.ask.toolName', defaultMessage: 'Ask User' })} state={state} />
+      <ToolHeader icon={<MessageCircleQuestionIcon className="size-3.5 shrink-0 text-muted-foreground/70" />} type="dynamic-tool" toolName={intl.formatMessage({ id: 'editor.ask.toolName', defaultMessage: 'Ask User' })} state={state} />
       <ToolContent>
         {state === 'approval-requested' ? (
           <div className="space-y-4 p-4">

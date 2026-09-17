@@ -372,7 +372,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
 function EmptyChats({ onNew }: { onNew: () => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-      <div className="flex size-14 items-center justify-center rounded-2xl border border-border/50 bg-muted/30">
+      <div className="flex size-14 items-center justify-center rounded-xl border border-border/50 bg-muted/30">
         <MessageSquarePlus className="size-6 text-muted-foreground/70" />
       </div>
       <div className="space-y-1">

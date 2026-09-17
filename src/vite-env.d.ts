@@ -4,6 +4,7 @@
 import type { OpenInIdeRequest, OpenInIdeResult } from "@/types/open-in-ide"
 import type { OpenWithApp, OpenWithRequest, OpenWithResult } from "@/types/open-with"
 import type { LocalServerProbe } from "@/types/local-server"
+import type { MobilePairingSummary } from "@/types/mobile"
 
 type UpdateStatus =
   | { event: 'checking' }
@@ -30,6 +31,8 @@ interface ElectronAPI {
   setLogging: (enabled: boolean) => Promise<void>
   revealLogFile: () => Promise<void>
   readLogTail: () => Promise<string>
+  /** Approve a pending device pairing. IPC-only by design — see electron/main.ts. */
+  approveRemotePairing: (pairingId: string) => Promise<MobilePairingSummary>
   showNotification: (payload: { title: string; body: string }) => Promise<void>
   isWindowFocused: () => Promise<boolean>
   annotationEditor: {

@@ -378,7 +378,7 @@ export const AttachmentPreview = ({
           <div className="flex items-center justify-center p-2 sm:p-4">
             <img
               alt={data.filename || "Image preview"}
-              className="max-h-[88vh] w-auto max-w-full rounded-2xl object-contain"
+              className="max-h-[88vh] w-auto max-w-full rounded-xl object-contain"
               src={mediaSrc}
             />
           </div>

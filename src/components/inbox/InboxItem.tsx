@@ -5,6 +5,7 @@ import {
   Eye,
   MessageSquare,
   ShieldCheck,
+  Smartphone,
   X,
   XCircle,
 } from "lucide-react"
@@ -21,6 +22,7 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   sdd_gate: ShieldCheck,
   cron_done: Clock,
   workflow_approval: ShieldCheck,
+  device_paired: Smartphone,
 }
 
 /**
@@ -39,6 +41,7 @@ export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
   sdd_gate: "checkmark.shield",
   cron_done: "clock",
   workflow_approval: "checkmark.shield",
+  device_paired: "iphone",
 }
 
 export function inboxRelativeTime(ms: number): string {

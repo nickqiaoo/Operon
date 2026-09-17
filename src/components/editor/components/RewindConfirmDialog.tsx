@@ -9,14 +9,17 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import type { RewindSkippedFile } from '@/lib/api'
+import type { RewindMode } from '../hooks/useRewindController'
 
 export function RewindConfirmDialog({
   open,
+  mode,
   onOpenChange,
   onCancel,
   onConfirm,
 }: {
   open: boolean
+  mode: RewindMode
   onOpenChange: (open: boolean) => void
   onCancel: () => void
   onConfirm: () => void
@@ -25,9 +28,21 @@ export function RewindConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle><FormattedMessage id="editor.rewind.title" defaultMessage="Confirm Rewind" /></DialogTitle>
+          <DialogTitle>
+            {mode === 'undo' ? (
+              <FormattedMessage id="editor.rewind.undoTitle" defaultMessage="Undo this turn?" />
+            ) : (
+              <FormattedMessage id="editor.rewind.rewindTitle" defaultMessage="Rewind to here?" />
+            )}
+          </DialogTitle>
           <DialogDescription>
-            <FormattedMessage id="editor.rewind.desc1" defaultMessage="This will rewind the files this chat changed back to the selected checkpoint. Changes made after that point — by this chat or by you — will be lost." />
+            {mode === 'undo' ? (
+              <FormattedMessage id="editor.rewind.undoDesc" defaultMessage="The files this turn changed go back to how they were before it." />
+            ) : (
+              <FormattedMessage id="editor.rewind.rewindDesc" defaultMessage="The files this chat changed from this message onward go back to how they were before it was sent. Later edits to those files — by this chat or by you — will be lost." />
+            )}
+            <br /><br />
+            <FormattedMessage id="editor.rewind.messagesKept" defaultMessage="Only files are rewound. The conversation stays as it is." />
             <br /><br />
             <FormattedMessage id="editor.rewind.scope" defaultMessage="Files changed by other chat tabs are left alone. If any of them overlap with this chat's, you'll be asked before they are touched." />
             <br /><br />
@@ -36,7 +51,13 @@ export function RewindConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <Button size="sm" variant="ghost" className="h-8" onClick={onCancel}><FormattedMessage id="common.cancel" defaultMessage="Cancel" /></Button>
-          <Button size="sm" variant="destructive" className="h-8" onClick={onConfirm}><FormattedMessage id="editor.rewind.confirm" defaultMessage="Rewind" /></Button>
+          <Button size="sm" variant="destructive" className="h-8" onClick={onConfirm}>
+            {mode === 'undo' ? (
+              <FormattedMessage id="editor.rewind.undo" defaultMessage="Undo" />
+            ) : (
+              <FormattedMessage id="editor.rewind.confirm" defaultMessage="Rewind" />
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

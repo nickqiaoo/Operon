@@ -93,7 +93,7 @@ export function CronjobHistoryPanel({ job, onOpenChat }: CronjobHistoryPanelProp
             </div>
           ) : history.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground">
-              <div className="size-16 rounded-2xl bg-muted/40 flex items-center justify-center mb-4">
+              <div className="size-16 rounded-xl bg-muted/40 flex items-center justify-center mb-4">
                 <Play className="h-6 w-6 opacity-40" />
               </div>
               <p className="text-sm font-medium">{intl.formatMessage({ id: "cronjob.history.empty", defaultMessage: "No executions yet" })}</p>

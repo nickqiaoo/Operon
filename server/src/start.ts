@@ -23,6 +23,7 @@ import { startSaasRuntime } from './services/saas-runtime.js'
 import { initTelemetry } from './services/analytics/telemetry.js'
 import { isApiTokenAuthDisabled, publishApiToken } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
+import type { MobilePairingSummary } from './types/mobile.js'
 
 declare const __ENABLE_MEMORY__: boolean
 
@@ -37,6 +38,13 @@ export interface StartServerOptions {
   appVersion?: string
   /** Remote clients require E2EE unless an unpackaged developer explicitly opts out. */
   remoteE2eeMode?: RemoteE2EEMode
+  /**
+   * Set by hosts that can approve a device pairing over a channel no same-user
+   * HTTP caller can reach (Electron IPC). Closes the HTTP approve route.
+   */
+  secureApprovalChannel?: boolean
+  /** Host-side echo of a confirmed pairing, for an OS-level notification. */
+  onDevicePaired?: (pairing: MobilePairingSummary) => void
 }
 
 export interface ServerInstance {
@@ -85,7 +93,7 @@ function tightenLegacyFileModes() {
 }
 
 export async function startServer(options: StartServerOptions): Promise<ServerInstance> {
-  const { dbPath, migrationsDir, port, hostname = '127.0.0.1' } = options
+  const { dbPath, migrationsDir, port, hostname = '127.0.0.1', secureApprovalChannel, onDevicePaired } = options
 
   // One telemetry service for the process: the framework projects agent events into it and
   // cache-monitor reports through it; both reach PostHog via the host's consent-gated sink.
@@ -111,7 +119,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   const remoteE2eeMode = options.remoteE2eeMode
     ?? (process.env.OPERON_REMOTE_E2EE === 'off' ? 'off' : 'required')
-  const { app, injectWebSocket } = await createApp({ storage, remoteE2eeMode })
+  const { app, injectWebSocket } = await createApp({ storage, remoteE2eeMode, secureApprovalChannel, onDevicePaired })
 
   if (__ENABLE_MEMORY__) {
     try {

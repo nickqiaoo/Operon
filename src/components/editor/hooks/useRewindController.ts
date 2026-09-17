@@ -17,6 +17,14 @@ type RewindedCheckpoint = {
  * changed comes back here instead of being overwritten. Confirming re-runs the
  * same rewind with `force`.
  */
+/**
+ * Where the rewind was offered. Both rewind to the checkpoint taken before the
+ * turn's user message; they differ only in how that reads. `undo` comes from the
+ * newest turn's diff card, where it reverts just that turn. `rewind` comes from
+ * a user message and also reverts every turn after it.
+ */
+export type RewindMode = 'undo' | 'rewind'
+
 type PendingConflicts = {
   messageId: string
   files: RewindSkippedFile[]
@@ -29,11 +37,13 @@ export function useRewindController({
 }) {
   const [rewindDialogOpen, setRewindDialogOpen] = useState(false)
   const [rewindTargetMessageId, setRewindTargetMessageId] = useState<string | null>(null)
+  const [rewindMode, setRewindMode] = useState<RewindMode>('rewind')
   const [rewindedCheckpoint, setRewindedCheckpoint] = useState<RewindedCheckpoint | null>(null)
   const [pendingConflicts, setPendingConflicts] = useState<PendingConflicts | null>(null)
 
-  const handleRewindToCheckpoint = useCallback((userMessageId: string) => {
+  const handleRewindToCheckpoint = useCallback((userMessageId: string, mode: RewindMode) => {
     setRewindTargetMessageId(userMessageId)
+    setRewindMode(mode)
     setRewindDialogOpen(true)
   }, [])
 
@@ -138,6 +148,7 @@ export function useRewindController({
   return {
     rewindDialogOpen,
     setRewindDialogOpen,
+    rewindMode,
     rewindedCheckpoint,
     pendingConflicts,
     handleRewindToCheckpoint,

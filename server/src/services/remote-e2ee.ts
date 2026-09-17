@@ -58,11 +58,33 @@ interface PendingRemotePairing {
   createdAt: number
   expiresAt: number
   deviceId?: string
+  /**
+   * Second factor for approval, held only in this process's memory and never
+   * returned over HTTP when a secure channel exists.
+   *
+   * Approving a device is the one local call that does not merely read what the
+   * caller could already read off disk: it mints a *persistent, internet-reachable*
+   * credential for this machine, and it survives the process that asked for it.
+   * The api-token gate deliberately does not defend against a same-user process
+   * (see api-token.ts) — which is fine for reads, but would let any such process
+   * silently back-door the machine. The nonce closes that: it is handed only to
+   * the desktop UI over Electron IPC, which a same-user HTTP caller cannot reach.
+   */
+  approvalNonce: string
 }
 
 interface RemoteE2EEState {
   storage: MobilePairingStorageAdapter
   mode: RemoteE2EEMode
+  /**
+   * True when the host can approve over a channel a same-user HTTP caller cannot
+   * reach (Electron IPC). The HTTP approve route refuses outright in that case;
+   * headless deployments have no such channel and keep the HTTP path as their
+   * only way to pair — a documented downgrade, not an oversight.
+   */
+  secureApprovalChannel?: boolean
+  /** Fired after a device becomes usable, so the host can tell the user. */
+  onPairingConfirmed?: (pairing: MobilePairingSummary) => void
 }
 
 let state: RemoteE2EEState | null = null
@@ -105,6 +127,7 @@ export function startRemotePairing(): RemotePairingQrPayload {
     nodeId: saas.nodeId,
     createdAt,
     expiresAt,
+    approvalNonce: crypto.randomBytes(32).toString('hex'),
   })
   return {
     v: 1,
@@ -216,14 +239,47 @@ export function inspectRemotePairing(pairingId: string): {
   }
 }
 
-export function approveRemotePairing(pairingId: string): MobilePairingSummary {
+/**
+ * The approval nonce for a pending pairing, for the host's secure channel only.
+ * Never route this to an HTTP response while `secureApprovalChannel` is set —
+ * that would hand the second factor to exactly the caller it exists to stop.
+ */
+export function getPairingApprovalNonce(pairingId: string): string | null {
+  gcPendingPairings()
+  return pendingPairings.get(pairingId)?.approvalNonce ?? null
+}
+
+/** Whether approval must come over the host's secure channel instead of HTTP. */
+export function requiresSecureApproval(): boolean {
+  return state?.secureApprovalChannel === true
+}
+
+/** Constant-time compare over digests so length differences leak nothing. */
+function nonceMatches(presented: string, expected: string): boolean {
+  const a = crypto.createHash('sha256').update(presented).digest()
+  const b = crypto.createHash('sha256').update(expected).digest()
+  return crypto.timingSafeEqual(a, b)
+}
+
+export function approveRemotePairing(pairingId: string, approvalNonce: string): MobilePairingSummary {
   const session = pendingPairings.get(pairingId)
   if (!session || session.expiresAt <= Date.now() || !session.deviceId) {
     throw new Error('Pairing request is missing or expired')
   }
+  if (!approvalNonce || !nonceMatches(approvalNonce, session.approvalNonce)) {
+    throw new Error('Pairing approval must come from this machine\'s operon window')
+  }
   const row = requireState().storage.confirmMobilePairing(pairingId, Date.now())
   if (!row) throw new Error('Pairing request is no longer available')
-  return toSummary(row)
+  const summary = toSummary(row)
+  // Silent approval is what makes a stolen approval dangerous: the only way to
+  // notice used to be opening Settings and counting devices. Tell the user.
+  try {
+    state?.onPairingConfirmed?.(summary)
+  } catch (err) {
+    console.error('[E2EE] pairing-confirmed listener failed:', err)
+  }
+  return summary
 }
 
 export function rejectRemotePairing(pairingId: string): void {

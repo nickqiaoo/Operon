@@ -44,7 +44,7 @@ export function FileCitationChip({ path, line, endLine, className }: FileCitatio
       onClick={handleClick}
       title={path}
       className={cn(
-        "inline-flex max-w-full appearance-none items-baseline gap-1 border-0 bg-transparent p-0 align-baseline text-[1em] text-link no-underline transition-colors [font:inherit] [line-height:inherit] hover:text-link/85 hover:underline hover:decoration-link/40 underline-offset-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "inline-flex max-w-full appearance-none items-baseline gap-1 border-0 bg-transparent p-0 align-baseline text-[1em] text-link no-underline transition-colors [font:inherit] [line-height:inherit] hover:text-link/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         className
       )}
     >

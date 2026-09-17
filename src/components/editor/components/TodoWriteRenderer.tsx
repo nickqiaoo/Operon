@@ -1,3 +1,4 @@
+import { ListTodoIcon } from 'lucide-react';
 import {
   Queue,
   QueueItem,
@@ -195,7 +196,7 @@ export function TodoWriteRenderer({
   if (todos.length === 0) {
     return (
       <Tool key={`${messageId}-${partIndex}`}>
-        <ToolHeader type="dynamic-tool" toolName={toolName} state={state} />
+        <ToolHeader icon={<ListTodoIcon className="size-3.5 shrink-0 text-muted-foreground/70" />} type="dynamic-tool" toolName={toolName} state={state} />
       </Tool>
     );
   }
@@ -212,7 +213,7 @@ export function TodoWriteRenderer({
 
   return (
     <Tool key={`${messageId}-${partIndex}`}>
-      <ToolHeader type="dynamic-tool" toolName={toolName} state={state} />
+      <ToolHeader icon={<ListTodoIcon className="size-3.5 shrink-0 text-muted-foreground/70" />} type="dynamic-tool" toolName={toolName} state={state} />
       <ToolContent>
         <Queue className="border-0 shadow-none px-0 pt-0 pb-0">
           <QueueSection defaultOpen={!allCompleted}>

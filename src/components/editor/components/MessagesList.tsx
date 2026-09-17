@@ -22,6 +22,7 @@ import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { groupArchivedSteers } from './steer-message';
+import type { RewindMode } from '../hooks/useRewindController';
 
 type MessagePart = UIMessage['parts'][number];
 type AttachmentPart = Extract<MessagePart, { type: 'file' | 'source-document' }>;
@@ -106,7 +107,7 @@ interface MessagesListProps {
   currentChatId: string;
   availableModels: SendToModel[];
   onSendToOpen?: () => void;
-  onRewindToCheckpoint?: (userMessageId: string) => void;
+  onRewindToCheckpoint?: (userMessageId: string, mode: RewindMode) => void;
   rewindedCheckpoint?: { messageId: string; backupSnapshotId: string } | null;
   onUndoRewind?: () => void;
   /**
@@ -131,6 +132,13 @@ interface MessageItemProps {
   deferOffscreen: boolean;
   precedingUserMessageId?: string;
   isRewindedCheckpoint: boolean;
+  /**
+   * This is the newest turn that changed files, so its diff card can offer
+   * Undo: rewinding to its start reverts this turn and nothing else.
+   */
+  isLatestChangedTurn: boolean;
+  /** A user message whose checkpoint can be rewound to (its turn changed files). */
+  canRewindHere: boolean;
   /** This turn's changed files; rendered as a card at the end of the round. */
   turnDiffFiles?: TurnDiffFile[];
   onReviewTurn?: (messageUid: string) => void;
@@ -143,7 +151,7 @@ interface MessageItemProps {
   currentChatId: string;
   availableModels: SendToModel[];
   onSendToOpen?: () => void;
-  onRewindToCheckpoint?: (userMessageId: string) => void;
+  onRewindToCheckpoint?: (userMessageId: string, mode: RewindMode) => void;
   onUndoRewind?: () => void;
 }
 
@@ -184,6 +192,8 @@ const MessageItem = memo(function MessageItem({
   deferOffscreen,
   precedingUserMessageId,
   isRewindedCheckpoint,
+  isLatestChangedTurn,
+  canRewindHere,
   turnDiffFiles,
   onReviewTurn,
   externalAgentNotificationsByTaskId,
@@ -238,6 +248,13 @@ const MessageItem = memo(function MessageItem({
       }, -1)
     : -1;
 
+  // The checkpoint is taken just before a user message is sent, so rewinding
+  // to it is offered on the message itself.
+  const rewindToHere =
+    canRewindHere && onRewindToCheckpoint
+      ? () => onRewindToCheckpoint(message.id, 'rewind')
+      : undefined;
+
   // Per-turn footer (diff card / rewound indicator). Rendered by the part
   // renderer at the last text part — above the message's action row.
   const turnFooter =
@@ -253,7 +270,7 @@ const MessageItem = memo(function MessageItem({
       ) : turnDiffFiles != null && turnDiffFiles.length > 0 ? (
         <TurnDiffCard
           files={turnDiffFiles}
-          onUndo={() => onRewindToCheckpoint(precedingUserMessageId)}
+          onUndo={isLatestChangedTurn ? () => onRewindToCheckpoint(precedingUserMessageId, 'undo') : undefined}
           onReview={onReviewTurn ? () => onReviewTurn(precedingUserMessageId) : undefined}
           // mb-3 separates the turn's diff card from the next turn's user message
           // (the list container only puts gap-1 between messages, which is too
@@ -316,6 +333,7 @@ const MessageItem = memo(function MessageItem({
                   SendToButton={SendToButton}
                   childParts={childToolParts}
                   externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
+                  onRewindToHere={rewindToHere}
                 />
               </div>
             );
@@ -476,6 +494,15 @@ export const MessagesList = memo(function MessagesList({
     return map;
   }, [turnDiffs]);
 
+  // The newest round (in message order) whose turn changed files.
+  const latestChangedTurnId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === 'user' && turnFilesByMessageId.has(message.id)) return message.id;
+    }
+    return undefined;
+  }, [messages, turnFilesByMessageId]);
+
   const handleCopy = useCallback((text: string) => {
     void navigator.clipboard.writeText(text);
   }, []);
@@ -494,6 +521,14 @@ export const MessagesList = memo(function MessagesList({
           deferOffscreen={index < lastMessageIndex - LIVE_TAIL_SIZE}
           precedingUserMessageId={precedingUserMessageIds[index]}
           isRewindedCheckpoint={rewindedCheckpoint?.messageId === precedingUserMessageIds[index]}
+          canRewindHere={
+            message.role === 'user'
+            && turnFilesByMessageId.has(message.id)
+            && rewindedCheckpoint?.messageId !== message.id
+          }
+          isLatestChangedTurn={
+            precedingUserMessageIds[index] != null && precedingUserMessageIds[index] === latestChangedTurnId
+          }
           turnDiffFiles={
             precedingUserMessageIds[index] != null
               ? turnFilesByMessageId.get(precedingUserMessageIds[index]!)

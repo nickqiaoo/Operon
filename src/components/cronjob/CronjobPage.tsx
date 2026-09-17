@@ -128,7 +128,7 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
       ) : sortedCronjobs.length === 0 ? (
         <div className="flex-1 flex items-center justify-center bg-muted/10">
           <div className="flex flex-col items-center justify-center gap-4 text-center p-8 max-w-sm">
-            <div className="size-16 rounded-2xl bg-muted/40 flex items-center justify-center border border-border/60">
+            <div className="size-16 rounded-xl bg-muted/40 flex items-center justify-center border border-border/60">
               <CalendarClock className="h-8 w-8 text-muted-foreground/60" />
             </div>
             <div className="space-y-1">

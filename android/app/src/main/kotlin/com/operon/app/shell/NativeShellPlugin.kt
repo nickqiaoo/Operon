@@ -286,6 +286,7 @@ class NativeShellPlugin : Plugin() {
                 value = raw.optStringOrNull("value"),
                 progress = if (raw.has("progress") && !raw.isNull("progress")) raw.optDouble("progress") else null,
                 tone = InfoSheet.Tone.from(raw.optStringOrNull("tone")),
+                barTone = InfoSheet.BarTone.from(raw.optStringOrNull("barTone")),
                 footer = raw.optStringOrNull("footer"),
                 rows = rows,
             )

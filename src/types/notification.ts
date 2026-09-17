@@ -11,6 +11,7 @@ export type NotificationKind =
   | 'sdd_gate'
   | 'cron_done'
   | 'workflow_approval'
+  | 'device_paired'
 
 export type NotificationSeverity = 'action' | 'info'
 

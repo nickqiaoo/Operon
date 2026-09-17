@@ -13,6 +13,11 @@ export interface TurnDiffFile {
 
 interface TurnDiffCardProps {
   files: TurnDiffFile[];
+  /**
+   * Only offered on the newest turn that changed files, where rewinding to the
+   * start of the turn is exactly "undo this turn". Older turns rewind from the
+   * user message instead, where the checkpoint actually sits.
+   */
   onUndo?: () => void;
   onReview?: () => void;
   className?: string;

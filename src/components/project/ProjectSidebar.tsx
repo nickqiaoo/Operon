@@ -88,7 +88,7 @@ function ProjectItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0 rounded-full bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-7 w-7 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onOpenChannel?.(project)}
           title={intl.formatMessage({ id: "sidebar.openChannels", defaultMessage: "Open workspace" })}
         >
@@ -97,7 +97,7 @@ function ProjectItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0 rounded-full bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-7 w-7 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onAddWorkspace(project)}
           title={intl.formatMessage({ id: "sidebar.newWorkspace", defaultMessage: "New workspace" })}
         >
@@ -394,7 +394,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenSkills, o
           </Button>
         )}
       </div>
-      <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0">
+      <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0" viewportClassName="scroll-fade-y [--scroll-fade-gutter:0px]">
         <div className="space-y-1 pb-6 pt-0">
           {projects.length === 0 && !projectsLoaded ? (
             // First load with nothing cached. Without this the empty state
@@ -402,7 +402,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenSkills, o
             // take a second.
             <WorkspaceListSkeleton />
           ) : projects.length === 0 ? (
-            <div className="mx-4 mt-6 rounded-2xl border border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
+            <div className="mx-4 mt-6 rounded-xl border border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
               No projects yet.
             </div>
           ) : (

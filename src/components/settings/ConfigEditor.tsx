@@ -54,11 +54,11 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
             {/* Editor */}
             <div className="relative group">
                 {currentFile.loading ? (
-                    <div className="flex items-center justify-center h-96 bg-muted/20 rounded-2xl border border-border/60">
+                    <div className="flex items-center justify-center h-96 bg-muted/20 rounded-xl border border-border/60">
                         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     </div>
                 ) : currentFile.error ? (
-                    <div className="flex items-center justify-center h-96 bg-destructive/5 rounded-2xl border border-destructive/10">
+                    <div className="flex items-center justify-center h-96 bg-destructive/5 rounded-xl border border-destructive/10">
                         <div className="flex items-center gap-2 text-destructive">
                             <AlertCircle className="h-5 w-5" />
                             <span className="text-sm">{currentFile.error}</span>
@@ -66,12 +66,12 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
                     </div>
                 ) : (
                     <>
-                        <div className="absolute inset-0 bg-muted/20 rounded-2xl pointer-events-none transition-opacity duration-300 group-focus-within:opacity-0" />
+                        <div className="absolute inset-0 bg-muted/20 rounded-xl pointer-events-none transition-opacity duration-300 group-focus-within:opacity-0" />
                         <textarea
                             value={currentFile.content}
                             onChange={(e) => handleContentChange(activeFile, e.target.value)}
                             className={cn(
-                                "w-full h-96 p-6 bg-transparent rounded-2xl border border-border/60 code-scrollbar relative z-10",
+                                "w-full h-96 p-6 bg-transparent rounded-xl border border-border/60 code-scrollbar relative z-10",
                                 "font-mono text-sm resize-none shadow-card transition-all duration-300",
                                 "focus:outline-none focus:ring-1 focus:ring-tint/10 focus:border-tint/40 focus:bg-background/50 focus:shadow-premium",
                                 "placeholder:text-muted-foreground/40",

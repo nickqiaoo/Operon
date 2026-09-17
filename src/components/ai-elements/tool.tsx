@@ -10,11 +10,13 @@ import { cn } from "@/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import {
   CheckCircleIcon,
+  CheckIcon,
   ChevronDownIcon,
   CircleIcon,
   ClockIcon,
-  WrenchIcon,
+  LoaderIcon,
   XCircleIcon,
+  XIcon,
   AlertCircleIcon,
 } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
@@ -40,6 +42,8 @@ export type ToolPart = ToolUIPart | DynamicToolUIPart;
 
 export type ToolHeaderProps = {
   title?: string;
+  /** Leading icon; omitted headers start straight with the name. */
+  icon?: ReactNode;
   description?: string;
   className?: string;
 } & (
@@ -51,32 +55,85 @@ export type ToolHeaderProps = {
     }
   );
 
-export const getStatusBadge = (status: ToolPart["state"]) => {
-  const labels: Record<ToolPart["state"], string> = {
-    "input-streaming": "Pending",
-    "input-available": "Running",
-    "approval-requested": "Awaiting Approval",
-    "approval-responded": "Responded",
-    "output-available": "Completed",
-    "output-error": "Error",
-    "output-denied": "Denied",
-  };
+const STATUS_LABELS: Record<ToolPart["state"], string> = {
+  "input-streaming": "Pending",
+  "input-available": "Running",
+  "approval-requested": "Awaiting Approval",
+  "approval-responded": "Responded",
+  "output-available": "Completed",
+  "output-error": "Error",
+  "output-denied": "Denied",
+};
 
+const getStatusIcon = (status: ToolPart["state"], className = "size-4") => {
   const icons: Record<ToolPart["state"], ReactNode> = {
-    "input-streaming": <CircleIcon className="size-4" />,
-    "input-available": <ClockIcon className="size-4 animate-pulse" />,
-    "approval-requested": <ClockIcon className="size-4 text-yellow-600" />,
-    "approval-responded": <CheckCircleIcon className="size-4 text-blue-600" />,
-    "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
-    "output-error": <XCircleIcon className="size-4 text-red-600" />,
-    "output-denied": <XCircleIcon className="size-4 text-orange-600" />,
+    "input-streaming": <CircleIcon className={className} />,
+    "input-available": <ClockIcon className={cn(className, "animate-pulse")} />,
+    "approval-requested": <ClockIcon className={cn(className, "text-status-warn")} />,
+    "approval-responded": <CheckCircleIcon className={cn(className, "text-status-info")} />,
+    "output-available": <CheckCircleIcon className={cn(className, "text-status-ok")} />,
+    "output-error": <XCircleIcon className={cn(className, "text-status-error")} />,
+    "output-denied": <XCircleIcon className={cn(className, "text-status-warn")} />,
   };
+  return icons[status];
+};
 
+export const getStatusBadge = (status: ToolPart["state"]) => (
+  <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
+    {getStatusIcon(status)}
+    {STATUS_LABELS[status]}
+  </Badge>
+);
+
+/**
+ * Icon-only status for a tool row: a bare icon instead of a labelled pill that
+ * outweighs the tool name. The label survives as an aria-label.
+ */
+export const ToolStatusIcon = ({ state }: { state: ToolPart["state"] }) => {
+  const label = STATUS_LABELS[state];
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return <LoaderIcon aria-label={label} className="size-3.5 animate-spin text-muted-foreground" />;
+    case "output-available":
+    case "approval-responded":
+      return <CheckIcon aria-label={label} className="size-3.5 text-status-ok" />;
+    case "output-error":
+      return <XIcon aria-label={label} className="size-3.5 text-status-error" />;
+    case "output-denied":
+      return <XIcon aria-label={label} className="size-3.5 text-status-warn" />;
+    case "approval-requested":
+      return <span aria-label={label} className="block size-2 animate-pulse rounded-full bg-status-warn" />;
+    default:
+      return null;
+  }
+};
+
+const splitPath = (value: string): [string, string] | null => {
+  if (/\s/.test(value)) return null;
+  const trimmed = value.length > 1 ? value.replace(/\/+$/, "") : value;
+  const slash = trimmed.lastIndexOf("/");
+  // Needs a non-empty directory AND basename to be worth splitting.
+  if (slash <= 0 || slash === trimmed.length - 1) return null;
+  return [trimmed.slice(0, slash), trimmed.slice(slash)];
+};
+
+/**
+ * The argument summary beside a tool name. A lone path truncates in the middle
+ * — the directory gives way and the basename stays — because the basename is
+ * what tells two reads apart; `/Volumes/data/pro…/operon-agents`.
+ */
+export const ToolDescription = ({ value, className }: { value: string; className?: string }) => {
+  const parts = splitPath(value);
+  const base = "min-w-0 font-mono text-xs text-muted-foreground";
+  if (!parts) {
+    return <code title={value} className={cn(base, "truncate", className)}>{value}</code>;
+  }
   return (
-    <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-      {icons[status]}
-      {labels[status]}
-    </Badge>
+    <code title={value} className={cn(base, "flex", className)}>
+      <span className="min-w-0 truncate">{parts[0]}</span>
+      <span className="max-w-[70%] shrink-0 truncate">{parts[1]}</span>
+    </code>
   );
 };
 
@@ -84,6 +141,7 @@ export const ToolHeader = ({
   className,
   title,
   description,
+  icon,
   type,
   state,
   toolName,
@@ -100,34 +158,30 @@ export const ToolHeader = ({
   return (
     <CollapsibleTrigger
       className={cn(
-        "flex w-full items-center justify-between gap-4 p-3",
+        "flex w-full items-center gap-2 px-3 py-2 text-left",
         className
       )}
       {...props}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <WrenchIcon className="size-4 shrink-0 text-muted-foreground" />
-        {/* Truncates last, like CompactToolCall's: the description absorbs the
-            shrinkage so a short name stays whole. `max-w` still caps the case
-            where a provider passes an entire shell command as the tool name,
-            which unshrinkable would overflow the window. */}
-        <span
-          data-testid="tool-name"
-          className={cn(
-            "truncate font-medium text-sm",
-            description ? "shrink-0 max-w-[60%]" : "min-w-0"
-          )}
-        >
-          {title ?? derivedName}
-        </span>
-        {description && (
-          <code className="min-w-0 truncate text-xs text-muted-foreground font-mono">
-            {description}
-          </code>
+      {icon}
+      {/* Truncates last, like CompactToolCall's: the description absorbs the
+          shrinkage so a short name stays whole. `max-w` still caps the case
+          where a provider passes an entire shell command as the tool name,
+          which unshrinkable would overflow the window. */}
+      <span
+        data-testid="tool-name"
+        className={cn(
+          "truncate font-medium text-sm text-muted-foreground",
+          description ? "shrink-0 max-w-[60%]" : "min-w-0"
         )}
-        <div className="shrink-0">{getStatusBadge(state)}</div>
-      </div>
-      <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+      >
+        {title ?? derivedName}
+      </span>
+      {description && <ToolDescription value={description} />}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        <ToolStatusIcon state={state} />
+        <ChevronDownIcon className="size-3.5 text-muted-foreground/60 transition-transform group-data-[state=open]:rotate-180" />
+      </span>
     </CollapsibleTrigger>
   );
 };
@@ -167,7 +221,7 @@ const ToolInputBody = ({ view }: { view: ToolInputView }) => {
   // A — a lone text blob, rendered as text so its newlines survive.
   if (view.kind === "text") {
     return (
-      <div className="rounded-xl bg-muted/50">
+      <div className="rounded-lg bg-muted/50">
         <CodeBlock code={view.value} language={view.language} />
       </div>
     );
@@ -198,7 +252,7 @@ const ToolInputBody = ({ view }: { view: ToolInputView }) => {
 
   // C — nested structures stay JSON.
   return (
-    <div className="rounded-xl bg-muted/50">
+    <div className="rounded-lg bg-muted/50">
       <CodeBlock code={JSON.stringify(view.value, null, 2)} language="json" />
     </div>
   );

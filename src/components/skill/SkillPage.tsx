@@ -346,7 +346,7 @@ export function SkillPage({ onBack }: SkillPageProps) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto code-scrollbar">
+      <div className="flex-1 min-h-0 overflow-auto code-scrollbar scroll-fade-y">
         {selected ? (
           <SkillDetailView
             key={`${scope}:${selected}`}

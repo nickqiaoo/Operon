@@ -1,8 +1,8 @@
 import { getToolDisplayName, type ToolPartLike } from '../toolName';
 
-type Category = 'read' | 'write' | 'search' | 'command' | 'web' | 'task' | 'other';
+export type ToolCategory = 'read' | 'write' | 'search' | 'command' | 'web' | 'task' | 'mcp' | 'other';
 
-const TOOL_CATEGORIES: Record<string, Category> = {
+const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   read: 'read',
   cat: 'read',
   read_file: 'read',
@@ -37,7 +37,10 @@ const TOOL_CATEGORIES: Record<string, Category> = {
   ask_user: 'task',
 };
 
-const CATEGORY_LABELS: Record<Category, (count: number) => string> = {
+// MCP tools only get their own icon; the summary still counts them as tool calls.
+type SummaryCategory = Exclude<ToolCategory, 'mcp'>;
+
+const CATEGORY_LABELS: Record<SummaryCategory, (count: number) => string> = {
   read: (n) => `Read ${n} file${n > 1 ? 's' : ''}`,
   write: (n) => `Edited ${n} file${n > 1 ? 's' : ''}`,
   search: (n) => `Searched ${n} pattern${n > 1 ? 's' : ''}`,
@@ -47,9 +50,9 @@ const CATEGORY_LABELS: Record<Category, (count: number) => string> = {
   other: (n) => `${n} Tool call${n > 1 ? 's' : ''}`,
 };
 
-function categorize(toolName: string): Category {
+export function categorizeTool(toolName: string): ToolCategory {
   const lower = toolName.toLowerCase().replace(/[`\s]/g, '');
-  return TOOL_CATEGORIES[lower] ?? 'other';
+  return TOOL_CATEGORIES[lower] ?? (lower.startsWith('mcp__') ? 'mcp' : 'other');
 }
 
 /**
@@ -57,16 +60,17 @@ function categorize(toolName: string): Category {
  * e.g., "Read 3 files, searched 2 patterns, ran 1 command"
  */
 export function buildToolGroupSummary(parts: ToolPartLike[]): string {
-  const counts = new Map<Category, number>();
+  const counts = new Map<SummaryCategory, number>();
 
   for (const part of parts) {
     const name = getToolDisplayName(part);
-    const category = categorize(name);
+    const raw = categorizeTool(name);
+    const category: SummaryCategory = raw === 'mcp' ? 'other' : raw;
     counts.set(category, (counts.get(category) ?? 0) + 1);
   }
 
   // Ordered output: read, write, search, command, web, other
-  const order: Category[] = ['read', 'write', 'search', 'command', 'web', 'task', 'other'];
+  const order: SummaryCategory[] = ['read', 'write', 'search', 'command', 'web', 'task', 'other'];
   const segments: string[] = [];
 
   for (const cat of order) {

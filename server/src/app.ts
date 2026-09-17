@@ -83,6 +83,8 @@ import { getChromeUseConfig, initChromeUseConfig } from './services/chrome-use-c
 import type { SqliteStorage } from './storage/sqlite.js'
 import { remoteE2EERoutes } from './routes/remote-e2ee.js'
 import { createRemoteE2EEMiddleware, initRemoteE2EE } from './services/remote-e2ee.js'
+import { notify } from './services/notification-service.js'
+import type { MobilePairingSummary } from './types/mobile.js'
 import { createApiTokenMiddleware } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 
@@ -96,6 +98,13 @@ export interface AppDeps {
    */
   reseed?: () => { projectId: number; workspaceId: number; workspaceCwd: string }
   remoteE2eeMode?: RemoteE2EEMode
+  /**
+   * Set by hosts that can approve a device pairing over a channel no same-user
+   * HTTP caller can reach (Electron IPC). Closes the HTTP approve route.
+   */
+  secureApprovalChannel?: boolean
+  /** Host-side echo of a confirmed pairing — the desktop raises an OS notification. */
+  onDevicePaired?: (pairing: MobilePairingSummary) => void
 }
 
 export async function createApp(deps: AppDeps) {
@@ -166,7 +175,25 @@ export async function createApp(deps: AppDeps) {
   initProjectRepos(deps.storage)
   initDesktopIdentity(deps.storage)
   const mobileStorage = deps.storage as unknown as import('./storage/interface.js').MobilePairingStorageAdapter
-  initRemoteE2EE({ storage: mobileStorage, mode: deps.remoteE2eeMode ?? 'required' })
+  initRemoteE2EE({
+    storage: mobileStorage,
+    mode: deps.remoteE2eeMode ?? 'required',
+    secureApprovalChannel: deps.secureApprovalChannel,
+    // A new device is a standing grant of remote access to this machine, so it
+    // lands in the inbox as 'action': the user should look at it, not just see
+    // it scroll past. Not coalesced with other pairings — each device is its own
+    // decision to audit.
+    onPairingConfirmed: (pairing: MobilePairingSummary) => {
+      notify(deps.storage, {
+        kind: 'device_paired',
+        severity: 'action',
+        sourceKey: `device:${pairing.mobileDeviceId}`,
+        title: 'New device paired',
+        body: `${pairing.mobileLabel || 'A device'} can now reach this machine remotely. Fingerprint ${pairing.mobileFingerprint}. Revoke it in Settings if this was not you.`,
+      })
+      deps.onDevicePaired?.(pairing)
+    },
+  })
   seedLegacyIMTokens(deps.storage)
 
   const app = new Hono()

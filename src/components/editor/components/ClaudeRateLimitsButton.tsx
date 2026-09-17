@@ -5,8 +5,9 @@ import { useMemo, useState } from 'react';
 import { useIntl, type IntlShape } from 'react-intl';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Progress } from '@/components/ui/progress';
+import { nativeUsageTones, usageBarTone, usageTextTone } from './rate-limit-tone';
 import { cn } from '@/lib/utils';
 import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import type { ClaudeRateLimits, ClaudeRateLimitWindow } from '../utils/chatMetadata';
@@ -83,28 +84,19 @@ const bindingWindow = (windows: DisplayWindow[]): DisplayWindow | null =>
     null,
   );
 
-// Color by how much is consumed: comfortable → muted, running low → amber,
-// exhausted → red.
-const usedTone = (used: number): string => {
-  if (used >= 100) return 'text-destructive';
-  if (used >= 85) return 'text-amber-600 dark:text-amber-500';
-  return 'text-muted-foreground';
-};
-
 const renderWindowBlock = (item: DisplayWindow, intl: IntlShape) => {
-  const high = item.used >= 85;
   return (
     <div className="space-y-2 rounded-xl bg-muted/40 px-3 py-2.5" key={item.key}>
       <div className="flex items-center justify-between gap-3 text-[11px]">
         <span className="text-muted-foreground">{item.label}</span>
-        <span className={cn('font-mono', high ? usedTone(item.used) : 'text-foreground')}>
+        <span className={cn('font-mono', usageTextTone(item.used, 'text-foreground'))}>
           {intl.formatMessage(
             { id: 'editor.claude.percentUsed', defaultMessage: '{percent} used' },
             { percent: formatPercent(item.used) },
           )}
         </span>
       </div>
-      <Progress className="h-1.5 bg-muted/70" value={item.used} />
+      <Progress className="h-1.5 bg-muted/70" indicatorClassName={usageBarTone(item.used)} value={item.used} />
       <div className="flex items-center justify-end text-[11px] text-muted-foreground">
         <span>
           {intl.formatMessage(
@@ -139,7 +131,7 @@ function ClaudeRateLimitsContent({
       {windows.length > 0 ? (
         windows.map((item) => renderWindowBlock(item, intl))
       ) : (
-        <div className="rounded-2xl bg-muted/35 px-3 py-3 text-sm text-muted-foreground">
+        <div className="rounded-lg bg-muted/35 px-3 py-3 text-sm text-muted-foreground">
           {intl.formatMessage({ id: 'editor.claude.noData', defaultMessage: 'No usage data yet.' })}
         </div>
       )}
@@ -152,7 +144,7 @@ function TriggerContent({ windows }: { windows: DisplayWindow[] }) {
   return (
     <>
       {binding ? <span className="font-mono text-xs">{formatPercent(binding.used)}</span> : null}
-      <Gauge className={cn('size-3.5', binding ? usedTone(binding.used) : undefined)} />
+      <Gauge className={cn('size-3.5', binding ? usageTextTone(binding.used) : undefined)} />
     </>
   );
 }
@@ -160,7 +152,7 @@ function TriggerContent({ windows }: { windows: DisplayWindow[] }) {
 const triggerClassName =
   'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-muted/40';
 
-/** Desktop: quota summary in a hover-less popover on click. */
+/** Desktop: quota summary on hover, like the context usage chip beside it. */
 export function ClaudeRateLimitsButton({ rateLimits, className }: ClaudeRateLimitsButtonProps) {
   const intl = useIntl();
   const windows = useMemo(() => collectWindows(rateLimits), [rateLimits]);
@@ -168,8 +160,8 @@ export function ClaudeRateLimitsButton({ rateLimits, className }: ClaudeRateLimi
   if (windows.length === 0) return null;
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <HoverCard closeDelay={300} openDelay={0}>
+      <HoverCardTrigger asChild>
         <Button
           aria-label={intl.formatMessage({ id: 'editor.claude.aria', defaultMessage: 'Open subscription usage details' })}
           className={cn(triggerClassName, className)}
@@ -179,15 +171,15 @@ export function ClaudeRateLimitsButton({ rateLimits, className }: ClaudeRateLimi
         >
           <TriggerContent windows={windows} />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
+      </HoverCardTrigger>
+      <HoverCardContent
         align="start"
-        className="w-[340px] rounded-2xl border border-border/40 bg-background/95 p-3 shadow-float backdrop-blur"
+        className="w-[340px] rounded-xl border border-border/40 bg-background/95 p-3 shadow-float backdrop-blur"
         side="top"
       >
         <ClaudeRateLimitsContent windows={windows} subscriptionType={rateLimits?.subscriptionType} />
-      </PopoverContent>
-    </Popover>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -212,7 +204,7 @@ export function MobileClaudeRateLimits({ rateLimits, className }: ClaudeRateLimi
         header: item.label,
         value: intl.formatMessage({ id: 'editor.claude.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(item.used) }),
         progress: item.used / 100,
-        tone: item.used >= 100 ? 'error' : item.used >= 85 ? 'warn' : 'normal',
+        ...nativeUsageTones(item.used),
         footer: intl.formatMessage({ id: 'editor.claude.resets', defaultMessage: 'Resets {time}' }, { time: formatResetTime(item.window.resetsAt, intl) }),
       })),
     }).catch(() => setOpen(true));
