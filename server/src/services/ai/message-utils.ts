@@ -102,14 +102,19 @@ export function extractAssistantText(message: UIMessage): string {
   return text.trim()
 }
 
+/** Base64 with no URL scheme in front — too long and too plain to be anything else. */
+const isBareBase64 = (url: string): boolean =>
+  url.length >= 64 && !/^[a-z][a-z0-9+.-]*:/i.test(url) && /^[A-Za-z0-9+/=\s]+$/.test(url)
+
 export const normalizeUiMessagesFileAttachments = (messages: UIMessage[]): UIMessage[] =>
   messages.map((message) => {
     if (message.role !== 'user' || !Array.isArray(message.parts)) return message
     const normalizedParts = message.parts.flatMap((part): typeof message.parts => {
       if (part.type !== 'file') return [part]
-      // Keep images — models need to see image content directly.
-      // Strip data: URL prefix to raw base64 so AI SDK's downloadAssets
-      // won't try to HTTP-fetch a data: scheme URL (rejected since SDK v6).
+      // Keep images — models need to see image content directly. They go to
+      // the model as a `data:` URL: ai@7's convertToModelMessages runs every
+      // file part's url through `new URL()`, so bare base64 throws "Invalid
+      // URL", and a `data:` URL is inlined by the SDK rather than fetched.
       if (part.mediaType.startsWith('image/')) {
         // Content-addressed attachment: the transcript only carries a URL, so
         // read the bytes back off disk. Model APIs take base64 image content —
@@ -119,18 +124,18 @@ export const normalizeUiMessagesFileAttachments = (messages: UIMessage[]): UIMes
         if (hash) {
           const stored = getAttachment(hash)
           if (stored) {
-            return [{ ...part, url: stored.data.toString('base64'), mediaType: stored.meta.mediaType }]
+            const mediaType = stored.meta.mediaType
+            return [{ ...part, url: `data:${mediaType};base64,${stored.data.toString('base64')}`, mediaType }]
           }
           // Blob is gone (store cleared, transcript copied between machines).
           // Drop to a text note so the turn still sends instead of the provider
           // rejecting an unfetchable URL.
           return [{ type: 'text' as const, text: `[Image attachment unavailable: ${part.filename ?? hash}]` }]
         }
-        if (part.url.startsWith('data:')) {
-          const commaIdx = part.url.indexOf(',')
-          if (commaIdx !== -1) {
-            return [{ ...part, url: part.url.slice(commaIdx + 1) }]
-          }
+        // Older transcripts persisted the stripped form (bare base64); give it
+        // its scheme back so it parses as a URL.
+        if (isBareBase64(part.url)) {
+          return [{ ...part, url: `data:${part.mediaType};base64,${part.url.replace(/\s+/g, '')}` }]
         }
         return [part]
       }

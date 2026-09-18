@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { UIMessage } from 'ai'
+import { convertToModelMessages, type UIMessage } from 'ai'
 
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'operon-msgutils-'))
 process.env.OPERON_DATA_DIR = TMP_DIR
@@ -18,7 +18,7 @@ const userMessage = (parts: UIMessage['parts']): UIMessage =>
   ({ id: 'm1', role: 'user', parts }) as UIMessage
 
 describe('normalizeUiMessagesFileAttachments — stored attachments', () => {
-  it('reads a stored image back as raw base64 for the model', () => {
+  it('reads a stored image back as a data URL for the model', () => {
     const pixels = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])
     const stored = putAttachment(pixels, { mediaType: 'image/png', filename: 'shot.png' })
 
@@ -29,8 +29,8 @@ describe('normalizeUiMessagesFileAttachments — stored attachments', () => {
     const part = message.parts[0] as { type: string; url: string; mediaType: string }
     expect(part.type).toBe('file')
     expect(part.mediaType).toBe('image/png')
-    // Raw base64, no `data:` prefix — the AI SDK rejects data: scheme URLs.
-    expect(part.url).toBe(pixels.toString('base64'))
+    // ai@7 parses every file url with `new URL()`; bare base64 would throw.
+    expect(part.url).toBe(`data:image/png;base64,${pixels.toString('base64')}`)
   })
 
   it('degrades to a text note when the blob is missing', () => {
@@ -50,12 +50,23 @@ describe('normalizeUiMessagesFileAttachments — stored attachments', () => {
     expect(part.text).toContain('gone.png')
   })
 
-  it('still strips the prefix off legacy data URLs', () => {
+  it('keeps inline data URLs as they are', () => {
     const [message] = normalizeUiMessagesFileAttachments([
       userMessage([{ type: 'file', mediaType: 'image/jpeg', url: 'data:image/jpeg;base64,QUJD' }]),
     ])
 
-    expect((message.parts[0] as { url: string }).url).toBe('QUJD')
+    expect((message.parts[0] as { url: string }).url).toBe('data:image/jpeg;base64,QUJD')
+  })
+
+  it('gives bare base64 from older transcripts its scheme back', async () => {
+    const base64 = Buffer.alloc(96, 7).toString('base64')
+    const messages = normalizeUiMessagesFileAttachments([
+      userMessage([{ type: 'file', mediaType: 'image/png', url: base64 }]),
+    ])
+
+    expect((messages[0].parts[0] as { url: string }).url).toBe(`data:image/png;base64,${base64}`)
+    // The regression: convertToModelMessages threw "Invalid URL" on a pasted image.
+    await expect(convertToModelMessages(messages)).resolves.toHaveLength(1)
   })
 
   it('describes a non-image attachment by filename, not by hash', () => {

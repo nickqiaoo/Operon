@@ -153,8 +153,15 @@ function toImageContent(part: unknown): ImageContent | undefined {
     base64 = Buffer.from(value).toString('base64')
   } else if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
     base64 = Buffer.from(new Uint8Array(value)).toString('base64')
+  } else if (value instanceof URL) {
+    const dataUrl = value.href.match(/^data:([^;]+);base64,(.+)$/i)
+    if (!dataUrl) return undefined // remote URL — the framework can't fetch it
+    mime = mime ?? dataUrl[1]
+    base64 = dataUrl[2]
   } else if (value && typeof value === 'object') {
     const inner = value as Record<string, unknown>
+    // ai@7 tags file data: `{ type: 'url', url: URL }` for a data: URL.
+    if (inner.type === 'url') return toImageContent({ ...p, data: inner.url })
     const innerData = inner.data ?? inner.base64
     if (typeof innerData === 'string') base64 = innerData.replace(/\s+/g, '')
     mime = mime ?? (typeof inner.mediaType === 'string' ? inner.mediaType : typeof inner.mimeType === 'string' ? inner.mimeType : undefined)
