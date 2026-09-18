@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.3.38] - 2026-09-19
+
+### Changed
+
+- The title bar shows how much quota each signed-in provider has left, with a refresh button.
+- Claude's usage updates while a reply is streaming instead of waiting for the next poll.
+- Refreshing usage now actually re-reads it rather than repeating the cached number.
+- Usage bars follow the 5-hour window and use a softer red; the percentages themselves stay grey.
+- Create PR moved from the chat box to the review toolbar, and uses your own `gh` login — no token to paste, and the old one is deleted from the database.
+- PR titles and descriptions are drafted from the diff, and you can stop the draft while it runs.
+- Draft PRs, opening a PR in the browser, and jumping to a branch's existing PR are all in the review toolbar.
+- Stopping a reply no longer discards the part that was already on screen.
+- Usage and context cards above the chat box open when you rest on them, not when you pass over them.
+
 ## [1.3.37] - 2026-09-18
 
 ### Changed
