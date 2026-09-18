@@ -93,3 +93,37 @@ export function emitChatTurnFinished(event: ChatTurnFinished): void {
     try { listener(event) } catch (error) { console.warn('[chat-turn] finish observer failed', error) }
   }
 }
+
+/**
+ * Resolves once this chat has no turn in flight.
+ *
+ * `emitChatTurnFinished` fires only after `persistDone` has settled, so "idle"
+ * here means the turn's assistant message is already in the database. That is
+ * exactly the guarantee a client needs before it reconciles its transcript
+ * against chat history: reconciling earlier reads a tail that is missing the
+ * reply still being written, and the client then "corrects" a correct
+ * transcript by deleting it.
+ *
+ * Best-effort: a runtime that never honours the abort would otherwise hang the
+ * caller, so the wait gives up after `timeoutMs` and resolves anyway.
+ */
+export function waitForChatTurnIdle(chatId: number, timeoutMs = 5000): Promise<void> {
+  if (!isChatTurnBusy(chatId)) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    let done = false
+    const settle = () => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      unsubscribe()
+      resolve()
+    }
+    const timer = setTimeout(settle, timeoutMs)
+    const unsubscribe = onChatTurnFinished((event) => {
+      if (event.chatId !== chatId) return
+      if (!isChatTurnBusy(chatId)) settle()
+    })
+    // The turn may have ended between the check above and the subscription.
+    if (!isChatTurnBusy(chatId)) settle()
+  })
+}

@@ -297,6 +297,7 @@ function ChatPanelContent({
     resumeOnAttach,
     liveTurnActive,
     isGenerating,
+    turnSettling,
     lastMessageId,
     lastMessageTextSize,
     canDynamicSwitch,
@@ -859,8 +860,13 @@ function ChatPanelContent({
     0,
   );
 
+  // Waits out `turnSettling` as well as `isGenerating`: a stopped turn leaves
+  // `isGenerating` false while the node is still writing the partial reply, and
+  // reconciling against that half-written tail replaces the transcript with a
+  // version that is missing everything the turn had already streamed.
   useEffect(() => {
-    if (!historyLoaded || isGenerating || (sentSteerCount === 0 && !hasExternalChildren)) return;
+    if (!historyLoaded || isGenerating || turnSettling) return;
+    if (sentSteerCount === 0 && !hasExternalChildren) return;
 
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
     if (!currentChatId) return;
@@ -894,7 +900,7 @@ function ChatPanelContent({
     return () => {
       active = false;
     };
-  }, [dbChatIdRef, historyLoaded, isGenerating, hasExternalChildren, sentSteerCount, setMessages, tab?.chatId]);
+  }, [dbChatIdRef, historyLoaded, isGenerating, turnSettling, hasExternalChildren, sentSteerCount, setMessages, tab?.chatId]);
 
   useEffect(() => {
     setLiveSteers([]);

@@ -12,6 +12,9 @@ import { trackEvent } from '@/lib/analytics'
 
 const IS_WEB = __APP_TARGET__ === 'web'
 
+/** Upper bound on how long a Stop may hold back transcript reconciliation. */
+const ABORT_SETTLE_TIMEOUT_MS = 8000
+
 // A dropped tunnel/stream connection surfaces as a fetch TypeError whose message
 // varies by engine — WebKit "Load failed", Chromium "Failed to fetch", plus the
 // "network connection was lost" variants. Only these are auto-resumed: a genuine
@@ -306,6 +309,9 @@ export function useChatRuntime({
   const messagesRef = useRef(messages)
   messagesRef.current = messages
 
+  /** True from a Stop click until the node confirms the turn is fully persisted. */
+  const [turnSettling, setTurnSettling] = useState(false)
+
   // The ONLY thing that should kill the node's generation is a deliberate Stop.
   // The node no longer ties a turn's life to the request that started it (other
   // surfaces attach to the same live stream, and the requester itself can
@@ -317,7 +323,20 @@ export function useChatRuntime({
     trackTurnFinished('stopped')
     const id = dbChatIdRef.current
     if (id !== undefined) {
-      void api.aiAbort(id).catch(() => {})
+      // Stop cuts the local stream the instant it is clicked, but the node still
+      // has to wind the turn down and write the partial reply. Until that write
+      // lands, chat history is BEHIND what is on screen, so anything that
+      // reconciles the transcript against the server in that window deletes the
+      // reply the user just watched stream in (the steer sync in ChatPanel did
+      // exactly that). `/ai/abort` only answers once the write has landed, so
+      // awaiting it is what gives the flag its meaning; the timeout is a floor
+      // under a request that never comes back (dropped tunnel), so the sync is
+      // delayed rather than disabled for the rest of the chat.
+      setTurnSettling(true)
+      void Promise.race([
+        api.aiAbort(id).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, ABORT_SETTLE_TIMEOUT_MS)),
+      ]).finally(() => setTurnSettling(false))
       if (IS_WEB) {
         // Also drop the broker's resume buffer for this turn, so a stale replay
         // can't resurrect a stream the user just stopped.
@@ -584,6 +603,7 @@ export function useChatRuntime({
     resumeOnAttach,
     liveTurnActive,
     isGenerating,
+    turnSettling,
     lastMessage,
     lastMessageId,
     lastMessageTextSize,

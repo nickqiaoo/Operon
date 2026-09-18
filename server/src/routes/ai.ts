@@ -3,6 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import * as aiService from '../services/ai.js'
 import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
+import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
 import { getOrCreateWorkspaceAssistant, type SddStorage } from '../services/sdd/sdd-service.js'
 
 /**
@@ -344,6 +345,12 @@ export function aiRoutes(storage: SddStorage) {
   router.post('/abort', async (c) => {
     const { chatId } = await c.req.json<{ chatId: number }>()
     const result = aiService.abortChat(chatId)
+    // Don't answer until the aborted turn has finished writing its (partial)
+    // assistant message. The client reconciles its transcript against chat
+    // history as soon as Stop settles; replying while the write is still in
+    // flight hands it a tail without the reply it has on screen, and it then
+    // drops everything the turn had already streamed.
+    await waitForChatTurnIdle(chatId)
     return c.json({ success: result })
   })
 
