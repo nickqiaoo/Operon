@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.3.37] - 2026-09-18
+
+### Changed
+
+- The context window popover colour-codes where your tokens go, with a bar across the top and a swatch on every row.
+- Rows that sit outside the context window show "—" instead of a made-up percentage, and moved to the bottom of the list.
+- Projects and workspaces have their own icons in the sidebar, and a workspace now lines up under its project's name.
+- Sidebar text and icons are easier to read against the rail.
+- Pasted and attached images reach the agent again.
+- The chat column lines up with the composer below it, and a reply now runs the full width.
+
 ## [1.3.36] - 2026-09-17
 
 ### Changed
