@@ -108,8 +108,11 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     data-testid={`message-${from}`}
     className={cn(
-      "group flex w-full max-w-[95%] flex-col gap-2",
-      from === "user" ? "is-user ml-auto items-end" : "is-assistant",
+      "group flex w-full flex-col gap-2",
+      // Only the user bubble is capped short of the column. An assistant reply
+      // runs the full width so its right edge lines up with the turn's diff
+      // card and the composer, which sit outside <Message>.
+      from === "user" ? "is-user ml-auto max-w-[95%] items-end" : "is-assistant max-w-full",
       className
     )}
     {...props}

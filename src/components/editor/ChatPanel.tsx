@@ -175,6 +175,25 @@ function ChatPanelContent({
   // the targetSelector is what actually narrows it to assistant messages, so a
   // selection in the composer or in a user's own message raises nothing.
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  // The transcript reserves a scrollbar gutter on both edges (see
+  // ConversationContent below), so once the panel is narrower than max-w-4xl
+  // its column is one gutter narrower on each side than the composer's. Publish
+  // that gutter as a CSS variable so the composer can shrink by the same amount.
+  // Measured rather than hard-coded: it is 11px with classic scrollbars and 0
+  // with overlay ones.
+  useLayoutEffect(() => {
+    const root = transcriptRef.current;
+    const scroller = root?.querySelector<HTMLElement>('[data-conversation-scroller]');
+    if (!root || !scroller) return;
+    const update = () => {
+      const gutter = (scroller.offsetWidth - scroller.clientWidth) / 2;
+      root.style.setProperty('--transcript-gutter', `${gutter}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, []);
   const sideChatProviderId = tab?.providerId ?? providerId;
   const canOpenSideChat = useProviderCapabilityStore(
     (state) =>
@@ -919,7 +938,11 @@ function ChatPanelContent({
         <ConversationContent
           // Fade the edges that meet the tab bar and the composer toolbar
           // instead of clipping a half-cut row of text there.
-          scrollClassName="scroll-fade-y"
+          // Chromium's thin scrollbar takes an 11px gutter on the right, which
+          // pushed the centred column ~5px left of the composer below. Reserving
+          // the same gutter on both edges keeps the two columns aligned (and
+          // stops the column jumping when the transcript starts to overflow).
+          scrollClassName="scroll-fade-y [scrollbar-gutter:stable_both-edges]"
           className={cn(
             "w-full max-w-4xl mx-auto px-4 pt-5 pb-4 gap-1",
             // Phone: the transcript runs under the status bar and the floating
@@ -970,7 +993,7 @@ function ChatPanelContent({
 
       <div
         className={cn(
-          "w-full max-w-4xl mx-auto px-4 pb-4 pt-0",
+          "w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-4 pt-0",
           // `relative` anchors the phone's floating metrics row (see below).
           isMobile && "relative px-3 pb-2",
           isMobile &&

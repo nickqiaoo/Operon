@@ -87,7 +87,7 @@ export const ConversationContent = ({
   }, [scrollRef, state, scrollToBottom]);
 
   return (
-    <div ref={scrollRef} className={cn("h-full w-full overflow-y-auto code-scrollbar", scrollClassName)}>
+    <div ref={scrollRef} data-conversation-scroller className={cn("h-full w-full overflow-y-auto code-scrollbar", scrollClassName)}>
       <div
         ref={contentRef}
         data-testid="message-list"
