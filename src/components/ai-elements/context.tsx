@@ -149,7 +149,10 @@ export const ContextContent = ({
   <HoverCardContent
     align="end"
     className={cn(
-      "min-w-60 divide-y divide-border/50 overflow-hidden rounded-xl border-border/40 p-0 shadow-float",
+      // w-72 rather than the hover card's default w-64: the breakdown's longest row
+      // label ("System tools (deferred)") needs 134px and only got 124 at 256px wide,
+      // so it truncated mid-word — the swatch column costs the label 18px.
+      "w-72 min-w-60 divide-y divide-border/50 overflow-hidden rounded-xl border-border/40 p-0 shadow-float",
       className
     )}
     {...props}
@@ -374,18 +377,160 @@ export const compact = (n: number) =>
 export const formatPercent = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 }).format(n);
 
-const CategoryRow = ({ category, maxTokens }: { category: DetailedContextUsageCategory; maxTokens: number }) => {
-  const percent = maxTokens > 0 ? category.tokens / maxTokens : 0;
+export type ContextCategoryKind = "used" | "free" | "buffer" | "deferred";
+
+export interface ContextCategorySlice {
+  name: string;
+  tokens: number;
+  kind: ContextCategoryKind;
+  /** CSS colour for this row's swatch and its segment of the bar. */
+  swatch: string;
+  /** Share of the window, or null for deferred rows, which sit outside it. */
+  share: number | null;
+}
+
+export interface ContextBreakdown {
+  /** The window every share is measured against. */
+  windowTokens: number;
+  slices: ContextCategorySlice[];
+}
+
+/**
+ * Fixed slot order, assigned in sequence and never cycled (see --color-chart-* in
+ * globals.css for why these six and how they were validated). A breakdown deeper
+ * than six content rows paints the tail neutral rather than reusing a hue: repeating
+ * blue five rows down would claim two rows are the same thing.
+ */
+const CHART_SLOTS = [
+  "var(--color-chart-1)",
+  "var(--color-chart-2)",
+  "var(--color-chart-3)",
+  "var(--color-chart-4)",
+  "var(--color-chart-5)",
+  "var(--color-chart-6)",
+];
+const CHART_NEUTRAL = "var(--color-chart-neutral)";
+const CHART_EMPTY = "var(--color-chart-empty)";
+
+/**
+ * `kind` is what the row *is*; the English name is just its label. Claude's SDK has
+ * sent `kind` since 0.3.276 and the Operon engine fills it in too, so the name
+ * sniffing below only covers a provider predating both — classify on `kind`.
+ */
+const categoryKind = (category: DetailedContextUsageCategory): ContextCategoryKind => {
+  if (category.kind) return category.kind;
+  if (category.isDeferred) return "deferred";
+  if (category.name === "Free space") return "free";
+  if (/buffer/i.test(category.name)) return "buffer";
+  return "used";
+};
+
+/**
+ * Normalises a provider's category list into rows the panel can paint.
+ *
+ * Shares are measured against `rawMaxTokens` — the window the provider computed its
+ * own `percentage` against — so the rows sum to the header's number instead of
+ * disagreeing with it by whatever the compaction reserve is. `maxTokens` can be the
+ * smaller post-reserve figure, which would push every row's percentage up a notch
+ * while the header stayed put.
+ *
+ * Deferred rows (out-of-window tool schemas) get no share at all: they are listed for
+ * awareness and are excluded from the usage math, so giving them a percentage of a
+ * window they do not sit in would be inventing a number.
+ */
+export const contextBreakdown = (detailed: DetailedContextUsage): ContextBreakdown => {
+  const windowTokens = detailed.rawMaxTokens || detailed.maxTokens;
+  const rows = detailed.categories.map((category) => ({ category, kind: categoryKind(category) }));
+
+  // Providers that report no free row leave it to be inferred. Everything the window
+  // holds counts against it, reserve included, so both come off the remainder.
+  if (!rows.some((row) => row.kind === "free")) {
+    const spoken = rows.reduce(
+      (sum, row) => (row.kind === "deferred" ? sum : sum + row.category.tokens),
+      0
+    );
+    rows.push({
+      category: { name: "Free space", tokens: Math.max(0, windowTokens - Math.max(spoken, detailed.totalTokens)), color: "" },
+      kind: "free",
+    });
+  }
+
+  // Rows are grouped by what they are, not by the order the provider happened to
+  // list them in: content first, then the reserve, the remainder, and finally the
+  // rows that sit outside the window entirely. Claude's SDK interleaves its deferred
+  // rows with the content ones, which breaks the colour run in the bar's legend and
+  // drops two "—" rows into the middle of a column of percentages. Sorting is stable,
+  // so the provider's ordering still decides the sequence within each group — for
+  // content rows that is largest-first, which is what the bar reads left to right.
+  const groupOrder: Record<ContextCategoryKind, number> = { used: 0, buffer: 1, free: 2, deferred: 3 };
+  rows.sort((a, b) => groupOrder[a.kind] - groupOrder[b.kind]);
+
+  let nextSlot = 0;
+  const slices = rows.map(({ category, kind }): ContextCategorySlice => {
+    let swatch = CHART_NEUTRAL;
+    if (kind === "free") {
+      swatch = CHART_EMPTY;
+    } else if (kind === "used") {
+      swatch = CHART_SLOTS[nextSlot] ?? CHART_NEUTRAL;
+      nextSlot += 1;
+    }
+    return {
+      name: category.name,
+      tokens: category.tokens,
+      kind,
+      swatch,
+      share: kind === "deferred" ? null : windowTokens > 0 ? category.tokens / windowTokens : 0,
+    };
+  });
+
+  return { windowTokens, slices };
+};
+
+/**
+ * The window as one stacked bar. Segments sit in row order so the bar reads left to
+ * right as the list reads top to bottom, and carry a hairline gap so two adjacent
+ * fills never melt into one block. Deferred rows are absent by definition — they are
+ * not in the window this bar depicts.
+ */
+const ContextBreakdownBar = ({ slices }: { slices: ContextCategorySlice[] }) => {
+  const segments = slices.filter((slice) => slice.kind !== "deferred" && slice.tokens > 0);
+
+  if (segments.length === 0) {
+    return null;
+  }
+
   return (
-    <>
-      <span className="truncate text-muted-foreground">{category.name}</span>
-      <span className="text-right font-mono tabular-nums">{compact(category.tokens)}</span>
-      <span className="text-right font-mono tabular-nums text-muted-foreground">
-        {formatPercent(percent)}
-      </span>
-    </>
+    <div
+      aria-hidden
+      className="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full bg-muted"
+    >
+      {segments.map((slice) => (
+        <div
+          className="h-full min-w-0.5"
+          key={slice.name}
+          style={{ backgroundColor: slice.swatch, flexBasis: 0, flexGrow: slice.tokens }}
+        />
+      ))}
+    </div>
   );
 };
+
+const CategoryRow = ({ slice }: { slice: ContextCategorySlice }) => (
+  <>
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        aria-hidden
+        className="size-2.5 shrink-0 rounded-full"
+        style={{ backgroundColor: slice.swatch }}
+      />
+      <span className="truncate text-muted-foreground">{slice.name}</span>
+    </span>
+    <span className="text-right font-mono tabular-nums">{compact(slice.tokens)}</span>
+    <span className="text-right font-mono tabular-nums text-muted-foreground">
+      {slice.share === null ? "—" : formatPercent(slice.share)}
+    </span>
+  </>
+);
 
 export type ContextDetailedContentProps = ComponentProps<"div">;
 
@@ -397,48 +542,37 @@ export const ContextDetailedContent = ({
 
   // When detailed data is available (pushed via streaming metadata), show full breakdown
   if (detailed) {
-    const effectiveMax = detailed.maxTokens;
-    const hasFreeSpace = detailed.categories.some((c) => c.name === "Free space");
-    const categoriesWithFree: DetailedContextUsageCategory[] = hasFreeSpace
-      ? detailed.categories
-      : [
-          ...detailed.categories,
-          { name: "Free space", tokens: Math.max(0, effectiveMax - detailed.totalTokens), color: "hsl(var(--muted))" },
-        ];
+    const { windowTokens, slices } = contextBreakdown(detailed);
 
     return (
       <div className={cn("space-y-3 p-3", className)} {...props}>
-        {/* Header with progress */}
+        {/* Header, then the window as a single stacked bar */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium">Context window</span>
             <span className="font-mono tabular-nums text-muted-foreground">
-              {compact(detailed.totalTokens)} / {compact(effectiveMax)}{" "}
+              {compact(detailed.totalTokens)} / {compact(windowTokens)}{" "}
               ({formatPercent(detailed.percentage / PERCENT_MAX)})
             </span>
           </div>
-          <Progress className="bg-muted" value={detailed.percentage} />
+          <ContextBreakdownBar slices={slices} />
         </div>
 
-        {/* Category breakdown */}
+        {/* Category breakdown — doubles as the bar's legend */}
         <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-1 text-xs">
-          {categoriesWithFree.map((cat) => (
-            <CategoryRow key={cat.name} category={cat} maxTokens={effectiveMax} />
+          {slices.map((slice) => (
+            <CategoryRow key={slice.name} slice={slice} />
           ))}
         </div>
 
-        {/* Memory files */}
+        {/* How many files are behind the "Memory files" row above. Their token total
+            is that row's job — repeating it here just printed the same number twice. */}
         {detailed.memoryFiles.length > 0 && (
-          <div className="border-t border-border/40 pt-2">
-            <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 text-xs">
-              <span className="text-muted-foreground">Memory files</span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {compact(detailed.memoryFiles.reduce((s, f) => s + f.tokens, 0))}
-              </span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {detailed.memoryFiles.length} files
-              </span>
-            </div>
+          <div className="flex items-center justify-between border-t border-border/40 pt-2 text-xs text-muted-foreground">
+            <span>Memory files</span>
+            <span className="font-mono tabular-nums">
+              {detailed.memoryFiles.length} {detailed.memoryFiles.length === 1 ? "file" : "files"}
+            </span>
           </div>
         )}
       </div>

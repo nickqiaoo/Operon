@@ -6,6 +6,7 @@ import {
   ContextDetailedContent,
   ContextTrigger,
   compact,
+  contextBreakdown,
   formatPercent,
 } from '@/components/ai-elements/context';
 import { hasNativeTabBar, NativeShell, type NativeInfoSection } from '@/lib/native';
@@ -58,30 +59,31 @@ export function MobileContextUsage(props: MobileContextUsageProps) {
 /** The breakdown ContextDetailedContent renders, as rows for the native sheet. */
 function contextSections({ usedTokens, maxTokens, usage, detailedContextUsage: detailed }: MobileContextUsageProps): NativeInfoSection[] {
   if (detailed) {
-    const max = detailed.maxTokens;
-    const hasFree = detailed.categories.some((c) => c.name === 'Free space');
-    const categories = hasFree
-      ? detailed.categories
-      : [...detailed.categories, { name: 'Free space', tokens: Math.max(0, max - detailed.totalTokens), color: '' }];
+    // Same rows, same colours and the same window as the web breakdown — the native
+    // sheet is another rendering of ContextDetailedContent, not a second answer.
+    const { windowTokens, slices } = contextBreakdown(detailed);
     const sections: NativeInfoSection[] = [
       {
         header: 'Context window',
-        value: `${compact(detailed.totalTokens)} / ${compact(max)} (${formatPercent(detailed.percentage / 100)})`,
+        value: `${compact(detailed.totalTokens)} / ${compact(windowTokens)} (${formatPercent(detailed.percentage / 100)})`,
         progress: detailed.percentage / 100,
-        rows: categories.map((c) => ({
-          label: c.name,
-          value: compact(c.tokens),
-          detail: formatPercent(max > 0 ? c.tokens / max : 0),
-          color: c.color.startsWith('#') ? c.color : undefined,
+        rows: slices.map((slice) => ({
+          label: slice.name,
+          value: compact(slice.tokens),
+          detail: slice.share === null ? '—' : formatPercent(slice.share),
+          // The native side paints a literal colour; a CSS var means nothing there,
+          // so resolve the swatch token against the live document.
+          color: resolveSwatch(slice.swatch),
         })),
       },
     ];
     if (detailed.memoryFiles.length > 0) {
+      // Count only: the token total already has its own row in the breakdown above.
+      const count = detailed.memoryFiles.length;
       sections.push({
         rows: [{
           label: 'Memory files',
-          value: compact(detailed.memoryFiles.reduce((sum, f) => sum + f.tokens, 0)),
-          detail: `${detailed.memoryFiles.length} files`,
+          value: `${count} ${count === 1 ? 'file' : 'files'}`,
         }],
       });
     }
@@ -106,4 +108,16 @@ function contextSections({ usedTokens, maxTokens, usage, detailedContextUsage: d
     progress: hasPercent ? contextTokens / maxTokens : undefined,
     rows,
   }];
+}
+
+/**
+ * `var(--color-chart-N)` resolved to the hex the native sheet needs. Reads the live
+ * computed value so the swatches follow the active theme (and its light/dark step)
+ * rather than a copy that drifts from globals.css.
+ */
+function resolveSwatch(swatch: string): string | undefined {
+  const token = swatch.match(/^var\((--[\w-]+)\)$/)?.[1];
+  if (!token) return swatch.startsWith('#') ? swatch : undefined;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return value || undefined;
 }

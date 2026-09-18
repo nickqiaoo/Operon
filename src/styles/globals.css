@@ -102,6 +102,32 @@
   --color-status-error: #b91c1c;
   --color-status-info: #0369a1;
 
+  /* Categorical palette for the context-window breakdown — the one place we paint
+     data rather than UI. Slots are assigned in fixed order and NEVER cycled: a run
+     past slot 6 falls back to chart-neutral rather than reusing a hue, so no two
+     rows on screen can wear the same colour. Deliberately not the status colours
+     (those mean good/bad) and not the swatch the provider ships in `category.color`
+     (the Claude SDK sends its terminal palette, the Operon engine sends semantic
+     names — neither survives a theme switch).
+
+     Validated as a set per the dataviz method against this mode's surface
+     (#ffffff popover): lightness band, chroma floor, adjacent-pair CVD separation
+     (worst ΔE 9.1 protan) and normal-vision separation (worst ΔE 19.6) all pass.
+     Aqua/yellow/magenta sit under 3:1 on white, which the relief rule permits
+     because every row carries a visible text label beside its swatch.
+     Re-run scripts/validate_palette.js before touching a value. */
+  --color-chart-1: #2a78d6;
+  --color-chart-2: #eb6834;
+  --color-chart-3: #1baf7a;
+  --color-chart-4: #eda100;
+  --color-chart-5: #e87ba4;
+  --color-chart-6: #008300;
+  /* Reserve (compaction buffer) and out-of-window rows: present, but not content —
+     they stay grey so the hues read as "this is what is in the window". */
+  --color-chart-neutral: #c3c9d4;
+  /* The unused remainder of the window. Barely there on purpose. */
+  --color-chart-empty: #e9edf3;
+
   /* Dialog/drawer scrim. Light mode keeps the cool slate tint the rest of the
      light palette uses — a neutral black veil reads warmer than the canvas it
      covers. Carries its own dark value so call sites need no `dark:` variant. */
@@ -197,6 +223,17 @@
   --color-status-warn: #fcd34d;
   --color-status-error: #fca5a5;
   --color-status-info: #7dd3fc;
+  /* Same six hues re-stepped for the dark surface (#1a1a1e popover), not an
+     automatic flip — validated as its own set: all six clear 3:1 there, worst
+     adjacent CVD ΔE 8.4, normal-vision ΔE 19.3. */
+  --color-chart-1: #3987e5;
+  --color-chart-2: #d95926;
+  --color-chart-3: #199e70;
+  --color-chart-4: #c98500;
+  --color-chart-5: #d55181;
+  --color-chart-6: #008300;
+  --color-chart-neutral: #4b4b55;
+  --color-chart-empty: #27272d;
   --color-scrim: rgba(0, 0, 0, 0.7);
   --color-link: #82aaff;
 

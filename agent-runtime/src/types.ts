@@ -3,9 +3,23 @@ import type { ModelMessage, TextStreamPart, ToolSet } from 'ai'
 export interface DetailedContextUsageCategory {
   name: string
   tokens: number
-  /** Swatch the UI may paint the row with. Free-form; the panel currently ignores it. */
+  /**
+   * The producer's own swatch id, in the producer's own vocabulary: the Claude SDK
+   * sends its terminal palette, the Operon engine sends semantic names ('messages',
+   * 'tools'). Two incompatible alphabets, and neither is theme-aware, so the panel
+   * paints from `kind` plus row order instead of reading this. Kept because the wire
+   * carries it and dropping it would be a breaking change for other consumers.
+   */
   color: string
   isDeferred?: boolean
+  /**
+   * What the row is: 'used' content occupies the window, 'free' is what is left of
+   * it, 'buffer' is the compaction reserve, and 'deferred' rows are out-of-window
+   * tool schemas — listed for awareness, excluded from the usage math. Classify on
+   * this, never on the English name. Optional so a producer predating it still
+   * type-checks; consumers fall back to `isDeferred` and the name.
+   */
+  kind?: 'used' | 'free' | 'buffer' | 'deferred'
 }
 
 /**

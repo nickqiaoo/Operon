@@ -496,21 +496,23 @@ export class OperonRuntimeSession implements RuntimeSession {
     const breakdown = this.harness.getContextBreakdown()
     if (!breakdown) return null
 
-    const categories: DetailedContextUsageCategory[] = [
-      { name: 'System prompt', tokens: breakdown.systemPrompt.tokens, color: 'system' },
-      { name: 'Tools', tokens: breakdown.toolsBuiltin.tokens, color: 'tools' },
-      { name: 'MCP tools', tokens: breakdown.toolsMcp.tokens, color: 'mcp' },
-      { name: 'Messages', tokens: breakdown.messages.tokens, color: 'messages' },
+    const allCategories: DetailedContextUsageCategory[] = [
+      { name: 'System prompt', tokens: breakdown.systemPrompt.tokens, color: 'system', kind: 'used' },
+      { name: 'Tools', tokens: breakdown.toolsBuiltin.tokens, color: 'tools', kind: 'used' },
+      { name: 'MCP tools', tokens: breakdown.toolsMcp.tokens, color: 'mcp', kind: 'used' },
+      { name: 'Messages', tokens: breakdown.messages.tokens, color: 'messages', kind: 'used' },
       // Turn-boundary injections arrive largest-first and are already excluded from
       // `messages`, so listing them as siblings doesn't double-count.
-      ...breakdown.injections.map((injection) => ({
+      ...breakdown.injections.map((injection): DetailedContextUsageCategory => ({
         name: injectionLabel(injection.id),
         tokens: injection.tokens,
         color: 'injection',
+        kind: 'used',
       })),
-      { name: 'Compact buffer', tokens: breakdown.compactBuffer.tokens, color: 'compact' },
-      { name: 'Free space', tokens: breakdown.free.tokens, color: 'free' },
-    ].filter((category) => category.tokens > 0)
+      { name: 'Compact buffer', tokens: breakdown.compactBuffer.tokens, color: 'compact', kind: 'buffer' },
+      { name: 'Free space', tokens: breakdown.free.tokens, color: 'free', kind: 'free' },
+    ]
+    const categories = allCategories.filter((category) => category.tokens > 0)
 
     return {
       categories,
