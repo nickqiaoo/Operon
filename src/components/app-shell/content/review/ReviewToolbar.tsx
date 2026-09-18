@@ -1,15 +1,29 @@
 import { useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
-import { ChevronDown, FileSearch, Folders, GitCommitHorizontal, ListCollapse, ListRestart, Search } from "lucide-react"
+import {
+  ArrowUpFromLine,
+  ChevronDown,
+  FileSearch,
+  Folders,
+  GitPullRequest,
+  ListCollapse,
+  ListRestart,
+  Loader2,
+  Search,
+  Square,
+} from "lucide-react"
+import { openExternalUrl } from "@/lib/open-external"
 import { cn } from "@/lib/utils"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import type { ExistingPr, PrPhase } from "../use-pr-creation"
 import type { BranchInfo, DiffScope, FileChange } from "./types"
 import { SCOPE_MESSAGES } from "./constants"
 import { DiffStats } from "./DiffStats"
@@ -37,6 +51,15 @@ export interface ReviewToolbarProps {
   areAllDiffsCollapsed: boolean
   onToggleAllDiffs: () => void
   onCommit: () => void
+  onCreatePr: () => void
+  /** Null when a PR cannot be opened from here; the string says why. */
+  prBlockedReason: string | null
+  /** Null when there is something to commit or push; the string says why not. */
+  commitBlockedReason: string | null
+  primaryAction: "commit" | "pr"
+  existingPr: ExistingPr | null
+  prPhase: PrPhase | null
+  onStopPr: () => void
   rootPath: string
   baseBranch: string | null
   onBaseBranchChange: (branch: string) => void
@@ -65,6 +88,13 @@ export function ReviewToolbar({
   areAllDiffsCollapsed,
   onToggleAllDiffs,
   onCommit,
+  onCreatePr,
+  prBlockedReason,
+  commitBlockedReason,
+  primaryAction,
+  existingPr,
+  prPhase,
+  onStopPr,
   rootPath,
   baseBranch,
   onBaseBranchChange,
@@ -134,30 +164,194 @@ export function ReviewToolbar({
           areAllDiffsCollapsed={areAllDiffsCollapsed}
           onToggleAllDiffs={onToggleAllDiffs}
           onCommit={onCommit}
+          onCreatePr={onCreatePr}
+          prBlockedReason={prBlockedReason}
+          commitBlockedReason={commitBlockedReason}
+          primaryAction={primaryAction}
+          existingPr={existingPr}
+          prPhase={prPhase}
+          onStopPr={onStopPr}
         />
     </div>
   )
 }
 
 /**
- * Codex-style single "Commit" button — opens the unified Commit-or-push dialog
- * where the user picks Commit / Commit and push / Push.
+ * Codex-style split button. The body runs whichever action the repo is
+ * actually waiting for — "Commit or push" while anything is uncommitted or
+ * unpushed, "Create PR" once the branch is clean and publishable — and the
+ * caret always offers both. While a PR is being created the whole button turns
+ * into a progress/stop control, because the dialog is already gone by then.
+ *
+ * PR creation needs a branch other than the base, so on the default branch the
+ * menu item stays visible but disabled, pointing at the commit modal where a
+ * branch can be made.
  */
-export function CommitButton({ onCommit, className }: { onCommit: () => void; className?: string }) {
+export function CommitSplitButton({
+  onCommit,
+  onCreatePr,
+  prBlockedReason,
+  commitBlockedReason,
+  primaryAction,
+  existingPr,
+  prPhase,
+  onStopPr,
+  className,
+}: {
+  onCommit: () => void
+  onCreatePr: () => void
+  prBlockedReason: string | null
+  commitBlockedReason: string | null
+  primaryAction: "commit" | "pr"
+  /** The open PR for this branch, when there already is one. */
+  existingPr: ExistingPr | null
+  /** Non-null while a PR run is in flight; only "summary" can be stopped. */
+  prPhase: PrPhase | null
+  onStopPr: () => void
+  className?: string
+}) {
+  const intl = useIntl()
+  const commitLabel = intl.formatMessage({
+    id: "review.commitOrPush",
+    defaultMessage: "Commit or push",
+  })
+  const prLabel = intl.formatMessage({ id: "review.createPr", defaultMessage: "Create Pull Request" })
+  // An existing PR is its own reason, and it outranks the rest: the branch is
+  // already published, so none of the earlier checks are what stops you.
+  const createPrDisabledReason =
+    existingPr != null
+      ? intl.formatMessage({
+          id: "review.pr.exists",
+          defaultMessage: "A pull request already exists for this branch",
+        })
+      : prBlockedReason
+
+  const shellCn = cn(
+    "flex h-7 shrink-0 items-center overflow-hidden rounded-lg border border-border/50 bg-background/60",
+    className,
+  )
+
+  if (prPhase != null) {
+    const canStop = prPhase === "summary"
+    return (
+      <div className={shellCn}>
+        <button
+          type="button"
+          onClick={canStop ? onStopPr : undefined}
+          disabled={!canStop}
+          title={
+            canStop
+              ? intl.formatMessage({ id: "review.pr.stop", defaultMessage: "Stop" })
+              : undefined
+          }
+          className="inline-flex h-full items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground disabled:pointer-events-none"
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+          <span>
+            {prPhase === "summary" ? (
+              <FormattedMessage id="review.pr.generating" defaultMessage="Writing summary…" />
+            ) : (
+              <FormattedMessage id="review.pr.publishing" defaultMessage="Creating PR…" />
+            )}
+          </span>
+          {canStop && <Square className="h-3 w-3 fill-current" />}
+        </button>
+      </div>
+    )
+  }
+
+  // An existing PR outranks "create": creating a second one for the same branch
+  // is not a thing GitHub allows.
+  const primaryIsPr = primaryAction === "pr" || existingPr != null
+  const showsExisting = existingPr != null && primaryAction === "pr"
+
   return (
-    <button
-      type="button"
-      onClick={onCommit}
-      className={cn(
-        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted/60",
-        className,
-      )}
-    >
-      <GitCommitHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-      <span>
-        <FormattedMessage id="review.commit" defaultMessage="Commit" />
-      </span>
-    </button>
+    <div className={shellCn}>
+      <button
+        type="button"
+        onClick={
+          showsExisting ? () => openExternalUrl(existingPr.url) : primaryIsPr ? onCreatePr : onCommit
+        }
+        disabled={!primaryIsPr && commitBlockedReason != null}
+        title={showsExisting ? existingPr.title : (commitBlockedReason ?? undefined)}
+        className="inline-flex h-full items-center gap-1.5 px-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary-hover disabled:pointer-events-none disabled:text-muted-foreground/60"
+      >
+        {primaryIsPr ? (
+          <GitPullRequest className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <ArrowUpFromLine className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+        <span>
+          {showsExisting ? (
+            <FormattedMessage
+              id="review.pr.view"
+              defaultMessage="View PR #{number}"
+              values={{ number: existingPr.number }}
+            />
+          ) : primaryIsPr ? (
+            prLabel
+          ) : (
+            commitLabel
+          )}
+        </span>
+      </button>
+      <div className="h-4 w-px bg-border/50" />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={intl.formatMessage({
+              id: "review.moreGitActions",
+              defaultMessage: "More git actions",
+            })}
+            className="inline-flex h-full items-center px-1.5 text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-52">
+          <DropdownMenuItem
+            onSelect={onCommit}
+            disabled={commitBlockedReason != null}
+            className="gap-2"
+          >
+            <ArrowUpFromLine className="h-4 w-4 text-muted-foreground" />
+            <span className="flex flex-col">
+              {commitLabel}
+              {commitBlockedReason != null && (
+                <span className="text-[11px] text-muted-foreground">{commitBlockedReason}</span>
+              )}
+            </span>
+          </DropdownMenuItem>
+          {existingPr != null && (
+            <DropdownMenuItem
+              onSelect={() => openExternalUrl(existingPr.url)}
+              className="gap-2"
+            >
+              <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+              <FormattedMessage
+                id="review.pr.view"
+                defaultMessage="View PR #{number}"
+                values={{ number: existingPr.number }}
+              />
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onSelect={onCreatePr}
+            disabled={prBlockedReason != null || existingPr != null}
+            className="gap-2"
+          >
+            <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+            <span className="flex flex-col">
+              {prLabel}
+              {createPrDisabledReason != null && (
+                <span className="text-[11px] text-muted-foreground">{createPrDisabledReason}</span>
+              )}
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
@@ -172,6 +366,13 @@ export interface DiffToolbarControlsProps {
   areAllDiffsCollapsed: boolean
   onToggleAllDiffs: () => void
   onCommit: () => void
+  onCreatePr: () => void
+  prBlockedReason: string | null
+  commitBlockedReason: string | null
+  primaryAction: "commit" | "pr"
+  existingPr: ExistingPr | null
+  prPhase: PrPhase | null
+  onStopPr: () => void
   className?: string
 }
 
@@ -186,11 +387,28 @@ export function DiffToolbarControls({
   areAllDiffsCollapsed,
   onToggleAllDiffs,
   onCommit,
+  onCreatePr,
+  prBlockedReason,
+  commitBlockedReason,
+  primaryAction,
+  existingPr,
+  prPhase,
+  onStopPr,
   className,
 }: DiffToolbarControlsProps) {
   return (
     <div className={cn("flex shrink-0 items-center gap-0.5", className)}>
-      <CommitButton onCommit={onCommit} className="mr-1" />
+      <CommitSplitButton
+        onCommit={onCommit}
+        onCreatePr={onCreatePr}
+        prBlockedReason={prBlockedReason}
+        commitBlockedReason={commitBlockedReason}
+        primaryAction={primaryAction}
+        existingPr={existingPr}
+        prPhase={prPhase}
+        onStopPr={onStopPr}
+        className="mr-1"
+      />
       <CollapseAllDiffsButton
         disabled={files.length === 0}
         areAllDiffsCollapsed={areAllDiffsCollapsed}

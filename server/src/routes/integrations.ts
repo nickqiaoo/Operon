@@ -1,12 +1,9 @@
 import { Hono } from 'hono'
 import {
-  deleteGithubConfig,
   deleteLinearAppConfig,
-  getGithubConfig,
   getLinearAppConfig,
   getLinearDelegationConfig,
   getLinearPublishTeam,
-  setGithubConfig,
   setLinearAppConfig,
   setLinearDelegationConfig,
 } from '../services/integration-config.js'
@@ -15,12 +12,12 @@ import {
   fetchLinearTeamDetails,
   fetchLinearTeams,
 } from '../services/integrations/linear-app.js'
+import { parseGithubRemote } from '../services/integrations/github.js'
 import {
-  createGithubPR,
-  fetchGithubRepo,
-  fetchGithubViewer,
-  parseGithubRemote,
-} from '../services/integrations/github.js'
+  getGhStatus,
+  ghPrCreate,
+  ghPrForBranch,
+} from '../services/integrations/gh-cli.js'
 import {
   BrokerError,
   fetchIntegrationsStatus,
@@ -103,6 +100,73 @@ function brokerErrorResponse(err: unknown): { body: { error: string; code?: stri
   return { body: { error: errorMessage(err, 'Request failed') }, status: 500 }
 }
 
+
+interface CreatePrBody {
+  repoPath?: string
+  branchName?: string
+  baseBranch?: string
+  commitMessage?: string
+  /** Off = push only what is already committed, leaving the working tree alone. */
+  commitLocalChanges?: boolean
+  remote?: string
+}
+
+/** Carries the HTTP status a failed precondition should map to. */
+class PrRequestError extends Error {
+  constructor(readonly status: 400 | 500, message: string) {
+    super(message)
+  }
+}
+
+/**
+ * Get the branch into a state GitHub can open a PR from: make sure we are on a
+ * branch that is not the base, optionally commit the working tree, and push.
+ * Shared by "create the PR here" and "open the PR in the browser".
+ */
+async function prepareBranchForPr(
+  repoPath: string,
+  opts: {
+    branchName: string
+    baseBranch: string
+    commitMessage?: string
+    commitLocalChanges?: boolean
+    remote?: string
+  },
+): Promise<{ owner: string; repo: string; remoteName: string }> {
+  const remotes = await gitService.listRemotes(repoPath)
+  const remote = remotes.find((r) => r.name === (opts.remote ?? 'origin')) ?? remotes[0]
+  if (!remote) throw new PrRequestError(400, 'No git remote configured')
+  const parsed = parseGithubRemote(remote.url)
+  if (!parsed) throw new PrRequestError(400, `Remote ${remote.url} is not a GitHub repo`)
+
+  const currentBranch = await gitService.getCurrentBranch(repoPath)
+  if (currentBranch === opts.baseBranch || opts.branchName !== currentBranch) {
+    if (await gitService.localBranchExists(repoPath, opts.branchName)) {
+      throw new PrRequestError(
+        400,
+        `Branch ${opts.branchName} already exists locally. Pick a different name.`,
+      )
+    }
+    await gitService.checkoutNewBranch(repoPath, opts.branchName)
+  }
+
+  if (opts.commitLocalChanges !== false) {
+    const status = await gitService.getStatus(repoPath)
+    const hasChanges =
+      status.staged.length + status.unstaged.length + status.untracked.length > 0
+    if (hasChanges) {
+      if (!opts.commitMessage) {
+        throw new PrRequestError(400, 'commitMessage is required for uncommitted changes')
+      }
+      await gitService.stageAll(repoPath)
+      await gitService.commit(repoPath, opts.commitMessage)
+    }
+  }
+
+  await gitService.pushBranch(repoPath, remote.name, opts.branchName, true)
+  return { owner: parsed.owner, repo: parsed.repo, remoteName: remote.name }
+}
+
 export function integrationsRoutes(
   storage: ProjectStorageAdapter & TaskStorageAdapter & ChannelStorageAdapter & NotificationStorageAdapter & AgentBindingStorageAdapter,
 ) {
@@ -137,7 +201,6 @@ export function integrationsRoutes(
         appSlug: broker?.github.appSlug ?? '',
         login: broker?.github.login ?? '',
         installs: broker?.github.installs ?? [],
-        personalToken: !!getGithubConfig(),
       },
       delegation: getLinearDelegationConfig(),
       flows: flowStates(),
@@ -355,41 +418,19 @@ export function integrationsRoutes(
     }
   })
 
-  // ---------- GitHub personal token (manual Create PR) ----------
-
-  router.get('/github', (c) => {
-    const config = getGithubConfig()
-    if (!config) {
-      return c.json({ configured: false, token: '', login: '' })
-    }
-    return c.json({ configured: true, token: config.token, login: config.login })
+  /**
+   * Whether PRs can be opened from the app at all. There is no app-held GitHub
+   * credential any more — this reports on the user's own `gh` login, which is
+   * the same one their terminal uses.
+   */
+  router.get('/github/cli-status', async (c) => {
+    return c.json(await getGhStatus())
   })
 
-  router.put('/github', async (c) => {
-    const body = await c.req.json<{ token?: string }>()
-    const token = body.token?.trim() ?? ''
-    if (!token) {
-      return c.json({ error: 'token is required' }, 400)
-    }
-    try {
-      const viewer = await fetchGithubViewer(token)
-      setGithubConfig({ token, login: viewer.login })
-      return c.json({ configured: true, token, login: viewer.login })
-    } catch (err) {
-      return c.json({ error: errorMessage(err, 'Failed to validate GitHub token') }, 400)
-    }
-  })
-
-  router.delete('/github', (c) => {
-    deleteGithubConfig()
-    return c.json({ success: true })
-  })
-
+  // Entirely local: owner/repo come from the remote URL and the default branch
+  // from origin/HEAD, so this stays usable (and cheap) whether or not `gh` is
+  // signed in — the "open the PR in the browser" path needs no credentials.
   router.post('/github/repo-status', async (c) => {
-    const config = getGithubConfig()
-    if (!config) {
-      return c.json({ error: 'GitHub is not configured' }, 400)
-    }
     const { repoPath } = await c.req.json<{ repoPath: string }>()
     if (!repoPath) return c.json({ error: 'repoPath is required' }, 400)
 
@@ -408,18 +449,23 @@ export function integrationsRoutes(
       const status = await gitService.getStatus(repoPath)
       const currentBranch = status.current
 
-      let defaultBranch: string | null = null
-      if (parsed) {
-        try {
-          const repoInfo = await fetchGithubRepo(config.token, parsed.owner, parsed.repo)
-          defaultBranch = repoInfo.defaultBranch
-        } catch {
-          defaultBranch = null
-        }
-      }
+      // `origin/main` -> `main`; the remote prefix is not a branch name.
+      const localDefault = await gitService.getDefaultBaseBranch(repoPath)
+      const defaultBranch = localDefault ? localDefault.replace(/^[^/]+\//, '') : null
+
+      // A branch that was never pushed reports ahead = 0 (there is nothing to
+      // count against), so "is there anything to push?" needs the upstream too.
+      const hasUpstream = (await gitService.getPushStatus(repoPath)).upstream != null
+
+      // PRs are opened with the user's own `gh` login; there is no app-level
+      // credential to fall back on.
+      const gh = await getGhStatus()
 
       return c.json({
         isRepo: true,
+        ghInstalled: gh.isInstalled,
+        ghAuthenticated: gh.isAuthenticated,
+        canCreatePr: gh.isAuthenticated,
         remoteName: origin?.name ?? null,
         owner: parsed?.owner ?? null,
         repo: parsed?.repo ?? null,
@@ -427,6 +473,7 @@ export function integrationsRoutes(
         defaultBranch,
         ahead: status.ahead,
         behind: status.behind,
+        hasUpstream,
         stagedCount: status.staged.length,
         unstagedCount: status.unstaged.length,
         untrackedCount: status.untracked.length,
@@ -440,77 +487,75 @@ export function integrationsRoutes(
   })
 
   router.post('/github/create-pr', async (c) => {
-    const config = getGithubConfig()
-    if (!config) return c.json({ error: 'GitHub is not configured' }, 400)
-
-    const body = await c.req.json<{
-      repoPath?: string
-      title?: string
-      body?: string
-      branchName?: string
-      baseBranch?: string
-      commitMessage?: string
-      draft?: boolean
-      remote?: string
-    }>()
-
-    const { repoPath, title, baseBranch, branchName } = body
-    if (!repoPath || !title || !baseBranch || !branchName) {
+    const body = await c.req.json<CreatePrBody & { title?: string; body?: string; draft?: boolean }>()
+    const { title, baseBranch, branchName } = body
+    if (!body.repoPath || !title || !baseBranch || !branchName) {
       return c.json({ error: 'repoPath, title, branchName, baseBranch are required' }, 400)
     }
 
-    const remotes = await gitService.listRemotes(repoPath)
-    const originRemote =
-      remotes.find((r) => r.name === (body.remote ?? 'origin')) ?? remotes[0]
-    if (!originRemote) {
-      return c.json({ error: 'No git remote configured' }, 400)
-    }
-    const parsed = parseGithubRemote(originRemote.url)
-    if (!parsed) {
-      return c.json({ error: `Remote ${originRemote.url} is not a GitHub repo` }, 400)
+    // PRs are authored with the user's own GitHub login, the same one their
+    // terminal uses — the app never holds a GitHub credential of its own.
+    const gh = await getGhStatus()
+    if (!gh.isAuthenticated) {
+      return c.json({ error: 'GitHub CLI is not authenticated — run `gh auth login`' }, 400)
     }
 
     try {
-      const currentBranch = await gitService.getCurrentBranch(repoPath)
+      await prepareBranchForPr(body.repoPath, {
+        ...body,
+        branchName,
+        baseBranch,
+        commitMessage: body.commitMessage ?? title,
+      })
 
-      if (currentBranch === baseBranch || branchName !== currentBranch) {
-        const exists = await gitService.localBranchExists(repoPath, branchName)
-        if (exists) {
-          return c.json(
-            { error: `Branch ${branchName} already exists locally. Pick a different name.` },
-            400,
-          )
-        }
-        await gitService.checkoutNewBranch(repoPath, branchName)
-      }
-
-      const status = await gitService.getStatus(repoPath)
-      const hasChanges =
-        status.staged.length + status.unstaged.length + status.untracked.length > 0
-      if (hasChanges) {
-        if (!body.commitMessage) {
-          return c.json({ error: 'commitMessage is required for uncommitted changes' }, 400)
-        }
-        await gitService.stageAll(repoPath)
-        await gitService.commit(repoPath, body.commitMessage)
-      }
-
-      await gitService.pushBranch(repoPath, originRemote.name, branchName, true)
-
-      const pr = await createGithubPR(config.token, {
-        owner: parsed.owner,
-        repo: parsed.repo,
+      // The branch is pushed by now, which is what `gh pr create` needs — it
+      // would otherwise prompt, and there is no terminal to answer it.
+      const pr = await ghPrCreate(body.repoPath, {
+        headBranch: branchName,
+        baseBranch,
         title,
         body: body.body ?? '',
-        head: branchName,
-        base: baseBranch,
         draft: body.draft ?? false,
       })
 
       return c.json({ pr })
     } catch (err) {
-      return c.json({ error: errorMessage(err, 'Failed to create PR') }, 500)
+      return c.json({ error: errorMessage(err, 'Failed to create PR') }, err instanceof PrRequestError ? err.status : 500)
     }
+  })
+
+  /**
+   * Same commit/push preparation as create-pr, but stops short of the GitHub
+   * API and hands back the compare URL — the "open the PR in the browser"
+   * path, which is also the only one that works without a token.
+   */
+  router.post('/github/push-for-pr', async (c) => {
+    const body = await c.req.json<CreatePrBody>()
+    const { baseBranch, branchName } = body
+    if (!body.repoPath || !baseBranch || !branchName) {
+      return c.json({ error: 'repoPath, branchName, baseBranch are required' }, 400)
+    }
+
+    try {
+      const { owner, repo } = await prepareBranchForPr(body.repoPath, { ...body, branchName, baseBranch })
+      const compareUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(baseBranch)}...${encodeURIComponent(branchName)}?expand=1`
+      return c.json({ compareUrl })
+    } catch (err) {
+      return c.json({ error: errorMessage(err, 'Failed to push branch') }, err instanceof PrRequestError ? err.status : 500)
+    }
+  })
+
+  /**
+   * The open PR for a branch, so the toolbar can offer "View PR" instead of a
+   * "Create PR" that GitHub would reject as a duplicate. Needs `gh`; without it
+   * the answer is simply "unknown", not an error.
+   */
+  router.post('/github/pr-for-branch', async (c) => {
+    const { repoPath, branch } = await c.req.json<{ repoPath?: string; branch?: string }>()
+    if (!repoPath || !branch) return c.json({ pr: null })
+    const gh = await getGhStatus()
+    if (!gh.isAuthenticated) return c.json({ pr: null })
+    return c.json({ pr: await ghPrForBranch(repoPath, branch) })
   })
 
   return router

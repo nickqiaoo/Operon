@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
-import { ArrowUp, Check, GitBranch, GitCommitHorizontal, Loader2 } from "lucide-react"
+import { ArrowUp, Check, ChevronDown, GitBranch, GitCommitHorizontal, Loader2, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -11,8 +11,16 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
+import { useGitStatus } from "@/lib/git-queries"
 import { useGitWorkflow } from "./use-git-workflow"
 
 const textareaCn =
@@ -52,24 +60,50 @@ export function CommitDialog({
   const [force, setForce] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [noUpstream, setNoUpstream] = useState(false)
+  const [ahead, setAhead] = useState(0)
   const [statusBranch, setStatusBranch] = useState<string | null>(branch)
+  // Non-null once the user picks "New branch" — created right before the commit
+  // so an abandoned dialog leaves the repo untouched.
+  const [newBranch, setNewBranch] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setNextStep("commit")
     setMessage("")
     setIncludeUnstaged(true)
     setForce(false)
     setGenerating(false)
     setStatusBranch(branch)
+    setNewBranch(null)
     void api
       .gitPushStatus(rootPath)
       .then((s) => {
         setNoUpstream(s.upstream == null)
+        setAhead(s.ahead)
         if (s.branch) setStatusBranch(s.branch)
       })
       .catch(() => {})
   }, [open, rootPath, branch])
+
+  // The working tree decides what is possible, not the review's current scope:
+  // the diff can be showing a past commit while the tree is clean.
+  const { data: gitStatus } = useGitStatus(rootPath)
+  const uncommittedCount = gitStatus
+    ? gitStatus.staged.length + gitStatus.unstaged.length + gitStatus.untracked.length
+    : fileCount
+  const branchingOff = newBranch != null && newBranch.trim().length > 0
+
+  const canCommit = uncommittedCount > 0
+  // A branch with no upstream always has something to push (itself), and a
+  // freshly created one is by definition not on the remote yet.
+  const canPush = ahead > 0 || noUpstream || branchingOff
+  const nothingToDo = !canCommit && !canPush
+
+  // Land on a step that can actually run — opening on a disabled "Commit" with
+  // an empty tree was the old behaviour and it just failed on Continue.
+  useEffect(() => {
+    if (!open) return
+    setNextStep(canCommit ? "commit" : canPush ? "push" : "commit")
+  }, [open, canCommit, canPush])
 
   const busy = running || generating
   const needsCommit = nextStep === "commit" || nextStep === "commit-and-push"
@@ -108,6 +142,25 @@ export function CommitDialog({
       }
     }
 
+    const targetBranch = newBranch?.trim()
+    if (targetBranch) {
+      try {
+        await api.gitCheckoutNewBranch(rootPath, targetBranch)
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : intl.formatMessage({
+                id: "commit.error.branch",
+                defaultMessage: "Failed to create the branch",
+              })
+        )
+        return
+      }
+      setStatusBranch(targetBranch)
+      setNewBranch(null)
+    }
+
     const steps =
       nextStep === "commit"
         ? (["commit"] as const)
@@ -120,8 +173,10 @@ export function CommitDialog({
       commit: needsCommit
         ? { message: finalMessage, includeUnstaged }
         : undefined,
-      push: needsPush ? { setUpstream: noUpstream, force } : undefined,
-      branch: statusBranch,
+      // A branch created a moment ago has no upstream yet, whatever the status
+      // said when the dialog opened.
+      push: needsPush ? { setUpstream: noUpstream || !!targetBranch, force } : undefined,
+      branch: targetBranch ?? statusBranch,
     })
     if (ok) onOpenChange(false)
   }
@@ -138,14 +193,16 @@ export function CommitDialog({
 
           <div className="space-y-4">
             <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">
                   <FormattedMessage id="commit.branch" defaultMessage="Branch" />
                 </span>
-                <span className="inline-flex items-center gap-1.5 font-medium">
-                  <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                  {statusBranch ?? "—"}
-                </span>
+                <BranchTarget
+                  currentBranch={statusBranch}
+                  newBranch={newBranch}
+                  onNewBranchChange={setNewBranch}
+                  disabled={busy}
+                />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">
@@ -156,13 +213,13 @@ export function CommitDialog({
                     <FormattedMessage
                       id="commit.fileCount"
                       defaultMessage="{count, plural, one {# file} other {# files}}"
-                      values={{ count: fileCount }}
+                      values={{ count: uncommittedCount }}
                     />
                   </span>
-                  {additions > 0 && (
+                  {uncommittedCount > 0 && additions > 0 && (
                     <span className="text-[#3f9348] dark:text-[#77b985]">+{additions}</span>
                   )}
-                  {deletions > 0 && (
+                  {uncommittedCount > 0 && deletions > 0 && (
                     <span className="text-[#c84d4d] dark:text-[#d17979]">-{deletions}</span>
                   )}
                 </span>
@@ -228,7 +285,7 @@ export function CommitDialog({
                   })}
                   selected={nextStep === "commit"}
                   onSelect={() => setNextStep("commit")}
-                  disabled={busy}
+                  disabled={busy || !canCommit}
                 />
                 <div className="border-t border-border/40" />
                 <StepRow
@@ -239,7 +296,7 @@ export function CommitDialog({
                   })}
                   selected={nextStep === "commit-and-push"}
                   onSelect={() => setNextStep("commit-and-push")}
-                  disabled={busy}
+                  disabled={busy || !canCommit}
                 />
                 <div className="border-t border-border/40" />
                 <StepRow
@@ -250,9 +307,17 @@ export function CommitDialog({
                   })}
                   selected={nextStep === "push"}
                   onSelect={() => setNextStep("push")}
-                  disabled={busy}
+                  disabled={busy || !canPush}
                 />
               </div>
+              {nothingToDo && (
+                <p className="ml-1 text-[11px] text-muted-foreground/80">
+                  <FormattedMessage
+                    id="commit.nothingToDo"
+                    defaultMessage="Nothing to commit or push — the branch is clean and up to date."
+                  />
+                </p>
+              )}
               {nextStep === "commit-and-push" && (
                 <p className="ml-1 text-[11px] text-muted-foreground/80">
                   <FormattedMessage
@@ -280,7 +345,9 @@ export function CommitDialog({
             variant="secondary"
             className="h-8 gap-1.5"
             onClick={handleContinue}
-            disabled={busy}
+            disabled={
+              busy || nothingToDo || (newBranch != null && newBranch.trim().length === 0)
+            }
           >
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {generating
@@ -324,5 +391,82 @@ function StepRow({
       <span className="flex-1 text-left">{label}</span>
       {selected && <Check className="h-4 w-4 text-foreground" />}
     </button>
+  )
+}
+
+/**
+ * "Commit to" control: the current branch, or a name to branch off onto first.
+ * Switching to an existing branch is deliberately not offered — that moves the
+ * working tree around under a dialog the user opened to commit it.
+ */
+function BranchTarget({
+  currentBranch,
+  newBranch,
+  onNewBranchChange,
+  disabled,
+}: {
+  currentBranch: string | null
+  newBranch: string | null
+  onNewBranchChange: (name: string | null) => void
+  disabled: boolean
+}) {
+  const intl = useIntl()
+
+  if (newBranch != null) {
+    return (
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <input
+          className="min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-2 py-1 text-xs focus:border-tint/40 focus:outline-none"
+          value={newBranch}
+          onChange={(e) => onNewBranchChange(e.target.value)}
+          placeholder={intl.formatMessage({
+            id: "commit.newBranchPlaceholder",
+            defaultMessage: "new-branch-name",
+          })}
+          spellCheck={false}
+          disabled={disabled}
+          autoFocus
+        />
+        <button
+          type="button"
+          onClick={() => onNewBranchChange(null)}
+          disabled={disabled}
+          aria-label={intl.formatMessage({ id: "common.cancel", defaultMessage: "Cancel" })}
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border/50 bg-background/60 px-2 text-xs font-medium transition-colors hover:bg-secondary-hover disabled:opacity-50"
+        >
+          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+          {currentBranch ?? "—"}
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuLabel className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+          <FormattedMessage id="commit.commitTo" defaultMessage="Commit to" />
+        </DropdownMenuLabel>
+        <DropdownMenuItem className="gap-2" onSelect={() => onNewBranchChange(null)}>
+          <GitBranch className="h-4 w-4 text-muted-foreground" />
+          <span className="flex-1 truncate">{currentBranch ?? "—"}</span>
+          <Check className="h-4 w-4" />
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2" onSelect={() => onNewBranchChange("")}>
+          <Plus className="h-4 w-4 text-muted-foreground" />
+          <FormattedMessage id="commit.newBranch" defaultMessage="New branch" />
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

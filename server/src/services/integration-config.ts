@@ -1,16 +1,10 @@
 import type { StorageAdapter } from '../storage/interface.js'
 
-// Local integration settings. Third-party credentials are NOT here any more
-// for Linear: the workspace agent's token lives on the broker
-// (docs/linear-github/design.md §3), and what the desktop keeps is ids and
-// names. The GitHub personal token remains for the manual "Create PR" button;
-// task PRs go through the GitHub App (github-app.ts).
-
-export interface GithubIntegrationConfig {
-  token: string
-  login: string
-  updatedAt: number
-}
+// Local integration settings. Third-party credentials are NOT here any more:
+// the Linear workspace agent's token lives on the broker
+// (docs/linear-github/design.md §3), task PRs go through the GitHub App
+// (github-app.ts), and PRs opened from the review toolbar reuse the user's own
+// `gh` login (integrations/gh-cli.ts). What the desktop keeps is ids and names.
 
 /** The Linear workspace this machine works in (broker-confirmed; no token). */
 export interface LinearAppConfig {
@@ -34,7 +28,6 @@ export interface LinearDelegationConfig {
   defaultAgentId: number | null
 }
 
-const KV_GITHUB = 'integration:github'
 const KV_LINEAR_APP = 'integration:linear_app'
 const KV_LINEAR_DELEGATION = 'integration:linear_delegation'
 const KV_LINEAR_PUBLISH_TEAMS = 'integration:linear_publish_teams'
@@ -43,33 +36,6 @@ let _storage: StorageAdapter | null = null
 
 export function initIntegrationConfigService(storage: StorageAdapter): void {
   _storage = storage
-}
-
-export function getGithubConfig(): GithubIntegrationConfig | null {
-  if (!_storage) return null
-  const saved = _storage.get<GithubIntegrationConfig>(KV_GITHUB)
-  if (!saved || typeof saved.token !== 'string' || saved.token.length === 0) {
-    return null
-  }
-  return {
-    token: saved.token,
-    login: saved.login ?? '',
-    updatedAt: saved.updatedAt ?? 0,
-  }
-}
-
-export function setGithubConfig(config: { token: string; login: string }): void {
-  if (!_storage) return
-  _storage.set<GithubIntegrationConfig>(KV_GITHUB, {
-    token: config.token,
-    login: config.login,
-    updatedAt: Date.now(),
-  })
-}
-
-export function deleteGithubConfig(): void {
-  if (!_storage) return
-  _storage.delete(KV_GITHUB)
 }
 
 export function getLinearAppConfig(): LinearAppConfig | null {

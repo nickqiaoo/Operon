@@ -453,6 +453,22 @@ export async function listCommits(repoPath: string, limit = 50): Promise<CommitE
   return commits
 }
 
+/** Subjects of the commits on HEAD that `baseRef` does not have (newest first). */
+export async function listCommitSubjectsSince(
+  repoPath: string,
+  baseRef: string,
+  limit = 50,
+): Promise<string[]> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return []
+  try {
+    const out = await git.raw(['log', `-n${limit}`, '--pretty=format:%s', `${baseRef}..HEAD`])
+    return out.split('\n').map((line) => line.trim()).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
 export interface RangeFileEntry {
   path: string
   status: string

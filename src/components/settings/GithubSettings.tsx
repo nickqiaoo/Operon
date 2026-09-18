@@ -1,23 +1,19 @@
 import { useCallback, useEffect, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { Eye, EyeOff, Loader2, CheckCircle2, Trash2, Link2, ExternalLink, XCircle, Download } from "lucide-react"
+import { Loader2, CheckCircle2, Trash2, Link2, ExternalLink, XCircle, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
 import { runIntegrationFlow } from "@/lib/integration-flow"
+import { isMacPlatform } from "@/lib/shortcuts/accelerator"
 import { openExternalUrl } from "@/lib/open-external"
 import { GithubIcon } from "@/components/icons/GithubIcon"
 import type { GithubCoverageProject, IntegrationAppStatus } from "@/types/integrations"
-
-const inputCn =
-  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 transition-colors"
-
-const tokenCn = inputCn + " font-mono pr-10"
 
 export function GithubSettings() {
   return (
     <div className="space-y-6">
       <GithubAppCard />
-      <GithubPatCard />
+      <GithubCliCard />
     </div>
   )
 }
@@ -232,92 +228,54 @@ function GithubAppCard() {
   )
 }
 
-function GithubPatCard() {
+/**
+ * PRs opened from the review toolbar run through the user's own `gh` login, so
+ * there is no token to enter here. This card exists to answer the one question
+ * that replaced it: why is "Create Pull Request" greyed out?
+ */
+function GithubCliCard() {
   const intl = useIntl()
   const [loading, setLoading] = useState(true)
-  const [configured, setConfigured] = useState(false)
-  const [login, setLogin] = useState("")
-  const [token, setToken] = useState("")
-  const [revealed, setRevealed] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState<{ isInstalled: boolean; isAuthenticated: boolean } | null>(
+    null,
+  )
   const [error, setError] = useState<string | null>(null)
 
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setStatus(await api.integrationGithubCliStatus())
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : intl.formatMessage({ id: "settings.loadFailed", defaultMessage: "Failed to load" }),
+      )
+    } finally {
+      setLoading(false)
+    }
+  }, [intl])
+
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await api.integrationGithubGet()
-        if (cancelled) return
-        setConfigured(Boolean(res.configured))
-        setLogin(res.login ?? "")
-        setToken(res.token ?? "")
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : intl.formatMessage({ id: "settings.loadFailed", defaultMessage: "Failed to load" }))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const handleSave = async () => {
-    if (!token.trim()) return
-    setSaving(true)
-    setError(null)
-    try {
-      const res = (await api.integrationGithubSave(token.trim())) as {
-        configured?: boolean
-        login?: string
-        token?: string
-        error?: string
-      }
-      if (res.error || !res.configured) {
-        setError(res.error ?? intl.formatMessage({ id: "common.saveFailed", defaultMessage: "Failed to save" }))
-        return
-      }
-      setConfigured(res.configured)
-      setLogin(res.login ?? "")
-      setToken(res.token ?? "")
-    } catch (e) {
-      setError(e instanceof Error ? e.message : intl.formatMessage({ id: "common.saveFailed", defaultMessage: "Failed to save" }))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      await api.integrationGithubDelete()
-      setConfigured(false)
-      setLogin("")
-      setToken("")
-    } catch (e) {
-      setError(e instanceof Error ? e.message : intl.formatMessage({ id: "settings.deleteFailed", defaultMessage: "Failed to delete" }))
-    } finally {
-      setSaving(false)
-    }
-  }
+    void load()
+  }, [load])
 
   return (
-    <section className="space-y-5 rounded-xl border border-border/40 bg-muted/10 p-5">
+    <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
       <div className="flex items-start gap-3">
         <GithubIcon className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
         <div className="flex-1">
-          <h2 className="text-sm font-semibold mb-1"><FormattedMessage id="settings.github.title" defaultMessage="Personal access token" /></h2>
+          <h2 className="text-sm font-semibold mb-1">
+            <FormattedMessage id="settings.github.cli.title" defaultMessage="GitHub CLI" />
+          </h2>
           <p className="text-xs text-muted-foreground">
-            <FormattedMessage id="settings.github.desc" defaultMessage="Only used by the manual Create PR button in the chat. Task pull requests use the GitHub App above." />
+            <FormattedMessage
+              id="settings.github.cli.desc"
+              defaultMessage="Pull requests you open from the review toolbar are authored with your own gh login — the same one your terminal uses. Nothing is stored in operon."
+            />
           </p>
         </div>
-        {configured && login && (
-          <div className="flex items-center gap-1.5 text-xs text-status-ok">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            {login}
-          </div>
-        )}
       </div>
 
       {loading ? (
@@ -325,60 +283,66 @@ function GithubPatCard() {
           <Loader2 className="h-4 w-4 animate-spin" />
           <FormattedMessage id="common.loading" defaultMessage="Loading…" />
         </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 text-xs text-destructive">{error}</div>
       ) : (
         <>
-          <div className="space-y-1.5">
-            <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">
-              <FormattedMessage id="settings.github.patLabel" defaultMessage="Personal Access Token" />
-            </label>
-            <div className="relative">
-              <input
-                className={tokenCn}
-                type={revealed ? "text" : "password"}
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder={intl.formatMessage({ id: "settings.github.patPlaceholder", defaultMessage: "ghp_… or github_pat_…" })}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                onClick={() => setRevealed((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
+          {status?.isAuthenticated ? (
+            <div className="flex items-center gap-2 text-sm text-status-ok">
+              <CheckCircle2 className="h-4 w-4" />
+              <FormattedMessage id="settings.github.cli.ready" defaultMessage="Signed in" />
             </div>
-            <p className="text-xs text-muted-foreground/60">
-              <FormattedMessage
-                id="settings.github.patHint"
-                defaultMessage="Needs <code>repo</code> scope (classic PAT) or Pull request + Contents write (fine-grained)."
-                values={{ code: (chunks) => <code className="text-[11px]">{chunks}</code> }}
-              />
-            </p>
-          </div>
-
-          {error && <div className="flex items-center gap-2 text-xs text-destructive">{error}</div>}
-
-          <div className="flex items-center gap-2 pt-3 border-t border-border/40">
-            <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={handleSave} disabled={saving || !token.trim()}>
-              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {configured
-                ? <FormattedMessage id="settings.update" defaultMessage="Update" />
-                : <FormattedMessage id="settings.connect" defaultMessage="Connect" />}
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <XCircle className="h-4 w-4" />
+                {status?.isInstalled ? (
+                  <FormattedMessage
+                    id="settings.github.cli.notSignedIn"
+                    defaultMessage="Not signed in"
+                  />
+                ) : (
+                  <FormattedMessage
+                    id="settings.github.cli.notInstalled"
+                    defaultMessage="Not installed"
+                  />
+                )}
+              </div>
+              <code className="block rounded-lg border border-border/40 bg-background/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+                {status?.isInstalled
+                  ? "gh auth login"
+                  : isMacPlatform()
+                    ? "brew install gh && gh auth login"
+                    : "gh auth login"}
+              </code>
+              {!status?.isInstalled && !isMacPlatform() && (
+                <p className="text-xs text-muted-foreground">
+                  <FormattedMessage
+                    id="settings.github.cli.installHint"
+                    defaultMessage="Install it from cli.github.com first."
+                  />
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void load()}
+              className="h-7 gap-1.5 text-xs"
+            >
+              <FormattedMessage id="common.refresh" defaultMessage="Refresh" />
             </Button>
-            {configured && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handleDelete}
-                disabled={saving}
-                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <FormattedMessage id="settings.disconnect" defaultMessage="Disconnect" />
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => openExternalUrl("https://cli.github.com")}
+              className="h-7 gap-1.5 text-xs text-muted-foreground"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              cli.github.com
+            </Button>
           </div>
         </>
       )}

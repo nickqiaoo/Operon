@@ -1,7 +1,4 @@
-import { randomUUID } from 'node:crypto'
-import { getSessionManager } from './ai.js'
-import { runAgentTurn } from './ai/agent-turn.js'
-import { extractAssistantText } from './ai/message-utils.js'
+import { runOneShotPrompt } from './ai/one-shot.js'
 import { getCommitMessageConfig } from './commit-message-config.js'
 import { getStatus, getDiff } from './git.js'
 
@@ -63,31 +60,10 @@ export async function generateCommitMessage(repoPath: string, signal?: AbortSign
 
   const prompt = `Generate a git commit message for the changes below.\n\nRules:\n- ${RULES}\n\n${diffContext}`
 
-  const manager = getSessionManager()
-  const session = await manager.createStandaloneSession(providerId, {
-    cwd: repoPath,
-    providerId,
-    modelId,
-  })
-
-  try {
-    // Same shared turn core as chat/workflow — assemble the final assistant
-    // message, then read its text. The prompt forbids tool calls, so the
-    // assembled message is a single text block.
-    const { preparedParts, done } = runAgentTurn(session, {
-      requestId: randomUUID(),
-      messages: [{ role: 'user', content: prompt }],
-      signal: signal ?? new AbortController().signal,
-      assistantMessageId: randomUUID(),
-      originalMessages: [],
-    })
-    void preparedParts.cancel() // no live consumer here; only `done` is needed
-
-    const { message } = await done
-    const cleaned = cleanMessage(extractAssistantText(message))
-    if (!cleaned) throw new Error('Model returned an empty commit message')
-    return cleaned
-  } finally {
-    await session.dispose().catch(() => {})
-  }
+  // The prompt forbids tool calls, so the assembled message is a single text
+  // block — just clean the wrapping the model sometimes adds.
+  const raw = await runOneShotPrompt({ prompt, cwd: repoPath, providerId, modelId, signal })
+  const cleaned = cleanMessage(raw)
+  if (!cleaned) throw new Error('Model returned an empty commit message')
+  return cleaned
 }

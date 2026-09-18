@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as gitService from '../services/git.js'
 import { generateCommitMessage } from '../services/git-commit-message.js'
+import { generatePrSummary } from '../services/git-pr-summary.js'
 import { worktreePathFor } from '../services/worktree-paths.js'
 
 export function gitRoutes() {
@@ -157,6 +158,37 @@ export function gitRoutes() {
       return c.json({ message })
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : 'Generation failed' }, 500)
+    }
+  })
+
+  router.post('/generate-pr-summary', async (c) => {
+    const { repoPath, baseBranch } = await c.req.json<{ repoPath: string; baseBranch: string }>()
+    try {
+      // The client can stop this from the toolbar; a disconnect aborts the
+      // request signal, which tears down the model turn instead of leaving it
+      // running for a summary nobody will read.
+      const summary = await generatePrSummary(repoPath, baseBranch, c.req.raw.signal)
+      return c.json(summary)
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : 'Generation failed' }, 500)
+    }
+  })
+
+  // Creating the branch is its own step so the commit modal can offer "commit
+  // to a new branch" without the caller having to know git's checkout rules.
+  router.post('/checkout-new-branch', async (c) => {
+    const { repoPath, branchName } = await c.req.json<{ repoPath: string; branchName: string }>()
+    if (!repoPath || !branchName?.trim()) {
+      return c.json({ error: 'repoPath and branchName are required' }, 400)
+    }
+    try {
+      if (await gitService.localBranchExists(repoPath, branchName)) {
+        return c.json({ error: `Branch ${branchName} already exists` }, 400)
+      }
+      await gitService.checkoutNewBranch(repoPath, branchName)
+      return c.json({ success: true })
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : 'Failed to create branch' }, 500)
     }
   })
 

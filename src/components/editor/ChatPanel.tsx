@@ -90,7 +90,6 @@ import { useTabsStore } from '@/stores/tabs-store';
 import { useReviewTurnStore } from '@/stores/review-turn-store';
 import { useAppShellStore } from '@/stores/app-shell-store';
 import { WorkflowApprovalsBar } from './components/WorkflowRunsWatcher';
-import { CreatePRButton } from './components/CreatePRButton';
 import { RewindConfirmDialog, RewindConflictDialog } from './components/RewindConfirmDialog';
 import { extractTodosFromPart, isTodoWriteTool } from './components/TodoWriteRenderer';
 import { CanvasChatBanner } from './components/CanvasChatBanner';
@@ -1089,14 +1088,11 @@ function ChatPanelContent({
             "flex items-start gap-2",
             isMobile
               ? "pointer-events-none absolute bottom-full right-3 z-20 mb-1 max-w-[calc(100%-1.5rem)] flex-wrap justify-end [&>*]:pointer-events-auto"
-              : "@container mb-2 min-w-0 flex-nowrap items-center"
+              // Right-aligned on its own now that the PR button no longer sits
+              // on the left as a flex-1 spacer.
+              : "@container mb-2 min-w-0 flex-nowrap items-center justify-end"
           )}
         >
-          {!isMobile && (
-            <div className="flex min-w-0 flex-1 items-center">
-              <CreatePRButton />
-            </div>
-          )}
           {sessionPanelProviderId ? (
             <Button
               type="button"

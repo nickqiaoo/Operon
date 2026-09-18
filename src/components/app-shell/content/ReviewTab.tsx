@@ -6,7 +6,7 @@ import { Virtualizer, WorkerPoolContextProvider } from "@pierre/diffs/react"
 import type { FileDiffOptions } from "@pierre/diffs"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
-import { gitKeys, useGitRepoInvalidation } from "@/lib/git-queries"
+import { gitKeys, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useThemeStore } from "@/stores/theme-store"
 import { useReviewTurnStore } from "@/stores/review-turn-store"
@@ -18,6 +18,8 @@ import {
 } from "../constants"
 import { ResizeHandle } from "../ResizeHandle"
 import { CommitDialog } from "./CommitDialog"
+import { CreatePrDialog } from "./CreatePrDialog"
+import { usePrCreation } from "./use-pr-creation"
 import type { BulkAction, DiffScope, FileAction } from "./review/types"
 import {
   DIFF_SCROLLBAR_CSS,
@@ -181,6 +183,100 @@ export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
   const queryClient = useQueryClient()
   const [confirmRevertAll, setConfirmRevertAll] = useState(false)
   const [commitDialogOpen, setCommitDialogOpen] = useState(false)
+  const [prDialogOpen, setPrDialogOpen] = useState(false)
+
+  // Why "Create Pull Request" is unavailable, checked in the order Codex checks
+  // it (localConversationPage.createPullRequest* in its bundle): loading first
+  // so a pending query is never reported as a missing remote, then the repo,
+  // then the credential, then the branch facts. Null = it can run.
+  const { data: prRepo, isPending: prRepoLoading } = usePrRepoStatus(rootPath)
+  const prBlockedReason = useMemo(() => {
+    // Literal formatMessage calls, not a `t()` wrapper: formatjs only extracts
+    // object literals, and a wrapper would silently leave these untranslated.
+    if (prRepoLoading || !prRepo) {
+      return intl.formatMessage({
+        id: "review.pr.pushStatusLoading",
+        defaultMessage: "Loading push status…",
+      })
+    }
+    if (!prRepo.isRepo) {
+      return intl.formatMessage({
+        id: "review.pr.noRepo",
+        defaultMessage: "No git repository found",
+      })
+    }
+    if (!prRepo.owner || !prRepo.repo) {
+      return intl.formatMessage({
+        id: "review.pr.noGithubRemote",
+        defaultMessage: "No GitHub remote",
+      })
+    }
+    // gh is the only way a PR gets created — including the browser hand-off,
+    // which still has to push the branch first.
+    if (!prRepo.ghInstalled) {
+      return intl.formatMessage({
+        id: "review.pr.installGh",
+        defaultMessage: "Install GitHub CLI (gh) to create PRs",
+      })
+    }
+    if (!prRepo.ghAuthenticated) {
+      return intl.formatMessage({
+        id: "review.pr.authGh",
+        defaultMessage: "Authenticate GitHub CLI: run `gh auth login`",
+      })
+    }
+    if (!prRepo.currentBranch) {
+      return intl.formatMessage({
+        id: "review.pr.branchMissing",
+        defaultMessage: "Branch information unavailable",
+      })
+    }
+    if (!prRepo.defaultBranch) {
+      return intl.formatMessage({
+        id: "review.pr.defaultBranchMissing",
+        defaultMessage: "Default branch information unavailable",
+      })
+    }
+    if (prRepo.currentBranch === prRepo.defaultBranch) {
+      return intl.formatMessage({
+        id: "review.pr.switchBranch",
+        defaultMessage: "Checkout a feature branch before creating a PR",
+      })
+    }
+    return null
+  }, [prRepo, prRepoLoading, intl])
+
+  const pendingChangeCount = prRepo?.isRepo
+    ? prRepo.stagedCount + prRepo.unstagedCount + prRepo.untrackedCount
+    : 0
+  // A branch with no upstream still has something to push (itself), so "clean"
+  // is not enough on its own to say there is nothing to do.
+  const hasSomethingToPush = (prRepo?.ahead ?? 0) > 0 || prRepo?.hasUpstream === false
+  const commitBlockedReason =
+    prRepo?.isRepo && pendingChangeCount === 0 && !hasSomethingToPush
+      ? intl.formatMessage({
+          id: "review.commit.nothingToDo",
+          defaultMessage: "No changes to commit or push",
+        })
+      : null
+
+  // Codex's rule: the button offers what the repo is actually waiting for.
+  // Nothing to commit and nothing unpushed means the next useful step is the PR.
+  const primaryGitAction =
+    commitBlockedReason != null && prBlockedReason == null ? ("pr" as const) : ("commit" as const)
+
+  // Note that a missing `gh` is deliberately NOT a blocker: the dialog still
+  // offers "Open PR in browser", which needs no credentials at all.
+
+  // Once a PR exists for this branch, "Create PR" would just be rejected as a
+  // duplicate — the button links to it instead.
+  const { data: branchPr } = usePrForBranch(
+    rootPath,
+    prRepo?.currentBranch ?? null,
+    !!prRepo?.ghAuthenticated && prBlockedReason == null,
+  )
+
+  const prRun = usePrCreation(rootPath)
 
   // Stage/unstage/revert run through the existing porcelain endpoints; the
   // watcher also fires on the resulting index/working-tree change, but we
@@ -440,6 +536,13 @@ export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
         areAllDiffsCollapsed={areAllDiffsCollapsed}
         onToggleAllDiffs={toggleAllDiffs}
         onCommit={() => setCommitDialogOpen(true)}
+        onCreatePr={() => setPrDialogOpen(true)}
+        prBlockedReason={prBlockedReason}
+        commitBlockedReason={commitBlockedReason}
+        primaryAction={primaryGitAction}
+        existingPr={branchPr?.pr ?? null}
+        prPhase={prRun.phase}
+        onStopPr={prRun.cancel}
         rootPath={rootPath}
         baseBranch={baseBranch}
         onBaseBranchChange={setBaseBranch}
@@ -581,6 +684,17 @@ export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
         additions={totals.additions}
         deletions={totals.deletions}
       />
+      {prRepo?.isRepo && (
+        <CreatePrDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          status={prRepo}
+          // Working-tree count, not the current diff scope: the dialog commits
+          // what is uncommitted, whatever the review is currently showing.
+          fileCount={pendingChangeCount}
+          onStart={(input) => void prRun.start(input)}
+        />
+      )}
     </div>
     </WorkerPoolContextProvider>
   )

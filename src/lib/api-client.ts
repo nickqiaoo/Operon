@@ -249,6 +249,20 @@ export function gitGenerateCommitMessage(repoPath: string): Promise<string> {
   return post<{ message: string }>('/git/generate-commit-message', { repoPath }).then((r) => r.message)
 }
 
+export function gitGeneratePrSummary(repoPath: string, baseBranch: string, signal?: AbortSignal) {
+  // Aborting matters here: the request is a full model turn, and the server
+  // cancels it when the client disconnects.
+  return request<{ title: string; body: string }>('/git/generate-pr-summary', {
+    method: 'POST',
+    body: JSON.stringify({ repoPath, baseBranch }),
+    signal,
+  })
+}
+
+export function gitCheckoutNewBranch(repoPath: string, branchName: string) {
+  return post<{ success: boolean }>('/git/checkout-new-branch', { repoPath, branchName })
+}
+
 export type PushErrorCode =
   | 'no-remote'
   | 'no-upstream'

@@ -59,7 +59,6 @@ export interface IntegrationAppStatus {
     appSlug: string
     login: string
     installs: GithubInstallView[]
-    personalToken: boolean
   }
   delegation: LinearDelegationConfig
   flows: Partial<Record<IntegrationFlowKind, IntegrationFlowState>>

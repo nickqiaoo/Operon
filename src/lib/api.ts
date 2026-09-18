@@ -96,8 +96,8 @@ function get<T>(path: string): Promise<T> {
   return request<T>(path)
 }
 
-function post<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(body) })
+function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'POST', body: JSON.stringify(body), signal })
 }
 
 function put<T>(path: string, body: unknown): Promise<T> {
@@ -371,6 +371,8 @@ export const api = {
   gitListRemotes: httpClient.gitListRemotes,
   gitCommit: httpClient.gitCommit,
   gitGenerateCommitMessage: httpClient.gitGenerateCommitMessage,
+  gitGeneratePrSummary: httpClient.gitGeneratePrSummary,
+  gitCheckoutNewBranch: httpClient.gitCheckoutNewBranch,
   gitPush: httpClient.gitPush,
   gitPushStatus: httpClient.gitPushStatus,
   gitBranches: httpClient.gitBranches,
@@ -967,15 +969,16 @@ export const api = {
     ),
 
   // --- Integrations: GitHub ---
-  integrationGithubGet: () =>
-    get<{ configured: boolean; token: string; login: string }>('/integrations/github'),
-  integrationGithubSave: (token: string) =>
-    put<{ configured: boolean; token: string; login: string }>('/integrations/github', { token }),
-  integrationGithubDelete: () =>
-    del<{ success: boolean }>('/integrations/github'),
+  /** Whether the user's own `gh` login can open PRs (no app-held credential). */
+  integrationGithubCliStatus: () =>
+    get<{ isInstalled: boolean; isAuthenticated: boolean }>('/integrations/github/cli-status'),
   integrationGithubRepoStatus: (repoPath: string) =>
     post<{
       isRepo: boolean
+      ghInstalled: boolean
+      ghAuthenticated: boolean
+      /** Either credential source is enough to open a PR from the app. */
+      canCreatePr: boolean
       remoteName: string | null
       owner: string | null
       repo: string | null
@@ -983,6 +986,8 @@ export const api = {
       defaultBranch: string | null
       ahead: number
       behind: number
+      /** False for a branch that was never pushed — then `ahead` says nothing. */
+      hasUpstream: boolean
       stagedCount: number
       unstagedCount: number
       untrackedCount: number
@@ -995,13 +1000,32 @@ export const api = {
     branchName: string
     baseBranch: string
     commitMessage?: string
+    /** Off = push only what is already committed, leaving the working tree alone. */
+    commitLocalChanges?: boolean
     draft?: boolean
     remote?: string
-  }) =>
+  }, signal?: AbortSignal) =>
     post<{ pr: { number: number; url: string; title: string } }>(
       '/integrations/github/create-pr',
       input,
+      signal,
     ),
+  /** The open PR for a branch, or null when there is none / gh is unavailable. */
+  integrationGithubPrForBranch: (repoPath: string, branch: string) =>
+    post<{ pr: { number: number; url: string; title: string; isDraft: boolean } | null }>(
+      '/integrations/github/pr-for-branch',
+      { repoPath, branch },
+    ),
+  /** Commit + push the branch and hand back GitHub's compare URL (no token needed). */
+  integrationGithubPushForPR: (input: {
+    repoPath: string
+    branchName: string
+    baseBranch: string
+    commitMessage?: string
+    commitLocalChanges?: boolean
+    remote?: string
+  }, signal?: AbortSignal) =>
+    post<{ compareUrl: string }>('/integrations/github/push-for-pr', input, signal),
 
   // --- MCP Servers (HTTP) ---
   mcpGetServers: () =>

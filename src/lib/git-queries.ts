@@ -28,6 +28,8 @@ export const gitKeys = {
     ['git', root, 'review', scope, variant] as const,
   fullFile: (root: string, scope: GitScope, path: string, variant = '') =>
     ['git', root, 'full-file', scope, path, variant] as const,
+  prRepoStatus: (root: string) => ['git', root, 'pr-repo-status'] as const,
+  prForBranch: (root: string, branch: string) => ['git', root, 'pr-for-branch', branch] as const,
 }
 
 export type GitStatus = Awaited<ReturnType<typeof api.gitStatus>>
@@ -38,6 +40,35 @@ export function useGitStatus(root: string) {
     queryKey: gitKeys.status(root),
     queryFn: () => api.gitStatus(root),
     staleTime: FIVE_SECONDS,
+  })
+}
+
+export type PrRepoStatus = Awaited<ReturnType<typeof api.integrationGithubRepoStatus>>
+
+/**
+ * GitHub remote facts the commit / PR chrome needs: owner, repo, the default
+ * branch and whether a token is configured. Lives under the `['git', root]`
+ * prefix so committing or pushing refreshes it along with the diff.
+ */
+export function usePrRepoStatus(root: string) {
+  return useQuery({
+    queryKey: gitKeys.prRepoStatus(root),
+    queryFn: () => api.integrationGithubRepoStatus(root),
+    staleTime: FIVE_SECONDS,
+  })
+}
+
+/**
+ * The open PR for the current branch. Separate from `usePrRepoStatus` because
+ * it costs a network round-trip through `gh` — the status endpoint is polled on
+ * every working-tree change and must stay local.
+ */
+export function usePrForBranch(root: string, branch: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: gitKeys.prForBranch(root, branch ?? ''),
+    queryFn: () => api.integrationGithubPrForBranch(root, branch ?? ''),
+    enabled: enabled && !!branch,
+    staleTime: 30_000,
   })
 }
 
