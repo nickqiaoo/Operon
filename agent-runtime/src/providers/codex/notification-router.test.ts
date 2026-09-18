@@ -29,9 +29,16 @@ function createClientHarness() {
 }
 
 function createEmitter(parts: RuntimeStreamPart[]) {
-  const controller = {
-    enqueue: (part: RuntimeStreamPart) => parts.push(part),
-  } as ReadableStreamDefaultController<RuntimeStreamPart>
+  // Spelled out rather than cast: `parts.push` returns a number where `enqueue`
+  // returns void, so the cast only ever type-checked by accident.
+  const controller: ReadableStreamDefaultController<RuntimeStreamPart> = {
+    desiredSize: null,
+    enqueue: (part) => {
+      parts.push(part)
+    },
+    close: () => {},
+    error: () => {},
+  }
 
   return new CodexTextStreamEmitter(controller, {
     threadId: 'thread-1',
