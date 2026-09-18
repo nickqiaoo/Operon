@@ -1,4 +1,4 @@
-import { Check, Folder } from "lucide-react"
+import { Check, Layers } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { useProjectStore } from "@/stores/project-store"
@@ -59,7 +59,7 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                   onClick={() => pickProject(project.id, project.workspaces[0]?.id ?? null)}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-muted/40"
                 >
-                  <Folder className="size-4 shrink-0 text-muted-foreground/70" />
+                  <Layers className="size-4 shrink-0 text-muted-foreground/70" />
                   <span
                     className={cn(
                       "truncate text-base font-medium",

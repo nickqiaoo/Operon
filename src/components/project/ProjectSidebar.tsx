@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, GitBranch, Inbox, Plus, Settings, Sparkles, Network, LayoutDashboard, Bot, PanelLeft } from "lucide-react"
+import { CalendarClock, Folder, Inbox, Layers, Plus, Settings, Sparkles, Network, LayoutDashboard, Bot, PanelLeft } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
@@ -83,12 +83,12 @@ function ProjectItem({
   return (
     <div className="group/project px-4">
       <div className="flex items-center gap-2 pb-1 text-sm text-foreground/80 font-medium">
-        <span className="size-2 shrink-0 rounded-full bg-tint" />
+        <Layers className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onOpenChannel?.(project)}
           title={intl.formatMessage({ id: "sidebar.openChannels", defaultMessage: "Open workspace" })}
         >
@@ -97,7 +97,7 @@ function ProjectItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onAddWorkspace(project)}
           title={intl.formatMessage({ id: "sidebar.newWorkspace", defaultMessage: "New workspace" })}
         >
@@ -126,7 +126,11 @@ function ProjectItem({
                 key={workspace.id}
                 onClick={() => onSelectWorkspace(workspace.id, project.id)}
                 className={cn(
-                  "w-full rounded-lg px-3 py-2 text-left transition-colors duration-150 bg-transparent hover:bg-muted/60 hover:text-foreground relative overflow-hidden",
+                  // pl-6 rather than px-3: the row's icon lines up with the project
+                  // NAME above it (both at 40px from the rail edge), so the workspaces
+                  // read as hanging off their project instead of sitting beside it. The
+                  // fill stays full-bleed — only the content is indented.
+                  "w-full rounded-lg py-2 pl-6 pr-3 text-left transition-colors duration-150 bg-transparent hover:bg-muted/60 hover:text-foreground relative overflow-hidden",
                   // Selection is a plain fill — no border, no tint. `tint-muted`
                   // only cleared the sidebar by ~9 levels and skewed blue, so the
                   // block read as a smudge; a neutral 7% of the foreground lands
@@ -139,9 +143,9 @@ function ProjectItem({
                 <div className="flex items-center gap-2 relative z-[1]">
                   {workspace.name.endsWith(' (agent)')
                     ? <Bot className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
-                    : <GitBranch className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
+                    : <Folder className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
                   }
-                  <span className={cn("min-w-0 flex-1 truncate text-sm", isActive ? "font-semibold text-foreground" : "font-medium text-muted-foreground")}>
+                  <span className={cn("min-w-0 flex-1 truncate text-sm", isActive ? "font-semibold text-foreground" : "font-medium text-foreground/70")}>
                     {workspace.name}
                   </span>
                   {workspaceStats && (workspaceStats.additions > 0 || workspaceStats.deletions > 0) && (
@@ -179,7 +183,7 @@ function WorkspaceListSkeleton() {
       {[3, 2].map((workspaceCount, projectIndex) => (
         <div key={projectIndex} className="pb-3" style={{ opacity: 1 - projectIndex * 0.35 }}>
           <div className="flex items-center gap-2 pb-1">
-            <Skeleton className="size-2 shrink-0 rounded-full" />
+            <Skeleton className="size-4 shrink-0 rounded" />
             <Skeleton className="h-3.5 w-24" />
           </div>
           {Array.from({ length: workspaceCount }, (_, i) => (
