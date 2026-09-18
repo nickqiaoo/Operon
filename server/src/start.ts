@@ -101,6 +101,13 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     initTelemetry(options.captureAnalytics, options.appVersion)
   }
 
+  // Agent runtimes identify themselves to the CLIs they drive (codex's app-server
+  // handshake reports it as our user agent). They live in a separate package with no
+  // handle on the Electron app, so the version reaches them through the environment.
+  if (options.appVersion) {
+    process.env.OPERON_VERSION = options.appVersion
+  }
+
   tightenLegacyFileModes()
   const storage = new SqliteStorage(dbPath, { migrationsDir })
 

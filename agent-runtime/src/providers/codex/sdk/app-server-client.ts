@@ -60,10 +60,34 @@ type RequestHandler = (
 ) => Promise<unknown | typeof REQUEST_NOT_HANDLED> | unknown | typeof REQUEST_NOT_HANDLED;
 
 const DEFAULT_REQUEST_TIMEOUT = 60_000; // 60 seconds
-const DESKTOP_CLIENT_NAME = 'Codex Desktop';
-const DESKTOP_CLIENT_VERSION = '26.324.21641';
-const DESKTOP_SERVICE_NAME = 'codex_desktop';
-const DESKTOP_ORIGINATOR = 'Codex Desktop';
+
+/**
+ * Who we tell the app-server we are.
+ *
+ * This used to claim to be `Codex Desktop` at version `26.324.21641`, and also set
+ * `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` on the child process and default `serviceName`
+ * to `codex_desktop`. Probing codex-cli 0.154.0 directly showed all of that bought
+ * nothing: `clientInfo` is the only required field of `initialize` (omitting it fails
+ * with `-32600 missing field clientInfo`), its contents are unvalidated, the env var
+ * had no effect whatsoever on the resulting user agent, and `thread/start` succeeds
+ * without `serviceName` — returning an identical field set either way. So we identify
+ * honestly and pass nothing we don't have to.
+ *
+ * The app-server composes its user agent as
+ * `{name}/{codex version} ({os}) {terminal} ({title}; {version})`, so `version` here is
+ * ours, not codex's — codex fills its own in.
+ */
+const CLIENT_NAME = 'operon';
+/**
+ * Read per handshake, never hoisted into a module-level const: the host sets
+ * `OPERON_VERSION` from `app.getVersion()` inside `startServer()`, which runs long
+ * after this module's top level has been evaluated by the import graph. Captured at
+ * import time it would be `0.0.0` forever, in dev and in a packaged build alike.
+ *
+ * The fallback covers a bare runtime embedded outside the desktop app, where there is
+ * no app version to report.
+ */
+const clientVersion = (): string => process.env.OPERON_VERSION || '0.0.0';
 
 /**
  * Client for communicating with the codex app-server process
@@ -152,7 +176,6 @@ export class AppServerClient {
       env: {
         ...process.env,
         ...this.settings.env,
-        CODEX_INTERNAL_ORIGINATOR_OVERRIDE: DESKTOP_ORIGINATOR,
       },
       cwd: this.settings.cwd,
     });
@@ -195,9 +218,9 @@ export class AppServerClient {
     // Perform initialization handshake (direct send to avoid recursion)
     const initParams: InitializeParams = {
       clientInfo: {
-        name: DESKTOP_CLIENT_NAME,
-        title: DESKTOP_CLIENT_NAME,
-        version: DESKTOP_CLIENT_VERSION,
+        name: CLIENT_NAME,
+        title: CLIENT_NAME,
+        version: clientVersion(),
       },
       capabilities: {
         experimentalApi: true,
@@ -480,10 +503,9 @@ export class AppServerClient {
    * Start a new thread
    */
   async startThread(params: ThreadStartParams): Promise<ThreadStartResult> {
-    return this.request<ThreadStartResult>('thread/start', {
-      ...params,
-      serviceName: params.serviceName ?? DESKTOP_SERVICE_NAME,
-    });
+    // No serviceName default: the field is optional and the server behaves the same
+    // without it. A caller that genuinely needs one still passes it through params.
+    return this.request<ThreadStartResult>('thread/start', params);
   }
 
   /**
