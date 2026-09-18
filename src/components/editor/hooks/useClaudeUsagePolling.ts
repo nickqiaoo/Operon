@@ -1,11 +1,18 @@
 import { useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { DetailedContextUsage } from '@/types/context-usage';
 import type { ClaudeRateLimits } from '../utils/chatMetadata';
 
 const CONTEXT_USAGE_POLL_MS = 5_000;
-const CLAUDE_USAGE_POLL_MS = 30_000;
+/**
+ * Quota is now pushed onto the live stream as it moves (`rate_limit_event`, one
+ * per 1% step), so this poll no longer carries the live number — it covers what
+ * a push cannot see: spend by other clients (phone, another workspace, another
+ * Claude Code) and windows resetting while this app sends nothing. Both are slow
+ * relative to a turn, so it runs at a fraction of the old 30s.
+ */
+const CLAUDE_USAGE_POLL_MS = 120_000;
 
 const claudeUsageQueryKey = ['ai', 'claude-usage'] as const;
 const contextUsageQueryKey = (chatId: number) => ['ai', 'context-usage', chatId] as const;
@@ -22,6 +29,12 @@ interface ClaudeUsagePollingOptions {
   supportsContextUsage: boolean;
   isActive: boolean;
   isGenerating: boolean;
+  /**
+   * Quota pushed onto the live stream by the turn that is streaming right now,
+   * or null. Folded into the same cache the poll writes, so the badge reads one
+   * value from one place — see the note on the effect below.
+   */
+  pushedRateLimits?: ClaudeRateLimits | null;
 }
 
 /**
@@ -35,6 +48,7 @@ export function useClaudeUsagePolling({
   supportsContextUsage,
   isActive,
   isGenerating,
+  pushedRateLimits,
 }: ClaudeUsagePollingOptions): {
   detailedContextUsage: DetailedContextUsage | null;
   claudeRateLimits: ClaudeRateLimits | null;
@@ -61,10 +75,10 @@ export function useClaudeUsagePolling({
 
   // Quota is served by a dedicated chat-less probe process, so it needs no open
   // session and cannot contend with the message stream — one plain interval,
-  // running during generation too. It tracks spend by any client on the account
-  // (another Claude Code, phone, another workspace) and window resets, neither
-  // of which this tab's turns can tell us about.
-  const { data: claudeRateLimits = null } = useQuery({
+  // running during generation too. The probe's snapshot is also what pushed
+  // `rate_limit_event` updates are folded into, so this poll returns those
+  // without waiting for its own round trip.
+  const { data: claudeRateLimits = null, refetch: refetchClaudeUsage } = useQuery({
     queryKey: claudeUsageQueryKey,
     queryFn: async (): Promise<ClaudeRateLimits | null> => {
       const result = await api.aiGetClaudeUsage();
@@ -77,15 +91,30 @@ export function useClaudeUsagePolling({
     refetchIntervalInBackground: false,
   });
 
-  // Context usage is per-session and computed locally, so it is accurate the
-  // moment a turn ends — refresh it right away instead of waiting a full tick.
+  // Write the push into the poll's cache instead of letting the UI choose
+  // between two sources. Switching sources is what makes a badge jump: at the
+  // instant a turn ends the stream value disappears, and whatever the poll last
+  // fetched — up to two minutes old — would show through until the refetch
+  // below lands. Folding the push in means the cache is never behind what the
+  // user has already seen, so the handover changes nothing on screen.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!pushedRateLimits) return;
+    queryClient.setQueryData(claudeUsageQueryKey, pushedRateLimits);
+  }, [pushedRateLimits, queryClient]);
+
+  // Both numbers are refreshed the moment a turn ends rather than on the next
+  // tick. Context usage because it is computed locally and is accurate straight
+  // away; quota to pick up what a push cannot report — spend by other clients —
+  // now that this turn's own usage is already in the cache.
   const wasGeneratingRef = useRef(isGenerating);
   useEffect(() => {
     const turnJustFinished = wasGeneratingRef.current && !isGenerating;
     wasGeneratingRef.current = isGenerating;
-    if (!turnJustFinished || !hasContextSession) return;
-    void refetchContextUsage();
-  }, [hasContextSession, isGenerating, refetchContextUsage]);
+    if (!turnJustFinished) return;
+    if (hasContextSession) void refetchContextUsage();
+    if (isClaudeCode) void refetchClaudeUsage();
+  }, [hasContextSession, isClaudeCode, isGenerating, refetchClaudeUsage, refetchContextUsage]);
 
   return { detailedContextUsage, claudeRateLimits };
 }

@@ -381,9 +381,16 @@ export function aiRoutes(storage: SddStorage) {
     return c.json(await aiService.getContextUsage(chatId))
   })
 
-  // GET /api/ai/claude-usage — account quota, independent of any conversation
+  // GET /api/ai/claude-usage — account quota, independent of any conversation.
+  // `?force=1` is the Refresh button asking to skip the caches on the way down.
   router.get('/claude-usage', async (c) => {
-    const result = await aiService.getClaudeUsageLimits()
+    const result = await aiService.getClaudeUsageLimits({ force: c.req.query('force') === '1' })
+    return c.json(result, result.success ? 200 : 400)
+  })
+
+  // GET /api/ai/codex-usage — account quota, independent of any conversation
+  router.get('/codex-usage', async (c) => {
+    const result = await aiService.getCodexUsageLimits({ force: c.req.query('force') === '1' })
     return c.json(result, result.success ? 200 : 400)
   })
 

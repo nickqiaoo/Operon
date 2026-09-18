@@ -39,6 +39,15 @@ export type RateLimitSnapshot = {
   planType: PlanType | null;
 };
 
+/**
+ * Every Codex rate-limit bucket at once: the one the last request was billed
+ * against, plus each bucket keyed by its limit id.
+ */
+export type CodexRateLimits = {
+  rateLimits?: RateLimitSnapshot | null;
+  rateLimitsByLimitId?: Record<string, RateLimitSnapshot> | null;
+};
+
 /** One Claude subscription quota window (5-hour / weekly / …). */
 export type ClaudeRateLimitWindow = {
   status: 'allowed' | 'allowed_warning' | 'rejected';
@@ -70,10 +79,15 @@ export type ContextUsageMetadata = {
     authMode?: AuthMode | null;
     planType?: PlanType | null;
   };
-  codexRateLimits?: {
-    rateLimits?: RateLimitSnapshot | null;
-    rateLimitsByLimitId?: Record<string, RateLimitSnapshot> | null;
-  };
+  codexRateLimits?: CodexRateLimits;
+  /**
+   * Claude account quota, pushed mid-turn by `rate_limit_event`.
+   *
+   * Only ever safe to read off a message that is streaming right now — see the
+   * note where ChatPanel consumes it. Persisted rows carry it too, and theirs
+   * are frozen at the time of that turn.
+   */
+  claudeRateLimits?: ClaudeRateLimits;
 };
 
 export type CompactedInfo = {
@@ -205,6 +219,22 @@ const isCodexAccount = (
   );
 };
 
+const isClaudeRateLimitWindow = (value: unknown): value is ClaudeRateLimitWindow => {
+  if (!isRecord(value)) return false;
+  return (
+    (value.status === 'allowed' || value.status === 'allowed_warning' || value.status === 'rejected') &&
+    isNumberOrUndefined(value.utilization) &&
+    isNumberOrUndefined(value.resetsAt)
+  );
+};
+
+const isClaudeRateLimits = (value: unknown): value is ClaudeRateLimits => {
+  if (!isRecord(value) || !isRecord(value.windows)) return false;
+  if (value.subscriptionType !== undefined && typeof value.subscriptionType !== 'string') return false;
+  const windows = Object.values(value.windows);
+  return windows.length > 0 && windows.every(isClaudeRateLimitWindow);
+};
+
 const isCodexRateLimits = (
   value: unknown
 ): value is NonNullable<ContextUsageMetadata['codexRateLimits']> => {
@@ -233,9 +263,12 @@ export const extractContextUsage = (message: UIMessage | undefined): ContextUsag
   const detailedContextUsage = isDetailedContextUsage(metadata.detailedContextUsage) ? metadata.detailedContextUsage : undefined;
   const codexAccount = isCodexAccount(metadata.codexAccount) ? metadata.codexAccount : undefined;
   const codexRateLimits = isCodexRateLimits(metadata.codexRateLimits) ? metadata.codexRateLimits : undefined;
+  const claudeRateLimits = isClaudeRateLimits(metadata.claudeRateLimits) ? metadata.claudeRateLimits : undefined;
 
-  if (!usage && !contextUsage && !detailedContextUsage && !codexAccount && !codexRateLimits) return null;
-  return { usage, contextUsage, detailedContextUsage, codexAccount, codexRateLimits };
+  if (!usage && !contextUsage && !detailedContextUsage && !codexAccount && !codexRateLimits && !claudeRateLimits) {
+    return null;
+  }
+  return { usage, contextUsage, detailedContextUsage, codexAccount, codexRateLimits, claudeRateLimits };
 };
 
 /** A message another agent sent through the Teams hub, and the name it goes by here. */

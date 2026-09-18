@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import type {
   Query,
   SDKControlGetUsageResponse,
+  SDKRateLimitInfo,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import type { RuntimeUsageLimits, RuntimeUsageLimitWindow } from '../../types.js'
@@ -68,6 +69,78 @@ export function mapUsageToRateLimitWindows(
 }
 
 /**
+ * Map a `rate_limit_event` push into the same window snapshot as the poll.
+ *
+ * The event's `unifiedWindows` is a full snapshot of every window, not just the
+ * one `rateLimitType` names — so a push is a complete replacement for those
+ * windows, not a partial update. It is **not** in the SDK's type declarations
+ * (`SDKRateLimitInfo` stops at `utilization` / `overage*`), so it is validated
+ * here field by field: an undeclared field can disappear in any CLI release,
+ * and the poll has to keep working when it does.
+ *
+ * Two normalizations bring it onto the poll's units: the push reports
+ * utilization as a 0-1 fraction where `/usage` reports 0-100, and `resetsAt` as
+ * epoch seconds where the poll parses an ISO string into milliseconds.
+ */
+export function mapPushedRateLimitWindows(
+  info: SDKRateLimitInfo,
+): Record<string, RuntimeUsageLimitWindow> | null {
+  const unified = (info as { unifiedWindows?: unknown }).unifiedWindows
+  if (!unified || typeof unified !== 'object') return null
+
+  const out: Record<string, RuntimeUsageLimitWindow> = {}
+  for (const [key, raw] of Object.entries(unified as Record<string, unknown>)) {
+    if (!raw || typeof raw !== 'object') continue
+    const { utilization, resetsAt } = raw as { utilization?: unknown; resetsAt?: unknown }
+    if (typeof utilization !== 'number' || !Number.isFinite(utilization)) continue
+
+    const percent = utilization <= 1 ? utilization * 100 : utilization
+
+    out[key] = {
+      // The event's `status` describes the account, and `rateLimitType` names the
+      // window that put it there — so only that window inherits it.
+      status: key === info.rateLimitType && info.status ? info.status : 'allowed',
+      // 0.56 * 100 is 56.00000000000001 in binary floating point. Round to a
+      // tenth so the tail never reaches the UI, while a finer-grained push than
+      // today's 1% steps would still survive.
+      utilization: Math.round(percent * 10) / 10,
+      ...(typeof resetsAt === 'number' && Number.isFinite(resetsAt)
+        ? { resetsAt: resetsAt < 1e12 ? resetsAt * 1000 : resetsAt }
+        : {}),
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/**
+ * Whether `next` is an older snapshot of what `held` already describes.
+ *
+ * Usage within one window only ever grows, so a lower number for the same
+ * window can only mean the reading was taken earlier — whatever else it says is
+ * equally out of date, which is why the caller drops it whole rather than
+ * salvaging fields from it. A genuinely new window arrives with a later
+ * `resetsAt` and is free to start from zero.
+ *
+ * Reset times are compared with a tolerance because the two sources round
+ * differently: a push carries epoch seconds (`1789744200` → `…200000`), a poll
+ * parses an ISO string with sub-second precision (`…200526`). Comparing exactly
+ * would read every pair as a different window and defeat the check.
+ */
+const SAME_WINDOW_TOLERANCE_MS = 60_000
+
+function isStaleReading(held: RuntimeUsageLimitWindow, next: RuntimeUsageLimitWindow): boolean {
+  // Without a reset time on both sides there is no evidence of a new window,
+  // and assuming one would hand back exactly the regression this guards.
+  const sameWindow =
+    held.resetsAt === undefined ||
+    next.resetsAt === undefined ||
+    Math.abs(held.resetsAt - next.resetsAt) < SAME_WINDOW_TOLERANCE_MS
+
+  return sameWindow && (next.utilization ?? 0) < (held.utilization ?? 0)
+}
+
+/**
  * Input that never yields. The CLI stays in streaming-input mode with stdin
  * open, so the process lives on without ever starting a turn — this probe must
  * never send a prompt or spend tokens.
@@ -101,7 +174,17 @@ export class ClaudeUsageProbe {
   /** Consecutive empty polls — drives the backoff delay. */
   private failureStreak = 0
 
-  async get(): Promise<RuntimeUsageLimits | null> {
+  /**
+   * `force` clears the backoff before polling, for a user pressing Refresh.
+   *
+   * Only `retryAt` is cleared, not `failureStreak`: the streak is what the
+   * account has taught us about how long being empty lasts, and pressing a
+   * button says nothing about that. Resetting it too would let a held button
+   * restart a CLI process every minute against an account that simply has no
+   * plan limits to report.
+   */
+  async get(options?: { force?: boolean }): Promise<RuntimeUsageLimits | null> {
+    if (options?.force) this.retryAt = 0
     // Backing off: serve the last good snapshot (null if there never was one)
     // rather than starting a process we just decided to stop asking.
     if (Date.now() < this.retryAt) return this.snapshot()
@@ -114,6 +197,19 @@ export class ClaudeUsageProbe {
     } finally {
       if (this.inFlight === request) this.inFlight = null
     }
+  }
+
+  /**
+   * Fold a `rate_limit_event` push into the shared snapshot.
+   *
+   * Quota is account-scoped, so it does not matter which conversation's stream
+   * the event arrived on — every reader of this probe wants it. This is the
+   * only path that updates the snapshot without a poll, and it never touches
+   * the backoff: a push is free, so it neither counts as a success that would
+   * resume polling nor as a failure that would delay it.
+   */
+  applyPush(windows: Record<string, RuntimeUsageLimitWindow>): void {
+    this.mergeWindows(windows)
   }
 
   async dispose(): Promise<void> {
@@ -133,7 +229,13 @@ export class ClaudeUsageProbe {
     if (!active) return this.backoff('no probe process')
 
     try {
-      const usage = await active.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()
+      // `behaviors` is a scan of local transcripts we never read, and it costs
+      // two orders of magnitude more than the quota itself: measured on this
+      // account, 219-460ms with the scan against 1-4ms without, for byte-identical
+      // rate-limit values.
+      const usage = await active.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+        skipBehaviors: true,
+      })
       if (usage.subscription_type) this.subscriptionType = usage.subscription_type
 
       const windows = mapUsageToRateLimitWindows(usage)
@@ -144,8 +246,7 @@ export class ClaudeUsageProbe {
 
       this.failureStreak = 0
       this.retryAt = 0
-      this.logChangedWindows(windows)
-      this.windows = { ...this.windows, ...windows }
+      this.mergeWindows(windows)
       return this.snapshot()
     } catch (error) {
       return this.backoff(
@@ -173,6 +274,28 @@ export class ClaudeUsageProbe {
   }
 
   /**
+   * Fold incoming windows in, dropping readings that predate what we hold.
+   *
+   * The two sources disagree by design: a push is derived from the response
+   * headers of a request that just happened, while a poll asks the usage
+   * endpoint, which can still be a percentage point behind. A poll landing
+   * after a push would lower a number the user has already seen, and the badge
+   * would visibly step back for no reason they can observe.
+   */
+  private mergeWindows(incoming: Record<string, RuntimeUsageLimitWindow>): void {
+    const merged: Record<string, RuntimeUsageLimitWindow> = { ...this.windows }
+
+    for (const [key, next] of Object.entries(incoming)) {
+      const prev = merged[key]
+      if (prev && isStaleReading(prev, next)) continue
+      merged[key] = next
+    }
+
+    this.logChangedWindows(merged)
+    this.windows = merged
+  }
+
+  /**
    * The badge shows a single number — whichever window is most consumed — so a
    * window resetting or the account re-reporting looks like the quota jumping
    * on its own. Log every window whose utilization moved so those jumps can be
@@ -187,6 +310,11 @@ export class ClaudeUsageProbe {
       .map(([key, window]) => `${key} ${this.windows[key]?.utilization ?? '-'}→${window.utilization}`)
       .join(', ')
     logger.info(`usage changed: ${summary}`)
+  }
+
+  /** Current snapshot without triggering a poll. */
+  peek(): RuntimeUsageLimits | null {
+    return this.snapshot()
   }
 
   private snapshot(): RuntimeUsageLimits | null {
@@ -278,8 +406,30 @@ const probe = new ClaudeUsageProbe()
  * Account-level Claude subscription quota, independent of any conversation.
  * Returns null when the CLI is unavailable or the account has no plan limits.
  */
-export function getClaudeAccountUsage(): Promise<RuntimeUsageLimits | null> {
-  return probe.get()
+export function getClaudeAccountUsage(options?: {
+  force?: boolean
+}): Promise<RuntimeUsageLimits | null> {
+  return probe.get(options)
+}
+
+/**
+ * Record a `rate_limit_event` push against the account snapshot.
+ *
+ * Pushes land the moment usage moves (measured: one per 1% step, mid-turn),
+ * where the poll is a periodic sweep — so this is what keeps the number live,
+ * and the poll is left to cover what a push cannot see: spend by other clients
+ * and window resets while this app sends nothing.
+ */
+export function applyClaudeUsagePush(info: SDKRateLimitInfo): boolean {
+  const windows = mapPushedRateLimitWindows(info)
+  if (!windows) return false
+  probe.applyPush(windows)
+  return true
+}
+
+/** The account snapshot as it stands, without polling. */
+export function peekClaudeAccountUsage(): RuntimeUsageLimits | null {
+  return probe.peek()
 }
 
 /** Stop the shared probe process (app shutdown). */

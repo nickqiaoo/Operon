@@ -4,7 +4,13 @@ import { getSessionManager, getChatStorage } from './state.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
-import { getClaudeAccountUsage, RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
+import {
+  getClaudeAccountUsage,
+  peekClaudeAccountUsage,
+  getCodexAccountUsage,
+  RuntimeInjectionUnavailableError,
+} from '@operon/agent-runtime'
+import type { AccountRateLimitsReadResult } from '@operon/agent-runtime'
 import type {
   DetailedContextUsage,
   DynamicSetPayload,
@@ -12,12 +18,16 @@ import type {
   RuntimeUsageLimits,
 } from '@operon/agent-runtime'
 
-// Only a stampede guard for concurrent clients — the poll interval, not this,
-// decides how fresh the number is.
-const CLAUDE_USAGE_CACHE_TTL_MS = 10_000
+// Throttles how often we actually poll, and nothing else — a cache hit still
+// answers from the probe's live snapshot below, so a `rate_limit_event` that
+// landed since the last poll is never withheld. Kept short anyway because the
+// underlying read is ~1-4ms and a turn ending wants a real poll to pick up
+// other clients' spend.
+const CLAUDE_USAGE_CACHE_TTL_MS = 2_000
 
 let claudeUsageCache: { data: RuntimeUsageLimits; fetchedAt: number } | null = null
 let claudeUsageInFlight: Promise<RuntimeUsageLimits | null> | null = null
+let codexUsageInFlight: Promise<AccountRateLimitsReadResult | null> | null = null
 
 export function handleSessionCleanup(chatId: number): boolean {
   const sessionManager = getSessionManager()
@@ -140,17 +150,29 @@ export async function getContextUsage(
  * dedicated chat-less probe process, so it needs no open conversation and never
  * competes with a live message stream. The cache and single-flight here only
  * keep N polling clients from stacking control requests on that one probe.
+ *
+ * `force` is the Refresh button: it skips every cache between here and the API,
+ * including the probe's backoff. Without it the button is a no-op for as long
+ * as the shortest cache in the chain, which is exactly when a user reaches for
+ * it — they press because the number on screen looks wrong, and every layer
+ * that answers from memory can only repeat it.
  */
-export async function getClaudeUsageLimits(): Promise<{
+export async function getClaudeUsageLimits(options?: { force?: boolean }): Promise<{
   success: boolean
   data?: RuntimeUsageLimits
   error?: string
 }> {
-  if (claudeUsageCache && Date.now() - claudeUsageCache.fetchedAt < CLAUDE_USAGE_CACHE_TTL_MS) {
-    return { success: true, data: claudeUsageCache.data }
+  const force = options?.force === true
+
+  if (!force && claudeUsageCache && Date.now() - claudeUsageCache.fetchedAt < CLAUDE_USAGE_CACHE_TTL_MS) {
+    // Prefer the probe's current snapshot over the object this cache captured:
+    // pushes fold into it between polls, so the cached copy can be behind a
+    // number the client has already been shown, and serving it would step the
+    // badge backwards. `peek` is an in-memory read of that same snapshot.
+    return { success: true, data: peekClaudeAccountUsage() ?? claudeUsageCache.data }
   }
 
-  if (claudeUsageInFlight) {
+  if (!force && claudeUsageInFlight) {
     try {
       const data = await claudeUsageInFlight
       return data
@@ -164,7 +186,7 @@ export async function getClaudeUsageLimits(): Promise<{
     }
   }
 
-  const request = getClaudeAccountUsage()
+  const request = getClaudeAccountUsage(force ? { force: true } : undefined)
   claudeUsageInFlight = request
   try {
     const data = await request
@@ -184,6 +206,48 @@ export async function getClaudeUsageLimits(): Promise<{
   } finally {
     if (claudeUsageInFlight === request) {
       claudeUsageInFlight = null
+    }
+  }
+}
+
+/**
+ * Read Codex subscription quota. Account-scoped like the Claude one, but with
+ * no dedicated process behind it: the app-server answers `account/rateLimits/read`
+ * on whichever connection is already open (see `providers/codex/usage-probe.ts`).
+ *
+ * The read itself is cached in the runtime, so this adds only a stampede guard
+ * for concurrent clients.
+ *
+ * `force` reaches past that runtime cache, whose TTL is a minute — long enough
+ * that pressing Refresh right after a window resets would otherwise hand back
+ * the spent number it was pressed to get rid of.
+ */
+export async function getCodexUsageLimits(options?: { force?: boolean }): Promise<{
+  success: boolean
+  data?: AccountRateLimitsReadResult
+  error?: string
+}> {
+  const force = options?.force === true
+
+  // A forced read never joins an in-flight one: that request may itself have
+  // been answered from the cache this press is trying to get past.
+  if (!force && codexUsageInFlight) {
+    const data = await codexUsageInFlight.catch(() => null)
+    return data ? { success: true, data } : { success: false, error: 'No Codex usage data available' }
+  }
+
+  const request = getCodexAccountUsage(force ? 0 : undefined)
+  codexUsageInFlight = request
+  try {
+    const data = await request
+    return data ? { success: true, data } : { success: false, error: 'No Codex usage data available' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[AI] getCodexUsageLimits failed:', message)
+    return { success: false, error: message }
+  } finally {
+    if (codexUsageInFlight === request) {
+      codexUsageInFlight = null
     }
   }
 }

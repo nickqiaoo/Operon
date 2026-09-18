@@ -30,6 +30,7 @@ import type {
   GoalClearParams,
   GoalResult,
   GoalClearResult,
+  AccountRateLimitsReadResult,
 } from './protocol/index.js';
 import type { CodexAppServerSettings, Logger } from './types/index.js';
 
@@ -60,6 +61,12 @@ type RequestHandler = (
 ) => Promise<unknown | typeof REQUEST_NOT_HANDLED> | unknown | typeof REQUEST_NOT_HANDLED;
 
 const DEFAULT_REQUEST_TIMEOUT = 60_000; // 60 seconds
+/**
+ * How long a `account/rateLimits/read` result stays good enough to reuse. Live
+ * usage arrives on the push notification anyway; this read only exists to fill
+ * in the buckets the notification stays silent about, and those move slowly.
+ */
+const RATE_LIMITS_CACHE_TTL = 60_000;
 
 /**
  * Who we tell the app-server we are.
@@ -94,6 +101,8 @@ const clientVersion = (): string => process.env.OPERON_VERSION || '0.0.0';
  */
 export class AppServerClient {
   private process: ChildProcess | null = null;
+  private rateLimitsCache: { at: number; value: AccountRateLimitsReadResult } | null = null;
+  private rateLimitsInFlight: Promise<AccountRateLimitsReadResult | null> | null = null;
   private pendingRequests = new Map<string | number, PendingRequest>();
   private notificationHandlers = new Map<string, Set<NotificationHandler>>();
   /**
@@ -268,6 +277,7 @@ export class AppServerClient {
     this.process = null;
     // Ephemeral threads died with the process, whether it exited or crashed.
     this.ephemeralThreads.clear();
+    this.rateLimitsCache = null;
 
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests) {
@@ -579,6 +589,39 @@ export class AppServerClient {
    */
   async clearGoal(params: GoalClearParams): Promise<GoalClearResult> {
     return this.request<GoalClearResult>('thread/goal/clear', params);
+  }
+
+  /**
+   * Read every rate-limit bucket at once.
+   *
+   * The `account/rateLimits/updated` notification only reports the bucket the
+   * last request was billed against, so it cannot be relied on for a full
+   * picture — see {@link AccountRateLimitsReadResult}. Results are cached and
+   * de-duplicated because this goes out to the API and a turn only needs the
+   * buckets it was never told about.
+   */
+  async readRateLimits(maxAgeMs = RATE_LIMITS_CACHE_TTL): Promise<AccountRateLimitsReadResult | null> {
+    const cached = this.rateLimitsCache
+    if (cached && Date.now() - cached.at < maxAgeMs) return cached.value
+
+    if (!this.rateLimitsInFlight) {
+      this.rateLimitsInFlight = this.request<AccountRateLimitsReadResult>('account/rateLimits/read', {})
+        .then((value) => {
+          this.rateLimitsCache = { at: Date.now(), value }
+          return value
+        })
+        .catch((error: unknown) => {
+          this.logger.debug(
+            `account/rateLimits/read failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          return null
+        })
+        .finally(() => {
+          this.rateLimitsInFlight = null
+        })
+    }
+
+    return this.rateLimitsInFlight
   }
 
   /**

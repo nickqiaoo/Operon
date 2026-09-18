@@ -428,6 +428,27 @@ export class CodexRuntimeSession implements RuntimeSession {
     }
   }
 
+  /**
+   * Top up the turn's rate-limit metadata with the buckets codex will not push.
+   *
+   * `account/rateLimits/updated` only fires for the bucket a request is billed
+   * against, so a turn spent on the reserve pool never mentions the plan quota
+   * — and the client loses the 5-hour window's reset time and the weekly usage
+   * exactly when they matter most. Fire-and-forget: the push notifications are
+   * still the live source, this only backfills what they leave out.
+   */
+  private seedRateLimits(client: AppServerClient, emitter: CodexTextStreamEmitter): void {
+    void client
+      .readRateLimits()
+      .then((result) => {
+        if (!result) return
+        emitter.seedRateLimits(result.rateLimits, result.rateLimitsByLimitId)
+      })
+      .catch(() => {
+        // Best-effort: live push notifications remain the primary source.
+      })
+  }
+
   private createAbortSignal(externalSignal?: AbortSignal): AbortSignal {
     this.abortController = new AbortController()
     return externalSignal
@@ -710,6 +731,7 @@ export class CodexRuntimeSession implements RuntimeSession {
           turnId,
           modelId: this.currentModelId,
         })
+        this.seedRateLimits(client, emitter)
 
         const cleanup = () => {
           cleanupTempFiles(tempFiles)
@@ -833,6 +855,7 @@ export class CodexRuntimeSession implements RuntimeSession {
           turnId: '',
           modelId: this.currentModelId,
         })
+        this.seedRateLimits(client, emitter)
 
         // Stream live goal progress (timeUsedSeconds / tokensUsed / status) to the
         // client as message metadata for the whole pursuit, not just turn edges.

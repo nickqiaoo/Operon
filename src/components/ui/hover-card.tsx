@@ -3,6 +3,22 @@ import * as HoverCardPrimitive from "@radix-ui/react-hover-card"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * How long the pointer has to rest on a trigger before its card opens.
+ *
+ * Radix defaults to 700ms; these cards sit in a row along the composer, and at
+ * 0 they fired on the way past — crossing the strip to reach the send button
+ * flashed a panel per chip. Long enough to need intent, short enough that
+ * stopping on one still feels like a direct answer.
+ */
+export const HOVER_CARD_OPEN_DELAY_MS = 450
+
+/**
+ * Grace period after the pointer leaves. Covers the gap between the trigger and
+ * the card, so a diagonal move onto the content doesn't close it underfoot.
+ */
+export const HOVER_CARD_CLOSE_DELAY_MS = 300
+
 function HoverCard({
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Root>) {

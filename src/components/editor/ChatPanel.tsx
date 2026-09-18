@@ -66,7 +66,7 @@ import {
 import { useAnnotationSendStore } from '@/stores/annotation-send-store';
 import { useChatActions } from './hooks/useChatActions';
 import { useRecentDerivedState } from './hooks/useRecentDerivedState';
-import { extractContextCompaction } from './utils/chatMetadata';
+import { extractContextCompaction, extractContextUsage } from './utils/chatMetadata';
 import { useChatIndexState } from './hooks/useChatIndexState';
 import { useRewindController } from './hooks/useRewindController';
 import { useChatPanelEffects } from './hooks/useChatPanelEffects';
@@ -328,6 +328,25 @@ function ChatPanelContent({
   const clearUnseen = useStreamingStore((s) => s.clearUnseen);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const isClaudeCode = providerId === 'claude-code' || selectedModel?.providerId === 'claude-code';
+  // Quota pushed onto the live stream by `rate_limit_event`, which lands the
+  // moment usage steps 1% instead of on the next poll.
+  //
+  // Only safe to read **while the message is still streaming**. Persisted rows
+  // carry the same field frozen at the time of their turn — an earlier version
+  // fell back to those and the badge jumped to a weeks-old number whenever the
+  // poll had nothing yet. A streaming message cannot be stale, hence the
+  // `isGenerating` gate; the hook folds this into the poll's cache so nothing
+  // changes on screen when the turn ends and the push stops.
+  const livePushedClaudeRateLimits = useMemo(() => {
+    if (!isClaudeCode || !isGenerating) return null;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'assistant') continue;
+      return extractContextUsage(message)?.claudeRateLimits ?? null;
+    }
+    return null;
+  }, [isClaudeCode, isGenerating, messages]);
+
   const {
     detailedContextUsage: polledContextUsage,
     claudeRateLimits: polledClaudeRateLimits,
@@ -337,6 +356,7 @@ function ChatPanelContent({
     supportsContextUsage,
     isActive: activeTabId === chatId,
     isGenerating,
+    pushedRateLimits: livePushedClaudeRateLimits,
   });
   useEffect(() => {
     setStreaming(chatId, isGenerating);
@@ -490,11 +510,7 @@ function ChatPanelContent({
       (displayedContextUsage.usedTokens ?? 0) > 0 ||
       (displayedContextUsage.usage?.inputTokens ?? 0) > 0 ||
       (displayedContextUsage.usage?.outputTokens ?? 0) > 0);
-  // Quota comes from the account-level poll only. Assistant messages used to
-  // carry a snapshot in their metadata; old chats still have those rows, but
-  // they are frozen at the time of the turn (weeks stale, resets long past), so
-  // falling back to one made the badge jump backwards whenever the poll had no
-  // value yet. Better to show nothing than a number from another window.
+  // One source on screen: the poll's cache, which the push above is folded into.
   const displayedClaudeRateLimits = isClaudeCode ? polledClaudeRateLimits : null;
 
   const {

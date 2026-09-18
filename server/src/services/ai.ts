@@ -34,6 +34,7 @@ export {
   handleCCDynamicSet,
   getContextUsage,
   getClaudeUsageLimits,
+  getCodexUsageLimits,
   getChatGoal,
   clearChatGoal,
   setChatGoalStatus,

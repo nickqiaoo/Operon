@@ -5,7 +5,13 @@ import { useMemo, useState } from 'react';
 import { useIntl, type IntlShape } from 'react-intl';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { Button } from '@/components/ui/button';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import {
+  HOVER_CARD_CLOSE_DELAY_MS,
+  HOVER_CARD_OPEN_DELAY_MS,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card';
 import { Progress } from '@/components/ui/progress';
 import { nativeUsageTones, usageBarTone, usageTextTone } from './rate-limit-tone';
 import { cn } from '@/lib/utils';
@@ -64,6 +70,25 @@ const getSnapshotKey = (snapshot: RateLimitSnapshot): string =>
 const getSnapshotLabel = (snapshot: RateLimitSnapshot): string =>
   snapshot.limitName ?? snapshot.limitId ?? 'Default';
 
+/**
+ * A bucket with no window and no credits says nothing — codex reports the
+ * `premium` pool that way for accounts that have none, and rendering it just
+ * adds a name and a zero to the card.
+ */
+const hasCreditsToShow = (snapshot: RateLimitSnapshot): boolean =>
+  Boolean(snapshot.credits?.unlimited || snapshot.credits?.hasCredits);
+
+const isInformative = (snapshot: RateLimitSnapshot): boolean =>
+  Boolean(snapshot.primary || snapshot.secondary) || hasCreditsToShow(snapshot);
+
+/** Shortest window a bucket reports, used to float the plan quota to the top. */
+const shortestWindowMins = (snapshot: RateLimitSnapshot): number => {
+  const windows = [snapshot.primary, snapshot.secondary].flatMap((windowValue) =>
+    windowValue?.windowDurationMins ? [windowValue.windowDurationMins] : []
+  );
+  return windows.length > 0 ? Math.min(...windows) : Number.POSITIVE_INFINITY;
+};
+
 const collectSnapshots = (rateLimits?: CodexRateLimitsState): RateLimitSnapshot[] => {
   if (!rateLimits) return [];
 
@@ -77,21 +102,32 @@ const collectSnapshots = (rateLimits?: CodexRateLimitsState): RateLimitSnapshot[
     uniqueSnapshots.set(getSnapshotKey(snapshot), snapshot);
   }
 
-  return [...uniqueSnapshots.values()].sort((left, right) =>
-    getSnapshotLabel(left).localeCompare(getSnapshotLabel(right), 'en-US')
-  );
+  // Plan quota first (it owns the 5-hour window), then longer-window pools like
+  // the reserve, then anything that only carries credits.
+  return [...uniqueSnapshots.values()].filter(isInformative).sort((left, right) => {
+    const byWindow = shortestWindowMins(left) - shortestWindowMins(right);
+    if (byWindow !== 0 && Number.isFinite(byWindow)) return byWindow;
+    return getSnapshotLabel(left).localeCompare(getSnapshotLabel(right), 'en-US');
+  });
 };
 
+// The short window (Codex reports it as `primary`, currently 5 hours) drives the
+// trigger badge — it is the quota that actually gates the next few turns, and it
+// matches what the Claude badge beside it shows. Fall back to the most-consumed
+// window only when no snapshot reports a primary at all.
 const getTriggerUsedPercent = (snapshots: RateLimitSnapshot[]): number | null => {
-  const usedValues: number[] = [];
-  for (const snapshot of snapshots) {
-    for (const windowValue of [snapshot.primary, snapshot.secondary]) {
-      if (!windowValue) continue;
-      usedValues.push(normalizePercentValue(windowValue.usedPercent));
-    }
-  }
-  if (usedValues.length === 0) return null;
-  return Math.max(...usedValues);
+  const collect = (pick: (snapshot: RateLimitSnapshot) => RateLimitSnapshot['primary']): number[] =>
+    snapshots.flatMap((snapshot) => {
+      const windowValue = pick(snapshot);
+      return windowValue ? [normalizePercentValue(windowValue.usedPercent)] : [];
+    });
+
+  const primaryValues = collect((snapshot) => snapshot.primary);
+  if (primaryValues.length > 0) return Math.max(...primaryValues);
+
+  const secondaryValues = collect((snapshot) => snapshot.secondary);
+  if (secondaryValues.length === 0) return null;
+  return Math.max(...secondaryValues);
 };
 
 const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: IntlShape) => {
@@ -136,7 +172,7 @@ function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] 
                   </p>
                 ) : null}
               </div>
-              {snapshot.credits ? (
+              {snapshot.credits && hasCreditsToShow(snapshot) ? (
                 <div className="text-right text-[11px] text-muted-foreground">
                   <p>{snapshot.credits.unlimited
                     ? intl.formatMessage({ id: 'editor.codex.unlimitedCredits', defaultMessage: 'Unlimited credits' })
@@ -189,7 +225,10 @@ export function CodexRateLimitsButton({
   }
 
   return (
-    <HoverCard closeDelay={300} openDelay={0}>
+    <HoverCard
+      closeDelay={HOVER_CARD_CLOSE_DELAY_MS}
+      openDelay={HOVER_CARD_OPEN_DELAY_MS}
+    >
       <HoverCardTrigger asChild>
         <Button
           aria-label={intl.formatMessage({ id: 'editor.codex.aria', defaultMessage: 'Open account and rate limit details' })}
@@ -249,7 +288,7 @@ export function MobileCodexRateLimits({
         }];
       });
       const credits = snapshot.credits;
-      if (!credits) return windowSections;
+      if (!credits || !hasCreditsToShow(snapshot)) return windowSections;
       return [
         ...windowSections,
         {

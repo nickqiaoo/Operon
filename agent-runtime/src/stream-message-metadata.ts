@@ -6,6 +6,7 @@ import {
   getContextUsageFromProviderMetadata,
 } from './stream-utils.js'
 import type { CodexGoal } from './providers/codex/sdk/protocol/index.js'
+import type { RuntimeUsageLimits } from './types.js'
 
 export type StreamMessageMetadata = {
   usage?: LanguageModelUsage
@@ -13,6 +14,11 @@ export type StreamMessageMetadata = {
   detailedContextUsage?: Record<string, unknown>
   codexAccount?: Record<string, unknown>
   codexRateLimits?: Record<string, unknown>
+  /**
+   * Account quota pushed by Claude's `rate_limit_event`, forwarded live so the
+   * badge moves with the turn instead of waiting for the next poll.
+   */
+  claudeRateLimits?: RuntimeUsageLimits
   compacted?: Record<string, unknown>
   contextCompaction?: {
     id: string

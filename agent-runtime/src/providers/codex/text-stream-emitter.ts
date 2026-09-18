@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { buildStreamMessageMetadata, type StreamMessageMetadata } from '../../stream-message-metadata.js'
 import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
+import type {
+  AccountRateLimitCredits,
+  AccountRateLimitSnapshot,
+  AccountRateLimitWindow,
+} from './sdk/protocol/index.js'
 
 interface JsonRecord {
   [key: string]: JsonValue | undefined
@@ -40,26 +45,9 @@ export type CodexAccountInfo =
   | { type: 'apiKey' }
   | { type: 'chatgpt'; email: string; planType: string }
 
-export interface CodexRateLimitWindow {
-  usedPercent: number
-  windowDurationMins: number | null
-  resetsAt: number | null
-}
-
-export interface CodexCreditsSnapshot {
-  hasCredits: boolean
-  unlimited: boolean
-  balance: string | null
-}
-
-export interface CodexRateLimitSnapshot {
-  limitId: string | null
-  limitName: string | null
-  primary: CodexRateLimitWindow | null
-  secondary: CodexRateLimitWindow | null
-  credits: CodexCreditsSnapshot | null
-  planType: string | null
-}
+export type CodexRateLimitWindow = AccountRateLimitWindow
+export type CodexCreditsSnapshot = AccountRateLimitCredits
+export type CodexRateLimitSnapshot = AccountRateLimitSnapshot
 
 export interface TurnError {
   code?: string
@@ -242,6 +230,39 @@ export class CodexTextStreamEmitter {
       }
     }
     this.emitMessageMetadata()
+  }
+
+  /**
+   * Fill in buckets `account/rateLimits/updated` has not mentioned this turn.
+   *
+   * Codex only pushes the bucket a request was billed against, so once the
+   * plan's 5-hour window is spent and the reserve pool takes over, the plan
+   * quota — its weekly usage and, more importantly, when the 5-hour window
+   * comes back — would never reach the client. Seeding from
+   * `account/rateLimits/read` keeps it on screen.
+   *
+   * Pushed snapshots always win: the read is a snapshot from the start of the
+   * turn and may land after a live update, so anything already present is left
+   * alone.
+   */
+  seedRateLimits(
+    snapshot: CodexRateLimitSnapshot | null | undefined,
+    byLimitId: Record<string, CodexRateLimitSnapshot> | null | undefined,
+  ): void {
+    let changed = false
+
+    for (const [limitId, value] of Object.entries(byLimitId ?? {})) {
+      if (this.rateLimitsByLimitId?.[limitId]) continue
+      this.rateLimitsByLimitId = { ...(this.rateLimitsByLimitId ?? {}), [limitId]: value }
+      changed = true
+    }
+
+    if (this.rateLimits === undefined && snapshot) {
+      this.rateLimits = snapshot
+      changed = true
+    }
+
+    if (changed) this.emitMessageMetadata()
   }
 
   /**

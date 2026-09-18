@@ -555,6 +555,50 @@ export interface SkillListResult {
   data: { cwd: string; skills: SkillListItem[]; errors: unknown[] }[]
 }
 
+// ============ Account Rate Limits ============
+
+/**
+ * One quota window. Codex reports the short window (5 hours today) as `primary`
+ * and the long one (weekly) as `secondary` — except on limits that only have a
+ * single window, where that window is the `primary` whatever its duration.
+ */
+export interface AccountRateLimitWindow {
+  usedPercent: number
+  windowDurationMins: number | null
+  resetsAt: number | null
+}
+
+export interface AccountRateLimitCredits {
+  hasCredits: boolean
+  unlimited: boolean
+  balance: string | null
+}
+
+/** One limit bucket: the plan quota (`codex`), the reserve pool, credits, … */
+export interface AccountRateLimitSnapshot {
+  limitId: string | null
+  limitName: string | null
+  primary: AccountRateLimitWindow | null
+  secondary: AccountRateLimitWindow | null
+  credits: AccountRateLimitCredits | null
+  planType: string | null
+}
+
+/**
+ * Result of `account/rateLimits/read`.
+ *
+ * The push notification `account/rateLimits/updated` only carries whichever
+ * bucket the last request was billed against, so once the plan's 5-hour window
+ * is spent and codex falls back to the reserve pool, a turn can go by without
+ * ever mentioning the plan quota. This read returns every bucket at once, which
+ * is how the plan's 5-hour and weekly windows stay visible while the reserve is
+ * the one being consumed.
+ */
+export interface AccountRateLimitsReadResult {
+  rateLimits?: AccountRateLimitSnapshot | null
+  rateLimitsByLimitId?: Record<string, AccountRateLimitSnapshot> | null
+}
+
 // ============ Thread Goal ============
 
 /**

@@ -10,6 +10,7 @@ import { AnnotationEditorHost } from "@/components/browser/AnnotationEditorHost"
 
 import { LeftSidebar } from "@/components/app-shell/LeftSidebar"
 import { TopBarControls } from "@/components/app-shell/TopBarControls"
+import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
 import { ProjectSidebar } from "@/components/project/ProjectSidebar"
 import { EditorTabs } from "@/components/editor/EditorTabs"
@@ -438,7 +439,7 @@ export default function App() {
                     real children of a drag bar). When the right panel is open
                     the controls move into its tab strip (window top-right), so
                     we only render them here when it's closed. */}
-                <div className="drag-region h-10 flex items-center border-b border-border/60 bg-background shrink-0">
+                <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/60 bg-background shrink-0">
                   <div className={cn("flex flex-1 min-w-0 items-center gap-2 text-xs text-muted-foreground font-normal", sidebarCollapsed ? (__APP_TARGET__ === 'web' ? "px-4" : "pl-20 pr-4") : "px-4")}>
                     {sidebarCollapsed && (
                       <button
@@ -450,18 +451,27 @@ export default function App() {
                         <PanelLeft className="h-4 w-4" />
                       </button>
                     )}
-                    <span className="flex items-center gap-1 hover:text-tint transition-colors cursor-pointer no-drag">
+                    {/* Both names truncate: without it the workspace pill wraps
+                        onto a second line, outgrows the h-10 row and collides with
+                        whatever sits to its right. The project name gives way first
+                        — the workspace is the more specific half of the crumb. */}
+                    <span className="min-w-0 shrink truncate hover:text-tint transition-colors cursor-pointer no-drag">
                       {activeWorkspaceInfo ? activeWorkspaceInfo.project.name : "OPERON"}
                     </span>
                     {activeWorkspaceInfo && (
                       <>
-                        <span className="text-muted-foreground/40">›</span>
-                        <span className="flex items-center gap-1 hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs">
+                        <span className="shrink-0 text-muted-foreground/40">›</span>
+                        <span className="min-w-0 shrink-[0.5] truncate hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs">
                           {activeWorkspaceInfo.workspace.name}
                         </span>
                       </>
                     )}
                   </div>
+                  {/* Account quota for every signed-in provider. A real child
+                      of the drag row (not a floating overlay) so macOS honors
+                      its `no-drag`; it sits before the panel toggles because it
+                      is read, not operated. */}
+                  <AccountUsageBar className="shrink-0 pr-3" />
                   {/* When the right panel is closed this row is the window's
                       top-right, so the controls live here; when it's open they
                       move into the right panel's tab strip instead. */}

@@ -86,6 +86,20 @@ export function acquireAppServerClient(
   };
 }
 
+/**
+ * Any live connection, for account-scoped questions that belong to no thread.
+ *
+ * Rate limits are a property of the signed-in account, so any server can answer
+ * them — and reusing one costs nothing, where `acquire` with a different `env`
+ * would key to a second entry and spawn a second process for the same answer.
+ * Returns undefined when nothing is connected; the caller decides whether that
+ * is worth starting a server for.
+ */
+export function peekAnyAppServerClient(): AppServerClient | undefined {
+  for (const entry of connections.values()) return entry.client;
+  return undefined;
+}
+
 /** Test seam — drops every connection without waiting for its holders. */
 export function disposeAllAppServerClients(): void {
   for (const [key, entry] of connections) {

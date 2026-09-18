@@ -19,7 +19,7 @@ import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
 import { stopComputerUseEngine } from '../server/src/services/computer-use-lifecycle.js'
 import { isUserAtDesktop, setDesktopPresenceProbe } from '../server/src/services/desktop-presence.js'
-import { disposeClaudeUsageProbe } from '@operon/agent-runtime'
+import { disposeClaudeUsageProbe, disposeCodexUsageProbe } from '@operon/agent-runtime'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
 import { registerBrowserUseIpc, startIabBackend, stopIabBackend } from './browser-use-driver.js'
 import { runChromeNativeHost } from '../packages/browser-use/chrome-native-host-main.ts'
@@ -555,6 +555,9 @@ const cleanupAll = () => {
   void stopIabBackend()
   // The Claude quota probe holds an idle CLI process.
   void disposeClaudeUsageProbe()
+  // The Codex probe only holds a connection when no conversation had one open,
+  // but that connection owns an app-server process just the same.
+  disposeCodexUsageProbe()
   // Same shape as the IAB socket above: an OpenCode server that outlives the app
   // keeps answering on 4096, and its MCP endpoints point at this run's HTTP
   // port, which dies with us. The next launch would inherit dead endpoints.

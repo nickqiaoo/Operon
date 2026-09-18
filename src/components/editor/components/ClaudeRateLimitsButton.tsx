@@ -5,7 +5,13 @@ import { useMemo, useState } from 'react';
 import { useIntl, type IntlShape } from 'react-intl';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { Button } from '@/components/ui/button';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import {
+  HOVER_CARD_CLOSE_DELAY_MS,
+  HOVER_CARD_OPEN_DELAY_MS,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card';
 import { Progress } from '@/components/ui/progress';
 import { nativeUsageTones, usageBarTone, usageTextTone } from './rate-limit-tone';
 import { cn } from '@/lib/utils';
@@ -160,7 +166,10 @@ export function ClaudeRateLimitsButton({ rateLimits, className }: ClaudeRateLimi
   if (windows.length === 0) return null;
 
   return (
-    <HoverCard closeDelay={300} openDelay={0}>
+    <HoverCard
+      closeDelay={HOVER_CARD_CLOSE_DELAY_MS}
+      openDelay={HOVER_CARD_OPEN_DELAY_MS}
+    >
       <HoverCardTrigger asChild>
         <Button
           aria-label={intl.formatMessage({ id: 'editor.claude.aria', defaultMessage: 'Open subscription usage details' })}

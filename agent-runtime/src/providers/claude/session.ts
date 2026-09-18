@@ -6,6 +6,7 @@ import type {
   Query,
   McpServerStatus,
   SDKMessage,
+  SDKRateLimitEvent,
   SDKSystemMessage,
   SDKUserMessage,
   SlashCommand,
@@ -27,6 +28,7 @@ import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { buildClaudeRuntimeSettings } from './config.js'
 import { convertToClaudeMessages } from './message-mapper.js'
 import { ClaudeTextStreamBuilder } from './text-stream-builder.js'
+import { applyClaudeUsagePush, peekClaudeAccountUsage } from './usage-probe.js'
 import type { ClaudeRuntimeSettings, PendingApproval } from './types.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
@@ -312,9 +314,16 @@ export class ClaudeRuntimeSession implements RuntimeSession {
       for await (const message of this.activeQuery as AsyncIterable<SDKMessage>) {
         logProviderRaw('claude', message)
 
-        // Ignore partial push notifications. The account-level polling endpoint
-        // fetches the complete quota window snapshot out of band.
-        if (message.type === 'rate_limit_event') continue
+        // Quota moved. The event carries a full `unifiedWindows` snapshot (not
+        // just the window `rateLimitType` names), so it both updates the shared
+        // account snapshot the polling endpoint serves and goes straight to the
+        // client — a push lands the moment usage steps 1%, where the poll is a
+        // periodic sweep. Polling stays for what a push cannot see: spend by
+        // other clients, and windows resetting while this app sends nothing.
+        if (message.type === 'rate_limit_event') {
+          this.handleRateLimitEvent(message)
+          continue
+        }
 
         const turn = this.turn
         if (!turn) {
@@ -377,6 +386,19 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     } finally {
       this.messageLoopDead = true
     }
+  }
+
+  /**
+   * Record pushed quota and, when a turn is streaming, hand it to the client.
+   *
+   * The snapshot update is unconditional because quota is account-scoped — it
+   * is worth keeping even when this event arrives between turns and there is no
+   * stream to put it on.
+   */
+  private handleRateLimitEvent(message: SDKRateLimitEvent): void {
+    if (!applyClaudeUsagePush(message.rate_limit_info)) return
+    const usage = peekClaudeAccountUsage()
+    if (usage) this.turn?.builder.emitRateLimits(usage)
   }
 
   private handleSystemInit(message: SDKSystemMessage, builder?: ClaudeTextStreamBuilder): void {

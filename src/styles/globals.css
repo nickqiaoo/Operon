@@ -88,6 +88,12 @@
 
   --color-accent-warm: #E5845C;
   --color-accent-green: #3DB87A;
+  /* Third step of the same family, for meters that run out: quota bars, and
+     anything else where "spent" is a reading rather than an error. Not
+     --color-destructive, which is a brick red mixed to carry white text on a
+     button — as a 4px bar it reads as a fault light, and beside accent-warm /
+     accent-green it is visibly from another set. These three are one ramp. */
+  --color-accent-red: #D1453C;
 
   /* Status colours at *label* contrast — for text, thin borders and tinted
      backgrounds on badges, stat tiles and the approve/deny button pair.
@@ -219,6 +225,7 @@
 
   --color-accent-warm: #F09570;
   --color-accent-green: #4FCC8E;
+  --color-accent-red: #E5534B;
   --color-status-ok: #6ee7b7;
   --color-status-warn: #fcd34d;
   --color-status-error: #fca5a5;

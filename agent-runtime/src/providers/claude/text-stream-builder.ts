@@ -7,7 +7,7 @@ import type {
   SDKSystemMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
-import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
+import type { RuntimeStreamPart, RuntimeTextStreamPart, RuntimeUsageLimits } from '../../types.js'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type { ToolStreamState } from './types.js'
 import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
@@ -299,6 +299,18 @@ export class ClaudeTextStreamBuilder {
     }
     this.enqueue({ type: 'reasoning-end', id })
     this.reasoningPartId = undefined
+  }
+
+  /**
+   * Forward pushed account quota to the client on its own, outside the usual
+   * end-of-message metadata: the push arrives mid-turn and its whole value is
+   * being immediate.
+   */
+  emitRateLimits(rateLimits: RuntimeUsageLimits): void {
+    this.emitRuntimePart({
+      type: 'message-metadata',
+      metadata: { claudeRateLimits: rateLimits },
+    })
   }
 
   private emitMessageMetadata(providerMetadata: unknown, usage: LanguageModelUsage | undefined): void {

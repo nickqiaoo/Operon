@@ -15,7 +15,7 @@ import type {
 import type { CanvasWorkflow, CanvasWorkflowListItem, CanvasWorkflowRun, CreateCanvasWorkflowInput, UpdateCanvasWorkflowInput } from '@/types/canvas-workflow'
 import type { UIMessage } from 'ai'
 import type { DetailedContextUsage } from '@/types/context-usage'
-import type { ClaudeRateLimits } from '@/components/editor/utils/chatMetadata'
+import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
 import type { CodexGoal } from '@/types/goal'
 import type { ExtensionMarketplaceDTO, OperonExtensionDTO } from '@/types/extension'
 import type { PeersConfig, PeersRosterDTO } from '@/types/peers'
@@ -513,8 +513,16 @@ export const api = {
     }>(`/ai/turn-file-diffs/${chatId}?cwd=${encodeURIComponent(cwd)}${messageUid ? `&messageUid=${encodeURIComponent(messageUid)}` : ''}`),
   aiGetContextUsage: (chatId: number) =>
     softGet<{ success: boolean; data?: DetailedContextUsage; error?: string }>(`/ai/context-usage/${chatId}`),
-  aiGetClaudeUsage: () =>
-    softGet<{ success: boolean; data?: ClaudeRateLimits; error?: string }>('/ai/claude-usage'),
+  // `force` skips the caches between the route and the provider — the Refresh
+  // button, never the polls, which want the cheap cached answer.
+  aiGetClaudeUsage: (force = false) =>
+    softGet<{ success: boolean; data?: ClaudeRateLimits; error?: string }>(
+      `/ai/claude-usage${force ? '?force=1' : ''}`,
+    ),
+  aiGetCodexUsage: (force = false) =>
+    softGet<{ success: boolean; data?: CodexRateLimits; error?: string }>(
+      `/ai/codex-usage${force ? '?force=1' : ''}`,
+    ),
   aiGetGoal: (chatId: number) =>
     softGet<{ success: boolean; goal?: CodexGoal | null; error?: string }>(`/ai/goal/${chatId}`),
   aiClearGoal: (chatId: number) =>

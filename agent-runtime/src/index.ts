@@ -14,8 +14,14 @@ export { buildStreamMessageMetadata, type StreamMessageMetadata } from './stream
 export { getSessionIdFromProviderMetadata } from './stream-utils.js'
 export {
   getClaudeAccountUsage,
+  peekClaudeAccountUsage,
   disposeClaudeUsageProbe,
 } from './providers/claude/usage-probe.js'
+export {
+  getCodexAccountUsage,
+  disposeCodexUsageProbe,
+} from './providers/codex/usage-probe.js'
+export type { AccountRateLimitsReadResult } from './providers/codex/sdk/protocol/index.js'
 
 import { SessionManager } from './session-manager.js'
 import { setRuntimeHost, type RuntimeHost } from './host.js'

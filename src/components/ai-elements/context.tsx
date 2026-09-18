@@ -2,6 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import {
+  HOVER_CARD_CLOSE_DELAY_MS,
+  HOVER_CARD_OPEN_DELAY_MS,
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
@@ -59,7 +61,11 @@ export const Context = ({
       detailedContextUsage,
     }}
   >
-    <HoverCard closeDelay={300} openDelay={0} {...props} />
+    <HoverCard
+      closeDelay={HOVER_CARD_CLOSE_DELAY_MS}
+      openDelay={HOVER_CARD_OPEN_DELAY_MS}
+      {...props}
+    />
   </ContextContext.Provider>
 );
 
