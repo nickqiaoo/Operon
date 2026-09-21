@@ -1,7 +1,6 @@
 /**
- * Shared coloring for the Claude / Codex rate-limit popovers and their composer
- * trigger, so the bar and the percentage never disagree about how close a
- * window is to its limit.
+ * Shared coloring for quota bars and composer badges. Detail labels stay
+ * neutral; the bar already indicates how close the window is to its limit.
  */
 export type UsageLevel = 'ok' | 'warn' | 'critical'
 
@@ -34,24 +33,25 @@ export const usageBarTone = (used: number): string => {
 }
 
 /**
- * Text for a percentage label. Stays quiet (`fallback`) until the window is
- * nearly spent, so the composer trigger doesn't turn orange at 60%.
+ * Text for a composer badge. Stays quiet (`fallback`) until the window is
+ * nearly spent. Mix in a little neutral text color to soften red on thin
+ * digits and icons; solid progress bars keep the full accent color.
  */
 export const usageTextTone = (used: number, fallback = 'text-muted-foreground'): string =>
-  usageLevel(used) === 'critical' ? 'text-status-error' : fallback
+  usageLevel(used) === 'critical'
+    ? 'text-[color:color-mix(in_srgb,var(--color-accent-red)_80%,var(--color-muted-foreground))]'
+    : fallback
 
 /**
- * The same levels for the packaged apps' native info sheet. `tone` colors the
- * percentage (quiet until critical, like the web label); `barTone` colors the
- * bar through all three levels. App builds that predate `barTone` ignore it and
- * fall back to coloring the bar from `tone`.
+ * Native detail labels stay neutral, like the web popover; only the bar
+ * changes color with the usage level.
  */
 export const nativeUsageTones = (
   used: number,
-): { tone: 'normal' | 'error'; barTone: 'ok' | 'warn' | 'error' } => {
+): { tone: 'normal'; barTone: 'ok' | 'warn' | 'error' } => {
   const level = usageLevel(used)
   return {
-    tone: level === 'critical' ? 'error' : 'normal',
+    tone: 'normal',
     barTone: level === 'critical' ? 'error' : level,
   }
 }

@@ -111,23 +111,14 @@ const collectSnapshots = (rateLimits?: CodexRateLimitsState): RateLimitSnapshot[
   });
 };
 
-// The short window (Codex reports it as `primary`, currently 5 hours) drives the
-// trigger badge — it is the quota that actually gates the next few turns, and it
-// matches what the Claude badge beside it shows. Fall back to the most-consumed
-// window only when no snapshot reports a primary at all.
+// Keep the badge on the plan's 5-hour window. Other pools also report a
+// `primary`, so taking the highest primary can show reserve usage instead.
 const getTriggerUsedPercent = (snapshots: RateLimitSnapshot[]): number | null => {
-  const collect = (pick: (snapshot: RateLimitSnapshot) => RateLimitSnapshot['primary']): number[] =>
-    snapshots.flatMap((snapshot) => {
-      const windowValue = pick(snapshot);
-      return windowValue ? [normalizePercentValue(windowValue.usedPercent)] : [];
-    });
-
-  const primaryValues = collect((snapshot) => snapshot.primary);
-  if (primaryValues.length > 0) return Math.max(...primaryValues);
-
-  const secondaryValues = collect((snapshot) => snapshot.secondary);
-  if (secondaryValues.length === 0) return null;
-  return Math.max(...secondaryValues);
+  const plan = snapshots.find((snapshot) => snapshot.limitId === 'codex');
+  const windowValue = (plan ? [plan] : snapshots)
+    .flatMap((snapshot) => [snapshot.primary, snapshot.secondary])
+    .find((window) => window?.windowDurationMins === 300);
+  return windowValue ? normalizePercentValue(windowValue.usedPercent) : null;
 };
 
 const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: IntlShape) => {
@@ -141,7 +132,7 @@ const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: Intl
         <span className="text-muted-foreground">
           {formatWindowLabel(windowValue.windowDurationMins, intl)}
         </span>
-        <span className={cn('font-mono', usageTextTone(usedPercent, 'text-foreground'))}>
+        <span className="font-mono text-foreground">
           {intl.formatMessage({ id: 'editor.codex.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(usedPercent) })}
         </span>
       </div>
