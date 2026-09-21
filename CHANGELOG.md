@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.3.39] - 2026-09-21
+
+### Changed
+
+- The Codex quota badge follows your plan's 5-hour window instead of whichever pool has been used the most.
+- Usage percentages are grey again — only the bars change colour as a window fills up.
+- The queued-message list is tighter and no longer highlights a row when you pass over it.
+
 ## [1.3.38] - 2026-09-19
 
 ### Changed
