@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.3.40] - 2026-09-24
+
+### Fixed
+
+- GitHub CLI installations added to PATH during app startup are now detected correctly, including Homebrew installs when Operon is opened from Finder.
+
 ## [1.3.39] - 2026-09-21
 
 ### Changed

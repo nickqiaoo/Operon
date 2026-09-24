@@ -6,15 +6,13 @@ const run = promisify(execFile)
 const GH_TIMEOUT_MS = 60_000
 const STATUS_CACHE_MS = 30_000
 
-/**
- * gh inherits the enriched PATH that electron/main.ts builds from the login
- * shell, so a Homebrew install is reachable. These two vars only quiet it down:
- * no update banner, no interactive prompting when something is missing.
- */
-const GH_ENV = {
-  ...process.env,
-  GH_NO_UPDATE_NOTIFIER: '1',
-  GH_PROMPT_DISABLED: '1',
+/** Read PATH after Electron has enriched it from the login shell. */
+function ghEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GH_NO_UPDATE_NOTIFIER: '1',
+    GH_PROMPT_DISABLED: '1',
+  }
 }
 
 export interface GhStatus {
@@ -37,7 +35,7 @@ export async function getGhStatus(): Promise<GhStatus> {
 
   let value: GhStatus
   try {
-    await run('gh', ['auth', 'token'], { env: GH_ENV, timeout: GH_TIMEOUT_MS })
+    await run('gh', ['auth', 'token'], { env: ghEnv(), timeout: GH_TIMEOUT_MS })
     value = { isInstalled: true, isAuthenticated: true }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
@@ -106,7 +104,7 @@ export async function ghPrCreate(cwd: string, options: GhPrCreateOptions): Promi
   if (options.draft) args.push('--draft')
 
   try {
-    const { stdout } = await run('gh', args, { cwd, env: GH_ENV, timeout: GH_TIMEOUT_MS })
+    const { stdout } = await run('gh', args, { cwd, env: ghEnv(), timeout: GH_TIMEOUT_MS })
     const url = parsePrUrl(stdout)
     if (!url) throw new Error(`gh did not return a pull request URL: ${stdout.trim()}`)
     return { number: parsePrNumber(url), url, title: options.title }
@@ -142,7 +140,7 @@ export async function ghPrForBranch(cwd: string, branch: string): Promise<Existi
         '--json',
         'number,url,title,isDraft',
       ],
-      { cwd, env: GH_ENV, timeout: GH_TIMEOUT_MS },
+      { cwd, env: ghEnv(), timeout: GH_TIMEOUT_MS },
     )
     const parsed: unknown = JSON.parse(stdout || '[]')
     if (!Array.isArray(parsed) || parsed.length === 0) return null
