@@ -32,7 +32,7 @@ import { SkyComputerUseError, SkyComputerUseTransportError } from "../wire.ts";
 
 /** A cua-driver tool result, the payload of a successful `call`. */
 export interface CuaToolResult {
-  content?: Array<{ type: string; text?: string }>;
+  content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
   isError?: boolean;
   structuredContent?: Record<string, unknown>;
 }

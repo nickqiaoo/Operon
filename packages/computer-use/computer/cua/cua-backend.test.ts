@@ -204,7 +204,10 @@ describe("CuaDriverBackend.renderTreeNotes", () => {
 
 /** Backend wired to a scripted daemon, so policy and mapping can be tested
  *  without a desktop. */
-function backendWith(script: (name: string, args: Record<string, unknown>) => unknown) {
+function backendWith(
+  script: (name: string, args: Record<string, unknown>) => unknown,
+  image?: { data: string; mimeType: string },
+) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const peer = fakeSocket();
   const backend = new CuaDriverBackend({
@@ -222,7 +225,13 @@ function backendWith(script: (name: string, args: Record<string, unknown>) => un
         return;
       }
       calls.push({ name: request.name, args: request.args });
-      peer.reply({ ok: true, result: { structuredContent: script(request.name, request.args) } });
+      peer.reply({
+        ok: true,
+        result: {
+          structuredContent: script(request.name, request.args),
+          ...(request.name === "get_window_state" && image ? { content: [{ type: "image", ...image }] } : {}),
+        },
+      });
     });
   };
   return { backend, calls };
@@ -491,6 +500,7 @@ describe("CuaDriverBackend action mapping", () => {
 
   it("reads the screenshot path from whichever key the driver used", async () => {
     for (const structured of [
+      { screenshot_file_path: "/tmp/a.png" },
       { screenshot_path: "/tmp/a.png" },
       { screenshot_file: "/tmp/a.png" },
       { screenshot: { path: "/tmp/a.png" } },
@@ -504,6 +514,21 @@ describe("CuaDriverBackend action mapping", () => {
       const state = await backend.getAppState({ app: "Calculator" });
       expect(state.skyshot?.screenshot?.url).toBe("file:///tmp/a.png");
     }
+  });
+
+  it("reads the driver's default inline screenshot image", async () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const { backend, calls } = backendWith(
+      (name) => {
+        if (name === "list_apps") return APPS;
+        if (name === "list_windows") return WINDOWS;
+        return { elements: [], screenshot_width: 1, screenshot_height: 1 };
+      },
+      { data: png, mimeType: "image/png" },
+    );
+    const state = await backend.getAppState({ app: "Calculator" });
+    expect(state.skyshot?.screenshot?.url).toBe(`data:image/png;base64,${png}`);
+    expect(calls.find((call) => call.name === "get_window_state")?.args).toMatchObject({ include_screenshot: true });
   });
 
   it("builds app state from the structured elements, not their markdown", async () => {

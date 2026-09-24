@@ -245,10 +245,10 @@ const IDLE_MS = 30 * 60 * 1000
  * daemons fighting over it. The kernel only needs the path to point at a live
  * socket, and one daemon is enough to serve every session.
  *
- * Constructed lazily but not started — constructing is free, so the shared
- * kernel can always be told where the daemon *would* be even while Computer Use
- * is off, and a `computer.*` call then fails to connect with a clear error
- * instead of the kernel refusing to fork.
+ * Constructed lazily. The Electron dev host starts it when Computer Use is
+ * enabled; packaged builds retain their on-demand startup. Constructing is
+ * free, so the shared kernel can still be told where the daemon would be while
+ * Computer Use is off.
  */
 let cuaDriverService: CuaDriverService | null = null
 
@@ -273,12 +273,11 @@ function cuaDriverServiceInstance(): CuaDriverService {
  * Start the daemon if the toggle says so, and return the socket the kernel
  * should use. Null when Computer Use is off or the daemon failed to start.
  *
- * A failure to start is deliberately not thrown: the cua-driver binary is a
- * release artifact a development checkout may not have fetched. Letting Browser
- * Use keep working, and giving the model a clear error only when it actually
- * calls `computer.*`, beats failing to build node_repl at all.
+ * A failure to start is deliberately not thrown, so Browser Use can keep
+ * working. Development startup fetches the binary before launching the app;
+ * this fallback still covers a damaged or missing binary at runtime.
  */
-async function ensureComputerUseService(): Promise<string | null> {
+export async function ensureComputerUseService(): Promise<string | null> {
   if (!getComputerUseConfig().enabled) return null
   const service = cuaDriverServiceInstance()
   try {

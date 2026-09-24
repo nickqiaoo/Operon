@@ -118,8 +118,8 @@ npm test               # unit tests
 npm run build:mac      # signed .dmg (needs Apple credentials in .env)
 ```
 
-Two native pieces are fetched or built separately and are optional in
-development:
+The Computer Use engine is fetched automatically by `npm run dev` when missing.
+You can also fetch it explicitly; native addons are built separately:
 
 ```bash
 npm run fetch:cua-driver     # the Computer Use engine (upstream release binary)

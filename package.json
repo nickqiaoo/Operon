@@ -1,6 +1,6 @@
 {
   "name": "operon",
-  "version": "1.3.40",
+  "version": "1.3.41",
   "author": "nickqiao",
   "description": "AI Vibe Coding Tool",
   "main": "dist-electron/main.js",
@@ -37,6 +37,7 @@
     "rebuild:native": "node scripts/rebuild-native.mjs",
     "rebuild:native:node": "npm rebuild better-sqlite3",
     "dev": "npm run dev:app",
+    "predev:app": "npm run fetch:cua-driver",
     "dev:app": "vite",
     "dev:profile": "VITE_REACT_DEVTOOLS=1 REACT_FAST_REFRESH=false concurrently -n app,devtools -c green,blue \"npm run dev\" \"npm run dev:react-devtools\"",
     "dev:react-devtools": "react-devtools --port 8097",

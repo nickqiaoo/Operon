@@ -18,6 +18,7 @@ import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tra
 import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js'
 import { SqliteVecStore } from '../server/src/services/vector/sqlite-vec-store.js'
 import { stopComputerUseEngine } from '../server/src/services/computer-use-lifecycle.js'
+import { ensureComputerUseService } from '../server/src/routes/node-repl-mcp.js'
 import { isUserAtDesktop, setDesktopPresenceProbe } from '../server/src/services/desktop-presence.js'
 import { disposeClaudeUsageProbe, disposeCodexUsageProbe } from '@operon/agent-runtime'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
@@ -813,6 +814,9 @@ app.whenReady().then(async () => {
   if (IS_CHROME_NATIVE_HOST) return
   // Start Hono HTTP server
   serverPort = await startHonoServer()
+  // `npm run dev` prepares the driver before Vite starts. Start it only in the
+  // Vite desktop run; packaged builds keep their existing on-demand lifecycle.
+  if (!app.isPackaged && isDev) void ensureComputerUseService()
 
   // Hold phone pushes while the user is at this computer: keyboard/mouse input
   // within the last two minutes and the screen unlocked. Window focus is not

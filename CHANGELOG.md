@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.3.41] - 2026-09-24
+
+### Fixed
+
+- Computer Use screenshots from cua-driver now appear in app state results.
+
+### Changed
+
+- Development startup fetches the verified cua-driver binary when needed and starts it when Computer Use is enabled. Packaged app startup is unchanged.
+
 ## [1.3.40] - 2026-09-24
 
 ### Fixed

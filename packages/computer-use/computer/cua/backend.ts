@@ -39,7 +39,7 @@ import type {
   WindowFrame,
 } from "../backend.ts";
 import { SkyComputerUseError, SkyComputerUseTransportError, type NativePipeConnection } from "../wire.ts";
-import { CuaDaemonTransport } from "./daemon.ts";
+import { CuaDaemonTransport, type CuaToolResult } from "./daemon.ts";
 
 /**
  * Apps Computer Use refuses to drive, copied from the Swift engine's
@@ -561,7 +561,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
     const notes = CuaDriverBackend.renderTreeNotes(structured, request.query != null);
     const tree = CuaDriverBackend.renderTree(elements);
     const text = notes === "" ? tree : `${notes}\n${tree}`;
-    const screenshot = screenshotUrl(structured);
+    const screenshot = screenshotUrl(result);
     return {
       app: { bundleIdentifier: resolved.bundleId, pid: resolved.pid },
       skyshot: { text, screenshot },
@@ -833,7 +833,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
       },
       options,
     );
-    return { screenshot: screenshotUrl(result.structuredContent ?? {}) };
+    return { screenshot: screenshotUrl(result) };
   }
 
   async killApp(args: { app: AppIdentifier }, options?: RequestOptions): Promise<void> {
@@ -874,7 +874,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
       // `unknown` is the honest default: absence of evidence is never success.
       status: typeof structured.status === "string" ? structured.status : "unknown",
       results: Array.isArray(structured.results) ? structured.results : undefined,
-      screenshot: screenshotUrl(structured),
+      screenshot: screenshotUrl(result),
     };
   }
 
@@ -892,9 +892,10 @@ export class CuaDriverBackend implements ComputerUseBackend {
   async getDesktopState(
     options?: RequestOptions,
   ): Promise<{ screenshot: { url?: string | null; mimeType?: string | null } | null; width?: number; height?: number }> {
-    const structured = (await this.call("get_desktop_state", {}, options)).structuredContent ?? {};
+    const result = await this.call("get_desktop_state", {}, options);
+    const structured = result.structuredContent ?? {};
     return {
-      screenshot: screenshotUrl(structured),
+      screenshot: screenshotUrl(result),
       width: typeof structured.width === "number" ? structured.width : undefined,
       height: typeof structured.height === "number" ? structured.height : undefined,
     };
@@ -952,12 +953,14 @@ function numberOr(value: unknown, fallback: number): number {
 }
 
 /**
- * cua-driver writes the capture to a file and names it in the structured reply.
- * The exact key is not pinned by the contract, so accept the shapes it is known
- * to use and fall back to nothing rather than inventing a path.
+ * cua-driver normally returns an inline image content block. A caller can also
+ * request file output, in which case the path is in structuredContent. The
+ * client materializes inline data URLs to short file URLs before returning to
+ * the model.
  */
-function screenshotUrl(structured: Record<string, unknown>): { url: string } | null {
-  for (const key of ["screenshot_path", "screenshot_file", "screenshot_out_file", "image_path"]) {
+function screenshotUrl(result: CuaToolResult): { url: string } | null {
+  const structured = result.structuredContent ?? {};
+  for (const key of ["screenshot_file_path", "screenshot_path", "screenshot_file", "screenshot_out_file", "image_path"]) {
     const value = structured[key];
     if (typeof value === "string" && value !== "") {
       return { url: value.startsWith("file:") ? value : `file://${value}` };
@@ -969,6 +972,10 @@ function screenshotUrl(structured: Record<string, unknown>): { url: string } | n
     if (typeof path === "string" && path !== "") {
       return { url: path.startsWith("file:") ? path : `file://${path}` };
     }
+  }
+  const image = result.content?.find((item) => item.type === "image" && typeof item.data === "string" && item.data !== "");
+  if (image?.data) {
+    return { url: `data:${image.mimeType ?? "image/png"};base64,${image.data}` };
   }
   return null;
 }
