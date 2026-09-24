@@ -1,23 +1,22 @@
-import { Children, isValidElement, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { IntlProvider } from 'react-intl';
 import type { UIMessage } from 'ai';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MessageResponse } from '@/components/ai-elements/message';
 import { MessagePartRenderer } from './MessagePartRenderer';
 
 const codeBlock = '```text\nAgentService → IConfigService\n```';
 
-function findMessageResponse(node: ReactNode): React.ReactElement | null {
-  if (!isValidElement(node)) return null;
-  if (node.type === MessageResponse) return node;
-
-  const props = node.props as { children?: ReactNode };
-  for (const child of Children.toArray(props.children)) {
-    const response = findMessageResponse(child);
-    if (response) return response;
-  }
-
-  return null;
-}
+vi.mock('streamdown', async () => {
+  const actual = await vi.importActual<typeof import('streamdown')>('streamdown');
+  return {
+    ...actual,
+    Streamdown: ({ children, mode }: { children?: ReactNode; mode?: 'static' | 'streaming' }) => (
+      <div data-mode={mode}>{children}</div>
+    ),
+  };
+});
 
 function renderAssistantText(isStreamingMessage: boolean) {
   const message: UIMessage = {
@@ -26,21 +25,25 @@ function renderAssistantText(isStreamingMessage: boolean) {
     parts: [{ type: 'text', text: codeBlock }],
   };
 
-  return MessagePartRenderer({
-    message,
-    part: message.parts[0],
-    partIndex: 0,
-    isStreamingMessage,
-    onPermissionDecide: async () => true,
-    onCopy: () => undefined,
-    onSendTo: () => undefined,
-    availableModels: [],
-    getMessageText: () => codeBlock,
-    firstAttachmentIndex: -1,
-    attachmentParts: [],
-    lastTextPartIndex: 0,
-    SendToButton: () => <></>,
-  });
+  return renderToStaticMarkup(
+    <IntlProvider locale="en">
+      <MessagePartRenderer
+        message={message}
+        part={message.parts[0]}
+        partIndex={0}
+        isStreamingMessage={isStreamingMessage}
+        onPermissionDecide={async () => true}
+        onCopy={() => undefined}
+        onSendTo={() => undefined}
+        availableModels={[]}
+        getMessageText={() => codeBlock}
+        firstAttachmentIndex={-1}
+        attachmentParts={[]}
+        lastTextPartIndex={0}
+        SendToButton={() => <></>}
+      />
+    </IntlProvider>,
+  );
 }
 
 describe('assistant message response mode', () => {
@@ -50,13 +53,10 @@ describe('assistant message response mode', () => {
   ] as const)(
     'uses $expectedMode mode when isStreamingMessage is $isStreaming',
     ({ isStreaming, expectedMode }) => {
-      const response = findMessageResponse(renderAssistantText(isStreaming));
+      const html = renderAssistantText(isStreaming);
 
-      expect(response).not.toBeNull();
-      expect(response?.props).toMatchObject({
-        children: codeBlock,
-        mode: expectedMode,
-      });
+      expect(html).toContain(`data-mode="${expectedMode}"`);
+      expect(html).toContain(codeBlock);
     },
   );
 
