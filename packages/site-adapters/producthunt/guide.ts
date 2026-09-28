@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Product Hunt guide
 
 ## Which function for which task

@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Bilibili guide
 
 ## Which function for which task

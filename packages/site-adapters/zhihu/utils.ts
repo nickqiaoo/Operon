@@ -55,10 +55,10 @@ export async function zhihuFetchJson(page: AdapterPage, url: string): Promise<un
         const r = await fetch(${JSON.stringify(url)}, { credentials: 'include' });
         if (!r.ok) return { __httpError: r.status };
         return await r.json();
- } catch (err) {
+      } catch (err) {
         return { __fetchError: err?.message || String(err) };
- }
- })()
+      }
+    })()
   `)
 }
 

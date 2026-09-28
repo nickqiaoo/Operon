@@ -203,7 +203,7 @@ export const read = defineCommand({
         title: a.is_accepted ? "accepted" : "",
       })
     }
-    return (rows) as StackoverflowReadRow[]
+    return rows as StackoverflowReadRow[]
   },
 })
 

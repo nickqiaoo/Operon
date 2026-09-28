@@ -35,7 +35,7 @@ export const posts = defineCommand({
     const count = Math.min(Number(args.limit) || 20, 50)
     const category = String(args.category ?? "").trim() || undefined
     const postsList = await fetchFeed(category)
-    return (postsList.slice(0, count)) as PostRow[]
+    return postsList.slice(0, count) as PostRow[]
   },
 })
 
@@ -73,6 +73,6 @@ export const hot = defineCommand({
   args: [{ name: "limit", type: "int", default: 20 }],
   func: async (_page, args): Promise<PostRow[]> => {
     const count = Math.min(Number(args.limit) || 20, 50)
-    return ((await fetchFeed()).slice(0, count)) as PostRow[]
+    return (await fetchFeed()).slice(0, count) as PostRow[]
   },
 })

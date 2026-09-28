@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Hacker News guide
 
 ## Which function for which task

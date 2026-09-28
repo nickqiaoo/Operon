@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Wikipedia guide
 
 ## Which function for which task

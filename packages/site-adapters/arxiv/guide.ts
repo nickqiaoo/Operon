@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# arXiv guide
 
 ## Which function for which task

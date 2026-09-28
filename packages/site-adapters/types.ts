@@ -1,5 +1,3 @@
-
-
 /**
  * Minimal duck types for the browser client + command definitions.
  * Keep this loose: adapters only need tabs + evaluate, not the full surface.

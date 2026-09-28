@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Reddit guide
 
 ## Which function for which task

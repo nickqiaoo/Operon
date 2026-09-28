@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# YouTube guide
 
 ## Which function for which task

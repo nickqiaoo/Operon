@@ -50,7 +50,7 @@ export const search = defineCommand({
   access: "read",
   browser: false,
   args: [
-    { name: "query", required: true, },
+    { name: "query", required: true },
     { name: "limit", type: "int", default: 10 },
     { name: "lang", default: "en", help: "Language code (en, zh, ja…)" },
   ],
@@ -80,7 +80,7 @@ export const summary = defineCommand({
   access: "read",
   browser: false,
   args: [
-    { name: "title", required: true, },
+    { name: "title", required: true },
     { name: "lang", default: "en" },
   ],
   func: async (_page, args): Promise<WikipediaSummaryRow> => {
@@ -100,7 +100,7 @@ export const page = defineCommand({
   access: "read",
   browser: false,
   args: [
-    { name: "title", required: true, },
+    { name: "title", required: true },
     { name: "lang", default: "en" },
     { name: "paragraphs", type: "int", default: 0, help: "Cap paragraphs (0 = full)" },
   ],

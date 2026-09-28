@@ -137,7 +137,7 @@ export async function graphqlGet(
       'X-Twitter-Auth-Type': 'OAuth2Session',
       'X-Twitter-Active-User': 'yes',
       'Content-Type': 'application/json',
- };
+    };
     const variables = ${JSON.stringify(opts.variables)};
     const features = ${JSON.stringify(opts.features)};
     const fieldToggles = ${JSON.stringify(opts.fieldToggles ?? {})};
@@ -148,13 +148,13 @@ export async function graphqlGet(
       + '&features=' + encodeURIComponent(JSON.stringify(features));
     if (Object.keys(fieldToggles).length) {
       url += '&fieldToggles=' + encodeURIComponent(JSON.stringify(fieldToggles));
- }
+    }
     const resp = await fetch(url, { method: 'GET', headers, credentials: 'include' });
     if (!resp.ok) {
       return { __httpError: resp.status };
- }
+    }
     return await resp.json();
- }`)
+  }`)
 }
 
 export function extractTweet(result: unknown, seen: Set<string>): TweetRow | null {

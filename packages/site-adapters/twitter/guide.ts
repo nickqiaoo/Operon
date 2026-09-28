@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Twitter / X guide
 
 ## Which function for which task

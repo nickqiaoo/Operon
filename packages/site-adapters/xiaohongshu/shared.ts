@@ -2,7 +2,6 @@
  * Small helpers shared by the Xiaohongshu commands (OpenCLI clis/xiaohongshu).
  */
 
-
 export const XHS_WEB_HOST = "www.xiaohongshu.com"
 
 export type Row = Record<string, unknown>

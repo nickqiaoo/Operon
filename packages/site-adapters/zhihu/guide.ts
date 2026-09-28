@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Zhihu guide
 
 ## Which function for which task

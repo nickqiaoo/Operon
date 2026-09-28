@@ -58,7 +58,7 @@ export const search = defineCommand({
   access: "read",
   browser: true,
   args: [
-    { name: "query", required: true, },
+    { name: "query", required: true },
     { name: "limit", type: "int", default: 20 },
     { name: "type", default: "", help: "shorts | video | channel | playlist" },
     { name: "upload", default: "", help: "hour | today | week | month | year" },
@@ -116,8 +116,8 @@ export const search = defineCommand({
                 duration: v.lengthText?.simpleText || 'LIVE',
                 published: v.publishedTimeText?.simpleText || '',
                 url: 'https://www.youtube.com/watch?v=' + v.videoId
- });
- } else if (item.reelItemRenderer) {
+              });
+            } else if (item.reelItemRenderer) {
               const r = item.reelItemRenderer;
               videos.push({
                 rank: videos.length + 1,
@@ -127,20 +127,20 @@ export const search = defineCommand({
                 duration: 'SHORT',
                 published: r.publishedTimeText?.simpleText || '',
                 url: 'https://www.youtube.com/shorts/' + r.videoId
- });
- }
- }
- }
+              });
+            }
+          }
+        }
         return videos;
- })()
+      })()
     `)
     if (!Array.isArray(data)) {
       if (data && typeof data === "object" && "error" in data) {
         throw new CommandExecutionError(`youtube.search: ${(data as { error: string }).error}`)
       }
-      return ([]) as YoutubeSearchRow[]
+      return []
     }
-    return (data) as YoutubeSearchRow[]
+    return data as YoutubeSearchRow[]
   },
 })
 
@@ -176,8 +176,8 @@ export const feed = defineCommand({
             for (const ov of (lvm.contentImage?.thumbnailViewModel?.overlays || [])) {
               for (const b of (ov.thumbnailBottomOverlayViewModel?.badges || [])) {
                 if (b.thumbnailBadgeViewModel?.text) duration = b.thumbnailBadgeViewModel.text;
- }
- }
+              }
+            }
             videos.push({
               rank: videos.length + 1,
               title: meta?.title?.content || '',
@@ -187,9 +187,9 @@ export const feed = defineCommand({
               duration,
               published: parts[2] || '',
               url: 'https://www.youtube.com/watch?v=' + lvm.contentId,
- });
+            });
             continue;
- }
+          }
           const v = item.richItemRenderer?.content?.videoRenderer || item.videoRenderer;
           if (v?.videoId) {
             videos.push({
@@ -201,19 +201,19 @@ export const feed = defineCommand({
               duration: v.lengthText?.simpleText || '',
               published: v.publishedTimeText?.simpleText || '',
               url: 'https://www.youtube.com/watch?v=' + v.videoId,
- });
- }
- }
+            });
+          }
+        }
         return videos;
- })()
+      })()
     `)
     if (!Array.isArray(data)) {
       if (data && typeof data === "object" && "error" in data) {
         throw new CommandExecutionError(`youtube.feed: ${(data as { error: string }).error}`)
       }
-      return ([]) as YoutubeFeedRow[]
+      return []
     }
-    return (data) as YoutubeFeedRow[]
+    return data as YoutubeFeedRow[]
   },
 })
 
@@ -247,9 +247,9 @@ export const video = defineCommand({
                 ?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel
                 ?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
               if (toggle?.title) { likes = toggle.title; break; }
- }
- }
- } catch {}
+            }
+          }
+        } catch {}
         return {
           title: details.title || '',
           channel: details.author || '',
@@ -258,14 +258,14 @@ export const video = defineCommand({
           published: micro.publishDate || micro.uploadDate || '',
           description: (details.shortDescription || '').slice(0, 500),
           url: 'https://www.youtube.com/watch?v=' + (details.videoId || ${JSON.stringify(videoId)}),
- };
- })()
+        };
+      })()
     `)
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       throw new CommandExecutionError("youtube.video: failed to parse metadata")
     }
     if ("error" in data) throw new CommandExecutionError(`youtube.video: ${(data as { error: string }).error}`)
-    return (data) as YoutubeVideoRow
+    return data as YoutubeVideoRow
   },
 })
 
@@ -277,7 +277,7 @@ export const comments = defineCommand({
   access: "read",
   browser: true,
   args: [
-    { name: "url", required: true, },
+    { name: "url", required: true },
     { name: "limit", type: "int", default: 20 },
   ],
   func: async (rawPage, kwargs): Promise<YoutubeCommentsRow[]> => {
@@ -300,19 +300,19 @@ export const comments = defineCommand({
             text: n.querySelector('#content-text')?.innerText?.trim() || '',
             likes: n.querySelector('#vote-count-middle')?.innerText?.trim() || '0',
             time: n.querySelector('.published-time-text')?.innerText?.trim() || '',
- }));
- };
+          }));
+        };
         // The read-only browser guard permits GET/HEAD only. Read the comments
         // the page has rendered instead of issuing a blocked Innertube POST.
         return readRenderedComments();
- })()
+      })()
     `)
     if (!Array.isArray(data)) {
       if (data && typeof data === "object" && "error" in data) {
         throw new CommandExecutionError(`youtube.comments: ${(data as { error: string }).error}`)
       }
-      return ([]) as YoutubeCommentsRow[]
+      return []
     }
-    return (data) as YoutubeCommentsRow[]
+    return data as YoutubeCommentsRow[]
   },
 })

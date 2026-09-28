@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# V2EX guide
 
 ## Which function for which task

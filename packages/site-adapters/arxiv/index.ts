@@ -49,7 +49,7 @@ export const search = defineCommand({
   access: "read",
   browser: false,
   args: [
-    { name: "query", required: true, },
+    { name: "query", required: true },
     { name: "limit", type: "int", default: 10, help: "Max 25" },
   ],
   func: async (_page, args): Promise<ArxivSearchRow[]> => {
@@ -83,7 +83,7 @@ export const paper = defineCommand({
     const xml = await arxivFetch(`id_list=${encodeURIComponent(String(args.id))}`)
     const entries = parseEntries(xml)
     if (!entries.length) throw new EmptyResultError("arxiv", `arxiv.paper: ${args.id} not found`)
-    return (entries[0]) as PaperRow
+    return entries[0] as PaperRow
   },
 })
 
@@ -126,7 +126,7 @@ export const author = defineCommand({
   access: "read",
   browser: false,
   args: [
-    { name: "author", required: true, },
+    { name: "author", required: true },
     { name: "limit", type: "int", default: 20, help: "Max 50" },
   ],
   func: async (_page, args): Promise<ArxivAuthorRow[]> => {

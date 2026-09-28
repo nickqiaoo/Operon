@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# GitHub guide
 
 ## Which function for which task

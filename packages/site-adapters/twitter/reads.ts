@@ -117,7 +117,7 @@ export const profile = defineCommand({
       const href = await page.evaluate(`(() => {
         const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
         return link ? link.getAttribute('href') : null;
- })()`)
+      })()`)
       username = normalizeScreenName(href)
       if (!username) throw new AuthRequiredError("x.com", "twitter.profile: could not detect logged-in user")
     }
@@ -210,7 +210,7 @@ export const timeline = defineCommand({
       if (!nextCursor || nextCursor === cursor) break
       cursor = nextCursor
     }
-    return (all.slice(0, limit)) as TweetRow[]
+    return all.slice(0, limit)
   },
 })
 
@@ -284,7 +284,7 @@ export const tweets = defineCommand({
       if (!nextCursor || nextCursor === cursor) break
       cursor = nextCursor
     }
-    return (all.slice(0, limit)) as TweetRow[]
+    return all.slice(0, limit)
   },
 })
 
@@ -353,7 +353,7 @@ export const search = defineCommand({
       if (!nextCursor || nextCursor === cursor) break
       cursor = nextCursor
     }
-    return (all.slice(0, limit)) as TweetRow[]
+    return all.slice(0, limit)
   },
 })
 
@@ -409,15 +409,15 @@ export const thread = defineCommand({
           likes: 0,
           retweets: 0,
           url: author ? 'https://x.com/' + author + '/status/' + id : 'https://x.com/i/status/' + id,
- });
- }
+        });
+      }
       return items;
- })()`)) as TwitterThreadRow[]
+    })()`)) as TwitterThreadRow[]
     if (!Array.isArray(rows) || rows.length === 0) {
       // still return focal id shell
-      return ([{ id: statusId, author: "", text: "", likes: 0, retweets: 0, url: `https://x.com/i/status/${statusId}` }]) as TwitterThreadRow[]
+      return [{ id: statusId, author: "", text: "", likes: 0, retweets: 0, url: `https://x.com/i/status/${statusId}` }] as TwitterThreadRow[]
     }
-    return (rows.slice(0, limit)) as TwitterThreadRow[]
+    return rows.slice(0, limit) as TwitterThreadRow[]
   },
 })
 

@@ -418,16 +418,16 @@ export const whoami = defineCommand({
         const res = await fetch('/api/me.json?raw_json=1', { credentials: 'include' });
         if (res.status === 401 || res.status === 403) {
           return { kind: 'auth', detail: 'Reddit /api/me.json returned HTTP ' + res.status };
- }
+        }
         if (!res.ok) return { kind: 'http', httpStatus: res.status };
         const d = await res.json();
         const me = d?.data;
         if (!me?.name) return { kind: 'auth', detail: 'Not logged in to reddit.com' };
         return { kind: 'ok', identity: me };
- } catch (e) {
+      } catch (e) {
         return { kind: 'exception', detail: String(e && e.message || e) };
- }
- })()`)) as {
+      }
+    })()`)) as {
       kind: string
       detail?: string
       httpStatus?: number
@@ -514,10 +514,10 @@ export const subredditInfo = defineCommand({
         const info = j?.data;
         if (!info || !info.display_name) return { kind: 'missing' };
         return { kind: 'ok', info };
- } catch (e) {
+      } catch (e) {
         return { kind: 'exception', detail: String(e && e.message || e) };
- }
- })()`)) as { kind: string; info?: Record<string, unknown>; httpStatus?: number; detail?: string }
+      }
+    })()`)) as { kind: string; info?: Record<string, unknown>; httpStatus?: number; detail?: string }
     if (result.kind !== "ok" || !result.info) {
       throw new CommandExecutionError(`reddit.subredditInfo: subreddit unavailable (${JSON.stringify(result)})`)
     }
@@ -548,7 +548,7 @@ async function userListing(
       const limit = ${limit};
       const res = await fetch('/user/' + username + '/${path}.json?limit=' + limit + '&raw_json=1', {
         credentials: 'include'
- });
+      });
       const d = await res.json();
       return (d?.data?.children || []).map(c => ({
         title: c.data.title || c.data.body?.slice(0, 100) || '',
@@ -557,10 +557,10 @@ async function userListing(
         comments: c.data.num_comments || 0,
         url: 'https://www.reddit.com' + (c.data.permalink || ''),
   }));
- } catch (e) {
+    } catch (e) {
       return { error: String(e) };
- }
- })()`)) as RedditSavedRow[] | { error: string }
+    }
+  })()`)) as RedditSavedRow[] | { error: string }
   if (result && !Array.isArray(result) && "error" in result) {
     if (/not logged in/i.test(result.error)) throw new AuthRequiredError("www.reddit.com")
     throw new CommandExecutionError(`reddit.${path}: ${result.error}`)
@@ -634,20 +634,20 @@ export const subscribed = defineCommand({
               subscribers: data.subscribers ?? null,
               description: (data.public_description || '').slice(0, 200),
               url: path ? 'https://www.reddit.com' + path : '',
- });
- }
+            });
+          }
           after = d?.data?.after;
           if (!after) break;
- }
+        }
         return out;
- } catch (e) {
+      } catch (e) {
         return { error: String(e) };
- }
- })()`)) as RedditSubscribedRow[] | { error: string }
+      }
+    })()`)) as RedditSubscribedRow[] | { error: string }
     if (result && !Array.isArray(result) && "error" in result) {
       if (/not logged in/i.test(result.error)) throw new AuthRequiredError("www.reddit.com")
       throw new CommandExecutionError(`reddit.subscribed: ${result.error}`)
     }
-    return (result) as RedditSubscribedRow[]
+    return result as RedditSubscribedRow[]
   },
 })

@@ -27,7 +27,7 @@ export const trending = defineCommand({
     await page.wait(3)
     const loggedIn = await page.evaluate(`(() => {
       return document.cookie.split(';').some((c) => c.trim().startsWith('ct0='));
- })()`)
+    })()`)
     if (!loggedIn) {
       throw new AuthRequiredError("x.com", "twitter.trending: not logged into x.com (no ct0 cookie). Sign in in Chrome first.")
     }
@@ -47,12 +47,12 @@ export const trending = defineCommand({
         const catText = divs[0].textContent.trim();
         const category = catText.replace(/^\\d+\\s*/, '').replace(/^\\xB7\\s*/, '').trim();
         items.push({ rank: items.length + 1, topic, category });
- });
+      });
       return items;
- })()`)
+    })()`)
     if (!Array.isArray(trends) || trends.length === 0) {
       throw new EmptyResultError("twitter", "twitter.trending: no trends found (page structure may have changed, or still loading)")
     }
-    return ((trends as TwitterTrendingRow[]).slice(0, limit)) as TwitterTrendingRow[]
+    return (trends as TwitterTrendingRow[]).slice(0, limit)
   },
 })

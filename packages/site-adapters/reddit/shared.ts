@@ -1,5 +1,3 @@
-
-
 /** Shared JS snippets inlined into Reddit page.evaluate sources. */
 
 export const REDDIT_MEDIA_HELPERS = `
@@ -12,7 +10,7 @@ export const REDDIT_MEDIA_HELPERS = `
       .replace(/&quot;/g, '"')
       .replace(/&#x27;/gi, "'")
       .replace(/&#39;/g, "'");
- }
+  }
   function extractRedditMedia(d) {
     const post_hint = d?.post_hint || '';
     const url_overridden_by_dest = d?.url_overridden_by_dest || '';
@@ -25,10 +23,10 @@ export const REDDIT_MEDIA_HELPERS = `
         const m = it && meta[it.media_id];
         const u = m?.s?.u;
         if (u) gallery_urls.push(decodeHtml(u));
- }
- }
+      }
+    }
     return { post_hint, url_overridden_by_dest, preview_image_url, gallery_urls };
- }
+  }
 `
 
 export interface PostRow {

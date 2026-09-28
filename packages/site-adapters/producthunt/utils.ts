@@ -1,5 +1,3 @@
-
-
 export interface PostRow {
   rank: number
   name: string

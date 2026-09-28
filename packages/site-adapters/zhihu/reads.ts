@@ -116,7 +116,6 @@ export interface ZhihuAnswerCommentsRow {
  * Zhihu read surface — OpenCLI clis/zhihu/* (cookie + api/v4).
  */
 
-
 export const user = defineCommand({
   site: "zhihu",
   name: "user",

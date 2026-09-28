@@ -494,7 +494,7 @@ export const feed = defineCommand({
       offset = String(data.offset ?? items[items.length - 1]?.id_str ?? "")
       if (!offset || !data.has_more) break
     }
-    return (rows) as BilibiliFeedRow[]
+    return rows
   },
 })
 

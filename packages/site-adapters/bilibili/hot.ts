@@ -32,12 +32,12 @@ export const hot = defineCommand({
     const payload = await page.evaluate(`(async () => {
   const res = await fetch('https://api.bilibili.com/x/web-interface/popular?ps=${args.limit}&pn=1', {
     credentials: 'include'
- });
+  });
   if (!res.ok) throw new Error('bilibili popular HTTP ' + res.status);
   const data = await res.json();
   if (data && data.code != null && data.code !== 0) {
     throw new Error('bilibili popular code ' + data.code + ': ' + (data.message || ''));
- }
+  }
   return (data?.data?.list || []).map((item) => ({
     title: item.title,
     author: item.owner?.name,
@@ -45,7 +45,7 @@ export const hot = defineCommand({
     danmaku: item.stat?.danmaku,
     bvid: item.bvid,
     url: item.bvid ? 'https://www.bilibili.com/video/' + item.bvid : '',
- }));
+  }));
 })()`)
     const items = requireRows(payload, "bilibili.hot").map((item, index) => {
       return {

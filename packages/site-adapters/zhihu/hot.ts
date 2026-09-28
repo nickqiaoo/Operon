@@ -24,7 +24,7 @@ export const hot = defineCommand({
     const payload = await page.evaluate(`(async () => {
   const res = await fetch('https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=50', {
     credentials: 'include'
- });
+  });
   const text = await res.text();
   const d = JSON.parse(
     text.replace(/("id"\\s*:\\s*)(\\d{16,})/g, '$1"$2"')
@@ -38,8 +38,8 @@ export const hot = defineCommand({
       answer_count: t.answer_count,
       follower_count: t.follower_count,
       heat: item.detail_text || '',
- };
- });
+    };
+  });
 })()`)
     const items = requireRows(payload, "zhihu.hot").map((item, index) => {
       return {

@@ -33,7 +33,7 @@ export async function fetchJson(page: AdapterPage, url: string): Promise<unknown
     async () => {
       const res = await fetch(${urlJs}, { credentials: "include" });
       return await res.json();
- }
+    }
   `)
 }
 
@@ -42,7 +42,7 @@ async function getNavData(page: AdapterPage): Promise<unknown> {
     async () => {
       const res = await fetch('https://api.bilibili.com/x/web-interface/nav', { credentials: 'include' });
       return await res.json();
- }
+    }
   `)
 }
 

@@ -242,7 +242,7 @@ export const thread = defineCommand({
       }
     }
     walk(data.thread, 0)
-    return (rows) as BlueskyThreadRow[]
+    return rows as BlueskyThreadRow[]
   },
 })
 

@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Stack Overflow guide
 
 ## Which function for which task

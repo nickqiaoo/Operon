@@ -1,5 +1,3 @@
-
-
 export const GUIDE = `# Bluesky guide
 
 ## Which function for which task
