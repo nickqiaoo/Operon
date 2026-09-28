@@ -1,8 +1,7 @@
-/**
- * Twitter/X read commands — GraphQL + cookie session.
- */
-
 import { defineCommand } from "../define.ts"
+import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from "../errors.ts"
+import { requirePage } from "../runtime/values.ts"
+import type { TweetRow } from "./graphql.ts"
 import {
   extractTweet,
   getCt0,
@@ -11,6 +10,33 @@ import {
   resolveQueryId,
   walkTimelineInstructions,
 } from "./graphql.ts"
+
+export type { TweetRow } from "./graphql.ts"
+
+export interface TwitterProfileRow {
+  screen_name: unknown
+  name: unknown
+  bio: unknown
+  location: unknown
+  followers: unknown
+  following: unknown
+  tweets: unknown
+  verified: boolean
+  url: string
+}
+
+export interface TwitterThreadRow {
+  id: string
+  author: string
+  text: string
+  likes: number
+  retweets: number
+  url: string
+}
+
+/**
+ * Twitter/X read commands — GraphQL + cookie session.
+ */
 
 const USER_BY_SCREEN_NAME_QUERY_ID = "IGgvgiOx4QZndDHuD3x9TQ"
 const USER_TWEETS_QUERY_ID = "lrMzG9qPQHpqJdP3AbM-bQ"
@@ -73,28 +99,16 @@ export const profile = defineCommand({
   description: "Fetch a Twitter/X user profile",
   domain: "x.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
     {
       name: "username",
-      positional: true,
+
       help: "Screen name (with or without @). Defaults to logged-in user when omitted.",
     },
   ],
-  columns: [
-    "screen_name",
-    "name",
-    "bio",
-    "location",
-    "followers",
-    "following",
-    "tweets",
-    "verified",
-    "url",
-  ],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("twitter: browser required")
+  func: async (rawPage, kwargs): Promise<TwitterProfileRow> => {
+    const page = requirePage(rawPage, "twitter.profile")
     let username = normalizeScreenName(kwargs.username)
     if (!username) {
       await page.goto("https://x.com/home")
@@ -103,9 +117,9 @@ export const profile = defineCommand({
       const href = await page.evaluate(`(() => {
         const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
         return link ? link.getAttribute('href') : null;
-      })()`)
+ })()`)
       username = normalizeScreenName(href)
-      if (!username) throw new Error("twitter.profile: could not detect logged-in user")
+      if (!username) throw new AuthRequiredError("x.com", "twitter.profile: could not detect logged-in user")
     }
     await page.goto(`https://x.com/${username}`)
     await page.wait(2)
@@ -116,12 +130,12 @@ export const profile = defineCommand({
       variables: { screen_name: username, withSafetyModeUserFields: true },
       features: PROFILE_FEATURES,
     })) as Record<string, unknown>
-    if (raw.__httpError) throw new Error(`twitter.profile: HTTP ${raw.__httpError}`)
+    if (raw.__httpError) throw new CommandExecutionError(`twitter.profile: HTTP ${raw.__httpError}`)
     const data = raw.data as Record<string, unknown> | undefined
     const user = (data?.user as Record<string, unknown> | undefined)?.result as
       | Record<string, unknown>
       | undefined
-    if (!user) throw new Error(`twitter.profile: user @${username} not found`)
+    if (!user) throw new EmptyResultError("twitter", `twitter.profile: user @${username} not found`)
     const legacy = (user.legacy as Record<string, unknown> | undefined) || {}
     const core = (user.core as Record<string, unknown> | undefined) || {}
     return {
@@ -144,7 +158,6 @@ export const timeline = defineCommand({
   description: "Home timeline (for-you or following)",
   domain: "x.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
     {
@@ -155,9 +168,8 @@ export const timeline = defineCommand({
     },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["id", "author", "text", "likes", "retweets", "replies", "views", "created_at", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("twitter: browser required")
+  func: async (rawPage, kwargs): Promise<TweetRow[]> => {
+    const page = requirePage(rawPage, "twitter.timeline")
     const limit = Number(kwargs.limit) || 20
     const type = kwargs.type === "following" ? "following" : "for-you"
     await page.goto("https://x.com/home")
@@ -166,7 +178,7 @@ export const timeline = defineCommand({
     const endpoint = type === "following" ? "HomeLatestTimeline" : "HomeTimeline"
     const fallback = type === "following" ? HOME_LATEST_TIMELINE_QUERY_ID : HOME_TIMELINE_QUERY_ID
     const queryId = await resolveQueryId(endpoint, fallback)
-    const all: Array<Record<string, unknown>> = []
+    const all: TweetRow[] = []
     const seen = new Set<string>()
     let cursor: string | null = null
     for (let i = 0; i < 5 && all.length < limit; i++) {
@@ -186,7 +198,7 @@ export const timeline = defineCommand({
         features: TIMELINE_FEATURES,
       })) as Record<string, unknown>
       if (raw.__httpError) {
-        if (all.length === 0) throw new Error(`twitter.timeline: HTTP ${raw.__httpError}`)
+        if (all.length === 0) throw new CommandExecutionError(`twitter.timeline: HTTP ${raw.__httpError}`)
         break
       }
       const data = raw.data as Record<string, unknown> | undefined
@@ -198,7 +210,7 @@ export const timeline = defineCommand({
       if (!nextCursor || nextCursor === cursor) break
       cursor = nextCursor
     }
-    return all.slice(0, limit)
+    return (all.slice(0, limit)) as TweetRow[]
   },
 })
 
@@ -208,17 +220,15 @@ export const tweets = defineCommand({
   description: "Fetch recent tweets from a user",
   domain: "x.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "username", required: true, positional: true, help: "Screen name" },
+    { name: "username", required: true, help: "Screen name" },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["id", "author", "text", "likes", "retweets", "replies", "views", "created_at", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("twitter: browser required")
+  func: async (rawPage, kwargs): Promise<TweetRow[]> => {
+    const page = requirePage(rawPage, "twitter.tweets")
     const username = normalizeScreenName(kwargs.username)
-    if (!username) throw new Error("twitter.tweets: invalid username")
+    if (!username) throw new ArgumentError("twitter.tweets: invalid username")
     const limit = Number(kwargs.limit) || 20
     await page.goto(`https://x.com/${username}`)
     await page.wait(2)
@@ -230,15 +240,15 @@ export const tweets = defineCommand({
       variables: { screen_name: username, withSafetyModeUserFields: true },
       features: PROFILE_FEATURES,
     })) as Record<string, unknown>
-    if (profileRaw.__httpError) throw new Error(`twitter.tweets: profile HTTP ${profileRaw.__httpError}`)
+    if (profileRaw.__httpError) throw new CommandExecutionError(`twitter.tweets: profile HTTP ${profileRaw.__httpError}`)
     const userResult = ((profileRaw.data as Record<string, unknown> | undefined)?.user as
       | Record<string, unknown>
       | undefined)?.result as Record<string, unknown> | undefined
     const userId = String(userResult?.rest_id || "")
-    if (!userId) throw new Error(`twitter.tweets: user @${username} not found`)
+    if (!userId) throw new EmptyResultError("twitter", `twitter.tweets: user @${username} not found`)
 
     const tweetsQid = await resolveQueryId("UserTweets", USER_TWEETS_QUERY_ID)
-    const all: Array<Record<string, unknown>> = []
+    const all: TweetRow[] = []
     const seen = new Set<string>()
     let cursor: string | null = null
     for (let i = 0; i < 5 && all.length < limit; i++) {
@@ -258,7 +268,7 @@ export const tweets = defineCommand({
         features: TIMELINE_FEATURES,
       })) as Record<string, unknown>
       if (raw.__httpError) {
-        if (all.length === 0) throw new Error(`twitter.tweets: HTTP ${raw.__httpError}`)
+        if (all.length === 0) throw new CommandExecutionError(`twitter.tweets: HTTP ${raw.__httpError}`)
         break
       }
       const timeline = (((((raw.data as Record<string, unknown> | undefined)?.user as
@@ -274,7 +284,7 @@ export const tweets = defineCommand({
       if (!nextCursor || nextCursor === cursor) break
       cursor = nextCursor
     }
-    return all.slice(0, limit)
+    return (all.slice(0, limit)) as TweetRow[]
   },
 })
 
@@ -284,10 +294,9 @@ export const search = defineCommand({
   description: "Search Twitter/X posts",
   domain: "x.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "query", required: true, positional: true, help: "Search query" },
+    { name: "query", required: true, help: "Search query" },
     { name: "limit", type: "int", default: 20 },
     {
       name: "product",
@@ -296,18 +305,17 @@ export const search = defineCommand({
       help: "Latest or Top results",
     },
   ],
-  columns: ["id", "author", "text", "likes", "retweets", "replies", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("twitter: browser required")
+  func: async (rawPage, kwargs): Promise<TweetRow[]> => {
+    const page = requirePage(rawPage, "twitter.search")
     const query = String(kwargs.query ?? "").trim()
-    if (!query) throw new Error("twitter.search: query required")
+    if (!query) throw new ArgumentError("twitter.search: query required")
     const limit = Number(kwargs.limit) || 20
     const product = kwargs.product === "Top" ? "Top" : "Latest"
     await page.goto(`https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query&f=${product === "Top" ? "top" : "live"}`)
     await page.wait(2)
     await getCt0(page)
     const queryId = await resolveQueryId("SearchTimeline", SEARCH_TIMELINE_QUERY_ID)
-    const all: Array<Record<string, unknown>> = []
+    const all: TweetRow[] = []
     const seen = new Set<string>()
     let cursor: string | null = null
     for (let i = 0; i < 5 && all.length < limit; i++) {
@@ -325,7 +333,7 @@ export const search = defineCommand({
         features: TIMELINE_FEATURES,
       })) as Record<string, unknown>
       if (raw.__httpError) {
-        if (all.length === 0) throw new Error(`twitter.search: HTTP ${raw.__httpError}`)
+        if (all.length === 0) throw new CommandExecutionError(`twitter.search: HTTP ${raw.__httpError}`)
         break
       }
       const instructions =
@@ -345,7 +353,7 @@ export const search = defineCommand({
       if (!nextCursor || nextCursor === cursor) break
       cursor = nextCursor
     }
-    return all.slice(0, limit)
+    return (all.slice(0, limit)) as TweetRow[]
   },
 })
 
@@ -355,15 +363,13 @@ export const thread = defineCommand({
   description: "Fetch a tweet thread by status URL or id",
   domain: "x.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "url", required: true, positional: true, help: "Tweet URL or numeric status id" },
+    { name: "url", required: true, help: "Tweet URL or numeric status id" },
     { name: "limit", type: "int", default: 30 },
   ],
-  columns: ["id", "author", "text", "likes", "retweets", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("twitter: browser required")
+  func: async (rawPage, kwargs): Promise<TwitterThreadRow[]> => {
+    const page = requirePage(rawPage, "twitter.thread")
     const raw = String(kwargs.url ?? "").trim()
     let statusId = ""
     if (/^\d+$/.test(raw)) statusId = raw
@@ -376,7 +382,7 @@ export const thread = defineCommand({
         // ignore
       }
     }
-    if (!statusId) throw new Error("twitter.thread: need status URL or id")
+    if (!statusId) throw new ArgumentError("twitter.thread: need status URL or id")
     const limit = Number(kwargs.limit) || 30
     await page.goto(`https://x.com/i/status/${statusId}`)
     await page.wait(3)
@@ -403,15 +409,15 @@ export const thread = defineCommand({
           likes: 0,
           retweets: 0,
           url: author ? 'https://x.com/' + author + '/status/' + id : 'https://x.com/i/status/' + id,
-        });
-      }
+ });
+ }
       return items;
-    })()`)) as Array<Record<string, unknown>>
+ })()`)) as TwitterThreadRow[]
     if (!Array.isArray(rows) || rows.length === 0) {
       // still return focal id shell
-      return [{ id: statusId, author: "", text: "", likes: 0, retweets: 0, url: `https://x.com/i/status/${statusId}` }]
+      return ([{ id: statusId, author: "", text: "", likes: 0, retweets: 0, url: `https://x.com/i/status/${statusId}` }]) as TwitterThreadRow[]
     }
-    return rows.slice(0, limit)
+    return (rows.slice(0, limit)) as TwitterThreadRow[]
   },
 })
 

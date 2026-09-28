@@ -1,9 +1,22 @@
+import { AuthRequiredError } from "../errors.ts"
+import type { AdapterPage } from "../types.ts"
+
+export interface TweetRow {
+  id: string
+  author: string
+  text: unknown
+  likes: unknown
+  retweets: unknown
+  replies: unknown
+  views: number
+  created_at: unknown
+  url: string
+}
+
 /**
  * Minimal Twitter/X GraphQL helpers for read adapters.
  * Uses page cookies (ct0) + public web bearer token (same as X web client).
  */
-
-import type { AdapterPage } from "../types.ts"
 
 /** Public read-only bearer used by X web GraphQL (OpenCLI-centralized value). */
 export const TWITTER_BEARER_TOKEN =
@@ -29,7 +42,7 @@ export const CT0_COOKIE_SOURCE = `(() => {
 export async function getCt0(page: AdapterPage): Promise<string> {
   const ct0 = await page.evaluate(CT0_COOKIE_SOURCE)
   if (typeof ct0 !== "string" || !ct0) {
-    throw new Error("twitter: not logged into x.com (no ct0 cookie). Sign in in Chrome first.")
+    throw new AuthRequiredError("x.com", "twitter: not logged into x.com (no ct0 cookie). Sign in in Chrome first.")
   }
   return ct0
 }
@@ -124,7 +137,7 @@ export async function graphqlGet(
       'X-Twitter-Auth-Type': 'OAuth2Session',
       'X-Twitter-Active-User': 'yes',
       'Content-Type': 'application/json',
-    };
+ };
     const variables = ${JSON.stringify(opts.variables)};
     const features = ${JSON.stringify(opts.features)};
     const fieldToggles = ${JSON.stringify(opts.fieldToggles ?? {})};
@@ -135,16 +148,16 @@ export async function graphqlGet(
       + '&features=' + encodeURIComponent(JSON.stringify(features));
     if (Object.keys(fieldToggles).length) {
       url += '&fieldToggles=' + encodeURIComponent(JSON.stringify(fieldToggles));
-    }
+ }
     const resp = await fetch(url, { method: 'GET', headers, credentials: 'include' });
     if (!resp.ok) {
       return { __httpError: resp.status };
-    }
+ }
     return await resp.json();
-  }`)
+ }`)
 }
 
-export function extractTweet(result: unknown, seen: Set<string>): Record<string, unknown> | null {
+export function extractTweet(result: unknown, seen: Set<string>): TweetRow | null {
   if (!result || typeof result !== "object") return null
   const r = result as Record<string, unknown>
   const tw = (r.tweet as Record<string, unknown> | undefined) || r
@@ -177,8 +190,8 @@ export function extractTweet(result: unknown, seen: Set<string>): Record<string,
 export function walkTimelineInstructions(
   instructions: unknown[],
   seen: Set<string>,
-): { tweets: Array<Record<string, unknown>>; nextCursor: string | null } {
-  const tweets: Array<Record<string, unknown>> = []
+): { tweets: TweetRow[]; nextCursor: string | null } {
+  const tweets: TweetRow[] = []
   let nextCursor: string | null = null
   for (const inst of instructions) {
     if (!inst || typeof inst !== "object") continue
