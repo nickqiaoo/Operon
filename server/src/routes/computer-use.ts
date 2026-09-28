@@ -1,21 +1,33 @@
 /**
- * Computer Use settings: a single master switch.
+ * Computer Use settings: the master switch, macOS grants, and app approvals.
  *
- * This is shorter than browser-use.ts because Browser Use keeps its own record
- * of approvals (TOML under `~/.operon/browser/`, written by the browser client),
- * so that route also manages origin approvals and full CDP. Computer Use decides
- * per-app approval through `computer.get_app_policy` and a node_repl
- * elicitation, answered by the user in the conversation and never written to a
- * store we can read or edit. There is nothing to manage, only the switch.
+ * App approvals are decided in the conversation (a node_repl elicitation the
+ * host approval broker answers) and remembered in `computer-use-config`: apps
+ * and cross-app capabilities approved with "Always allow", plus apps the user
+ * blocked here. This route lets Settings show and edit that record. The
+ * protected list is built into the engine and only shown, never edited.
  */
 
 import { Hono } from 'hono'
 import { createRuntimeLogger } from '@operon/agent-runtime'
-import { getComputerUseConfig, updateComputerUseConfig } from '../services/computer-use-config.js'
+import { COMPUTER_USE_PROTECTED_BUNDLE_IDS } from '@operon/computer-use'
+import {
+  COMPUTER_USE_CAPABILITIES,
+  getComputerUseConfig,
+  isComputerUseCapability,
+  setComputerUseAppRule,
+  setComputerUseCapabilityApproved,
+  updateComputerUseConfig,
+} from '../services/computer-use-config.js'
 import { syncComputerUseSkill } from '../services/computer-use-skill.js'
+import {
+  clearSessionComputerUseApprovals,
+  countSessionComputerUseApprovals,
+} from '../services/ai/host-approval-broker.js'
 import {
   disposeAllNodeReplSessions,
   getComputerUsePermissions,
+  listComputerUseApps,
   openComputerUsePermissionSettings,
 } from './node-repl-mcp.js'
 
@@ -29,9 +41,10 @@ export function computerUseRoutes() {
   })
 
   /**
-   * macOS permission state. This has to be asked of the engine process: TCC
-   * grants against that binary, not against Electron, so a preflight run by the
-   * host answers for a different identity than the one that actually captures.
+   * macOS permission state, as the engine process sees it. The embedded daemon
+   * runs on the app's grants, but it caches them per process, so its answer is
+   * the one that says whether capture works right now (a stale one is fixed by
+   * a restart in getComputerUsePermissions).
    *
    * It exists because of a real failure: once Screen Recording was revoked,
    * model screenshots vanished silently, with nowhere in the app to see why.
@@ -59,6 +72,61 @@ export function computerUseRoutes() {
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
     }
+  })
+
+  /**
+   * Everything that decides which apps an agent may operate without asking.
+   * Names come from the engine's app listing when it is running; a bundle id it
+   * does not know (uninstalled since) is shown as is.
+   */
+  router.get('/approvals', async (c) => {
+    const config = getComputerUseConfig()
+    const installed = config.enabled ? await listComputerUseApps() : []
+    const names = new Map(installed.map((app) => [app.bundleId.toLowerCase(), app.name]))
+    const describe = (bundleId: string) => ({ bundleId, name: names.get(bundleId.toLowerCase()) ?? null })
+    return c.json({
+      approvedApps: config.approvedApps.map(describe),
+      blockedApps: config.blockedApps.map(describe),
+      protectedApps: [...COMPUTER_USE_PROTECTED_BUNDLE_IDS].sort().map(describe),
+      capabilities: COMPUTER_USE_CAPABILITIES.map((id) => ({
+        id,
+        approved: config.approvedCapabilities.includes(id),
+      })),
+      conversationsWithApprovals: countSessionComputerUseApprovals(),
+    })
+  })
+
+  /** Installed and running apps for the picker; empty while the engine is off. */
+  router.get('/apps', async (c) => {
+    return c.json({ apps: await listComputerUseApps() })
+  })
+
+  /** `rule: null` removes the app from both lists. */
+  router.post('/approvals/app', async (c) => {
+    const { app, rule } = await c.req.json<{ app?: unknown; rule?: unknown }>()
+    if (typeof app !== 'string' || app.trim() === '') return c.json({ error: 'app must be a bundle identifier' }, 400)
+    if (rule !== 'allow' && rule !== 'block' && rule !== null) {
+      return c.json({ error: 'rule must be allow, block or null' }, 400)
+    }
+    if (rule === 'allow' && COMPUTER_USE_PROTECTED_BUNDLE_IDS.has(app.trim().toLowerCase())) {
+      return c.json({ error: 'This app is protected and cannot be allowed' }, 400)
+    }
+    setComputerUseAppRule(app, rule)
+    return c.json({ ok: true })
+  })
+
+  router.post('/approvals/capability', async (c) => {
+    const { capability, approved } = await c.req.json<{ capability?: unknown; approved?: unknown }>()
+    if (!isComputerUseCapability(capability)) return c.json({ error: 'unknown capability' }, 400)
+    if (typeof approved !== 'boolean') return c.json({ error: 'approved must be a boolean' }, 400)
+    setComputerUseCapabilityApproved(capability, approved)
+    return c.json({ ok: true })
+  })
+
+  /** Forget "allow for this conversation" approvals in every open conversation. */
+  router.post('/approvals/clear-conversations', (c) => {
+    clearSessionComputerUseApprovals()
+    return c.json({ ok: true })
   })
 
   /**

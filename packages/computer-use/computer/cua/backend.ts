@@ -49,7 +49,7 @@ import { CuaDaemonTransport, type CuaToolResult } from "./daemon.ts";
  * engine being replaced must not be the thing that decides what the replacement
  * is allowed to touch.
  */
-const BLOCKED_BUNDLE_IDS = new Set([
+export const BLOCKED_BUNDLE_IDS: ReadonlySet<string> = new Set([
   "com.1password.1password",
   "com.1password.safari",
   "com.bitwarden.desktop",

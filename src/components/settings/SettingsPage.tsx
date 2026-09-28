@@ -1,6 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
 import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
-import { ArrowLeft, Palette, Server, Brain, Plug, Blocks, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Chrome, Puzzle } from "lucide-react"
+import { ArrowLeft, Palette, Server, Brain, Plug, Blocks, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import { ProvidersTab } from "./ProvidersTab"
 import { RepoDetail } from "./RepoDetail"
@@ -17,8 +17,7 @@ import { GatewaySettings } from "./GatewaySettings"
 import { LinearSettings } from "./LinearSettings"
 import { GithubSettings } from "./GithubSettings"
 import { CommitMessageSettings } from "./CommitMessageSettings"
-import { BrowserUseSettings } from "./BrowserUseSettings"
-import { ChromeUseSettings } from "./ChromeUseSettings"
+import { BrowserSettings } from "./BrowserSettings"
 import { ComputerUseSettings } from "./ComputerUseSettings"
 import { SaasSettings } from "./SaasSettings"
 import { PluginsSettings } from "./PluginsSettings"
@@ -70,7 +69,7 @@ const OPERON_FILES: ConfigFileDefinition[] = [
 ]
 
 export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
-    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "providers")
+    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab === "chrome" ? "browser" : initialTab ?? "providers")
     // On phones the two panes can't sit side by side, so we drill down:
     // the category list fills the screen, and picking one swaps to its detail
     // pane (the in-pane back button returns to the list). Ignored at md+, where
@@ -104,11 +103,8 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "extensions", label: <FormattedMessage id="settings.tab.extensions" defaultMessage="Extensions" />, icon: Puzzle },
         ...(__ENABLE_MEMORY__ ? [{ id: "memory" as const, label: <FormattedMessage id="settings.tab.memory" defaultMessage="Memory" />, icon: Brain }] : []),
         { id: "env", label: <FormattedMessage id="settings.tab.env" defaultMessage="Env" />, icon: Server },
-        // All three drive local hardware from the desktop app: the in-app browser, the user's
-        // own Chrome via a native host, and a native engine on this machine. None means
-        // anything from the web client, which is already remote.
+        // Both browser surfaces share one permission store; Computer Use is separate.
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "browser" as const, label: <FormattedMessage id="settings.tab.browser" defaultMessage="Browser" />, icon: Globe }]),
-        ...(__APP_TARGET__ === 'web' ? [] : [{ id: "chrome" as const, label: <FormattedMessage id="settings.tab.chrome" defaultMessage="Chrome" />, icon: Chrome }]),
         ...(__APP_TARGET__ === 'web' ? [] : [{ id: "computer" as const, label: <FormattedMessage id="settings.tab.computer" defaultMessage="Computer" />, icon: MonitorCog }]),
         // Integrations
         { id: "github", label: <FormattedMessage id="settings.tab.github" defaultMessage="GitHub" />, icon: Github },
@@ -323,8 +319,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                             )}
                             {activeTab === "plugins" && <PluginsSettings />}
                             {activeTab === "extensions" && <ExtensionsSettings />}
-                            {activeTab === "browser" && <BrowserUseSettings />}
-                            {activeTab === "chrome" && <ChromeUseSettings />}
+                            {activeTab === "browser" && <BrowserSettings initialSurface={initialTab === "chrome" ? "chrome" : "built-in"} />}
                             {activeTab === "computer" && <ComputerUseSettings />}
                             {activeTab === "gateway" && <GatewaySettings />}
                             {activeTab === "saas" && <SaasSettings />}

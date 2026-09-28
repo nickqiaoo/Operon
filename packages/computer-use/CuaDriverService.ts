@@ -230,15 +230,13 @@ export class CuaDriverService {
    * short-lived connection: the kernel's transport matches replies in send
    * order, so sharing it would interleave a settings query with a tool call.
    *
-   * `prompt` is the difference between reading the status and raising the system
-   * dialogs. cua-driver refuses `prompt: true` from an untrusted caller, which is
-   * why this lives on the service (the host process) and not in the kernel.
+   * Read-only by necessity: embedded cua-driver ignores `prompt: true` and never
+   * raises a consent dialog, so asking for a grant is the host app's job. The
+   * daemon also caches TCC per process, so a grant made while it runs only shows
+   * up here after `restart()`.
    */
-  async permissions(prompt = false): Promise<{ accessibility: boolean; screenRecording: boolean }> {
-    const result = await this.callOnce("check_permissions", {
-      prompt,
-      ...(prompt ? { probe_direct_capture: false } : {}),
-    });
+  async permissions(): Promise<{ accessibility: boolean; screenRecording: boolean }> {
+    const result = await this.callOnce("check_permissions", { prompt: false });
     const structured = result.structuredContent ?? {};
     return {
       accessibility: structured.accessibility === true,
@@ -246,9 +244,37 @@ export class CuaDriverService {
     };
   }
 
-  /** Raise the macOS grant dialogs for whatever is still missing. */
-  async requestPermissions(): Promise<{ accessibility: boolean; screenRecording: boolean }> {
-    return await this.permissions(true);
+  /**
+   * Apps macOS knows about, running or installed, for the host's own UI (the
+   * Settings app picker). Same short-lived connection as `permissions()`.
+   */
+  async listApps(): Promise<Array<{ bundleId: string; name: string; running: boolean }>> {
+    const result = await this.callOnce("list_apps", {});
+    const apps = result.structuredContent?.apps;
+    if (!Array.isArray(apps)) return [];
+    const seen = new Set<string>();
+    const out: Array<{ bundleId: string; name: string; running: boolean }> = [];
+    for (const app of apps as Array<{ bundle_id?: unknown; name?: unknown; running?: unknown }>) {
+      if (typeof app.bundle_id !== "string" || app.bundle_id === "" || seen.has(app.bundle_id)) continue;
+      seen.add(app.bundle_id);
+      out.push({
+        bundleId: app.bundle_id,
+        name: typeof app.name === "string" && app.name !== "" ? app.name : app.bundle_id,
+        running: app.running === true,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Replace the daemon with a fresh process on the same socket path, which is
+   * what kernels have baked into their env. Their transports see the connection
+   * close and reconnect on the next call; sessions bound to the old connection
+   * are reaped with it.
+   */
+  async restart(timeoutMs?: number): Promise<void> {
+    await this.stop();
+    await this.start(timeoutMs);
   }
 
   /** One request on a connection of its own, closed before returning. */

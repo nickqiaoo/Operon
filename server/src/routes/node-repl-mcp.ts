@@ -65,7 +65,11 @@ import { getBrowserUseConfig } from '../services/browser-use-config.js'
 import { getComputerUseConfig } from '../services/computer-use-config.js'
 import { getChromeUseConfig } from '../services/chrome-use-config.js'
 import { requestOperonElicitation } from '../services/ai/host-elicitation.js'
-import { setComputerUseServiceStopHandler } from '../services/computer-use-lifecycle.js'
+import {
+  getComputerUseHostPermissions,
+  setComputerUseServiceStopHandler,
+  type ComputerUsePermissionKind,
+} from '../services/computer-use-lifecycle.js'
 import { createRequire } from 'node:module'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
@@ -349,29 +353,65 @@ export async function getComputerUsePermissions(): Promise<{
   screenRecording: boolean
 }> {
   const socketPath = await ensureComputerUseService()
-  if (!socketPath) return { running: false, accessibility: false, screenRecording: false }
-  // `prompt: false` keeps this a pure status read. The UI polls it, and the
-  // prompting form raises modal system dialogs.
-  const permissions = await cuaDriverService?.permissions(false).catch(() => undefined)
+  const service = cuaDriverService
+  if (!socketPath || !service) return { running: false, accessibility: false, screenRecording: false }
+  let permissions = await service.permissions().catch(() => undefined)
   if (!permissions) return { running: false, accessibility: false, screenRecording: false }
+
+  // The daemon caches TCC per process, so a grant made in System Settings while
+  // it runs stays invisible to it. When the host already holds a grant the
+  // daemon does not report, restart the daemon so it re-reads. Once per host
+  // state: if the two keep disagreeing (a stale host read, a dev build with a
+  // different identity), the UI's polling must not turn into a restart loop that
+  // kills every live session.
+  const host = getComputerUseHostPermissions()?.status()
+  if (
+    host
+    && ((host.accessibility && !permissions.accessibility)
+      || (host.screenRecording && !permissions.screenRecording))
+  ) {
+    const key = `${host.accessibility}:${host.screenRecording}`
+    if (key !== restartedForHostGrants) {
+      restartedForHostGrants = key
+      logger.info('host gained a macOS grant the cua-driver daemon does not see; restarting it')
+      await service.restart().catch((e) => logger.warn(`cua-driver restart failed: ${e}`))
+      permissions = await service.permissions().catch(() => undefined)
+      if (!permissions) return { running: false, accessibility: false, screenRecording: false }
+    }
+  }
   return { running: true, ...permissions }
 }
 
 /**
- * Ask the OS for a grant (the daemon owns the TCC identity, not Electron).
+ * Installed and running apps, for the Settings app picker and for showing names
+ * next to stored bundle ids. Empty when Computer Use is off or the daemon is
+ * unavailable: the picker is a convenience, the rules work without it.
+ */
+export async function listComputerUseApps(): Promise<Array<{ bundleId: string; name: string; running: boolean }>> {
+  const socketPath = await ensureComputerUseService()
+  if (!socketPath || !cuaDriverService) return []
+  return await cuaDriverService.listApps().catch((e) => {
+    logger.warn(`failed to list apps for computer use settings: ${e}`)
+    return []
+  })
+}
+
+/** The host grant state the daemon was last restarted for; see above. */
+let restartedForHostGrants: string | undefined
+
+/**
+ * Ask macOS for a grant.
  *
- * `permission` is unused: cua-driver has no "open this pane" call and raises the
- * OS request dialogs for both grants at once. That is the same destination from
- * the user's side and, unlike a Settings deep link, actually registers the
- * daemon in the TCC list. The parameter is kept because the route validates it
- * and the UI still asks per grant.
+ * This has to come from the app, not the daemon: embedded cua-driver inherits
+ * the app's grants but never raises a consent dialog itself. Electron registers
+ * the bridge; a headless server has no app to ask on behalf of.
  */
 export async function openComputerUsePermissionSettings(
-  _permission: 'accessibility' | 'screenRecording',
+  permission: ComputerUsePermissionKind,
 ): Promise<void> {
-  const socketPath = await ensureComputerUseService()
-  if (!socketPath || !cuaDriverService) throw new Error('Computer Use engine is not running')
-  await cuaDriverService.requestPermissions()
+  const host = getComputerUseHostPermissions()
+  if (!host) throw new Error('Granting macOS permissions requires the Operon desktop app')
+  await host.request(permission)
 }
 
 /** Stop the daemon. Called by the toggle route and by the host on quit. */

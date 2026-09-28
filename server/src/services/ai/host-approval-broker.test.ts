@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
 import type { StorageAdapter } from '../../storage/interface.js'
-import { initComputerUseConfig } from '../computer-use-config.js'
+import {
+  getComputerUseConfig,
+  initComputerUseConfig,
+  setComputerUseAppRule,
+} from '../computer-use-config.js'
 import {
   attachHostApprovalStream,
+  clearSessionComputerUseApprovals,
+  countSessionComputerUseApprovals,
   observeHostApprovalStreamPart,
   requestHostElicitation,
   resetHostApprovalBroker,
@@ -334,5 +340,82 @@ describe('host approval broker', () => {
     await expect(requestHostElicitation(13, sessionOnlyRequest)).resolves.toEqual({
       action: 'cancel',
     })
+  })
+
+  it('refuses a Settings-blocked app without asking, even when it was approved', async () => {
+    initComputerUseConfig(createMemoryStorage())
+    const events: RuntimeTextStreamPart[] = []
+    attachHostApprovalStream(21, (part) => events.push(part))
+    const request = {
+      message: 'Allow Computer Use to use "TextEdit"?',
+      meta: {
+        connector_id: 'computer-use',
+        persist: ['session', 'always'],
+        tool_params: { app: 'com.apple.TextEdit' },
+      },
+    }
+
+    const first = requestHostElicitation(21, request)
+    const approval = events.at(-1) as Extract<RuntimeTextStreamPart, { type: 'tool-approval-request' }>
+    resolveHostApproval(21, approval.approvalId, { type: 'allow-always' })
+    await first
+
+    // Block beats both the session grant and the always grant, and moves the
+    // app off the allow list.
+    setComputerUseAppRule('com.apple.textedit', 'block')
+    expect(getComputerUseConfig().approvedApps).toEqual([])
+    await expect(requestHostElicitation(21, request)).resolves.toEqual({ action: 'decline' })
+    expect(events.filter((event) => event.type === 'tool-approval-request')).toHaveLength(1)
+  })
+
+  it('remembers an always-approved cross-app capability', async () => {
+    initComputerUseConfig(createMemoryStorage())
+    const events: RuntimeTextStreamPart[] = []
+    attachHostApprovalStream(22, (part) => events.push(part))
+    const request = {
+      message: 'Allow Computer Use to capture the whole screen?',
+      meta: {
+        connector_id: 'computer-use',
+        persist: ['session', 'always'],
+        tool_params: { capability: 'desktop-capture' },
+      },
+    }
+
+    const first = requestHostElicitation(22, request)
+    const approval = events.at(-1) as Extract<RuntimeTextStreamPart, { type: 'tool-approval-request' }>
+    resolveHostApproval(22, approval.approvalId, { type: 'allow-always' })
+    await first
+    expect(getComputerUseConfig().approvedCapabilities).toEqual(['desktop-capture'])
+
+    // Another conversation is not asked again.
+    attachHostApprovalStream(23, () => {})
+    await expect(requestHostElicitation(23, request)).resolves.toEqual({
+      action: 'accept',
+      content: { source: 'computer-use-persisted-state' },
+      _meta: { persist: 'always' },
+    })
+  })
+
+  it('counts and clears conversation-only Computer Use approvals', async () => {
+    const events: RuntimeTextStreamPart[] = []
+    attachHostApprovalStream(24, (part) => events.push(part))
+    const request = {
+      message: 'Allow Computer Use to use "TextEdit"?',
+      meta: {
+        connector_id: 'computer-use',
+        persist: ['session'],
+        tool_params: { app: 'com.apple.TextEdit' },
+      },
+    }
+    const first = requestHostElicitation(24, request)
+    const approval = events.at(-1) as Extract<RuntimeTextStreamPart, { type: 'tool-approval-request' }>
+    resolveHostApproval(24, approval.approvalId, { type: 'allow' })
+    await first
+    expect(countSessionComputerUseApprovals()).toBe(1)
+
+    clearSessionComputerUseApprovals()
+    expect(countSessionComputerUseApprovals()).toBe(0)
+    requestHostElicitation(24, request)
+    expect(events.filter((event) => event.type === 'tool-approval-request')).toHaveLength(2)
   })
 })

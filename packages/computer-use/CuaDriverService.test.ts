@@ -139,6 +139,22 @@ describe("CuaDriverService", () => {
     expect(pid()).not.toBe(firstPid);
   });
 
+  it("restarts into a new process on the same socket path", async () => {
+    // Kernels have the socket path baked into their env, and the daemon only
+    // re-reads macOS grants in a fresh process: restart has to give both.
+    const { service, socketPath } = await makeService();
+    await service.start();
+    const pid = () => (service as unknown as { proc?: { pid?: number } }).proc?.pid;
+    const firstPid = pid();
+
+    await service.restart();
+
+    expect(pid()).toBeDefined();
+    expect(pid()).not.toBe(firstPid);
+    expect(service.socketPath).toBe(socketPath);
+    expect(await service.isReady()).toBe(true);
+  });
+
   it("reports a missing binary as a clear install problem", async () => {
     const service = new CuaDriverService({
       binaryPath: "/nonexistent/cua-driver",

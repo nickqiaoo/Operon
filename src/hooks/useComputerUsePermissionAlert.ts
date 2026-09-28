@@ -33,8 +33,8 @@ const COPY: Record<PermissionKind, { title: string; description: string }> = {
  * Silence was the original bug: a missing grant made screenshots and the live
  * preview vanish with no message anywhere. Accessibility is worse — without it
  * `get_app_state` returns no tree at all, so the agent just fails — yet it had
- * no user-facing prompt. The engine is the only honest reporter (TCC follows the
- * running binary, not Electron), hence `computerUseGetPermissions`.
+ * no user-facing prompt. The engine is the honest reporter (it is what actually
+ * captures, and it caches grants per process), hence `computerUseGetPermissions`.
  */
 export async function alertMissingComputerUsePermissions(): Promise<void> {
   const status = await api.computerUseGetPermissions().catch(() => null)

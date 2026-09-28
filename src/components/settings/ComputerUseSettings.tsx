@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
 import { alertMissingComputerUsePermissions } from "@/hooks/useComputerUsePermissionAlert"
+import { ComputerUseAppPermissions } from "./ComputerUseAppPermissions"
 import { FormattedMessage } from "react-intl"
 
 type PermissionKind = "accessibility" | "screenRecording"
@@ -40,15 +41,8 @@ const PERMISSION_ROWS: Array<{
 ]
 
 /**
- * Computer Use settings — one switch.
- *
- * ## Why this tab is so much emptier than Browser
- * Browser Use keeps a durable approval store on disk (`~/.operon/browser/`, written by
- * the vendored browser-client), so that tab has real state to manage: approved origins,
- * full CDP access. Computer Use approves *apps* through an in-conversation elicitation
- * (`computer.get_app_policy`), decided by the user at the moment it happens and not persisted
- * anywhere we can read back. So there is genuinely nothing else to show, and inventing
- * filler here would only imply controls that do not exist.
+ * Computer Use settings: the switch, the macOS grants the engine runs on, and
+ * the standing app decisions (see ComputerUseAppPermissions).
  */
 export function ComputerUseSettings() {
     const [enabled, setEnabled] = useState<boolean | null>(null)
@@ -163,7 +157,7 @@ export function ComputerUseSettings() {
                     <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
                         <FormattedMessage
                             id="settings.computerUse.enabled.on"
-                            defaultMessage="Agents ask before operating an app for the first time, and confirm again before actions with real consequences. Approvals are per conversation — nothing is remembered here."
+                            defaultMessage="Agents ask before operating an app for the first time, and confirm again before actions with real consequences. Approvals last for the conversation unless you choose “Always allow”."
                         />
                     </div>
                 ) : (
@@ -268,6 +262,8 @@ export function ComputerUseSettings() {
                     )}
                 </section>
             )}
+
+            {enabled && <ComputerUseAppPermissions />}
         </div>
     )
 }

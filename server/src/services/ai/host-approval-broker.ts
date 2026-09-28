@@ -7,6 +7,11 @@ import type {
 import {
   alwaysApproveComputerUseApp,
   isComputerUseAppAlwaysApproved,
+  isComputerUseAppBlocked,
+  isComputerUseCapability,
+  isComputerUseCapabilityAlwaysApproved,
+  setComputerUseCapabilityApproved,
+  type ComputerUseCapability,
 } from '../computer-use-config.js'
 
 export interface HostElicitationRequest {
@@ -51,39 +56,65 @@ interface PendingApproval {
 
 const streams = new Map<number, StreamBinding>()
 const pending = new Map<string, PendingApproval>()
-const sessionApprovedComputerUseApps = new Map<number, Set<string>>()
+/** chatId -> approval keys granted "for this conversation"; see computerUseApproval. */
+const sessionApprovedComputerUse = new Map<number, Set<string>>()
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   value != null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
 
-interface ComputerUseApproval {
-  app: string
+/**
+ * A Computer Use approval request, recognised by its metadata. Two kinds: one
+ * app (`tool_params.app`, a bundle id) or one cross-app capability such as a
+ * whole-screen capture (`tool_params.capability`), which no app approval covers.
+ */
+type ComputerUseApproval = {
+  /** Session-cache key, namespaced so an app and a capability never collide. */
   key: string
   allowSession: boolean
   allowAlways: boolean
-}
+} & (
+  | { kind: 'app'; app: string }
+  | { kind: 'capability'; capability: ComputerUseCapability }
+)
 
 function computerUseApproval(request: HostElicitationRequest): ComputerUseApproval | undefined {
   const meta = asRecord(request.meta)
   if (meta?.connector_id !== 'computer-use') return undefined
 
-  const toolParams = asRecord(meta.tool_params)
-  const app = typeof toolParams?.app === 'string' ? toolParams.app.trim() : ''
-  if (!app) return undefined
-
   const persistence = Array.isArray(meta.persist)
     ? meta.persist.filter((value): value is string => typeof value === 'string')
     : []
-  return {
-    app,
-    key: app.toLowerCase(),
+  const allow = {
     allowSession: persistence.includes('session'),
     allowAlways: persistence.includes('always'),
   }
+
+  const toolParams = asRecord(meta.tool_params)
+  const app = typeof toolParams?.app === 'string' ? toolParams.app.trim() : ''
+  if (app) return { kind: 'app', app, key: `app:${app.toLowerCase()}`, ...allow }
+  const capability = toolParams?.capability
+  if (isComputerUseCapability(capability)) {
+    return { kind: 'capability', capability, key: `capability:${capability}`, ...allow }
+  }
+  return undefined
 }
 
+function isAlwaysApproved(approval: ComputerUseApproval): boolean {
+  return approval.kind === 'app'
+    ? isComputerUseAppAlwaysApproved(approval.app)
+    : isComputerUseCapabilityAlwaysApproved(approval.capability)
+}
+
+/**
+ * Answer from standing decisions without asking.
+ *
+ * A Settings block comes first and beats every approval, session or always.
+ * This is where the block list is enforced: every Operon conversation asks
+ * through here. A node_repl session with no conversation behind it asks its MCP
+ * client instead, which fails closed when the client cannot ask.
+ */
 function cachedComputerUseApproval(
   chatId: number,
   request: HostElicitationRequest,
@@ -91,10 +122,13 @@ function cachedComputerUseApproval(
   const approval = computerUseApproval(request)
   if (!approval) return undefined
 
+  if (approval.kind === 'app' && isComputerUseAppBlocked(approval.app)) {
+    return { action: 'decline' }
+  }
+
   const sessionApproved = approval.allowSession
-    && sessionApprovedComputerUseApps.get(chatId)?.has(approval.key) === true
-  const alwaysApproved = approval.allowAlways
-    && isComputerUseAppAlwaysApproved(approval.app)
+    && sessionApprovedComputerUse.get(chatId)?.has(approval.key) === true
+  const alwaysApproved = approval.allowAlways && isAlwaysApproved(approval)
   if (!sessionApproved && !alwaysApproved) return undefined
 
   return {
@@ -112,13 +146,25 @@ function rememberComputerUseApproval(
   const approval = computerUseApproval(request)
   if (!approval || !approval.allowSession) return
 
-  const approvedApps = sessionApprovedComputerUseApps.get(chatId) ?? new Set<string>()
-  approvedApps.add(approval.key)
-  sessionApprovedComputerUseApps.set(chatId, approvedApps)
+  const approved = sessionApprovedComputerUse.get(chatId) ?? new Set<string>()
+  approved.add(approval.key)
+  sessionApprovedComputerUse.set(chatId, approved)
 
-  if (persist === 'always' && approval.allowAlways) {
-    alwaysApproveComputerUseApp(approval.app)
-  }
+  if (persist !== 'always' || !approval.allowAlways) return
+  if (approval.kind === 'app') alwaysApproveComputerUseApp(approval.app)
+  else setComputerUseCapabilityApproved(approval.capability, true)
+}
+
+/** How many conversations hold "allow for this conversation" Computer Use approvals. */
+export function countSessionComputerUseApprovals(): number {
+  let count = 0
+  for (const approved of sessionApprovedComputerUse.values()) if (approved.size > 0) count += 1
+  return count
+}
+
+/** Forget every "allow for this conversation" Computer Use approval. */
+export function clearSessionComputerUseApprovals(): void {
+  sessionApprovedComputerUse.clear()
 }
 
 function isNodeReplToolCall(call: ToolCallPart): boolean {
@@ -345,5 +391,5 @@ export function resetHostApprovalBroker(): void {
   }
   pending.clear()
   streams.clear()
-  sessionApprovedComputerUseApps.clear()
+  sessionApprovedComputerUse.clear()
 }

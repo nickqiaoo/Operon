@@ -22,6 +22,9 @@ export { defaultIntegration } from "./integration.ts";
 export { CuaDriverService } from "./CuaDriverService.ts";
 export type { CuaDriverServiceOptions } from "./CuaDriverService.ts";
 export { CUA_DRIVER_SOCKET_ENV } from "./computer/backend.ts";
+/** Apps Computer Use refuses outright, whatever the user approves. Exported so
+ *  the host can show the list; the backend is what enforces it. */
+export { BLOCKED_BUNDLE_IDS as COMPUTER_USE_PROTECTED_BUNDLE_IDS } from "./computer/cua/backend.ts";
 
 // ---- Sessions and the low-level host ----
 export { NodeReplSession } from "./NodeReplSession.ts";

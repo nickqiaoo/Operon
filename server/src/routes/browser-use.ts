@@ -33,17 +33,32 @@ const SESSIONS_DIR = 'browser/sessions'
 
 /** The key names the browser client's schema uses. */
 const FULL_CDP_KEY = 'full_cdp_access_enabled'
+const RESOURCE_KEYS = ['origins', 'downloads', 'uploads'] as const
+type BrowserResource = typeof RESOURCE_KEYS[number]
+const MODE_KEYS = {
+  origins: 'approval_mode',
+  downloads: 'download_approval_mode',
+  uploads: 'upload_approval_mode',
+  history: 'history_approval_mode',
+} as const
+type BrowserMode = keyof typeof MODE_KEYS
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   v != null && typeof v === 'object' && !Array.isArray(v)
 
 /** Pull `[origins] allowed = [...]` out of a parsed toml object. */
 function readOrigins(doc: unknown, key: 'allowed' | 'denied'): string[] {
-  if (!isRecord(doc)) return []
-  const origins = doc.origins
-  if (!isRecord(origins)) return []
-  const list = origins[key]
+  return readResource(doc, 'origins', key)
+}
+
+function readResource(doc: unknown, resource: BrowserResource, key: 'allowed' | 'denied'): string[] {
+  if (!isRecord(doc) || !isRecord(doc[resource])) return []
+  const list = doc[resource][key]
   return Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : []
+}
+
+function readMode(doc: unknown, resource: BrowserMode): 'ask' | 'never_ask' {
+  return isRecord(doc) && doc[MODE_KEYS[resource]] === 'never_ask' ? 'never_ask' : 'ask'
 }
 
 export interface BrowserApprovals {
@@ -51,12 +66,15 @@ export interface BrowserApprovals {
    *  worth listing. */
   allowed: string[]
   denied: string[]
+  downloads: { allowed: string[]; denied: string[] }
+  uploads: { allowed: string[]; denied: string[] }
+  modes: Record<BrowserMode, 'ask' | 'never_ask'>
   /**
-   * How many approvals past conversations remember. A count, with no detail.
+   * How many conversation files contain site, upload, or download decisions.
    *
    * Detail would not help: these are bound to a single session
-   * (`browser/sessions/<conversationId>.toml`) and stop meaning anything once it
-   * ends. Telling someone "session 019f5a22 allowed example.com" gives them
+   * (`browser/sessions/<conversationId>.toml`). Telling someone
+   * "session 019f5a22 allowed example.com" gives them
    * nothing to act on, because they cannot tell which conversation that was. So
    * this exposes a total and a single button to clear it.
    */
@@ -68,7 +86,33 @@ export interface BrowserApprovals {
   enabled: boolean
 }
 
-/** List the files under sessions/ that actually carry an approval; empty ones do not count. */
+function isBrowserResource(value: unknown): value is BrowserResource {
+  return RESOURCE_KEYS.some((key) => key === value)
+}
+
+function isBrowserMode(value: unknown): value is BrowserMode {
+  return typeof value === 'string' && Object.hasOwn(MODE_KEYS, value)
+}
+
+function normalizeOrigin(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 2048) return null
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : null
+  } catch {
+    return null
+  }
+}
+
+function globalDocument(doc: unknown): Record<string, unknown> {
+  return isRecord(doc) ? { ...doc } : {}
+}
+
+function resourceTable(doc: Record<string, unknown>, resource: BrowserResource): Record<string, unknown> {
+  return isRecord(doc[resource]) ? { ...doc[resource] } : {}
+}
+
+/** Count conversation files with saved site or file-transfer decisions. */
 async function sessionFilesWithApprovals(): Promise<string[]> {
   let files: string[] = []
   try {
@@ -80,7 +124,9 @@ async function sessionFilesWithApprovals(): Promise<string[]> {
   for (const f of files) {
     if (!f.endsWith('.toml')) continue
     const doc = await store.readToml(`${SESSIONS_DIR}/${f}`)
-    if (readOrigins(doc, 'allowed').length || readOrigins(doc, 'denied').length) out.push(f)
+    if (RESOURCE_KEYS.some((resource) =>
+      readResource(doc, resource, 'allowed').length || readResource(doc, resource, 'denied').length
+    )) out.push(f)
   }
   return out
 }
@@ -131,6 +177,20 @@ export function browserUseRoutes() {
       const body: BrowserApprovals = {
         allowed: readOrigins(globalDoc, 'allowed'),
         denied: readOrigins(globalDoc, 'denied'),
+        downloads: {
+          allowed: readResource(globalDoc, 'downloads', 'allowed'),
+          denied: readResource(globalDoc, 'downloads', 'denied'),
+        },
+        uploads: {
+          allowed: readResource(globalDoc, 'uploads', 'allowed'),
+          denied: readResource(globalDoc, 'uploads', 'denied'),
+        },
+        modes: {
+          origins: readMode(globalDoc, 'origins'),
+          downloads: readMode(globalDoc, 'downloads'),
+          uploads: readMode(globalDoc, 'uploads'),
+          history: readMode(globalDoc, 'history'),
+        },
         rememberedFromConversations: remembered.length,
         fullCdpAccess: isRecord(globalDoc) && globalDoc[FULL_CDP_KEY] === true,
         configPath: path.join(ROOT, 'browser'),
@@ -139,6 +199,65 @@ export function browserUseRoutes() {
       return c.json(body)
     } catch (e) {
       logger.error(`failed to read browser approvals: ${e}`)
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    }
+  })
+
+  /** Edit the same global resource tables that Browser Use reads for both backends. */
+  router.post('/approvals/rule', async (c) => {
+    const { resource, origin, decision } = await c.req.json<{
+      resource?: unknown; origin?: unknown; decision?: unknown
+    }>()
+    const normalized = normalizeOrigin(origin)
+    if (!isBrowserResource(resource) || normalized == null || (decision !== 'allow' && decision !== 'deny')) {
+      return c.json({ error: 'A resource, HTTP(S) URL, and allow or deny decision are required' }, 400)
+    }
+    try {
+      const doc = globalDocument(await store.readToml(GLOBAL_TOML))
+      const table = resourceTable(doc, resource)
+      const chosen = decision === 'allow' ? 'allowed' : 'denied'
+      const opposite = decision === 'allow' ? 'denied' : 'allowed'
+      table[chosen] = [...new Set([...readResource(doc, resource, chosen), normalized])]
+      table[opposite] = readResource(doc, resource, opposite).filter((entry) => entry !== normalized)
+      doc[resource] = table
+      await store.writeToml(GLOBAL_TOML, doc)
+      return c.json({ ok: true, origin: normalized })
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    }
+  })
+
+  router.post('/approvals/rule/revoke', async (c) => {
+    const { resource, origin } = await c.req.json<{ resource?: unknown; origin?: unknown }>()
+    if (!isBrowserResource(resource) || typeof origin !== 'string' || origin.length === 0) {
+      return c.json({ error: 'resource and origin are required' }, 400)
+    }
+    try {
+      const doc = globalDocument(await store.readToml(GLOBAL_TOML))
+      const table = resourceTable(doc, resource)
+      for (const key of ['allowed', 'denied'] as const) {
+        table[key] = readResource(doc, resource, key).filter((entry) => entry !== origin)
+      }
+      doc[resource] = table
+      await store.writeToml(GLOBAL_TOML, doc)
+      return c.json({ ok: true })
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    }
+  })
+
+  router.post('/approvals/mode', async (c) => {
+    const { resource, mode } = await c.req.json<{ resource?: unknown; mode?: unknown }>()
+    if (!isBrowserMode(resource) || (mode !== 'ask' && mode !== 'never_ask')) {
+      return c.json({ error: 'resource and mode are required' }, 400)
+    }
+    try {
+      const doc = globalDocument(await store.readToml(GLOBAL_TOML))
+      if (mode === 'never_ask') doc[MODE_KEYS[resource]] = 'never_ask'
+      else delete doc[MODE_KEYS[resource]]
+      await store.writeToml(GLOBAL_TOML, doc)
+      return c.json({ ok: true })
+    } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500)
     }
   })
@@ -167,7 +286,7 @@ export function browserUseRoutes() {
   })
 
   /**
-   * Clear every approval past conversations remember, leaving global ones alone.
+   * Clear saved per-conversation site and file-transfer decisions, leaving global ones alone.
    *
    * The files are deleted outright rather than having `[origins]` emptied: these
    * toml files exist only to record approvals, so an empty shell means nothing.

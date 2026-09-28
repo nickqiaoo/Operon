@@ -51,7 +51,11 @@ export type WorkspaceDTO = {
   updatedAt: number
 }
 
-export type McpStdioEntry = { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
+/** A bundle id plus the name the Computer Use engine reports for it, if any. */
+export type ComputerUseAppRef = { bundleId: string; name: string | null }
+export type ComputerUseCapability = 'desktop-capture' | 'clipboard-read' | 'clipboard-write'
+
+export type McpStdioEntry ={ type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
 export type McpHttpEntry = { type: 'http'; url: string; headers?: Record<string, string> }
 export type McpSseEntry = { type: 'sse'; url: string; headers?: Record<string, string> }
 export type McpServerEntry = McpStdioEntry | McpHttpEntry | McpSseEntry
@@ -808,7 +812,10 @@ export const api = {
     get<{
       allowed: string[]
       denied: string[]
-      /** How many approvals past conversations remember. Counts only, no detail;
+      downloads: { allowed: string[]; denied: string[] }
+      uploads: { allowed: string[]; denied: string[] }
+      modes: Record<'origins' | 'downloads' | 'uploads' | 'history', 'ask' | 'never_ask'>
+      /** Number of conversations with saved site, upload, or download decisions;
        *  see server/routes/browser-use.ts for why. */
       rememberedFromConversations: number
       fullCdpAccess: boolean
@@ -818,6 +825,12 @@ export const api = {
     }>('/browser-use/approvals'),
   browserUseSetEnabled: (enabled: boolean) =>
     post<{ ok: true }>('/browser-use/enabled', { enabled }),
+  browserUseSetRule: (resource: 'origins' | 'downloads' | 'uploads', origin: string, decision: 'allow' | 'deny') =>
+    post<{ ok: true; origin: string }>('/browser-use/approvals/rule', { resource, origin, decision }),
+  browserUseRevokeRule: (resource: 'origins' | 'downloads' | 'uploads', origin: string) =>
+    post<{ ok: true }>('/browser-use/approvals/rule/revoke', { resource, origin }),
+  browserUseSetMode: (resource: 'origins' | 'downloads' | 'uploads' | 'history', mode: 'ask' | 'never_ask') =>
+    post<{ ok: true }>('/browser-use/approvals/mode', { resource, mode }),
 
   computerUseGetSettings: () =>
     get<{ enabled: boolean }>('/computer-use/settings'),
@@ -833,6 +846,23 @@ export const api = {
     }>('/computer-use/permissions'),
   computerUseOpenPermissionSettings: (permission: 'accessibility' | 'screenRecording') =>
     post<{ ok: true }>('/computer-use/permissions/open', { permission }),
+  /** Standing app decisions. `name` is null when the engine does not know the bundle id. */
+  computerUseGetApprovals: () =>
+    get<{
+      approvedApps: ComputerUseAppRef[]
+      blockedApps: ComputerUseAppRef[]
+      protectedApps: ComputerUseAppRef[]
+      capabilities: { id: ComputerUseCapability; approved: boolean }[]
+      conversationsWithApprovals: number
+    }>('/computer-use/approvals'),
+  computerUseListApps: () =>
+    get<{ apps: { bundleId: string; name: string; running: boolean }[] }>('/computer-use/apps'),
+  computerUseSetAppRule: (app: string, rule: 'allow' | 'block' | null) =>
+    post<{ ok: true }>('/computer-use/approvals/app', { app, rule }),
+  computerUseSetCapabilityApproved: (capability: ComputerUseCapability, approved: boolean) =>
+    post<{ ok: true }>('/computer-use/approvals/capability', { capability, approved }),
+  computerUseClearConversationApprovals: () =>
+    post<{ ok: true }>('/computer-use/approvals/clear-conversations', {}),
   chromeUseGetSettings: () =>
     get<{
       enabled: boolean
