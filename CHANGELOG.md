@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [1.3.42] - 2026-09-28
+
+### Added
+
+- Computer Use can be allowed or blocked app by app in Settings.
+- Browser permissions live on one page and apply to both the built-in browser and Chrome.
+
+### Changed
+
+- Operon asks for the macOS permissions Computer Use needs.
+- Agents operate apps in the background and only bring a window to the front when there is no other way.
+- Several conversations can use Computer Use at the same time instead of waiting for each other.
+- Chat apps show one status message per turn instead of a stream of drafts.
+- Inline links use a softer colour.
+
+### Fixed
+
+- Computer Use no longer stops responding after a few idle minutes or after a conversation's session is reset.
+- Browser page details no longer appear in the wrong conversation.
+- Old Computer Use screenshots are cleaned up instead of piling up.
+
 ## [1.3.41] - 2026-09-24
 
 ### Fixed
