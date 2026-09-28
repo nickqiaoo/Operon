@@ -56,7 +56,6 @@ export const feed = defineCommand({
   keywords: ["小红书", "首页", "推荐", "发现", "rednote", "xhs"],
   domain: XHS_WEB_HOST,
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 20, help: "Number of notes" }],
   func: async (rawPage, kwargs): Promise<XhsFeedItem[]> => {

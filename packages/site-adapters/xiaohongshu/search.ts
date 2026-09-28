@@ -352,7 +352,6 @@ export const search = defineCommand({
   keywords: ["小红书", "搜索", "笔记", "rednote", "xhs"],
   domain: XHS_WEB_HOST,
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
     { name: "query", required: true, help: "Search keyword" },

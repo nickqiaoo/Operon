@@ -199,7 +199,6 @@ export const getComments = defineCommand({
   keywords: ["小红书", "评论", "楼中楼", "rednote", "xhs"],
   domain: XHS_WEB_HOST,
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
     { name: "url", required: true, help: "Note URL with xsec_token" },

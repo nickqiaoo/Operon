@@ -53,7 +53,6 @@ export const userNotes = defineCommand({
   keywords: ["小红书", "用户", "博主", "主页", "笔记列表", "rednote", "xhs"],
   domain: XHS_WEB_HOST,
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
     { name: "user", required: true, help: "User id or profile URL" },

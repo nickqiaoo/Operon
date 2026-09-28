@@ -180,7 +180,6 @@ export const getNote = defineCommand({
   keywords: ["小红书", "笔记", "正文", "字幕", "视频", "文案", "rednote", "xhs"],
   domain: XHS_WEB_HOST,
   access: "read",
-  strategy: "public",
   browser: false,
   args: [
     { name: "url", required: true, help: "Note URL with xsec_token (as shared, or from search/userNotes/feed), or an xhslink.com short link" },
@@ -257,7 +256,6 @@ export const downloadMedia = defineCommand({
   keywords: ["小红书", "下载", "视频", "图片", "rednote", "xhs"],
   domain: XHS_WEB_HOST,
   access: "read",
-  strategy: "public",
   browser: false,
   args: [
     { name: "note", required: true, help: "The object getNote returned (needs id and media)" },
