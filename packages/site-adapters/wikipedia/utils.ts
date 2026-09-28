@@ -1,3 +1,5 @@
+import { CommandExecutionError } from "../errors.ts"
+
 export const EXTRACT_MAX_LEN = 300
 export const DESC_MAX_LEN = 80
 
@@ -8,7 +10,7 @@ export async function wikiFetch(lang: string, path: string): Promise<unknown> {
   const resp = await fetch(url, {
     headers: { "User-Agent": UA, Accept: "application/json" },
   })
-  if (!resp.ok) throw new Error(`wikipedia: HTTP ${resp.status} for ${path}`)
+  if (!resp.ok) throw new CommandExecutionError(`wikipedia: HTTP ${resp.status} for ${path}`)
   return resp.json()
 }
 
