@@ -20,6 +20,7 @@ import {
   sendFormattedMessage,
   sendPlainMessage,
   sendToolNotification,
+  updateToolNotification,
 } from './message-sender.js'
 
 const SOURCE = 'telegram' as const
@@ -149,14 +150,17 @@ export class TelegramProvider extends BaseIMProvider {
   async updateToolNotification(ref: ChannelRef, messageId: string, text: string): Promise<void> {
     const chatId = parseInt(ref.sourceChannel, 10)
     try {
-      await this.bot.api.editMessageText({
-        chat_id: chatId,
-        message_id: parseInt(messageId, 10),
-        text,
-      })
-    } catch {
-      // "message is not modified" is expected
+      await updateToolNotification(this.bot, chatId, parseInt(messageId, 10), text)
+    } catch (err) {
+      if (!/message[_ ]is[_ ]not[_ ]modified/i.test(errMsg(err))) throw err
     }
+  }
+
+  async deleteToolNotification(ref: ChannelRef, messageId: string): Promise<void> {
+    await this.bot.api.deleteMessage({
+      chat_id: parseInt(ref.sourceChannel, 10),
+      message_id: parseInt(messageId, 10),
+    })
   }
 
   async fetchAttachmentBytes(

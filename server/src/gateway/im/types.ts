@@ -133,6 +133,7 @@ export interface IMProvider {
 
   sendToolNotification(ref: ChannelRef, text: string): Promise<string | undefined>
   updateToolNotification(ref: ChannelRef, messageId: string, text: string): Promise<void>
+  deleteToolNotification(ref: ChannelRef, messageId: string): Promise<void>
 
   askChoice(
     ref: ChannelRef,

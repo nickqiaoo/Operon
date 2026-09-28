@@ -122,6 +122,30 @@ export async function sendToolNotification(
   text: string,
   options: SendOptions = {},
 ): Promise<number> {
+  const formatted = formatToolNotification(text)
+
+  const result = await bot.api.sendMessage({
+    chat_id: chatId,
+    ...formatted,
+    ...(options.messageThreadId ? { message_thread_id: options.messageThreadId } : {}),
+  })
+  return result.message_id
+}
+
+export async function updateToolNotification(
+  bot: Bot,
+  chatId: number,
+  messageId: number,
+  text: string,
+): Promise<void> {
+  await bot.api.editMessageText({
+    chat_id: chatId,
+    message_id: messageId,
+    ...formatToolNotification(text),
+  })
+}
+
+function formatToolNotification(text: string) {
   const parsed = markdownToTelegramEntities(text)
   const truncatedText = parsed.text.slice(0, TG_MAX_LENGTH)
   const validEntities = parsed.entities
@@ -131,13 +155,5 @@ export async function sendToolNotification(
       length: Math.min(e.length, truncatedText.length - e.offset),
     }))
   const tgEntities = toTelegramEntities(validEntities)
-
-  const result = await bot.api.sendMessage({
-    chat_id: chatId,
-    text: truncatedText,
-    entities: tgEntities as never,
-    ...(options.messageThreadId ? { message_thread_id: options.messageThreadId } : {}),
-  })
-  return result.message_id
+  return { text: truncatedText, entities: tgEntities as never }
 }
-

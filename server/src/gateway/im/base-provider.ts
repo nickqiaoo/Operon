@@ -113,6 +113,9 @@ export abstract class BaseIMProvider implements IMProvider {
     await this.sendPlain(ref, text).catch(() => {})
   }
 
+  /** Providers without deletion support leave the status message in place. */
+  async deleteToolNotification(_ref: ChannelRef, _messageId: string): Promise<void> {}
+
   askChoice(
     ref: ChannelRef,
     question: string,

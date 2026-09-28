@@ -4,8 +4,6 @@ import type { ChannelRef, IMProvider, PendingDiff } from '../types.js'
 import type { PermissionHandler } from '../permission-handler.js'
 import { forwardApprovalEvent } from '../approval-forwarder.js'
 
-const DRAFT_THROTTLE_MS = 400
-const DRAFT_MIN_DELTA = 80
 const MAX_DIFF_SIZE = 200_000
 
 type FullStreamEvent = TextStreamPart<ToolSet>
@@ -32,91 +30,71 @@ export async function consumeFullStream(options: StreamConsumerOptions): Promise
 
   const writer = provider.createStreamWriter(ref)
   let textSoFar = ''
-  let lastUpdateAt = 0
-  let lastDraftLength = 0
-  let draftInFlight = false
-  let phase: 'streaming' | 'paused' | 'finalized' = 'streaming'
-
-  let currentToolName = ''
-  let currentToolText = ''
-  let toolNotificationId: string | undefined
-
-  let reasoningNotificationId: string | undefined
+  let finalized = false
+  let statusMessageId: string | undefined
+  let latestActivity: 'reasoning' | 'tool' | undefined
+  let latestToolCallId: string | undefined
+  let latestToolText = ''
   let reasoningStartTime = 0
 
-  let pendingDiffInput: PendingDiff | undefined
-
-  const flushDraft = () => {
-    if (draftInFlight) return
-    draftInFlight = true
-    const snapshot = textSoFar
-    writer.update(snapshot)
-      .catch(() => {})
-      .finally(() => { draftInFlight = false })
-    lastUpdateAt = Date.now()
-    lastDraftLength = snapshot.length
+  const showStatus = async (text: string) => {
+    try {
+      if (statusMessageId) {
+        await provider.updateToolNotification(ref, statusMessageId, text)
+      } else {
+        statusMessageId = await provider.sendToolNotification(ref, text)
+      }
+    } catch (err) {
+      console.warn('[Interactive:Stream] status update failed:', err)
+    }
   }
 
   try {
+    await showStatus('⏳ Working...')
     for await (const event of fullStream) {
       if (signal.aborted) break
 
       switch (event.type) {
         case 'text-delta': {
           textSoFar += event.text
-          phase = 'streaming'
-          const now = Date.now()
-          const textDelta = textSoFar.length - lastDraftLength
-          if (textDelta >= DRAFT_MIN_DELTA || now - lastUpdateAt >= DRAFT_THROTTLE_MS) {
-            flushDraft()
-          }
           break
         }
 
         case 'reasoning-start': {
-          if (textSoFar.trim()) {
-            await writer.finish(textSoFar)
-            textSoFar = ''
-            lastDraftLength = 0
-          }
-          phase = 'paused'
+          textSoFar = ''
+          latestActivity = 'reasoning'
+          latestToolCallId = undefined
           reasoningStartTime = Date.now()
-          reasoningNotificationId = await provider.sendToolNotification(ref, '🧠 Thinking...')
+          await showStatus('🧠 Thinking...')
           break
         }
 
         case 'reasoning-delta': break
 
         case 'reasoning-end': {
-          if (reasoningNotificationId) {
+          if (latestActivity === 'reasoning') {
             const elapsed = Math.ceil((Date.now() - reasoningStartTime) / 1000)
             const label = elapsed > 0 ? `Thought for ${elapsed}s` : 'Thought for a moment'
-            await provider.updateToolNotification(ref, reasoningNotificationId, `🧠 ${label}`)
+            await showStatus(`🧠 ${label}`)
           }
-          reasoningNotificationId = undefined
           reasoningStartTime = 0
-          phase = 'streaming'
           break
         }
 
         case 'tool-input-start': {
-          if (textSoFar.trim()) {
-            await writer.finish(textSoFar)
-            textSoFar = ''
-            lastDraftLength = 0
-          }
-          phase = 'paused'
-          currentToolName = String(event.toolName ?? '')
+          textSoFar = ''
           break
         }
 
         case 'tool-call': {
-          currentToolName = event.toolName
-          currentToolText = formatToolCall(currentToolName, event.input)
-          toolNotificationId = await provider.sendToolNotification(ref, currentToolText)
+          textSoFar = ''
+          latestActivity = 'tool'
+          latestToolCallId = event.toolCallId
+          latestToolText = formatToolCall(event.toolName, event.input)
+          await showStatus(latestToolText)
 
           if (diffPreviewService.isEnabled()) {
-            pendingDiffInput = capturePendingDiff(currentToolName, event.input)
+            const pendingDiffInput = capturePendingDiff(event.toolName, event.input)
             if (pendingDiffInput) {
               diffPreviewService.upload(channelKey, pendingDiffInput)
                 .then((preview) => {
@@ -132,26 +110,16 @@ export async function consumeFullStream(options: StreamConsumerOptions): Promise
         }
 
         case 'tool-result': {
-          if (toolNotificationId && currentToolName) {
-            await provider.updateToolNotification(ref, toolNotificationId, `✅ ${currentToolText}`)
+          if (latestActivity === 'tool' && latestToolCallId === event.toolCallId) {
+            await showStatus(`✅ ${latestToolText}`)
           }
-          pendingDiffInput = undefined
-          toolNotificationId = undefined
-          currentToolName = ''
-          currentToolText = ''
-          phase = 'streaming'
           break
         }
 
         case 'tool-error': {
-          if (toolNotificationId && currentToolName) {
-            await provider.updateToolNotification(ref, toolNotificationId, `❌ ${currentToolText}`)
+          if (latestActivity === 'tool' && latestToolCallId === event.toolCallId) {
+            await showStatus(`❌ ${latestToolText}`)
           }
-          pendingDiffInput = undefined
-          toolNotificationId = undefined
-          currentToolName = ''
-          currentToolText = ''
-          phase = 'streaming'
           break
         }
 
@@ -168,11 +136,9 @@ export async function consumeFullStream(options: StreamConsumerOptions): Promise
         }
 
         case 'tool-output-denied': {
-          pendingDiffInput = undefined
-          toolNotificationId = undefined
-          currentToolName = ''
-          currentToolText = ''
-          phase = 'streaming'
+          if (latestActivity === 'tool' && latestToolCallId === event.toolCallId) {
+            await showStatus(`❌ ${latestToolText}`)
+          }
           break
         }
 
@@ -181,19 +147,20 @@ export async function consumeFullStream(options: StreamConsumerOptions): Promise
             await writer.finish(textSoFar)
             textSoFar = ''
           }
-          phase = 'finalized'
+          finalized = true
+          break
+        }
+
+        case 'abort': {
+          finalized = true
           break
         }
 
         case 'error': {
           const errorText = String(event.error ?? 'Unknown error')
           console.error(`[Interactive:Stream] error: ${errorText}`)
-          if (textSoFar.trim()) {
-            await writer.finish(textSoFar)
-            textSoFar = ''
-          }
           await provider.send(ref, `❌ **Error**: ${errorText}`)
-          phase = 'finalized'
+          finalized = true
           break
         }
 
@@ -201,18 +168,21 @@ export async function consumeFullStream(options: StreamConsumerOptions): Promise
       }
     }
   } catch (err) {
-    if (signal.aborted) return
-    console.error('[Interactive:Stream] consumption error:', err)
-    if (textSoFar.trim()) {
-      await writer.finish(textSoFar).catch(() => '')
-      textSoFar = ''
+    if (!signal.aborted) {
+      console.error('[Interactive:Stream] consumption error:', err)
+      const errorMsg = err instanceof Error ? err.message : 'Stream interrupted'
+      await provider.send(ref, `❌ ${errorMsg}`).catch(() => {})
+      finalized = true
     }
-    const errorMsg = err instanceof Error ? err.message : 'Stream interrupted'
-    await provider.send(ref, `❌ ${errorMsg}`).catch(() => {})
-  }
-
-  if (textSoFar.trim() && phase !== 'finalized') {
-    await writer.finish(textSoFar).catch(() => '')
+  } finally {
+    if (!signal.aborted && !finalized && textSoFar.trim()) {
+      await writer.finish(textSoFar).catch(() => '')
+    }
+    if (statusMessageId) {
+      await provider.deleteToolNotification(ref, statusMessageId).catch((err: unknown) => {
+        console.warn('[Interactive:Stream] status cleanup failed:', err)
+      })
+    }
   }
 }
 

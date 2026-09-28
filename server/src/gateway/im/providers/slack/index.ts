@@ -196,9 +196,13 @@ export class SlackProvider extends BaseIMProvider {
   async updateToolNotification(ref: ChannelRef, messageId: string, text: string): Promise<void> {
     try {
       await updateToolNotification(this.client, ref.sourceChannel, messageId, text)
-    } catch {
-      // "not changed" errors are expected
+    } catch (err) {
+      if (!/not[_ ]modified|not[_ ]changed/i.test(errMsg(err))) throw err
     }
+  }
+
+  async deleteToolNotification(ref: ChannelRef, messageId: string): Promise<void> {
+    await this.client.chat.delete({ channel: ref.sourceChannel, ts: messageId })
   }
 
   async fetchAttachmentBytes(
