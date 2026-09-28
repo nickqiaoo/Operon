@@ -1,8 +1,23 @@
+import { defineCommand } from "../define.ts"
+import { ArgumentError, CommandExecutionError } from "../errors.ts"
+
+export interface RepositoryRow {
+  repo: string
+  description: string
+  language: string | null
+  stars: number
+  forks: number
+  starsSince: number
+  url: string
+}
+
+export interface TrendingRow extends RepositoryRow {
+  rank: number
+}
+
 /**
  * GitHub Trending repositories — OpenCLI `github-trending/repos.js` (public HTML).
  */
-
-import { defineCommand } from "../define.ts"
 
 const SINCE: Record<string, string> = {
   daily: "daily",
@@ -38,28 +53,28 @@ function escapeRegExp(value: string): string {
 
 function assertCount(value: unknown, field: string, repo: string): number {
   const count = parseCount(value)
-  if (count == null) throw new Error(`github.trending: missing ${field} for ${repo}`)
+  if (count == null) throw new CommandExecutionError(`github.trending: missing ${field} for ${repo}`)
   return count
 }
 
-function parseTrendingHtml(html: string, limit: number) {
+function parseTrendingHtml(html: string, limit: number): RepositoryRow[] {
   const blocks = Array.from(
     String(html ?? "").matchAll(/<article\b[^>]*class="[^"]*\bBox-row\b[^"]*"[^>]*>([\s\S]*?)<\/article>/g),
   ).map((m) => m[1]!)
-  const rows: Array<Record<string, unknown>> = []
+  const rows: RepositoryRow[] = []
   if (blocks.length === 0) {
     if (/don.t have any trending repositories/i.test(stripTags(html))
       || /no trending repositories/i.test(stripTags(html))) {
       return rows
     }
-    throw new Error("github.trending: no repository rows found (parser drift?)")
+    throw new CommandExecutionError("github.trending: no repository rows found (parser drift?)")
   }
   for (const block of blocks) {
     const nameMatch = block.match(/<h2\b[\s\S]*?href="\/([^"/?#]+\/[^"/?#]+)"/)
-    if (!nameMatch) throw new Error("github.trending: missing repository link")
+    if (!nameMatch) throw new CommandExecutionError("github.trending: missing repository link")
     const repo = decodeHtmlEntities(nameMatch[1]).trim()
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
-      throw new Error(`github.trending: invalid repo "${repo}"`)
+      throw new ArgumentError(`github.trending: invalid repo "${repo}"`)
     }
     const descMatch = block.match(/<p class="col-9 color-fg-muted[^"]*">([\s\S]*?)<\/p>/)
     const description = descMatch
@@ -95,21 +110,19 @@ export const trending = defineCommand({
   description: "GitHub Trending repositories (public, no login)",
   domain: "github.com",
   access: "read",
-  strategy: "public",
   browser: false,
   args: [
     { name: "since", default: "daily", help: "daily / weekly / monthly", choices: ["daily", "weekly", "monthly"] },
     { name: "language", default: "", help: 'Language slug e.g. python, rust, "c++"' },
     { name: "limit", type: "int", default: 25, help: "Max 25" },
   ],
-  columns: ["rank", "repo", "description", "language", "stars", "forks", "starsSince", "url"],
-  func: async (_page, args) => {
+  func: async (_page, args): Promise<TrendingRow[]> => {
     const sinceKey = String(args.since ?? "daily").toLowerCase()
     const since = SINCE[sinceKey]
-    if (!since) throw new Error(`github.trending: unknown since "${sinceKey}"`)
+    if (!since) throw new ArgumentError(`github.trending: unknown since "${sinceKey}"`)
     const n = Number(args.limit ?? 25)
     if (!Number.isInteger(n) || n <= 0 || n > 25) {
-      throw new Error("github.trending: limit must be 1..25")
+      throw new ArgumentError("github.trending: limit must be 1..25")
     }
     const language = String(args.language ?? "").trim()
     const path = language ? `/trending/${encodeURIComponent(language)}` : "/trending"
@@ -121,15 +134,13 @@ export const trending = defineCommand({
         Accept: "text/html",
       },
     })
-    if (!resp.ok) throw new Error(`github.trending: HTTP ${resp.status}`)
+    if (!resp.ok) throw new CommandExecutionError(`github.trending: HTTP ${resp.status}`)
     const html = await resp.text()
     const rows = parseTrendingHtml(html, n)
     if (rows.length === 0) {
-      throw new Error(
-        language
-          ? `github.trending: no repos for language "${language}" (${since})`
-          : `github.trending: no repos (${since})`,
-      )
+      throw new CommandExecutionError(language
+        ? `github.trending: no repos for language "${language}" (${since})`
+        : `github.trending: no repos (${since})`)
     }
     return rows.map((row, index) => ({ rank: index + 1, ...row }))
   },
