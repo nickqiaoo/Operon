@@ -45,6 +45,7 @@ import {
   type BrowserDocumentationContext,
 } from "./documentation.ts";
 import { CuaApi, DomCuaApi } from "./cua.ts";
+import { installSiteAdapterBridge } from "./adapter-bridge.ts";
 import {
   ensureFileTransferAllowed,
   ensureHistoryAllowed,
@@ -1872,6 +1873,9 @@ export interface Agent {
  */
 export async function setupBrowserRuntime(options: { globals: Record<string, unknown>; socketDir?: string }): Promise<Agent> {
   installBrowserResponseMetaHook();
+  // On the kernel realm only (this module's globalThis), never on
+  // `options.globals`, which is the model's sandbox.
+  installSiteAdapterBridge();
   const agent: Agent = {
     browsers: new Browsers(options.socketDir ?? backendSocketDir()),
     documentation: { get: readBrowserDocument },

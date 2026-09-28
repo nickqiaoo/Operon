@@ -16,6 +16,15 @@ describe('Browser Use auto review', () => {
     expect(shouldAutoReviewBrowserOrigin(request, '打开 https://www.bilibili.com 看一下')).toBe(true)
   })
 
+  it('knows Xiaohongshu by its Chinese name', () => {
+    const xhs = {
+      message: 'Allow Browser Use to access https://www.xiaohongshu.com?',
+      meta: { tool_name: 'access_browser_origin', origin: 'https://www.xiaohongshu.com' },
+    }
+    expect(shouldAutoReviewBrowserOrigin(xhs, '帮我提取这篇小红书笔记的字幕')).toBe(true)
+    expect(shouldAutoReviewBrowserOrigin(xhs, '不要打开小红书')).toBe(false)
+  })
+
   it('does not infer permission from a generic browsing request', () => {
     expect(shouldAutoReviewBrowserOrigin(request, '帮我找十个热门视频')).toBe(false)
   })

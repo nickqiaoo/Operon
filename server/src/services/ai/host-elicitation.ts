@@ -12,6 +12,7 @@ const ORIGIN_ALIASES: Record<string, string[]> = {
   'x.com': ['twitter', '推特'],
   'weibo.com': ['微博'],
   'zhihu.com': ['知乎'],
+  'xiaohongshu.com': ['小红书', 'xhs', 'rednote'],
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>

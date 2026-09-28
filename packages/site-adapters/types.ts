@@ -12,6 +12,8 @@ export interface SiteBrowserTab {
      */
     evaluate<T = unknown>(pageFunction: string | ((...args: never[]) => unknown)): Promise<T>
   }
+  url?(): Promise<string | undefined>
+  close?(): Promise<void>
 }
 
 export interface SiteBrowser {
@@ -28,13 +30,38 @@ export interface SiteBrowser {
 /** Page surface handed to `func` adapters (OpenCLI `page`). */
 export interface AdapterPage {
   goto(url: string): Promise<void>
+  /** Read-only: the browser client rejects clicks, POSTs and DOM writes here. */
   evaluate(source: string): Promise<unknown>
+  /**
+   * Unguarded main-world evaluate for scripts that click, type, submit or call
+   * a site's own (signed) request stack. Built-in adapters only; needs the
+   * privileged bridge the Operon browser runtime installs in the kernel realm.
+   */
+  evaluateWrite(source: string, options?: { timeoutMs?: number }): Promise<unknown>
+  /** Cookies for `url`'s host, httpOnly included, as a `Cookie` header value. Privileged. */
+  cookieHeader(url: string): Promise<string>
   fetchJson(
     url: string,
     options?: { method?: string; headers?: Record<string, string> },
   ): Promise<unknown>
   /** OpenCLI often uses seconds; values >= 100 are treated as milliseconds. */
-  wait(secondsOrMs: number): Promise<void>
+  wait(secondsOrMs: number | { time: number }): Promise<void>
+  /**
+   * Scroll to the bottom `times` times, pausing `delayMs` for lazy loads. The
+   * pause happens on the host, between evaluations, because a read-only script
+   * that awaits inside the page blocks the page's own DOM inserts meanwhile.
+   */
+  autoScroll(options?: { times?: number; delayMs?: number }): Promise<void>
+  /**
+   * Capture JSON responses whose URL contains `pattern`. Survives navigation,
+   * so install before `goto` to catch the first-screen requests.
+   */
+  installInterceptor(pattern: string): Promise<void>
+  /** Captured payloads since the last read (the buffer is cleared). */
+  getInterceptedRequests(): Promise<unknown[]>
+  url(): Promise<string>
+  /** Swap the command's tab for a fresh one at `url`, closing the old one. */
+  replaceTab(url: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -93,11 +120,22 @@ export interface PipelineCommandDefinition extends CommandMeta {
   func?: never
 }
 
+/** What a func gets besides its page and args. */
+export interface CommandContext {
+  /** Whether the caller passed a browser. */
+  hasBrowser: boolean
+  /**
+   * The command's tab, opened on first call. For `browser: false` commands
+   * that fall back to the browser only when the direct route fails.
+   */
+  openPage(): Promise<AdapterPage>
+}
+
 /** Imperative command with page + args (OpenCLI `func` adapters). */
 export interface FuncCommandDefinition extends CommandMeta {
   pipeline?: never
-  /** `page` is null for public browser:false commands. */
-  func: (page: AdapterPage | null, args: Record<string, unknown>) => Promise<unknown>
+  /** `page` is null for browser:false commands; they can use `ctx.openPage()`. */
+  func: (page: AdapterPage | null, args: Record<string, unknown>, ctx: CommandContext) => Promise<unknown>
 }
 
 export type CommandDefinition = PipelineCommandDefinition | FuncCommandDefinition

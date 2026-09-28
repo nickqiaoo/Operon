@@ -19,7 +19,8 @@
     "./arxiv": "./arxiv/index.ts",
     "./stackoverflow": "./stackoverflow/index.ts",
     "./bluesky": "./bluesky/index.ts",
-    "./producthunt": "./producthunt/index.ts"
+    "./producthunt": "./producthunt/index.ts",
+    "./xiaohongshu": "./xiaohongshu/index.ts"
   },
   "devDependencies": {
     "vitest": "^2.1.9"

@@ -13,10 +13,12 @@ export const OPERON_SITE_ADAPTERS_PATH_ENV = "OPERON_SITE_ADAPTERS_PATH"
 
 export { list, search, help, run, getCommand, commandId } from "./registry.ts"
 export { defineCommand } from "./define.ts"
+export { SiteAdapterError } from "./errors.ts"
 export type {
   AccessMode,
   ArgDef,
   BilibiliHotOptions,
+  CommandContext,
   CommandDefinition,
   CommandInfo,
   HotVideo,
@@ -41,3 +43,4 @@ export * as arxiv from "./arxiv/index.ts"
 export * as stackoverflow from "./stackoverflow/index.ts"
 export * as bluesky from "./bluesky/index.ts"
 export * as producthunt from "./producthunt/index.ts"
+export * as xiaohongshu from "./xiaohongshu/index.ts"

@@ -27,6 +27,7 @@ const valueFor = (site: string, name: string): unknown => {
   if (n === "url") {
     if (site === "twitter") return "https://x.com/sama/status/1234567890123456789"
     if (site === "youtube") return "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    if (site === "xiaohongshu") return "https://www.xiaohongshu.com/explore/64b8f0a1000000001f03a8c2?xsec_token=FAKE"
     return "https://example.com/"
   }
   if (/(query|keyword|q|search)/.test(n)) return "ai"
@@ -57,6 +58,7 @@ async function runInFakePage(id: string, argDefs: ReadonlyArray<{ name: string; 
     JSON, Math, Date, Object, Array, String, Number, Boolean, RegExp, Promise, Set, Map, Error,
     AbortController, setTimeout, clearTimeout, encodeURIComponent, decodeURIComponent, URL, URLSearchParams,
     console: { log: () => {} },
+    MutationObserver: class { observe() {} disconnect() {} },
     fetch: async (url: string, init?: { method?: string }) => {
       const method = String(init?.method ?? "GET").toUpperCase()
       requests.push(`${method} ${String(url)}`)
@@ -79,6 +81,15 @@ async function runInFakePage(id: string, argDefs: ReadonlyArray<{ name: string; 
     }
   }
   const browser = { tabs: { new: async () => ({ goto: async () => {}, playwright: { evaluate } }) } }
+  // The privileged channel built-in adapters use for scripts that click or
+  // wait inside the page. Same vm and same GET/HEAD check: none of the read
+  // commands has a reason to write through it.
+  ;(globalThis as Record<symbol, unknown>)[BRIDGE_KEY] = {
+    evaluate: (_tab: unknown, expression: string) => evaluate(expression),
+    addInitScript: async () => "init-1",
+    removeInitScript: async () => {},
+    getCookies: async () => [],
+  }
   const args: Record<string, unknown> = {}
   for (const a of argDefs) if (a.required) args[a.name] = valueFor(site, a.name)
   try {
@@ -90,6 +101,7 @@ async function runInFakePage(id: string, argDefs: ReadonlyArray<{ name: string; 
   return { requests, sources, evalErrors }
 }
 
+const BRIDGE_KEY = Symbol.for("operon.browser-use.site-adapter-bridge")
 const originalFetch = globalThis.fetch
 const browserCommands = sa.list().filter((c) => c.browser)
 
@@ -108,7 +120,10 @@ beforeAll(async () => {
     results.set(id, await runInFakePage(id, info.args ?? [], info.site))
   }
 }, 120_000)
-afterAll(() => { globalThis.fetch = originalFetch })
+afterAll(() => {
+  globalThis.fetch = originalFetch
+  delete (globalThis as Record<symbol, unknown>)[BRIDGE_KEY]
+})
 
 describe("browser-backed commands inject usable source", () => {
   it("covers every browser command", () => {
