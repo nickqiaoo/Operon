@@ -90,12 +90,15 @@ describe('installComputerUseSkill', () => {
     await installComputerUseSkill({ homeDir })
     const body = await readFile(path.join(homeDir, '.agents/skills/operon-computer-use/SKILL.md'), 'utf8')
 
-    expect(body).toContain('Do not emit or read a screenshot merely to maintain that preview')
-    expect(body).toContain('native Live preview (PiP)')
+    expect(body).toContain('Screenshots are not shown to you automatically')
     expect(body).toContain('nodeRepl.write(state.text)')
-    expect(body).toContain('pass true for disableDiff')
+    // cua-driver returns the whole tree every time; the old diff contract is gone.
+    expect(body).toContain('never a diff against an earlier call')
+    expect(body).not.toContain('pass true for disableDiff')
+    expect(body).not.toContain('Live preview (PiP)')
     // Rare fallback only — not the default monitoring path.
     expect(body).toContain('fileURLToPath(state.screenshot.url)')
+    expect(body).not.toContain('mimeType: "image/jpeg"')
   })
 })
 

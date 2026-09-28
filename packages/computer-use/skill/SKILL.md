@@ -12,6 +12,7 @@ description: Control local Mac apps through Operon Computer Use for tasks that r
 * Prefer a dedicated plugin or skill when it can complete the task; use Computer Use for app interactions that are not exposed through a more specific interface.
 * `node_repl` state is persistent across calls.
 * For text output, use `nodeRepl.write(...)`. `nodeRepl.write(...)` takes a string. If you would like to read a whole object, wrap it with `JSON.stringify(...)`.
+* **Work in the background; leave the user's foreground alone.** Every action — `click`, `type_text`, `press_key`, `hotkey`, `set_value`, `scroll` — is delivered straight to the target app's window, whether or not it is frontmost. The user keeps working in whatever app they have open while you do this, and raising a window takes it away from them. So never call `bring_to_front` as a warm-up before an action; that is not how this runtime works. Use it only as a last resort, when the target window really cannot be operated from the background — for example it is on another Space or minimized, so the tree comes back empty or with an `(offscreen)`/unresolved note, or an action has already failed because of it, and the fixes below (`set_window_frame`, scrolling, a fresh `get_app_state`) have not helped. Once the step that needed it is done, carry on in the background.
 
 ## Bootstrap
 
@@ -26,11 +27,11 @@ type Computer = {
   target: "mac";
   click: (args: { app: string, element_index?: number, x?: number, y?: number, mouse_button?: MouseButton, click_count?: number, action?: ClickAction }) => Promise<void>;
   drag: (args: { app: string, from_x: number, from_y: number, to_x: number, to_y: number }) => Promise<void>;
-  get_app_state: (args: { app: string, disableDiff?: boolean, query?: string, max_elements?: number, max_depth?: number }) => Promise<AppState>;
+  get_app_state: (args: { app: string, query?: string, max_elements?: number, max_depth?: number }) => Promise<AppState>;
   list_apps: () => Promise<Array<App>>;
   press_key: (args: { app: string, key: string }) => Promise<void>;
   scroll: (args: { app: string, element_index?: number, x?: number, y?: number, direction: Direction, pages?: number }) => Promise<void>;
-  bring_to_front: (args: { app: string }) => Promise<void>;
+  bring_to_front: (args: { app: string }) => Promise<void>;   // last resort only: takes the foreground from the user
   set_value: (args: { app: string, element_index: number, value: string }) => Promise<void>;
   type_text: (args: { app: string, text: string }) => Promise<void>;
 
@@ -103,7 +104,7 @@ nodeRepl.write(JSON.stringify(apps));
 
 After performing one or more UI actions, call `get_app_state(...)` before deciding what to do next. This keeps you in the current UI state and forces you to re-derive fresh `element_index` values from the latest accessibility text instead of reusing stale ones.
 
-For token efficiency, when appropriate, the accessibility tree will be returned as a diff from the most previous accessibility tree, listing only the elements that were removed, added, or changed. Prefer this default diff output; pass true for disableDiff only when you need a fresh full accessibility tree. If you disregard the text from a previous call to get_app_state, such as when you only emit the screenshot, get the full tree next time you inspect AX text.
+Each `get_app_state` returns the tree as it is now — the whole window, or with `query` just the matching rows — never a diff against an earlier call. So read each result on its own. The `disableDiff` argument is accepted for compatibility and has no effect; leave it out.
 
 ### 2. Actions using app
 
@@ -129,7 +130,7 @@ Notes:
 * Prefer `element_index`-based actions over coordinate actions. If AX actions or AX text are unavailable or behave unexpectedly, switch to screenshots, coordinate clicks, and key presses.
 * If the UI is not behaving as expected, try fetching the latest `get_app_state(...)` to make sure you have the latest context.
 * Prefer using accessibility text over screenshots for efficiency, but if the interface is not fully working or not providing enough context, make sure to fetch a screenshot to get more context. The accessibility interface may be incomplete in some applications, so a screenshot helps fully understand what's going on.
-* `click`'s `action` invokes an accessibility action instead of an ordinary press — expanding a disclosure row, showing a menu, confirming or cancelling. It needs `element_index`; an AX action goes to an element, not to a point. The six values in `ClickAction` are all the engine accepts, so there is nothing to guess. To raise a window without clicking in it, use `bring_to_front`.
+* `click`'s `action` invokes an accessibility action instead of an ordinary press — expanding a disclosure row, showing a menu, confirming or cancelling. It needs `element_index`; an AX action goes to an element, not to a point. The six values in `ClickAction` are all the engine accepts, so there is nothing to guess. `bring_to_front` raises a window, which takes the foreground away from the user — keep it for the last-resort case described at the top.
 * **There is no `select_text`.** To rewrite the contents of a field, read its current `value` from the tree, change the string, and write it back with `set_value` — one call, exact, and you can read the result back to check it. That is better than moving a caret about: the engine exposes no way to set a selection range, and no way to read one back either.
 * `press_key` presses a key or key combination, including modifier and navigation keys. `press_key.key` supports xdotool-style key syntax. Examples: `"a"`, `"Return"`, `"Tab"`, `"super+c"`, `"Up"`, and `"KP_0"` for numpad `0`.
 * `press_key` and `type_text` target the specified app, so they cannot invoke global shortcuts. For a chord such as ⌘C, use `hotkey({ app, keys: ["cmd", "c"] })`.
@@ -147,21 +148,22 @@ Notes:
 
 ## Reading screenshots
 
-Screenshot URLs are in `screenshot.url`, and in this environment they are always `file://` URLs. To read a screenshot:
+Screenshots are not shown to you automatically: you see the accessibility text, and a screenshot only once you emit it. Every `get_app_state` already takes one — including a call with `query` — and puts it in `screenshot.url`; in this environment these are always `file://` URLs. To look at it, emit that file:
 ```js
 var fs = await import("node:fs/promises");
 var { fileURLToPath } = await import("node:url");
 
-var state = await computer.get_app_state({ app: "com.google.Chrome" });
+var state = await computer.get_app_state({ app: "com.google.Chrome", query: "search" });
+nodeRepl.write(state.text);
 if (state.screenshot) {
-  await nodeRepl.emitImage({
-    bytes: await fs.readFile(fileURLToPath(state.screenshot.url)),
-    mimeType: "image/jpeg",
-  });
+  // No mimeType: emitImage reads the format from the file itself.
+  await nodeRepl.emitImage({ bytes: await fs.readFile(fileURLToPath(state.screenshot.url)) });
 }
 ```
 
-Operon shows the user an automatic native Live preview (PiP) beside the active conversation. Its remote surface is independent of `get_app_state` screenshot files. Do not emit or read a screenshot merely to maintain that preview; read and emit one only when the model needs visual context because accessibility text is incomplete.
+* Emit the screenshot of the call you just made. Do not call `get_app_state` a second time only to get a screenshot; the result already has one, and a second call walks the whole tree and captures the window again for nothing.
+* Do not pass a `mimeType` you have not checked. The file is usually PNG, and a wrong label can make the image fail to load.
+* Emit one only when the accessibility text is not enough to decide the next step — each image costs far more context than the text.
 
 # Computer Use Confirmations Policy
 This policy outlines when the model should request a user confirmation before taking a consequential Computer Use action.
