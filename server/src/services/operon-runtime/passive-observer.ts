@@ -1,16 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { createUIMessageStreamResponse, type UIMessage } from 'ai'
+import type { UIMessage } from 'ai'
 import type { AgentEvent, HarnessSession } from 'operon-agents'
 import { PEER_SOURCE } from 'operon-agents-peers'
-import type { RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
-import { preparedToUIChunks, runAgentTurn } from '../ai/agent-turn.js'
-import { createChatResponseHeaders } from '../ai/helpers.js'
-import { pumpToLiveTurn, startLiveTurn } from '../ai/live-turn-hub.js'
-import {
-  persistAssistantMessageWithRetry,
-  persistInjectedUserMessageWithRetry,
-} from '../ai/persistence.js'
-import { getChatHistoryService, getChatStorage, getNotificationStorage } from '../ai/state.js'
+import type { RuntimeStreamPart } from '@operon/agent-runtime'
+import { replySnippet, runDetachedTurn } from '../ai/detached-turn.js'
+import { persistInjectedUserMessageWithRetry } from '../ai/persistence.js'
+import { getChatStorage, getNotificationStorage } from '../ai/state.js'
 import { notify } from '../notification-service.js'
 import { OperonStreamMapper } from './message-mapper.js'
 import { PartQueue } from './part-queue.js'
@@ -174,63 +169,17 @@ async function runPassiveTurn(session: HarnessSession, run: ActiveRun, options: 
     return
   }
 
-  const passive: RuntimeSession = {
-    stream: async function* () {
-      for await (const part of run.queue) yield part
+  const message = await runDetachedTurn(
+    {
+      chatId: chat.chatId,
+      modelId: chat.model,
+      providerId: 'custom',
+      sessionId: session.id,
+      logTag: 'operon.peers',
     },
-    abort: () => undefined,
-    dispose: async () => undefined,
-    resolvePermission: () => false,
-  }
-
-  const assistantMessageId = randomUUID()
-  // The SDK masks stream errors behind a generic notice and drops them from the assembled
-  // message; a teammate whose model call failed would show as an empty bubble. Keep the text.
-  let streamError: string | undefined
-  const { preparedParts, done } = runAgentTurn(passive, {
-    requestId: randomUUID(),
-    messages: [],
-    signal: new AbortController().signal,
-    assistantMessageId,
-    originalMessages: [],
-    onPart: (part) => {
-      if (part.type === 'error') {
-        const error = (part as { error?: unknown }).error
-        streamError = error instanceof Error ? error.message : String(error ?? 'stream error')
-      }
-    },
-  })
-
-  // Same wire format as `handleChat`: an open tab attaches to the live turn and the AI
-  // SDK rebuilds the assistant message from the replayed chunks.
-  try {
-    const response = createUIMessageStreamResponse({
-      stream: preparedToUIChunks(preparedParts, assistantMessageId, []),
-    })
-    const headers = createChatResponseHeaders(response.headers, chat.chatId)
-    const turn = startLiveTurn(chat.chatId, headersToRecord(headers))
-    if (response.body) void pumpToLiveTurn(response.body, turn)
-    else turn.finish()
-  } catch (error) {
-    console.warn('[operon.peers] live turn tee failed:', error instanceof Error ? error.message : String(error))
-  }
-
-  const { message } = await done
-  const hasContent = message.parts.some((p) => p.type !== 'step-start')
-  if (!hasContent && !streamError) return
-  const toPersist: UIMessage = hasContent
-    ? message
-    : { ...message, parts: [...message.parts, { type: 'text', text: `Error: ${streamError}` }] }
-  if (streamError) console.warn(`[operon.peers] passive turn on chat ${chat.chatId} (session ${session.id}) failed: ${streamError}`)
-  const meta = getChatHistoryService()?.getChatMeta(chat.chatId)
-  await persistAssistantMessageWithRetry({
-    chatId: chat.chatId,
-    baseRevision: meta?.revision ?? 0,
-    assistantMessage: toPersist,
-    modelId: chat.model,
-    providerId: 'custom',
-    sessionId: session.id,
-  })
+    run.queue,
+  )
+  if (!message) return
 
   if (options.notifyOnTurnEnd) {
     const storage = getNotificationStorage()
@@ -242,27 +191,10 @@ async function runPassiveTurn(session: HarnessSession, run: ActiveRun, options: 
         chatId: chat.chatId,
         workspaceId: chat.workspaceId ?? null,
         title: chat.title?.trim() || 'Workspace chat',
-        body: snippet(message) ?? 'A teammate reported back',
+        body: replySnippet(message) ?? 'A teammate reported back',
       })
     }
   }
-}
-
-function headersToRecord(headers: Headers): Record<string, string> {
-  const out: Record<string, string> = {}
-  headers.forEach((value, key) => {
-    out[key] = value
-  })
-  return out
-}
-
-function snippet(message: UIMessage): string | undefined {
-  const text = message.parts
-    .map((p) => (p.type === 'text' ? p.text : ''))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return text ? text.slice(0, 140) : undefined
 }
 
 function userUiMessage(text: string, peerFrom?: string): UIMessage {
