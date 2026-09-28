@@ -50,54 +50,21 @@ if (globalThis.siteAdapters == null) {
 Every Chrome function takes `browser: globalThis.chrome`. Do **not** shell out
 to `opencli` or curl logged-in APIs from the host.
 
-## Xiaohongshu (小红书)
+## Before using a site
 
-Note URLs must carry `xsec_token`: use the link the user shared, or the `url`
-field from `search` / `userNotes` / `feed`. `xhslink.com` short links work too.
+Read its guide first for input formats, which function fits the task, and pitfalls:
 
 ```js
-const xhs = siteAdapters.xiaohongshu;
-
-// Text + video transcript. No Chrome needed, returns in a few seconds.
-const note = await xhs.getNote({ url });
-// → { id, title, text, type: "video"|"normal", author, tags, likes, collects,
-//     comments, shares, publishedAt,
-//     subtitles: { language, kind: "source"|"translation", text, cues: [{ start, end, text }] } | null,
-//     subtitleTracks: [{ language, kind, url }], media: [{ type, url, fallbacks? }],
-//     source: "direct"|"browser", timings, warnings? }
-
-// Other subtitle language (machine translation), or skip subtitles:
-await xhs.getNote({ url, subtitles: "en-US" });
-await xhs.getNote({ url, subtitles: "none" });
-
-// Private / login-only notes: pass Chrome as a fallback for when the direct read fails.
-await xhs.getNote({ url, browser: globalThis.chrome });
-
-// Save the video / images only when the user asks for files.
-const saved = await xhs.downloadMedia({ note, types: "video" });
-// → { outputDir, complete, files: [{ type, path?, size?, error? }] }
-// complete: false → call downloadMedia again with the same note; finished files are skipped.
-
-// These need Chrome (logged in to xiaohongshu.com):
-const browser = globalThis.chrome;
-await xhs.search({ query: "露营装备", limit: 20, sort: "mostLiked", noteType: "video", browser });
-await xhs.getComments({ url, limit: 20, withReplies: true, browser });
-await xhs.userNotes({ user: "<user id or profile URL>", limit: 30, browser });
-await xhs.feed({ limit: 20, browser });
+nodeRepl.write(siteAdapters.guide("xiaohongshu"));
 ```
 
-- `subtitles.text` is the transcript: what is said in the video. `text` is the
-  caption the author wrote. Image notes have no subtitles (`subtitles: null`).
-- `search` options: `sort` general | latest | mostLiked | mostCommented | mostCollected;
-  `noteType` all | video | image; `publishTime` any | day | week | halfYear.
-- Xiaohongshu rate-limits note reads. Read only the notes the task needs; don't
-  loop `getNote` over a whole result list. A `SECURITY_BLOCK` error means stop
-  and tell the user to wait, not retry.
-
-## Other sites — what to call
+## What to call
 
 | Task | Call | Chrome |
 |------|------|--------|
+| Xiaohongshu captions / video transcripts | `xiaohongshu.getNote({url})` | no (optional fallback) |
+| Xiaohongshu search / comments / author / feed | `xiaohongshu.search({query})` `xiaohongshu.getComments({url})` `xiaohongshu.userNotes({user})` `xiaohongshu.feed()` | yes |
+| Xiaohongshu save requested media | `xiaohongshu.downloadMedia({note})` | no |
 | Bilibili hot / ranking | `bilibili.hot({limit})` `bilibili.ranking({limit})` | yes |
 | Bilibili search, a video, an uploader's videos | `bilibili.search({query})` `bilibili.video({bvid})` `bilibili.userVideos({uid})` | yes |
 | Bilibili my history / following feed | `bilibili.history()` `bilibili.dynamic()` `bilibili.feed()` `bilibili.following()` `bilibili.me()` | yes |
@@ -129,7 +96,7 @@ nodeRepl.write(JSON.stringify(siteAdapters.list(), null, 2));
 
 ## Errors
 
-Errors from the newer adapters carry a `code`:
+Adapter errors carry a `code`:
 
 | code | Meaning | Do |
 |------|---------|----|
@@ -137,6 +104,8 @@ Errors from the newer adapters carry a `code`:
 | `SECURITY_BLOCK` | The site's risk control kicked in | Stop; tell the user to wait. Retrying makes it worse |
 | `EMPTY_RESULT` | Legitimately nothing there | Report it; not a failure |
 | `ARGUMENT` | Bad input (e.g. a note URL without `xsec_token`) | Fix the input |
+| `COMMAND_EXEC` | Request or payload failed | Report the failure; consult the site guide |
+| `TIMEOUT` | The site did not finish in time | Report it; consult the site guide |
 
 Write actions (like, follow, post, delete) are not available.
 

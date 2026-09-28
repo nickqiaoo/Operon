@@ -1,3 +1,4 @@
+import { ArgumentError } from "../errors.ts"
 import type { ArgDef } from "../types.ts"
 
 /**
@@ -14,12 +15,12 @@ export function resolveArgs(
     let value = options[def.name]
     if (value === undefined) value = def.default
     if ((value === undefined || value === null) && def.required) {
-      throw new Error(`${commandId}: missing required arg "${def.name}"`)
+      throw new ArgumentError(`${commandId}: missing required arg "${def.name}"`)
     }
     if (value === undefined) continue
 
     if (def.choices && !def.choices.includes(String(value))) {
-      throw new Error(
+      throw new ArgumentError(
         `${commandId}: arg "${def.name}" must be one of ${def.choices.join(", ")}, got ${JSON.stringify(value)}`,
       )
     }
@@ -27,7 +28,7 @@ export function resolveArgs(
     if (def.type === "int") {
       const n = typeof value === "number" ? value : Number(value)
       if (!Number.isFinite(n) || !Number.isInteger(n)) {
-        throw new Error(`${commandId}: arg "${def.name}" must be an integer, got ${JSON.stringify(value)}`)
+        throw new ArgumentError(`${commandId}: arg "${def.name}" must be an integer, got ${JSON.stringify(value)}`)
       }
       out[def.name] = n
       continue
@@ -36,7 +37,7 @@ export function resolveArgs(
       if (typeof value === "boolean") out[def.name] = value
       else if (value === "true" || value === 1) out[def.name] = true
       else if (value === "false" || value === 0) out[def.name] = false
-      else throw new Error(`${commandId}: arg "${def.name}" must be a boolean`)
+      else throw new ArgumentError(`${commandId}: arg "${def.name}" must be a boolean`)
       continue
     }
     out[def.name] = value

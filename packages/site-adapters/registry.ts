@@ -1,7 +1,7 @@
 import type { CommandDefinition, CommandInfo, InvokeOptions } from "./types.ts"
 
-export type CommandRunner = ((options: InvokeOptions) => Promise<unknown>) & {
-  definition: CommandDefinition
+export type CommandRunner<Result = unknown> = ((options?: InvokeOptions) => Promise<Result>) & {
+  definition: CommandDefinition<Result>
 }
 
 const commands = new Map<string, CommandRunner>()
@@ -23,7 +23,7 @@ export function commandId(site: string, name: string): string {
   return `${site}.${name}`
 }
 
-export function registerCommand(runner: CommandRunner): CommandRunner {
+export function registerCommand<Result>(runner: CommandRunner<Result>): CommandRunner<Result> {
   const id = commandId(runner.definition.site, runner.definition.name)
   commands.set(id, runner)
   return runner

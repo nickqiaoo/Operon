@@ -1,10 +1,11 @@
+import { defineCommand } from "../define.ts"
 import { registerGuide } from "../registry.ts"
+import { hostFetchJson } from "../runtime/page.ts"
+import { isRecord, requireRows } from "../runtime/values.ts"
 import { GUIDE } from "./guide.ts"
 
 registerGuide("v2ex", GUIDE)
 
-import { hostFetchJson } from "../runtime/page.ts"
-import { isRecord, requireRows } from "../runtime/values.ts"
 export interface V2exHotRow {
   id: number | undefined
   rank: number
@@ -64,8 +65,6 @@ export interface V2exUserRow {
   replies: number | undefined
   url: string | undefined
 }
-
-import { defineCommand } from "../define.ts"
 
 export const hot = defineCommand({
   site: "v2ex",

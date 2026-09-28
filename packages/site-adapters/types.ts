@@ -1,3 +1,5 @@
+
+
 /**
  * Minimal duck types for the browser client + command definitions.
  * Keep this loose: adapters only need tabs + evaluate, not the full surface.
@@ -66,29 +68,15 @@ export interface AdapterPage {
 }
 
 export type AccessMode = "read" | "write"
-export type Strategy = "public" | "cookie" | "ui" | "intercept"
 
 export interface ArgDef {
   name: string
   type?: "string" | "int" | "bool"
   required?: boolean
-  /** Positional in CLI help; ignored for JS call style. */
-  /** @deprecated Removed after migration. */
-  positional?: boolean
   default?: unknown
   help?: string
   choices?: string[]
 }
-
-export type PipelineStep =
-  | { navigate: string | { url: string } }
-  | { evaluate: string }
-  | { fetch: string | { url: string; method?: string; params?: Record<string, unknown>; headers?: Record<string, unknown> } }
-  | { map: Record<string, unknown> }
-  | { filter: string }
-  | { limit: unknown }
-  | { sort: string | { by: string; order?: "asc" | "desc" } }
-  | { select: string }
 
 export interface CommandMeta {
   site: string
@@ -96,16 +84,12 @@ export interface CommandMeta {
   description: string
   access?: AccessMode
   domain?: string
-  /** @deprecated Removed after migration. */
-  strategy?: Strategy
   /**
    * When false, runs without a browser tab (host-side fetch).
-   * Default true for cookie/ui; false is typical for public JSON APIs.
+   * Set true when the function needs the caller's Chrome session.
    */
   browser: boolean
   args?: ArgDef[]
-  /** @deprecated Removed after migration. */
-  columns?: string[]
   /**
    * Extra search terms for `search()`, beyond the id and description.
    *
@@ -115,12 +99,6 @@ export interface CommandMeta {
    * the hot-feed commands.
    */
   keywords?: string[]
-}
-
-/** Declarative OpenCLI-style pipeline command. */
-export interface PipelineCommandDefinition extends CommandMeta {
-  pipeline: PipelineStep[]
-  func?: never
 }
 
 /** What a func gets besides its page and args. */
@@ -134,14 +112,11 @@ export interface CommandContext {
   openPage(): Promise<AdapterPage>
 }
 
-/** Imperative command with page + args (OpenCLI `func` adapters). */
-export interface FuncCommandDefinition extends CommandMeta {
-  pipeline?: never
-  /** `page` is null for browser:false commands; they can use `ctx.openPage()`. */
-  func: (page: AdapterPage | null, args: Record<string, unknown>, ctx: CommandContext) => Promise<unknown>
+/** A TypeScript function with its discovery and argument metadata. */
+export interface CommandDefinition<Result = unknown> extends CommandMeta {
+  /** page is null for browser:false commands; they can use ctx.openPage(). */
+  func: (page: AdapterPage | null, args: Record<string, unknown>, ctx: CommandContext) => Promise<Result>
 }
-
-export type CommandDefinition = PipelineCommandDefinition | FuncCommandDefinition
 
 export interface InvokeOptions {
   /** Required when the command needs a browser session. */
