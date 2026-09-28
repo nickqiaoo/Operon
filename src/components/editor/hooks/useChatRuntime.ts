@@ -354,9 +354,17 @@ export function useChatRuntime({
   // only against a fresh assistant slot. A transient reconnect still holds the
   // partial assistant message in memory, and the SDK would append the replayed
   // parts onto it (text-start always pushes a new part), doubling the content. So
-  // drop the trailing in-progress assistant message first, then resume; the replay
-  // rebuilds it cleanly. If the buffer is already gone the resume yields nothing
-  // (204) and we restore the persisted message from chat history.
+  // after a drop, remove the trailing in-progress assistant message first, then
+  // resume; the replay rebuilds it cleanly. If the buffer is already gone the
+  // resume yields nothing (204) and we restore the persisted message from chat
+  // history.
+  //
+  // Joining a turn this surface never streamed is different: the trailing
+  // assistant message is a finished reply, and the live turn is a NEW message —
+  // another surface's turn, or one the agent started on its own (Claude Code
+  // answering a background agent). Removing it would make that reply vanish
+  // until the next history load; the resumed message has its own id, so the SDK
+  // appends it after.
   const reloadHistoryFromServer = useCallback(async () => {
     const id = dbChatIdRef.current
     if (id === undefined) return
@@ -373,17 +381,19 @@ export function useChatRuntime({
     }
   }, [setMessages]) // dbChatIdRef is a stable ref
 
-  const runResume = useCallback(async () => {
+  const runResume = useCallback(async ({ dropPartial }: { dropPartial: boolean }) => {
     if (resumingRef.current) return
     if (dbChatIdRef.current === undefined) return
     if (statusRef.current === 'submitted' || statusRef.current === 'streaming') return
     resumingRef.current = true
     pendingResumeRef.current = false // this attempt consumes the pending flag
     try {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        return last?.role === 'assistant' ? prev.slice(0, -1) : prev
-      })
+      if (dropPartial) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          return last?.role === 'assistant' ? prev.slice(0, -1) : prev
+        })
+      }
       resumeSettledRef.current = false
       await resumeStream()
       // onFinish flips resumeSettledRef when a stream was actually processed; if it
@@ -406,7 +416,7 @@ export function useChatRuntime({
       if (document.visibilityState === 'hidden') return
       if (!pendingResumeRef.current) return
       pendingResumeRef.current = false
-      void runResume()
+      void runResume({ dropPartial: true })
     }
     window.addEventListener('online', onWake)
     document.addEventListener('visibilitychange', onWake)
@@ -434,7 +444,7 @@ export function useChatRuntime({
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     foregroundResumedRef.current = true
-    const timer = setTimeout(() => { void runResume() }, 600)
+    const timer = setTimeout(() => { void runResume({ dropPartial: true }) }, 600)
     return () => clearTimeout(timer)
   }, [status, chatError, runResume])
 
@@ -469,7 +479,7 @@ export function useChatRuntime({
     attachTargetTurnRef.current = turnId ?? null
     const task = (async () => {
       if (refreshHistory) await reloadHistoryFromServer()
-      await runResume()
+      await runResume({ dropPartial: false })
     })()
     const clearTask = (): void => {
       if (attachInFlightRef.current !== task) return
