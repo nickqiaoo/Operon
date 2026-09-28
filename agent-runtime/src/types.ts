@@ -323,6 +323,38 @@ export type SessionDisposeReason = 'discard' | 'rebuild'
 /** A provider rejected injection before enqueueing or sending anything. Safe to retry later. */
 export class RuntimeInjectionUnavailableError extends Error {}
 
+/**
+ * A sub-agent the session left running in the background (Claude Code's
+ * `Agent` with `run_in_background`). Keyed for the UI by `toolUseId` — the
+ * spawning tool call, which is the card it renders under.
+ */
+export interface RuntimeBackgroundTask {
+  /** The provider's task id; for Claude Code this is also the sub-agent's transcript id. */
+  taskId: string
+  toolUseId: string
+  description: string
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  /** Tool calls the sub-agent has made so far. */
+  toolUses?: number
+  lastToolName?: string
+  /** A one-line progress summary while running; the final report once finished. */
+  summary?: string
+  startedAt: number
+  endedAt?: number
+}
+
+/**
+ * What a session does while no `stream()` call is open.
+ *
+ * `tasks` is a level signal: the session's whole background-task list after any
+ * change, never a delta. `turn` is a reply the agent started on its own — Claude
+ * Code answers a finished background agent without being asked — handed over as
+ * the same parts a `stream()` would yield, ending when the reply does.
+ */
+export type RuntimeBackgroundEvent =
+  | { type: 'tasks'; tasks: RuntimeBackgroundTask[] }
+  | { type: 'turn'; parts: AsyncIterable<RuntimeStreamPart> }
+
 export interface RuntimeSession {
   stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart>
   abort(): void
@@ -362,6 +394,11 @@ export interface RuntimeSession {
    * on the Operon agent).
    */
   agentControl?(method: string, params: unknown): Promise<unknown>
+  /**
+   * Receive what the session does between turns (see `RuntimeBackgroundEvent`).
+   * Without a listener a provider drops that output, as it always has.
+   */
+  onBackground?(listener: (event: RuntimeBackgroundEvent) => void): void
 }
 
 export interface RuntimeProviderFactory {

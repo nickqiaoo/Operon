@@ -18,6 +18,11 @@ export {
   disposeClaudeUsageProbe,
 } from './providers/claude/usage-probe.js'
 export {
+  readClaudeSubagentTranscript,
+  type ClaudeSubagentStep,
+  type ClaudeSubagentTranscript,
+} from './providers/claude/subagent-transcript.js'
+export {
   getCodexAccountUsage,
   disposeCodexUsageProbe,
 } from './providers/codex/usage-probe.js'

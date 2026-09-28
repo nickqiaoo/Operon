@@ -76,6 +76,7 @@ import { useClaudeUsagePolling } from './hooks/useClaudeUsagePolling';
 import { useCacheExpiryNotice } from './hooks/useCacheExpiryNotice';
 import { useChatSessionControls } from './hooks/useChatSessionControls';
 import { MessagesList } from './components/MessagesList';
+import { ChatDbIdContext } from './components/chat-db-id-context';
 import type { TurnDiffFile } from './components/TurnDiffCard';
 import { ChatInputArea } from './components/ChatInputArea';
 import { SteerTray } from './components/SteerTray';
@@ -982,6 +983,7 @@ function ChatPanelContent({
           {messages.length === 0 ? (
             historyDbChatId && !historyLoaded ? null : null
           ) : (
+            <ChatDbIdContext.Provider value={dbChatId}>
             <MessagesList
               messages={messages}
               status={status}
@@ -999,6 +1001,7 @@ function ChatPanelContent({
               onReviewTurn={tab?.options?.autoRun ? undefined : handleReviewTurn}
               externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
             />
+            </ChatDbIdContext.Provider>
           )}
           <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} />
         </ConversationContent>

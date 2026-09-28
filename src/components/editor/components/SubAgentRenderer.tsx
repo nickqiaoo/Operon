@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl';
 import {
   BotIcon,
@@ -37,6 +37,10 @@ import { cn } from '@/lib/utils';
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
 import { extractPermissionOptions, type PermissionOutcome } from './permission-utils';
+import type { SubagentTranscript } from '@shared/background-tasks';
+import { api } from '@/lib/api';
+import { useBackgroundTask } from '@/stores/chat-background-task-store';
+import { useChatDbId } from './chat-db-id-context';
 
 export type ToolInvocationPart = ToolPartLike & {
   state?: string;
@@ -245,6 +249,36 @@ function ChildToolDetail({ child }: { child: ToolInvocationPart }) {
   );
 }
 
+/**
+ * A background sub-agent's steps, read from its transcript. Its steps never reach
+ * the chat's messages — it keeps working after the turn that launched it has
+ * ended — so this is the card's only source for them. Re-read whenever
+ * `refreshKey` changes (the agent made another call, or finished).
+ */
+function useSubagentTranscript(
+  chatId: number | undefined,
+  toolUseId: string | undefined,
+  enabled: boolean,
+  refreshKey: string,
+): SubagentTranscript | undefined {
+  const [transcript, setTranscript] = useState<SubagentTranscript>();
+  useEffect(() => {
+    if (!enabled || chatId == null || !toolUseId) return;
+    let cancelled = false;
+    api.aiSubagentTranscript(chatId, toolUseId)
+      .then((result) => {
+        if (!cancelled && !result.error) setTranscript({ steps: result.steps, finished: result.finished });
+      })
+      .catch(() => {
+        // Not written yet, or the server is gone; the next refresh tries again.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, toolUseId, enabled, refreshKey]);
+  return transcript;
+}
+
 export function SubAgentRenderer({
   toolPart,
   childParts,
@@ -253,20 +287,59 @@ export function SubAgentRenderer({
   onPermissionDecide,
 }: SubAgentRendererProps) {
   const intl = useIntl();
+  const chatId = useChatDbId();
   const parentState = normalizeToolState(toolPart.state);
   const title = getTaskDescription(toolPart, intl);
-  const isStreaming =
-    parentState === 'input-streaming' || parentState === 'input-available';
-  const isDone = parentState === 'output-available';
-  const isError = parentState === 'output-error' || parentState === 'output-denied';
+
+  // A background agent's tool call returns the moment it launches, so the call's
+  // own state says "done" while the agent is still working. Its real status comes
+  // from the server's task list, or — after a restart, when that is gone — from
+  // whether its transcript ends in a final report.
+  const rawInput = (toolPart.args || toolPart.input || {}) as { run_in_background?: unknown };
+  const task = useBackgroundTask(chatId, toolPart.toolCallId);
+  const isBackground = rawInput.run_in_background === true || task != null;
+
+  const [userOpen, setUserOpen] = useState(false);
+  const transcript = useSubagentTranscript(
+    chatId,
+    toolPart.toolCallId,
+    // Collapsed with a live task, the header has all it needs; otherwise read
+    // once for the step count and whether it finished.
+    isBackground && (userOpen || task == null),
+    `${task?.status ?? ''}:${task?.toolUses ?? ''}`,
+  );
+
+  const steps: ToolInvocationPart[] =
+    isBackground && transcript
+      ? transcript.steps.map((step) => ({ type: 'dynamic-tool', ...step }))
+      : childParts;
+
+  // Without a task entry the process that ran it is gone (restart, session
+  // rebuilt), so it is not running any more: finished if it wrote its report,
+  // otherwise it was cut off and shows neither done nor failed.
+  const backgroundRunning = task?.status === 'running';
+  const isStreaming = isBackground
+    ? backgroundRunning
+    : parentState === 'input-streaming' || parentState === 'input-available';
+  const isDone = isBackground
+    ? task
+      ? task.status === 'completed'
+      : transcript?.finished === true
+    : parentState === 'output-available';
+  const isError =
+    parentState === 'output-error' ||
+    parentState === 'output-denied' ||
+    task?.status === 'failed' ||
+    task?.status === 'stopped';
+  const stepCount = isBackground ? Math.max(task?.toolUses ?? 0, steps.length) : steps.length;
+  const progress = backgroundRunning ? task?.summary : undefined;
 
   // A nested step waiting for permission is rendered inside the collapsible, so a
   // collapsed card would hide it. Force the card open while any child is
   // `approval-requested`; otherwise honor the user's manual open/close choice.
-  const hasPendingApproval = childParts.some(
+  const hasPendingApproval = steps.some(
     (child) => normalizeToolState(child.state) === 'approval-requested',
   );
-  const [userOpen, setUserOpen] = useState(false);
   const open = userOpen || hasPendingApproval;
 
   return (
@@ -286,10 +359,18 @@ export function SubAgentRenderer({
           )} />
           <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-xs"><FormattedMessage id="editor.subagent.agentBadge" defaultMessage="Agent" /></span>
           <p className="text-sm">{title}</p>
-          {childParts.length > 0 && (
-            <span className="text-xs text-muted-foreground/60">
-              <FormattedMessage id="editor.subagent.steps" defaultMessage="{count, plural, one {# step} other {# steps}}" values={{ count: childParts.length }} />
+          {stepCount > 0 && (
+            <span className="shrink-0 text-xs text-muted-foreground/60">
+              <FormattedMessage id="editor.subagent.steps" defaultMessage="{count, plural, one {# step} other {# steps}}" values={{ count: stepCount }} />
             </span>
+          )}
+          {isBackground && (
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              <FormattedMessage id="editor.subagent.background" defaultMessage="Background" />
+            </span>
+          )}
+          {progress && (
+            <span className="min-w-0 truncate text-xs text-muted-foreground/60">{progress}</span>
           )}
           {hasPendingApproval && (
             <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 text-xs dark:bg-amber-500/15 dark:text-amber-400">
@@ -301,13 +382,13 @@ export function SubAgentRenderer({
         </div>
       </CollapsibleTrigger>
       <TaskContent>
-        {childParts.length === 0 && isStreaming && (
+        {steps.length === 0 && isStreaming && (
           <TaskItem className="flex items-center gap-2">
             <LoaderIcon className="size-3.5 animate-spin" />
             <span><FormattedMessage id="editor.subagent.starting" defaultMessage="Starting..." /></span>
           </TaskItem>
         )}
-        <SubAgentChildList childParts={childParts} onPermissionDecide={onPermissionDecide} />
+        <SubAgentChildList childParts={steps} onPermissionDecide={onPermissionDecide} />
       </TaskContent>
     </Task>
   );

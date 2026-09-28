@@ -19,6 +19,8 @@ export {
   type PendingApproval,
   type PendingInputSummary,
 } from './ai/chat-pending-input.js'
+export { listChatBackgroundTasks, subscribeBackgroundTasks } from './ai/chat-background-tasks.js'
+export { getSubagentTranscript } from './ai/background-events.js'
 
 // Rewind / Checkpoints
 export { rewindToCheckpoint, undoRewind, listCheckpoints, getTurnDiffs, getTurnFileDiffs } from './ai/rewind.js'

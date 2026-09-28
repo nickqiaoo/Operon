@@ -748,6 +748,7 @@
   "editor.subagent.agentBadge": "Agent",
   "editor.subagent.steps": "{count, plural, other {# 步}}",
   "editor.subagent.starting": "启动中…",
+  "editor.subagent.background": "后台",
   "editor.diff.before": "修改前",
   "editor.diff.after": "修改后",
   "editor.diff.cannotGenerate": "无法生成差异预览",

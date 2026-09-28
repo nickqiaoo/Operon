@@ -331,23 +331,23 @@ export function MessagePartRenderer({
     // Render Agent tool — all providers (CC, OpenCode, operon/custom, …) nest their
     // sub-agent tool steps into the main stream as child parts (bound via
     // providerMetadata.operon.parentToolCallId), rendered inline by SubAgentRenderer.
+    // Also with no child parts yet: a background agent's steps arrive after its turn
+    // has ended, and the card reads them itself.
     if (toolName === 'Agent') {
-      if (childParts) {
-        return (
-          <SubAgentRenderer
-            toolPart={toolPart}
-            childParts={childParts.map((cp) => {
-              if (cp.type === 'tool-invocation' && 'toolInvocation' in cp) {
-                return (cp as unknown as { toolInvocation: ToolPartLike }).toolInvocation;
-              }
-              return cp as unknown as ToolPartLike;
-            })}
-            messageId={message.id}
-            partIndex={partIndex}
-            onPermissionDecide={onPermissionDecide}
-          />
-        );
-      }
+      return (
+        <SubAgentRenderer
+          toolPart={toolPart}
+          childParts={(childParts ?? []).map((cp) => {
+            if (cp.type === 'tool-invocation' && 'toolInvocation' in cp) {
+              return (cp as unknown as { toolInvocation: ToolPartLike }).toolInvocation;
+            }
+            return cp as unknown as ToolPartLike;
+          })}
+          messageId={message.id}
+          partIndex={partIndex}
+          onPermissionDecide={onPermissionDecide}
+        />
+      );
     }
 
     // Render Gemini subagent progress — reuse SubAgentRenderer with converted data

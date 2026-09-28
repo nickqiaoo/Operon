@@ -5,6 +5,7 @@ import type {
   DynamicSetPayload,
   PermissionDecision,
   ProviderInfo,
+  RuntimeBackgroundEvent,
   RuntimeProviderFactory,
   RuntimeSession,
   RuntimeSessionParams,
@@ -96,6 +97,7 @@ export class SessionManager {
   private externalPermissionResolver:
     | ((chatId: number, approvalId: string, decision: PermissionDecision) => boolean)
     | null = null
+  private backgroundHandler: ((chatId: number, event: RuntimeBackgroundEvent) => void) | null = null
 
   register(providerId: string, create: () => RuntimeProviderFactory, info: ProviderInfo): void {
     this.providers.set(providerId, { create, info })
@@ -130,6 +132,15 @@ export class SessionManager {
     resolver: (chatId: number, approvalId: string, decision: PermissionDecision) => boolean,
   ): void {
     this.externalPermissionResolver = resolver
+  }
+
+  /**
+   * Route what sessions do between turns — background sub-agents, replies the
+   * agent starts on its own — to the host, tagged with the chat they belong to.
+   * Applies to sessions created after the call.
+   */
+  setBackgroundHandler(handler: (chatId: number, event: RuntimeBackgroundEvent) => void): void {
+    this.backgroundHandler = handler
   }
 
   *findByProvider(providerId: string): Iterable<SessionRecord> {
@@ -184,6 +195,11 @@ export class SessionManager {
       activeRequest: null,
     }
     this.sessions.set(chatId, record)
+    runtime.onBackground?.((event) => {
+      // A rebuilt session's stragglers must not overwrite what its successor reports.
+      if (this.sessions.get(chatId)?.runtime !== runtime) return
+      this.backgroundHandler?.(chatId, event)
+    })
     return record
   }
 
@@ -287,6 +303,8 @@ export class SessionManager {
     }
     await session.runtime.dispose(reason)
     this.sessions.delete(chatId)
+    // The process that ran them is gone, and its background agents with it.
+    this.backgroundHandler?.(chatId, { type: 'tasks', tasks: [] })
   }
 
   async destroyAll(): Promise<void> {

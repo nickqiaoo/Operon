@@ -380,6 +380,11 @@ export class ClaudeTextStreamBuilder {
     return result
   }
 
+  /** Whether this turn has seen the tool call — i.e. whether its sub-agent steps belong here. */
+  hasTool(toolId: string): boolean {
+    return this.toolStates.has(toolId)
+  }
+
   private ensureToolState(toolId: string, toolName: string, parentToolCallId?: string | null): ToolStreamState {
     let state = this.toolStates.get(toolId)
     if (!state) {

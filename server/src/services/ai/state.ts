@@ -7,6 +7,7 @@ import { ChatHistoryService } from '../chat-history.js'
 import { appRuntimeHost } from './app-runtime-host.js'
 import { resolveHostApproval } from './host-approval-broker.js'
 import { resolveDetachedApproval } from '../agents/detached-approvals.js'
+import { handleRuntimeBackgroundEvent } from './background-events.js'
 import { OperonRuntimeProvider } from '../operon-runtime/index.js'
 import type { ChatStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
 
@@ -50,6 +51,8 @@ export function getSessionManager(): SessionManager {
       resolveHostApproval(chatId, approvalId, decision) ||
       resolveDetachedApproval(chatId, approvalId, decision),
     )
+    // Background sub-agents and replies the agent starts on its own, between turns.
+    sessionManager.setBackgroundHandler(handleRuntimeBackgroundEvent)
   }
   return sessionManager
 }

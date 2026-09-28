@@ -1,4 +1,6 @@
+import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import type { PendingInputSummary } from '@shared/pending-input'
+import { useChatBackgroundTaskStore } from '@/stores/chat-background-task-store'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { api } from './api'
 import { subscribeSse, type SseSubscription } from './sse.js'
@@ -33,10 +35,14 @@ type Frame =
       statuses: LiveTurnStatus[]
       /** Absent from servers that predate pending input. */
       pendingInput?: Array<{ chatId: number; pending: PendingInputSummary[] }>
+      /** Absent from servers that predate background tasks. */
+      backgroundTasks?: Array<{ chatId: number; tasks: BackgroundTaskSummary[] }>
     }
   | { type: 'presence'; status: LiveTurnStatus }
   /** A chat's whole pending list after any change; empty means nothing left. */
   | { type: 'pending-input'; chatId: number; pending: PendingInputSummary[] }
+  /** A chat's whole background sub-agent list after any change. */
+  | { type: 'background-tasks'; chatId: number; tasks: BackgroundTaskSummary[] }
 
 interface Subscriber {
   onStatus: (status: LiveTurnStatus) => void
@@ -81,6 +87,7 @@ function ensureStream(): void {
     onEvent: (frame) => {
       if (frame.type === 'sync') {
         useChatPendingInputStore.getState().sync(frame.pendingInput ?? [])
+        useChatBackgroundTaskStore.getState().sync(frame.backgroundTasks ?? [])
         const next = new Map<number, LiveTurnStatus>()
         for (const status of frame.statuses) next.set(status.chatId, status)
         const previous = activeByChat
@@ -94,6 +101,10 @@ function ensureStream(): void {
       }
       if (frame.type === 'pending-input') {
         useChatPendingInputStore.getState().set(frame.chatId, frame.pending)
+        return
+      }
+      if (frame.type === 'background-tasks') {
+        useChatBackgroundTaskStore.getState().set(frame.chatId, frame.tasks)
         return
       }
       if (frame.type !== 'presence') return
@@ -118,6 +129,7 @@ function releaseStream(): void {
   // sends a fresh sync anyway.
   activeByChat = new Map()
   useChatPendingInputStore.getState().sync([])
+  useChatBackgroundTaskStore.getState().sync([])
 }
 
 /**

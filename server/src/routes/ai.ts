@@ -120,6 +120,12 @@ export function aiRoutes(storage: SddStorage) {
         const pending = change.pending.map(aiService.summarizePendingInput)
         stream.writeSSE({ data: JSON.stringify({ type: 'pending-input', chatId: change.chatId, pending }) }).catch(close)
       })
+      // Background sub-agents per chat (chat-background-tasks.ts), whole list per
+      // frame like pending input.
+      const unsubBackground = aiService.subscribeBackgroundTasks((change) => {
+        if (closed) return
+        stream.writeSSE({ data: JSON.stringify({ type: 'background-tasks', chatId: change.chatId, tasks: change.tasks }) }).catch(close)
+      })
 
       // Every chat currently running a turn. A chat missing from this list has no
       // live turn, which is how one stream answers for conversations the client
@@ -130,13 +136,26 @@ export function aiRoutes(storage: SddStorage) {
             type: 'sync',
             statuses: aiService.listActiveLiveTurnStatuses(),
             pendingInput: aiService.listChatsAwaitingInput(),
+            backgroundTasks: aiService.listChatBackgroundTasks(),
           }),
         })
         .catch(close)
       await untilClosed
       unsub()
       unsubPending()
+      unsubBackground()
     })
+  })
+
+  // GET /api/ai/chat/:chatId/subagent/:toolUseId — the steps of the sub-agent a
+  // chat's Agent call spawned, read from Claude Code's transcript of it. A
+  // background agent's card has no other source for them.
+  router.get('/chat/:chatId/subagent/:toolUseId', async (c) => {
+    const chatId = parseInt(c.req.param('chatId'), 10)
+    if (!Number.isFinite(chatId)) return c.json({ error: 'Invalid chat id' }, 400)
+    const transcript = await aiService.getSubagentTranscript(chatId, c.req.param('toolUseId'))
+    if (!transcript) return c.json({ error: 'Sub-agent transcript not found' }, 404)
+    return c.json(transcript)
   })
 
   // GET /api/ai/chat/live-status/:chatId — the single-chat form of the stream

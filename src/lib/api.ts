@@ -1,3 +1,4 @@
+import type { SubagentTranscript } from '@shared/background-tasks'
 import * as httpClient from './api-client.js'
 import { apiAuthHeaders, asRecord, getBaseUrl, request, withApiTokenQuery } from './api-client.js'
 import * as terminalWs from './terminal-ws.js'
@@ -464,6 +465,11 @@ export const api = {
     post<{ stopped: boolean }>(`/ai/workflow/run/${encodeURIComponent(runId)}/stop`, {}),
   externalAgentFeedUrl: async () => `${await getBaseUrl()}/external-agents/feed`,
   aiWorkflowFeedUrl: async (limit = 30) => `${await getBaseUrl()}/ai/workflow/feed?limit=${limit}`,
+  /** A sub-agent's steps, from its transcript — for background agents' cards. */
+  aiSubagentTranscript: (chatId: number, toolUseId: string) =>
+    softGet<SubagentTranscript & { error?: string }>(
+      `/ai/chat/${chatId}/subagent/${encodeURIComponent(toolUseId)}`,
+    ),
   /** Presence for every chat on one stream — see `lib/live-turn-events.ts`. */
   aiLiveStatusStreamUrl: async () => `${await getBaseUrl()}/ai/chat/live-status`,
   /** `since` resumes an interrupted connection; omit it to replay the run's whole log. */

@@ -8,6 +8,10 @@ import type {
   SDKMessage,
   SDKRateLimitEvent,
   SDKSystemMessage,
+  SDKTaskNotificationMessage,
+  SDKTaskProgressMessage,
+  SDKTaskStartedMessage,
+  SDKTaskUpdatedMessage,
   SDKUserMessage,
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk'
@@ -17,6 +21,8 @@ import type {
   DynamicSetApplied,
   DynamicSetPayload,
   PermissionDecision,
+  RuntimeBackgroundEvent,
+  RuntimeBackgroundTask,
   RuntimeSession,
   RuntimeSessionParams,
   RuntimeStreamParams,
@@ -98,7 +104,24 @@ interface TurnState {
   builder: ClaudeTextStreamBuilder
   controller: ReadableStreamDefaultController<import('../../types.js').RuntimeStreamPart>
   done: () => void
+  /** Started by the agent itself (see `openBackgroundTurn`), not by a `stream()` call. */
+  background?: { finished: Promise<void> }
 }
+
+type SDKTaskMessage =
+  | SDKTaskStartedMessage
+  | SDKTaskProgressMessage
+  | SDKTaskUpdatedMessage
+  | SDKTaskNotificationMessage
+
+const TASK_SUBTYPES = new Set(['task_started', 'task_progress', 'task_updated', 'task_notification'])
+
+function isTaskMessage(message: SDKMessage): message is SDKTaskMessage {
+  return message.type === 'system' && TASK_SUBTYPES.has(message.subtype)
+}
+
+/** Finished tasks kept for the UI; the oldest are dropped past this. */
+const MAX_SETTLED_TASKS = 50
 
 // ---------------------------------------------------------------------------
 // buildQueryOptions
@@ -131,6 +154,9 @@ function buildQueryOptions(
     enableFileCheckpointing: settings.enableFileCheckpointing,
     allowDangerouslySkipPermissions: settings.allowDangerouslySkipPermissions,
     allowedTools: settings.allowedTools,
+    // A running sub-agent's card shows what it is doing; the summary is a cheap
+    // fork on the sub-agent's own prompt cache, roughly every 30s.
+    agentProgressSummaries: true,
     disallowedTools: settings.disallowedTools,
     mcpServers: settings.mcpServers,
     env: settings.env,
@@ -164,6 +190,10 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   private turn: TurnState | null = null
 
   private readonly pendingApprovals = new Map<string, PendingApproval>()
+
+  // Between-turn output (background sub-agents, replies the agent starts itself)
+  private backgroundListener: ((event: RuntimeBackgroundEvent) => void) | null = null
+  private readonly backgroundTasks = new Map<string, RuntimeBackgroundTask>()
   private cachedInitData: Record<string, unknown> | null = null
 
   // Side chat state. `boundaryPending` is true only until the branch's first
@@ -325,6 +355,35 @@ export class ClaudeRuntimeSession implements RuntimeSession {
           continue
         }
 
+        if (isTaskMessage(message)) {
+          this.handleTaskMessage(message)
+          continue
+        }
+
+        // A sub-agent's step belongs to the card of the Agent call that spawned
+        // it. A background agent outlives the turn that launched it, so its steps
+        // arrive between turns or inside a later turn whose message has no such
+        // card — feeding them to that turn would hang them off nothing. The card
+        // reads those from the sub-agent's transcript instead.
+        if (
+          (message.type === 'assistant' || message.type === 'user' || message.type === 'stream_event') &&
+          message.parent_tool_use_id &&
+          !this.turn?.builder.hasTool(message.parent_tool_use_id)
+        ) {
+          continue
+        }
+
+        // The agent is replying without having been asked: Claude Code answers a
+        // background agent that just finished. Open a turn for it so the reply is
+        // not lost.
+        if (
+          !this.turn &&
+          this.backgroundListener &&
+          (message.type === 'assistant' || message.type === 'stream_event')
+        ) {
+          this.openBackgroundTurn()
+        }
+
         const turn = this.turn
         if (!turn) {
           // Messages arriving without an active turn (e.g. system:init before
@@ -388,6 +447,101 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     }
   }
 
+  onBackground(listener: (event: RuntimeBackgroundEvent) => void): void {
+    this.backgroundListener = listener
+  }
+
+  /**
+   * Keep the background-agent list current and report it whole.
+   *
+   * Only sub-agents are tracked (`local_agent`): they are what renders as a card.
+   * Background shells and housekeeping tasks have their own surfaces, or none.
+   * Foreground agents are skipped too — their steps stream inside the turn.
+   */
+  private handleTaskMessage(message: SDKTaskMessage): void {
+    const now = Date.now()
+    const existing = this.backgroundTasks.get(message.task_id)
+    let next: RuntimeBackgroundTask | undefined
+
+    switch (message.subtype) {
+      case 'task_started': {
+        if (message.task_type !== 'local_agent' || message.skip_transcript || !message.tool_use_id) return
+        if (!message.is_backgrounded) return
+        next = {
+          taskId: message.task_id,
+          toolUseId: message.tool_use_id,
+          description: message.description,
+          status: 'running',
+          startedAt: now,
+        }
+        break
+      }
+      case 'task_updated': {
+        if (!existing) return
+        if (message.patch.description) next = { ...existing, description: message.patch.description }
+        break
+      }
+      case 'task_progress': {
+        if (!existing) return
+        next = {
+          ...existing,
+          toolUses: message.usage.tool_uses,
+          lastToolName: message.last_tool_name ?? existing.lastToolName,
+          summary: message.summary ?? existing.summary,
+        }
+        break
+      }
+      case 'task_notification': {
+        if (!existing) return
+        next = {
+          ...existing,
+          status: message.status,
+          summary: message.summary || existing.summary,
+          toolUses: message.usage?.tool_uses ?? existing.toolUses,
+          endedAt: now,
+        }
+        break
+      }
+    }
+    if (!next) return
+
+    this.backgroundTasks.set(next.taskId, next)
+    const settled = [...this.backgroundTasks.values()].filter((task) => task.status !== 'running')
+    for (const task of settled.slice(0, Math.max(0, settled.length - MAX_SETTLED_TASKS))) {
+      this.backgroundTasks.delete(task.taskId)
+    }
+    this.backgroundListener?.({ type: 'tasks', tasks: [...this.backgroundTasks.values()] })
+  }
+
+  /**
+   * Give a reply the agent started on its own a turn of its own, handed to the
+   * background listener as a stream. It closes on the reply's `result` like any
+   * other turn; `stream()` waits for that before starting the user's.
+   */
+  private openBackgroundTurn(): void {
+    const listener = this.backgroundListener
+    if (!listener) return
+    let turnDone!: () => void
+    const finished = new Promise<void>((resolve) => {
+      turnDone = resolve
+    })
+    const partsStream = new ReadableStream<import('../../types.js').RuntimeStreamPart>({
+      start: (controller) => {
+        const builder = new ClaudeTextStreamBuilder({
+          controller,
+          modelId: this.currentModelId,
+          requestBody: { prompt: '' },
+          warnings: [],
+          getSessionId: () => this.sessionId,
+        })
+        builder.emitStart()
+        this.turn = { builder, controller, done: turnDone, background: { finished } }
+      },
+    })
+    this.logger.info('Agent started a turn on its own; routing it to the background listener')
+    listener({ type: 'turn', parts: readStreamAsAsyncIterable(partsStream) })
+  }
+
   /**
    * Record pushed quota and, when a turn is streaming, hand it to the client.
    *
@@ -436,6 +590,12 @@ export class ClaudeRuntimeSession implements RuntimeSession {
 
   async *stream(params: RuntimeStreamParams) {
     this.logger.info(`Starting stream with model ${this.currentModelId} in mode ${this.currentModeId}`)
+
+    // The agent may be mid-way through a reply it started itself. The CLI answers
+    // one input at a time anyway, so let that reply finish on its own stream
+    // rather than having its tail land in this one.
+    const backgroundTurn = this.turn?.background
+    if (backgroundTurn) await backgroundTurn.finished
 
     const converted = convertToClaudeMessages(params.messages)
     const warnings = (converted.warnings ?? []).map((message) => ({ type: 'other' as const, message }))
