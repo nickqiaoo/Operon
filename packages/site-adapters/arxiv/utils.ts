@@ -1,10 +1,26 @@
+import { ArgumentError, CommandExecutionError } from "../errors.ts"
+
+export interface PaperRow {
+  id: string
+  title: string
+  authors: string
+  abstract: string
+  published: string
+  updated: string
+  primary_category: string
+  categories: string
+  comment: string
+  pdf: string
+  url: string
+}
+
 export const ARXIV_BASE = "https://export.arxiv.org/api/query"
 const ARXIV_CATEGORY_PATTERN =
   /^[a-z]+(?:-[a-z]+)*(?:\.[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)?$/
 
 export async function arxivFetch(params: string): Promise<string> {
   const resp = await fetch(`${ARXIV_BASE}?${params}`)
-  if (!resp.ok) throw new Error(`arxiv: HTTP ${resp.status}`)
+  if (!resp.ok) throw new CommandExecutionError(`arxiv: HTTP ${resp.status}`)
   return resp.text()
 }
 
@@ -15,7 +31,7 @@ export function normalizeArxivLimit(
 ): number {
   const limit = Number(value ?? defaultValue)
   if (!Number.isInteger(limit) || limit <= 0 || limit > maxValue) {
-    throw new Error(`arxiv: limit must be 1..${maxValue}`)
+    throw new ArgumentError(`arxiv: limit must be 1..${maxValue}`)
   }
   return limit
 }
@@ -23,7 +39,7 @@ export function normalizeArxivLimit(
 export function normalizeArxivCategory(value: unknown): string {
   const category = String(value || "").trim()
   if (!ARXIV_CATEGORY_PATTERN.test(category)) {
-    throw new Error(`arxiv: invalid category "${value}" (e.g. cs.CL, cs.LG)`)
+    throw new ArgumentError(`arxiv: invalid category "${value}" (e.g. cs.CL, cs.LG)`)
   }
   return category
 }
@@ -77,9 +93,9 @@ function findLinkHref(xml: string, rel: string): string {
   return ""
 }
 
-export function parseEntries(xml: string) {
+export function parseEntries(xml: string): PaperRow[] {
   const entryRe = /<entry>([\s\S]*?)<\/entry>/g
-  const entries: Array<Record<string, string>> = []
+  const entries: PaperRow[] = []
   let m: RegExpExecArray | null
   while ((m = entryRe.exec(xml)) !== null) {
     const e = m[1]!
