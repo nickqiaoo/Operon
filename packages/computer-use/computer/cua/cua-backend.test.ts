@@ -94,6 +94,50 @@ describe("CuaDaemonTransport", () => {
     await expect(call).rejects.toThrow(/Background scroll is unavailable/);
   });
 
+  it("revives an idle-ended session and retries the call once", async () => {
+    const peer = fakeSocket();
+    const t = new CuaDaemonTransport(peer.socket);
+    const call = t.call("list_apps", {});
+    const ended = {
+      ok: true,
+      result: {
+        isError: true,
+        content: [{ type: "text", text: "this session has ended; call start_session explicitly to reuse its label" }],
+        structuredContent: { refusal: { code: "session_ended" }, status: "refused" },
+      },
+    };
+    peer.reply(ended);
+    await vi.waitFor(() => expect(peer.written).toHaveLength(2));
+    expect(JSON.parse(peer.written[1]!)).toEqual({ method: "call", name: "start_session", args: {} });
+    peer.reply({ ok: true, result: { structuredContent: { active: true, revived: true } } });
+    await vi.waitFor(() => expect(peer.written).toHaveLength(3));
+    expect(JSON.parse(peer.written[2]!)).toMatchObject({ method: "call", name: "list_apps" });
+    peer.reply({ ok: true, result: { structuredContent: { apps: [] } } });
+    await expect(call).resolves.toMatchObject({ structuredContent: { apps: [] } });
+  });
+
+  it("revives a named session by its label, and gives up after one retry", async () => {
+    const peer = fakeSocket();
+    const t = new CuaDaemonTransport(peer.socket, { session: "run-1" });
+    const call = t.call("click", { pid: 1 });
+    const ended = {
+      ok: true,
+      result: {
+        isError: true,
+        content: [{ type: "text", text: "this session has ended" }],
+        structuredContent: { refusal: { code: "session_ended" } },
+      },
+    };
+    peer.reply(ended);
+    await vi.waitFor(() => expect(peer.written).toHaveLength(2));
+    expect(JSON.parse(peer.written[1]!)).toEqual({ method: "call", name: "start_session", args: { session: "run-1" } });
+    peer.reply({ ok: true, result: {} });
+    await vi.waitFor(() => expect(peer.written).toHaveLength(3));
+    peer.reply(ended);
+    await expect(call).rejects.toThrow(/session has ended/);
+    expect(peer.written).toHaveLength(3);
+  });
+
   it("treats an isError tool result as a failure, not a value", async () => {
     const peer = fakeSocket();
     const t = new CuaDaemonTransport(peer.socket);

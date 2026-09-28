@@ -64,9 +64,12 @@ export class CuaDaemonTransport {
   }> = [];
   private buffer = "";
   private closed = false;
+  /** The session label calls run under, or undefined for the implicit one. */
+  private readonly session: string | undefined;
 
-  constructor(socket: NativePipeConnection) {
+  constructor(socket: NativePipeConnection, options: { session?: string } = {}) {
     this.socket = socket;
+    this.session = options.session;
     socket.on("data", (chunk) => this.onData(chunk));
     socket.on("error", (error) =>
       this.fail(new SkyComputerUseTransportError(error.message, { cause: error })),
@@ -142,7 +145,27 @@ export class CuaDaemonTransport {
    * from "the engine says no".
    */
   async call(name: string, args: Record<string, unknown> = {}, timeoutMs?: number): Promise<CuaToolResult> {
-    const envelope = await this.send({ method: "call", name, args }, timeoutMs);
+    let envelope = await this.send({ method: "call", name, args }, timeoutMs);
+    /**
+     * The daemon ends a session after five idle minutes, and from then on refuses
+     * every call under it until `start_session` revives the label — reconnecting
+     * does not help, because the implicit session is the daemon's, not the
+     * connection's. Nothing else in Operon calls `start_session`, so without this
+     * Computer Use stays dead after any five-minute pause until the app restarts.
+     *
+     * Retrying is safe: a refusal means the call was never dispatched, so an
+     * action cannot run twice. Only once, so a revival that does not take
+     * surfaces the original refusal instead of looping.
+     */
+    if (name !== "start_session" && isSessionEnded(envelope)) {
+      const revived = await this.send(
+        { method: "call", name: "start_session", args: this.session ? { session: this.session } : {} },
+        timeoutMs,
+      );
+      if (revived.ok && (revived.result as CuaToolResult | undefined)?.isError !== true) {
+        envelope = await this.send({ method: "call", name, args }, timeoutMs);
+      }
+    }
     if (!envelope.ok) {
       throw new SkyComputerUseError({
         code: envelope.exit_code ?? -32_000,
@@ -169,4 +192,12 @@ export class CuaDaemonTransport {
     this.closed = true;
     this.socket.end();
   }
+}
+
+/** Whether `envelope` is the daemon refusing a call because its session ended. */
+function isSessionEnded(envelope: DaemonEnvelope): boolean {
+  if (!envelope.ok) return false;
+  const result = envelope.result as CuaToolResult | undefined;
+  const refusal = result?.structuredContent?.refusal as { code?: unknown } | undefined;
+  return result?.isError === true && refusal?.code === "session_ended";
 }

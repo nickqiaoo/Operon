@@ -196,7 +196,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
     if (this.connecting) return await this.connecting;
     this.connecting = (async () => {
       const socket = await this.options.connect(this.options.socketPath);
-      const transport = new CuaDaemonTransport(socket);
+      const transport = new CuaDaemonTransport(socket, { session: this.options.sessionId });
       const meta = await transport.send({ method: "metadata" });
       if (!meta.ok) throw new SkyComputerUseTransportError("cua-driver did not answer metadata");
       if (this.options.sessionId) {
