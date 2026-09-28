@@ -486,24 +486,54 @@ export function mapAppState(
 // ------------------- Public API: the model's `computer` -------------------
 
 /**
- * The engine, resolved once per kernel and then reused.
+ * What this module keeps per conversation: the engine and which apps have had
+ * their instructions delivered.
  *
- * Which one it is depends on the service the host started, not on anything the
- * model can reach. The default is unchanged: without the cua-driver socket in
- * the kernel env this is the Swift engine, exactly as before.
- * See docs/cua-driver-migration/design.md.
+ * Per conversation, not per kernel. This module is loaded once and shared by
+ * every conversation's context, so module-level state used to mean one engine
+ * for all of them — a single cua-driver connection whose requests are strictly
+ * ordered, so conversations queued behind each other, and whose resolution
+ * cache and snapshot handle one conversation could consume or clear under
+ * another. Keyed by `nodeRepl.contextKey`, each conversation gets its own
+ * backend and connection to the one shared daemon (no extra process), and both
+ * go away with its context; a reset starts over with a fresh one.
  */
-let resolvedBackend: ComputerUseBackend | undefined;
-let resolvingBackend: Promise<ComputerUseBackend> | undefined;
-async function backend(): Promise<ComputerUseBackend> {
-  if (resolvedBackend) return resolvedBackend;
-  resolvingBackend ??= selectBackend().then((value) => {
-    resolvedBackend = value;
-    return value;
-  });
-  return await resolvingBackend;
+interface ConversationState {
+  /**
+   * Which engine it is depends on the service the host started, not on anything
+   * the model can reach: without the cua-driver socket in the kernel env this is
+   * the Swift engine. See docs/cua-driver-migration/design.md.
+   */
+  backend?: Promise<ComputerUseBackend>;
+  appsWithDeliveredInstructions: Set<string>;
 }
-const appsWithDeliveredInstructions = new Set<string>();
+const conversations = new WeakMap<object, ConversationState>();
+/** For code running with no `nodeRepl` at all. */
+const noReplKey = {};
+
+/** The conversation executing now; a host without per-context keys (a
+ *  single-context embedding) is one conversation per `nodeRepl`. */
+function conversation(): ConversationState {
+  const repl = (globalThis as { nodeRepl?: { contextKey?: unknown } }).nodeRepl;
+  const key = repl?.contextKey;
+  const k = key != null && typeof key === "object" ? key : (repl ?? noReplKey);
+  let state = conversations.get(k);
+  if (state == null) {
+    state = { appsWithDeliveredInstructions: new Set() };
+    conversations.set(k, state);
+  }
+  return state;
+}
+
+async function backend(): Promise<ComputerUseBackend> {
+  const state = conversation();
+  state.backend ??= selectBackend().catch((error: unknown) => {
+    // Not cached: the next call should try again rather than repeat this failure.
+    state.backend = undefined;
+    throw error;
+  });
+  return await state.backend;
+}
 
 export const computer: WindowComputerUseClient = {
   target: "mac",
@@ -523,7 +553,7 @@ export const computer: WindowComputerUseClient = {
         maxElements: approved.max_elements,
         maxDepth: approved.max_depth,
       });
-      return mapAppState(approved.app, result, appsWithDeliveredInstructions);
+      return mapAppState(approved.app, result, conversation().appsWithDeliveredInstructions);
     });
   },
 

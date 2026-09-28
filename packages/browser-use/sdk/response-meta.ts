@@ -25,15 +25,50 @@ interface NodeReplLike {
     timeoutMs?: number;
   }): (() => void) | void;
   setResponseMeta?(meta: Record<string, unknown>): void;
+  /** Identity of the conversation currently executing; see the kernel façade. */
+  contextKey?: object;
+}
+
+/**
+ * What is waiting to be reported at the end of a conversation's exec.
+ *
+ * Per conversation: this module is loaded once per kernel and shared by every
+ * conversation. When the pending commands were module variables and the hook
+ * was installed once per `nodeRepl` (which is also one object per kernel), only
+ * the first conversation to use the browser ever flushed — and it flushed the
+ * others' pending commands too, screenshotting their tabs into its own result.
+ */
+interface ConversationPending {
+  finalization?: PendingBrowserCommand;
+  mutation?: PendingBrowserCommand;
+  hookInstalled?: boolean;
 }
 
 const contexts = new WeakMap<object, TabResponseContext>();
-const installed = new WeakSet<object>();
-let pendingFinalization: PendingBrowserCommand | undefined;
-let pendingMutation: PendingBrowserCommand | undefined;
+const pendingByConversation = new WeakMap<object, ConversationPending>();
+/** For code running with no `nodeRepl` at all. */
+const noReplKey = {};
 
 function nodeRepl(): NodeReplLike | undefined {
   return (globalThis as { nodeRepl?: NodeReplLike }).nodeRepl;
+}
+
+/** The conversation executing now; a host without per-context keys (a
+ *  single-context embedding) is one conversation per `nodeRepl`. */
+function conversationKey(): object {
+  const repl = nodeRepl();
+  const key = repl?.contextKey;
+  return key != null && typeof key === "object" ? key : (repl ?? noReplKey);
+}
+
+function conversationPending(): ConversationPending {
+  const key = conversationKey();
+  let pending = pendingByConversation.get(key);
+  if (pending == null) {
+    pending = {};
+    pendingByConversation.set(key, pending);
+  }
+  return pending;
 }
 
 function backendName(type: BrowserDocumentationContext["browserType"]): "chrome" | "iab" | "cdp" {
@@ -86,14 +121,12 @@ function browserMeta(
 
 export function installBrowserResponseMetaHook(): void {
   const repl = nodeRepl();
-  if (
-    repl == null
-    || typeof repl.addAfterSubmittedCodeHook !== "function"
-    || installed.has(repl)
-  ) {
-    return;
-  }
-  installed.add(repl);
+  if (repl == null || typeof repl.addAfterSubmittedCodeHook !== "function") return;
+  // Once per conversation: the kernel runs a hook only for the context that
+  // registered it, and forgets it when that context is disposed.
+  const pending = conversationPending();
+  if (pending.hookInstalled) return;
+  pending.hookInstalled = true;
   repl.addAfterSubmittedCodeHook({
     timeoutMs: 10_000,
     run: flushBrowserResponseMeta,
@@ -129,7 +162,7 @@ export function registerTabResponseContext(
 export function recordTabMutation(tab: object): void {
   const context = contexts.get(tab);
   if (context == null) return;
-  pendingMutation = { context, finalize: false };
+  conversationPending().mutation = { context, finalize: false };
 }
 
 export function recordTabsFinalized(
@@ -137,7 +170,7 @@ export function recordTabsFinalized(
   context: BrowserDocumentationContext | undefined,
 ): void {
   if (context == null) return;
-  pendingFinalization = {
+  conversationPending().finalization = {
     context: {
       browserId: context.browserId,
       browserType: context.browserType,
@@ -149,9 +182,10 @@ export function recordTabsFinalized(
 }
 
 async function flushBrowserResponseMeta(): Promise<void> {
-  const pending = pendingFinalization ?? pendingMutation;
-  pendingFinalization = undefined;
-  pendingMutation = undefined;
+  const queued = conversationPending();
+  const pending = queued.finalization ?? queued.mutation;
+  queued.finalization = undefined;
+  queued.mutation = undefined;
   if (pending == null) return;
   const repl = nodeRepl();
   if (repl?.setResponseMeta == null) return;

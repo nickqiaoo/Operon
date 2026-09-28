@@ -87,6 +87,7 @@ const {
   untrustedNodeRepl,
   dispatchConnectionEvent,
   forgetConnectionsInScope,
+  forgetHooksInScope,
   runAfterSubmittedCodeHooks,
 } = createNodeReplFacade(send, init, {
   requestMetaFor: () => currentCtx.getStore()?.requestMeta ?? init.requestMeta,
@@ -177,6 +178,7 @@ function disposeContext(id: string): void {
   const state = contexts.get(id);
   if (!state) return;
   contexts.delete(id);
+  forgetHooksInScope(state);
   const orphaned = forgetConnectionsInScope(state);
   if (orphaned.length > 0) {
     currentCtx.run(state, () => {

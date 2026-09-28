@@ -129,16 +129,64 @@ export function createNodeReplFacade(
     });
   }
 
-  /** Drop every connection a context opened. Called when its context is disposed
-   *  so a closed conversation does not leak handlers into the shared kernel. */
+  /**
+   * Drop every connection a context opened. Called when its context is disposed
+   * so a closed conversation does not leak handlers into the shared kernel.
+   *
+   * The close listeners fire first. Without that, a client still holding one of
+   * these connections believes it is open: its in-flight requests wait for
+   * replies that will never be dispatched, and its next request is written to a
+   * socket the host has already closed.
+   */
   function forgetConnectionsInScope(target: unknown): string[] {
     const dropped: string[] = [];
     for (const [id, h] of connections) {
       if (h.scope !== target) continue;
       connections.delete(id);
       dropped.push(id);
+      runInScope(h.scope, () => {
+        for (const cb of h.close) {
+          try {
+            cb();
+          } catch {
+            // A listener of a conversation being torn down must not stop the teardown.
+          }
+        }
+      });
     }
     return dropped;
+  }
+
+  /** Drop the after-submitted-code hooks a disposed context registered; only
+   *  that context's exec could ever run them. */
+  function forgetHooksInScope(target: unknown): void {
+    for (const hook of afterSubmittedCodeHooks) {
+      if (hook.scope === target) afterSubmittedCodeHooks.delete(hook);
+    }
+  }
+
+  /**
+   * An identity for the context currently executing, for trusted modules that
+   * keep state per conversation. Trusted modules are cached per process, so a
+   * module-level singleton is shared by every conversation in the kernel; keying
+   * by this instead gives each its own, and the WeakMap entry goes away with the
+   * context. A reset builds a new context, so it gets a new key.
+   *
+   * The key is an empty frozen object rather than the scope itself, so a module
+   * holding it cannot reach into another conversation's sandbox. With no scope
+   * (a single-context embedding) every caller gets the same key.
+   */
+  const contextKeys = new WeakMap<object, object>();
+  const defaultContextKey = Object.freeze({});
+  function contextKey(): object {
+    const current = captureScope();
+    if (current == null || typeof current !== "object") return defaultContextKey;
+    let key = contextKeys.get(current);
+    if (key == null) {
+      key = Object.freeze({});
+      contextKeys.set(current, key);
+    }
+    return key;
   }
 
   const nodeRepl = {
@@ -284,6 +332,12 @@ export function createNodeReplFacade(
       get: () => scope.requestMetaFor?.() ?? fallbackRequestMeta,
     });
   }
+  // Trusted realm only: model code has no use for it.
+  Object.defineProperty(nodeRepl, "contextKey", {
+    configurable: true,
+    enumerable: true,
+    get: contextKey,
+  });
 
   /**
    * Run the hooks the finishing context registered — not every context's.
@@ -324,6 +378,7 @@ export function createNodeReplFacade(
     untrustedNodeRepl: untrusted,
     dispatchConnectionEvent,
     forgetConnectionsInScope,
+    forgetHooksInScope,
     setRequestMeta,
     runAfterSubmittedCodeHooks,
   };
