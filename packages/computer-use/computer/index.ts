@@ -420,7 +420,39 @@ export function materializeScreenshotUrl(
     `shot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.${ext}`,
   );
   fs.writeFileSync(filePath, Buffer.from(match[2], "base64"));
+  pruneOldScreenshots(dir);
   return pathToFileUrl(filePath);
+}
+
+/** How long a screenshot file outlives its `get_app_state`: long enough for the
+ *  model to read it back a few calls later, short enough not to pile up. */
+const SCREENSHOT_TTL_MS = 60 * 60 * 1000;
+/** Scan a directory at most this often; every `get_app_state` writes a file. */
+const SCREENSHOT_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+const lastScreenshotPrune = new Map<string, number>();
+
+/**
+ * Delete screenshot files older than the TTL. Nothing else ever removes them,
+ * and each `get_app_state` writes one, so without this the directory grows for
+ * as long as the machine stays up. Best-effort: a file that cannot be removed
+ * is left for the next pass, and a failure here must never fail the call.
+ */
+function pruneOldScreenshots(dir: string, now: number = Date.now()): void {
+  if (now - (lastScreenshotPrune.get(dir) ?? 0) < SCREENSHOT_PRUNE_INTERVAL_MS) return;
+  lastScreenshotPrune.set(dir, now);
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith("shot-")) continue;
+      const file = path.join(dir, name);
+      try {
+        if (now - fs.statSync(file).mtimeMs > SCREENSHOT_TTL_MS) fs.rmSync(file, { force: true });
+      } catch {
+        // Gone already, or not ours to remove.
+      }
+    }
+  } catch {
+    // The directory itself is unreadable; try again next interval.
+  }
 }
 
 function resolveSkyTmpDir(): string {

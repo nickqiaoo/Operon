@@ -28,6 +28,29 @@ describe("materializeScreenshotUrl", () => {
     expect(fs.statSync(filePath).size).toBeGreaterThan(0);
   });
 
+  it("removes screenshot files older than an hour when it writes a new one", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cu-prune-"));
+    tempDirs.push(dir);
+    const shots = path.join(dir, "operon-computer-use-shots");
+    fs.mkdirSync(shots, { recursive: true });
+    const old = path.join(shots, "shot-old.png");
+    const recent = path.join(shots, "shot-recent.png");
+    const unrelated = path.join(shots, "keep-me.txt");
+    for (const f of [old, recent, unrelated]) fs.writeFileSync(f, "x");
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(old, twoHoursAgo, twoHoursAgo);
+    fs.utimesSync(unrelated, twoHoursAgo, twoHoursAgo);
+
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const url = materializeScreenshotUrl(`data:image/png;base64,${png}`, dir);
+
+    expect(fs.existsSync(old)).toBe(false);
+    expect(fs.existsSync(recent)).toBe(true);
+    expect(fs.existsSync(unrelated)).toBe(true);
+    expect(fs.existsSync(fileURLToPath(url!))).toBe(true);
+  });
+
   it("passes file:// through unchanged", () => {
     expect(materializeScreenshotUrl("file:///tmp/a.png")).toBe("file:///tmp/a.png");
   });
