@@ -1,9 +1,6 @@
-/**
- * Bilibili read commands (site-complete read surface).
- * Ported from OpenCLI `clis/bilibili/*` COOKIE/func adapters.
- */
-
 import { defineCommand } from "../define.ts"
+import { CommandExecutionError } from "../errors.ts"
+import { requirePage } from "../runtime/values.ts"
 import {
   apiGet,
   fetchJson,
@@ -14,23 +11,107 @@ import {
   stripHtml,
 } from "./utils.ts"
 
+export interface BilibiliSearchRow {
+  rank: number
+  title: string
+  author: unknown
+  score: unknown
+  url: string
+}
+
+export interface BilibiliRankingRow {
+  rank: number
+  title: unknown
+  author: unknown
+  score: unknown
+  url: string
+}
+
+export interface BilibiliVideoRow {
+  bvid: string
+  title: unknown
+  author: unknown
+  views: unknown
+  danmaku: unknown
+  likes: unknown
+  coins: unknown
+  favorites: unknown
+  duration: unknown
+  url: string
+}
+
+export interface BilibiliMeRow {
+  name: unknown
+  uid: unknown
+  level: unknown
+  coins: unknown
+  followers: unknown
+  following: unknown
+}
+
+export interface BilibiliHistoryRow {
+  rank: number
+  title: unknown
+  author: unknown
+  progress: string
+  url: string
+}
+
+export interface BilibiliUserVideosRow {
+  rank: number
+  title: unknown
+  plays: unknown
+  likes: unknown
+  date: string
+  url: string
+}
+
+export interface BilibiliFollowingRow {
+  mid: unknown
+  name: unknown
+  sign: string
+  following: string
+  fans: unknown
+}
+
+export interface BilibiliDynamicRow {
+  id: unknown
+  author: unknown
+  text: string
+  likes: unknown
+  url: string
+}
+
+export interface BilibiliFeedRow {
+  rank: number
+  time: unknown
+  author: unknown
+  title: string
+  type: string
+  likes: unknown
+  url: string
+}
+
+/**
+ * Bilibili read commands (site-complete read surface).
+ * Ported from OpenCLI `clis/bilibili/*` COOKIE/func adapters.
+ */
+
 export const search = defineCommand({
   site: "bilibili",
   name: "search",
   description: "Search Bilibili videos or users",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "query", required: true, positional: true, help: "Search keyword" },
+    { name: "query", required: true, help: "Search keyword" },
     { name: "type", default: "video", help: "video or user", choices: ["video", "user"] },
     { name: "page", type: "int", default: 1, help: "Result page" },
     { name: "limit", type: "int", default: 20, help: "Number of results" },
   ],
-  columns: ["rank", "title", "author", "score", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliSearchRow[]> => {
+    const page = requirePage(rawPage, "bilibili.search")
     const keyword = String(kwargs.query ?? "")
     const type = kwargs.type === "user" ? "user" : "video"
     const pageNum = Number(kwargs.page) || 1
@@ -69,12 +150,10 @@ export const ranking = defineCommand({
   description: "Get Bilibili video ranking board",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 20 }],
-  columns: ["rank", "title", "author", "score", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliRankingRow[]> => {
+    const page = requirePage(rawPage, "bilibili.ranking")
     await page.goto("https://www.bilibili.com")
     const payload = (await apiGet(page, "/x/web-interface/ranking/v2", {
       params: { rid: 0, type: "all" },
@@ -102,14 +181,12 @@ export const video = defineCommand({
   description: "Get Bilibili video metadata (title, author, stats)",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "bvid", required: true, positional: true, help: "BV ID, video URL, or b23.tv short link" },
+    { name: "bvid", required: true, help: "BV ID, video URL, or b23.tv short link" },
   ],
-  columns: ["bvid", "title", "author", "views", "danmaku", "likes", "coins", "favorites", "duration", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliVideoRow> => {
+    const page = requirePage(rawPage, "bilibili.video")
     const input = String(kwargs.bvid ?? "").trim()
     const bilibiliUrlMatch = input.match(/bilibili\.com\/(?:video|bangumi\/play)\/(BV[A-Za-z0-9]+)/i)
     const bvid = bilibiliUrlMatch?.[1] ?? (await resolveBvid(input))
@@ -118,7 +195,7 @@ export const video = defineCommand({
       params: { bvid },
     })) as { code?: number; message?: string; data?: Record<string, unknown> }
     if (payload.code != null && payload.code !== 0) {
-      throw new Error(`Bilibili view API failed: ${payload.message} (${payload.code})`)
+      throw new CommandExecutionError(`Bilibili view API failed: ${payload.message} (${payload.code})`)
     }
     const d = payload.data ?? {}
     const stat = (d.stat ?? {}) as Record<string, unknown>
@@ -144,12 +221,10 @@ export const me = defineCommand({
   description: "My Bilibili profile info",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [],
-  columns: ["name", "uid", "level", "coins", "followers", "following"],
-  func: async (page) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage): Promise<BilibiliMeRow> => {
+    const page = requirePage(rawPage, "bilibili.me")
     await page.goto("https://www.bilibili.com")
     const uid = await getSelfUid(page)
     const payload = (await apiGet(page, "/x/space/wbi/acc/info", {
@@ -175,12 +250,10 @@ export const history = defineCommand({
   keywords: ["观看历史", "历史记录"],
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 20, help: "Number of results" }],
-  columns: ["rank", "title", "author", "progress", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliHistoryRow[]> => {
+    const page = requirePage(rawPage, "bilibili.history")
     const limit = Number(kwargs.limit) || 20
     await page.goto("https://www.bilibili.com")
     const payload = await apiGet(page, "/x/web-interface/history/cursor", {
@@ -217,21 +290,19 @@ function formatDuration(seconds: number): string {
 
 export const userVideos = defineCommand({
   site: "bilibili",
-  name: "user-videos",
+  name: "userVideos",
   description: "Videos uploaded by a given user",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "uid", required: true, positional: true, help: "User UID or username" },
+    { name: "uid", required: true, help: "User UID or username" },
     { name: "limit", type: "int", default: 20, help: "Number of results" },
     { name: "order", default: "pubdate", help: "Sort: pubdate, click, stow" },
     { name: "page", type: "int", default: 1, help: "Page number" },
   ],
-  columns: ["rank", "title", "plays", "likes", "date", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliUserVideosRow[]> => {
+    const page = requirePage(rawPage, "bilibili.userVideos")
     const limit = Number(kwargs.limit) || 20
     const order = String(kwargs.order ?? "pubdate")
     const pageNum = Number(kwargs.page) || 1
@@ -267,16 +338,14 @@ export const following = defineCommand({
   description: "Who a Bilibili user follows",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "uid", positional: true, help: "Target user id; defaults to the signed-in user" },
+    { name: "uid", help: "Target user id; defaults to the signed-in user" },
     { name: "page", type: "int", default: 1, help: "Page number" },
     { name: "limit", type: "int", default: 50, help: "Items per page (max 50)" },
   ],
-  columns: ["mid", "name", "sign", "following", "fans"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliFollowingRow[]> => {
+    const page = requirePage(rawPage, "bilibili.following")
     await page.goto("https://www.bilibili.com")
     const uid = kwargs.uid
       ? await resolveUid(page, String(kwargs.uid))
@@ -288,7 +357,7 @@ export const following = defineCommand({
       `https://api.bilibili.com/x/relation/followings?vmid=${uid}&pn=${pn}&ps=${ps}&order=desc`,
     )) as { code?: number; message?: string; data?: { list?: Array<Record<string, unknown>>; total?: number } }
     if (payload.code !== 0) {
-      throw new Error(`Failed to fetch the following list: ${payload.message} (${payload.code})`)
+      throw new CommandExecutionError(`Failed to fetch the following list: ${payload.message} (${payload.code})`)
     }
     const list = payload.data?.list || []
     if (list.length === 0) {
@@ -321,12 +390,10 @@ export const dynamic = defineCommand({
   description: "Get Bilibili user dynamic feed (following timeline)",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 15 }],
-  columns: ["id", "author", "text", "likes", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliDynamicRow[]> => {
+    const page = requirePage(rawPage, "bilibili.dynamic")
     const limit = Number(kwargs.limit) || 15
     await page.goto("https://www.bilibili.com")
     const payload = (await apiGet(page, "/x/polymer/web-dynamic/v1/feed/all", {
@@ -373,24 +440,22 @@ export const feed = defineCommand({
   description: "Feed timeline. Without a uid it shows your following timeline; with one, that user's posts",
   domain: "www.bilibili.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "uid", positional: true, help: "User UID or name; omit to show the following timeline" },
+    { name: "uid", help: "User UID or name; omit to show the following timeline" },
     { name: "limit", type: "int", default: 20, help: "Max results" },
     { name: "type", default: "all", help: "Filter: all, video, article, draw, text" },
     { name: "pages", type: "int", default: 1, help: "Pages to fetch (~20 items each)" },
   ],
-  columns: ["rank", "time", "author", "title", "type", "likes", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("bilibili: browser required")
+  func: async (rawPage, kwargs): Promise<BilibiliFeedRow[]> => {
+    const page = requirePage(rawPage, "bilibili.feed")
     const maxResults = Number(kwargs.limit) || 20
     const maxPages = Number(kwargs.pages) || 1
     const filterType = kwargs.type === "all" ? "" : String(kwargs.type ?? "")
     await page.goto("https://www.bilibili.com")
     const isUserFeed = !!kwargs.uid
     const uid = isUserFeed ? await resolveUid(page, String(kwargs.uid)) : null
-    const rows: Array<Record<string, unknown>> = []
+    const rows: BilibiliFeedRow[] = []
     let offset = ""
 
     for (let p = 0; p < maxPages; p++) {
@@ -429,7 +494,7 @@ export const feed = defineCommand({
       offset = String(data.offset ?? items[items.length - 1]?.id_str ?? "")
       if (!offset || !data.has_more) break
     }
-    return rows
+    return (rows) as BilibiliFeedRow[]
   },
 })
 

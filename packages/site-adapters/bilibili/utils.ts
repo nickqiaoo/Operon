@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto"
+import { AuthRequiredError, CommandExecutionError, EmptyResultError } from "../errors.ts"
+import type { AdapterPage } from "../types.ts"
+
 /**
  * Bilibili shared helpers — ported from OpenCLI `clis/bilibili/utils.js`.
  * WBI signing + authenticated page-context fetch.
  */
-
-import { createHash } from "node:crypto"
-import type { AdapterPage } from "../types.ts"
 
 const MIXIN_KEY_ENC_TAB = [
   46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28,
@@ -32,7 +33,7 @@ export async function fetchJson(page: AdapterPage, url: string): Promise<unknown
     async () => {
       const res = await fetch(${urlJs}, { credentials: "include" });
       return await res.json();
-    }
+ }
   `)
 }
 
@@ -41,7 +42,7 @@ async function getNavData(page: AdapterPage): Promise<unknown> {
     async () => {
       const res = await fetch('https://api.bilibili.com/x/web-interface/nav', { credentials: 'include' });
       return await res.json();
-    }
+ }
   `)
 }
 
@@ -106,7 +107,7 @@ export async function getSelfUid(page: AdapterPage): Promise<string> {
   const nav = (await getNavData(page)) as { data?: { mid?: number | string } }
   const mid = nav?.data?.mid
   if (mid == null) {
-    throw new Error("bilibili: not logged in (open bilibili.com in Chrome and sign in)")
+    throw new AuthRequiredError("www.bilibili.com", "bilibili: not logged in (open bilibili.com in Chrome and sign in)")
   }
   return String(mid)
 }
@@ -119,10 +120,10 @@ export async function resolveUid(page: AdapterPage, input: string): Promise<stri
   })) as { data?: { result?: Array<{ mid?: number | string }> } }
   const results = payload?.data?.result
   if (!Array.isArray(results) || results.length === 0) {
-    throw new Error(`bilibili: user not found for ${input}`)
+    throw new EmptyResultError("bilibili", `bilibili: user not found for ${input}`)
   }
   const mid = String(results[0]?.mid ?? "").trim()
-  if (!mid) throw new Error(`bilibili: malformed mid for ${input}`)
+  if (!mid) throw new CommandExecutionError(`bilibili: malformed mid for ${input}`)
   return mid
 }
 
@@ -142,11 +143,11 @@ export async function resolveBvid(input: string): Promise<string> {
     .replace(/^https?:\/\//, "")
     .replace(/^(www\.)?b23\.tv\//, "")
   if (!/^[A-Za-z0-9]+$/.test(shortCode)) {
-    throw new Error(`Cannot resolve BV ID from: ${trimmed}`)
+    throw new CommandExecutionError(`Cannot resolve BV ID from: ${trimmed}`)
   }
   const res = await fetch(`https://b23.tv/${shortCode}`, { redirect: "manual" })
   const location = res.headers.get("location") ?? ""
   const match = location.match(/\/video\/(BV[A-Za-z0-9]+)/)
-  if (!match?.[1]) throw new Error(`Cannot resolve BV ID from short URL: ${trimmed}`)
+  if (!match?.[1]) throw new CommandExecutionError(`Cannot resolve BV ID from short URL: ${trimmed}`)
   return match[1]
 }

@@ -1,3 +1,8 @@
+import { registerGuide } from "../registry.ts"
+import { GUIDE } from "./guide.ts"
+
+registerGuide("bilibili", GUIDE)
+
 export { hot } from "./hot.ts"
 export {
   search,
