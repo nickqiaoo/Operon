@@ -1,37 +1,80 @@
+import { defineCommand } from "../define.ts"
+import { AuthRequiredError, CommandExecutionError } from "../errors.ts"
+import { requirePage, requireRows } from "../runtime/values.ts"
+import { REDDIT_MEDIA_HELPERS, toPostRow, type PostRow } from "./shared.ts"
+
+export interface RedditWhoamiRow {
+  username: unknown
+  link_karma: unknown
+  comment_karma: unknown
+  created: string
+}
+
+export interface RedditSubredditInfoRow {
+  name: unknown
+  title: unknown
+  subscribers: unknown
+  active: unknown
+  description: string
+  url: string
+}
+
+export interface RedditSavedRow {
+  title: unknown
+  subreddit: unknown
+  score: unknown
+  comments: unknown
+  url: unknown
+}
+
+export interface RedditSubscribedRow {
+  id: unknown
+  subreddit: unknown
+  title: unknown
+  subscribers: unknown
+  description: unknown
+  url: unknown
+}
+
 /**
  * Reddit read surface — OpenCLI clis/reddit/* (cookie + .json endpoints).
  */
 
-import { defineCommand } from "../define.ts"
-import { POST_COLUMNS, POST_MAP, REDDIT_MEDIA_HELPERS } from "./shared.ts"
-
-function listingPipeline(opts: {
-  name: string
-  description: string
-  args?: Array<{ name: string; type?: "string" | "int"; required?: boolean; positional?: boolean; default?: unknown; help?: string; choices?: string[] }>
-  navigate?: string
-  evaluateBody: string
-}) {
-  return defineCommand({
-    site: "reddit",
-    name: opts.name,
-    description: opts.description,
-    domain: "www.reddit.com",
-    access: "read",
-    strategy: "cookie",
-    browser: true,
-    args: opts.args ?? [{ name: "limit", type: "int", default: 20 }],
-    columns: [...POST_COLUMNS],
-    pipeline: [
-      ...(opts.navigate ? [{ navigate: opts.navigate } as const] : [{ navigate: "https://www.reddit.com" } as const]),
-      { evaluate: opts.evaluateBody },
-      { map: { ...POST_MAP } },
-      { limit: "${{ args.limit }}" },
-    ],
-  })
+export interface UserFieldRow {
+  field: string
+  value: string
+}
+export interface CommentRow {
+  rank: number
+  id: string | undefined
+  subreddit: string | undefined
+  body: string
+  score: number | undefined
+  url: string
 }
 
-const mapPostFromChild = `
+export const hot = defineCommand({
+  site: "reddit",
+  name: "hot",
+  description: "Reddit hot posts",
+  domain: "www.reddit.com",
+  access: "read",
+  browser: true,
+  args: [
+    { name: "subreddit", default: "", help: "Subreddit name (e.g. programming). Empty for frontpage hot" },
+    { name: "limit", type: "int", default: 20, help: "Number of posts" },
+  ],
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.hot")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
+  ${REDDIT_MEDIA_HELPERS}
+  const sub = ${JSON.stringify(args.subreddit ?? null)};
+  const path = sub ? '/r/' + sub + '/hot.json' : '/hot.json';
+  const limit = ${args.limit};
+  const res = await fetch(path + '?limit=' + limit + '&raw_json=1', { credentials: 'include' });
+  const d = await res.json();
+
   return (d?.data?.children || []).map(c => ({
     id: c.data.id,
     title: c.data.title,
@@ -44,173 +87,261 @@ const mapPostFromChild = `
     selftext: c.data.selftext || '',
     ...extractRedditMedia(c.data),
   }));
-`
 
-export const hot = defineCommand({
-  site: "reddit",
-  name: "hot",
-  description: "Reddit hot posts",
-  domain: "www.reddit.com",
-  access: "read",
-  strategy: "cookie",
-  browser: true,
-  args: [
-    { name: "subreddit", default: "", help: "Subreddit name (e.g. programming). Empty for frontpage hot" },
-    { name: "limit", type: "int", default: 20, help: "Number of posts" },
-  ],
-  columns: [...POST_COLUMNS],
-  pipeline: [
-    { navigate: "https://www.reddit.com" },
-    {
-      evaluate: `(async () => {
-  ${REDDIT_MEDIA_HELPERS}
-  const sub = \${{ args.subreddit | json }};
-  const path = sub ? '/r/' + sub + '/hot.json' : '/hot.json';
-  const limit = \${{ args.limit }};
-  const res = await fetch(path + '?limit=' + limit + '&raw_json=1', { credentials: 'include' });
-  const d = await res.json();
-  ${mapPostFromChild}
-})()`,
-    },
-    { map: { ...POST_MAP } },
-    { limit: "${{ args.limit }}" },
-  ],
+})()`)
+    const rows = requireRows(data, "reddit.hot").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
 })
 
-export const frontpage = listingPipeline({
+export const frontpage = defineCommand({
+  site: "reddit",
   name: "frontpage",
   description: "Reddit Frontpage / r/all",
-  args: [{ name: "limit", type: "int", default: 15 }],
-  evaluateBody: `(async () => {
-  ${REDDIT_MEDIA_HELPERS}
-  const res = await fetch('/r/all.json?limit=\${{ args.limit }}&raw_json=1', { credentials: 'include' });
-  const d = await res.json();
-  ${mapPostFromChild}
-})()`,
-})
-
-export const popular = listingPipeline({
-  name: "popular",
-  description: "Reddit Popular posts (/r/popular)",
-  evaluateBody: `(async () => {
-  ${REDDIT_MEDIA_HELPERS}
-  const limit = \${{ args.limit }};
-  const res = await fetch('/r/popular.json?limit=' + limit + '&raw_json=1', { credentials: 'include' });
-  const d = await res.json();
-  ${mapPostFromChild}
-})()`,
-})
-
-export const subreddit = listingPipeline({
-  name: "subreddit",
-  description: "Get posts from a specific Subreddit",
+  domain: "www.reddit.com",
+  access: "read",
+  browser: true,
   args: [
-    { name: "name", type: "string", required: true, positional: true, help: "Subreddit name (no r/ prefix)" },
-    {
-      name: "sort",
-      type: "string",
-      default: "hot",
-      help: "hot, new, top, rising, controversial",
-      choices: ["hot", "new", "top", "rising", "controversial"],
-    },
-    {
-      name: "time",
-      type: "string",
-      default: "all",
-      help: "Time filter for top/controversial",
-      choices: ["hour", "day", "week", "month", "year", "all"],
-    },
     { name: "limit", type: "int", default: 15 },
   ],
-  evaluateBody: `(async () => {
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.frontpage")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
   ${REDDIT_MEDIA_HELPERS}
-  let name = \${{ args.name | json }};
+  const res = await fetch('/r/all.json?limit=${args.limit}&raw_json=1', { credentials: 'include' });
+  const d = await res.json();
+
+  return (d?.data?.children || []).map(c => ({
+    id: c.data.id,
+    title: c.data.title,
+    subreddit: c.data.subreddit_name_prefixed,
+    score: c.data.score,
+    comments: c.data.num_comments,
+    author: c.data.author,
+    url: 'https://www.reddit.com' + c.data.permalink,
+    created_utc: c.data.created_utc,
+    selftext: c.data.selftext || '',
+    ...extractRedditMedia(c.data),
+  }));
+
+})()`)
+    const rows = requireRows(data, "reddit.frontpage").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
+})
+
+export const popular = defineCommand({
+  site: "reddit",
+  name: "popular",
+  description: "Reddit Popular posts (/r/popular)",
+  domain: "www.reddit.com",
+  access: "read",
+  browser: true,
+  args: [
+    { name: "limit", type: "int", default: 20 },
+  ],
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.popular")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
+  ${REDDIT_MEDIA_HELPERS}
+  const limit = ${args.limit};
+  const res = await fetch('/r/popular.json?limit=' + limit + '&raw_json=1', { credentials: 'include' });
+  const d = await res.json();
+
+  return (d?.data?.children || []).map(c => ({
+    id: c.data.id,
+    title: c.data.title,
+    subreddit: c.data.subreddit_name_prefixed,
+    score: c.data.score,
+    comments: c.data.num_comments,
+    author: c.data.author,
+    url: 'https://www.reddit.com' + c.data.permalink,
+    created_utc: c.data.created_utc,
+    selftext: c.data.selftext || '',
+    ...extractRedditMedia(c.data),
+  }));
+
+})()`)
+    const rows = requireRows(data, "reddit.popular").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
+})
+
+export const subreddit = defineCommand({
+  site: "reddit",
+  name: "subreddit",
+  description: "Get posts from a specific Subreddit",
+  domain: "www.reddit.com",
+  access: "read",
+  browser: true,
+  args: [
+    { name: "name", type: "string", required: true, help: "Subreddit name (no r/ prefix)" },
+    { name: "sort", type: "string", default: "hot", help: "hot, new, top, rising, controversial", choices: ["hot", "new", "top", "rising", "controversial"] },
+    { name: "time", type: "string", default: "all", help: "Time filter for top/controversial", choices: ["hour", "day", "week", "month", "year", "all"] },
+    { name: "limit", type: "int", default: 15 },
+  ],
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.subreddit")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
+  ${REDDIT_MEDIA_HELPERS}
+  let name = ${JSON.stringify(args.name ?? null)};
   if (name.startsWith('r/')) name = name.slice(2);
-  const sort = \${{ args.sort | json }};
-  const time = \${{ args.time | json }};
-  const limit = \${{ args.limit }};
+  const sort = ${JSON.stringify(args.sort ?? null)};
+  const time = ${JSON.stringify(args.time ?? null)};
+  const limit = ${args.limit};
   let path = '/r/' + name + '/' + sort + '.json?limit=' + limit + '&raw_json=1';
   if (sort === 'top' || sort === 'controversial') path += '&t=' + time;
   const res = await fetch(path, { credentials: 'include' });
   const d = await res.json();
-  ${mapPostFromChild}
-})()`,
+
+  return (d?.data?.children || []).map(c => ({
+    id: c.data.id,
+    title: c.data.title,
+    subreddit: c.data.subreddit_name_prefixed,
+    score: c.data.score,
+    comments: c.data.num_comments,
+    author: c.data.author,
+    url: 'https://www.reddit.com' + c.data.permalink,
+    created_utc: c.data.created_utc,
+    selftext: c.data.selftext || '',
+    ...extractRedditMedia(c.data),
+  }));
+
+})()`)
+    const rows = requireRows(data, "reddit.subreddit").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
 })
 
-export const search = listingPipeline({
+export const search = defineCommand({
+  site: "reddit",
   name: "search",
   description: "Search Reddit Posts",
+  domain: "www.reddit.com",
+  access: "read",
+  browser: true,
   args: [
-    { name: "query", type: "string", required: true, positional: true, help: "Search query" },
+    { name: "query", type: "string", required: true, help: "Search query" },
     { name: "subreddit", type: "string", default: "", help: "Restrict to subreddit" },
-    {
-      name: "sort",
-      type: "string",
-      default: "relevance",
-      choices: ["relevance", "hot", "top", "new", "comments"],
-    },
-    {
-      name: "time",
-      type: "string",
-      default: "all",
-      choices: ["hour", "day", "week", "month", "year", "all"],
-    },
+    { name: "sort", type: "string", default: "relevance", choices: ["relevance", "hot", "top", "new", "comments"] },
+    { name: "time", type: "string", default: "all", choices: ["hour", "day", "week", "month", "year", "all"] },
     { name: "limit", type: "int", default: 15 },
   ],
-  evaluateBody: `(async () => {
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.search")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
   ${REDDIT_MEDIA_HELPERS}
-  const q = encodeURIComponent(\${{ args.query | json }});
-  const sub = \${{ args.subreddit | json }};
-  const sort = \${{ args.sort | json }};
-  const time = \${{ args.time | json }};
-  const limit = \${{ args.limit }};
+  const q = encodeURIComponent(${JSON.stringify(args.query ?? null)});
+  const sub = ${JSON.stringify(args.subreddit ?? null)};
+  const sort = ${JSON.stringify(args.sort ?? null)};
+  const time = ${JSON.stringify(args.time ?? null)};
+  const limit = ${args.limit};
   const basePath = sub ? '/r/' + sub + '/search.json' : '/search.json';
   const params = 'q=' + q + '&sort=' + sort + '&t=' + time + '&limit=' + limit
     + '&restrict_sr=' + (sub ? 'on' : 'off') + '&raw_json=1';
   const res = await fetch(basePath + '?' + params, { credentials: 'include' });
   const d = await res.json();
-  ${mapPostFromChild}
-})()`,
+
+  return (d?.data?.children || []).map(c => ({
+    id: c.data.id,
+    title: c.data.title,
+    subreddit: c.data.subreddit_name_prefixed,
+    score: c.data.score,
+    comments: c.data.num_comments,
+    author: c.data.author,
+    url: 'https://www.reddit.com' + c.data.permalink,
+    created_utc: c.data.created_utc,
+    selftext: c.data.selftext || '',
+    ...extractRedditMedia(c.data),
+  }));
+
+})()`)
+    const rows = requireRows(data, "reddit.search").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
 })
 
-export const userPosts = listingPipeline({
-  name: "user-posts",
+export const userPosts = defineCommand({
+  site: "reddit",
+  name: "userPosts",
   description: "Posts submitted by a Reddit user",
+  domain: "www.reddit.com",
+  access: "read",
+  browser: true,
   args: [
-    { name: "username", type: "string", required: true, positional: true, help: "Username (no u/ prefix)" },
+    { name: "username", type: "string", required: true, help: "Username (no u/ prefix)" },
     { name: "limit", type: "int", default: 15 },
   ],
-  evaluateBody: `(async () => {
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.userPosts")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
   ${REDDIT_MEDIA_HELPERS}
-  let name = \${{ args.username | json }};
+  let name = ${JSON.stringify(args.username ?? null)};
   if (name.startsWith('u/')) name = name.slice(2);
-  const limit = \${{ args.limit }};
+  const limit = ${args.limit};
   const res = await fetch('/user/' + name + '/submitted.json?limit=' + limit + '&raw_json=1', { credentials: 'include' });
   const d = await res.json();
-  ${mapPostFromChild}
-})()`,
+
+  return (d?.data?.children || []).map(c => ({
+    id: c.data.id,
+    title: c.data.title,
+    subreddit: c.data.subreddit_name_prefixed,
+    score: c.data.score,
+    comments: c.data.num_comments,
+    author: c.data.author,
+    url: 'https://www.reddit.com' + c.data.permalink,
+    created_utc: c.data.created_utc,
+    selftext: c.data.selftext || '',
+    ...extractRedditMedia(c.data),
+  }));
+
+})()`)
+    const rows = requireRows(data, "reddit.userPosts").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
 })
 
 export const userComments = defineCommand({
   site: "reddit",
-  name: "user-comments",
+  name: "userComments",
   description: "Comments by a Reddit user",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "username", type: "string", required: true, positional: true },
+    { name: "username", type: "string", required: true },
     { name: "limit", type: "int", default: 15 },
   ],
-  columns: ["rank", "id", "subreddit", "body", "score", "url"],
-  pipeline: [
-    { navigate: "https://www.reddit.com" },
-    {
-      evaluate: `(async () => {
-  let name = \${{ args.username | json }};
+  func: async (rawPage, args): Promise<CommentRow[]> => {
+    const page = requirePage(rawPage, "reddit.userComments")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
+  let name = ${JSON.stringify(args.username ?? null)};
   if (name.startsWith('u/')) name = name.slice(2);
-  const limit = \${{ args.limit }};
+  const limit = ${args.limit};
   const res = await fetch('/user/' + name + '/comments.json?limit=' + limit + '&raw_json=1', { credentials: 'include' });
   const d = await res.json();
   return (d?.data?.children || []).map(c => ({
@@ -220,20 +351,17 @@ export const userComments = defineCommand({
     score: c.data.score,
     url: 'https://www.reddit.com' + (c.data.permalink || ''),
   }));
-})()`,
-    },
-    {
-      map: {
-        rank: "${{ index + 1 }}",
-        id: "${{ item.id }}",
-        subreddit: "${{ item.subreddit }}",
-        body: "${{ item.body }}",
-        score: "${{ item.score }}",
-        url: "${{ item.url }}",
-      },
-    },
-    { limit: "${{ args.limit }}" },
-  ],
+})()`)
+    const rows = requireRows(data, "reddit.userComments").map((item, index) => ({
+      rank: index + 1,
+      id: item.id as string | undefined,
+      subreddit: item.subreddit as string | undefined,
+      body: item.body as string,
+      score: item.score as number | undefined,
+      url: item.url as string,
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
 })
 
 export const user = defineCommand({
@@ -242,17 +370,15 @@ export const user = defineCommand({
   description: "View a Reddit user profile",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "username", type: "string", required: true, positional: true, help: "Username (no u/ prefix)" },
+    { name: "username", type: "string", required: true, help: "Username (no u/ prefix)" },
   ],
-  columns: ["field", "value"],
-  pipeline: [
-    { navigate: "https://www.reddit.com" },
-    {
-      evaluate: `(async () => {
-  let username = \${{ args.username | json }};
+  func: async (rawPage, args): Promise<UserFieldRow[]> => {
+    const page = requirePage(rawPage, "reddit.user")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
+  let username = ${JSON.stringify(args.username ?? null)};
   const name = username.startsWith('u/') ? username.slice(2) : username;
   const res = await fetch('/user/' + name + '/about.json?raw_json=1', { credentials: 'include' });
   const d = await res.json();
@@ -267,10 +393,13 @@ export const user = defineCommand({
     { k: 'Gold', v: u.is_gold ? 'Yes' : 'No' },
     { k: 'Verified', v: u.verified ? 'Yes' : 'No' },
   ];
-})()`,
-    },
-    { map: { field: "${{ item.k }}", value: "${{ item.v }}" } },
-  ],
+})()`)
+    const rows = requireRows(data, "reddit.user").map((item, index) => ({
+      field: item.k as string,
+      value: item.v as string,
+    }))
+    return rows
+  },
 })
 
 export const whoami = defineCommand({
@@ -279,36 +408,34 @@ export const whoami = defineCommand({
   description: "Show the currently logged-in Reddit user",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [],
-  columns: ["username", "link_karma", "comment_karma", "created"],
-  func: async (page) => {
-    if (!page) throw new Error("reddit: browser required")
+  func: async (rawPage): Promise<RedditWhoamiRow> => {
+    const page = requirePage(rawPage, "reddit.whoami")
     await page.goto("https://www.reddit.com")
     const result = (await page.evaluate(`(async () => {
       try {
         const res = await fetch('/api/me.json?raw_json=1', { credentials: 'include' });
         if (res.status === 401 || res.status === 403) {
           return { kind: 'auth', detail: 'Reddit /api/me.json returned HTTP ' + res.status };
-        }
+ }
         if (!res.ok) return { kind: 'http', httpStatus: res.status };
         const d = await res.json();
         const me = d?.data;
         if (!me?.name) return { kind: 'auth', detail: 'Not logged in to reddit.com' };
         return { kind: 'ok', identity: me };
-      } catch (e) {
+ } catch (e) {
         return { kind: 'exception', detail: String(e && e.message || e) };
-      }
-    })()`)) as {
+ }
+ })()`)) as {
       kind: string
       detail?: string
       httpStatus?: number
       identity?: Record<string, unknown>
     }
-    if (result?.kind === "auth") throw new Error(`reddit.whoami: ${result.detail}`)
+    if (result?.kind === "auth") throw new AuthRequiredError("www.reddit.com", result.detail)
     if (result?.kind !== "ok" || !result.identity) {
-      throw new Error(`reddit.whoami failed: ${JSON.stringify(result)}`)
+      throw new CommandExecutionError(`reddit.whoami failed: ${JSON.stringify(result)}`)
     }
     const u = result.identity
     return {
@@ -328,40 +455,53 @@ export const home = defineCommand({
   description: "Reddit personalized home feed (requires login)",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
-  args: [{ name: "limit", type: "int", default: 20 }],
-  columns: [...POST_COLUMNS],
-  pipeline: [
-    { navigate: "https://www.reddit.com" },
-    {
-      evaluate: `(async () => {
+  args: [
+    { name: "limit", type: "int", default: 20 },
+  ],
+  func: async (rawPage, args): Promise<PostRow[]> => {
+    const page = requirePage(rawPage, "reddit.home")
+    await page.goto("https://www.reddit.com")
+    const data = await page.evaluate(`(async () => {
   ${REDDIT_MEDIA_HELPERS}
-  const limit = \${{ args.limit }};
+  const limit = ${args.limit};
   const res = await fetch('/.json?limit=' + limit + '&raw_json=1', { credentials: 'include' });
   const d = await res.json();
-  ${mapPostFromChild}
-})()`,
-    },
-    { map: { ...POST_MAP } },
-    { limit: "${{ args.limit }}" },
-  ],
+
+  return (d?.data?.children || []).map(c => ({
+    id: c.data.id,
+    title: c.data.title,
+    subreddit: c.data.subreddit_name_prefixed,
+    score: c.data.score,
+    comments: c.data.num_comments,
+    author: c.data.author,
+    url: 'https://www.reddit.com' + c.data.permalink,
+    created_utc: c.data.created_utc,
+    selftext: c.data.selftext || '',
+    ...extractRedditMedia(c.data),
+  }));
+
+})()`)
+    const rows = requireRows(data, "reddit.home").map((item, index) => ({
+      rank: index + 1,
+      ...toPostRow(item),
+    }))
+    return rows.slice(0, Number(args.limit))
+  },
 })
 
 export const subredditInfo = defineCommand({
   site: "reddit",
-  name: "subreddit-info",
+  name: "subredditInfo",
   description: "Show metadata for a Reddit subreddit",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "name", type: "string", required: true, positional: true, help: "Subreddit name" },
+    { name: "name", type: "string", required: true, help: "Subreddit name" },
   ],
-  columns: ["name", "title", "subscribers", "active", "description", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("reddit: browser required")
+  func: async (rawPage, kwargs): Promise<RedditSubredditInfoRow> => {
+    const page = requirePage(rawPage, "reddit.subredditInfo")
     await page.goto("https://www.reddit.com")
     let sub = String(kwargs.name ?? "")
     if (sub.startsWith("r/")) sub = sub.slice(2)
@@ -374,12 +514,12 @@ export const subredditInfo = defineCommand({
         const info = j?.data;
         if (!info || !info.display_name) return { kind: 'missing' };
         return { kind: 'ok', info };
-      } catch (e) {
+ } catch (e) {
         return { kind: 'exception', detail: String(e && e.message || e) };
-      }
-    })()`)) as { kind: string; info?: Record<string, unknown>; httpStatus?: number; detail?: string }
+ }
+ })()`)) as { kind: string; info?: Record<string, unknown>; httpStatus?: number; detail?: string }
     if (result.kind !== "ok" || !result.info) {
-      throw new Error(`reddit.subreddit-info: subreddit unavailable (${JSON.stringify(result)})`)
+      throw new CommandExecutionError(`reddit.subredditInfo: subreddit unavailable (${JSON.stringify(result)})`)
     }
     const info = result.info
     return {
@@ -408,7 +548,7 @@ async function userListing(
       const limit = ${limit};
       const res = await fetch('/user/' + username + '/${path}.json?limit=' + limit + '&raw_json=1', {
         credentials: 'include'
-      });
+ });
       const d = await res.json();
       return (d?.data?.children || []).map(c => ({
         title: c.data.title || c.data.body?.slice(0, 100) || '',
@@ -416,15 +556,16 @@ async function userListing(
         score: c.data.score || 0,
         comments: c.data.num_comments || 0,
         url: 'https://www.reddit.com' + (c.data.permalink || ''),
-      }));
-    } catch (e) {
+  }));
+ } catch (e) {
       return { error: String(e) };
-    }
-  })()`)) as Array<Record<string, unknown>> | { error: string }
+ }
+ })()`)) as RedditSavedRow[] | { error: string }
   if (result && !Array.isArray(result) && "error" in result) {
-    throw new Error(`reddit.${path}: ${result.error}`)
+    if (/not logged in/i.test(result.error)) throw new AuthRequiredError("www.reddit.com")
+    throw new CommandExecutionError(`reddit.${path}: ${result.error}`)
   }
-  return (result as Array<Record<string, unknown>>).slice(0, limit)
+  return (result as RedditSavedRow[]).slice(0, limit)
 }
 
 export const saved = defineCommand({
@@ -433,12 +574,10 @@ export const saved = defineCommand({
   description: "Browse your saved Reddit posts",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 15 }],
-  columns: ["title", "subreddit", "score", "comments", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("reddit: browser required")
+  func: async (rawPage, kwargs): Promise<RedditSavedRow[]> => {
+    const page = requirePage(rawPage, "reddit.saved")
     return userListing(page, "saved", Number(kwargs.limit) || 15)
   },
 })
@@ -449,12 +588,10 @@ export const upvoted = defineCommand({
   description: "Browse your upvoted Reddit posts",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 15 }],
-  columns: ["title", "subreddit", "score", "comments", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("reddit: browser required")
+  func: async (rawPage, kwargs): Promise<RedditSavedRow[]> => {
+    const page = requirePage(rawPage, "reddit.upvoted")
     return userListing(page, "upvoted", Number(kwargs.limit) || 15)
   },
 })
@@ -465,12 +602,10 @@ export const subscribed = defineCommand({
   description: "List subreddits you are subscribed to",
   domain: "www.reddit.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 100, help: "Max subreddits (1-500)" }],
-  columns: ["id", "subreddit", "title", "subscribers", "description", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("reddit: browser required")
+  func: async (rawPage, kwargs): Promise<RedditSubscribedRow[]> => {
+    const page = requirePage(rawPage, "reddit.subscribed")
     const limit = Math.min(Math.max(Number(kwargs.limit) || 100, 1), 500)
     await page.goto("https://www.reddit.com")
     const result = (await page.evaluate(`(async () => {
@@ -499,19 +634,20 @@ export const subscribed = defineCommand({
               subscribers: data.subscribers ?? null,
               description: (data.public_description || '').slice(0, 200),
               url: path ? 'https://www.reddit.com' + path : '',
-            });
-          }
+ });
+ }
           after = d?.data?.after;
           if (!after) break;
-        }
+ }
         return out;
-      } catch (e) {
+ } catch (e) {
         return { error: String(e) };
-      }
-    })()`)) as Array<Record<string, unknown>> | { error: string }
+ }
+ })()`)) as RedditSubscribedRow[] | { error: string }
     if (result && !Array.isArray(result) && "error" in result) {
-      throw new Error(`reddit.subscribed: ${result.error}`)
+      if (/not logged in/i.test(result.error)) throw new AuthRequiredError("www.reddit.com")
+      throw new CommandExecutionError(`reddit.subscribed: ${result.error}`)
     }
-    return result
+    return (result) as RedditSubscribedRow[]
   },
 })

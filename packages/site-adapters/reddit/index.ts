@@ -1,3 +1,8 @@
+import { registerGuide } from "../registry.ts"
+import { GUIDE } from "./guide.ts"
+
+registerGuide("reddit", GUIDE)
+
 export {
   hot,
   frontpage,
