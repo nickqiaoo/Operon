@@ -37,7 +37,8 @@ import {
 } from "./note-data.ts"
 import { buildNoteUrl, parseNoteId } from "./note-helpers.ts"
 import { SecurityBlockError, readXhsDetailPage } from "./risk-control.ts"
-import { XHS_WEB_HOST, errorText, isRecord, toCleanString, type Row } from "./shared.ts"
+import { XHS_WEB_HOST, errorText, type Row } from "./shared.ts"
+import { isRecord, toCleanString } from "../runtime/values.ts"
 
 export type { XhsNote, XhsNoteMedia, XhsSubtitles, XhsSubtitleTrack } from "./note-data.ts"
 

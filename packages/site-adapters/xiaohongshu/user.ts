@@ -6,7 +6,8 @@
 import { defineCommand } from "../define.ts"
 import { AuthRequiredError, CommandExecutionError, EmptyResultError } from "../errors.ts"
 import type { AdapterPage } from "../types.ts"
-import { XHS_WEB_HOST, isRecord, requirePage, type Row } from "./shared.ts"
+import { XHS_WEB_HOST, type Row } from "./shared.ts"
+import { isRecord, requirePage } from "../runtime/values.ts"
 import { extractXhsUserNotes, flattenXhsNoteGroups, normalizeXhsUserId, type XhsUserNoteRow } from "./user-helpers.ts"
 
 const USER_SNAPSHOT_JS = `

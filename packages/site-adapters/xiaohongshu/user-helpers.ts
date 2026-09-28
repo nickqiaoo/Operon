@@ -1,4 +1,5 @@
-import { XHS_WEB_HOST, isRecord, toCleanString, type Row } from "./shared.ts"
+import { XHS_WEB_HOST, type Row } from "./shared.ts"
+import { isRecord, toCleanString } from "../runtime/values.ts"
 
 export function normalizeXhsUserId(input: unknown): string {
   const withoutQuery = toCleanString(input).replace(/[?#].*$/, "")

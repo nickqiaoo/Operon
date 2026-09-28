@@ -11,7 +11,8 @@ import { defineCommand } from "../define.ts"
 import { AuthRequiredError, CommandExecutionError, EmptyResultError, TimeoutError } from "../errors.ts"
 import type { AdapterPage } from "../types.ts"
 import { SecurityBlockError } from "./risk-control.ts"
-import { XHS_WEB_HOST, isRecord, requirePage, toCleanString } from "./shared.ts"
+import { XHS_WEB_HOST } from "./shared.ts"
+import { isRecord, requirePage, toCleanString } from "../runtime/values.ts"
 
 export interface XhsSearchResult {
   title: string

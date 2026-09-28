@@ -5,6 +5,19 @@ export type CommandRunner = ((options: InvokeOptions) => Promise<unknown>) & {
 }
 
 const commands = new Map<string, CommandRunner>()
+const guides = new Map<string, string>()
+
+export function registerGuide(site: string, text: string): void {
+  guides.set(site, text)
+}
+
+/** Task selection, input formats and pitfalls for a site. */
+export function guide(site: string): string {
+  const text = guides.get(site)
+  if (text) return text
+  const sites = [...guides.keys()].sort().join(", ")
+  throw new Error(`No guide for "${site}". Sites with guides: ${sites}`)
+}
 
 export function commandId(site: string, name: string): string {
   return `${site}.${name}`
@@ -31,7 +44,7 @@ export function search(query: string): CommandInfo[] {
   if (!q) return list()
   return list().filter((info) => {
     const hay =
-      `${info.id} ${info.description} ${info.domain ?? ""} ${info.columns.join(" ")} ${info.keywords.join(" ")}`.toLowerCase()
+      `${info.id} ${info.description} ${info.domain ?? ""} ${info.keywords.join(" ")}`.toLowerCase()
     return hay.includes(q) || info.site.includes(q) || info.name.includes(q)
   })
 }
@@ -50,11 +63,9 @@ export function help(id: string): string {
     d.description,
     "",
     `- access: ${d.access ?? "read"}`,
-    `- strategy: ${d.strategy ?? (d.browser === false ? "public" : "cookie")}`,
-    `- browser: ${d.browser === false ? "optional (public)" : "required (pass globalThis.chrome)"}`,
+    `- needs Chrome: ${d.browser ? "yes" : "no"}`,
   ]
   if (d.domain) lines.push(`- domain: ${d.domain}`)
-  if (d.columns?.length) lines.push(`- columns: ${d.columns.join(", ")}`)
   lines.push("", "## Args")
   if (!d.args?.length) {
     lines.push("- (none besides browser when required)")
@@ -74,17 +85,15 @@ export function help(id: string): string {
     "## Call",
     "```js",
     d.browser === false
-      ? `await siteAdapters.${d.site}.${d.name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())}({ /* args */ })`
-      : `await siteAdapters.${d.site}.${camelName(d.name)}({ /* args */, browser: globalThis.chrome })`,
+      ? `await siteAdapters.${d.site}.${d.name}({ /* args */ })`
+      : `await siteAdapters.${d.site}.${d.name}({ /* args */, browser: globalThis.chrome })`,
     // also show run form
     `// or: await siteAdapters.run("${commandId(d.site, d.name)}", { /* args */, browser: globalThis.chrome })`,
     "```",
+    "",
+    `Site guide: siteAdapters.guide("${d.site}")`,
   )
   return lines.join("\n")
-}
-
-function camelName(name: string): string {
-  return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
 }
 
 export async function run(id: string, options: InvokeOptions = {}): Promise<unknown> {
@@ -96,8 +105,7 @@ export async function run(id: string, options: InvokeOptions = {}): Promise<unkn
 }
 
 function toInfo(d: CommandDefinition): CommandInfo {
-  const needsBrowser = d.browser !== false && (d.strategy ?? "cookie") !== "public"
-  const browser = d.browser ?? needsBrowser
+  const browser = d.browser
   return {
     id: commandId(d.site, d.name),
     site: d.site,
@@ -105,11 +113,9 @@ function toInfo(d: CommandDefinition): CommandInfo {
     description: d.description,
     access: d.access ?? "read",
     domain: d.domain,
-    strategy: d.strategy ?? (browser ? "cookie" : "public"),
     browser,
     args: d.args ?? [],
     keywords: d.keywords ?? [],
-    columns: d.columns ?? [],
   }
 }
 

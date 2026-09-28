@@ -9,13 +9,6 @@ import {
 } from "./registry.ts"
 import type { AdapterPage, CommandContext, CommandDefinition, InvokeOptions, SiteBrowser } from "./types.ts"
 
-function needsBrowser(def: CommandDefinition): boolean {
-  if (def.browser === false) return false
-  if (def.browser === true) return true
-  if (def.strategy === "public") return false
-  return true
-}
-
 /**
  * Define + register a site command (pipeline and/or func).
  *   await siteAdapters.bilibili.hot({ limit: 10, browser: chrome })
@@ -26,7 +19,7 @@ function needsBrowser(def: CommandDefinition): boolean {
  */
 export function defineCommand(def: CommandDefinition): CommandRunner {
   const id = commandId(def.site, def.name)
-  const browserRequired = needsBrowser(def)
+  const browserRequired = def.browser
 
   const runner = (async (options: InvokeOptions = {}) => {
     const { browser, ...rest } = options

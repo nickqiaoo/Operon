@@ -11,7 +11,7 @@
 /** Env key injected into node_repl so skills never hard-code app install paths. */
 export const OPERON_SITE_ADAPTERS_PATH_ENV = "OPERON_SITE_ADAPTERS_PATH"
 
-export { list, search, help, run, getCommand, commandId } from "./registry.ts"
+export { list, search, help, guide, run, getCommand, commandId } from "./registry.ts"
 export { defineCommand } from "./define.ts"
 export { SiteAdapterError } from "./errors.ts"
 export type {

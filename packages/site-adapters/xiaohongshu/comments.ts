@@ -8,7 +8,8 @@ import { defineCommand } from "../define.ts"
 import { AuthRequiredError, CommandExecutionError, EmptyResultError } from "../errors.ts"
 import { buildNoteUrl } from "./note-helpers.ts"
 import { readXhsDetailPage } from "./risk-control.ts"
-import { XHS_WEB_HOST, isRecord, requirePage, toCleanString } from "./shared.ts"
+import { XHS_WEB_HOST } from "./shared.ts"
+import { isRecord, requirePage, toCleanString } from "../runtime/values.ts"
 
 export interface XhsComment {
   author: string

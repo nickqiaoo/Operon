@@ -10,7 +10,7 @@
 
 import { SiteAdapterError } from "../errors.ts"
 import type { AdapterPage } from "../types.ts"
-import { isRecord } from "./shared.ts"
+import { isRecord } from "../runtime/values.ts"
 
 export function jitterSeconds(minS: number, maxS: number, rand: () => number = Math.random): number {
   return minS + rand() * (maxS - minS)

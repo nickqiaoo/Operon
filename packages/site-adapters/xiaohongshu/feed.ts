@@ -6,7 +6,8 @@
 
 import { defineCommand } from "../define.ts"
 import { CommandExecutionError, EmptyResultError } from "../errors.ts"
-import { XHS_WEB_HOST, isRecord, requirePage, toCleanString } from "./shared.ts"
+import { XHS_WEB_HOST } from "./shared.ts"
+import { isRecord, requirePage, toCleanString } from "../runtime/values.ts"
 
 const FEEDS_READ_JS = `
   (() => {

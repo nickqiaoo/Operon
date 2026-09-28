@@ -9,7 +9,8 @@
  * to signed `.srt` URLs on sns-subtitle-*.xhscdn.com, fetchable without login.
  */
 
-import { isRecord, toCleanString, type Row } from "./shared.ts"
+import { type Row } from "./shared.ts"
+import { isRecord, toCleanString } from "../runtime/values.ts"
 
 export interface XhsNoteMedia {
   type: "image" | "video"

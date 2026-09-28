@@ -73,6 +73,7 @@ export interface ArgDef {
   type?: "string" | "int" | "bool"
   required?: boolean
   /** Positional in CLI help; ignored for JS call style. */
+  /** @deprecated Removed after migration. */
   positional?: boolean
   default?: unknown
   help?: string
@@ -95,13 +96,15 @@ export interface CommandMeta {
   description: string
   access?: AccessMode
   domain?: string
+  /** @deprecated Removed after migration. */
   strategy?: Strategy
   /**
    * When false, runs without a browser tab (host-side fetch).
    * Default true for cookie/ui; false is typical for public JSON APIs.
    */
-  browser?: boolean
+  browser: boolean
   args?: ArgDef[]
+  /** @deprecated Removed after migration. */
   columns?: string[]
   /**
    * Extra search terms for `search()`, beyond the id and description.
@@ -153,10 +156,8 @@ export interface CommandInfo {
   description: string
   access: AccessMode
   domain?: string
-  strategy: Strategy
   browser: boolean
   args: ArgDef[]
-  columns: string[]
   keywords: string[]
 }
 
