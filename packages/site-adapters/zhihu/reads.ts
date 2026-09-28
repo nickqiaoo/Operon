@@ -1,8 +1,6 @@
-/**
- * Zhihu read surface — OpenCLI clis/zhihu/* (cookie + api/v4).
- */
-
 import { defineCommand } from "../define.ts"
+import { ArgumentError, AuthRequiredError } from "../errors.ts"
+import { requirePage } from "../runtime/values.ts"
 import {
   assertOk,
   fetchZhihuList,
@@ -12,7 +10,112 @@ import {
   zhihuFetchJson,
 } from "./utils.ts"
 
-// hot stays in hot.ts (pipeline)
+export interface ZhihuUserRow {
+  url_token: string
+  name: string
+  headline: string
+  followers: unknown
+  following: unknown
+  answers: unknown
+  articles: unknown
+  voteup: unknown
+  url: string
+}
+
+export interface ZhihuQuestionRow {
+  rank: number
+  id: string
+  author: unknown
+  votes: unknown
+  url: string
+  content: string
+}
+
+export interface ZhihuSearchRow {
+  rank: number
+  type: string
+  title: string
+  author: unknown
+  url: string
+  excerpt: string
+}
+
+export interface ZhihuRecommendRow {
+  rank: number
+  type: string
+  title: string
+  author: unknown
+  url: string
+}
+
+export interface ZhihuFollowingRow {
+  rank: number
+  name: unknown
+  headline: unknown
+  followers: unknown
+  url: string
+}
+
+export interface ZhihuFollowersRow {
+  rank: number
+  name: unknown
+  headline: unknown
+  followers: unknown
+  url: string
+}
+
+export interface ZhihuUserAnswersRow {
+  rank: number
+  question: unknown
+  votes: unknown
+  url: string
+}
+
+export interface ZhihuUserArticlesRow {
+  rank: number
+  title: unknown
+  votes: unknown
+  url: string
+}
+
+export interface ZhihuPinsRow {
+  rank: number
+  excerpt: string
+  likes: unknown
+  comments: unknown
+  url: string
+}
+
+export interface ZhihuCollectionsRow {
+  rank: number
+  title: unknown
+  items: unknown
+  url: string
+}
+
+export interface ZhihuAnswerDetailRow {
+  id: string
+  author: unknown
+  votes: unknown
+  comments: unknown
+  question_id: string
+  question_title: unknown
+  url: string
+  content: string
+}
+
+export interface ZhihuAnswerCommentsRow {
+  rank: number
+  author: unknown
+  content: string
+  likes: unknown
+  created: string
+}
+
+/**
+ * Zhihu read surface — OpenCLI clis/zhihu/* (cookie + api/v4).
+ */
+
 
 export const user = defineCommand({
   site: "zhihu",
@@ -20,14 +123,12 @@ export const user = defineCommand({
   description: "Zhihu user profile",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", type: "string", required: true, positional: true, help: "url_token or people URL" },
+    { name: "user", type: "string", required: true, help: "url_token or people URL" },
   ],
-  columns: ["url_token", "name", "headline", "followers", "following", "answers", "articles", "voteup", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuUserRow> => {
+    const page = requirePage(rawPage, "zhihu.user")
     const slug = parseZhihuUser(kwargs.user)
     await page.goto("https://www.zhihu.com")
     const include =
@@ -54,18 +155,16 @@ export const question = defineCommand({
   description: "Zhihu question with answers",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "id", required: true, positional: true, help: "Question ID (numeric)" },
+    { name: "id", required: true, help: "Question ID (numeric)" },
     { name: "limit", type: "int", default: 5, help: "Number of answers" },
     { name: "sort", default: "default", choices: ["default", "created"], help: "Answer order" },
   ],
-  columns: ["rank", "id", "author", "votes", "url", "content"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuQuestionRow[]> => {
+    const page = requirePage(rawPage, "zhihu.question")
     const questionId = String(kwargs.id)
-    if (!/^\d+$/.test(questionId)) throw new Error("zhihu.question: id must be numeric")
+    if (!/^\d+$/.test(questionId)) throw new ArgumentError("zhihu.question: id must be numeric")
     const answerLimit = validateLimit(kwargs.limit, 5, 100)
     const sort = kwargs.sort === "created" ? "created" : "default"
     await page.goto(
@@ -97,18 +196,16 @@ export const search = defineCommand({
   keywords: ["搜索", "知乎"],
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "query", required: true, positional: true, help: "Search keyword" },
+    { name: "query", required: true, help: "Search keyword" },
     { name: "limit", type: "int", default: 10 },
     { name: "type", default: "all", choices: ["all", "answer", "article", "question"] },
   ],
-  columns: ["rank", "type", "title", "author", "url", "excerpt"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuSearchRow[]> => {
+    const page = requirePage(rawPage, "zhihu.search")
     const query = String(kwargs.query ?? "").trim()
-    if (!query) throw new Error("zhihu.search: query required")
+    if (!query) throw new ArgumentError("zhihu.search: query required")
     const limit = validateLimit(kwargs.limit, 10, 100)
     const type = String(kwargs.type ?? "all")
     await page.goto("https://www.zhihu.com")
@@ -152,12 +249,10 @@ export const recommend = defineCommand({
   description: "Zhihu home feed",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 15 }],
-  columns: ["rank", "type", "title", "author", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuRecommendRow[]> => {
+    const page = requirePage(rawPage, "zhihu.recommend")
     const limit = validateLimit(kwargs.limit, 15, 50)
     await page.goto("https://www.zhihu.com")
     const first =
@@ -200,15 +295,13 @@ export const following = defineCommand({
   description: "Who a Zhihu user follows",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", required: true, positional: true },
+    { name: "user", required: true },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "name", "headline", "followers", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuFollowingRow[]> => {
+    const page = requirePage(rawPage, "zhihu.following")
     const slug = parseZhihuUser(kwargs.user)
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
@@ -230,15 +323,13 @@ export const followers = defineCommand({
   description: "A Zhihu user's followers",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", required: true, positional: true },
+    { name: "user", required: true },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "name", "headline", "followers", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuFollowersRow[]> => {
+    const page = requirePage(rawPage, "zhihu.followers")
     const slug = parseZhihuUser(kwargs.user)
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
@@ -256,24 +347,22 @@ export const followers = defineCommand({
 
 export const userAnswers = defineCommand({
   site: "zhihu",
-  name: "user-answers",
+  name: "userAnswers",
   description: "Answers written by a Zhihu user",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", required: true, positional: true },
+    { name: "user", required: true },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "question", "votes", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuUserAnswersRow[]> => {
+    const page = requirePage(rawPage, "zhihu.userAnswers")
     const slug = parseZhihuUser(kwargs.user)
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
     const first = `https://www.zhihu.com/api/v4/members/${encodeURIComponent(slug)}/answers?limit=20&offset=0&sort_by=created`
-    const items = await fetchZhihuList(page, first, limit, "user-answers")
+    const items = await fetchZhihuList(page, first, limit, "userAnswers")
     return items.map((a, i) => {
       const q = (a.question ?? {}) as Record<string, unknown>
       const id = a.id == null ? "" : String(a.id)
@@ -290,24 +379,22 @@ export const userAnswers = defineCommand({
 
 export const userArticles = defineCommand({
   site: "zhihu",
-  name: "user-articles",
+  name: "userArticles",
   description: "Articles and columns by a Zhihu user",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", required: true, positional: true },
+    { name: "user", required: true },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "title", "votes", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuUserArticlesRow[]> => {
+    const page = requirePage(rawPage, "zhihu.userArticles")
     const slug = parseZhihuUser(kwargs.user)
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
     const first = `https://www.zhihu.com/api/v4/members/${encodeURIComponent(slug)}/articles?limit=20&offset=0`
-    const items = await fetchZhihuList(page, first, limit, "user-articles")
+    const items = await fetchZhihuList(page, first, limit, "userArticles")
     return items.map((a, i) => {
       const id = a.id == null ? "" : String(a.id)
       return {
@@ -326,15 +413,13 @@ export const pins = defineCommand({
   description: "Pins posted by a Zhihu user",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", required: true, positional: true },
+    { name: "user", required: true },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "excerpt", "likes", "comments", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuPinsRow[]> => {
+    const page = requirePage(rawPage, "zhihu.pins")
     const slug = parseZhihuUser(kwargs.user)
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
@@ -356,15 +441,13 @@ export const collections = defineCommand({
   description: "Zhihu collections, for the signed-in user or a named one",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "user", positional: true, help: "url_token; omit to try the signed-in user" },
+    { name: "user", help: "url_token; omit to try the signed-in user" },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "title", "items", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuCollectionsRow[]> => {
+    const page = requirePage(rawPage, "zhihu.collections")
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
     let slug = kwargs.user ? parseZhihuUser(kwargs.user) : ""
@@ -375,7 +458,7 @@ export const collections = defineCommand({
         "me",
       )
       slug = String(me.url_token || "")
-      if (!slug) throw new Error("zhihu.collections: provide user or login")
+      if (!slug) throw new AuthRequiredError("www.zhihu.com", "zhihu.collections: provide user or login")
     }
     const first = `https://www.zhihu.com/api/v4/members/${encodeURIComponent(slug)}/collections?limit=20&offset=0`
     const items = await fetchZhihuList(page, first, limit, "collections")
@@ -390,19 +473,17 @@ export const collections = defineCommand({
 
 export const answerDetail = defineCommand({
   site: "zhihu",
-  name: "answer-detail",
+  name: "answerDetail",
   description: "Full text of a single Zhihu answer",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "id", required: true, positional: true, help: "Answer ID or full answer URL" },
+    { name: "id", required: true, help: "Answer ID or full answer URL" },
     { name: "maxContent", type: "int", default: 0, help: "Cap content length (0 = full, max 5000 stored as slice for safety if set)" },
   ],
-  columns: ["id", "author", "votes", "comments", "question_id", "question_title", "url", "content"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuAnswerDetailRow> => {
+    const page = requirePage(rawPage, "zhihu.answerDetail")
     const raw = String(kwargs.id ?? "").trim()
     let answerId = ""
     let questionId = ""
@@ -422,10 +503,10 @@ export const answerDetail = defineCommand({
         // ignore
       }
     }
-    if (!answerId) throw new Error("zhihu.answer-detail: invalid answer id/url")
+    if (!answerId) throw new ArgumentError("zhihu.answerDetail: invalid answer id/url")
     await page.goto("https://www.zhihu.com")
     const apiUrl = `https://www.zhihu.com/api/v4/answers/${answerId}?include=content,voteup_count,comment_count,author,question`
-    const data = assertOk(await zhihuFetchJson(page, apiUrl), "answer-detail")
+    const data = assertOk(await zhihuFetchJson(page, apiUrl), "answerDetail")
     const author = (data.author ?? {}) as Record<string, unknown>
     const question = (data.question ?? {}) as Record<string, unknown>
     const qid = questionId || (question.id == null ? "" : String(question.id))
@@ -447,19 +528,17 @@ export const answerDetail = defineCommand({
 
 export const answerComments = defineCommand({
   site: "zhihu",
-  name: "answer-comments",
+  name: "answerComments",
   description: "Comments on a Zhihu answer",
   domain: "www.zhihu.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "id", required: true, positional: true, help: "Answer ID or URL" },
+    { name: "id", required: true, help: "Answer ID or URL" },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "author", "content", "likes", "created"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("zhihu: browser required")
+  func: async (rawPage, kwargs): Promise<ZhihuAnswerCommentsRow[]> => {
+    const page = requirePage(rawPage, "zhihu.answerComments")
     const raw = String(kwargs.id ?? "").trim()
     let answerId = ""
     if (/^\d+$/.test(raw)) answerId = raw
@@ -472,11 +551,11 @@ export const answerComments = defineCommand({
         // ignore
       }
     }
-    if (!answerId) throw new Error("zhihu.answer-comments: invalid answer id/url")
+    if (!answerId) throw new ArgumentError("zhihu.answerComments: invalid answer id/url")
     const limit = validateLimit(kwargs.limit)
     await page.goto("https://www.zhihu.com")
     const first = `https://www.zhihu.com/api/v4/answers/${answerId}/root_comments?order=normal&limit=20&offset=0&status=open`
-    const items = await fetchZhihuList(page, first, limit, "answer-comments")
+    const items = await fetchZhihuList(page, first, limit, "answerComments")
     return items.map((c, i) => {
       const author = (c.author ?? {}) as Record<string, unknown>
       const member = (author.member ?? author) as Record<string, unknown>

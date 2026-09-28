@@ -1,3 +1,4 @@
+import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from "../errors.ts"
 import type { AdapterPage } from "../types.ts"
 
 export function stripHtml(html: unknown, { preserveBlocks = false } = {}): string {
@@ -22,7 +23,7 @@ export function stripHtml(html: unknown, { preserveBlocks = false } = {}): strin
 
 export function parseZhihuUser(input: unknown): string {
   const value = String(input ?? "").trim()
-  if (!value) throw new Error("zhihu: user is required")
+  if (!value) throw new ArgumentError("zhihu: user is required")
   const prefix = value.match(/^user:([A-Za-z0-9_-]+)$/)
   if (prefix?.[1]) return prefix[1]
   if (/^[A-Za-z0-9_-]+$/.test(value)) return value
@@ -35,14 +36,14 @@ export function parseZhihuUser(input: unknown): string {
   } catch {
     // fall through
   }
-  throw new Error(`zhihu: invalid user ${value}`)
+  throw new ArgumentError(`zhihu: invalid user ${value}`)
 }
 
 export function validateLimit(raw: unknown, fallback = 20, max = 200): number {
   const value = raw ?? fallback
   const limit = typeof value === "number" ? value : Number(value)
   if (!Number.isInteger(limit) || limit <= 0 || limit > max) {
-    throw new Error(`zhihu: limit must be 1..${max}`)
+    throw new ArgumentError(`zhihu: limit must be 1..${max}`)
   }
   return limit
 }
@@ -54,25 +55,25 @@ export async function zhihuFetchJson(page: AdapterPage, url: string): Promise<un
         const r = await fetch(${JSON.stringify(url)}, { credentials: 'include' });
         if (!r.ok) return { __httpError: r.status };
         return await r.json();
-      } catch (err) {
+ } catch (err) {
         return { __fetchError: err?.message || String(err) };
-      }
-    })()
+ }
+ })()
   `)
 }
 
 export function assertOk(data: unknown, label: string): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error(`zhihu ${label}: malformed payload`)
+    throw new CommandExecutionError(`zhihu ${label}: malformed payload`)
   }
   const rec = data as Record<string, unknown>
   if (rec.__httpError) {
     const status = rec.__httpError
-    if (status === 401 || status === 403) throw new Error(`zhihu ${label}: login required (HTTP ${status})`)
-    if (status === 404) throw new Error(`zhihu ${label}: not found`)
-    throw new Error(`zhihu ${label}: HTTP ${status}`)
+    if (status === 401 || status === 403) throw new AuthRequiredError("www.zhihu.com", `zhihu ${label}: login required (HTTP ${status})`)
+    if (status === 404) throw new EmptyResultError("zhihu", `zhihu ${label}: not found`)
+    throw new CommandExecutionError(`zhihu ${label}: HTTP ${status}`)
   }
-  if (rec.__fetchError) throw new Error(`zhihu ${label}: ${String(rec.__fetchError)}`)
+  if (rec.__fetchError) throw new CommandExecutionError(`zhihu ${label}: ${String(rec.__fetchError)}`)
   return rec
 }
 
