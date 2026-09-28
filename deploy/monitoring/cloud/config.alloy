@@ -1,0 +1,74 @@
+// Keep /metrics private on the broker network. Only outbound writes reach Grafana Cloud.
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROMETHEUS_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROMETHEUS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+  }
+}
+
+prometheus.scrape "broker" {
+  targets = [
+    {"__address__" = "172.30.81.11:8080", "job" = "broker", "instance" = "broker1", "environment" = "production"},
+    {"__address__" = "172.30.81.12:8080", "job" = "broker", "instance" = "broker2", "environment" = "production"},
+  ]
+  scrape_interval = "60s"
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.scrape "node" {
+  targets = [
+    {"__address__" = "cloud-node-exporter:9100", "job" = "node", "instance" = "broker-host", "environment" = "production"},
+  ]
+  scrape_interval = "60s"
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// Production Docker uses json-file; discover only the two broker containers.
+discovery.docker "broker" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "broker" {
+  targets = discovery.docker.broker.targets
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex = "/operon-broker-broker[12]-[0-9]+"
+    action = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex = "/(.*)"
+    target_label = "container"
+    replacement = "$1"
+  }
+}
+
+loki.source.docker "broker" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.broker.output
+  labels = {"service" = "operon-broker", "environment" = "production"}
+  forward_to = [loki.process.broker_json.receiver]
+}
+
+loki.process "broker_json" {
+  stage.json {
+    expressions = {"level" = "level"}
+  }
+  stage.labels {
+    values = {"level" = "level"}
+  }
+  forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_LOKI_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_LOKI_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+  }
+}
