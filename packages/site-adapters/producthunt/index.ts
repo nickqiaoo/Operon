@@ -1,5 +1,20 @@
 import { defineCommand } from "../define.ts"
+import { registerGuide } from "../registry.ts"
+import { GUIDE } from "./guide.ts"
+import type { PostRow } from "./utils.ts"
 import { fetchFeed, PRODUCTHUNT_CATEGORY_SLUGS } from "./utils.ts"
+
+export interface ProducthuntTodayRow {
+  rank: number
+  name: string
+  tagline: string
+  author: string
+  url: string
+}
+
+registerGuide("producthunt", GUIDE)
+
+export type { PostRow } from "./utils.ts"
 
 export const posts = defineCommand({
   site: "producthunt",
@@ -7,7 +22,6 @@ export const posts = defineCommand({
   description: "Latest Product Hunt launches (Atom feed)",
   domain: "www.producthunt.com",
   access: "read",
-  strategy: "public",
   browser: false,
   args: [
     { name: "limit", type: "int", default: 20 },
@@ -17,12 +31,11 @@ export const posts = defineCommand({
       help: `Optional: ${PRODUCTHUNT_CATEGORY_SLUGS.slice(0, 6).join(", ")}…`,
     },
   ],
-  columns: ["rank", "name", "tagline", "author", "date", "url"],
-  func: async (_page, args) => {
+  func: async (_page, args): Promise<PostRow[]> => {
     const count = Math.min(Number(args.limit) || 20, 50)
     const category = String(args.category ?? "").trim() || undefined
     const postsList = await fetchFeed(category)
-    return postsList.slice(0, count)
+    return (postsList.slice(0, count)) as PostRow[]
   },
 })
 
@@ -32,11 +45,9 @@ export const today = defineCommand({
   description: "Today's Product Hunt launches (from feed latest date)",
   domain: "www.producthunt.com",
   access: "read",
-  strategy: "public",
   browser: false,
   args: [{ name: "limit", type: "int", default: 20 }],
-  columns: ["rank", "name", "tagline", "author", "url"],
-  func: async (_page, args) => {
+  func: async (_page, args): Promise<ProducthuntTodayRow[]> => {
     const count = Math.min(Number(args.limit) || 20, 50)
     const postsList = await fetchFeed()
     if (postsList.length === 0) return []
@@ -58,12 +69,10 @@ export const hot = defineCommand({
   description: "Recent Product Hunt feed (alias of posts)",
   domain: "www.producthunt.com",
   access: "read",
-  strategy: "public",
   browser: false,
   args: [{ name: "limit", type: "int", default: 20 }],
-  columns: ["rank", "name", "tagline", "author", "date", "url"],
-  func: async (_page, args) => {
+  func: async (_page, args): Promise<PostRow[]> => {
     const count = Math.min(Number(args.limit) || 20, 50)
-    return (await fetchFeed()).slice(0, count)
+    return ((await fetchFeed()).slice(0, count)) as PostRow[]
   },
 })

@@ -1,3 +1,14 @@
+
+
+export interface PostRow {
+  rank: number
+  name: string
+  tagline: string
+  author: string
+  date: string
+  url: string
+}
+
 export const PRODUCTHUNT_CATEGORY_SLUGS = [
   "ai-agents",
   "ai-coding-agents",
@@ -18,17 +29,17 @@ export const PRODUCTHUNT_CATEGORY_SLUGS = [
 
 const UA = "Mozilla/5.0 (compatible; operon-site-adapters/1.0)"
 
-export async function fetchFeed(category?: string) {
+export async function fetchFeed(category?: string): Promise<PostRow[]> {
   const url = category
     ? `https://www.producthunt.com/feed?category=${encodeURIComponent(category)}`
     : "https://www.producthunt.com/feed"
   const resp = await fetch(url, { headers: { "User-Agent": UA } })
-  if (!resp.ok) return [] as Array<Record<string, string>>
+  if (!resp.ok) return []
   return parseFeed(await resp.text())
 }
 
-export function parseFeed(xml: string) {
-  const posts: Array<Record<string, string | number>> = []
+export function parseFeed(xml: string): PostRow[] {
+  const posts: PostRow[] = []
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
   let match: RegExpExecArray | null
   let rank = 1
