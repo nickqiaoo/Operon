@@ -6,10 +6,9 @@ import { OpencodeClientManager } from './client-manager.js'
 /**
  * Stop the OpenCode server this process started, on the way out.
  *
- * Without this the server outlives the app. The next launch then finds port
- * 4096 answering and, before the pid-file reclaim existed, reused a process
- * whose MCP endpoints pointed at the previous launch's HTTP port — which is
- * gone, because the app binds port 0 and gets a new one every time.
+ * Without this the server outlives the app as a leaked process. It can no
+ * longer be mistaken for the next launch's server (each launch starts its own
+ * on a random port), but it still holds memory until a later launch reaps it.
  */
 export async function disposeOpencodeServer(): Promise<void> {
   await OpencodeClientManager.getInstance().dispose()

@@ -560,9 +560,8 @@ const cleanupAll = () => {
   // The Codex probe only holds a connection when no conversation had one open,
   // but that connection owns an app-server process just the same.
   disposeCodexUsageProbe()
-  // Same shape as the IAB socket above: an OpenCode server that outlives the app
-  // keeps answering on 4096, and its MCP endpoints point at this run's HTTP
-  // port, which dies with us. The next launch would inherit dead endpoints.
+  // The OpenCode server we started is a child that would otherwise outlive us
+  // as a leaked process (the next launch starts its own and reaps this one).
   void disposeOpencodeServer()
   // Push the last buffered spans to the local collector before the process goes.
   void shutdownOperonTracing()
