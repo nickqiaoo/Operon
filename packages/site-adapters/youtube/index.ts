@@ -1,9 +1,54 @@
+import { defineCommand } from "../define.ts"
+import { CommandExecutionError } from "../errors.ts"
+import { registerGuide } from "../registry.ts"
+import { requirePage } from "../runtime/values.ts"
+import { GUIDE } from "./guide.ts"
+import { parseVideoId } from "./utils.ts"
+
+export interface YoutubeSearchRow {
+  rank: number
+  title: string
+  channel: string
+  views: string
+  duration: string
+  published: string
+  url: string
+}
+
+export interface YoutubeFeedRow {
+  rank: number
+  title: string
+  channel: string
+  video_id: string
+  views: string
+  duration: string
+  published: string
+  url: string
+}
+
+export interface YoutubeVideoRow {
+  title: string
+  channel: string
+  views: string
+  likes: string
+  published: string
+  description: string
+  url: string
+}
+
+export interface YoutubeCommentsRow {
+  rank: number
+  author: string
+  text: string
+  likes: string
+  time: string
+}
+
+registerGuide("youtube", GUIDE)
+
 /**
  * YouTube read commands — cookie + ytInitialData / innertube bootstrap.
  */
-
-import { defineCommand } from "../define.ts"
-import { parseVideoId } from "./utils.ts"
 
 export const search = defineCommand({
   site: "youtube",
@@ -11,18 +56,16 @@ export const search = defineCommand({
   description: "Search YouTube videos",
   domain: "www.youtube.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "query", required: true, positional: true },
+    { name: "query", required: true, },
     { name: "limit", type: "int", default: 20 },
     { name: "type", default: "", help: "shorts | video | channel | playlist" },
     { name: "upload", default: "", help: "hour | today | week | month | year" },
     { name: "sort", default: "", help: "date | views | rating" },
   ],
-  columns: ["rank", "title", "channel", "views", "duration", "published", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("youtube.search: browser required")
+  func: async (rawPage, kwargs): Promise<YoutubeSearchRow[]> => {
+    const page = requirePage(rawPage, "youtube.search")
     const limit = Math.min(Number(kwargs.limit) || 20, 50)
     const query = encodeURIComponent(String(kwargs.query))
     const spMap: Record<string, string> = {
@@ -73,8 +116,8 @@ export const search = defineCommand({
                 duration: v.lengthText?.simpleText || 'LIVE',
                 published: v.publishedTimeText?.simpleText || '',
                 url: 'https://www.youtube.com/watch?v=' + v.videoId
-              });
-            } else if (item.reelItemRenderer) {
+ });
+ } else if (item.reelItemRenderer) {
               const r = item.reelItemRenderer;
               videos.push({
                 rank: videos.length + 1,
@@ -84,20 +127,20 @@ export const search = defineCommand({
                 duration: 'SHORT',
                 published: r.publishedTimeText?.simpleText || '',
                 url: 'https://www.youtube.com/shorts/' + r.videoId
-              });
-            }
-          }
-        }
+ });
+ }
+ }
+ }
         return videos;
-      })()
+ })()
     `)
     if (!Array.isArray(data)) {
       if (data && typeof data === "object" && "error" in data) {
-        throw new Error(`youtube.search: ${(data as { error: string }).error}`)
+        throw new CommandExecutionError(`youtube.search: ${(data as { error: string }).error}`)
       }
-      return []
+      return ([]) as YoutubeSearchRow[]
     }
-    return data
+    return (data) as YoutubeSearchRow[]
   },
 })
 
@@ -107,12 +150,10 @@ export const feed = defineCommand({
   description: "YouTube homepage recommended videos",
   domain: "www.youtube.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [{ name: "limit", type: "int", default: 20 }],
-  columns: ["rank", "title", "channel", "video_id", "views", "duration", "published", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("youtube.feed: browser required")
+  func: async (rawPage, kwargs): Promise<YoutubeFeedRow[]> => {
+    const page = requirePage(rawPage, "youtube.feed")
     const limit = Math.min(Number(kwargs.limit) || 20, 100)
     await page.goto("https://www.youtube.com")
     await page.wait(3)
@@ -135,8 +176,8 @@ export const feed = defineCommand({
             for (const ov of (lvm.contentImage?.thumbnailViewModel?.overlays || [])) {
               for (const b of (ov.thumbnailBottomOverlayViewModel?.badges || [])) {
                 if (b.thumbnailBadgeViewModel?.text) duration = b.thumbnailBadgeViewModel.text;
-              }
-            }
+ }
+ }
             videos.push({
               rank: videos.length + 1,
               title: meta?.title?.content || '',
@@ -146,9 +187,9 @@ export const feed = defineCommand({
               duration,
               published: parts[2] || '',
               url: 'https://www.youtube.com/watch?v=' + lvm.contentId,
-            });
+ });
             continue;
-          }
+ }
           const v = item.richItemRenderer?.content?.videoRenderer || item.videoRenderer;
           if (v?.videoId) {
             videos.push({
@@ -160,19 +201,19 @@ export const feed = defineCommand({
               duration: v.lengthText?.simpleText || '',
               published: v.publishedTimeText?.simpleText || '',
               url: 'https://www.youtube.com/watch?v=' + v.videoId,
-            });
-          }
-        }
+ });
+ }
+ }
         return videos;
-      })()
+ })()
     `)
     if (!Array.isArray(data)) {
       if (data && typeof data === "object" && "error" in data) {
-        throw new Error(`youtube.feed: ${(data as { error: string }).error}`)
+        throw new CommandExecutionError(`youtube.feed: ${(data as { error: string }).error}`)
       }
-      return []
+      return ([]) as YoutubeFeedRow[]
     }
-    return data
+    return (data) as YoutubeFeedRow[]
   },
 })
 
@@ -182,12 +223,10 @@ export const video = defineCommand({
   description: "Get YouTube video metadata",
   domain: "www.youtube.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
-  args: [{ name: "url", required: true, positional: true, help: "Video URL or ID" }],
-  columns: ["title", "channel", "views", "likes", "published", "description", "url"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("youtube.video: browser required")
+  args: [{ name: "url", required: true, help: "Video URL or ID" }],
+  func: async (rawPage, kwargs): Promise<YoutubeVideoRow> => {
+    const page = requirePage(rawPage, "youtube.video")
     const videoId = parseVideoId(kwargs.url)
     await page.goto(`https://www.youtube.com/watch?v=${videoId}`)
     await page.wait(3)
@@ -208,9 +247,9 @@ export const video = defineCommand({
                 ?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel
                 ?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
               if (toggle?.title) { likes = toggle.title; break; }
-            }
-          }
-        } catch {}
+ }
+ }
+ } catch {}
         return {
           title: details.title || '',
           channel: details.author || '',
@@ -219,32 +258,30 @@ export const video = defineCommand({
           published: micro.publishDate || micro.uploadDate || '',
           description: (details.shortDescription || '').slice(0, 500),
           url: 'https://www.youtube.com/watch?v=' + (details.videoId || ${JSON.stringify(videoId)}),
-        };
-      })()
+ };
+ })()
     `)
     if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw new Error("youtube.video: failed to parse metadata")
+      throw new CommandExecutionError("youtube.video: failed to parse metadata")
     }
-    if ("error" in data) throw new Error(`youtube.video: ${(data as { error: string }).error}`)
-    return data
+    if ("error" in data) throw new CommandExecutionError(`youtube.video: ${(data as { error: string }).error}`)
+    return (data) as YoutubeVideoRow
   },
 })
 
 export const comments = defineCommand({
   site: "youtube",
   name: "comments",
-  description: "Get YouTube video comments (from page bootstrap when available)",
+  description: "Read rendered YouTube video comments",
   domain: "www.youtube.com",
   access: "read",
-  strategy: "cookie",
   browser: true,
   args: [
-    { name: "url", required: true, positional: true },
+    { name: "url", required: true, },
     { name: "limit", type: "int", default: 20 },
   ],
-  columns: ["rank", "author", "text", "likes", "time"],
-  func: async (page, kwargs) => {
-    if (!page) throw new Error("youtube.comments: browser required")
+  func: async (rawPage, kwargs): Promise<YoutubeCommentsRow[]> => {
+    const page = requirePage(rawPage, "youtube.comments")
     const videoId = parseVideoId(kwargs.url)
     const limit = Math.min(Number(kwargs.limit) || 20, 100)
     await page.goto(`https://www.youtube.com/watch?v=${videoId}`)
@@ -255,17 +292,6 @@ export const comments = defineCommand({
     const data = await page.evaluate(`
       (async () => {
         const limit = ${limit};
-        const cfg = window.ytcfg?.data_ || {};
-        const apiKey = cfg.INNERTUBE_API_KEY;
-        const context = cfg.INNERTUBE_CONTEXT;
-        let continuationToken = null;
-        if (window.ytInitialData) {
-          const results = window.ytInitialData.contents?.twoColumnWatchNextResults?.results?.results?.contents || [];
-          const commentSection = results.find(i => i.itemSectionRenderer?.targetId === 'comments-section'
-            || i.itemSectionRenderer?.sectionIdentifier === 'comment-item-section');
-          continuationToken = commentSection?.itemSectionRenderer?.contents?.[0]
-            ?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
-        }
         const readRenderedComments = () => {
           const nodes = Array.from(document.querySelectorAll('ytd-comment-thread-renderer')).slice(0, limit);
           return nodes.map((n, i) => ({
@@ -274,53 +300,19 @@ export const comments = defineCommand({
             text: n.querySelector('#content-text')?.innerText?.trim() || '',
             likes: n.querySelector('#vote-count-middle')?.innerText?.trim() || '0',
             time: n.querySelector('.published-time-text')?.innerText?.trim() || '',
-          }));
-        };
-        if (!continuationToken || !apiKey || !context) return readRenderedComments();
-        let resp;
-        try {
-          resp = await fetch('/youtubei/v1/next?key=' + apiKey + '&prettyPrint=false', {
-            method: 'POST', credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ context, continuation: continuationToken })
-          });
-        } catch (e) {
-          // The browser client evaluates this under a read-only guard that
-          // rejects every non-GET fetch. The comments the page already
-          // rendered are still readable, so take those instead of failing.
-          return readRenderedComments();
-        }
-        if (!resp.ok) return readRenderedComments();
-        const j = await resp.json();
-        const muts = j.onResponseReceivedEndpoints || j.frameworkUpdates || [];
-        const comments = [];
-        const walk = (obj) => {
-          if (!obj || typeof obj !== 'object') return;
-          if (obj.commentEntityPayload || obj.commentRenderer) {
-            const c = obj.commentRenderer || obj.commentEntityPayload?.properties;
-            if (c) {
-              comments.push({
-                rank: comments.length + 1,
-                author: c.authorText?.simpleText || c.author?.displayName || '',
-                text: c.contentText?.runs?.map(r => r.text).join('') || c.content?.content || '',
-                likes: c.voteCount?.simpleText || c.likeCountLikeButtonLabel || '0',
-                time: c.publishedTimeText?.runs?.[0]?.text || '',
-              });
-            }
-          }
-          if (Array.isArray(obj)) obj.forEach(walk);
-          else Object.values(obj).forEach(walk);
-        };
-        walk(j);
-        return comments.slice(0, limit);
-      })()
+ }));
+ };
+        // The read-only browser guard permits GET/HEAD only. Read the comments
+        // the page has rendered instead of issuing a blocked Innertube POST.
+        return readRenderedComments();
+ })()
     `)
     if (!Array.isArray(data)) {
       if (data && typeof data === "object" && "error" in data) {
-        throw new Error(`youtube.comments: ${(data as { error: string }).error}`)
+        throw new CommandExecutionError(`youtube.comments: ${(data as { error: string }).error}`)
       }
-      return []
+      return ([]) as YoutubeCommentsRow[]
     }
-    return data
+    return (data) as YoutubeCommentsRow[]
   },
 })
