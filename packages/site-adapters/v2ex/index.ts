@@ -128,7 +128,7 @@ export const topic = defineCommand({
   args: [{ name: "id", required: true, help: "Topic ID" }],
   func: async (_page, args): Promise<V2exTopicRow[]> => {
     const payload = await hostFetchJson(`https://www.v2ex.com/api/topics/show.json` + "?" + new URLSearchParams({ id: String(args.id) }).toString())
-    const rows = requireRows(payload, "v2ex").map((raw, index) => {
+    const rows = requireRows(payload, "v2ex").map((raw) => {
       const item = raw
       return {
         id: item.id as number | undefined,
@@ -180,7 +180,7 @@ export const member = defineCommand({
   args: [{ name: "username", required: true, help: "Username" }],
   func: async (_page, args): Promise<V2exMemberRow[]> => {
     const payload = await hostFetchJson(`https://www.v2ex.com/api/members/show.json` + "?" + new URLSearchParams({ username: String(args.username) }).toString())
-    const rows = requireRows(payload, "v2ex").map((raw, index) => {
+    const rows = requireRows(payload, "v2ex").map((raw) => {
       const item = raw
       return {
         username: item.username as string | undefined,

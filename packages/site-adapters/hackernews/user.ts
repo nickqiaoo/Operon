@@ -19,7 +19,7 @@ export const user = defineCommand({
   args: [{ name: "username", required: true, help: "HN username" }],
   func: async (_page, args): Promise<HackernewsUserRow[]> => {
     const payload = await hostFetchJson(`https://hacker-news.firebaseio.com/v0/user/${args.username}.json`)
-    const items = requireRows(payload, "hackernews.user").map((item, index) => {
+    const items = requireRows(payload, "hackernews.user").map((item) => {
       return {
         username: item.id as string | undefined,
         karma: item.karma as number | undefined,

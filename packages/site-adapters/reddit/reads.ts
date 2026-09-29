@@ -394,7 +394,7 @@ export const user = defineCommand({
     { k: 'Verified', v: u.verified ? 'Yes' : 'No' },
   ];
 })()`)
-    const rows = requireRows(data, "reddit.user").map((item, index) => ({
+    const rows = requireRows(data, "reddit.user").map((item) => ({
       field: item.k as string,
       value: item.v as string,
     }))
