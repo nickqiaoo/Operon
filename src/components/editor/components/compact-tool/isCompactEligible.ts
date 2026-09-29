@@ -1,5 +1,6 @@
 import { isAskUserQuestionTool } from '../AskUserQuestionRenderer';
 import { createdTaskNumber } from '../TaskCreatedRenderer';
+import { isScheduleTaskResult } from '../ScheduleTaskRenderer';
 import { getSubagentProgress } from '../gemini-subagent-utils';
 import { getToolDisplayName, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
@@ -20,6 +21,7 @@ const EXIT_PLAN_NAMES = new Set([
  * - Workflow (has WorkflowToolRenderer / live sub-agent progress)
  * - ExitPlanMode (has plan review UI)
  * - A task-creating call that succeeded (renders as a card linking to the task)
+ * - A schedule create/update that succeeded (card linking to the Schedule page)
  * - AskUserQuestion when awaiting approval (needs interactive question UI)
  * - Any tool surfacing live sub-agent progress (Workflow fan-out, Gemini subagents) →
  *   SubAgentRenderer; the generic compact row would just dump the progress JSON.
@@ -36,5 +38,6 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   // create stays compact: TaskCreatedRenderer declines to draw those, so a part
   // pulled out of the group with nothing to render would vanish entirely.
   if (createdTaskNumber(part) !== null) return false;
+  if (isScheduleTaskResult(part)) return false;
   return true;
 }

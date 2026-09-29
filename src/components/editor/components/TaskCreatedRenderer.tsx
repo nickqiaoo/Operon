@@ -29,7 +29,7 @@ const CREATED_RE = /(?:Created task|Promoted to task)\s+#(\d+)/i
  * tool_input: {...} }`. Reading `toolName` alone yields `use_tool` for those, so
  * a task created through them would never be recognised.
  */
-function toolNameOf(toolPart: ToolPartLike): string {
+export function toolNameOf(toolPart: ToolPartLike): string {
   const rawName =
     (toolPart as { toolName?: string }).toolName ??
     (toolPart as { type?: string }).type?.replace(/^tool-/, '') ??
@@ -78,7 +78,7 @@ function extractText(value: unknown, depth = 0): string {
   return ''
 }
 
-function resultText(toolPart: ToolPartLike): string {
+export function resultText(toolPart: ToolPartLike): string {
   const part = toolPart as { output?: unknown; result?: unknown }
   return extractText(part.output ?? part.result)
 }

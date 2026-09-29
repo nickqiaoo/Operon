@@ -228,6 +228,15 @@ export function buildMcpServersForCli(
     ),
   }
 
+  // schedule = the Schedule page's recurring tasks, so a conversation can set one up.
+  // The chat id is only the caller: it supplies the defaults (agent, model, workspace)
+  // and keeps a scheduled run from creating more scheduled runs. Same OpenCode rule
+  // as external_agent.
+  servers['schedule'] = {
+    type: 'http',
+    url: withApiToken(`http://127.0.0.1:${appPort}/api/schedule-mcp?chatId=${urlChatId}`),
+  }
+
   // Server names use underscores (not hyphens): some MCP clients / tool-name
   // regexes treat `-` as the server↔tool separator and silently drop tools
   // whose namespace contains it. Keep names in [a-zA-Z0-9_].

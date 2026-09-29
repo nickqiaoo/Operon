@@ -41,3 +41,23 @@ export function consumePendingPluginId(): string | null {
   pendingPluginId = null
   return id
 }
+
+/**
+ * Open the Schedule page, optionally with one task selected (e.g. from the card a
+ * `schedule_create` call renders in a chat). Same shape as the Plugins page: the id is
+ * parked here and picked up by the page when it mounts.
+ */
+export const OPEN_SCHEDULE_PAGE_EVENT = 'operon:open-schedule-page'
+let pendingCronjobId: number | null = null
+
+export function openSchedulePage(cronjobId?: number): void {
+  if (cronjobId != null) pendingCronjobId = cronjobId
+  window.dispatchEvent(new CustomEvent(OPEN_SCHEDULE_PAGE_EVENT))
+}
+
+/** Read and clear the task a caller asked the Schedule page to select. */
+export function consumePendingCronjobId(): number | null {
+  const id = pendingCronjobId
+  pendingCronjobId = null
+  return id
+}

@@ -37,7 +37,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
-import { OPEN_PLUGINS_PAGE_EVENT, OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
+import { OPEN_PLUGINS_PAGE_EVENT, OPEN_SCHEDULE_PAGE_EVENT, OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
 
 export default function App() {
   const intl = useIntl()
@@ -187,6 +187,16 @@ export default function App() {
     }
     window.addEventListener(OPEN_PLUGINS_PAGE_EVENT, onOpen)
     return () => window.removeEventListener(OPEN_PLUGINS_PAGE_EVENT, onOpen)
+  }, [])
+
+  // A schedule card in a chat opens the Schedule page on the task it created.
+  useEffect(() => {
+    const onOpen = (): void => {
+      setCronjobOpen(true)
+      trackEvent('page_opened', { page: 'cronjob' })
+    }
+    window.addEventListener(OPEN_SCHEDULE_PAGE_EVENT, onOpen)
+    return () => window.removeEventListener(OPEN_SCHEDULE_PAGE_EVENT, onOpen)
   }, [])
 
   const activeTab = useMemo(

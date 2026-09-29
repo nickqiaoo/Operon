@@ -3,6 +3,7 @@ import { useIntl } from "react-intl"
 import { ArrowLeft, CalendarClock, Plus, RefreshCw } from "lucide-react"
 import type { CronjobTask, CronjobUpsertInput } from "@/types/cronjob"
 import { api } from "@/lib/api"
+import { consumePendingCronjobId } from "@/lib/open-settings"
 import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -25,7 +26,8 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<CronjobTask | null>(null)
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set())
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null)
+  // Opened from a chat card: land on the task that card is about.
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(() => consumePendingCronjobId())
   const projects = useProjectStore((state) => state.projects)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)

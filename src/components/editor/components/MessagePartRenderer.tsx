@@ -35,6 +35,7 @@ import { isOpencodeSubtaskTool } from './OpencodeSubtaskRenderer';
 import { getSubagentProgress, convertSubagentToChildParts, mapSubagentState } from './gemini-subagent-utils';
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
+import { ScheduleTaskRenderer, isScheduleTaskResult } from './ScheduleTaskRenderer';
 import { UserMessageText } from './UserMessageText';
 import { PeerMessage } from './PeerMessage';
 import { extractPeerMessage } from '../utils/chatMetadata';
@@ -221,6 +222,12 @@ export function MessagePartRenderer({
     // always keeps the active part as its own segment.)
     if (createdTaskNumber(toolPart) !== null) {
       return <TaskCreatedRenderer toolPart={toolPart} />;
+    }
+
+    // A schedule tool that created or changed a task renders as a card that opens the
+    // Schedule page on it. Same gating as the task card above.
+    if (isScheduleTaskResult(toolPart)) {
+      return <ScheduleTaskRenderer toolPart={toolPart} />;
     }
 
     // Render Workflow tool with dedicated card (phases skeleton + highlighted script +

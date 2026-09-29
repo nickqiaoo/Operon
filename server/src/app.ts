@@ -25,6 +25,7 @@ import { taskBoardMcpRoutes } from './routes/task-board-mcp.js'
 import { mcpRoutes } from './routes/mcp.js'
 import { externalAgentRoutes } from './routes/external-agent.js'
 import { externalAgentMcpRoutes } from './routes/external-agent-mcp.js'
+import { scheduleMcpRoutes } from './routes/schedule-mcp.js'
 import { workflowMcpRoutes } from './routes/workflow-mcp.js'
 import { sweepInterruptedRuns } from './services/workflow/store.js'
 import { providerConfigRoutes } from './routes/provider-config.js'
@@ -298,6 +299,7 @@ export async function createApp(deps: AppDeps) {
   }
   app.route('/api/mcp', mcpRoutes())
   app.route('/api/external-agent-mcp', externalAgentMcpRoutes())
+  app.route('/api/schedule-mcp', scheduleMcpRoutes(deps.storage))
   app.route('/api/external-agents', externalAgentRoutes())
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())
