@@ -30,12 +30,18 @@ interface MountBase {
 type GatewayReason = 'oauth' | 'tool-filter' | 'cwd'
 
 /**
- * `plugin-<id>:<server>` → `plugin_<id>_<server>`. The colon is not legal in Claude tool names
+ * `plugin-<id>:<server>` → `plugin_<id>_<server>`, or just `plugin_<id>` when the server is named
+ * after its plugin (the usual case). The colon is not legal in Claude tool names
  * (`mcp__<server>__<tool>`), and hyphens are out too: some clients treat `-` as the server↔tool
  * separator and silently drop the tools (the rule every first-party server here follows).
+ *
+ * Kept short on purpose: clients prefix every tool with it and model APIs cap tool names at 64
+ * characters (OpenCode's `plugin_grafana_cloud_grafana_cloud_<tool>` hit 65).
  */
 export function pluginMcpMountName(runtimeName: string): string {
-  return runtimeName.replace(/[^A-Za-z0-9_]/g, '_')
+  const match = /^plugin-(.+):([^:]+)$/.exec(runtimeName)
+  const collapsed = match !== null && match[1] === match[2] ? `plugin-${match[1]}` : runtimeName
+  return collapsed.replace(/[^A-Za-z0-9_]/g, '_')
 }
 
 /** Requires the plugin store to be loaded (`ensurePluginsLoaded`); before that it is empty. */

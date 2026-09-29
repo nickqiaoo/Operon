@@ -61,7 +61,7 @@ export type McpHttpEntry = { type: 'http'; url: string; headers?: Record<string,
 export type McpSseEntry = { type: 'sse'; url: string; headers?: Record<string, string> }
 /** A plugin MCP server as other agents see it (`GET /mcp/plugin-servers`). */
 export interface PluginMcpServerView {
-  /** Name other agents mount it under, e.g. `plugin_linear_linear`. */
+  /** Name other agents mount it under, e.g. `plugin_linear`. */
   name: string
   pluginId: string
   pluginName: string

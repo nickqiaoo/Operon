@@ -16,6 +16,7 @@ function server(name: string, config: PluginMcpServerExport['config'], requiresO
 describe('plugin MCP mounts', () => {
   it('names servers with underscores only', () => {
     expect(pluginMcpMountName('plugin-google-drive:drive')).toBe('plugin_google_drive_drive')
+    expect(pluginMcpMountName('plugin-grafana-cloud:grafana-cloud')).toBe('plugin_grafana_cloud')
   })
 
   it('hands plain servers out directly and routes OAuth / filtered / cwd servers through the gateway', () => {
