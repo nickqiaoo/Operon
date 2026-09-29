@@ -7,6 +7,7 @@ import type { NotificationStorageAdapter } from '../storage/interface.js'
 import type { NotificationKind, NotificationSeverity, NotifyInput } from '../types/notification.js'
 import type { TaskStatus } from '../types/task.js'
 import { emitInboxEvent } from './channel-bus.js'
+import { isChatBeingViewed } from './chat-viewers.js'
 import { relayPush } from './push-relay.js'
 
 /**
@@ -14,6 +15,11 @@ import { relayPush } from './push-relay.js'
  * streams. Same sourceKey → updates the existing live row and re-unreads it.
  */
 export function notify(storage: NotificationStorageAdapter, input: NotifyInput): void {
+  // A turn that finished in front of the user is not news. Skipped rather than
+  // written as read: otherwise every conversation still piles into the list.
+  if (input.kind === 'chat_complete' && input.chatId != null && isChatBeingViewed(input.chatId)) {
+    return
+  }
   try {
     const notification = storage.notificationUpsert(input)
     emitInboxEvent({ type: 'notification_upsert', notification })

@@ -1199,6 +1199,7 @@ export const api = {
   inboxCounts: httpClient.inboxCounts,
   inboxMarkRead: httpClient.inboxMarkRead,
   inboxArchive: httpClient.inboxArchive,
+  inboxSetViewing: httpClient.inboxSetViewing,
   inboxStreamUrl: httpClient.inboxStreamUrl,
   // --- Spec-Driven Development (SDD) ---
   sddArtifacts: (taskId: number) =>

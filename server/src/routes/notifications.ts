@@ -3,6 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import type { NotificationStorageAdapter } from '../storage/interface.js'
 import { emitInboxEvent, onInboxEvent } from '../services/channel-bus.js'
 import { emitCounts } from '../services/notification-service.js'
+import { setViewedChats } from '../services/chat-viewers.js'
 import type { ListNotificationsQuery } from '../types/notification.js'
 
 const DEFAULT_PAGE_SIZE = 50
@@ -96,6 +97,20 @@ export function notificationRoutes(storage: NotificationStorageAdapter) {
     emitInboxEvent({ type: 'notification_read', ids: changedIds })
     emitCounts(storage)
     return c.json({ ids: changedIds })
+  })
+
+  // What this client has on screen, so a turn finishing there skips the inbox.
+  router.post('/viewing', async (c) => {
+    const body = await c.req
+      .json<{ clientId?: unknown; chatIds?: unknown }>()
+      .catch(() => ({}) as { clientId?: unknown; chatIds?: unknown })
+    const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
+    if (!clientId || clientId.length > 128) return c.json({ error: 'clientId required' }, 400)
+    const chatIds = Array.isArray(body.chatIds)
+      ? body.chatIds.filter((id): id is number => Number.isSafeInteger(id) && id > 0)
+      : []
+    setViewedChats(clientId, chatIds)
+    return c.json({ ok: true })
   })
 
   router.post('/archive', async (c) => {

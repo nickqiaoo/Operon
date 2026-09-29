@@ -758,6 +758,13 @@ export function inboxArchive(payload: { ids?: number[]; all?: boolean }) {
   })
 }
 
+export function inboxSetViewing(payload: { clientId: string; chatIds: number[] }) {
+  return request<{ ok: boolean }>('/inbox/viewing', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function inboxStreamUrl(): Promise<string> {
   const baseUrl = await getBaseUrl()
   return `${baseUrl}/inbox/stream`
