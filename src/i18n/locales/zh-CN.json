@@ -389,7 +389,7 @@
   "web.auth.switchMachine": "切换机器",
   "workspaceBrowser.refreshTitle": "刷新文件树和预览",
   "sidebar.openChannels": "打开频道",
-  "sidebar.newWorkspace": "新建工作区",
+  "sidebar.newWorkspace": "在新分支上新建工作区",
   "sidebar.collapse": "收起侧栏",
   "sidebar.workspaces": "工作区",
   "sidebar.addRepository": "添加仓库",

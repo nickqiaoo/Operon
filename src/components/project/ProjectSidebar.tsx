@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, Folder, Inbox, Layers, Plus, Settings, Sparkles, Network, LayoutDashboard, Bot, PanelLeft } from "lucide-react"
+import { CalendarClock, Folder, GitBranch, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
@@ -47,6 +47,11 @@ const normalizeBranchName = (branch: string | null, detached: boolean) => {
   return detached ? "detached" : "unknown"
 }
 
+const trimSlash = (p: string) => p.replace(/[\\/]+$/, "")
+
+const isMainCheckout = (workspace: Workspace, project: Project) =>
+  trimSlash(workspace.worktreePath) === trimSlash(project.rootPath)
+
 const buildWorkspaceInputs = (entries: GitWorktreeEntry[], fallbackRoot: string): Array<Omit<Workspace, "id">> => {
   if (entries.length === 0) {
     return [
@@ -83,14 +88,14 @@ function ProjectItem({
   return (
     <div className="group/project px-4">
       <div className="flex items-center gap-2 pb-1 text-sm text-foreground/80 font-medium">
-        <Layers className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+        <Folder className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         <Button
           variant="ghost"
           size="icon"
           className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onOpenChannel?.(project)}
-          title={intl.formatMessage({ id: "sidebar.openChannels", defaultMessage: "Open workspace" })}
+          title={intl.formatMessage({ id: "sidebar.openChannels", defaultMessage: "Open channels" })}
         >
           <LayoutDashboard className="h-3.5 w-3.5" />
         </Button>
@@ -99,7 +104,7 @@ function ProjectItem({
           size="icon"
           className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onAddWorkspace(project)}
-          title={intl.formatMessage({ id: "sidebar.newWorkspace", defaultMessage: "New workspace" })}
+          title={intl.formatMessage({ id: "sidebar.newWorkspace", defaultMessage: "New workspace on a new branch" })}
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -115,7 +120,12 @@ function ProjectItem({
             No workspaces yet.
           </div>
         ) : (
-          project.workspaces.map((workspace) => {
+          // The project folder's own checkout goes first; the rest are worktrees
+          // operon placed under ~/.operon/worktrees. Every row is a branch, so
+          // the icon is a branch — the folder icon belongs to the project.
+          [...project.workspaces]
+            .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
+            .map((workspace) => {
             const isActive = activeWorkspaceId === workspace.id
             const workspaceStats = workspaceDiffStats?.[workspace.worktreePath]
             const wsStreaming = streamingCounts?.[workspace.id] ?? 0
@@ -141,13 +151,11 @@ function ProjectItem({
                 )}
               >
                 <div className="flex items-center gap-2 relative z-[1]">
-                  {workspace.name.endsWith(' (agent)')
-                    ? <Bot className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
-                    : <Folder className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
-                  }
+                  <GitBranch className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
                   <span className={cn("min-w-0 flex-1 truncate text-sm", isActive ? "font-semibold text-foreground" : "font-medium text-foreground/70")}>
                     {workspace.name}
                   </span>
+
                   {workspaceStats && (workspaceStats.additions > 0 || workspaceStats.deletions > 0) && (
                     <span className="shrink-0 text-[11px] font-mono tabular-nums font-normal opacity-80">
                       {workspaceStats.additions > 0 && (
@@ -201,7 +209,7 @@ function WorkspaceListSkeleton() {
 interface ProjectSidebarProps {
   onOpenSettings: () => void
   onOpenCronjobs: () => void
-  onOpenSkills: () => void
+  onOpenPlugins: () => void
   onOpenCanvas: () => void
   onOpenChannel?: (project: Project) => void
   onOpenInbox?: () => void
@@ -209,7 +217,7 @@ interface ProjectSidebarProps {
   collapsed?: boolean
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenSkills, onOpenCanvas, onOpenChannel, onOpenInbox, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenChannel, onOpenInbox, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
@@ -444,10 +452,10 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenSkills, o
         </button>
         <button
           className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
-          onClick={onOpenSkills}
+          onClick={onOpenPlugins}
         >
-          <Sparkles className="h-4 w-4" />
-          <FormattedMessage id="sidebar.skills" defaultMessage="Skills" />
+          <Package className="h-4 w-4" />
+          <FormattedMessage id="sidebar.plugins" defaultMessage="Plugins" />
         </button>
         <button
           className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
