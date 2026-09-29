@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.3.43] - 2026-09-29
+
+### Added
+
+- Plugins now work for every agent — Claude Code, Codex, OpenCode and the rest, not just Operon. Sign in to a plugin once and all of them can use it.
+- MCP settings list the servers your plugins add.
+
+### Changed
+
+- Plugins has its own page in the sidebar; Skills moved into Settings.
+- The sidebar shows each workspace as a branch under its project folder.
+
 ## [1.3.42] - 2026-09-28
 
 ### Added
