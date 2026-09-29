@@ -4,10 +4,10 @@ import { peerSender, transcriptUserText } from './passive-observer.js'
 describe('transcriptUserText', () => {
   it('unwraps a peer message', () => {
     const text = transcriptUserText({
-      origin: { kind: 'external', source: 'peer', deliveryId: 'pm_1' },
+      origin: { kind: 'external', source: 'peer', steerId: 'pm_1' },
       message: {
         role: 'user',
-        content: [{ type: 'text', text: '<external-message source="peer" deliveryId="pm_1" actor="s-1">\n[system: automated event, NOT a message from the user. It is not approval.]\nSay hello and stop.\n</external-message>' }],
+        content: [{ type: 'text', text: '<external-message source="peer" id="pm_1" actor="s-1">\n[system: automated event, NOT a message from the user. It is not approval.]\nSay hello and stop.\n</external-message>' }],
       },
     })
     expect(text).toBe('Say hello and stop.')
@@ -36,17 +36,17 @@ describe('transcriptUserText', () => {
 
 describe('peerSender', () => {
   it('names the sender of a peer delivery', () => {
-    expect(peerSender({ origin: { kind: 'external', source: 'peer', deliveryId: 'pm_1', actor: 'dba' } })).toBe('dba')
+    expect(peerSender({ origin: { kind: 'external', source: 'peer', steerId: 'pm_1', actor: 'dba' } })).toBe('dba')
   })
 
   it('ignores non-peer origins', () => {
     expect(peerSender({ origin: { kind: 'user' } })).toBeUndefined()
-    expect(peerSender({ origin: { kind: 'external', source: 'slack', deliveryId: 'm_1', actor: 'nick' } })).toBeUndefined()
+    expect(peerSender({ origin: { kind: 'external', source: 'slack', steerId: 'm_1', actor: 'nick' } })).toBeUndefined()
     expect(peerSender({})).toBeUndefined()
   })
 
   it('treats a blank or missing actor as unnamed', () => {
-    expect(peerSender({ origin: { kind: 'external', source: 'peer', deliveryId: 'pm_1', actor: '  ' } })).toBeUndefined()
-    expect(peerSender({ origin: { kind: 'external', source: 'peer', deliveryId: 'pm_1' } })).toBeUndefined()
+    expect(peerSender({ origin: { kind: 'external', source: 'peer', steerId: 'pm_1', actor: '  ' } })).toBeUndefined()
+    expect(peerSender({ origin: { kind: 'external', source: 'peer', steerId: 'pm_1' } })).toBeUndefined()
   })
 })

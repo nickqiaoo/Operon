@@ -1,7 +1,6 @@
 import path from 'path'
 import { mkdir, stat } from 'fs/promises'
-import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalMachine, resolveFromFiles, toCoreOptions, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
-import { T } from 'operon-agents/core'
+import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
 import { fetchProviderModels, getProviderConfigs, PROVIDER_META } from '../provider-config.js'
@@ -91,7 +90,7 @@ async function resolveProjectRoot(cwd: string): Promise<string> {
  */
 async function loadWorkspaceMcpServers(root: string): Promise<Record<string, McpServerConfig>> {
   try {
-    const { servers } = await loadMcpServers(new LocalMachine(root), { appName: APP_NAME, cwd: root })
+    const { servers } = await loadMcpServers(new LocalEnvironment(root), { appName: APP_NAME, cwd: root })
     return servers
   } catch (error) {
     console.warn(`[operon] failed to load MCP config under ${root}: ${error instanceof Error ? error.message : String(error)}`)
@@ -323,32 +322,29 @@ async function buildHarness(): Promise<Harness> {
     // into the process service, which reaches PostHog through the host's consent-gated sink.
     // A headless run has no sink and gets the no-op service.
     telemetry: getTelemetry(),
-    // Process-tier composition. Tracing is the only registration so far: with `OPERON_TRACING`
-    // set, every session's event stream is bridged into OTel spans (see ./tracing.ts); otherwise
-    // nothing is registered and sessions run exactly as before.
-    harness: (scope) => {
+    // Process-lived parts. Tracing is the only one so far: with `OPERON_TRACING` set, every
+    // session's event stream is bridged into OTel spans (see ./tracing.ts); otherwise nothing is
+    // added and sessions run exactly as before.
+    harness: () => {
       const tracing = createOperonTracing()
-      if (tracing) scope.register(T.Tracing, tracing, { owned: false })
+      return tracing ? { tracing } : {}
     },
     // A default only — every session passes its own workDir, and the engine builds
-    // that session's `LocalMachine` from it.
+    // that session's `LocalEnvironment` from it.
     workDir: process.cwd(),
     homeDir: HARNESS_HOME_DIR,
-    // The `session` half of the three composition hooks: capabilities are built FRESH PER SESSION
+    // The `session` hook: capabilities are built FRESH PER SESSION
     // so per-session state (goal/plan/todo/background/skills/mcp) is isolated. The factory loads
     // the shared global PluginManager, then hands it + THIS session's MCP servers to
     // `defaultCapabilities`, which self-drives the plugin's skills + MCP (merged, namespaced) +
     // session-start into the set. Reading the manager per session means installs/enables take
     // effect on the next chat with no cache eviction.
-    session: async (scope, ctx) => {
+    session: async (ctx) => {
       await ensurePluginsLoaded()
       // Shared MCP OAuth token store — a login done from the Plugins UI is reused here, so an
       // OAuth-gated plugin MCP server (e.g. Linear) connects authenticated without re-prompting.
       return defaultCapabilities({
-        // The session's scope: whatever its workspace registered (a shared skill scan, the MCP
-        // OAuth store) is reused instead of rebuilt per session.
-        scope,
-        ownMachine: ctx.ownMachine,
+        ownEnvironment: ctx.ownEnvironment,
         pluginManager,
         // Operon gives every conversation its own servers (resolved per workDir in
         // `resolveWorkspaceSetup`), so they are the SESSION's overlay, not the workspace's.

@@ -15,12 +15,13 @@ import { rosterForSession, type PeersRosterDTO } from './peers.js'
  * returns so we never depend on a type's exact re-export path.
  */
 
-type McpServerView = Awaited<ReturnType<HarnessSession['listMcpServers']>>[number]
+type BackgroundManager = NonNullable<HarnessSession['background']>
+type McpServerView = ReturnType<NonNullable<HarnessSession['mcp']>['list']>[number]
 type CronTask = ReturnType<CronHandle['listTasks']>[number]
-type BackgroundTaskInfo = Awaited<ReturnType<HarnessSession['listBackgroundTasks']>>[number]
-type SubagentRecord = Awaited<ReturnType<HarnessSession['listSubagents']>>[number]
-type SkillSummary = Awaited<ReturnType<HarnessSession['listSkills']>>[number]
-type PluginSummary = Awaited<ReturnType<HarnessSession['listPlugins']>>[number]
+type BackgroundTaskInfo = ReturnType<BackgroundManager['list']>[number]
+type SubagentRecord = ReturnType<BackgroundManager['listSubagents']>[number]
+type SkillSummary = ReturnType<HarnessSession['skills']['listSkills']>[number]
+type PluginSummary = ReturnType<HarnessSession['plugins']['summaries']>[number]
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
 export interface OperonMcpServerDTO {
@@ -42,7 +43,7 @@ export interface OperonCronTaskDTO {
 
 export interface OperonBackgroundTaskDTO {
   taskId: string
-  kind: 'process' | 'agent' | 'question' | 'workflow'
+  kind: 'process' | 'agent' | 'question' | 'workflow' | 'code'
   description: string
   status: 'running' | 'completed' | 'failed' | 'paused' | 'timed_out' | 'killed' | 'lost'
   startedAt: number
@@ -132,11 +133,11 @@ export async function operonAgentControl(
   switch (method) {
     // ── MCP ──
     case 'mcp.list':
-      return { servers: harness.listMcpServers().map(toMcpDTO) }
+      return { servers: (harness.mcp?.list() ?? []).map(toMcpDTO) }
     case 'mcp.tools':
-      return { tools: (await harness.listMcpTools(readString(params, 'name'))).map(toMcpToolDTO) }
+      return { tools: ((await harness.mcp?.listTools(readString(params, 'name'))) ?? []).map(toMcpToolDTO) }
     case 'mcp.reconnect':
-      await harness.reconnectMcpServer(readString(params, 'name'))
+      await requireMcp(harness).reconnect(readString(params, 'name'))
       return { ok: true }
 
     // ── Cron ──
@@ -162,15 +163,15 @@ export async function operonAgentControl(
 
     // ── Background tasks ──
     case 'tasks.list': {
-      const tasks = await harness.listBackgroundTasks()
+      const tasks = requireBackground(harness).list(false)
       return { tasks: tasks.map(toBackgroundDTO) }
     }
     case 'tasks.output':
       // The framework returns a bounded snapshot (content + size/truncation metadata);
       // this control channel only surfaces the window itself.
-      return { output: (await harness.readBackgroundTaskOutput(readString(params, 'taskId'))).content }
+      return { output: (await requireBackground(harness).readOutput(readString(params, 'taskId'), 16 * 1024)).content }
     case 'tasks.stop': {
-      const task = await harness.stopBackgroundTask(
+      const task = await requireBackground(harness).stop(
         readString(params, 'taskId'),
         readOptionalString(params, 'reason'),
       )
@@ -179,14 +180,14 @@ export async function operonAgentControl(
 
     // ── Subagents ──
     case 'subagents.list':
-      return { subagents: (await harness.listSubagents()).map(toSubagentDTO) }
+      return { subagents: (harness.background?.listSubagents() ?? []).map(toSubagentDTO) }
 
     // ── Skills ──
     case 'skills.list':
-      return { skills: (await harness.listSkills()).map(toSkillDTO) }
+      return { skills: harness.skills.listSkills().map(toSkillDTO) }
     case 'skills.activate': {
       const args = readOptionalString(params, 'args')
-      const result = await harness.activateSkill({
+      const result = await harness.skills.activateSkill({
         name: readString(params, 'name'),
         ...(args ? { args } : {}),
       })
@@ -195,24 +196,24 @@ export async function operonAgentControl(
 
     // ── Plugins ──
     case 'plugins.list':
-      return { plugins: (await harness.listPlugins()).map(toPluginDTO) }
+      return { plugins: harness.plugins.summaries().map(toPluginDTO) }
     case 'plugins.setEnabled':
-      await harness.setPluginEnabled(readString(params, 'id'), readBool(params, 'enabled') ?? false)
+      await harness.plugins.setEnabled(readString(params, 'id'), readBool(params, 'enabled') ?? false)
       return { ok: true }
     case 'plugins.setMcpEnabled':
-      await harness.setPluginMcpServerEnabled(
+      await harness.plugins.setMcpServerEnabled(
         readString(params, 'id'),
         readString(params, 'server'),
         readBool(params, 'enabled') ?? false,
       )
       return { ok: true }
     case 'plugins.install':
-      return { plugin: toPluginDTO(await harness.installPlugin(readString(params, 'source'))) }
+      return { plugin: toPluginDTO(await harness.plugins.installSummary(readString(params, 'source'))) }
     case 'plugins.remove':
-      await harness.removePlugin(readString(params, 'id'))
+      await harness.plugins.remove(readString(params, 'id'))
       return { ok: true }
     case 'plugins.reload':
-      await harness.reloadPlugins()
+      await harness.plugins.reload()
       return { ok: true }
 
     // ── Extensions (per-session view; management is the chat-less /api/extensions route) ──
@@ -232,6 +233,20 @@ function cronHandle(harness: HarnessSession): CronHandle {
   const handle = harness.extensionHandle<CronHandle>('cron')
   if (!handle) throw new Error('Cron is not available for this session (cron extension not attached)')
   return handle
+}
+
+// `mcp` / `background` are probe accessors (undefined when the capability is off); these
+// operations act on one server or task, so a missing capability is an error, not an empty list.
+function requireMcp(harness: HarnessSession): NonNullable<HarnessSession['mcp']> {
+  const mcp = harness.mcp
+  if (!mcp) throw new Error('MCP is not available for this session')
+  return mcp
+}
+
+function requireBackground(harness: HarnessSession): BackgroundManager {
+  const background = harness.background
+  if (!background) throw new Error('Background tasks are not available for this session')
+  return background
 }
 
 // ── mappers ──────────────────────────────────────────────────────────────
@@ -290,11 +305,14 @@ function toBackgroundDTO(t: BackgroundTaskInfo): OperonBackgroundTaskDTO {
   if (t.kind === 'question') {
     return { ...base, questionCount: t.questionCount }
   }
-  return {
-    ...base,
-    ...(t.workflowName ? { workflowName: t.workflowName } : {}),
-    ...(t.runId ? { runId: t.runId } : {}),
+  if (t.kind === 'workflow') {
+    return {
+      ...base,
+      ...(t.workflowName ? { workflowName: t.workflowName } : {}),
+      ...(t.runId ? { runId: t.runId } : {}),
+    }
   }
+  return base
 }
 
 function toSubagentDTO(s: SubagentRecord): OperonSubagentDTO {

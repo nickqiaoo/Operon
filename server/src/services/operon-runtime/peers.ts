@@ -1,4 +1,3 @@
-import { basename } from 'node:path'
 import type { Harness, McpServerConfig, PermissionManagerOptions } from 'operon-agents'
 import {
   budgetExceeded,
@@ -170,7 +169,7 @@ export function createTeamsHostService(): TeamsHostService {
   }
 }
 
-/** Apply a config change: re-run the extension's `workspace` half against `peers.json` in every open workspace, if it is loaded. */
+/** Apply a config change: re-run the extension's `harness` half against `peers.json`, if it is loaded. */
 export async function reloadPeersExtension(): Promise<void> {
   const manager = deps?.harness()?.extensions
   if (!manager) return
@@ -187,34 +186,18 @@ export async function disbandTeam(label: string): Promise<{ members: number }> {
   const harness = deps?.harness()
   if (!harness || !harness.services.has(PEERS_SERVICE)) throw new Error('The Teams extension is not loaded')
   if (!parseTeamLabel(label)) throw new Error(`Not a team label: ${label}`)
-  // A team lives in its workspace's network: the one whose roster carries the label.
-  let net: PeerNetworkHandle | undefined
-  for (const candidate of networks()) {
-    if ((await candidate.net.list()).some((ref) => ref.labels?.includes(label))) {
-      net = candidate.net
-      break
-    }
-  }
-  if (!net) throw new Error(`No open workspace holds team ${label}`)
+  const net = harness.services.handle<PeerNetworkHandle>(PEERS_SERVICE)
+  if (!(await net.list()).some((ref) => ref.labels?.includes(label))) throw new Error(`No team ${label} on the roster`)
   const { members } = await net.disbandTeam(label)
   for (const ref of members) await harness.closeSession(ref.sessionId).catch(() => undefined)
   return { members: members.length }
 }
 
-/** The network of the workspace `workDir` belongs to (a handle; resolves at call time). */
-function networkFor(harness: Harness, workDir: string): PeerNetworkHandle | undefined {
-  if (!harness.services.has(PEERS_SERVICE)) return undefined
-  return harness.workspaceService<PeerNetworkHandle>(PEERS_SERVICE, { workDir })
-}
-
-/** Every open workspace's network — what a chat-less, harness-wide view unions over. */
-function networks(): Array<{ workDir: string; net: PeerNetworkHandle }> {
+/** The process-wide peer network (a handle; resolves at call time), when Teams is loaded. */
+function network(): PeerNetworkHandle | undefined {
   const harness = deps?.harness()
-  if (!harness || !harness.services.has(PEERS_SERVICE)) return []
-  return harness.openWorkspaces().map((workspace) => ({
-    workDir: workspace.workDir,
-    net: harness.workspaceService<PeerNetworkHandle>(PEERS_SERVICE, { workspaceKey: workspace.key }),
-  }))
+  if (!harness || !harness.services.has(PEERS_SERVICE)) return undefined
+  return harness.services.handle<PeerNetworkHandle>(PEERS_SERVICE)
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
@@ -350,41 +333,15 @@ function chatTitle(sessionId: string): string | undefined {
   return getChatStorage()?.findChatBySessionId(sessionId)?.title?.trim() || undefined
 }
 
-function sumCounters(a: PeerCounters, b: PeerCounters): PeerCounters {
-  return {
-    messagesSent: a.messagesSent + b.messagesSent,
-    messagesReceived: a.messagesReceived + b.messagesReceived,
-    wakes: a.wakes + b.wakes,
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    totalTokens: a.totalTokens + b.totalTokens,
-    cost: a.cost + b.cost,
-  }
-}
-
-const ZERO_COUNTERS: PeerCounters = { messagesSent: 0, messagesReceived: 0, wakes: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0 }
-
-/**
- * Spend across workspaces, as one table. The budget is PER workspace (each network enforces its
- * own), so `exceeded` names the first workspace that is paused rather than judging the sum.
- */
-function statsDTO(fleets: Array<{ workDir?: string; stats: PeerFleetStats }>, config: PeersConfig, teams: PeerTeamDTO[]): PeersStatsDTO {
-  const totals = fleets.reduce((acc, { stats }) => sumCounters(acc, stats.totals), ZERO_COUNTERS)
-  let exceeded: string | undefined
-  for (const { workDir, stats } of fleets) {
-    const reason = budgetExceeded(stats, config.budget)
-    if (reason) {
-      exceeded = workDir !== undefined && fleets.length > 1 ? `${basename(workDir)}: ${reason}` : reason
-      break
-    }
-  }
-  const agents = fleets
-    .flatMap(({ stats }) => stats.agents)
+/** Spend across the network, as one table. */
+function statsDTO(stats: PeerFleetStats, config: PeersConfig, teams: PeerTeamDTO[]): PeersStatsDTO {
+  const exceeded = budgetExceeded(stats, config.budget)
+  const agents = stats.agents
     // A row that never spent anything is noise — every mounted hub registers one.
     .filter((a) => a.totalTokens > 0)
     .map((a) => ({ ...a, ...labelAgent(a.agentId, teams) }))
     .sort((a, b) => b.totalTokens - a.totalTokens)
-  return { totals, agents, budget: config.budget, ...(exceeded ? { exceeded } : {}) }
+  return { totals: stats.totals, agents, budget: config.budget, ...(exceeded ? { exceeded } : {}) }
 }
 
 function typesDTO(config: PeersConfig): PeersRosterDTO['types'] {
@@ -394,31 +351,23 @@ function typesDTO(config: PeersConfig): PeersRosterDTO['types'] {
 /** Teams created by `sessionId` (a lead's chat) — what the Agent panel's Team section shows. */
 export async function rosterForSession(sessionId: string): Promise<PeersRosterDTO> {
   const config = await loadPeersConfig()
-  const harness = deps?.harness()
-  const workDir = harness?.getSession(sessionId)?.workDir
-  const net = harness && workDir !== undefined ? networkFor(harness, workDir) : undefined
+  const net = network()
   if (!net) return { available: false, teams: [], stats: null, types: typesDTO(config) }
   const [members, self, stats] = await Promise.all([net.ownedMembers(sessionId), net.getAgent(sessionId), net.stats()])
   const teams = await groupTeams(members, self ? [self] : [])
-  return { available: true, teams, stats: statsDTO([{ workDir, stats }], config, teams), types: typesDTO(config) }
+  return { available: true, teams, stats: statsDTO(stats, config, teams), types: typesDTO(config) }
 }
 
-/** Every team in every OPEN workspace — the chat-less view for Settings. A workspace with no
- *  session open has no network, so its parked teams show once a chat there opens. */
+/** Every team on the roster — the chat-less view for Settings. */
 export async function rosterAll(): Promise<PeersRosterDTO> {
   const config = await loadPeersConfig()
-  const harness = deps?.harness()
-  if (!harness || !harness.services.has(PEERS_SERVICE)) return { available: false, teams: [], stats: null, types: typesDTO(config) }
-  const teams: PeerTeamDTO[] = []
-  const fleets: Array<{ workDir: string; stats: PeerFleetStats }> = []
-  for (const { workDir, net } of networks()) {
-    const [all, stats] = await Promise.all([net.list(), net.stats()])
-    const members = all.filter((r) => r.kind === 'session' && r.type !== 'lead' && !isCreatorOnly(r))
-    const leads = all.filter((r) => !members.includes(r))
-    teams.push(...(await groupTeams(members, leads)))
-    fleets.push({ workDir, stats })
-  }
-  return { available: true, teams, stats: statsDTO(fleets, config, teams), types: typesDTO(config) }
+  const net = network()
+  if (!net) return { available: false, teams: [], stats: null, types: typesDTO(config) }
+  const [all, stats] = await Promise.all([net.list(), net.stats()])
+  const members = all.filter((r) => r.kind === 'session' && r.type !== 'lead' && !isCreatorOnly(r))
+  const leads = all.filter((r) => !members.includes(r))
+  const teams = await groupTeams(members, leads)
+  return { available: true, teams, stats: statsDTO(stats, config, teams), types: typesDTO(config) }
 }
 
 /** A creator row: its labels are teams IT made (`team:<self>:…`), never memberships. */

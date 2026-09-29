@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
  *
  *   <background-task-done taskId=… toolCallId=…>   a background task settled
  *   <extension-message from=… …>                   an extension spoke
- *   <external-message source=… deliveryId=… …>     another party's text, verbatim
+ *   <external-message source=… id=… …>     another party's text, verbatim
  *
  * `user` / `user_follow_up` origins render as bare text and never reach here — those
  * really are the user talking.

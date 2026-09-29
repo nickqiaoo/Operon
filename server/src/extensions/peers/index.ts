@@ -1,4 +1,4 @@
-import type { ExtensionDefinition, ExtensionWorkspaceContext } from 'operon-agents'
+import type { ExtensionDefinition, ExtensionHostContext } from 'operon-agents'
 import {
   createFilePeerRepo,
   createPeerNetwork,
@@ -16,22 +16,22 @@ import { TEAMS_SERVICE, type TeamsExtensionServices } from './contract.js'
 /**
  * The Teams extension — operon's build of `operon-agents-peers`, published as a file extension.
  *
- * Same shape as the framework's `peers()` definition — a `workspace` half, so every workspace
- * (git root) gets its own roster, mailbox and budget, and a teammate spawned from a lead is born
- * in the lead's workspace — with one difference: teammate types and the budget are not compiled
- * in. `workspace` reads them from the host's `operon-teams` service, so Settings edits become a
- * plain `harness.extensions.reload("peers")` (re-run in every open workspace), and every spawn
- * is reported back to the host the moment the session exists — that is what lets a teammate be a
- * real conversation in the sidebar (model, chat row, transcript observer).
+ * Same shape as the framework's `peers()` definition — a `harness` half, so the process has one
+ * roster, mailbox and budget — with one difference: teammate types and the budget are not
+ * compiled in. `harness` reads them from the host's `operon-teams` service, so Settings edits
+ * become a plain `harness.extensions.reload("peers")`, and every spawn is reported back to the
+ * host the moment the session exists — that is what lets a teammate be a real conversation in the
+ * sidebar (model, chat row, transcript observer). A teammate is still born in its lead's
+ * workspace: `teammateOptions` reads the workDir off the creator's session.
  *
- * Roster cards and the mailbox ledger live in `host.dataDir` — the workspace's own folder under
- * the extension's data dir, outside the bundle — so an update of this file keeps the teams.
+ * Roster cards and the mailbox ledger live in `host.dataDir` — the extension's data folder,
+ * outside the bundle — so an update of this file keeps the teams.
  */
 const definition: ExtensionDefinition<PeerNetworkHandle, PeerParams, TeamsExtensionServices> = {
   id: PEERS_SERVICE,
   uses: [TEAMS_SERVICE],
 
-  async workspace(host: ExtensionWorkspaceContext<TeamsExtensionServices>) {
+  async harness(host: ExtensionHostContext<TeamsExtensionServices>) {
     const teams = host.services[TEAMS_SERVICE]
     const config = await teams.config()
     if (host.dataDir === undefined) throw new Error('Teams needs an extension data dir (extensionDir on the harness)')
@@ -42,7 +42,6 @@ const definition: ExtensionDefinition<PeerNetworkHandle, PeerParams, TeamsExtens
         async (request) => {
           const base = await teams.teammateOptions(request)
           const member: PeerMemberOptions = { name: request.name, team: request.team, type: request.type }
-          // `host.createSession` defaults the new session into THIS workspace (the lead's).
           const created = await host.createSession({ ...base, params: { ...(base.params ?? {}), [PEERS_SERVICE]: { member } } })
           try {
             await teams.onTeammateCreated(created.id, member)

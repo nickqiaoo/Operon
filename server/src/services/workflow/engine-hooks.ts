@@ -12,7 +12,7 @@
 
 import os from 'node:os'
 import {
-  LocalMachine,
+  LocalEnvironment,
   createWorktree,
   newAgentId,
   validateValue,
@@ -193,7 +193,7 @@ export function buildHooks(
     let runCwd = ctx.cwd
     let cleanupWorktree: (() => Promise<void>) | undefined
     if (isolation === 'worktree') {
-      const worktree = await createWorktree(new LocalMachine(ctx.cwd), { label: agentId })
+      const worktree = await createWorktree(new LocalEnvironment(ctx.cwd), { label: agentId })
       if (worktree) {
         runCwd = worktree.cwd
         cleanupWorktree = worktree.cleanup

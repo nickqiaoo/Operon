@@ -19,8 +19,8 @@ export interface TeamsExtensionConfig {
 }
 
 export interface TeamsHostService {
-  /** Read every time the `workspace` half runs (each open workspace, on load and on reload) —
-   *  a config change is applied by reloading the extension. */
+  /** Read every time the `harness` half runs (on load and on reload) — a config change is
+   *  applied by reloading the extension. */
   config(): Promise<TeamsExtensionConfig>
   /** The session options a teammate of `request.type` is born with (workDir, MCP, permissions, prompt). */
   teammateOptions(request: TeammateSpawnRequest): Promise<TeammateSessionOptions>

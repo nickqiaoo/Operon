@@ -338,7 +338,7 @@ export class OperonRuntimeSession implements RuntimeSession {
     // it into `codexGoal` metadata, lighting up the banner), then run the pursuit turn.
     if (params.asGoal) {
       const objective = latestUserText(params.messages)
-      if (objective) await this.harness.createGoal({ objective })
+      if (objective) await this.harness.goal.create({ objective })
     }
 
     const input = buildAgentInput(params.messages)
@@ -384,28 +384,27 @@ export class OperonRuntimeSession implements RuntimeSession {
       case 'compact': {
         const sub = command.args.trim().toLowerCase()
         if (sub === 'status' || sub === 'pending') {
-          const pending = await this.harness.pendingCompaction()
+          const pending = this.harness.compaction.pending()
           return pending ? 'Compaction is pending — it runs before the next turn.' : 'No pending compaction.'
         }
         if (sub === 'cancel') {
-          const cancelled = await this.harness.cancelCompaction()
+          const cancelled = this.harness.compaction.cancel()
           return cancelled ? 'Cancelled the pending compaction.' : 'No pending compaction to cancel.'
         }
         const instruction = command.args.trim()
-        await this.harness.compact(instruction.length > 0 ? { instruction } : {})
+        this.harness.compaction.request(instruction.length > 0 ? { instruction } : {})
         return 'Compaction requested — it runs before the next turn.'
       }
       case 'plan': {
         const sub = command.args.trim().toLowerCase()
         if (sub === 'off' || sub === 'exit' || sub === 'clear') {
-          await this.harness.setPlanMode(false)
+          await this.harness.plan.setEnabled(false)
           return 'Plan mode off — all tools are available again.'
         }
         if (sub === 'show' || sub === 'status') {
-          const plan = await this.harness.getPlan()
-          return plan ? 'Plan mode is on.' : 'Plan mode is off.'
+          return this.harness.plan.isActive ? 'Plan mode is on.' : 'Plan mode is off.'
         }
-        await this.harness.setPlanMode(true)
+        await this.harness.plan.setEnabled(true)
         return 'Plan mode on — I will investigate read-only and present a plan for your approval before making changes.'
       }
       default:
@@ -419,12 +418,12 @@ export class OperonRuntimeSession implements RuntimeSession {
   }
 
   async getGoal(): Promise<RuntimeGoal | null> {
-    const snapshot = await this.harness.getGoal()
+    const snapshot = this.harness.goal.snapshot()
     return snapshot ? toRuntimeGoal(snapshot) : null
   }
 
   async setGoalStatus(status: 'active' | 'paused'): Promise<RuntimeGoal | null> {
-    const snapshot = status === 'paused' ? await this.harness.pauseGoal() : await this.harness.resumeGoal()
+    const snapshot = status === 'paused' ? await this.harness.goal.pause() : await this.harness.goal.resume()
     return snapshot ? toRuntimeGoal(snapshot) : null
   }
 

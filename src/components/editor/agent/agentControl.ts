@@ -45,7 +45,7 @@ export interface OperonCronTaskDTO {
 
 export interface OperonBackgroundTaskDTO {
   taskId: string
-  kind: 'process' | 'agent' | 'question' | 'workflow'
+  kind: 'process' | 'agent' | 'question' | 'workflow' | 'code'
   description: string
   status: 'running' | 'completed' | 'failed' | 'paused' | 'timed_out' | 'killed' | 'lost'
   startedAt: number
