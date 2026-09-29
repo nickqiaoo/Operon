@@ -13,14 +13,12 @@ const FILTERS: { id: InboxFilter; label: string }[] = [
 
 interface InboxPanelProps {
   onItemClick: (n: Notification) => void
-  /** Highlighted row id in the three-pane page (undefined in the mobile sheet). */
-  selectedId?: number
   /** Hide the internal "Inbox" heading when the shell already shows a title. */
   hideHeader?: boolean
 }
 
-/** The notification list — the middle column of the page and the mobile sheet body. */
-export function InboxPanel({ onItemClick, selectedId, hideHeader }: InboxPanelProps) {
+/** The notification list — the body of the inbox page and the mobile sheet. */
+export function InboxPanel({ onItemClick, hideHeader }: InboxPanelProps) {
   const items = useInboxStore((s) => s.items)
   const filter = useInboxStore((s) => s.filter)
   const loading = useInboxStore((s) => s.loading)
@@ -100,7 +98,6 @@ export function InboxPanel({ onItemClick, selectedId, hideHeader }: InboxPanelPr
               key={n.id}
               notification={n}
               onClick={onItemClick}
-              selected={selectedId === n.id}
             />
           ))
         )}

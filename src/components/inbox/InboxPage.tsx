@@ -1,9 +1,7 @@
-import { useState } from "react"
 import { ArrowLeft } from "lucide-react"
 import { useInboxStore } from "@/stores/inbox-store"
 import type { Notification } from "@/types/notification"
 import { InboxPanel } from "./InboxPanel"
-import { InboxDetail } from "./InboxDetail"
 
 interface InboxPageProps {
   onBack: () => void
@@ -12,17 +10,17 @@ interface InboxPageProps {
 }
 
 /**
- * Full-screen inbox — Linear-style two-pane: notification list on the left, the
- * selected item's detail on the right. Opened from the sidebar entry / top-bar
- * bell; portalled at the App level like the other full-screen pages.
+ * Full-screen inbox — one list, each row a pointer to its source: clicking opens
+ * the conversation or the task. There is deliberately no detail pane; it only
+ * re-rendered the chat's last reply or the task's activity, a worse copy of the
+ * page one click away. Approvals are the exception and are answered in the row.
  */
 export function InboxPage({ onBack, onOpenSource }: InboxPageProps) {
-  const [selected, setSelected] = useState<Notification | null>(null)
   const markRead = useInboxStore((s) => s.markRead)
 
-  const handleSelect = (n: Notification) => {
-    setSelected(n)
+  const handleOpen = (n: Notification) => {
     if (n.readAt == null) void markRead([n.id])
+    onOpenSource(n)
   }
 
   return (
@@ -43,13 +41,8 @@ export function InboxPage({ onBack, onOpenSource }: InboxPageProps) {
         <span className="text-sm font-medium text-foreground/90">Inbox</span>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="w-[360px] shrink-0 border-r border-border/50">
-          <InboxPanel onItemClick={handleSelect} selectedId={selected?.id} hideHeader />
-        </div>
-        <div className="min-w-0 flex-1">
-          <InboxDetail notification={selected} onOpenSource={onOpenSource} />
-        </div>
+      <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1">
+        <InboxPanel onItemClick={handleOpen} hideHeader />
       </div>
     </div>
   )
