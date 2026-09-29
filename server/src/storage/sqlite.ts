@@ -2607,6 +2607,18 @@ export class SqliteStorage
     return changed
   }
 
+  notificationPrune(before: number): number {
+    // A live row is kept however old: unread still needs the user. Once read or
+    // dismissed it is only history, and the source (chat / task) keeps the real one.
+    return this.db
+      .prepare(
+        `DELETE FROM notifications
+         WHERE (archived_at IS NOT NULL AND archived_at < ?)
+            OR (read_at IS NOT NULL AND read_at < ?)`,
+      )
+      .run(before, before).changes
+  }
+
   notificationUnreadCounts(): UnreadCounts {
     const total = (
       this.db

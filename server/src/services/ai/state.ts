@@ -4,6 +4,7 @@ import {
   type SessionManager,
 } from '@operon/agent-runtime'
 import { ChatHistoryService } from '../chat-history.js'
+import { startNotificationPruning } from '../notification-service.js'
 import { appRuntimeHost } from './app-runtime-host.js'
 import { resolveHostApproval } from './host-approval-broker.js'
 import { resolveDetachedApproval } from '../agents/detached-approvals.js'
@@ -103,6 +104,8 @@ const hasNotifications = (
 ): storage is NotificationStorageAdapter =>
   typeof storage.notificationUpsert === 'function'
 
+let stopNotificationPruning: (() => void) | undefined
+
 export function initAiService(
   storage: ChatStorageAdapter & Partial<ProjectStorageAdapter> & Partial<NotificationStorageAdapter>,
 ): void {
@@ -113,6 +116,8 @@ export function initAiService(
   }
   if (hasNotifications(storage)) {
     notificationStorage = storage
+    stopNotificationPruning?.()
+    stopNotificationPruning = startNotificationPruning(storage)
   }
 }
 

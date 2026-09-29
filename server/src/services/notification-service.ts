@@ -100,6 +100,29 @@ export function notifyTaskStatusChange(
   })
 }
 
+/** Read or dismissed rows are kept this long, then deleted. */
+export const NOTIFICATION_RETENTION_MS = 30 * 24 * 60 * 60_000
+const PRUNE_INTERVAL_MS = 24 * 60 * 60_000
+
+/**
+ * Keep the inbox table from growing forever: every row is coalesced per source,
+ * but read and archived rows were never removed. Runs once now and then daily.
+ */
+export function startNotificationPruning(storage: NotificationStorageAdapter): () => void {
+  const prune = () => {
+    try {
+      const removed = storage.notificationPrune(Date.now() - NOTIFICATION_RETENTION_MS)
+      if (removed > 0) console.log(`[Inbox] pruned ${removed} old notifications`)
+    } catch (err) {
+      console.error('[Inbox] prune failed:', err)
+    }
+  }
+  prune()
+  const timer = setInterval(prune, PRUNE_INTERVAL_MS)
+  timer.unref?.()
+  return () => clearInterval(timer)
+}
+
 /** Broadcast a fresh unread-counts snapshot (drives the bell badge). */
 export function emitCounts(storage: NotificationStorageAdapter): void {
   try {

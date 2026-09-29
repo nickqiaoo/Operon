@@ -383,6 +383,8 @@ export interface NotificationStorageAdapter {
   /** Archive (dismiss); returns the ids that actually transitioned. */
   notificationArchive(ids: number[] | 'all'): number[]
   notificationUnreadCounts(): UnreadCounts
+  /** Delete rows read or dismissed before `before` (ms); returns how many. */
+  notificationPrune(before: number): number
 }
 
 export interface IMStorageAdapter {
