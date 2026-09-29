@@ -92,30 +92,96 @@ export function getModelCapabilities(modelId: string): ModelCapabilities {
   return { effortLevels: [], vision: true }
 }
 
+function isOpenRouterHost(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname
+    return host === 'openrouter.ai' || host.endsWith('.openrouter.ai')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Claude models on OpenRouter go through its Anthropic Messages endpoint (`/api`), where
+ * the framework's SearchTool defers MCP tools with native `tool_addition` blocks (Opus 4.8+,
+ * Sonnet 5.5, …); the loaded set lives in our own transcript, so it survives every request.
+ *
+ * Every other model stays on Chat Completions and gets every tool up front. OpenRouter's
+ * Responses `openrouter:tool_search` is deliberately NOT used: what a search reveals lasts
+ * one HTTP request. After any tool round the model can no longer call a tool it found
+ * (measured 2026-09-29: GLM retried a failed `list_issues` 0/6 deferred vs 6/6 loaded) or
+ * guesses its arguments (DeepSeek), and replaying the search item, `allowed_tools` and
+ * `additional_tools` all leave the next request unchanged. GLM, DeepSeek and Grok have no
+ * native mid-conversation tool additions to fall back on.
+ *
+ * The framework provider key must NOT be `openrouter`: ProviderManager would then base it
+ * on pi's built-in openrouter catalog, whose known models keep their catalog dialect
+ * (Chat Completions) whatever `type` says. A fresh key builds the model from `type`, so
+ * the catalog's limits and reasoning flag are carried over by hand instead.
+ */
+function isClaude(model: string): boolean {
+  return /^anthropic\/claude-/.test(model)
+}
+
+interface ResolvedProvider {
+  /** Key the provider is registered under in ProviderManager. */
+  key: string
+  type: ProviderType
+  baseUrl: string
+  maxContextSize: number
+  maxOutputSize: number
+  capabilities: string[]
+}
+
+function resolveProvider(providerId: string, model: string, configuredBaseUrl: string | undefined): ResolvedProvider {
+  const shape = PROVIDER_SHAPES[providerId] ?? {
+    type: 'openai' as const,
+    defaultBaseUrl: configuredBaseUrl ?? '',
+  }
+  const baseUrl = configuredBaseUrl ?? shape.defaultBaseUrl
+  const fallback: ResolvedProvider = {
+    key: providerId,
+    type: shape.type,
+    baseUrl,
+    maxContextSize: 200_000,
+    maxOutputSize: 16_384,
+    capabilities: ['vision'],
+  }
+  if (providerId !== 'openrouter' || !isOpenRouterHost(baseUrl) || !isClaude(model)) return fallback
+
+  const known = tryGetPiModel('openrouter', model)
+  return {
+    key: 'openrouter-anthropic',
+    type: 'anthropic',
+    baseUrl: baseUrl.replace(/\/+$/, '').replace(/\/v1$/, ''),
+    maxContextSize: known?.contextWindow || fallback.maxContextSize,
+    maxOutputSize: known?.maxTokens || fallback.maxOutputSize,
+    capabilities: known
+      ? [...(known.input?.includes('image') ? ['vision'] : []), ...(known.reasoning ? ['thinking'] : [])]
+      : fallback.capabilities,
+  }
+}
+
 export async function resolveModel(modelId: string): Promise<ChatModel> {
   const { providerId, model } = splitModelId(modelId)
   const cfg = getProviderConfig(providerId)
-  const shape = PROVIDER_SHAPES[providerId] ?? {
-    type: 'openai' as const,
-    defaultBaseUrl: cfg.baseUrl ?? '',
-  }
-  const baseUrl = cfg.baseUrl ?? shape.defaultBaseUrl
+  const provider = resolveProvider(providerId, model, cfg.baseUrl)
   const manager = new ProviderManager({
     config: {
       providers: {
-        [providerId]: {
-          type: shape.type,
+        [provider.key]: {
+          type: provider.type,
           ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
-          ...(baseUrl ? { baseUrl } : {}),
+          ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
         },
       },
       models: {
         selected: {
-          provider: providerId,
+          provider: provider.key,
           model,
-          maxContextSize: 200_000,
-          maxOutputSize: 16_384,
-          capabilities: ['vision'],
+          maxContextSize: provider.maxContextSize,
+          maxOutputSize: provider.maxOutputSize,
+          capabilities: provider.capabilities,
         },
       },
     },
