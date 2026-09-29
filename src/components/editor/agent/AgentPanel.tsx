@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
 import { openExternalUrl } from '@/lib/open-external'
-import { openSettingsTab } from '@/lib/open-settings'
+import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
 import { api } from '@/lib/api'
 import { useEditorStore } from '@/stores/editor-store'
 import type { PeerMemberDTO, PeerMemberStatus, PeersRosterDTO, PeersStatsDTO, PeerTeamDTO } from '@/types/peers'
@@ -1108,7 +1108,7 @@ function PluginsSection({ res }: { res: Resource<OperonPluginDTO[]> }) {
             onClick={() =>
               p.github
                 ? openExternalUrl(`https://github.com/${p.github.owner}/${p.github.repo}`)
-                : openSettingsTab('plugins')
+                : openPluginsPage(p.id)
             }
             title={p.originalSource ?? p.source}
             className={cn(ROW, 'group -mx-1 flex w-full items-center gap-2 rounded px-1 text-left hover:bg-secondary-hover')}
@@ -1133,7 +1133,7 @@ function PluginsSection({ res }: { res: Resource<OperonPluginDTO[]> }) {
           </button>
         ))}
       </div>
-      <SettingsLink tab="plugins" label={<FormattedMessage id="editor.session.managePlugins" defaultMessage="Manage plugins in Settings" />} />
+      <SectionLink onClick={() => openPluginsPage()} label={<FormattedMessage id="editor.session.managePlugins" defaultMessage="Manage plugins" />} />
     </Section>
   )
 }
@@ -1362,11 +1362,11 @@ function SpendBreakdown({ stats, pct }: { stats: PeersStatsDTO; pct: number | nu
 
 /** Fill colour of a budget bar by how much of the budget is gone. */
 /** A section's footer: says where the full thing lives, and goes there. */
-function SettingsLink({ tab, label }: { tab: string; label: React.ReactNode }) {
+function SectionLink({ onClick, label }: { onClick: () => void; label: React.ReactNode }) {
   return (
     <button
       type="button"
-      onClick={() => openSettingsTab(tab)}
+      onClick={onClick}
       className={cn(INDENT, 'flex w-full items-center gap-1 py-1.5 text-left text-[11px] text-muted-foreground/55 hover:text-foreground')}
     >
       {label}
@@ -1437,7 +1437,7 @@ function ExtensionsSection({ res }: { res: Resource<{ extensions: OperonSessionE
           </button>
         ))}
       </div>
-      <SettingsLink tab="extensions" label={<FormattedMessage id="editor.session.manageExtensions" defaultMessage="Load or configure in Settings" />} />
+      <SectionLink onClick={() => openSettingsTab('extensions')} label={<FormattedMessage id="editor.session.manageExtensions" defaultMessage="Load or configure in Settings" />} />
     </Section>
   )
 }

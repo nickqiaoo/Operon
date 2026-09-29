@@ -22,7 +22,7 @@ import { AppShell } from "@/components/app-shell/AppShell"
 import { useGlobalShortcuts } from "@/lib/shortcuts/useGlobalShortcuts"
 import { SettingsPage } from "@/components/settings/SettingsPage"
 import { CronjobPage } from "@/components/cronjob/CronjobPage"
-import { SkillPage } from "@/components/skill/SkillPage"
+import { PluginsPage } from "@/components/plugins/PluginsPage"
 import { ChannelPage } from "@/components/channel/ChannelPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
@@ -37,7 +37,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
-import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
+import { OPEN_PLUGINS_PAGE_EVENT, OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
 
 export default function App() {
   const intl = useIntl()
@@ -45,7 +45,7 @@ export default function App() {
   /** Tab to land on when something deep-linked into Settings; cleared once consumed. */
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
   const [cronjobOpen, setCronjobOpen] = useState(false)
-  const [skillOpen, setSkillOpen] = useState(false)
+  const [pluginsOpen, setPluginsOpen] = useState(false)
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [channelProject, setChannelProject] = useState<{ id: number; name: string } | null>(null)
   // Deep-link target when a task notification opens the channel page: forwarded
@@ -178,6 +178,17 @@ export default function App() {
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen)
   }, [])
 
+  // Deep links into the Plugins page (a plugin-provided skill or MCP server, a session-panel row…).
+  // It stacks over Settings when opened from there, so Back lands where the user came from.
+  useEffect(() => {
+    const onOpen = (): void => {
+      setPluginsOpen(true)
+      trackEvent('page_opened', { page: 'plugins' })
+    }
+    window.addEventListener(OPEN_PLUGINS_PAGE_EVENT, onOpen)
+    return () => window.removeEventListener(OPEN_PLUGINS_PAGE_EVENT, onOpen)
+  }, [])
+
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
     [tabs, activeTabId]
@@ -282,13 +293,13 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  const isPageOpen = settingsOpen || skillOpen || canvasOpen || cronjobOpen || !!channelProject || inboxOpen
+  const isPageOpen = settingsOpen || pluginsOpen || canvasOpen || cronjobOpen || !!channelProject || inboxOpen
 
   // The app navigates by state, not by URL, so analytics has no way to know
   // which screen the user is on unless it is told. Full-screen pages win over
   // the tab underneath them because that is what the user is looking at.
-  const analyticsScreen = settingsOpen ? 'settings'
-    : skillOpen ? 'skill'
+  const analyticsScreen = pluginsOpen ? 'plugins'
+    : settingsOpen ? 'settings'
     : canvasOpen ? 'canvas'
     : cronjobOpen ? 'cronjob'
     : inboxOpen ? 'inbox'
@@ -315,9 +326,9 @@ export default function App() {
             </div>
           )}
 
-          {skillOpen && (
+          {pluginsOpen && (
             <div className="fixed inset-0 z-50">
-              <SkillPage onBack={() => { setSkillOpen(false); trackEvent('page_closed', { page: 'skill' }) }} />
+              <PluginsPage onBack={() => { setPluginsOpen(false); trackEvent('page_closed', { page: 'plugins' }) }} />
             </div>
           )}
 
@@ -420,7 +431,7 @@ export default function App() {
             <ProjectSidebar
               onOpenSettings={() => { setSettingsOpen(true); trackEvent('page_opened', { page: 'settings' }) }}
               onOpenCronjobs={() => { setCronjobOpen(true); trackEvent('page_opened', { page: 'cronjob' }) }}
-              onOpenSkills={() => { setSkillOpen(true); trackEvent('page_opened', { page: 'skill' }) }}
+              onOpenPlugins={() => { setPluginsOpen(true); trackEvent('page_opened', { page: 'plugins' }) }}
               onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
               onOpenChannel={(project) => setChannelProject({ id: project.id, name: project.name })}
               onOpenInbox={() => { setInboxOpen(true); trackEvent('page_opened', { page: 'inbox' }) }}

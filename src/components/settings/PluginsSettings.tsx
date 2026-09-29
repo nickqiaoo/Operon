@@ -11,6 +11,7 @@ import {
   KeyRound,
   Loader2,
   RefreshCw,
+  Search,
   Store,
   Trash2,
 } from "lucide-react"
@@ -23,6 +24,7 @@ import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl"
 import { openExternalUrl } from "@/lib/open-external"
+import { consumePendingPluginId, OPEN_PLUGIN_EVENT } from "@/lib/open-settings"
 import type {
   OperonMarketplaceDetailsDTO,
   OperonMarketplaceEntryDTO,
@@ -53,13 +55,23 @@ export function PluginsSettings() {
   const [browseErrors, setBrowseErrors] = useState<Array<{ source: string; message: string }>>([])
   const [browsing, setBrowsing] = useState(false)
   const [browseError, setBrowseError] = useState<string | null>(null)
-  const [hiddenCount, setHiddenCount] = useState(0)
   const [details, setDetails] = useState<Record<string, OperonMarketplaceDetailsDTO>>({})
+  const [query, setQuery] = useState("")
 
   // Install / navigation state.
   const [installing, setInstalling] = useState<string | null>(null)
   const [installError, setInstallError] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // A deep link from a plugin-provided skill or MCP server opens straight onto that plugin.
+  const [selectedId, setSelectedId] = useState<string | null>(() => consumePendingPluginId())
+
+  useEffect(() => {
+    const onOpen = (): void => {
+      const id = consumePendingPluginId()
+      if (id) setSelectedId(id)
+    }
+    window.addEventListener(OPEN_PLUGIN_EVENT, onOpen)
+    return () => window.removeEventListener(OPEN_PLUGIN_EVENT, onOpen)
+  }, [])
 
   // Bumped on each browse so a slow detail fetch from a previous browse can't overwrite newer results.
   const browseIdRef = useRef(0)
@@ -112,7 +124,6 @@ export function PluginsSettings() {
       setEntries(list)
       setSources(res.sources ?? [])
       setBrowseErrors(res.errors ?? [])
-      setHiddenCount(res.hidden ?? 0)
       void loadDetails(list, browseId)
     } catch (e) {
       setBrowseError(e instanceof Error ? e.message : String(e))
@@ -156,6 +167,8 @@ export function PluginsSettings() {
     [entries, details, installedIds],
   )
 
+  const shownViews = useMemo(() => filterViews(views, query), [views, query])
+
   // Logo/brand by plugin id — installed apps reuse their marketplace logo (served from the cache).
   const logoById = useMemo(() => {
     const m = new Map<string, { logoUrl?: string; brandColor?: string }>()
@@ -190,7 +203,7 @@ export function PluginsSettings() {
       <p className="text-xs text-muted-foreground">
         <FormattedMessage
           id="settings.plugins.scopeNote"
-          defaultMessage="Plugins add skills and MCP servers to the <b>Operon agent only</b> — they don't affect Claude Code, Codex, or other providers."
+          defaultMessage="Plugins add skills and MCP servers to <b>every agent</b> — Operon, Claude Code, Codex, OpenCode and the rest. Sign in to a plugin once here and all of them can use it."
           values={{
             b: (chunks: ReactNode) => <span className="font-medium text-foreground/80">{chunks}</span>,
           }}
@@ -207,11 +220,12 @@ export function PluginsSettings() {
       />
 
       <MarketplaceGallery
-        views={views}
+        views={shownViews}
+        query={query}
+        onQueryChange={setQuery}
         browsing={browsing}
         browseError={browseError}
         browseErrors={browseErrors}
-        hiddenCount={hiddenCount}
         sourcesConfigured={sources.length > 0}
         installing={installing}
         onRefresh={browse}
@@ -305,10 +319,11 @@ function InstalledStrip({
 // ── Marketplace gallery: Featured + category shelves ─────────────────────────
 function MarketplaceGallery({
   views,
+  query,
+  onQueryChange,
   browsing,
   browseError,
   browseErrors,
-  hiddenCount,
   sourcesConfigured,
   installing,
   onRefresh,
@@ -316,17 +331,24 @@ function MarketplaceGallery({
   onInstall,
 }: {
   views: MarketEntryView[]
+  query: string
+  onQueryChange: (query: string) => void
   browsing: boolean
   browseError: string | null
   browseErrors: Array<{ source: string; message: string }>
-  hiddenCount: number
   sourcesConfigured: boolean
   installing: string | null
   onRefresh: () => void
   onOpen: (id: string) => void
   onInstall: (source: string, key: string) => void
 }) {
-  const shelves = useMemo(() => groupIntoShelves(views), [views])
+  const intl = useIntl()
+  const searching = query.trim().length > 0
+  // A search shows one flat list of matches — Featured/category shelves would scatter them.
+  const shelves = useMemo<Shelf[]>(
+    () => (searching ? (views.length > 0 ? [{ title: "Results", kind: "results", items: views }] : []) : groupIntoShelves(views)),
+    [searching, views],
+  )
 
   return (
     <section className="space-y-4">
@@ -341,6 +363,16 @@ function MarketplaceGallery({
           {browsing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           <FormattedMessage id="settings.plugins.refresh" defaultMessage="Refresh" />
         </Button>
+      </div>
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+        <Input
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder={intl.formatMessage({ id: "settings.plugins.search.placeholder", defaultMessage: "Search plugins…" })}
+          className="h-9 border-border/50 bg-background pl-9 text-sm shadow-none"
+        />
       </div>
 
       {browseError && (
@@ -358,7 +390,13 @@ function MarketplaceGallery({
 
       {!browsing && views.length === 0 && !browseError && (
         <div className="rounded-lg border border-dashed border-border/50 p-6 text-center text-xs text-muted-foreground">
-          {sourcesConfigured ? (
+          {searching ? (
+            <FormattedMessage
+              id="settings.plugins.search.empty"
+              defaultMessage="No plugins match “{query}”."
+              values={{ query: query.trim() }}
+            />
+          ) : sourcesConfigured ? (
             <FormattedMessage
               id="settings.plugins.emptyMarketplace"
               defaultMessage="No plugins found in the configured marketplaces."
@@ -382,6 +420,12 @@ function MarketplaceGallery({
               <FormattedMessage id="settings.plugins.shelf.all" defaultMessage="All plugins" />
             ) : shelf.kind === "more" ? (
               <FormattedMessage id="settings.plugins.shelf.more" defaultMessage="More" />
+            ) : shelf.kind === "results" ? (
+              <FormattedMessage
+                id="settings.plugins.shelf.results"
+                defaultMessage="{count, plural, one {# result} other {# results}}"
+                values={{ count: shelf.items.length }}
+              />
             ) : (
               // Category shelves come from marketplace keywords — data, not UI copy.
               shelf.title
@@ -401,16 +445,6 @@ function MarketplaceGallery({
           </div>
         </div>
       ))}
-
-      {!browsing && hiddenCount > 0 && (
-        <p className="pt-1 text-xs text-muted-foreground">
-          <FormattedMessage
-            id="settings.plugins.hiddenCount"
-            defaultMessage="{count, plural, one {# more plugin is} other {# more plugins are}} hidden — they rely on a ChatGPT app connector the Operon agent can't use."
-            values={{ count: hiddenCount }}
-          />
-        </p>
-      )}
     </section>
   )
 }
@@ -776,7 +810,7 @@ function PluginDetail({
             <div className="text-xs text-muted-foreground">
               <FormattedMessage
                 id="settings.plugins.connectAccountDesc"
-                defaultMessage="Sign in to {name} so the Operon agent can use this plugin."
+                defaultMessage="Sign in to {name} once so every agent can use this plugin."
                 values={{ name }}
               />
             </div>
@@ -847,7 +881,14 @@ function PluginDetail({
             {info && info.skills.length > 0 ? (
               <div className="divide-y divide-border/30">
                 {info.skills.map((s) => (
-                  <SkillRow key={s} skill={s} logoUrl={logo?.logoUrl} brand={brand} fetchContent={() => api.pluginsSkill(id, s)} />
+                  <SkillRow
+                    key={s}
+                    skill={s}
+                    logoUrl={logo?.logoUrl}
+                    brand={brand}
+                    conflict={info.skillConflicts?.includes(s) ?? false}
+                    fetchContent={() => api.pluginsSkill(id, s)}
+                  />
                 ))}
               </div>
             ) : (
@@ -984,7 +1025,7 @@ function InfoList({
       {category && (<><dt className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.category" defaultMessage="Category" /></dt><dd>{category}</dd></>)}
       {version && (<><dt className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.version" defaultMessage="Version" /></dt><dd>v{version}</dd></>)}
       <dt className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.scope" defaultMessage="Scope" /></dt>
-      <dd className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.scopeValue" defaultMessage="Operon agent only" /></dd>
+      <dd className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.scopeValue" defaultMessage="All agents" /></dd>
       {website && (<><dt className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.website" defaultMessage="Website" /></dt><dd>{link(website, prettyHost(website))}</dd></>)}
       {privacy && (<><dt className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.privacy" defaultMessage="Privacy" /></dt><dd>{link(privacy, <FormattedMessage id="settings.plugins.info.privacyPolicy" defaultMessage="Privacy policy" />)}</dd></>)}
       {installedAt && (<><dt className="text-muted-foreground"><FormattedMessage id="settings.plugins.info.installed" defaultMessage="Installed" /></dt><dd>{formatDate(installedAt)}</dd></>)}
@@ -1223,11 +1264,14 @@ function SkillRow({
   skill,
   logoUrl,
   brand,
+  conflict = false,
   fetchContent,
 }: {
   skill: string
   logoUrl?: string
   brand?: string
+  /** Another skill already owns this name, so agents don't see this one. */
+  conflict?: boolean
   fetchContent: () => Promise<{ content?: string; error?: string }>
 }) {
   const [open, setOpen] = useState(false)
@@ -1256,7 +1300,18 @@ function SkillRow({
     <>
       <button type="button" onClick={openDialog} className="group -mx-2 flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-muted/50">
         <PluginLogo url={logoUrl} name={skill} color={brand} size="md" />
-        <div className="min-w-0 flex-1 truncate text-sm font-medium">{skill}</div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{skill}</div>
+          {conflict && (
+            <div className="mt-0.5 flex items-center gap-1 text-xs text-status-warn">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <FormattedMessage
+                id="settings.plugins.skillConflict"
+                defaultMessage="Conflicts with an existing skill — not synced"
+              />
+            </div>
+          )}
+        </div>
         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
       </button>
 
@@ -1497,7 +1552,7 @@ interface Shelf {
   /** Doubles as the React key. For `category` shelves it is also the rendered label. */
   title: string
   /** Fixed shelves are translated at render; `category` titles come from marketplace keywords. */
-  kind: "featured" | "all" | "more" | "category"
+  kind: "featured" | "all" | "more" | "category" | "results"
   items: MarketEntryView[]
 }
 
@@ -1506,6 +1561,16 @@ interface Shelf {
  * first few), then category shelves derived from keywords. When categories are too sparse to be
  * useful, everything falls into a single "All plugins" shelf so the gallery never looks fragmented.
  */
+/** Case-insensitive match on name, id, description and keywords; every word must appear. */
+function filterViews(views: MarketEntryView[], query: string): MarketEntryView[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return views
+  return views.filter((v) => {
+    const haystack = [v.name, v.entry.id, v.description ?? "", v.category, ...(v.entry.keywords ?? [])].join(" ").toLowerCase()
+    return words.every((w) => haystack.includes(w))
+  })
+}
+
 function groupIntoShelves(views: MarketEntryView[]): Shelf[] {
   if (views.length === 0) return []
 

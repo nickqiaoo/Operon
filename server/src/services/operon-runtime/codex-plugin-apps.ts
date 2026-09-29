@@ -17,11 +17,25 @@ interface PluginAppRuntime {
   apps: readonly ResolvedPluginApp[]
   dynamicMcpServers: Readonly<Record<string, DynamicMcpServer>>
   blockedApp?: ResolvedPluginApp
+  /** Declared servers whose raw `.mcp.json` entry declares OAuth (`oauth_resource` / `oauth`). */
+  oauthServers: ReadonlySet<string>
 }
 
 interface PersistedAppMcpState {
   version: 1
   plugins: Record<string, Record<string, { enabled: boolean }>>
+}
+
+/** One enabled plugin MCP server, with what other agents need to mount it. */
+export interface PluginMcpServerExport {
+  pluginId: string
+  pluginName: string
+  server: string
+  /** `plugin-<id>:<server>` — Operon's own name, and the OAuth token-store key. */
+  runtimeName: string
+  config: McpServerConfig
+  /** The server declares OAuth, or a token for it is already stored. */
+  requiresOAuth: boolean
 }
 
 export interface OperonPluginMcpServerInfo {
@@ -104,8 +118,52 @@ export class OperonPluginManager extends PluginManager {
     await this.persistAppState()
   }
 
+  /**
+   * Operon reads plugin skills from `~/.agents/skills` like every other agent (plugin-skill-sync.ts
+   * lands them there), so the plugin roots themselves are withheld — returning both would list each
+   * skill twice, and which copy wins would depend on scan order.
+   */
   override skillRoots() {
-    return super.skillRoots().filter((root) => root.plugin === undefined || !this.isBlocked(root.plugin.id))
+    return super.skillRoots().filter((root) => root.plugin === undefined)
+  }
+
+  /** Skill dirs contributed by enabled, unblocked plugins — the input to plugin-skill-sync. */
+  pluginSkillRoots() {
+    return super.skillRoots().filter((root) => root.plugin !== undefined && !this.isBlocked(root.plugin.id))
+  }
+
+  /**
+   * Every enabled plugin MCP server, in the same set `mcpServerConfigs()` yields but keyed back to
+   * its plugin. `hasTokens` decides "requires OAuth" for servers that don't declare it.
+   */
+  mcpServerExports(hasTokens: (runtimeName: string, url: string) => boolean): PluginMcpServerExport[] {
+    const out: PluginMcpServerExport[] = []
+    for (const record of [...this.list()].sort((a, b) => a.id.localeCompare(b.id))) {
+      if (!record.enabled || record.state !== 'ok' || this.isBlocked(record.id)) continue
+      const pluginName = record.manifest?.interface?.displayName ?? record.manifest?.name ?? record.id
+      const runtime = this.appRuntime.get(record.id)
+      const servers = new Set([
+        ...Object.keys(record.manifest?.mcpServers ?? {}),
+        ...Object.keys(runtime?.dynamicMcpServers ?? {}),
+      ])
+      for (const server of [...servers].sort()) {
+        const resolved = this.mcpServerConfig(record.id, server)
+        if (resolved === undefined) continue
+        const { config } = resolved
+        const declared = runtime?.oauthServers.has(server) === true
+          || runtime?.dynamicMcpServers[server]?.requiresAuth === true
+        const stored = config.url !== undefined && hasTokens(resolved.runtimeName, config.url)
+        out.push({
+          pluginId: record.id,
+          pluginName,
+          server,
+          runtimeName: resolved.runtimeName,
+          config,
+          requiresOAuth: config.transport === 'http' && (declared || stored),
+        })
+      }
+    }
+    return out
   }
 
   override mcpServerConfigs(): Record<string, McpServerConfig> {
@@ -243,6 +301,7 @@ export class OperonPluginManager extends PluginManager {
       return [record.id, {
         apps,
         dynamicMcpServers,
+        oauthServers: await readMcpOAuthServers(record.root),
         ...(blockedApp !== undefined ? { blockedApp } : {}),
       }] as const
     }))
@@ -320,7 +379,7 @@ export class OperonPluginManager extends PluginManager {
 export async function readCodexPluginApps(root: string): Promise<CodexPluginAppRef[]> {
   const manifest = await readPluginManifest(root)
   if (manifest === null) return []
-  let raw = manifest['apps']
+  let raw: unknown = manifest['apps'] ?? (await defaultPluginFile(root, DEFAULT_APP_CONFIG_FILE))
   if (typeof raw === 'string') {
     const appPath = safePluginPath(root, raw)
     if (appPath === undefined) return []
@@ -352,7 +411,7 @@ export async function readCodexPluginApps(root: string): Promise<CodexPluginAppR
 export async function readCodexDeclaredMcpServerNames(root: string): Promise<Set<string>> {
   const manifest = await readPluginManifest(root)
   if (manifest === null) return new Set()
-  let raw = manifest['mcpServers']
+  let raw: unknown = manifest['mcpServers'] ?? (await defaultPluginFile(root, DEFAULT_MCP_CONFIG_FILE))
   if (typeof raw === 'string') {
     const mcpPath = safePluginPath(root, raw)
     if (mcpPath === undefined) return new Set()
@@ -366,6 +425,29 @@ export async function readCodexDeclaredMcpServerNames(root: string): Promise<Set
   return isRecord(raw) ? new Set(Object.keys(raw)) : new Set()
 }
 
+/**
+ * Server names that declare OAuth in the plugin's raw `.mcp.json`: `oauth_resource`, or an `oauth`
+ * block naming a pre-registered client (GitHub, Slack). Read from the file because the parsed
+ * manifest has no field for `oauth_resource`. Best-effort — empty on miss.
+ */
+export async function readMcpOAuthServers(root: string): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const candidate of ['.mcp.json', '.codex-plugin/.mcp.json']) {
+    try {
+      const parsed: unknown = JSON.parse(await readFile(join(root, candidate), 'utf8'))
+      const servers = isRecord(parsed) ? parsed['mcpServers'] : undefined
+      if (!isRecord(servers)) continue
+      for (const [name, cfg] of Object.entries(servers)) {
+        if (isRecord(cfg) && ('oauth_resource' in cfg || 'oauth' in cfg)) out.add(name)
+      }
+      return out
+    } catch {
+      // try next candidate
+    }
+  }
+  return out
+}
+
 async function readPluginManifest(root: string): Promise<Record<string, unknown> | null> {
   for (const candidate of MANIFEST_CANDIDATES) {
     try {
@@ -376,6 +458,20 @@ async function readPluginManifest(root: string): Promise<Record<string, unknown>
     }
   }
   return null
+}
+
+// Codex convention: a manifest that doesn't name its `.mcp.json` / `.app.json` still gets the one at
+// the plugin root (Vercel, Slack, Canva… declare neither).
+const DEFAULT_MCP_CONFIG_FILE = '.mcp.json'
+const DEFAULT_APP_CONFIG_FILE = '.app.json'
+
+/** `./<file>` when the plugin root has that file, for a manifest field left unset. */
+async function defaultPluginFile(root: string, file: string): Promise<string | undefined> {
+  try {
+    return (await stat(join(root, file))).isFile() ? `./${file}` : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function safePluginPath(root: string, rawPath: string): string | undefined {

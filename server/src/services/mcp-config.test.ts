@@ -19,6 +19,10 @@ vi.mock('./chrome-use-config.js', () => ({
   getChromeUseConfig: () => ({ enabled: chromeUseEnabled }),
 }))
 
+type PluginMount = import('./operon-runtime/plugin-mcp.js').PluginMcpMount
+let pluginMounts: PluginMount[] = []
+vi.mock('./operon-runtime/plugin-mcp.js', () => ({ listPluginMcpMounts: () => pluginMounts }))
+
 import { resolveMcpServersForSession } from './mcp-config.js'
 
 describe('resolveMcpServersForSession', () => {
@@ -26,6 +30,31 @@ describe('resolveMcpServersForSession', () => {
     browserUseEnabled = true
     computerUseEnabled = false
     chromeUseEnabled = false
+    pluginMounts = []
+  })
+
+  it('mounts plugin MCP servers for other agents but not for Operon itself', () => {
+    const base = { pluginId: 'linear', pluginName: 'Linear', transport: 'http' as const }
+    pluginMounts = [
+      { ...base, kind: 'gateway', reason: 'oauth', name: 'plugin_linear_linear', server: 'linear', runtimeName: 'plugin-linear:linear' },
+      {
+        ...base,
+        kind: 'direct',
+        name: 'plugin_linear_docs',
+        server: 'docs',
+        runtimeName: 'plugin-linear:docs',
+        entry: { type: 'http', url: 'https://docs.test/mcp' },
+      },
+      { ...base, kind: 'skip', reason: 'http server has no url', name: 'plugin_linear_x', server: 'x', runtimeName: 'plugin-linear:x' },
+    ]
+    const claude = resolveMcpServersForSession('claude-code', { chatId: 42 })
+    expect(claude?.plugin_linear_linear).toEqual({
+      type: 'http',
+      url: 'http://127.0.0.1:3100/api/mcp-gateway/plugin_linear_linear',
+    })
+    expect(claude?.plugin_linear_docs).toEqual({ type: 'http', url: 'https://docs.test/mcp' })
+    expect(claude?.plugin_linear_x).toBeUndefined()
+    expect(resolveMcpServersForSession('custom', { chatId: 42 })?.plugin_linear_linear).toBeUndefined()
   })
 
   it.each([

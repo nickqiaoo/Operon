@@ -12,7 +12,7 @@
  */
 
 import { existsSync } from 'fs'
-import { readdir, readFile, writeFile, stat, mkdir, cp, rm, access } from 'fs/promises'
+import { readdir, readFile, writeFile, stat, lstat, mkdir, cp, rm, access, symlink } from 'fs/promises'
 import { join, dirname, resolve, normalize, sep, relative } from 'path'
 import { homedir, tmpdir } from 'os'
 import { mkdtemp } from 'fs/promises'
@@ -26,6 +26,7 @@ import type {
   SkillInfo,
   SkillInstallResult,
   SkillInstallTargetResult,
+  SkillManagedBy,
   SkillScope,
   SkillUpdateResult,
 } from '../types/skill.js'
@@ -33,6 +34,7 @@ import { OPERON_DATA_DIR } from './operon-runtime/paths.js'
 import {
   canonicalSkillsDir,
   copyDirectory,
+  isLinkTo,
   linkIntoTarget,
   resolveExistingTargets,
   resolveInstallTargets,
@@ -442,6 +444,8 @@ interface SkillLockEntry {
   updatedAt: string
   /** Target ids written on the last install — what `remove` has to clean up. */
   targets?: string[]
+  /** Landed by a plugin; only `syncManagedSkills` may change or remove it. */
+  managedBy?: SkillManagedBy
 }
 
 interface SkillLockFile {
@@ -557,6 +561,7 @@ export async function listInstalledSkills(ctx: ScopeContext): Promise<InstalledS
         sourceUrl: lockEntry?.sourceUrl,
         installedAt: lockEntry?.installedAt,
         updatedAt: lockEntry?.updatedAt,
+        ...(lockEntry?.managedBy ? { managedBy: lockEntry.managedBy } : {}),
       })
     }
   }
@@ -817,6 +822,7 @@ async function writeSkillToTargets(skill: Skill, ctx: ScopeContext): Promise<Wri
  * one agent's directory means that agent keeps advertising a skill the user removed.
  */
 export async function removeSkill(skillName: string, ctx: ScopeContext): Promise<string> {
+  await assertNotManaged(skillName, ctx)
   const candidates = [skillName, sanitizeName(skillName)]
   const removedDirs: string[] = []
 
@@ -874,6 +880,7 @@ export async function updateSkill(
 ): Promise<SkillUpdateResult> {
   const lock = await readSkillLock(ctx)
   const entry = lock.skills[skillName]
+  if (entry?.managedBy) throw managedSkillError(skillName, entry.managedBy)
   if (!entry) {
     throw new Error(
       `No install record for "${skillName}" — it was installed outside Operon, so there is no source to update from.`,
@@ -921,6 +928,183 @@ export async function updateSkill(
     message: `Updated "${target.name}" from ${entry.source}`,
     targets: written.map(({ label, agents, path, method }) => ({ label, agents, path, method })),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin-managed skills
+// ---------------------------------------------------------------------------
+// A plugin's skills land in the same directories as any other skill, so every agent
+// discovers them by scanning. The canonical entry is a symlink into the plugin store
+// (verified: Codex follows it), the other targets link or copy it as usual, and the lock
+// records `managedBy` so Settings → Skills and `removeSkill` leave it to the Plugins page.
+
+export interface ManagedSkillSpec {
+  /** Frontmatter name — the lock key, same as a regular install. */
+  name: string
+  /** The skill directory inside the plugin store. */
+  dir: string
+  managedBy: SkillManagedBy
+}
+
+export interface ManagedSkillConflict {
+  name: string
+  plugin: string
+}
+
+/**
+ * Make the managed skills on disk match `desired`, idempotently.
+ *
+ * Every caller (startup, install, enable, remove…) passes the full desired set rather than
+ * a delta, so a crash mid-way or a plugin dir deleted by hand is repaired on the next call.
+ * A name already taken by something the user installed is never overwritten — it is
+ * reported as a conflict. When two plugins ship the same name, the first in `desired` wins.
+ */
+export async function syncManagedSkills(
+  ctx: ScopeContext,
+  desired: readonly ManagedSkillSpec[],
+): Promise<ManagedSkillConflict[]> {
+  const lock = await readSkillLock(ctx)
+  const canonicalBase = canonicalSkillsDir(ctx)
+  const conflicts: ManagedSkillConflict[] = []
+  let changed = false
+
+  const wanted = new Map<string, ManagedSkillSpec>()
+  for (const spec of desired) {
+    if (wanted.has(spec.name)) conflicts.push({ name: spec.name, plugin: spec.managedBy.plugin })
+    else wanted.set(spec.name, spec)
+  }
+
+  const existingTargets = await resolveExistingTargets(ctx)
+  for (const [name, entry] of Object.entries(lock.skills)) {
+    if (!entry.managedBy) continue
+    if (wanted.get(name)?.managedBy.plugin === entry.managedBy.plugin) continue
+    await withdrawManagedSkill(name, entry, canonicalBase, existingTargets)
+    delete lock.skills[name]
+    changed = true
+  }
+
+  const installTargets = (await resolveInstallTargets(ctx)).filter((t) => t.strategy !== 'canonical')
+  for (const spec of wanted.values()) {
+    const safeName = sanitizeName(spec.name)
+    const canonicalDir = join(canonicalBase, safeName)
+    if (!isPathSafe(canonicalBase, canonicalDir)) continue
+    const fingerprint = await dirFingerprint(spec.dir)
+    const existing = lock.skills[spec.name]
+
+    let ownedTargets: string[]
+    if (existing?.managedBy?.plugin === spec.managedBy.plugin) {
+      const upToDate =
+        existing.skillFolderHash === fingerprint &&
+        existing.sourceUrl === spec.dir &&
+        (await isLinkTo(canonicalDir, spec.dir))
+      if (upToDate) continue
+      ownedTargets = existing.targets ?? []
+    } else if (existing || (await pathExists(canonicalDir))) {
+      conflicts.push({ name: spec.name, plugin: spec.managedBy.plugin })
+      continue
+    } else {
+      ownedTargets = []
+    }
+
+    await mkdir(canonicalBase, { recursive: true })
+    await rm(canonicalDir, { recursive: true, force: true })
+    try {
+      await symlink(spec.dir, canonicalDir, 'dir')
+    } catch {
+      await copyDirectory(spec.dir, canonicalDir)
+    }
+    const written = [CANONICAL_TARGET_ID]
+    for (const target of installTargets) {
+      // Something already sitting there that we didn't put there is the user's.
+      const dest = join(target.dir, safeName)
+      if (!ownedTargets.includes(target.id) && (await pathExists(dest))) continue
+      try {
+        await linkIntoTarget(canonicalDir, target, safeName)
+        written.push(target.id)
+      } catch {
+        // one agent's directory failing must not block the rest
+      }
+    }
+
+    const now = new Date().toISOString()
+    lock.skills[spec.name] = {
+      source: `plugin:${spec.managedBy.plugin}`,
+      sourceType: 'plugin',
+      sourceUrl: spec.dir,
+      skillFolderHash: fingerprint,
+      installedAt: existing?.managedBy ? existing.installedAt : now,
+      updatedAt: now,
+      targets: written,
+      managedBy: spec.managedBy,
+    }
+    changed = true
+  }
+
+  if (changed) await writeSkillLock(ctx, lock)
+  return conflicts
+}
+
+const CANONICAL_TARGET_ID = 'agents'
+
+async function withdrawManagedSkill(
+  name: string,
+  entry: SkillLockEntry,
+  canonicalBase: string,
+  existingTargets: Awaited<ReturnType<typeof resolveExistingTargets>>,
+): Promise<void> {
+  const safeName = sanitizeName(name)
+  const dirs = new Map(existingTargets.map((t) => [t.id, t.dir]))
+  dirs.set(CANONICAL_TARGET_ID, canonicalBase)
+  // Only the directories this entry recorded writing to — never a same-named skill elsewhere.
+  for (const id of entry.targets ?? [CANONICAL_TARGET_ID]) {
+    const base = dirs.get(id)
+    if (!base) continue
+    const dir = join(base, safeName)
+    if (!isPathSafe(base, dir)) continue
+    // rm on a symlink removes the link, not the plugin files it points at.
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/** Cheap change detector for a plugin skill dir: file list + sizes + mtimes. */
+async function dirFingerprint(dir: string): Promise<string> {
+  const parts: string[] = []
+  const walk = async (current: string, depth: number): Promise<void> => {
+    if (depth > 4) return
+    const entries = await readdir(current, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (SKIP_DIRS.has(entry.name)) continue
+      const full = join(current, entry.name)
+      const s = await stat(full).catch(() => null)
+      if (!s) continue
+      if (s.isDirectory()) await walk(full, depth + 1)
+      else parts.push(`${relative(dir, full)}:${s.size}:${Math.floor(s.mtimeMs)}`)
+    }
+  }
+  await walk(dir, 0)
+  return createHash('sha256').update(parts.join('\n')).digest('hex')
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await lstat(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function managedSkillError(skillName: string, managedBy: SkillManagedBy): Error {
+  return new Error(
+    `"${skillName}" comes from the ${managedBy.displayName} plugin. Disable or remove the plugin on the Plugins page instead.`,
+  )
+}
+
+async function assertNotManaged(skillName: string, ctx: ScopeContext): Promise<void> {
+  const lock = await readSkillLock(ctx)
+  const entry = lock.skills[skillName]
+    ?? Object.entries(lock.skills).find(([name]) => name.toLowerCase() === skillName.toLowerCase())?.[1]
+  if (entry?.managedBy) throw managedSkillError(skillName, entry.managedBy)
 }
 
 // ---------------------------------------------------------------------------

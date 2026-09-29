@@ -14,7 +14,7 @@ Skills are stored globally at `~/.agents/skills/` and managed via an underlying 
 
 ### Browsing & Installing
 
-1. Go to the **Skills** page from the sidebar.
+1. Open **Settings → Skills**.
 2. The **Installed** section shows skills currently active on your system.
 3. The **Browse** section lets you search skills from a GitHub repository (default: `vercel-labs/agent-skills`).
 4. Click **Install** to add a skill. It will be available in all future chat sessions.

@@ -1,9 +1,17 @@
 import { useState, useEffect, useCallback } from "react"
-import { api, type McpServerEntry, type McpStdioEntry, type McpHttpEntry, type McpSseEntry } from "@/lib/api"
+import {
+  api,
+  type McpServerEntry,
+  type McpStdioEntry,
+  type McpHttpEntry,
+  type McpSseEntry,
+  type PluginMcpServerView,
+} from "@/lib/api"
+import { openPluginsPage } from "@/lib/open-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2 } from "lucide-react"
+import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2, ChevronRight, ShieldCheck } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 
 type McpType = 'stdio' | 'http' | 'sse'
@@ -116,6 +124,63 @@ function ServerRow({ name, entry, editLabel, onEdit, onDelete }: ServerRowProps)
         </Button>
       </div>
     </div>
+  )
+}
+
+/**
+ * One MCP server an enabled plugin contributes. Read-only here — it is switched on and off (and
+ * signed in to) from the plugin's page, so the whole row opens that page.
+ */
+function PluginServerRow({ server }: { server: PluginMcpServerView }) {
+  const intl = useIntl()
+  const note = server.shadowed
+    ? intl.formatMessage({
+        id: "settings.mcp.plugin.shadowed",
+        defaultMessage: "Not mounted — a server above has the same name",
+      })
+    : server.mode === "skip"
+      ? intl.formatMessage(
+          { id: "settings.mcp.plugin.skipped", defaultMessage: "Not mounted — {reason}" },
+          { reason: server.reason ?? "" },
+        )
+      : null
+  return (
+    <button
+      type="button"
+      onClick={() => openPluginsPage(server.pluginId)}
+      className="group flex w-full items-center gap-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-3 text-left transition-colors hover:bg-muted/20"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">{server.name}</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+            {server.transport}
+          </span>
+          {server.mode === "gateway" && server.gatewayReason === "oauth" && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+              title={intl.formatMessage({
+                id: "settings.mcp.plugin.gatewayHint",
+                defaultMessage: "Agents reach it through Operon, which holds the sign-in — they never see the token.",
+              })}
+            >
+              <ShieldCheck className="h-3 w-3" />
+              <FormattedMessage id="settings.mcp.plugin.gateway" defaultMessage="Via Operon sign-in" />
+            </span>
+          )}
+        </div>
+        <div className={cn("mt-0.5 truncate text-xs", note ? "text-status-warn" : "text-muted-foreground")}>
+          {note ?? (
+            <FormattedMessage
+              id="settings.mcp.plugin.via"
+              defaultMessage="via {plugin}"
+              values={{ plugin: server.pluginName }}
+            />
+          )}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+    </button>
   )
 }
 
@@ -281,12 +346,15 @@ export function McpSettings() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [editing, setEditing] = useState<null | 'new' | string>(null)
+  const [pluginServers, setPluginServers] = useState<PluginMcpServerView[]>([])
 
   useEffect(() => {
     api.mcpGetServers().then(res => {
       setServers(res.servers ?? {})
       setLoading(false)
     }).catch(() => setLoading(false))
+    // Best-effort: the plugin group is informational, the page works without it.
+    api.mcpGetPluginServers().then(res => setPluginServers(res.servers ?? [])).catch(() => {})
   }, [])
 
   const persist = useCallback(async (next: Record<string, McpServerEntry>) => {
@@ -389,6 +457,25 @@ export function McpSettings() {
           <Plus className="h-3.5 w-3.5" />
           <FormattedMessage id="settings.mcp.addServer" defaultMessage="Add server" />
         </Button>
+      )}
+
+      {pluginServers.length > 0 && (
+        <div className="space-y-2">
+          <div>
+            <div className="heading-section">
+              <FormattedMessage id="settings.mcp.plugin.title" defaultMessage="From plugins" />
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              <FormattedMessage
+                id="settings.mcp.plugin.desc"
+                defaultMessage="Added to every agent by your enabled plugins. Turn them on or off on the Plugins page."
+              />
+            </div>
+          </div>
+          {pluginServers.map(server => (
+            <PluginServerRow key={server.name} server={server} />
+          ))}
+        </div>
       )}
 
       {(saving || saved) && (

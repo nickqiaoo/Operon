@@ -5,6 +5,12 @@ export interface SkillInfo {
   description: string
 }
 
+/** A skill landed on behalf of an installed plugin; the Plugins page owns its lifecycle. */
+export interface SkillManagedBy {
+  plugin: string
+  displayName: string
+}
+
 export interface InstalledSkill {
   name: string
   description?: string
@@ -23,6 +29,8 @@ export interface InstalledSkill {
    * Only ever set on global entries.
    */
   shadowed?: boolean
+  /** Set when a plugin put this skill here — remove/update it from the Plugins page instead. */
+  managedBy?: SkillManagedBy
 }
 
 /** One bundled file inside a skill directory (scripts, references, assets). */

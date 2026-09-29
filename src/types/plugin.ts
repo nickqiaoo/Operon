@@ -55,6 +55,8 @@ export interface OperonPluginInfoDTO extends OperonPluginDTO {
   mcpServers: OperonPluginMcpServerDTO[]
   apps: OperonPluginAppDTO[]
   skills: string[]
+  /** Skills not made available to agents because another skill already has the name. */
+  skillConflicts?: string[]
 }
 
 export type ConnectorSupport = 'supported' | 'setup-required' | 'adapter-required' | 'unsupported'
@@ -86,8 +88,6 @@ export interface MarketplaceBrowseResult {
   sources: string[]
   entries: OperonMarketplaceEntryDTO[]
   errors: Array<{ source: string; message: string }>
-  /** Kept for compatibility with older servers that hid connector-only entries. */
-  hidden?: number
 }
 
 /** Displayable extras (logo/description) for a marketplace entry, fetched lazily during browse. */

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -7,6 +7,7 @@ import {
   listInstalledSkills,
   listInstalledSkillsWithShadowing,
   removeSkill,
+  syncManagedSkills,
   updateSkill,
 } from './skill.js'
 
@@ -282,5 +283,75 @@ describe('removeSkill', () => {
     const workspacePath = await makeRoot()
 
     await expect(removeSkill('ghost', { scope: 'project', workspacePath })).rejects.toThrow(/not found/)
+  })
+})
+
+describe('syncManagedSkills', () => {
+  const managedBy = { plugin: 'linear', displayName: 'Linear' }
+
+  /** A plugin-store skill dir: `<store>/<name>/SKILL.md`. */
+  async function pluginSkill(name: string): Promise<string> {
+    const store = await makeRoot('operon-plugin-store-')
+    const dir = path.join(store, name)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: from a plugin\n---\n`, 'utf8')
+    return dir
+  }
+
+  it('lands a plugin skill as a canonical symlink plus agent copies, and lists it as managed', async () => {
+    const homeDir = await makeRoot('operon-skill-home-')
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    const dir = await pluginSkill('linear')
+    const ctx = { scope: 'global' as const, homeDir }
+
+    expect(await syncManagedSkills(ctx, [{ name: 'linear', dir, managedBy }])).toEqual([])
+
+    expect(await readlink(path.join(homeDir, '.agents', 'skills', 'linear'))).toBe(dir)
+    // Claude Code gets a real copy (it doesn't follow symlinked skill dirs).
+    expect((await lstat(path.join(homeDir, '.claude', 'skills', 'linear'))).isDirectory()).toBe(true)
+    const [listed] = await listInstalledSkills(ctx)
+    expect(listed).toMatchObject({ name: 'linear', managedBy })
+    await expect(removeSkill('linear', ctx)).rejects.toThrow(/Linear plugin/)
+  })
+
+  it('withdraws exactly what it landed once the plugin is gone, leaving plugin files alone', async () => {
+    const homeDir = await makeRoot('operon-skill-home-')
+    await mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    const dir = await pluginSkill('linear')
+    const ctx = { scope: 'global' as const, homeDir }
+    await syncManagedSkills(ctx, [{ name: 'linear', dir, managedBy }])
+
+    await syncManagedSkills(ctx, [])
+
+    await expect(lstat(path.join(homeDir, '.agents', 'skills', 'linear'))).rejects.toThrow()
+    await expect(lstat(path.join(homeDir, '.claude', 'skills', 'linear'))).rejects.toThrow()
+    expect((await lstat(path.join(dir, 'SKILL.md'))).isFile()).toBe(true)
+    expect(JSON.parse(await readLock(homeDir)).skills).toEqual({})
+  })
+
+  it('never overwrites a same-named skill the user installed, and reports the conflict', async () => {
+    const homeDir = await makeRoot('operon-skill-home-')
+    const ctx = { scope: 'global' as const, homeDir }
+    await installSkill(await makeSource('linear', 'mine'), 'linear', ctx)
+    const dir = await pluginSkill('linear')
+
+    const conflicts = await syncManagedSkills(ctx, [{ name: 'linear', dir, managedBy }])
+
+    expect(conflicts).toEqual([{ name: 'linear', plugin: 'linear' }])
+    expect((await lstat(path.join(homeDir, '.agents', 'skills', 'linear'))).isSymbolicLink()).toBe(false)
+    // …and a later sync with the plugin gone must not touch the user's copy either.
+    await syncManagedSkills(ctx, [])
+    expect((await lstat(path.join(homeDir, '.agents', 'skills', 'linear', 'SKILL.md'))).isFile()).toBe(true)
+  })
+
+  it('re-points the link when the plugin moves its files (upgrade)', async () => {
+    const homeDir = await makeRoot('operon-skill-home-')
+    const ctx = { scope: 'global' as const, homeDir }
+    await syncManagedSkills(ctx, [{ name: 'linear', dir: await pluginSkill('linear'), managedBy }])
+    const moved = await pluginSkill('linear')
+
+    await syncManagedSkills(ctx, [{ name: 'linear', dir: moved, managedBy }])
+
+    expect(await readlink(path.join(homeDir, '.agents', 'skills', 'linear'))).toBe(moved)
   })
 })

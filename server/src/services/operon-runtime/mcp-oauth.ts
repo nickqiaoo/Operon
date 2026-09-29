@@ -1,4 +1,5 @@
 import { McpOAuthService } from 'operon-agents'
+import type { McpOAuthClientSettings } from 'operon-agents/mcp'
 import { HARNESS_HOME_DIR } from './paths.js'
 
 /**
@@ -20,6 +21,29 @@ interface PendingFlow {
 }
 const pending = new Map<string, PendingFlow>()
 const flowKey = (pluginId: string, server: string) => `${pluginId}::${server}`
+
+/**
+ * Fired when a plugin MCP server's sign-in state changes: a login completed, the user
+ * disconnected, or the gateway found the stored grant dead. The gateway uses it to tell connected
+ * agents to re-list that server's tools, so a conversation picks the change up in place.
+ */
+type McpAuthListener = (runtimeName: string) => void
+const authListeners = new Set<McpAuthListener>()
+
+export function onMcpAuthChanged(listener: McpAuthListener): () => void {
+  authListeners.add(listener)
+  return () => authListeners.delete(listener)
+}
+
+export function notifyMcpAuthChanged(runtimeName: string): void {
+  for (const listener of authListeners) {
+    try {
+      listener(runtimeName)
+    } catch (error) {
+      console.error('[mcp-oauth] auth listener failed:', error)
+    }
+  }
+}
 
 export function hasMcpTokens(runtimeName: string, url: string): boolean {
   try {
@@ -49,6 +73,7 @@ export async function beginMcpAuth(
   server: string,
   runtimeName: string,
   url: string,
+  settings: McpOAuthClientSettings = {},
 ): Promise<BeginMcpAuthResult> {
   const key = flowKey(pluginId, server)
   const existing = pending.get(key)
@@ -61,13 +86,16 @@ export async function beginMcpAuth(
   }
 
   try {
-    const flow = await mcpOAuthService.beginAuthorization(runtimeName, url)
+    // `settings` carries the server's pre-registered client / scopes from its `.mcp.json`; without
+    // them the flow falls back to dynamic client registration.
+    const flow = await mcpOAuthService.beginAuthorization(runtimeName, url, settings)
     const state: PendingFlow = { status: 'pending', cancel: () => flow.cancel() }
     pending.set(key, state)
     flow
       .complete()
       .then(() => {
         state.status = 'done'
+        notifyMcpAuthChanged(runtimeName)
       })
       .catch((error) => {
         state.status = 'error'
@@ -79,6 +107,7 @@ export async function beginMcpAuth(
     // unexpired refresh) — no browser flow needed.
     if (error instanceof Error && error.name === 'AlreadyAuthorizedError') {
       pending.delete(key)
+      notifyMcpAuthChanged(runtimeName)
       return { alreadyAuthorized: true }
     }
     throw error
@@ -101,4 +130,5 @@ export async function cancelMcpAuth(pluginId: string, server: string): Promise<v
 /** Forget stored credentials for a plugin MCP server (client registration, tokens, discovery). */
 export function disconnectMcp(runtimeName: string, url: string): void {
   mcpOAuthService.getProvider(runtimeName, url).invalidateCredentials('all')
+  notifyMcpAuthChanged(runtimeName)
 }

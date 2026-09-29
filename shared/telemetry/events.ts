@@ -60,8 +60,8 @@ type AppOpened = {
   platform: string
 }
 
-type PageOpened = { page: 'settings' | 'cronjob' | 'skill' | 'canvas' | 'inbox' }
-type PageClosed = { page: 'settings' | 'skill' }
+type PageOpened = { page: 'settings' | 'cronjob' | 'plugins' | 'canvas' | 'inbox' }
+type PageClosed = { page: 'settings' | 'plugins' }
 
 type ProjectAdded = { workspace_count: number }
 type WorkspaceSwitched = Record<never, never>
@@ -140,11 +140,11 @@ export const PRODUCT_TELEMETRY_EVENTS = {
   }),
   page_opened: defineEvent<PageOpened>({
     comment: 'A full-screen page was opened from the shell.',
-    properties: { page: 'Which page: settings, cronjob, skill, canvas, inbox' },
+    properties: { page: 'Which page: settings, cronjob, plugins, canvas, inbox' },
   }),
   page_closed: defineEvent<PageClosed>({
     comment: 'A full-screen page was closed via its back action.',
-    properties: { page: 'Which page: settings, skill' },
+    properties: { page: 'Which page: settings, plugins' },
   }),
   project_added: defineEvent<ProjectAdded>({
     comment: 'A workspace was added to the project list.',

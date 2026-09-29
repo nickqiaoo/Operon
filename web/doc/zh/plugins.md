@@ -15,7 +15,7 @@
 
 ## 管理插件
 
-打开 **Settings → Plugins**，分为两部分。
+点击左侧边栏底部的 **Plugins**，分为两部分。
 
 ### Marketplace（市场）
 

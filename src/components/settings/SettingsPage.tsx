@@ -1,6 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
 import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
-import { ArrowLeft, Palette, Server, Brain, Plug, Blocks, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
+import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import { ProvidersTab } from "./ProvidersTab"
 import { RepoDetail } from "./RepoDetail"
@@ -20,7 +20,7 @@ import { CommitMessageSettings } from "./CommitMessageSettings"
 import { BrowserSettings } from "./BrowserSettings"
 import { ComputerUseSettings } from "./ComputerUseSettings"
 import { SaasSettings } from "./SaasSettings"
-import { PluginsSettings } from "./PluginsSettings"
+import { SkillsSettings } from "@/components/skill/SkillsSettings"
 import { ExtensionsSettings } from "./ExtensionsSettings"
 import { NotificationTab } from "./NotificationTab"
 import { KeyboardShortcutsSettings } from "./KeyboardShortcutsSettings"
@@ -99,7 +99,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
         // Agent capabilities
         { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
-        { id: "plugins", label: <FormattedMessage id="settings.tab.plugins" defaultMessage="Plugins" />, icon: Blocks },
+        { id: "skills", label: <FormattedMessage id="settings.tab.skills" defaultMessage="Skills" />, icon: Sparkles },
         { id: "extensions", label: <FormattedMessage id="settings.tab.extensions" defaultMessage="Extensions" />, icon: Puzzle },
         ...(__ENABLE_MEMORY__ ? [{ id: "memory" as const, label: <FormattedMessage id="settings.tab.memory" defaultMessage="Memory" />, icon: Brain }] : []),
         { id: "env", label: <FormattedMessage id="settings.tab.env" defaultMessage="Env" />, icon: Server },
@@ -317,7 +317,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                             {activeTab === "custom" && (
                                 <ConfigEditor configDir=".operon" files={OPERON_FILES} />
                             )}
-                            {activeTab === "plugins" && <PluginsSettings />}
+                            {activeTab === "skills" && <SkillsSettings />}
                             {activeTab === "extensions" && <ExtensionsSettings />}
                             {activeTab === "browser" && <BrowserSettings initialSurface={initialTab === "chrome" ? "chrome" : "built-in"} />}
                             {activeTab === "computer" && <ComputerUseSettings />}

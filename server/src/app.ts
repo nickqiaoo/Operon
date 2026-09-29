@@ -46,6 +46,8 @@ import { initSurfaceSync } from './gateway/surfaces/surface-sync.js'
 import { initProjectRepos } from './services/integrations/project-repos.js'
 import { pluginApiRoutes } from './routes/plugin-api.js'
 import { pluginRoutes } from './routes/plugins.js'
+import { mcpGatewayRoutes } from './routes/mcp-gateway.js'
+import { ensurePluginsLoaded } from './services/operon-runtime/plugins.js'
 import { extensionRoutes } from './routes/extensions.js'
 import { peersRoutes } from './routes/peers.js'
 import { connectorRoutes } from './routes/connectors.js'
@@ -308,6 +310,11 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/integrations', integrationsRoutes(deps.storage))
   app.route('/api/plugin', pluginApiRoutes(deps.storage))
   app.route('/api/plugins', pluginRoutes())
+  // Plugin MCP servers that need Operon's OAuth token, proxied for non-Operon agents.
+  app.route('/api/mcp-gateway', mcpGatewayRoutes())
+  // Load the plugin store now: the first load reconciles plugin skills into the shared skill
+  // dirs, so agents launched before anyone opens the Plugins page still see them.
+  void ensurePluginsLoaded().catch((error) => console.error('[plugins] startup load failed:', error))
   app.route('/api/extensions', extensionRoutes())
   app.route('/api/peers', peersRoutes())
   app.route('/api/connectors', connectorRoutes())

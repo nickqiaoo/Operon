@@ -11,10 +11,33 @@
 export const OPEN_SETTINGS_EVENT = 'operon:open-settings'
 
 export interface OpenSettingsDetail {
-  /** A tab id from `SettingsPage`'s list — e.g. `plugins`, `extensions`, `mcp`. */
+  /** A tab id from `SettingsPage`'s list — e.g. `skills`, `extensions`, `mcp`. */
   tab: string
 }
 
 export function openSettingsTab(tab: string): void {
   window.dispatchEvent(new CustomEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, { detail: { tab } }))
+}
+
+/**
+ * Open the Plugins page, optionally on one plugin's detail view (e.g. from a skill or MCP server a
+ * plugin provides). Plugins is a full page owned by `App`, like Settings, so it's reached the same
+ * way — by event. The id is parked here rather than threaded through: a freshly mounted Plugins
+ * page picks it up on mount, an already-open one hears `OPEN_PLUGIN_EVENT`.
+ */
+export const OPEN_PLUGINS_PAGE_EVENT = 'operon:open-plugins-page'
+export const OPEN_PLUGIN_EVENT = 'operon:open-plugin'
+let pendingPluginId: string | null = null
+
+export function openPluginsPage(pluginId?: string): void {
+  if (pluginId) pendingPluginId = pluginId
+  window.dispatchEvent(new CustomEvent(OPEN_PLUGINS_PAGE_EVENT))
+  if (pluginId) window.dispatchEvent(new CustomEvent<string>(OPEN_PLUGIN_EVENT, { detail: pluginId }))
+}
+
+/** Read and clear the plugin a caller asked the Plugins page to open. */
+export function consumePendingPluginId(): string | null {
+  const id = pendingPluginId
+  pendingPluginId = null
+  return id
 }

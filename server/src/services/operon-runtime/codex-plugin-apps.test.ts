@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LocalMachine } from 'operon-agents'
+import { LocalEnvironment } from 'operon-agents'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -37,7 +37,7 @@ describe('Codex plugin App adapter', () => {
       requiresAuth: true,
       mcpServer: { transport: 'http' as const, url: 'https://mcp.notion.test/mcp' },
     }))
-    const manager = new OperonPluginManager({ machine: new LocalMachine(home), homeDir: home, appResolver: resolver })
+    const manager = new OperonPluginManager({ environment: new LocalEnvironment(home), homeDir: home, appResolver: resolver })
 
     await manager.install(root)
     expect(manager.mcpServerConfigs()['plugin-notion-app:notion']?.url).toBe('https://mcp.notion.test/mcp')
@@ -46,7 +46,7 @@ describe('Codex plugin App adapter', () => {
     await manager.setMcpServerEnabled('notion-app', 'notion', false)
     expect(manager.mcpServerConfigs()['plugin-notion-app:notion']).toBeUndefined()
 
-    const reloaded = new OperonPluginManager({ machine: new LocalMachine(home), homeDir: home, appResolver: resolver })
+    const reloaded = new OperonPluginManager({ environment: new LocalEnvironment(home), homeDir: home, appResolver: resolver })
     await reloaded.load()
     expect(reloaded.mcpServerInfos('notion-app')[0]?.enabled).toBe(false)
     expect(reloaded.mcpServerConfigs()['plugin-notion-app:notion']).toBeUndefined()
@@ -57,7 +57,7 @@ describe('Codex plugin App adapter', () => {
     const required = await makePlugin('required-app', { calendar: { id: 'app_calendar', required: true } })
     const home = await tempDir('operon-plugin-policy-')
     const manager = new OperonPluginManager({
-      machine: new LocalMachine(home),
+      environment: new LocalEnvironment(home),
       homeDir: home,
       appResolver: async () => ({ support: 'adapter-required', reason: 'native adapter required' }),
     })
@@ -74,7 +74,7 @@ describe('Codex plugin App adapter', () => {
     })
     const home = await tempDir('operon-plugin-mcp-')
     const resolver = vi.fn(async () => ({ support: 'unsupported' as const }))
-    const manager = new OperonPluginManager({ machine: new LocalMachine(home), homeDir: home, appResolver: resolver })
+    const manager = new OperonPluginManager({ environment: new LocalEnvironment(home), homeDir: home, appResolver: resolver })
 
     await manager.install(root)
     expect(resolver).not.toHaveBeenCalled()
@@ -86,7 +86,7 @@ describe('Codex plugin App adapter', () => {
     const root = await makePlugin('reload-blocked', { notion: { id: 'app_notion', required: true } }, undefined, true)
     const home = await tempDir('operon-plugin-reload-')
     const supported = new OperonPluginManager({
-      machine: new LocalMachine(home),
+      environment: new LocalEnvironment(home),
       homeDir: home,
       appResolver: async () => ({
         support: 'supported',
@@ -94,18 +94,20 @@ describe('Codex plugin App adapter', () => {
       }),
     })
     await supported.install(root)
-    expect(supported.skillRoots()).toHaveLength(1)
+    expect(supported.pluginSkillRoots()).toHaveLength(1)
+    // Plugin skills reach Operon through ~/.agents/skills (plugin-skill-sync), not the plugin roots.
+    expect(supported.skillRoots()).toEqual([])
     expect(supported.mcpServerConfigs()['plugin-reload-blocked:notion']).toBeDefined()
 
     const blocked = new OperonPluginManager({
-      machine: new LocalMachine(home),
+      environment: new LocalEnvironment(home),
       homeDir: home,
       appResolver: async () => ({ support: 'unsupported', reason: 'connector removed' }),
     })
     await blocked.load()
     expect(blocked.blockedApp('reload-blocked')).toMatchObject({ alias: 'notion', required: true })
     expect(blocked.summaries()[0]).toMatchObject({ state: 'error', hasErrors: true, mcpServerCount: 0 })
-    expect(blocked.skillRoots()).toEqual([])
+    expect(blocked.pluginSkillRoots()).toEqual([])
     expect(blocked.mcpServerConfigs()['plugin-reload-blocked:notion']).toBeUndefined()
     expect(blocked.mcpServerConfig('reload-blocked', 'notion')).toBeUndefined()
   })

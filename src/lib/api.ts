@@ -59,6 +59,22 @@ export type ComputerUseCapability = 'desktop-capture' | 'clipboard-read' | 'clip
 export type McpStdioEntry ={ type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
 export type McpHttpEntry = { type: 'http'; url: string; headers?: Record<string, string> }
 export type McpSseEntry = { type: 'sse'; url: string; headers?: Record<string, string> }
+/** A plugin MCP server as other agents see it (`GET /mcp/plugin-servers`). */
+export interface PluginMcpServerView {
+  /** Name other agents mount it under, e.g. `plugin_linear_linear`. */
+  name: string
+  pluginId: string
+  pluginName: string
+  server: string
+  transport: 'stdio' | 'http'
+  /** `direct`: handed out as-is · `gateway`: proxied through Operon · `skip`: not mounted. */
+  mode: 'direct' | 'gateway' | 'skip'
+  reason?: string
+  gatewayReason?: 'oauth' | 'tool-filter' | 'cwd'
+  /** A same-named server in Settings → MCP wins, so this one is not mounted. */
+  shadowed: boolean
+}
+
 export type McpServerEntry = McpStdioEntry | McpHttpEntry | McpSseEntry
 
 /** Why a rewind left a file alone. See the server's `RewindSkipReason`. */
@@ -1076,6 +1092,9 @@ export const api = {
     get<{ servers: Record<string, McpServerEntry> }>('/mcp/servers'),
   mcpSaveServers: (servers: Record<string, McpServerEntry>) =>
     put<{ servers: Record<string, McpServerEntry> }>('/mcp/servers', { servers }),
+  /** Read-only: MCP servers enabled plugins contribute to every agent. */
+  mcpGetPluginServers: () =>
+    get<{ servers: PluginMcpServerView[] }>('/mcp/plugin-servers'),
 
   // --- Extensions (file extensions on the operon harness; session-independent) ---
   extensionsList: () =>

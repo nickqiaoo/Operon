@@ -1,7 +1,7 @@
 import {
   loadMarketplace,
   loadMarketplaceEntryDetails,
-  LocalMachine,
+  LocalEnvironment,
   materializeGithubRepo,
   parseGithubMarketplaceSource,
   resolveFromFiles,
@@ -10,7 +10,7 @@ import {
   type MarketplaceEntryDetails,
   type PluginSummary,
 } from 'operon-agents'
-import { serverFromConfig, type MCPTool } from 'operon-agents/mcp'
+import { mcpOAuthSettings, serverFromConfig, type MCPTool, type McpOAuthClientSettings } from 'operon-agents/mcp'
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'os'
 import { basename, join, resolve, sep } from 'node:path'
@@ -21,7 +21,9 @@ import {
   OperonPluginManager,
   readCodexDeclaredMcpServerNames,
   readCodexPluginApps,
+  readMcpOAuthServers,
 } from './codex-plugin-apps.js'
+import { pluginSkillConflicts, syncPluginSkills } from './plugin-skill-sync.js'
 
 // Cached github-repo marketplaces live here: one extracted repo per source, shared by browse+install.
 const MARKETPLACE_CACHE_ROOT = join(HARNESS_HOME_DIR, 'marketplace-cache')
@@ -33,18 +35,32 @@ const APP_NAME = 'operon'
 // UI drives this manager directly over a chat-less route. buildHarness builds capabilities fresh per
 // session and hands this SAME instance to the framework's `defaultCapabilities`, which reads its
 // skills/MCP per session — so installs/enables here are observed by the next chat (no eviction).
-const pluginMachine = new LocalMachine(HARNESS_HOME_DIR)
+const pluginEnvironment = new LocalEnvironment(HARNESS_HOME_DIR)
 export const pluginManager = new OperonPluginManager({
-  machine: pluginMachine,
+  environment: pluginEnvironment,
   homeDir: HARNESS_HOME_DIR,
   appResolver: resolvePluginApp,
 })
 let loadOnce: Promise<void> | undefined
 
-/** Load the plugin store once. Called by the harness capability factory before reading the manager. */
+/**
+ * Load the plugin store once. Called by the harness capability factory before reading the manager,
+ * and at server startup — the first load also reconciles plugin skills on disk, which is what
+ * clears links left behind by a plugin that vanished while Operon wasn't running.
+ */
 export async function ensurePluginsLoaded(): Promise<void> {
-  loadOnce ??= pluginManager.load()
+  loadOnce ??= pluginManager.load().then(() => resyncPluginSkills())
   await loadOnce
+}
+
+/** Re-land plugin skills after the enabled set changed. A failure is logged, never thrown: the
+ *  plugin operation itself succeeded, and the next sync will retry. */
+async function resyncPluginSkills(): Promise<void> {
+  try {
+    await syncPluginSkills(pluginManager)
+  } catch (error) {
+    console.error('[plugins] skill sync failed:', error)
+  }
 }
 
 // ── DTOs (serializable wire shapes) ──────────────────────────────────────────
@@ -88,7 +104,7 @@ export interface OperonPluginMcpServerDTO {
   name: string
   enabled: boolean
   transport: 'stdio' | 'http'
-  /** The server declares OAuth (Codex `oauth_resource`) or is a remote http endpoint. */
+  /** The server declares OAuth (Codex `oauth_resource` / `oauth`) or is a remote http endpoint. */
   requiresAuth: boolean
   /** A valid OAuth token is already stored for this server. */
   authenticated: boolean
@@ -132,6 +148,8 @@ export interface OperonPluginInfoDTO extends OperonPluginDTO {
   apps: OperonPluginAppDTO[]
   /** Display names (directory basenames) of the plugin's skills. */
   skills: string[]
+  /** Skills that were not made available to agents because another skill already has the name. */
+  skillConflicts: string[]
 }
 
 /** Displayable extras (logo/description) for a marketplace entry, fetched lazily from its manifest. */
@@ -149,7 +167,7 @@ export interface OperonMarketplaceDetailsDTO {
 export interface OperonMarketplaceMcpServerDTO {
   name: string
   transport: 'stdio' | 'http'
-  /** The server declares OAuth (`oauth_resource`) or is a remote http endpoint. */
+  /** The server declares OAuth (`oauth_resource` / `oauth`) or is a remote http endpoint. */
   requiresAuth: boolean
 }
 
@@ -251,17 +269,22 @@ export async function getPluginInfo(id: string): Promise<OperonPluginInfoDTO | n
       ...(app.reason ? { reason: app.reason } : {}),
     })),
     skills: await resolveSkillNames(manifest?.skills ?? []),
+    skillConflicts: pluginSkillConflicts(id),
   }
 }
 
 // ── Plugin MCP OAuth (session-independent) ───────────────────────────────────
 
-/** Resolve a plugin's MCP server to the (runtimeName, url) the OAuth store is keyed on. */
-async function resolveMcpServer(id: string, server: string): Promise<{ runtimeName: string; url: string } | null> {
+/** Resolve a plugin's MCP server to the (runtimeName, url) the OAuth store is keyed on, plus its
+ *  pre-registered OAuth client / scopes. */
+async function resolveMcpServer(
+  id: string,
+  server: string,
+): Promise<{ runtimeName: string; url: string; oauth: McpOAuthClientSettings } | null> {
   await ensurePluginsLoaded()
   const resolved = pluginManager.mcpServerConfig(id, server)
   if (resolved?.config.url === undefined) return null
-  return { runtimeName: resolved.runtimeName, url: resolved.config.url }
+  return { runtimeName: resolved.runtimeName, url: resolved.config.url, oauth: mcpOAuthSettings(resolved.config) }
 }
 
 export async function getMcpAuthStatus(id: string): Promise<OperonMcpAuthServerDTO[]> {
@@ -279,7 +302,7 @@ export async function getMcpAuthStatus(id: string): Promise<OperonMcpAuthServerD
 export async function startMcpAuth(id: string, server: string): Promise<BeginMcpAuthResult> {
   const resolved = await resolveMcpServer(id, server)
   if (resolved === null) throw new Error(`MCP server "${server}" not found on plugin "${id}" (or it has no URL).`)
-  return beginMcpAuth(id, server, resolved.runtimeName, resolved.url)
+  return beginMcpAuth(id, server, resolved.runtimeName, resolved.url, resolved.oauth)
 }
 
 export async function cancelPluginMcpAuth(id: string, server: string): Promise<void> {
@@ -365,26 +388,6 @@ export async function disconnectPluginMcp(id: string, server: string): Promise<v
   const resolved = await resolveMcpServer(id, server)
   if (resolved === null) throw new Error(`MCP server "${server}" not found on plugin "${id}" (or it has no URL).`)
   disconnectMcp(resolved.runtimeName, resolved.url)
-}
-
-// Read the server names that declare OAuth (`oauth_resource`) from the plugin's raw .mcp.json. The
-// parsed config drops unknown keys, so we read the file directly. Best-effort — returns empty on miss.
-async function readMcpOAuthServers(root: string): Promise<Set<string>> {
-  const out = new Set<string>()
-  for (const candidate of ['.mcp.json', '.codex-plugin/.mcp.json']) {
-    try {
-      const parsed: unknown = JSON.parse(await readFile(join(root, candidate), 'utf8'))
-      const servers = typeof parsed === 'object' && parsed !== null ? (parsed as { mcpServers?: unknown }).mcpServers : undefined
-      if (typeof servers !== 'object' || servers === null) continue
-      for (const [name, cfg] of Object.entries(servers as Record<string, unknown>)) {
-        if (typeof cfg === 'object' && cfg !== null && 'oauth_resource' in cfg) out.add(name)
-      }
-      return out
-    } catch {
-      // try next candidate
-    }
-  }
-  return out
 }
 
 /**
@@ -484,6 +487,7 @@ function skillDisplayName(p: string): string {
 export async function installPlugin(source: string): Promise<OperonPluginDTO> {
   await ensurePluginsLoaded()
   const record = await pluginManager.install(source)
+  await resyncPluginSkills()
   const summary = pluginManager.summaries().find((p) => p.id === record.id)
   if (!summary) throw new Error(`Plugin "${record.id}" installed but missing from summaries`)
   return toPluginDTO(summary)
@@ -492,6 +496,7 @@ export async function installPlugin(source: string): Promise<OperonPluginDTO> {
 export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
   await ensurePluginsLoaded()
   await pluginManager.setEnabled(id, enabled)
+  await resyncPluginSkills()
 }
 
 export async function setPluginMcpEnabled(id: string, server: string, enabled: boolean): Promise<void> {
@@ -502,25 +507,29 @@ export async function setPluginMcpEnabled(id: string, server: string, enabled: b
 export async function removePlugin(id: string): Promise<void> {
   await ensurePluginsLoaded()
   await pluginManager.remove(id)
+  await resyncPluginSkills()
 }
 
 export async function reloadPlugins(): Promise<void> {
   await ensurePluginsLoaded()
   await pluginManager.reload()
+  await resyncPluginSkills()
 }
 
 /**
- * Browse plugin marketplaces. With no explicit source, reads the registries configured in the
- * user-tier `~/.operon/config.toml` (`pluginMarketplaces`). Each registry is loaded independently;
- * a failing one is reported in `errors` rather than failing the whole browse.
+ * Browse plugin marketplaces. With no explicit source, reads the built-in registries plus any extra
+ * ones in the user-tier `~/.operon/config.toml` (`pluginMarketplaces`). Each registry is loaded
+ * independently; a failing one is reported in `errors` rather than failing the whole browse. A
+ * plugin id listed by several registries shows once — the earliest registry wins, so Operon's own
+ * marketplace can override an upstream entry.
  */
 export async function browseMarketplaces(
   explicitSource?: string,
-): Promise<{ sources: string[]; entries: OperonMarketplaceEntryDTO[]; errors: Array<{ source: string; message: string }>; hidden: number }> {
+): Promise<{ sources: string[]; entries: OperonMarketplaceEntryDTO[]; errors: Array<{ source: string; message: string }> }> {
   const sources = explicitSource ? [explicitSource] : await configuredMarketplaces()
   const entries: OperonMarketplaceEntryDTO[] = []
   const errors: Array<{ source: string; message: string }> = []
-  let hidden = 0
+  const seen = new Set<string>()
   for (const source of sources) {
     try {
       // A marketplace is a github plugin repo (monorepo): cache the whole repo ONCE, then read its
@@ -532,6 +541,7 @@ export async function browseMarketplaces(
       }
       const repoDir = await ensureMarketplaceRepo(gh)
       const marketplace = await loadMarketplace({ source, repoDir })
+      const apiUsable = await readApiMarketplaceIds(repoDir)
       const connectorStates = await Promise.all(
         marketplace.plugins.map(async (entry) => {
           const dir = marketplaceEntryDir(entry.source)
@@ -539,14 +549,14 @@ export async function browseMarketplaces(
         }),
       )
       marketplace.plugins.forEach((entry, i) => {
+        if (seen.has(entry.id)) return
+        if (apiUsable !== undefined && !apiUsable.has(entry.id)) return
         const connectorState = connectorStates[i]
         // A required App the agent can't reach makes install throw, so the card would be a dead
-        // end: hide it and only report the count. `undefined` means the plugin declares no Apps
-        // at all (plain MCP plugin) — always listed.
-        if (connectorState !== undefined && connectorState.connectorSupport !== 'supported') {
-          hidden += 1
-          return
-        }
+        // end: leave it out. `undefined` means the plugin declares no Apps at all (plain MCP
+        // plugin) — always listed.
+        if (connectorState !== undefined && connectorState.connectorSupport !== 'supported') return
+        seen.add(entry.id)
         entries.push({
           ...toEntryDTO(entry),
           ...(connectorState ?? {}),
@@ -556,7 +566,37 @@ export async function browseMarketplaces(
       errors.push({ source, message: error instanceof Error ? error.message : String(error) })
     }
   }
-  return { sources, entries, errors, hidden }
+  return { sources, entries, errors }
+}
+
+// Codex publishes a second index, `api_marketplace.json`, for users signed in with an API key rather
+// than a ChatGPT account: the subset that works without ChatGPT-hosted connectors. Operon is always
+// in that position, so when a marketplace ships the index it decides what's listed. Entries only in
+// the main index need a ChatGPT connector or carry a placeholder OAuth client (`<GMAIL_PUBLIC_CLIENT_ID>`)
+// that no one outside OpenAI can use. Undefined when the repo has no such index (list everything).
+const CODEX_API_MARKETPLACE_PATH = join('.agents', 'plugins', 'api_marketplace.json')
+
+async function readApiMarketplaceIds(repoDir: string): Promise<Set<string> | undefined> {
+  let raw: string
+  try {
+    raw = await readFile(join(repoDir, CODEX_API_MARKETPLACE_PATH), 'utf8')
+  } catch {
+    return undefined
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    const plugins = typeof parsed === 'object' && parsed !== null ? (parsed as { plugins?: unknown }).plugins : undefined
+    if (!Array.isArray(plugins)) return undefined
+    const ids = new Set<string>()
+    for (const plugin of plugins) {
+      const name = typeof plugin === 'object' && plugin !== null ? (plugin as { name?: unknown }).name : undefined
+      if (typeof name === 'string') ids.add(name)
+    }
+    return ids
+  } catch (error) {
+    console.warn('[plugins] ignoring unreadable api_marketplace.json:', error)
+    return undefined
+  }
 }
 
 async function assessMarketplaceApps(
@@ -581,14 +621,20 @@ async function assessMarketplaceApps(
   }
 }
 
+// Always browsed, ahead of anything the user adds: Operon's own curated plugins (vendors that ship a
+// hosted MCP but aren't in the Codex registry — Firecrawl, Grafana Cloud, IBKR), then the Codex one.
+const BUILTIN_MARKETPLACES = ['nickqiaoo/operon-plugins', 'openai/plugins']
+
 async function configuredMarketplaces(): Promise<string[]> {
   // User-tier config (`~/.operon/config.toml`) is read regardless of cwd; pass home as a stable cwd.
+  let extra: readonly string[] = []
   try {
     const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: os.homedir() })
-    return [...toCoreOptions(config).pluginMarketplaces]
+    extra = toCoreOptions(config).pluginMarketplaces
   } catch {
-    return []
+    // Unreadable config — the built-in marketplaces still load.
   }
+  return [...new Set([...BUILTIN_MARKETPLACES, ...extra])]
 }
 
 // ── Cached github-repo marketplaces ──────────────────────────────────────────
@@ -743,7 +789,7 @@ async function readMarketplaceMcpServers(root: string): Promise<OperonMarketplac
       out.push(...Object.entries(servers).map(([name, cfg]) => {
         const rec = isRecord(cfg) ? cfg : {}
         const transport: 'stdio' | 'http' = rec['type'] === 'http' || typeof rec['url'] === 'string' ? 'http' : 'stdio'
-        return { name, transport, requiresAuth: 'oauth_resource' in rec || transport === 'http' }
+        return { name, transport, requiresAuth: 'oauth_resource' in rec || 'oauth' in rec || transport === 'http' }
       }))
       break
     } catch {

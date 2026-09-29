@@ -11,6 +11,7 @@ import { observePendingInputPart, clearPendingApprovals } from './chat-pending-i
 // Registers the inbox as a subscriber to pending input.
 import './approval-inbox.js'
 import { resolveMcpServersForSession } from '../mcp-config.js'
+import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
 import { SDD_CREATE_SPEC_TASK_HINT } from '../sdd/sdd-prompt.js'
 import type {
   AiChatRequest,
@@ -148,6 +149,8 @@ export async function startChat(
   const mcpContext = chatId > 0
     ? { ...(payload.agentContext ?? {}), chatId, cwd }
     : payload.agentContext
+  // Plugin MCP servers are merged in from the plugin store, which must be loaded first.
+  await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
   const mcpServers = resolveMcpServersForSession(providerId, mcpContext)
   // SDD hint for a direct workspace chat (sourceChatId set): a light, always-on
   // nudge that create_spec_task exists and when to reach for it — the same hint

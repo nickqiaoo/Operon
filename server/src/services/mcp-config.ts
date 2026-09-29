@@ -7,6 +7,7 @@ import { getComputerUseConfig } from './computer-use-config.js'
 import { getChromeUseConfig } from './chrome-use-config.js'
 import type { AgentMcpContext } from './ai/types.js'
 import { getApiToken, isApiTokenAuthDisabled } from './api-token.js'
+import { listPluginMcpMounts } from './operon-runtime/plugin-mcp.js'
 
 const DATA_DIR = process.env.OPERON_DATA_DIR || path.join(os.homedir(), '.operon', 'data')
 const MCP_CONFIG_PATH = path.join(DATA_DIR, 'mcp-servers.json')
@@ -104,6 +105,29 @@ export function buildMcpServersForCli(
   delete servers['im_bridge']
   delete servers['inbox']
   delete servers['task_board']
+
+  // Plugin MCP servers reach every agent, not just Operon. Operon (`operon`) is skipped: its
+  // harness already reads them from the plugin manager, with its own OAuth. Servers that need a
+  // login (or a tool filter / cwd no CLI config can express) are routed through Operon's gateway,
+  // so the token never leaves this process.
+  if (providerId !== 'operon') {
+    for (const mount of listPluginMcpMounts()) {
+      if (servers[mount.name] !== undefined) {
+        console.warn(`[MCP] plugin server ${mount.runtimeName} skipped: "${mount.name}" is already configured in Settings → MCP`)
+        continue
+      }
+      if (mount.kind === 'skip') {
+        console.warn(`[MCP] plugin server ${mount.runtimeName} skipped: ${mount.reason}`)
+        continue
+      }
+      // A gateway URL never encodes sign-in state: changing it would change the session-reuse
+      // fingerprint and rebuild the whole agent session on login. The gateway pushes
+      // `tools/list_changed` instead (see routes/mcp-gateway.ts).
+      servers[mount.name] = mount.kind === 'direct'
+        ? mount.entry
+        : { type: 'http', url: withApiToken(`http://127.0.0.1:${appPort}/api/mcp-gateway/${mount.name}`) }
+    }
+  }
 
   if (getEmbeddingConfig()?.enabled) {
     servers['memory'] = {

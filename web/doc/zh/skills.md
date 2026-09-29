@@ -14,7 +14,7 @@
 
 ### 浏览与安装
 
-1. 从侧边栏进入 **Skills** 页面。
+1. 打开 **Settings → Skills**。
 2. **Installed** 里是当前已经装好的技能。
 3. **Browse** 可以从 GitHub 仓库里搜（默认是 `vercel-labs/agent-skills`）。
 4. 点 **Install** 装上，之后每个新对话都能用。

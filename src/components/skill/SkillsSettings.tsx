@@ -3,6 +3,7 @@ import { useIntl } from "react-intl"
 import {
   AlertTriangle,
   ArrowLeft,
+  Blocks,
   Check,
   ChevronDown,
   ChevronRight,
@@ -16,8 +17,9 @@ import {
   Search,
   Trash2,
 } from "lucide-react"
-import type { InstalledSkill, SkillDetail, SkillInfo, SkillScope } from "@/types/skill"
+import type { InstalledSkill, SkillDetail, SkillInfo, SkillManagedBy, SkillScope } from "@/types/skill"
 import { api } from "@/lib/api"
+import { openPluginsPage } from "@/lib/open-settings"
 import { useProjectStore } from "@/stores/project-store"
 import { AgentBadges, AgentChips } from "./AgentBadges"
 import { Badge } from "@/components/ui/badge"
@@ -34,10 +36,6 @@ import { cn } from "@/lib/utils"
 
 const DEFAULT_SOURCE = "vercel-labs/agent-skills"
 
-interface SkillPageProps {
-  onBack: () => void
-}
-
 /** A skill as shown in the list — installed, available, or both. */
 interface SkillListItem {
   name: string
@@ -52,9 +50,12 @@ interface SkillListItem {
   agents?: string[]
   /** A project skill of the same name wins over this global one. */
   shadowed?: boolean
+  /** Provided by a plugin — managed from the Plugins page, not here. */
+  managedBy?: SkillManagedBy
 }
 
-export function SkillPage({ onBack }: SkillPageProps) {
+/** Settings → Skills. Settings supplies the page title and the reading-width column. */
+export function SkillsSettings() {
   const intl = useIntl()
   // Project scope targets the repository root, not the active worktree: a skill is a
   // property of the project, not of whichever branch happens to be checked out, and
@@ -242,6 +243,7 @@ export function SkillPage({ onBack }: SkillPageProps) {
         updatedAt: s.updatedAt,
         agents: s.agents,
         shadowed: s.shadowed,
+        managedBy: s.managedBy,
       })),
     [installed],
   )
@@ -284,43 +286,28 @@ export function SkillPage({ onBack }: SkillPageProps) {
   const canUseOtherScope = otherScope === "global" || Boolean(projectPath)
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-background text-foreground">
-      <div className="h-10 drag-region shrink-0 bg-background" />
-
-      {/* Header — Back is contextual: it leaves the detail view before leaving the page. */}
-      <div className="h-14 shrink-0 border-b border-border/40 flex items-center justify-between px-6 bg-background/80 backdrop-blur-md">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-ml-2 h-8 gap-1.5 rounded-lg px-2.5 text-muted-foreground hover:text-foreground"
-            onClick={() => (selected ? setSelected(null) : onBack())}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span className="text-sm font-medium">
-              {intl.formatMessage({ id: "common.back", defaultMessage: "Back" })}
-            </span>
-          </Button>
-          <div className="h-4 w-px bg-border/60" />
-          <div className="flex min-w-0 items-center gap-1.5 text-sm">
-            <button
-              type="button"
-              className={cn(
-                "font-semibold tracking-tight transition-colors",
-                selected ? "text-muted-foreground hover:text-foreground" : "text-foreground",
-              )}
-              onClick={() => setSelected(null)}
-              disabled={!selected}
-            >
-              {intl.formatMessage({ id: "skill.title", defaultMessage: "Skills" })}
-            </button>
-            {selected && (
-              <>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                <span className="truncate font-semibold tracking-tight">{selected}</span>
-              </>
-            )}
-          </div>
+    <div className="space-y-6">
+      {/* Toolbar — the scope applies to the list and the detail alike. Back only exists in the
+          detail view; leaving Skills altogether is Settings' job. */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          {selected && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2 h-8 gap-1.5 rounded-lg px-2.5 text-muted-foreground hover:text-foreground"
+                onClick={() => setSelected(null)}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span className="text-sm font-medium">
+                  {intl.formatMessage({ id: "settings.tab.skills", defaultMessage: "Skills" })}
+                </span>
+              </Button>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              <span className="truncate font-semibold tracking-tight">{selected}</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <ScopeSwitcher
@@ -346,7 +333,7 @@ export function SkillPage({ onBack }: SkillPageProps) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto code-scrollbar scroll-fade-y">
+      <div>
         {selected ? (
           <SkillDetailView
             key={`${scope}:${selected}`}
@@ -360,13 +347,14 @@ export function SkillPage({ onBack }: SkillPageProps) {
             installing={installingNames.has(selected)}
             removing={removingNames.has(selected)}
             updating={updatingNames.has(selected)}
-            canUpdate={Boolean(selectedItem?.source)}
+            canUpdate={Boolean(selectedItem?.source) && !selectedItem?.managedBy}
+            managedBy={selectedItem?.managedBy}
             onInstall={() => void handleInstall(selected)}
             onRemove={() => void handleRemove(selected)}
             onUpdate={() => void handleUpdate(selected)}
           />
         ) : (
-          <div className="mx-auto max-w-4xl px-8 py-7 space-y-8">
+          <div className="space-y-8">
             {scope === "project" && projectPath && <ProjectScopeHint path={projectPath} />}
 
             {error && (
@@ -732,7 +720,9 @@ function SkillCard({
         </p>
         {item.installed && <SkillCardMeta item={item} />}
       </div>
-      {item.installed ? (
+      {item.installed && item.managedBy ? (
+        <ManagedByPluginButton managedBy={item.managedBy} compact />
+      ) : item.installed ? (
         <div className="flex shrink-0 items-center gap-0.5">
           {item.source && (
             <Button
@@ -786,7 +776,17 @@ function SkillCardMeta({ item }: { item: SkillListItem }) {
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground/70">
-      {item.source && (
+      {item.managedBy ? (
+        <span className="inline-flex min-w-0 items-center gap-1">
+          <Blocks className="h-3 w-3 shrink-0" />
+          <span className="truncate">
+            {intl.formatMessage(
+              { id: "skill.viaPlugin", defaultMessage: "via {plugin}" },
+              { plugin: item.managedBy.displayName },
+            )}
+          </span>
+        </span>
+      ) : item.source && (
         <span className="inline-flex min-w-0 items-center gap-1" title={item.source}>
           <Package className="h-3 w-3 shrink-0" />
           <span className="truncate font-mono">{item.source}</span>
@@ -809,6 +809,33 @@ function SkillCardMeta({ item }: { item: SkillListItem }) {
         </Badge>
       )}
     </div>
+  )
+}
+
+/**
+ * A plugin-provided skill is added and removed with its plugin, so instead of Update/Uninstall
+ * it offers a way to the plugin's page.
+ */
+function ManagedByPluginButton({ managedBy, compact = false }: { managedBy: SkillManagedBy; compact?: boolean }) {
+  const intl = useIntl()
+  const label = intl.formatMessage({ id: "skill.manageInPlugins", defaultMessage: "Manage in Plugins" })
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className={cn("shrink-0 gap-1.5 text-muted-foreground hover:text-foreground", compact ? "h-7 text-xs" : "h-8")}
+      title={intl.formatMessage(
+        { id: "skill.managedHint", defaultMessage: "Provided by the {plugin} plugin" },
+        { plugin: managedBy.displayName },
+      )}
+      onClick={(e) => {
+        e.stopPropagation()
+        openPluginsPage(managedBy.plugin)
+      }}
+    >
+      <Blocks className="h-3.5 w-3.5" />
+      {label}
+    </Button>
   )
 }
 
@@ -907,6 +934,7 @@ function SkillDetailView({
   removing,
   updating,
   canUpdate,
+  managedBy,
   onInstall,
   onRemove,
   onUpdate,
@@ -923,6 +951,7 @@ function SkillDetailView({
   removing: boolean
   updating: boolean
   canUpdate: boolean
+  managedBy?: SkillManagedBy
   onInstall: () => void
   onRemove: () => void
   onUpdate: () => void
@@ -958,7 +987,7 @@ function SkillDetailView({
   const description = detail?.description || fallbackDescription
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-7 space-y-6">
+    <div className="space-y-6">
       <header className="space-y-3">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-tint-muted text-tint">
@@ -968,7 +997,9 @@ function SkillDetailView({
             <h1 className="truncate text-lg font-semibold tracking-tight">{name}</h1>
             {description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{description}</p>}
           </div>
-          {installed ? (
+          {installed && managedBy ? (
+            <ManagedByPluginButton managedBy={managedBy} />
+          ) : installed ? (
             <div className="flex shrink-0 items-center gap-1.5">
               {canUpdate && (
                 <Button
