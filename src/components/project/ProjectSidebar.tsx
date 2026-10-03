@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, Folder, GitBranch, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft } from "lucide-react"
+import { CalendarClock, Folder, GitBranch, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
@@ -213,11 +213,16 @@ interface ProjectSidebarProps {
   onOpenCanvas: () => void
   onOpenChannel?: (project: Project) => void
   onOpenInbox?: () => void
+  onOpenAssistant?: () => void
+  /** The Assistant view is showing in place of the editor. */
+  assistantActive?: boolean
+  /** Picking a workspace leaves the Assistant view. */
+  onLeaveAssistant?: () => void
   onCollapse?: () => void
   collapsed?: boolean
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenChannel, onOpenInbox, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenChannel, onOpenInbox, onOpenAssistant, assistantActive, onLeaveAssistant, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
@@ -271,7 +276,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
     const chatTabIds = tabs.filter((t) => t.type === "chat").map((t) => t.id)
     if (chatTabIds.length > 0) clearUnseen(chatTabIds)
     setActiveWorkspace(workspaceId, projectId)
-  }, [getWorkspaceTabs, clearUnseen, setActiveWorkspace])
+    onLeaveAssistant?.()
+  }, [getWorkspaceTabs, clearUnseen, setActiveWorkspace, onLeaveAssistant])
 
   const syncWorktrees = async (project: Project) => {
     try {
@@ -367,8 +373,25 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       </div>
 
       {/* Global destinations */}
-      {onOpenInbox && (
+      {(onOpenAssistant || onOpenInbox) && (
         <div className="px-2 pt-2 shrink-0">
+          {onOpenAssistant && (
+            <button
+              type="button"
+              onClick={onOpenAssistant}
+              className={cn(
+                "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+                // Same selection fill as a workspace row, so the two read as one kind of "you are here".
+                assistantActive
+                  ? "bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.07]"
+                  : "text-foreground/85 hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span className="flex-1"><FormattedMessage id="sidebar.assistant" defaultMessage="Assistant" /></span>
+            </button>
+          )}
+          {onOpenInbox && (
           <button
             type="button"
             onClick={onOpenInbox}
@@ -386,6 +409,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
               </span>
             ) : null}
           </button>
+          )}
         </div>
       )}
 
@@ -423,7 +447,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                 key={project.id}
                 project={project}
                 onSelectWorkspace={handleSelectWorkspace}
-                activeWorkspaceId={activeWorkspaceId}
+                // Only one place is "current": while the Assistant is showing, no workspace is.
+                activeWorkspaceId={assistantActive ? null : activeWorkspaceId}
                 onAddWorkspace={handleOpenAddWorkspace}
                 onOpenChannel={onOpenChannel}
                 error={projectErrors[String(project.id)] ?? null}

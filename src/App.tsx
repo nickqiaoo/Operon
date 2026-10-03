@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { installBrowserUseBridge } from "@/components/browser/browser-use-bridge"
 import { useIntl } from "react-intl"
 import { PanelLeft } from "lucide-react"
@@ -27,6 +27,8 @@ import { ChannelPage } from "@/components/channel/ChannelPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
+import { AssistantPage } from "@/components/assistant/AssistantPage"
+import { ASSISTANT_ENABLED } from "@/components/assistant/flags"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import type { Notification } from "@/types/notification"
 import { useAppShellStore } from "@/stores/app-shell-store"
@@ -52,6 +54,7 @@ export default function App() {
   // to ChannelPage → TasksPage to open that task's detail. Cleared once consumed.
   const [channelInitialTaskId, setChannelInitialTaskId] = useState<number | null>(null)
   const [inboxOpen, setInboxOpen] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const theme = useThemeStore((state) => state.theme)
   const lightUITheme = useThemeStore((state) => state.lightUITheme)
@@ -83,6 +86,16 @@ export default function App() {
   const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const handleToggleSidebar = useAppShellStore((s) => s.toggleSidebar)
+
+  const leaveAssistant = useCallback(() => setAssistantOpen(false), [])
+  // Switching to a tab from anywhere (Inbox, a card, a shortcut) means the
+  // editor is wanted back, so it replaces the Assistant view.
+  const lastActiveTabIdRef = useRef(activeTabId)
+  useEffect(() => {
+    if (lastActiveTabIdRef.current === activeTabId) return
+    lastActiveTabIdRef.current = activeTabId
+    setAssistantOpen(false)
+  }, [activeTabId])
 
   // Keep the global inbox stream live for the whole session so the bell badge
   // updates even when the relevant chat/task tab is unmounted.
@@ -314,6 +327,7 @@ export default function App() {
     : cronjobOpen ? 'cronjob'
     : inboxOpen ? 'inbox'
     : channelProject ? 'channel'
+    : assistantOpen ? 'assistant'
     : activeTab?.type ?? 'home'
   useEffect(() => { setAnalyticsScreen(analyticsScreen) }, [analyticsScreen])
 
@@ -445,6 +459,9 @@ export default function App() {
               onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
               onOpenChannel={(project) => setChannelProject({ id: project.id, name: project.name })}
               onOpenInbox={() => { setInboxOpen(true); trackEvent('page_opened', { page: 'inbox' }) }}
+              onOpenAssistant={ASSISTANT_ENABLED ? () => setAssistantOpen(true) : undefined}
+              assistantActive={assistantOpen}
+              onLeaveAssistant={leaveAssistant}
               onCollapse={handleToggleSidebar}
               collapsed={sidebarCollapsed}
             />
@@ -452,6 +469,13 @@ export default function App() {
 
           {/* Main Content Area (Center + Right) */}
           <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
+            {/* The Assistant takes over center + right. The editor stays mounted
+                underneath (display:none) so streams and terminals keep running;
+                the browser webview hides itself once its placeholder has no size. */}
+            {assistantOpen && (
+              <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} />
+            )}
+            <div className={cn("flex min-h-0 flex-1 flex-col", assistantOpen && "hidden")}>
             <AppShell>
               <div className="flex h-full min-h-0 flex-col">
                 {/* Center header (workspace breadcrumbs). The whole row is a
@@ -531,7 +555,7 @@ export default function App() {
                         <ChatPanel
                           chatId={tab.id}
                           providerId={tab.providerId}
-                          visible={isActive && !isPageOpen}
+                          visible={isActive && !isPageOpen && !assistantOpen}
                         />
                       </div>
                     );
@@ -550,7 +574,7 @@ export default function App() {
                         terminalId={activeTab.terminalId}
                         cwd={activeTab.cwd ?? ""}
                         launch={activeTab.launch}
-                        isActive={!isPageOpen}
+                        isActive={!isPageOpen && !assistantOpen}
                       />
                     </div>
                   )}
@@ -574,6 +598,7 @@ export default function App() {
                 </div>
               </div>
             </AppShell>
+            </div>
           </div>
         </div>
       </div>

@@ -1369,6 +1369,7 @@
   "selection.addToChat": "添加到对话",
   "selection.askInSideChat": "在侧边聊天中提问",
   "mobile.chats.loading": "加载中…",
+  "sidebar.assistant": "助理",
   "sidebar.inbox": "收件箱",
   "skill.filter.placeholder": "筛选已安装和技能库中的技能…",
   "skill.noDescription": "暂无描述。",

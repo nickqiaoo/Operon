@@ -1425,6 +1425,7 @@
   "sideChat.closeConfirm.dontAskAgain": "Don’t ask again",
   "sideChat.closeConfirm.title": "Close side chat?",
   "sidebar.addRepository": "Add repository",
+  "sidebar.assistant": "Assistant",
   "sidebar.collapse": "Collapse sidebar",
   "sidebar.inbox": "Inbox",
   "sidebar.newWorkspace": "New workspace on a new branch",

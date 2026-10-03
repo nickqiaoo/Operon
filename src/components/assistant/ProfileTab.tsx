@@ -1,0 +1,119 @@
+import type { CSSProperties } from "react"
+import { Heart, HeartPulse, Pencil } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+import type { ProfileFile, ProfileFileName } from "./types"
+
+/**
+ * Card artwork. These are illustrations, not UI state colours — like a logo they
+ * look the same in light and dark, so they are literal gradients rather than
+ * theme tokens. A grain layer on top keeps the flat gradient from banding.
+ */
+const ART: Record<"soul" | "memory" | "heartbeat", CSSProperties> = {
+  soul: {
+    background:
+      "radial-gradient(120% 90% at 90% 110%, #f43f5e 0%, transparent 55%), radial-gradient(90% 80% at 25% 30%, #9f1239 0%, transparent 70%), linear-gradient(140deg, #be123c 0%, #7f1d1d 100%)",
+  },
+  memory: {
+    background:
+      "radial-gradient(110% 90% at 15% 110%, #7dd3fc 0%, transparent 50%), radial-gradient(90% 90% at 80% 20%, #312e81 0%, transparent 70%), linear-gradient(140deg, #2563eb 0%, #1e1b4b 100%)",
+  },
+  heartbeat: {
+    background:
+      "radial-gradient(80% 160% at 95% 50%, #6ee7b7 0%, transparent 55%), linear-gradient(100deg, #065f46 0%, #0f766e 100%)",
+  },
+}
+
+const GRAIN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"
+
+/** Title and one-line purpose of each definition file, for its card and its editor. */
+export const PROFILE_FILE_META: Record<ProfileFileName, { title: string; hint: string }> = {
+  identity: { title: "Identity", hint: "Its name, avatar, and what it calls you." },
+  soul: { title: "Soul", hint: "Personality and tone. Only the assistant reads this." },
+  memory: { title: "Memory", hint: "What it always knows about you. The assistant keeps it up to date." },
+  heartbeat: { title: "Heartbeat", hint: "Extra things to check every 30 minutes, on top of your connected apps." },
+}
+
+const PROFILE_CARDS: { name: "soul" | "memory" | "heartbeat"; tagline: string }[] = [
+  { name: "soul", tagline: "Handle with care" },
+  { name: "memory", tagline: "Handle with care" },
+  { name: "heartbeat", tagline: "What it keeps an eye on" },
+]
+
+interface ProfileTabProps {
+  files: ProfileFile[]
+  assistantName: string
+  onOpenFile: (name: ProfileFileName) => void
+}
+
+/** Who the assistant is, and the files that make it so. Every file opens in the editor drawer. */
+export function ProfileTab({ files, assistantName, onOpenFile }: ProfileTabProps) {
+  const updatedAt = (name: ProfileFileName) => files.find((f) => f.name === name)?.updatedAt ?? Date.now()
+
+  return (
+    <div className="space-y-3 px-3 pb-4 pt-2">
+      <div className="space-y-3 rounded-xl border border-border/40 bg-muted/30 p-4">
+        <div className="text-base font-semibold">{assistantName}</div>
+        <Button size="sm" variant="secondary" className="h-8 w-full gap-1.5" onClick={() => onOpenFile("identity")}>
+          <Pencil className="h-3.5 w-3.5" />
+          Edit
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {PROFILE_CARDS.slice(0, 2).map((c) => (
+          <FileCard key={c.name} card={c} updatedAt={updatedAt(c.name)} onOpen={() => onOpenFile(c.name)} />
+        ))}
+      </div>
+      <FileCard card={PROFILE_CARDS[2]} updatedAt={updatedAt("heartbeat")} onOpen={() => onOpenFile("heartbeat")} wide />
+    </div>
+  )
+}
+
+function FileCard({
+  card,
+  updatedAt,
+  onOpen,
+  wide,
+}: {
+  card: (typeof PROFILE_CARDS)[number]
+  updatedAt: number
+  onOpen: () => void
+  wide?: boolean
+}) {
+  const Icon = card.name === "heartbeat" ? HeartPulse : Heart
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={ART[card.name]}
+      className={cn(
+        "group relative flex w-full flex-col justify-between overflow-hidden rounded-xl p-4 text-left text-white shadow-card transition-[filter,transform] duration-200",
+        "hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        wide ? "h-20" : "aspect-[1.1]",
+      )}
+    >
+      <span className="pointer-events-none absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: GRAIN }} />
+      <span className="relative">
+        <span className="block text-lg font-semibold uppercase tracking-wide">{PROFILE_FILE_META[card.name].title}</span>
+        <span className="block text-xs text-white/75">{card.tagline}</span>
+      </span>
+      {wide ? (
+        <Icon className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/75" />
+      ) : (
+        <span className="relative flex items-end justify-between">
+          <span className="text-sm tabular-nums text-white/85">{formatCardDate(updatedAt)}</span>
+          <Icon className="h-5 w-5 fill-white/70 text-white/0" />
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** "09.29.26" — the date the file last changed. */
+function formatCardDate(ms: number): string {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${pad(d.getMonth() + 1)}.${pad(d.getDate())}.${String(d.getFullYear()).slice(2)}`
+}
