@@ -1,6 +1,6 @@
 import path from 'path'
 import { mkdir, stat } from 'fs/promises'
-import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
+import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
 import { fetchProviderModels, getProviderConfigs, PROVIDER_META } from '../provider-config.js'
@@ -189,7 +189,6 @@ interface WorkspaceRunnerLimits {
 }
 
 interface WorkspaceSetup {
-  workspaceServers: Record<string, McpServerConfig>
   permission: PermissionManagerOptions
   limits: WorkspaceRunnerLimits
 }
@@ -207,15 +206,18 @@ let HARNESS: Promise<Harness> | undefined
 /** The built harness, once `buildHarness` resolved — for callers that must not trigger a build. */
 let HARNESS_INSTANCE: Harness | undefined
 
-/** `mcp.json` + `config.toml` per project root — read once, reused by every session there. */
+/** `config.toml` per project root — read once, reused by every session there. */
 const WORKSPACE_SETUPS = new Map<string, Promise<WorkspaceSetup>>()
 
 /**
- * Resolve everything a session needs from its workspace: the project root, the MCP
- * servers to expose (workspace `mcp.json` merged under the host-injected,
- * conversation-scoped ones) and the permission policy from `config.toml`. Cached by
- * root so this stays one filesystem read per workspace. Module-level so the peers
- * extension can give a teammate the same policy its lead runs under.
+ * Resolve what a session is opened WITH from its workspace: the project root, the session's
+ * own MCP servers (only the host-injected, conversation-scoped ones) and the permission policy
+ * from `config.toml`. Cached by root so `config.toml` is one filesystem read per workspace.
+ * Module-level so the peers extension can give a teammate the same policy its lead runs under.
+ *
+ * The workspace's `mcp.json` servers are deliberately NOT in `servers`: the `session` hook
+ * borrows them from the directory's shared pool, so every chat in one project runs one set of
+ * connections instead of spawning its own.
  */
 export async function resolveWorkspaceSetup(
   cwd: string,
@@ -238,10 +240,10 @@ export async function resolveWorkspaceSetup(
   const setup = await pending
   return {
     root,
-    // Host-injected servers win: they carry the conversation's own identity
-    // (node_repl's kernel, the workflow/taskboard scope) and must not be masked
-    // by a same-named workspace entry.
-    servers: { ...setup.workspaceServers, ...(injectedMcpServers as Record<string, McpServerConfig> | undefined) },
+    // Private to the session, layered over the shared workspace servers: they carry the
+    // conversation's own identity (node_repl's kernel, the workflow/taskboard scope), so a
+    // same-named workspace entry is shadowed for this session rather than masking them.
+    servers: { ...(injectedMcpServers as Record<string, McpServerConfig> | undefined) },
     permission: setup.permission,
     limits: setup.limits,
   }
@@ -259,7 +261,7 @@ export function getOperonHarness(): Promise<Harness> {
 }
 
 async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
-  const [workspaceServers, config] = await Promise.all([loadWorkspaceMcpServers(root), loadWorkspaceConfig(root)])
+  const config = await loadWorkspaceConfig(root)
   // The `auto`-tier judge. It runs the main-loop model (carried on the authorize ctx) as a
   // Claude-Code-style two-stage security classifier; the workspace's config.toml can extend the
   // allow/deny/environment sections. Injected unconditionally but only consulted when the
@@ -280,7 +282,6 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
     },
   })
   return {
-    workspaceServers,
     // config.toml owns the permission rules; the UI mode picker still overrides the
     // mode per-session via `setPermissionMode`.
     permission: { mode: config.permission.mode ?? 'yolo', rules: config.permission.rules, autoApprover },
@@ -308,6 +309,9 @@ async function buildHarness(): Promise<Harness> {
       return models[0]?.id ?? DEFAULT_MODEL_ID
     },
   })
+  // One set of MCP connections per project root, shared by every session open there and kept
+  // for a few minutes after the last one closes. Owned by this harness: its `close` below.
+  const workspaceMcp = new WorkspaceMcpPool({ oauthService: mcpOAuthService })
   const harness = await createLocalHarness({
     model: DEFAULT_MODEL_ID,
     // File extensions: one folder per extension under `~/.operon/data/extensions`. Nothing
@@ -327,7 +331,7 @@ async function buildHarness(): Promise<Harness> {
     // added and sessions run exactly as before.
     harness: () => {
       const tracing = createOperonTracing()
-      return tracing ? { tracing } : {}
+      return { ...(tracing ? { tracing } : {}), close: () => workspaceMcp.close() }
     },
     // A default only — every session passes its own workDir, and the engine builds
     // that session's `LocalEnvironment` from it.
@@ -341,13 +345,17 @@ async function buildHarness(): Promise<Harness> {
     // effect on the next chat with no cache eviction.
     session: async (ctx) => {
       await ensurePluginsLoaded()
+      const root = await resolveProjectRoot(ctx.workDir)
       // Shared MCP OAuth token store — a login done from the Plugins UI is reused here, so an
       // OAuth-gated plugin MCP server (e.g. Linear) connects authenticated without re-prompting.
       return defaultCapabilities({
         ownEnvironment: ctx.ownEnvironment,
         pluginManager,
-        // Operon gives every conversation its own servers (resolved per workDir in
-        // `resolveWorkspaceSetup`), so they are the SESSION's overlay, not the workspace's.
+        // The workspace's `mcp.json` servers and the plugins' are borrowed from the project's
+        // shared set. `mcp.json` is re-read on every open (a few small files): an edit changes
+        // the configuration, and the pool gives the next session a fresh set for it.
+        workspaceMcp: { pool: workspaceMcp, workDir: root, servers: await loadWorkspaceMcpServers(root) },
+        // The conversation's own servers (from `resolveWorkspaceSetup`) stay private to it.
         ...(ctx.mcpServers !== undefined ? { sessionMcpServers: ctx.mcpServers } : {}),
         oauthService: mcpOAuthService,
       })
@@ -486,8 +494,8 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
     const { root, servers, permission, limits } = await resolveWorkspaceSetup(cwd, mcpServers)
     const harness = await this.harness()
     // Everything that used to be baked into a per-conversation harness travels with
-    // the session instead, so all chats share one harness (and its MCP connections
-    // for the workspace's own servers).
+    // the session instead, so all chats share one harness; the workspace's own MCP
+    // servers come from the project's shared pool in the `session` hook.
     const opts = {
       mcpServers: servers,
       permission,

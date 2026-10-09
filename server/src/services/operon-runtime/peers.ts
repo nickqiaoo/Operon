@@ -37,7 +37,11 @@ import { MODE_TO_PERMISSION } from './session.js'
 
 export interface PeersHostDeps {
   harness: () => Harness | undefined
-  /** Workspace `mcp.json` servers + `config.toml` permission policy for a project root. */
+  /**
+   * A project root's session-private MCP servers + `config.toml` permission policy. The
+   * workspace's `mcp.json` servers are not among them: every session there, a teammate too,
+   * borrows those from the project's shared pool in the harness `session` hook.
+   */
   workspaceSetup: (cwd: string) => Promise<{ servers: Record<string, McpServerConfig>; permission: PermissionManagerOptions }>
   /** The model a teammate falls back to when neither its type nor its lead names one. */
   defaultModelId: () => Promise<string>
