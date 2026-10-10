@@ -1369,6 +1369,7 @@
   "selection.addToChat": "添加到对话",
   "selection.askInSideChat": "在侧边聊天中提问",
   "mobile.chats.loading": "加载中…",
+  "settings.tab.assistant": "助理",
   "sidebar.assistant": "助理",
   "sidebar.inbox": "收件箱",
   "skill.filter.placeholder": "筛选已安装和技能库中的技能…",
@@ -1796,5 +1797,9 @@
   "settings.tab.skills": "技能",
   "settings.plugins.search.placeholder": "搜索插件…",
   "settings.plugins.search.empty": "没有匹配“{query}”的插件。",
-  "settings.plugins.shelf.results": "{count, plural, other {# 个结果}}"
+  "settings.plugins.shelf.results": "{count, plural, other {# 个结果}}",
+  "mobile.tab.assistant": "助理",
+  "mobile.assistant.activity": "活动",
+  "mobile.assistant.loading": "加载中…",
+  "mobile.assistant.gone": "此内容已不可用。"
 }

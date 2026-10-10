@@ -73,6 +73,17 @@ export function installBrowserUseBridge(): () => void {
   })
 }
 
+/**
+ * Owner given to pages opened by a personal-assistant worker (node_repl session `assistant:<id>`).
+ * No conversation has this id, so the pages run in the background and never show up in — or
+ * take over — a workspace's browser panel.
+ */
+const ASSISTANT_BROWSER_OWNER = -1
+
+function isAssistantOwner(chatId: unknown): boolean {
+  return typeof chatId === "string" && chatId.startsWith("assistant:")
+}
+
 async function handle(action: string, payload: unknown): Promise<unknown> {
   const { openTab, closeTab } = useTabsStore.getState()
 
@@ -81,7 +92,8 @@ async function handle(action: string, payload: unknown): Promise<unknown> {
     // browser panel (the panel switches with the conversation, so pages have owners).
     const { url, chatId } = (payload ?? {}) as { url?: string; chatId?: string }
     const instanceId = newInstanceId()
-    const owner = chatId == null ? undefined : Number(chatId)
+    const assistantOwned = isAssistantOwner(chatId)
+    const owner = assistantOwned ? ASSISTANT_BROWSER_OWNER : chatId == null ? undefined : Number(chatId)
     const initialUrl = url ?? ""
 
     // Browser Use owns the guest lifecycle; the panel only presents it. Create the
@@ -106,7 +118,7 @@ async function handle(action: string, payload: unknown): Promise<unknown> {
       // Creating a tab for a background conversation must not steal the visible
       // panel selection. It is still the selected tab inside its own owner group
       // (activeBrowserInstanceIds falls back to that group's newest tab).
-      { activate: owner == null || owner === useBrowserScopeStore.getState().chatId }
+      { activate: !assistantOwned && (owner == null || owner === useBrowserScopeStore.getState().chatId) }
     )
     return instanceId
   }
@@ -255,6 +267,8 @@ async function handle(action: string, payload: unknown): Promise<unknown> {
       const tab = useTabsStore.getState()[found.panel].tabs.find(
         (item) => item.tabId === found.tabId
       )
+      // The assistant's pages stay in the background (there is no panel of its own yet).
+      if (tab?.payload.type === "browser" && tab.payload.chatId === ASSISTANT_BROWSER_OWNER) return null
       if (tab?.payload.type === "browser" && tab.payload.chatId != null) {
         const chatId = tab.payload.chatId
         const editor = useEditorStore.getState()

@@ -97,16 +97,19 @@ class NativeShellPlugin : Plugin() {
 
     @PluginMethod
     fun configure(call: PluginCall) {
+        val ids = mutableListOf<String>()
         val titles = mutableMapOf<String, String>()
         call.getArray("tabs", JSArray())?.let { tabs ->
             for (index in 0 until tabs.length()) {
                 val tab = tabs.optJSONObject(index) ?: continue
                 val id = tab.optString("id").takeIf { it.isNotEmpty() } ?: continue
                 val title = tab.optString("title").takeIf { it.isNotEmpty() } ?: continue
+                ids += id
                 titles[id] = title
             }
         }
         onMain(call) { chrome ->
+            chrome.setTabs(ids)
             chrome.setTitles(titles)
             chrome.onTabSelected = { id -> notifyListeners("tabSelected", JSObject().put("tab", id)) }
             chrome.onTabBarInsetChanged = { inset ->

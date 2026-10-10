@@ -3,7 +3,7 @@ declare const __ENABLE_MEMORY__: boolean
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createNodeWebSocket } from '@hono/node-ws'
-import type { AgentBindingStorageAdapter, CanvasWorkflowStorageAdapter, ChannelStorageAdapter, ChatStorageAdapter, CheckpointStorageAdapter, CronjobStorageAdapter, IMStorageAdapter, MemoryMaintenanceStorageAdapter, NotificationStorageAdapter, ProjectStorageAdapter, StorageAdapter, TaskStorageAdapter } from './storage/interface.js'
+import type { AgentBindingStorageAdapter, AssistantStorageAdapter, CanvasWorkflowStorageAdapter, ChannelStorageAdapter, ChatStorageAdapter, CheckpointStorageAdapter, CronjobStorageAdapter, IMStorageAdapter, MemoryMaintenanceStorageAdapter, NotificationStorageAdapter, ProjectStorageAdapter, StorageAdapter, TaskStorageAdapter } from './storage/interface.js'
 import { gitRoutes } from './routes/git.js'
 import { gitWatchRoutes } from './routes/git-watch.js'
 import { fsRoutes } from './routes/fs.js'
@@ -26,6 +26,7 @@ import { mcpRoutes } from './routes/mcp.js'
 import { externalAgentRoutes } from './routes/external-agent.js'
 import { externalAgentMcpRoutes } from './routes/external-agent-mcp.js'
 import { scheduleMcpRoutes } from './routes/schedule-mcp.js'
+import { assistantRoutes } from './routes/assistant.js'
 import { workflowMcpRoutes } from './routes/workflow-mcp.js'
 import { sweepInterruptedRuns } from './services/workflow/store.js'
 import { providerConfigRoutes } from './routes/provider-config.js'
@@ -92,7 +93,7 @@ import { createApiTokenMiddleware } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 
 export interface AppDeps {
-  storage: StorageAdapter & ChatStorageAdapter & CronjobStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & ChannelStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter & CheckpointStorageAdapter & IMStorageAdapter & AgentBindingStorageAdapter & MemoryMaintenanceStorageAdapter
+  storage: StorageAdapter & ChatStorageAdapter & CronjobStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & ChannelStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter & AssistantStorageAdapter & CheckpointStorageAdapter & IMStorageAdapter & AgentBindingStorageAdapter & MemoryMaintenanceStorageAdapter
   /**
    * Optional reseed hook. When set together with `OPERON_ENABLE_FAKE_RUNTIME=1`,
    * the app mounts /api/test/* routes that let e2e specs reset state in
@@ -300,6 +301,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/mcp', mcpRoutes())
   app.route('/api/external-agent-mcp', externalAgentMcpRoutes())
   app.route('/api/schedule-mcp', scheduleMcpRoutes(deps.storage))
+  app.route('/api/assistant', assistantRoutes(deps.storage))
   app.route('/api/external-agents', externalAgentRoutes())
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())

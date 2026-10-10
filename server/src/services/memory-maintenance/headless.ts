@@ -3,6 +3,8 @@ import type { ModelMessage } from 'ai'
 import { getSessionManager } from '../ai/state.js'
 import { runAgentTurn } from '../ai/agent-turn.js'
 import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
+import { subagentMode } from '../agents/subagent-mode.js'
+import { resolveMcpServersForSession } from '../mcp-config.js'
 import { createMaintenanceLogger } from './logger.js'
 
 const logger = createMaintenanceLogger('memory-headless')
@@ -98,10 +100,16 @@ function parseMemoryToolStatus(output: unknown): string | undefined {
 export async function runHeadlessMemoryAgent(params: HeadlessRunParams): Promise<HeadlessRunResult> {
   const manager = getSessionManager()
 
+  // Standalone sessions get no MCP servers on their own (only chats inject them), so hand over
+  // the one this run is about. Just `memory`: the extractor has no use for the browser, tasks…
+  const memoryServer = resolveMcpServersForSession(params.providerId)?.memory
   const session = await manager.createStandaloneSession(params.providerId, {
     cwd: params.cwd,
     modelId: params.modelId,
-    modeId: 'fullAccess',
+    // Nobody is there to approve a tool call: each provider's own non-interactive mode. (An
+    // invented id falls back to the provider's ask-first mode, and the run hangs.)
+    modeId: subagentMode(params.providerId),
+    ...(memoryServer ? { mcpServers: { memory: memoryServer } } : {}),
     // The extraction prompt rides as session instructions — providers ignore
     // system-role messages in `messages`.
     instructions: params.systemPrompt,

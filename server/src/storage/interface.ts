@@ -1,6 +1,8 @@
+import type { Activity, AssistantMessage, AssistantScheduleRun, AuditRecord } from '../../../shared/assistant.js'
 import type { ChatHistoryEntry, ChatHistoryListItem, ChatHistoryPatchInput, ChatHistoryPatchResult, ChatMeta } from '../types/chat.js'
 import type { CronjobExecutionHistoryItem, CronjobTask } from '../types/cronjob.js'
 import type {
+  AssistantTranscriptEntry,
   ChatExtractionCandidate,
   CreateMemoryMaintenanceRunInput,
   MemoryMaintenanceConfig,
@@ -205,6 +207,11 @@ export interface MemoryMaintenanceStorageAdapter {
   listMemoryMaintenanceCandidates(opts: { olderThanMs: number; newerThanMs?: number; limit: number }): ChatExtractionCandidate[]
   getChatMessagesWithIndex(chatId: number, opts: { afterIndex: number | null; limit?: number }): ChatMessageRow[]
   setChatLastExtractedMessageIndex(chatId: number, messageIndex: number): void
+  /** The personal assistant's thread and finished tasks with `after < at <= before`, oldest first. */
+  listAssistantTranscript(opts: { after: number; before: number; limit: number }): AssistantTranscriptEntry[]
+  /** How far the assistant's thread has been extracted (an `at`), or null if never. */
+  getAssistantExtractedUntil(): number | null
+  setAssistantExtractedUntil(at: number): void
   createMemoryMaintenanceRun(input: CreateMemoryMaintenanceRunInput): MemoryMaintenanceRun
   updateMemoryMaintenanceRun(id: number, updates: UpdateMemoryMaintenanceRunInput): void
   listMemoryMaintenanceRuns(limit?: number): MemoryMaintenanceRun[]
@@ -385,6 +392,25 @@ export interface NotificationStorageAdapter {
   notificationUnreadCounts(): UnreadCounts
   /** Delete rows read or dismissed before `before` (ms); returns how many. */
   notificationPrune(before: number): number
+}
+
+/** The personal assistant's single thread and the workers it ran (docs/assistant/design.md). */
+export interface AssistantStorageAdapter {
+  /** Insert, or update the message with the same id. */
+  assistantMessageUpsert(message: AssistantMessage): void
+  /** Newest `limit` messages created before `before` (ms, exclusive), returned oldest first. */
+  assistantMessageList(options: { limit: number; before?: number }): AssistantMessage[]
+  assistantActivityUpsert(activity: Activity): void
+  assistantActivityGet(id: string): Activity | null
+  /** Newest first. */
+  assistantActivityList(limit: number): Activity[]
+  assistantAuditInsert(record: AuditRecord): void
+  /** Newest first. */
+  assistantAuditList(limit: number): AuditRecord[]
+  assistantRunInsert(run: AssistantScheduleRun): void
+  /** Newest first. */
+  assistantRunList(scheduleId: number, limit: number): AssistantScheduleRun[]
+  assistantRunDeleteFor(scheduleId: number): void
 }
 
 export interface IMStorageAdapter {

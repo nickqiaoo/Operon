@@ -41,10 +41,15 @@ import com.operon.app.R
  */
 class ShellChrome(private val activity: AppCompatActivity) {
 
-    /** Order must match `MOBILE_TABS` on the JS side. */
-    private val tabIds = listOf("chats", "channel", "changes", "more")
+    /**
+     * Every tab the bar can draw, in menu order (res/menu/operon_tabs.xml),
+     * which must match `MOBILE_TABS` on the JS side. Which of them show is the
+     * web app's call, via [setTabs].
+     */
+    private val tabIds = listOf("chats", "assistant", "channel", "changes", "more")
     private val tabMenuIds = listOf(
         R.id.operon_tab_chats,
+        R.id.operon_tab_assistant,
         R.id.operon_tab_channel,
         R.id.operon_tab_changes,
         R.id.operon_tab_more,
@@ -72,6 +77,8 @@ class ShellChrome(private val activity: AppCompatActivity) {
     // Mirrored so the chrome can be rebuilt on a theme change without the web
     // app having to send its state again.
     private var titles: Map<String, String> = emptyMap()
+    // Shown until `configure` says otherwise (and by a web bundle too old to say).
+    private var visibleTabs: Set<String> = setOf("chats", "channel", "changes", "more")
     private var selectedTab: String = tabIds.first()
     // Both bars start hidden: a wide (desktop) layout configures neither, and
     // a bar that appeared before the web app asked for it would flash on boot.
@@ -224,6 +231,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
     }
 
     private fun applyAll() {
+        applyTabs()
         applyTitles()
         applySelection()
         applyTabBarVisibility()
@@ -231,6 +239,20 @@ class ShellChrome(private val activity: AppCompatActivity) {
     }
 
     // MARK: - Driven by the plugin
+
+    fun setTabs(ids: List<String>) {
+        val next = ids.filter { it in tabIds }.toSet()
+        if (next.isEmpty() || next == visibleTabs) return
+        visibleTabs = next
+        applyTabs()
+    }
+
+    private fun applyTabs() {
+        val bar = tabBar ?: return
+        tabIds.forEachIndexed { index, id ->
+            bar.menu.findItem(tabMenuIds[index])?.isVisible = id in visibleTabs
+        }
+    }
 
     fun setTitles(titles: Map<String, String>) {
         this.titles = titles

@@ -65,6 +65,7 @@ import { getBrowserUseConfig } from '../services/browser-use-config.js'
 import { getComputerUseConfig } from '../services/computer-use-config.js'
 import { getChromeUseConfig } from '../services/chrome-use-config.js'
 import { requestOperonElicitation } from '../services/ai/host-elicitation.js'
+import { ASSISTANT_NODE_REPL_PREFIX, requestAssistantElicitation } from '../services/assistant/node-repl-bridge.js'
 import {
   getComputerUseHostPermissions,
   setComputerUseServiceStopHandler,
@@ -477,14 +478,14 @@ function enabledSurfaces(): NodeReplSurface[] {
  * tools/list carries no conversation, so it describes the current toggles; a
  * session built before a toggle flipped keeps the surfaces it was built with.
  */
-function buildCallerRoutedServer(chatId: number | null): Server {
+function buildCallerRoutedServer(sessionKey: string | null): Server {
   const server = new Server({ name: 'node_repl', version: '0.1.0' }, { capabilities: { tools: {}, logging: {} } })
   server.setRequestHandler(ListToolsRequestSchema, async () => listNodeReplTools(enabledSurfaces()))
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
-    if (chatId == null) {
+    if (sessionKey == null) {
       return { content: [{ type: 'text', text: UNKNOWN_CALLER_MESSAGE }], isError: true }
     }
-    const entry = await entryFor(String(chatId))
+    const entry = await entryFor(sessionKey)
     return entry.callTool(req, extra)
   })
   return server
@@ -504,9 +505,14 @@ async function buildEntry(sessionId: string): Promise<Entry> {
   // where all three went off.
   const surfaces = enabledSurfaces()
   const chatId = Number(sessionId)
-  const hostElicitation = Number.isSafeInteger(chatId) && chatId > 0
-    ? (request: { message: string; meta?: unknown }) => requestOperonElicitation(chatId, request)
-    : undefined
+  // Who answers this context's permission prompts: the chat's own approval card, or — for a
+  // personal-assistant worker — the assistant's. Without either the kernel would allow everything.
+  const assistantWorker = sessionId.startsWith(ASSISTANT_NODE_REPL_PREFIX) ? sessionId.slice(ASSISTANT_NODE_REPL_PREFIX.length) : undefined
+  const hostElicitation = assistantWorker
+    ? (request: { message: string; meta?: unknown }) => requestAssistantElicitation(assistantWorker, request)
+    : Number.isSafeInteger(chatId) && chatId > 0
+      ? (request: { message: string; meta?: unknown }) => requestOperonElicitation(chatId, request)
+      : undefined
   const built = await buildNodeReplMcpServer({
     surfaces,
     // Always `autoStart: false`, even when Computer Use is on. This code path is
@@ -592,7 +598,10 @@ export function nodeReplMcpRoutes() {
       const caller = await resolveMcpCallerChat(c, 'sessionId')
       if (!caller.ok) return caller.response
       await ensureComputerUseService()
-      return serveMcpOverHono(c, buildCallerRoutedServer(caller.chatId), caller.body)
+      const sessionKey = caller.assistantWorker
+        ? `${ASSISTANT_NODE_REPL_PREFIX}${caller.assistantWorker}`
+        : caller.chatId != null ? String(caller.chatId) : null
+      return serveMcpOverHono(c, buildCallerRoutedServer(sessionKey), caller.body)
     }
     // Existing sessions used to bypass ensureComputerUseService entirely. Check
     // on every MCP request so a daemon crash heals before the next computer.* call.

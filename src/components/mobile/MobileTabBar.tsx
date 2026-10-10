@@ -1,10 +1,17 @@
-import { FileDiff, LayoutDashboard, MessageSquare, Menu } from "lucide-react"
+import { FileDiff, LayoutDashboard, MessageSquare, Menu, Sparkles } from "lucide-react"
 import { defineMessages, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
+import { ASSISTANT_ENABLED } from "@/components/assistant/flags"
 
-export type MobileTab = "chats" | "channel" | "changes" | "more"
+export type MobileTab = "chats" | "assistant" | "channel" | "changes" | "more"
 
-export const MOBILE_TABS: readonly MobileTab[] = ["chats", "channel", "changes", "more"]
+/**
+ * The tabs this build shows, in order. The native bars draw exactly these
+ * (NativeShell.configure), so a tab hidden here is hidden there too.
+ */
+export const MOBILE_TABS: readonly MobileTab[] = ASSISTANT_ENABLED
+  ? ["chats", "assistant", "channel", "changes", "more"]
+  : ["chats", "channel", "changes", "more"]
 
 export function isMobileTab(value: string): value is MobileTab {
   return (MOBILE_TABS as readonly string[]).includes(value)
@@ -13,17 +20,19 @@ export function isMobileTab(value: string): value is MobileTab {
 /** Shared with the native iOS tab bar, which is titled from here so it follows the locale. */
 export const MOBILE_TAB_LABELS = defineMessages({
   chats: { id: "mobile.tab.chats", defaultMessage: "Chats" },
+  assistant: { id: "mobile.tab.assistant", defaultMessage: "Assistant" },
   channel: { id: "mobile.tab.channel", defaultMessage: "Board" },
   changes: { id: "mobile.tab.changes", defaultMessage: "Changes" },
   more: { id: "mobile.tab.more", defaultMessage: "More" },
 })
 
-const TABS: { id: MobileTab; Icon: typeof MessageSquare }[] = [
-  { id: "chats", Icon: MessageSquare },
-  { id: "channel", Icon: LayoutDashboard },
-  { id: "changes", Icon: FileDiff },
-  { id: "more", Icon: Menu },
-]
+const TAB_ICONS: Record<MobileTab, typeof MessageSquare> = {
+  chats: MessageSquare,
+  assistant: Sparkles,
+  channel: LayoutDashboard,
+  changes: FileDiff,
+  more: Menu,
+}
 
 interface MobileTabBarProps {
   active: MobileTab
@@ -42,7 +51,8 @@ export function MobileTabBar({ active, onChange }: MobileTabBarProps) {
       className="flex shrink-0 items-stretch border-t border-border/50 bg-background/95 backdrop-blur"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      {TABS.map(({ id, Icon }) => {
+      {MOBILE_TABS.map((id) => {
+        const Icon = TAB_ICONS[id]
         const isActive = id === active
         const label = intl.formatMessage(MOBILE_TAB_LABELS[id])
         return (

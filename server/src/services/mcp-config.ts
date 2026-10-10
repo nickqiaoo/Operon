@@ -66,7 +66,7 @@ export type BuildMcpOptions = AgentMcpContext
 // other /api caller. It rides the URL query, NOT a `headers` field, for the
 // same reason agent identity does (see below): some MCP clients silently drop
 // server entries whose config carries fields they don't recognize.
-function withApiToken(url: string): string {
+export function withApiToken(url: string): string {
   if (isApiTokenAuthDisabled()) return url
   return `${url}${url.includes('?') ? '&' : '?'}token=${getApiToken()}`
 }

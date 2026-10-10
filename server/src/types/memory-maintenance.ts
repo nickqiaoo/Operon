@@ -50,6 +50,16 @@ export interface UpdateMemoryMaintenanceRunInput {
   error?: string
 }
 
+/**
+ * One line of the personal assistant's thread as the extractor reads it: something said, or a
+ * finished task's result (docs/assistant/design.md §5). `at` doubles as the watermark.
+ */
+export interface AssistantTranscriptEntry {
+  at: number
+  role: 'user' | 'assistant'
+  text: string
+}
+
 export interface ChatExtractionCandidate {
   chatId: number
   title: string

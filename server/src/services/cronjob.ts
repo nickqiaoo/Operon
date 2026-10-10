@@ -19,7 +19,7 @@ const MAX_OUTPUT_CHARS = 8000
 const HISTORY_TITLE_MAX_CHARS = 160
 const WORKFLOW_POLL_INTERVAL_MS = 2000
 const WORKFLOW_POLL_TIMEOUT_MS = 30 * 60_000 // 30 minutes
-type CronjobStorage = CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter
+export type CronjobStorage = CronjobStorageAdapter & ChatStorageAdapter & CanvasWorkflowStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter
 
 const isValidTime = (value: string): boolean => /^([01]\d|2[0-3]):([0-5]\d)$/.test(value)
 
@@ -52,7 +52,7 @@ const normalizeDailySchedule = (schedule: CronjobSchedule): CronjobSchedule => {
   return result
 }
 
-const normalizeSchedule = (schedule: CronjobSchedule): CronjobSchedule =>
+export const normalizeSchedule = (schedule: CronjobSchedule): CronjobSchedule =>
   normalizeDailySchedule(schedule)
 
 const truncateText = (text: string, maxChars = MAX_OUTPUT_CHARS): string =>
@@ -228,7 +228,21 @@ const getCanvasWorkflowWorkspaceId = (
   return workflow.workspaceId
 }
 
-export const listCronjobs = (storage: CronjobStorage): CronjobTask[] => loadCronjobs(storage)
+/**
+ * What the Schedule page and the coding chats' schedule tools see. The personal assistant's own
+ * jobs (`assistant`) are left out: it creates, edits and shows them itself.
+ */
+export const listCronjobs = (storage: CronjobStorage): CronjobTask[] =>
+  loadCronjobs(storage).filter((job) => job.taskType !== 'assistant')
+
+/** Every job, the assistant's included — for the scheduler. */
+export const listAllCronjobs = (storage: CronjobStorage): CronjobTask[] => loadCronjobs(storage)
+
+/** A job outside the assistant's own, which only the assistant may change. */
+const getEditableCronjob = (storage: CronjobStorage, id: number): CronjobTask | undefined => {
+  const job = storage.getCronjobById(id)
+  return job && job.taskType !== 'assistant' ? job : undefined
+}
 
 export const getCronjob = (storage: CronjobStorage, id: number): CronjobTask | undefined =>
   storage.getCronjobById(id)
@@ -299,7 +313,7 @@ export const updateCronjob = (
   id: number,
   input: CronjobUpsertInput
 ): CronjobTask | undefined => {
-  const current = storage.getCronjobById(id)
+  const current = getEditableCronjob(storage, id)
   if (!current) return undefined
 
   const now = Date.now()
@@ -362,7 +376,48 @@ export const updateCronjob = (
 }
 
 export const deleteCronjob = (storage: CronjobStorage, id: number): boolean => {
+  if (!getEditableCronjob(storage, id)) return false
   return storage.deleteCronjobById(id)
+}
+
+/** Runs an `assistant` job; registered by the assistant runtime's host at startup. */
+export type AssistantCronRunner = (job: CronjobTask) => Promise<{ status: 'success' | 'error'; output?: string; error?: string }>
+
+let assistantCronRunner: AssistantCronRunner | undefined
+
+export function setAssistantCronRunner(runner: AssistantCronRunner | undefined): void {
+  assistantCronRunner = runner
+}
+
+const executeAssistantCronjob = async (
+  storage: CronjobStorage,
+  job: CronjobTask
+): Promise<{ success: boolean; cronjob?: CronjobTask; error?: string }> => {
+  const startedAt = Date.now()
+  let result: Awaited<ReturnType<AssistantCronRunner>>
+  try {
+    result = assistantCronRunner ? await assistantCronRunner(job) : { status: 'error', error: 'The assistant is not running' }
+  } catch (err) {
+    result = { status: 'error', error: err instanceof Error ? err.message : 'Assistant run failed' }
+  }
+  const finishedAt = Date.now()
+  // Re-read: the assistant may have edited the job (or its next run) while this ran.
+  const current = storage.getCronjobById(job.id) ?? job
+  const updated: CronjobTask = {
+    ...current,
+    lastRunAt: startedAt,
+    lastResult: {
+      status: result.status,
+      ...(result.output ? { output: truncateText(result.output) } : {}),
+      ...(result.error ? { error: result.error } : {}),
+      finishedAt,
+      durationMs: finishedAt - startedAt,
+    },
+    updatedAt: finishedAt,
+  }
+  updated.nextRunAt = computeNextRunAtForJob(updated, finishedAt)
+  replaceCronjob(storage, updated)
+  return result.status === 'success' ? { success: true, cronjob: updated } : { success: false, cronjob: updated, error: result.error }
 }
 
 export const setCronjobNextRunAt = (
@@ -514,6 +569,10 @@ export const executeCronjob = async (
 
   if (job.taskType === 'canvas-workflow') {
     return executeCanvasWorkflowCronjob(storage, job)
+  }
+
+  if (job.taskType === 'assistant') {
+    return executeAssistantCronjob(storage, job)
   }
 
   if (!job.prompt.trim()) return { success: false, error: 'Cronjob prompt is empty' }

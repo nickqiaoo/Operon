@@ -180,6 +180,7 @@ final class ShellChromeController: UINavigationController {
 
     // MARK: - Driven by the plugin
 
+    func setTabs(_ ids: [String]) { tabsController.setTabs(ids) }
     func setTitles(_ titles: [String: String]) { tabsController.setTitles(titles) }
     func select(tabId: String) { tabsController.select(tabId: tabId) }
     func setTabBarHidden(_ hidden: Bool) { tabsController.setTabBarHidden(hidden) }
@@ -257,13 +258,22 @@ final class ShellChromeController: UINavigationController {
     }
 }
 
-/// The tab bar. Four tabs, each an empty transparent controller.
+/// The tab bar. One empty transparent controller per tab; which tabs show, and
+/// in what order, is the web app's call (`configure`).
 final class ShellTabsController: UITabBarController, UITabBarControllerDelegate {
-    /// Order must match `MobileTab` on the JS side.
-    static let tabIds = ["chats", "channel", "changes", "more"]
-    /// SF Symbols that exist back to the iOS 15 deployment target.
-    private static let tabSymbols = ["message", "rectangle.3.group", "plus.forwardslash.minus", "ellipsis"]
+    /// Every tab the shell can draw, with an SF Symbol that exists back to the
+    /// iOS 15 deployment target. Ids match `MobileTab` on the JS side.
+    private static let symbols: [String: String] = [
+        "chats": "message",
+        "assistant": "sparkles",
+        "channel": "rectangle.3.group",
+        "changes": "plus.forwardslash.minus",
+        "more": "ellipsis",
+    ]
+    /// Shown until `configure` says otherwise (and by a web bundle too old to say).
+    private static let defaultTabIds = ["chats", "channel", "changes", "more"]
 
+    private(set) var tabIds = ShellTabsController.defaultTabIds
     var onTabSelected: ((String) -> Void)?
     var onTabBarInsetChanged: ((CGFloat) -> Void)?
     private(set) var tabBarInset: CGFloat = 0
@@ -274,20 +284,35 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
         super.viewDidLoad()
         delegate = self
         view.backgroundColor = .clear
-
-        viewControllers = zip(Self.tabIds, Self.tabSymbols).enumerated().map { index, pair in
-            let (id, symbol) = pair
-            let tab = UIViewController()
-            tab.view.backgroundColor = .clear
-            // Placeholder caption; the localized one arrives via `configure`.
-            tab.tabBarItem = UITabBarItem(title: id.capitalized, image: UIImage(systemName: symbol), tag: index)
-            return tab
-        }
+        rebuildTabs()
 
         if #available(iOS 18.0, *) {
             setTabBarHidden(true, animated: false)
         } else {
             tabBar.isHidden = true
+        }
+    }
+
+    private func rebuildTabs() {
+        viewControllers = tabIds.enumerated().map { index, id in
+            let tab = UIViewController()
+            tab.view.backgroundColor = .clear
+            // Placeholder caption; the localized one arrives via `configure`.
+            tab.tabBarItem = UITabBarItem(title: id.capitalized, image: UIImage(systemName: Self.symbols[id] ?? "circle"), tag: index)
+            return tab
+        }
+    }
+
+    /// The tabs to show, in order. Unknown ids are dropped; the selection
+    /// follows its id across the rebuild.
+    func setTabs(_ ids: [String]) {
+        let next = ids.filter { Self.symbols[$0] != nil }
+        guard !next.isEmpty, next != tabIds else { return }
+        let selectedId = tabIds.indices.contains(selectedIndex) ? tabIds[selectedIndex] : nil
+        tabIds = next
+        rebuildTabs()
+        if let selectedId, let index = tabIds.firstIndex(of: selectedId) {
+            selectedIndex = index
         }
     }
 
@@ -301,14 +326,14 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
     }
 
     func setTitles(_ titles: [String: String]) {
-        for (index, id) in Self.tabIds.enumerated() {
+        for (index, id) in tabIds.enumerated() {
             guard let title = titles[id] else { continue }
             viewControllers?[index].tabBarItem.title = title
         }
     }
 
     func select(tabId: String) {
-        guard let index = Self.tabIds.firstIndex(of: tabId), index != selectedIndex else { return }
+        guard let index = tabIds.firstIndex(of: tabId), index != selectedIndex else { return }
         selectedIndex = index
     }
 
@@ -327,7 +352,7 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
 
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
         let index = viewController.tabBarItem.tag
-        guard Self.tabIds.indices.contains(index) else { return }
-        onTabSelected?(Self.tabIds[index])
+        guard tabIds.indices.contains(index) else { return }
+        onTabSelected?(tabIds[index])
     }
 }

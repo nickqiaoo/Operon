@@ -57,7 +57,8 @@ interface PendingApproval {
 const streams = new Map<number, StreamBinding>()
 const pending = new Map<string, PendingApproval>()
 /** chatId -> approval keys granted "for this conversation"; see computerUseApproval. */
-const sessionApprovedComputerUse = new Map<number, Set<string>>()
+/** Keyed by chat id, or by a non-chat scope such as the personal assistant (`'assistant'`). */
+const sessionApprovedComputerUse = new Map<number | string, Set<string>>()
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   value != null && typeof value === 'object' && !Array.isArray(value)
@@ -115,8 +116,8 @@ function isAlwaysApproved(approval: ComputerUseApproval): boolean {
  * through here. A node_repl session with no conversation behind it asks its MCP
  * client instead, which fails closed when the client cannot ask.
  */
-function cachedComputerUseApproval(
-  chatId: number,
+export function cachedComputerUseApproval(
+  chatId: number | string,
   request: HostElicitationRequest,
 ): HostElicitationResult | undefined {
   const approval = computerUseApproval(request)
@@ -138,8 +139,8 @@ function cachedComputerUseApproval(
   }
 }
 
-function rememberComputerUseApproval(
-  chatId: number,
+export function rememberComputerUseApproval(
+  chatId: number | string,
   request: HostElicitationRequest,
   persist: 'session' | 'always',
 ): void {
@@ -163,6 +164,11 @@ export function countSessionComputerUseApprovals(): number {
 }
 
 /** Forget every "allow for this conversation" Computer Use approval. */
+/** Drop one scope's "for this session" approvals (an assistant worker that finished). */
+export function forgetSessionComputerUseApprovals(scope: number | string): void {
+  sessionApprovedComputerUse.delete(scope)
+}
+
 export function clearSessionComputerUseApprovals(): void {
   sessionApprovedComputerUse.clear()
 }

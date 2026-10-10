@@ -24,7 +24,9 @@ import type {
   StorageAdapter,
   TaskStorageAdapter,
   NotificationStorageAdapter,
+  AssistantStorageAdapter,
 } from './interface.js'
+import type { Activity, ActivityStep, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
 import type {
   AgentBinding,
   AgentInboxMessageRow,
@@ -45,6 +47,7 @@ import type {
   MobilePairingStatus,
 } from '../types/mobile.js'
 import type {
+  AssistantTranscriptEntry,
   ChatExtractionCandidate,
   CreateMemoryMaintenanceRunInput,
   MemoryMaintenanceConfig,
@@ -226,8 +229,11 @@ interface WorkflowRunIndexDbRow {
   ended_at: number | null
 }
 
+/** KV: how far the memory extractor has read the personal assistant's thread. */
+const ASSISTANT_EXTRACTED_KEY = 'memory:assistant_extracted_until'
+
 export class SqliteStorage
-  implements StorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, CheckpointStorageAdapter, CanvasWorkflowStorageAdapter, ProjectStorageAdapter, ChannelStorageAdapter, TaskStorageAdapter, NotificationStorageAdapter, IMStorageAdapter, AgentBindingStorageAdapter, MemoryMaintenanceStorageAdapter, MobilePairingStorageAdapter {
+  implements StorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, CheckpointStorageAdapter, CanvasWorkflowStorageAdapter, ProjectStorageAdapter, ChannelStorageAdapter, TaskStorageAdapter, NotificationStorageAdapter, AssistantStorageAdapter, IMStorageAdapter, AgentBindingStorageAdapter, MemoryMaintenanceStorageAdapter, MobilePairingStorageAdapter {
   private db: Database.Database
 
   constructor(dbPath: string, options: SqliteStorageOptions = {}) {
@@ -1104,6 +1110,32 @@ export class SqliteStorage
         now
       )
     return { ...merged, updatedAt: now }
+  }
+
+  listAssistantTranscript(opts: { after: number; before: number; limit: number }): AssistantTranscriptEntry[] {
+    // What was said (approval cards carry no text) and what finished tasks produced, in time order.
+    const rows = this.db
+      .prepare(
+        `SELECT at, role, text FROM (
+           SELECT created_at AS at, role, text FROM assistant_messages
+            WHERE created_at > ? AND created_at <= ? AND text <> '' AND approval_json IS NULL
+           UNION ALL
+           SELECT finished_at AS at, 'assistant' AS role,
+                  '[Task "' || title || '" — ' || status || '] ' || COALESCE(report, summary) AS text
+             FROM assistant_activities
+            WHERE finished_at > ? AND finished_at <= ? AND status IN ('done', 'partial', 'failed')
+         ) ORDER BY at LIMIT ?`,
+      )
+      .all(opts.after, opts.before, opts.after, opts.before, opts.limit) as Array<{ at: number; role: string; text: string }>
+    return rows.map((r) => ({ at: r.at, role: r.role === 'user' ? 'user' : 'assistant', text: r.text }))
+  }
+
+  getAssistantExtractedUntil(): number | null {
+    return this.get<number>(ASSISTANT_EXTRACTED_KEY) ?? null
+  }
+
+  setAssistantExtractedUntil(at: number): void {
+    this.set(ASSISTANT_EXTRACTED_KEY, at)
   }
 
   listMemoryMaintenanceCandidates(opts: { olderThanMs: number; newerThanMs?: number; limit: number }): ChatExtractionCandidate[] {
@@ -2723,6 +2755,160 @@ export class SqliteStorage
     return rows.map(row => this.rowToChannelMessage(row))
   }
 
+  // ---- Assistant ----
+
+  assistantMessageUpsert(message: AssistantMessage): void {
+    this.db
+      .prepare(
+        `INSERT INTO assistant_messages (id, role, text, created_at, trigger_json, activity_id, remembered, approval_json, attachments_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           text = excluded.text, trigger_json = excluded.trigger_json, activity_id = excluded.activity_id,
+           remembered = excluded.remembered, approval_json = excluded.approval_json, attachments_json = excluded.attachments_json`,
+      )
+      .run(
+        message.id,
+        message.role,
+        message.text,
+        message.createdAt,
+        message.trigger ? JSON.stringify(message.trigger) : null,
+        message.activityId ?? null,
+        message.remembered?.length ? JSON.stringify(message.remembered) : null,
+        message.approval ? JSON.stringify(message.approval) : null,
+        message.attachments?.length ? JSON.stringify(message.attachments) : null,
+      )
+  }
+
+  assistantMessageList(options: { limit: number; before?: number }): AssistantMessage[] {
+    const rows = (
+      options.before != null
+        ? this.db
+            .prepare('SELECT * FROM assistant_messages WHERE created_at < ? ORDER BY created_at DESC, rowid DESC LIMIT ?')
+            .all(options.before, options.limit)
+        : this.db.prepare('SELECT * FROM assistant_messages ORDER BY created_at DESC, rowid DESC LIMIT ?').all(options.limit)
+    ) as Array<Record<string, unknown>>
+    return rows.reverse().map((row) => ({
+      id: row.id as string,
+      role: row.role as AssistantMessage['role'],
+      text: row.text as string,
+      createdAt: row.created_at as number,
+      ...(row.trigger_json ? { trigger: JSON.parse(row.trigger_json as string) as AssistantTrigger } : {}),
+      ...(row.activity_id ? { activityId: row.activity_id as string } : {}),
+      ...(row.remembered ? { remembered: JSON.parse(row.remembered as string) as string[] } : {}),
+      ...(row.approval_json ? { approval: JSON.parse(row.approval_json as string) as AssistantApproval } : {}),
+      ...(row.attachments_json ? { attachments: JSON.parse(row.attachments_json as string) as AssistantAttachment[] } : {}),
+    }))
+  }
+
+  assistantActivityUpsert(activity: Activity): void {
+    this.db
+      .prepare(
+        `INSERT INTO assistant_activities (id, task_id, title, summary, status, source, report, steps, started_at, finished_at)
+         VALUES (@id, @taskId, @title, @summary, @status, @source, @report, @steps, @startedAt, @finishedAt)
+         ON CONFLICT(id) DO UPDATE SET
+           task_id = excluded.task_id, title = excluded.title, summary = excluded.summary,
+           status = excluded.status, source = excluded.source, report = excluded.report,
+           steps = excluded.steps, started_at = excluded.started_at, finished_at = excluded.finished_at`,
+      )
+      .run({
+        id: activity.id,
+        taskId: activity.taskId,
+        title: activity.title,
+        summary: activity.summary,
+        status: activity.status,
+        source: activity.source ?? null,
+        report: activity.report ?? null,
+        steps: JSON.stringify(activity.steps),
+        startedAt: activity.startedAt,
+        finishedAt: activity.finishedAt ?? null,
+      })
+  }
+
+  assistantActivityGet(id: string): Activity | null {
+    const row = this.db.prepare('SELECT * FROM assistant_activities WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    return row ? this.rowToAssistantActivity(row) : null
+  }
+
+  assistantActivityList(limit: number): Activity[] {
+    const rows = this.db
+      .prepare('SELECT * FROM assistant_activities ORDER BY started_at DESC LIMIT ?')
+      .all(limit) as Array<Record<string, unknown>>
+    return rows.map((row) => this.rowToAssistantActivity(row))
+  }
+
+  assistantAuditInsert(record: AuditRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO assistant_audit (id, title, detail, icon, decision, args, activity_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.title,
+        record.detail,
+        record.icon,
+        record.decision,
+        record.args ? JSON.stringify(record.args) : null,
+        record.activityId ?? null,
+        record.at,
+      )
+  }
+
+  assistantAuditList(limit: number): AuditRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM assistant_audit ORDER BY created_at DESC, rowid DESC LIMIT ?')
+      .all(limit) as Array<Record<string, unknown>>
+    return rows.map((row) => ({
+      id: row.id as string,
+      title: row.title as string,
+      detail: row.detail as string,
+      icon: row.icon as ApprovalIcon,
+      decision: row.decision as AuditRecord['decision'],
+      at: row.created_at as number,
+      ...(row.args ? { args: JSON.parse(row.args as string) as Record<string, unknown> } : {}),
+      ...(row.activity_id ? { activityId: row.activity_id as string } : {}),
+    }))
+  }
+
+  assistantRunInsert(run: AssistantScheduleRun): void {
+    this.db
+      .prepare('INSERT INTO assistant_runs (id, schedule_id, outcome, note, activity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(run.id, run.scheduleId, run.outcome, run.note ?? null, run.activityId ?? null, run.at)
+  }
+
+  assistantRunList(scheduleId: number, limit: number): AssistantScheduleRun[] {
+    const rows = this.db
+      .prepare('SELECT * FROM assistant_runs WHERE schedule_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?')
+      .all(scheduleId, limit) as Array<Record<string, unknown>>
+    return rows.map((row) => ({
+      id: row.id as string,
+      scheduleId: row.schedule_id as number,
+      at: row.created_at as number,
+      outcome: row.outcome as ScheduleRunOutcome,
+      ...(row.note ? { note: row.note as string } : {}),
+      ...(row.activity_id ? { activityId: row.activity_id as string } : {}),
+    }))
+  }
+
+  assistantRunDeleteFor(scheduleId: number): void {
+    this.db.prepare('DELETE FROM assistant_runs WHERE schedule_id = ?').run(scheduleId)
+  }
+
+  private rowToAssistantActivity(row: Record<string, unknown>): Activity {
+    return {
+      id: row.id as string,
+      taskId: row.task_id as string,
+      title: row.title as string,
+      summary: row.summary as string,
+      status: row.status as Activity['status'],
+      ...(row.source ? { source: row.source as Activity['source'] } : {}),
+      ...(row.report ? { report: row.report as string } : {}),
+      steps: JSON.parse((row.steps as string) || '[]') as ActivityStep[],
+      startedAt: row.started_at as number,
+      ...(row.finished_at != null ? { finishedAt: row.finished_at as number } : {}),
+    }
+  }
+
   // ---- IM: Providers ----
 
   createIMProvider(input: CreateIMProviderInput): IMProviderRecord {
@@ -3570,7 +3756,8 @@ function rowToCronjobTask(row: CronjobRow): CronjobTask {
     }
   }
 
-  const taskType = row.task_type === 'canvas-workflow' ? 'canvas-workflow' as const : 'chat' as const
+  const taskType: CronjobTask['taskType'] =
+    row.task_type === 'canvas-workflow' || row.task_type === 'assistant' ? row.task_type : 'chat'
 
   return {
     id: row.id,

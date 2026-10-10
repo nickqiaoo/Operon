@@ -4,8 +4,9 @@ import Capacitor
 /// JS ↔ native tab bar bridge, exposed as `NativeShell`.
 ///
 /// The web app keeps owning navigation state; the native bar is a view of it.
-///   - `configure({ tabs })` hands over localized titles and returns the space
-///     the bar currently takes from the bottom.
+///   - `configure({ tabs })` picks which tabs show (in order) with their
+///     localized titles, and returns the space the bar currently takes from
+///     the bottom.
 ///   - `selectTab({ tab })` mirrors a JS-initiated switch (deep link, back).
 ///   - `setTabBarVisible({ visible })` hides the bar for immersive screens,
 ///     the keyboard, and full-screen overlays that would otherwise slide in
@@ -60,13 +61,16 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func configure(_ call: CAPPluginCall) {
         let tabs = call.getArray("tabs", JSObject.self) ?? []
+        var ids: [String] = []
         var titles: [String: String] = [:]
         for tab in tabs {
             if let id = tab["id"] as? String, let title = tab["title"] as? String {
+                ids.append(id)
                 titles[id] = title
             }
         }
         onMain(call) { [weak self] shell in
+            shell.setTabs(ids)
             shell.setTitles(titles)
             shell.onTabSelected = { id in
                 self?.notifyListeners("tabSelected", data: ["tab": id])

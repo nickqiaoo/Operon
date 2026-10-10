@@ -17,43 +17,85 @@ interface ActivityDrawerProps {
 /**
  * One worker's run, slid in over the right rail. Non-modal: the thread stays
  * usable underneath, so you can keep talking while you watch it work.
- * Left: the steps in plain words. Right: the overall summary, or — once a step
- * is picked — that step's tool call and what came back.
  */
 export function ActivityDrawer({ activity, onClose, onStop, onFollowUp }: ActivityDrawerProps) {
   const { shown, active } = useDrawer(activity, onClose)
+  if (!shown) return null
+  return (
+    <DrawerShell active={active}>
+      <ActivityDetail activity={shown} onClose={onClose} onStop={onStop} onFollowUp={onFollowUp} />
+    </DrawerShell>
+  )
+}
+
+interface ActivityDetailProps {
+  activity: Activity
+  /**
+   * `split` (drawer): the steps on the left; on the right the overall summary, or —
+   * once a step is picked — that step's tool call and what came back.
+   * `stacked` (phone): one column, the summary above the steps.
+   */
+  layout?: "split" | "stacked"
+  /** Shows a close button in the header. */
+  onClose?: () => void
+  onStop: (id: string) => void
+  onFollowUp: (id: string, text: string) => void
+}
+
+/** The run itself: header, steps and summary, and a box to steer or follow up on it. */
+export function ActivityDetail({ activity, layout = "split", onClose, onStop, onFollowUp }: ActivityDetailProps) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
 
   // A different activity starts on its summary.
   useEffect(() => {
     setSelectedStepId(null)
-  }, [activity?.id])
+  }, [activity.id])
 
-  if (!shown) return null
-  const live = shown.status === "running" || shown.status === "waiting"
-  const selectedStep = shown.steps.find((s) => s.id === selectedStepId) ?? null
+  const live = activity.status === "running" || activity.status === "waiting"
+  const selectedStep = activity.steps.find((s) => s.id === selectedStepId) ?? null
+  const stacked = layout === "stacked"
 
   const submit = () => {
     const text = draft.trim()
     if (!text) return
-    onFollowUp(shown.id, text)
+    onFollowUp(activity.id, text)
     setDraft("")
   }
 
+  const timeline = (
+    <Timeline
+      steps={activity.steps}
+      running={activity.status === "running"}
+      selectedId={selectedStepId}
+      onSelect={(id) => setSelectedStepId((cur) => (cur === id ? null : id))}
+    />
+  )
+  const summary = (
+    <>
+      <div className="mb-2 text-sm font-semibold">Summary</div>
+      {activity.report ? (
+        <MessageResponse className="text-sm">{activity.report}</MessageResponse>
+      ) : (
+        <div className="text-sm text-muted-foreground">{activity.summary}</div>
+      )}
+    </>
+  )
+
   return (
-    <DrawerShell active={active}>
-        <div className="flex items-start gap-3 border-b border-border/40 px-5 py-4">
-          <div className="min-w-0 flex-1">
-            <ActivityStatusBadge status={shown.status} />
-            <div className="mt-1.5 text-base font-semibold">{shown.title}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              Started {formatClock(shown.startedAt)}
-              {shown.finishedAt && ` · finished ${formatClock(shown.finishedAt)}`}
-              {shown.source === "heartbeat" && " · by heartbeat"}
-              {shown.source === "schedule" && " · by schedule"}
-            </div>
+    <>
+      <div className={cn("flex items-start gap-3 border-b border-border/40 py-4", stacked ? "px-4" : "px-5")}>
+        <div className="min-w-0 flex-1">
+          <ActivityStatusBadge status={activity.status} />
+          <div className="mt-1.5 text-base font-semibold">{activity.title}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            Started {formatClock(activity.startedAt)}
+            {activity.finishedAt && ` · finished ${formatClock(activity.finishedAt)}`}
+            {activity.source === "heartbeat" && " · by heartbeat"}
+            {activity.source === "schedule" && " · by schedule"}
           </div>
+        </div>
+        {onClose && (
           <button
             type="button"
             onClick={onClose}
@@ -62,54 +104,62 @@ export function ActivityDrawer({ activity, onClose, onStop, onFollowUp }: Activi
           >
             <X className="h-4 w-4" />
           </button>
-        </div>
+        )}
+      </div>
 
-        <div className="flex min-h-0 flex-1">
-          <div className="scroll-fade-y w-[42%] shrink-0 overflow-y-auto border-r border-border/40 p-2">
-            <Timeline
-              steps={shown.steps}
-              running={shown.status === "running"}
-              selectedId={selectedStepId}
-              onSelect={(id) => setSelectedStepId((cur) => (cur === id ? null : id))}
-            />
-          </div>
-          <div className="scroll-fade-y min-w-0 flex-1 overflow-y-auto px-5 py-4">
-            {selectedStep ? (
-              <StepDetail step={selectedStep} onBack={() => setSelectedStepId(null)} />
-            ) : (
-              <>
-                <div className="mb-2 text-sm font-semibold">Summary</div>
-                {shown.report ? (
-                  <MessageResponse className="text-sm">{shown.report}</MessageResponse>
-                ) : (
-                  <div className="text-sm text-muted-foreground">{shown.summary}</div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 border-t border-border/40 px-4 py-3">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) submit()
-            }}
-            placeholder={live ? "Tell this task something…" : "Follow up on this task…"}
-            className="h-8 min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-border dark:border-border/35"
-          />
-          <Button size="sm" variant="secondary" className="h-8 w-8 p-0" onClick={submit} disabled={!draft.trim()} title="Send">
-            <ArrowUp className="h-3.5 w-3.5" />
-          </Button>
-          {live && (
-            <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => onStop(shown.id)}>
-              <Square className="h-3.5 w-3.5" />
-              Stop
-            </Button>
+      {stacked ? (
+        <div className="scroll-fade-y min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {selectedStep ? (
+            <StepDetail step={selectedStep} onBack={() => setSelectedStepId(null)} />
+          ) : (
+            <>
+              {summary}
+              <div className="mb-1 mt-5 text-sm font-semibold">Steps</div>
+              <div className="-mx-2">{timeline}</div>
+            </>
           )}
         </div>
-    </DrawerShell>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div className="scroll-fade-y w-[42%] shrink-0 overflow-y-auto border-r border-border/40 p-2">{timeline}</div>
+          <div className="scroll-fade-y min-w-0 flex-1 overflow-y-auto px-5 py-4">
+            {selectedStep ? <StepDetail step={selectedStep} onBack={() => setSelectedStepId(null)} /> : summary}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 border-t border-border/40 px-4 py-3">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) submit()
+          }}
+          placeholder={live ? "Tell this task something…" : "Follow up on this task…"}
+          className={cn(
+            "min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-3 outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-border dark:border-border/35",
+            // 16px on phones, or iOS zooms the page in on focus.
+            stacked ? "h-9 text-base" : "h-8 text-sm",
+          )}
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          className={cn("p-0", stacked ? "h-9 w-9" : "h-8 w-8")}
+          onClick={submit}
+          disabled={!draft.trim()}
+          title="Send"
+        >
+          <ArrowUp className="h-3.5 w-3.5" />
+        </Button>
+        {live && (
+          <Button size="sm" variant="ghost" className={cn("gap-1.5", stacked ? "h-9" : "h-8")} onClick={() => onStop(activity.id)}>
+            <Square className="h-3.5 w-3.5" />
+            Stop
+          </Button>
+        )}
+      </div>
+    </>
   )
 }
 

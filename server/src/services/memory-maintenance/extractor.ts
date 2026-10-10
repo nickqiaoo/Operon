@@ -12,6 +12,8 @@ const logger = createMaintenanceLogger('memory-extractor')
 const IN_FLIGHT_THRESHOLD_MS = 2 * 60 * 60_000 // skip chats still active in last 2h
 const RECENT_WINDOW_MS = 24 * 60 * 60_000 // only consider chats updated in last 24h
 const MAX_CHUNKS_PER_SESSION = 10
+/** Entries read from the assistant's thread per run; the rest waits for the next run. */
+const ASSISTANT_ENTRY_LIMIT = 2_000
 
 export interface ExtractorOptions {
   providerId: string
@@ -54,6 +56,8 @@ export async function runExtractor(
     errors: [],
   }
 
+  const systemPrompt = buildExtractSystemPrompt()
+
   const candidates = storage.listMemoryMaintenanceCandidates({
     olderThanMs: IN_FLIGHT_THRESHOLD_MS,
     newerThanMs: RECENT_WINDOW_MS,
@@ -64,6 +68,7 @@ export async function runExtractor(
     logger.info(
       `no extraction candidates (olderThan=${IN_FLIGHT_THRESHOLD_MS / 60_000}min, newerThan=${RECENT_WINDOW_MS / 3_600_000}h, limit=${opts.maxSessionsPerRun})`
     )
+    await extractAssistantThread(storage, opts, stats, systemPrompt)
     return stats
   }
 
@@ -73,8 +78,6 @@ export async function runExtractor(
       `  chat=${c.chatId} title="${c.title}" messages=${c.totalMessages} lastExtracted=${c.lastExtractedMessageIndex ?? 'never'}`
     )
   }
-
-  const systemPrompt = buildExtractSystemPrompt()
 
   for (const candidate of candidates) {
     if (opts.signal?.aborted) break
@@ -163,7 +166,67 @@ export async function runExtractor(
     }
   }
 
+  await extractAssistantThread(storage, opts, stats, systemPrompt)
   return stats
+}
+
+/**
+ * The personal assistant's thread is one long conversation, not a chat with message indices: it
+ * is read by time, from a watermark, up to the same in-flight margin chats get — the user's
+ * words plus what finished tasks produced (docs/assistant/design.md §5).
+ */
+async function extractAssistantThread(
+  storage: MemoryMaintenanceStorageAdapter,
+  opts: ExtractorOptions,
+  stats: ExtractorStats,
+  systemPrompt: string
+): Promise<void> {
+  if (opts.signal?.aborted) return
+  const after = storage.getAssistantExtractedUntil() ?? 0
+  const before = Date.now() - IN_FLIGHT_THRESHOLD_MS
+  if (before <= after) return
+  const entries = storage.listAssistantTranscript({ after, before, limit: ASSISTANT_ENTRY_LIMIT })
+  if (entries.length === 0) return
+  if (!entries.some((e) => e.role === 'user')) {
+    // Only the assistant talking (heartbeat notes, task results nobody followed up): move on.
+    storage.setAssistantExtractedUntil(entries[entries.length - 1].at)
+    return
+  }
+  const messages: ModelMessage[] = entries.map((e) => ({ role: e.role, content: e.text }))
+  const chunks = chunkTranscript(messages, entries.map((e) => e.at)).slice(0, MAX_CHUNKS_PER_SESSION)
+  logger.info(`assistant thread entries=${entries.length} chunks=${chunks.length} after=${new Date(after).toISOString()}`)
+  try {
+    for (const chunk of chunks) {
+      if (opts.signal?.aborted) break
+      const result = await runHeadlessMemoryAgent({
+        providerId: opts.providerId,
+        cwd: opts.cwd,
+        modelId: opts.modelId,
+        systemPrompt,
+        messages: [{ role: 'user', content: serializeTranscript(chunk.messages, chunk.lastSourceIndex) }],
+        signal: opts.signal,
+      })
+      stats.chunksProcessed += 1
+      stats.memoriesWritten += result.memoryUpserts
+      stats.memoriesSearched += result.memorySearches
+      stats.tokensInput += result.tokensInput
+      stats.tokensOutput += result.tokensOutput
+      logger.info(
+        `assistant thread chunk until=${new Date(chunk.lastSourceIndex).toISOString()} finish=${result.finishReason} upserts=${result.memoryUpserts}${result.error ? ` error=${result.error}` : ''}`
+      )
+      if (result.finishReason === 'error') {
+        stats.errors.push(`assistant thread: ${result.error ?? 'unknown error'}`)
+        break
+      }
+      if (result.finishReason === 'aborted') break
+      storage.setAssistantExtractedUntil(chunk.lastSourceIndex)
+    }
+    stats.sessionsProcessed += 1
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.warn(`extract assistant thread failed: ${msg}`)
+    stats.errors.push(`assistant thread: ${msg}`)
+  }
 }
 
 /**

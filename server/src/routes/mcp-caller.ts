@@ -15,12 +15,14 @@ import type { HttpBindings } from '@hono/node-server'
 import type { Context } from 'hono'
 import { OPENCODE_CALLER_ARG, resolveOpencodeCaller } from '@operon/agent-runtime'
 import { readJsonBody } from './mcp-http.js'
+import { ASSISTANT_CALLER_ARG, ASSISTANT_KEY_PARAM, isAssistantMountKey } from '../services/assistant/node-repl-bridge.js'
 
 export const UNKNOWN_CALLER_MESSAGE =
   'Operon could not tell which conversation made this call. Send the message again; if it keeps failing, restart the app.'
 
 export type McpCallerResolution =
-  | { ok: true; chatId: number | null; body: unknown }
+  /** `assistantWorker`: the call came from one of the personal assistant's workers, not a chat. */
+  | { ok: true; chatId: number | null; body: unknown; assistantWorker?: string }
   | { ok: false; response: Response }
 
 type JsonRpcMessage = { id?: unknown; method?: unknown; params?: { arguments?: unknown } }
@@ -46,6 +48,22 @@ export function takeCallerArg(body: unknown): { caller?: string; requestId?: unk
   return found
 }
 
+/** Remove the assistant-worker argument from every tools/call in the body; return the worker id. */
+export function takeAssistantWorkerArg(body: unknown): string | undefined {
+  const messages = Array.isArray(body) ? body : [body]
+  let worker: string | undefined
+  for (const message of messages as JsonRpcMessage[]) {
+    if (!message || typeof message !== 'object' || message.method !== 'tools/call') continue
+    const args = message.params?.arguments
+    if (!args || typeof args !== 'object' || !(ASSISTANT_CALLER_ARG in args)) continue
+    const record = args as Record<string, unknown>
+    const value = record[ASSISTANT_CALLER_ARG]
+    delete record[ASSISTANT_CALLER_ARG]
+    if (worker === undefined && typeof value === 'string' && /^[\w-]{1,80}$/.test(value)) worker = value
+  }
+  return worker
+}
+
 /**
  * Resolve the chat for this request. `urlParam` names the query parameter the
  * route has always read the chat id from; it still wins for every client that
@@ -57,6 +75,14 @@ export async function resolveMcpCallerChat(c: Context, urlParam: string): Promis
   if (incoming.method !== 'POST') return { ok: true, chatId: urlChatId, body: undefined }
 
   const body = await readJsonBody(incoming)
+  // Stripped from every request, believed only on the assistant's own mount (its URL carries
+  // the process key): anyone else naming a worker is a model writing arguments it should not.
+  const assistantWorker = takeAssistantWorkerArg(body)
+  if (isAssistantMountKey(c.req.query(ASSISTANT_KEY_PARAM))) {
+    // Calls through the assistant's mount name a worker or nobody — never a chat.
+    return { ok: true, chatId: null, body, ...(assistantWorker ? { assistantWorker } : {}) }
+  }
+  if (assistantWorker) console.warn('[mcp-caller] ignored an assistant worker argument on a request outside the assistant')
   const { caller, requestId } = takeCallerArg(body)
   if (caller === undefined) return { ok: true, chatId: urlChatId, body }
 

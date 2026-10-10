@@ -186,7 +186,8 @@ export function buildScheduleMcpServer(storage: ScheduleMcpStorage, callerChatId
 
       const id = requiredId(args)
       const current = getCronjob(storage, id)
-      if (!current) throw new Error(`Scheduled task ${id} not found`)
+      // The personal assistant's own jobs are not the coding chats' to see or touch.
+      if (!current || current.taskType === 'assistant') throw new Error(`Scheduled task ${id} not found`)
 
       if (name === 'schedule_update') {
         const provider = current.taskType === 'chat'

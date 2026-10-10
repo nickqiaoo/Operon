@@ -1,27 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { PanelLeft } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { AlertCircle, Loader2, PanelLeft, Settings } from "lucide-react"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { openSettingsTab } from "@/lib/open-settings"
+import { useAssistantStore } from "@/stores/assistant-store"
 import { AssistantChat } from "./AssistantChat"
 import { AssistantSidePanel, type SidePanelTab } from "./AssistantSidePanel"
 import { ActivityDrawer } from "./ActivityDrawer"
 import { ActivityTab } from "./ActivityTab"
 import { AuditTab } from "./AuditTab"
-import { ScheduleTab } from "./ScheduleTab"
 import { ProfileTab } from "./ProfileTab"
 import { ProfileFileDrawer } from "./ProfileFileDrawer"
+import { ScheduleTab } from "./ScheduleTab"
 import { parseIdentity } from "./shared"
-import { MOCK_ACTIVITIES, MOCK_AUDIT, MOCK_GRANTS, MOCK_MESSAGES, MOCK_PROFILE, MOCK_SCHEDULES } from "./mock-data"
-import type {
-  Activity,
-  ActivityStep,
-  AssistantMessage,
-  AuditDecision,
-  AuditRecord,
-  ProfileFile,
-  ProfileFileName,
-  ScheduleItem,
-  StandingGrant,
-} from "./types"
+import type { ProfileFileName } from "./types"
 
 interface AssistantPageProps {
   /** With the app sidebar collapsed the header clears the traffic lights and offers to expand it. */
@@ -29,173 +22,46 @@ interface AssistantPageProps {
   onExpandSidebar: () => void
 }
 
-let seq = 0
-const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++seq}`
+function reportError(error: unknown): void {
+  toast.error(error instanceof Error ? error.message : String(error))
+}
 
 /**
  * The personal assistant, shown in place of the editor (center + right) with the
- * app sidebar still on the left: the thread in the middle, what it is doing on the right.
- *
- * UI prototype — state is local and the "assistant" is a scripted simulation so
- * the flows (dispatch → progress → report, approvals, follow-ups) can be felt
- * before the runtime exists. See docs/assistant/design.md.
+ * app sidebar still on the left: the thread in the middle, what it is doing on the
+ * right. State lives on the server (`/api/assistant`) and streams in live.
  */
 export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPageProps) {
-  const [messages, setMessages] = useState<AssistantMessage[]>(MOCK_MESSAGES)
-  const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES)
-  const [audit, setAudit] = useState<AuditRecord[]>(MOCK_AUDIT)
-  const [grants, setGrants] = useState<StandingGrant[]>(MOCK_GRANTS)
-  const [schedules, setSchedules] = useState<ScheduleItem[]>(MOCK_SCHEDULES)
-  const [profile, setProfile] = useState<ProfileFile[]>(MOCK_PROFILE)
-  const [typing, setTyping] = useState(false)
+  const open = useAssistantStore((s) => s.open)
+  const loaded = useAssistantStore((s) => s.loaded)
+  const loadError = useAssistantStore((s) => s.error)
+  const messages = useAssistantStore((s) => s.messages)
+  const hasMore = useAssistantStore((s) => s.hasMore)
+  const loadingOlder = useAssistantStore((s) => s.loadingOlder)
+  const activities = useAssistantStore((s) => s.activities)
+  const audit = useAssistantStore((s) => s.audit)
+  const grants = useAssistantStore((s) => s.grants)
+  const files = useAssistantStore((s) => s.files)
+  const schedules = useAssistantStore((s) => s.schedules)
+  const config = useAssistantStore((s) => s.config)
+  const typing = useAssistantStore((s) => s.typing)
+  const blocker = useAssistantStore((s) => s.blocker)
+  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule, revokeGrant } = useAssistantStore.getState()
+
   const [tab, setTab] = useState<SidePanelTab>("activity")
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
   /** The definition file open in the drawer. Only one drawer shows at a time. */
   const [openFile, setOpenFile] = useState<ProfileFileName | null>(null)
-  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
 
-  const timers = useRef<number[]>([])
-  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
-  const later = useCallback((ms: number, fn: () => void) => {
-    timers.current.push(window.setTimeout(fn, ms))
-  }, [])
+  useEffect(() => open(), [open])
 
-  const identity = parseIdentity(profile.find((f) => f.name === "identity")?.content ?? "")
+  const identity = parseIdentity(files.find((f) => f.name === "identity")?.content ?? "")
   const assistantName = identity.name ?? "Assistant"
   const busyCount = activities.filter((a) => a.status === "running" || a.status === "waiting").length
   const selectedActivity = useMemo(
     () => activities.find((a) => a.id === selectedActivityId) ?? null,
     [activities, selectedActivityId],
   )
-
-  // --- simulation helpers -------------------------------------------------
-
-  const say = useCallback((msg: Omit<AssistantMessage, "id" | "role" | "createdAt">) => {
-    setMessages((prev) => [...prev, { id: nextId("m"), role: "assistant", createdAt: Date.now(), ...msg }])
-  }, [])
-
-  const patchActivity = useCallback((id: string, patch: (a: Activity) => Partial<Activity>) => {
-    setActivities((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch(a) } : a)))
-  }, [])
-
-  const addStep = useCallback(
-    (id: string, step: Omit<ActivityStep, "id" | "at">) => {
-      patchActivity(id, (a) => ({
-        steps: [
-          ...a.steps.map((s) => (s.status === "running" ? { ...s, status: "done" as const } : s)),
-          { ...step, id: nextId("s"), at: Date.now() },
-        ],
-      }))
-    },
-    [patchActivity],
-  )
-
-  const finish = useCallback(
-    (id: string, title: string) => {
-      addStep(id, { label: "Wrote up the result", status: "done", tool: "report_result" })
-      patchActivity(id, () => ({
-        status: "done",
-        finishedAt: Date.now(),
-        summary: "Finished",
-        report: `「${title}」已经处理完。\n\n这是原型里的模拟结果：真实情况下这里是 worker 的结构化摘要和产物。`,
-      }))
-      say({ text: `搞定了：${title}。`, trigger: { kind: "worker", activityId: id }, activityId: id })
-    },
-    [addStep, patchActivity, say],
-  )
-
-  // --- user actions -------------------------------------------------------
-
-  const handleSend = (text: string) => {
-    setMessages((prev) => [...prev, { id: nextId("m"), role: "user", text, createdAt: Date.now() }])
-    setTyping(true)
-
-    const id = nextId("act")
-    const title = text.length > 28 ? `${text.slice(0, 28)}…` : text
-    const needsApproval = /邮件|email|mail|发给|发送|send/i.test(text)
-
-    later(700, () => {
-      setTyping(false)
-      say({ text: "好，我去办，好了告诉你。", activityId: id })
-      setActivities((prev) => [
-        { id, title, summary: "Working…", status: "running", startedAt: Date.now(), steps: [] },
-        ...prev,
-      ])
-      addStep(id, { label: "Worked out what's needed", status: "running", tool: "plan" })
-    })
-
-    later(1900, () => addStep(id, { label: "Gathered the details", status: "running", tool: "web_search", args: { q: text } }))
-
-    if (needsApproval) {
-      later(3200, () => {
-        addStep(id, { label: "Waiting for approval to send mail", status: "running", tool: "gmail_send", args: { to: "…", subject: title } })
-        patchActivity(id, () => ({ status: "waiting", summary: "Waiting for your approval" }))
-        say({
-          text: "邮件写好了，发之前需要你点一下头。",
-          activityId: id,
-          approval: {
-            id: nextId("ap"),
-            title: "Send mail in Gmail",
-            intent: `Send the drafted email for "${title}".`,
-            icon: "mail",
-            args: { to: "someone@example.com", subject: title, body: "…" },
-          },
-        })
-      })
-    } else {
-      later(4600, () => finish(id, title))
-    }
-  }
-
-  const handleDecide = (messageId: string, decision: AuditDecision) => {
-    const msg = messages.find((m) => m.id === messageId)
-    const approval = msg?.approval
-    if (!msg || !approval || approval.decision) return
-
-    setMessages((prev) => prev.map((m) => (m.id === messageId && m.approval ? { ...m, approval: { ...m.approval, decision } } : m)))
-    setAudit((prev) => [
-      { id: nextId("a"), title: approval.title, intent: approval.intent, icon: approval.icon, decision, at: Date.now(), args: approval.args },
-      ...prev,
-    ])
-    if (decision === "always_allowed") {
-      setGrants((prev) => [...prev, { id: nextId("g"), title: approval.title, icon: approval.icon, grantedAt: Date.now() }])
-    }
-
-    const activityId = msg.activityId
-    if (!activityId) return
-    if (decision === "denied") {
-      patchActivity(activityId, (a) => ({
-        status: "stopped",
-        finishedAt: Date.now(),
-        summary: "You declined sending the mail",
-        steps: a.steps.map((s) => (s.status === "running" ? { ...s, status: "failed" as const } : s)),
-      }))
-      later(500, () => say({ text: "好，那我先不发了，草稿留着。", activityId }))
-      return
-    }
-    patchActivity(activityId, () => ({ status: "running", summary: "Sending…" }))
-    const title = activities.find((a) => a.id === activityId)?.title ?? ""
-    later(1200, () => finish(activityId, title))
-  }
-
-  const handleStop = (id: string) => {
-    patchActivity(id, (a) => ({
-      status: "stopped",
-      finishedAt: Date.now(),
-      summary: "Stopped by you",
-      steps: a.steps.map((s) => (s.status === "running" ? { ...s, status: "failed" as const } : s)),
-    }))
-    say({ text: "停下来了。", activityId: id })
-  }
-
-  const handleFollowUp = (id: string, text: string) => {
-    const activity = activities.find((a) => a.id === id)
-    if (!activity) return
-    addStep(id, { label: `You said: ${text}`, status: "running", tool: "steer", args: { text } })
-    if (activity.status !== "running" && activity.status !== "waiting") {
-      patchActivity(id, () => ({ status: "running", summary: "Working on your follow-up…", finishedAt: undefined }))
-      later(2500, () => finish(id, activity.title))
-    }
-  }
 
   const openActivity = (id: string) => {
     setOpenFile(null)
@@ -206,10 +72,6 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
   const openProfileFile = (file: ProfileFileName) => {
     setSelectedActivityId(null)
     setOpenFile(file)
-  }
-
-  const saveProfile = (name: ProfileFileName, content: string) => {
-    setProfile((prev) => prev.map((f) => (f.name === name ? { ...f, content, updatedAt: Date.now(), updatedBy: "user" } : f)))
   }
 
   return (
@@ -234,17 +96,51 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
       </div>
 
       <div className="relative flex min-h-0 flex-1">
-        <main className="min-w-0 flex-1">
-          <AssistantChat
-            messages={messages}
-            typing={typing}
-            userName={identity.userName}
-            highlightedActivityId={selectedActivityId}
-            onSend={handleSend}
-            onOpenActivity={openActivity}
-            onDecide={handleDecide}
-            onOpenMemory={() => openProfileFile("memory")}
-          />
+        <main className="flex min-w-0 flex-1 flex-col">
+          {!loaded ? (
+            <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : loadError && messages.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center gap-2 text-xs text-destructive">
+              <AlertCircle className="h-3.5 w-3.5" /> {loadError}
+            </div>
+          ) : (
+            <>
+              {blocker && (
+                <div className="mx-auto mt-4 w-full max-w-3xl px-6">
+                  <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-3 dark:border-border/35">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-status-warn" />
+                    <span className="flex-1 text-xs text-muted-foreground">{blocker}</span>
+                    <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => openSettingsTab("assistant")}>
+                      <Settings className="h-3.5 w-3.5" />
+                      Settings
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
+                <AssistantChat
+                  messages={messages}
+                  typing={typing}
+                  userName={identity.userName}
+                  hasMore={hasMore}
+                  loadingOlder={loadingOlder}
+                  onLoadOlder={() => void loadOlder().catch(reportError)}
+                  highlightedActivityId={selectedActivityId}
+                  onSend={(text, attachments) =>
+                    send(text, attachments).catch((error: unknown) => {
+                      reportError(error)
+                      throw error
+                    })
+                  }
+                  onOpenActivity={openActivity}
+                  onDecide={(approvalId, decision) => void decide(approvalId, decision).catch(reportError)}
+                  onOpenMemory={() => openProfileFile("memory")}
+                />
+              </div>
+            </>
+          )}
         </main>
 
         <aside className="w-[340px] shrink-0 border-l border-border/50 bg-sidebar">
@@ -259,22 +155,26 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
               <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
             )}
             {tab === "audit" && (
-              <AuditTab records={audit} grants={grants} onRevoke={(gid) => setGrants((prev) => prev.filter((g) => g.id !== gid))} />
+              <AuditTab records={audit} grants={grants} onRevoke={(id) => void revokeGrant(id).catch(reportError)} />
             )}
             {tab === "schedule" && (
               <ScheduleTab
                 schedules={schedules}
-                onToggle={(sid) => setSchedules((prev) => prev.map((s) => (s.id === sid ? { ...s, enabled: !s.enabled } : s)))}
-                onDelete={(sid) => setSchedules((prev) => prev.filter((s) => s.id !== sid))}
+                quietStart={config.quietStart}
+                quietEnd={config.quietEnd}
+                onToggle={(id, enabled) => void setScheduleEnabled(id, enabled).catch(reportError)}
+                onDelete={(id) => void deleteSchedule(id).catch(reportError)}
+                onRun={(id) => {
+                  void runSchedule(id)
+                    .then(() => toast.success("Running now"))
+                    .catch(reportError)
+                }}
                 onEditHeartbeat={() => openProfileFile("heartbeat")}
+                onOpenActivity={openActivity}
               />
             )}
             {tab === "profile" && (
-              <ProfileTab
-                files={profile}
-                assistantName={assistantName}
-                onOpenFile={openProfileFile}
-              />
+              <ProfileTab files={files} assistantName={assistantName} onOpenFile={openProfileFile} />
             )}
           </AssistantSidePanel>
         </aside>
@@ -282,14 +182,14 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
         <ActivityDrawer
           activity={selectedActivity}
           onClose={() => setSelectedActivityId(null)}
-          onStop={handleStop}
-          onFollowUp={handleFollowUp}
+          onStop={(id) => void stopActivity(id).catch(reportError)}
+          onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}
         />
         <ProfileFileDrawer
-          file={profile.find((f) => f.name === openFile) ?? null}
+          file={files.find((f) => f.name === openFile) ?? null}
           assistantName={assistantName}
           onClose={() => setOpenFile(null)}
-          onSave={saveProfile}
+          onSave={(name, content) => void saveFile(name, content).catch(reportError)}
         />
       </div>
     </div>

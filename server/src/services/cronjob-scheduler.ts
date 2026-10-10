@@ -1,5 +1,5 @@
 import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../storage/interface.js'
-import { computeNextRunAtForJob, executeCronjob, listCronjobs, setCronjobNextRunAt } from './cronjob.js'
+import { computeNextRunAtForJob, executeCronjob, listAllCronjobs, setCronjobNextRunAt } from './cronjob.js'
 
 export interface CronjobSchedulerOptions {
   intervalMs?: number
@@ -17,7 +17,7 @@ export function startCronjobScheduler(
 
   const tick = async () => {
     const now = Date.now()
-    const cronjobs = listCronjobs(storage)
+    const cronjobs = listAllCronjobs(storage)
 
     for (const job of cronjobs) {
       if (!job.enabled) continue

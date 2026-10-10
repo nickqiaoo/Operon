@@ -182,6 +182,11 @@ async function availableModels(): Promise<Model[]> {
   return results
 }
 
+/** Models the operon runtime can run right now (configured providers only), as `provider/model` ids. */
+export function listOperonModels(): Promise<Model[]> {
+  return availableModels()
+}
+
 /** Runner limits from a workspace's config.toml, applied per session. */
 interface WorkspaceRunnerLimits {
   maxTurns?: number

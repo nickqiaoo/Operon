@@ -1,6 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
 import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
-import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
+import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, MessageCircle, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import { ProvidersTab } from "./ProvidersTab"
 import { RepoDetail } from "./RepoDetail"
@@ -31,6 +31,8 @@ import { useProjectStore } from "@/stores/project-store"
 import { cn } from "@/lib/utils"
 import { useState, useMemo } from "react"
 import type { ConfigFileDefinition } from "./useConfigEditor"
+import { AssistantSettings } from "./AssistantSettings"
+import { ASSISTANT_ENABLED } from "@/components/assistant/flags"
 
 interface SettingsPageProps {
     onBack: () => void
@@ -73,8 +75,8 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
     // On phones the two panes can't sit side by side, so we drill down:
     // the category list fills the screen, and picking one swaps to its detail
     // pane (the in-pane back button returns to the list). Ignored at md+, where
-    // both panes always show.
-    const [mobileDetail, setMobileDetail] = useState(false)
+    // both panes always show. A deep link lands straight on its pane.
+    const [mobileDetail, setMobileDetail] = useState(initialTab != null)
     const projects = useProjectStore((s) => s.projects)
 
     const selectTab = (id: SettingsTab) => {
@@ -97,6 +99,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "copilot", label: <FormattedMessage id="settings.tab.copilot" defaultMessage="Copilot" />, icon: CopilotIcon },
         { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
+        ...(ASSISTANT_ENABLED ? [{ id: "assistant" as const, label: <FormattedMessage id="settings.tab.assistant" defaultMessage="Assistant" />, icon: MessageCircle }] : []),
         // Agent capabilities
         { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
         { id: "skills", label: <FormattedMessage id="settings.tab.skills" defaultMessage="Skills" />, icon: Sparkles },
@@ -317,6 +320,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                             {activeTab === "custom" && (
                                 <ConfigEditor configDir=".operon" files={OPERON_FILES} />
                             )}
+                            {activeTab === "assistant" && <AssistantSettings />}
                             {activeTab === "skills" && <SkillsSettings />}
                             {activeTab === "extensions" && <ExtensionsSettings />}
                             {activeTab === "browser" && <BrowserSettings initialSurface={initialTab === "chrome" ? "chrome" : "built-in"} />}

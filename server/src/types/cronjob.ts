@@ -14,7 +14,8 @@ export interface CronjobRunResult {
   durationMs: number
 }
 
-export type CronjobTaskType = 'chat' | 'canvas-workflow'
+/** `assistant`: the personal assistant's heartbeat and scheduled tasks, run and managed by it alone. */
+export type CronjobTaskType = 'chat' | 'canvas-workflow' | 'assistant'
 
 export interface CronjobTask {
   id: number

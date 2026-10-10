@@ -23,6 +23,7 @@ import { MobileChatsScreen } from "./MobileChatsScreen"
 import { MobileChannelScreen } from "./MobileChannelScreen"
 import { MobileReviewScreen } from "./MobileReviewScreen"
 import { MobileMoreScreen } from "./MobileMoreScreen"
+import { MobileAssistantScreen } from "./MobileAssistantScreen"
 import { InstallPrompt } from "@/components/web/InstallPrompt"
 import { setAnalyticsScreen } from "@/lib/analytics"
 
@@ -453,20 +454,22 @@ export function MobileApp() {
   }, [projects, activeWorkspaceId])
 
   // The native top bar mirrors MobileTopBar: project › workspace + bell on
-  // list screens, a lone back button over an open conversation.
+  // list screens, a lone back button over an open conversation. The assistant
+  // has no project, so it gets no bar and draws its own header.
+  const hideTopBar = tab === "assistant"
   const inboxUnread = useInboxStore((s) => s.counts.total > 0)
   const topBarTitle = activeInfo?.project.name ?? "operon"
   const topBarSubtitle = activeInfo?.workspace.name
   useEffect(() => {
     if (!nativeTabBar) return
     void NativeShell.setTopBar({
-      mode: immersive ? "back" : "context",
+      mode: hideTopBar ? "hidden" : immersive ? "back" : "context",
       title: topBarTitle,
       subtitle: topBarSubtitle,
       unread: inboxUnread,
       interactive: overlayCount === 0,
     }).catch(() => {})
-  }, [nativeTabBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount])
+  }, [nativeTabBar, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount])
 
   useEffect(() => {
     useTabsStore
@@ -494,7 +497,7 @@ export function MobileApp() {
           left: "1rem",
         }}
       />
-      {!immersive && !nativeTabBar && (
+      {!immersive && !hideTopBar && !nativeTabBar && (
         <MobileTopBar
           projectName={activeInfo?.project.name ?? null}
           workspaceName={activeInfo?.workspace.name ?? null}
@@ -507,12 +510,13 @@ export function MobileApp() {
           bar, so list screens just pad by it; immersive screens carry their own
           inset (see MobileChatsScreen). Android needs none of this: its shell
           moves the web view below the bars instead of drawing over it, so the
-          space is already gone, and padding again would double it. */}
+          space is already gone, and padding again would double it. Without the
+          web top bar (the assistant) the page takes the status-bar inset itself. */}
       <main
         className="min-h-0 flex-1 overflow-hidden"
         style={{
           paddingTop:
-            nativeTabBar && !immersive && !nativeTopBarTakesSpace()
+            (nativeTabBar && !immersive && !nativeTopBarTakesSpace()) || (!nativeTabBar && hideTopBar)
               ? "env(safe-area-inset-top)"
               : undefined,
           paddingBottom: nativeTabBar && tabBarVisible ? `${nativeTabBarHeight}px` : undefined,
@@ -527,6 +531,7 @@ export function MobileApp() {
             onImmersiveChange={setImmersive}
           />
         )}
+        {tab === "assistant" && <MobileAssistantScreen keyboardOpen={keyboardOpen} />}
         {tab === "channel" && (
           <MobileChannelScreen
             keyboardOpen={keyboardOpen}
