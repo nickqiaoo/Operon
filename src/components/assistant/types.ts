@@ -7,7 +7,6 @@ export type {
   ApprovalIcon,
   AssistantApproval,
   AssistantAttachment,
-  AssistantGrant,
   AssistantMessage,
   AssistantSchedule,
   AssistantScheduleRun,

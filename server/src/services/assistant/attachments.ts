@@ -1,4 +1,3 @@
-import type { ImageContent } from 'operon-agents'
 import type { AssistantAttachment } from '../../../../shared/assistant.js'
 import { attachmentUrlFor, getAttachment, parseAttachmentUrl, putDataUrl } from '../attachment-store.js'
 
@@ -41,8 +40,8 @@ function isText(attachment: AssistantAttachment): boolean {
  * files inlined, anything else named so the agent at least knows it was there — the same split
  * chats make (message-utils.ts normalizeUiMessagesFileAttachments).
  */
-export function buildUserInput(text: string, attachments: readonly AssistantAttachment[]): { text: string; images: ImageContent[] } {
-  const images: ImageContent[] = []
+export function buildUserInput(text: string, attachments: readonly AssistantAttachment[]): { text: string; images: Array<{ data: string; mediaType: string }> } {
+  const images: Array<{ data: string; mediaType: string }> = []
   const notes: string[] = []
   for (const attachment of attachments) {
     const name = attachment.filename ?? 'attachment'
@@ -51,7 +50,7 @@ export function buildUserInput(text: string, attachments: readonly AssistantAtta
     if (!stored) {
       notes.push(`[Attachment unavailable: ${name}]`)
     } else if (attachment.mediaType.startsWith('image/')) {
-      images.push({ type: 'image', data: stored.data.toString('base64'), mimeType: stored.meta.mediaType })
+      images.push({ data: stored.data.toString('base64'), mediaType: stored.meta.mediaType })
     } else if (isText(attachment)) {
       const content = stored.data.toString('utf8')
       const clipped = content.length > TEXT_INLINE_LIMIT ? `${content.slice(0, TEXT_INLINE_LIMIT)}\n… (truncated)` : content

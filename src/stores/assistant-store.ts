@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Activity, ApprovalDecision, AssistantAttachment, AssistantConfig, AssistantEvent, AssistantGrant, AssistantMessage, AssistantSchedule, AuditRecord, ProfileFile } from '@shared/assistant'
+import type { Activity, AssistantAttachment, AssistantConfig, AssistantEvent, AssistantMessage, AssistantSchedule, AuditRecord, ProfileFile } from '@shared/assistant'
 import { assistantApi, subscribeAssistant } from '@/lib/assistant-api'
 import type { SseSubscription } from '@/lib/sse'
 import { resolveLocale, useLocaleStore } from '@/stores/locale-store'
@@ -17,7 +17,6 @@ interface AssistantStore {
   /** Newest first. */
   audit: AuditRecord[]
   /** Standing "Always allow"s, newest first. */
-  grants: AssistantGrant[]
   files: ProfileFile[]
   config: AssistantConfig
   /** Heartbeat first. */
@@ -31,13 +30,12 @@ interface AssistantStore {
   loadOlder(): Promise<void>
   send(text: string, attachments?: AssistantAttachment[]): Promise<void>
   stopActivity(id: string): Promise<void>
-  decide(approvalId: string, decision: Exclude<ApprovalDecision, 'expired'>): Promise<void>
+  decide(approvalId: string, decision: 'allowed_once' | 'denied'): Promise<void>
   followUp(id: string, text: string): Promise<void>
   saveFile(name: ProfileFile['name'], content: string): Promise<void>
   setScheduleEnabled(id: number, enabled: boolean): Promise<void>
   deleteSchedule(id: number): Promise<void>
   runSchedule(id: number): Promise<void>
-  revokeGrant(id: string): Promise<void>
 }
 
 /** Insert or replace by id, keeping `createdAt` order. */
@@ -72,7 +70,6 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
         hasMore: state.hasMore,
         activities: state.activities,
         audit: state.audit,
-        grants: state.grants,
         files: state.files,
         config: state.config,
         schedules: state.schedules,
@@ -102,9 +99,6 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
       case 'audit':
         set((s) => ({ audit: [event.record, ...s.audit.filter((r) => r.id !== event.record.id)] }))
         return
-      case 'grants':
-        set({ grants: event.grants })
-        return
       case 'schedules':
         set({ schedules: event.schedules })
         return
@@ -124,9 +118,8 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     loadingOlder: false,
     activities: [],
     audit: [],
-    grants: [],
     files: [],
-    config: { mainModel: '', workerModel: '', quietStart: '23:00', quietEnd: '08:00' },
+    config: { main: { providerId: 'custom', modelId: '' }, worker: { providerId: 'custom', modelId: '' }, background: null, quietStart: '23:00', quietEnd: '08:00' },
     schedules: [],
     typing: false,
     blocker: null,
@@ -196,8 +189,5 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
       await assistantApi.runSchedule(id)
     },
 
-    async revokeGrant(id) {
-      await assistantApi.revokeGrant(id)
-    },
   }
 })

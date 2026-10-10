@@ -51,13 +51,12 @@ export function MobileAssistantScreen({ keyboardOpen = false }: MobileAssistantS
   const loadingOlder = useAssistantStore((s) => s.loadingOlder)
   const activities = useAssistantStore((s) => s.activities)
   const audit = useAssistantStore((s) => s.audit)
-  const grants = useAssistantStore((s) => s.grants)
   const files = useAssistantStore((s) => s.files)
   const schedules = useAssistantStore((s) => s.schedules)
   const config = useAssistantStore((s) => s.config)
   const typing = useAssistantStore((s) => s.typing)
   const blocker = useAssistantStore((s) => s.blocker)
-  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule, revokeGrant } =
+  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule } =
     useAssistantStore.getState()
 
   const [layers, setLayers] = useState<Layer[]>([])
@@ -196,7 +195,7 @@ export function MobileAssistantScreen({ keyboardOpen = false }: MobileAssistantS
                 <ActivityTab activities={activities} selectedId={null} onSelect={(id) => push({ kind: "activity", id })} />
               )}
               {panelTab === "audit" && (
-                <AuditTab records={audit} grants={grants} onRevoke={(id) => void revokeGrant(id).catch(reportError)} />
+                <AuditTab records={audit} />
               )}
               {panelTab === "schedule" && (
                 <ScheduleTab

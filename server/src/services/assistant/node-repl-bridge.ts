@@ -1,13 +1,16 @@
 /**
- * How the assistant's workers reach node_repl (browser, Chrome, Computer Use, site adapters)
- * without a chat id. Imported by both the node_repl route and the assistant runtime, so it
- * depends on neither.
+ * Who is calling: the assistant's own MCP route (routes/assistant-mcp.ts) and node_repl (browser,
+ * Chrome, Computer Use, site adapters) both need to know which of the assistant's sessions made
+ * a call. Imported by the routes and the assistant runtime, so it depends on neither.
  *
- * The assistant's session mounts node_repl once, without a session id but with a per-process
- * key in the URL. Each worker's call names the worker in a hidden argument (added by the
- * assistant's tool wrapper, stripped by the route before any tool sees it), and the route gives
- * each worker its own vm context in the shared kernel — the same isolation a conversation gets,
- * keyed `assistant:<workerId>`. The argument counts only on a request that carries the key.
+ * Every session the assistant opens gets URLs naming it — role and, for a worker, its activity id
+ * — plus a per-process key, so a URL is believed only when it came from the assistant itself: a
+ * coding chat's model cannot claim to be a worker and borrow the assistant's approvals.
+ *
+ * OpenCode is the exception. It shares one MCP client per server name across every session in a
+ * directory, so the URL is whichever session registered first. There the call carries the calling
+ * OpenCode session instead (agent-runtime caller-identity.ts), which the runtime bound to one of
+ * the conversation ids below when it opened the session (`hostConversationId`).
  */
 import { randomBytes, timingSafeEqual } from 'crypto'
 import type { HostElicitationRequest, HostElicitationResult } from '../ai/host-approval-broker.js'
@@ -15,29 +18,50 @@ import type { HostElicitationRequest, HostElicitationResult } from '../ai/host-a
 /** Session-key prefix for an assistant worker's node_repl context. */
 export const ASSISTANT_NODE_REPL_PREFIX = 'assistant:'
 
-/** Hidden tool argument naming the calling worker. */
-export const ASSISTANT_CALLER_ARG = '__operon_assistant_worker'
-
-/**
- * Query parameter on the assistant's own node_repl mount. Every MCP client posts to the same
- * endpoint and a model writes its own tool arguments, so the hidden argument alone would let a
- * coding chat's model claim to be a worker and borrow the assistant's grants. Only a request
- * on the URL carrying this process's key is believed.
- */
+/** Query parameter carrying this process's key on every URL the assistant hands out. */
 export const ASSISTANT_KEY_PARAM = 'assistantKey'
+/** Query parameter naming the worker on its node_repl URL. */
+export const ASSISTANT_WORKER_PARAM = 'assistantWorker'
 const ASSISTANT_KEY = randomBytes(24).toString('hex')
 
-/** `assistantKey=…` for the URL the assistant mounts node_repl with. */
-export function assistantNodeReplQuery(): string {
+/** `assistantKey=…` for a URL the assistant hands to one of its sessions. */
+export function assistantKeyQuery(): string {
   return `${ASSISTANT_KEY_PARAM}=${ASSISTANT_KEY}`
 }
 
-/** Whether a request's key is this process's — i.e. it came through the assistant's mount. */
+/** Whether a request's key is this process's — i.e. the URL came from the assistant. */
 export function isAssistantMountKey(value: string | undefined): boolean {
   if (!value) return false
   const given = Buffer.from(value)
   const expected = Buffer.from(ASSISTANT_KEY)
   return given.length === expected.length && timingSafeEqual(given, expected)
+}
+
+/** A worker or helper id as it may appear in a URL or a key. */
+export function isAssistantId(value: string | undefined): value is string {
+  return typeof value === 'string' && /^[\w-]{1,80}$/.test(value)
+}
+
+/** The kinds of session the assistant opens. */
+export type AssistantRole = 'main' | 'worker' | 'wrapup'
+
+export interface AssistantCaller {
+  role: AssistantRole
+  /** The worker's activity id, or the wrap-up's own id. Absent for the main agent. */
+  id?: string
+}
+
+/** The host conversation id an assistant session is bound to (OpenCode caller identity). */
+export function assistantConversationId(caller: AssistantCaller): string {
+  return caller.role === 'main' ? 'assistant:main' : `assistant:${caller.role}:${caller.id ?? ''}`
+}
+
+/** The inverse of `assistantConversationId`; undefined for anything else (a chat id). */
+export function parseAssistantConversation(value: string | undefined): AssistantCaller | undefined {
+  if (value === 'assistant:main') return { role: 'main' }
+  const match = /^assistant:(worker|wrapup):(.+)$/.exec(value ?? '')
+  if (!match || !isAssistantId(match[2])) return undefined
+  return { role: match[1] as AssistantRole, id: match[2] }
 }
 
 export type AssistantElicitationHandler = (

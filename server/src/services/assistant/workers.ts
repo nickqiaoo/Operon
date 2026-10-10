@@ -1,27 +1,27 @@
-import type { Agent, CreateSessionOptions, Harness, HarnessSession } from 'operon-agents'
+import type { PermissionDecision, RuntimeSession } from '@operon/agent-runtime'
 import type { Activity } from '../../../../shared/assistant.js'
+import { AgentChannel, type AssistantProviderId, type OpenParams } from './agents.js'
 import { ActivityProjector, type RunEnd, type WorkerFinish } from './projector.js'
+import type { FinishArgs, HeartbeatArgs } from './tools.js'
 
 /** A task the user asked for, the heartbeat, or a scheduled task. */
 export type WorkerKind = 'task' | 'heartbeat' | 'schedule'
 
-/** Prefix of a worker's framework session id; the rest is its activity id. */
-const SESSION_PREFIX = 'aw-'
-/** The framework's own subagent limit, kept for workers in sessions of their own. */
+/** The limit a single worker run has, as the framework's own subagents had. */
 const TIMEOUT_MS = 30 * 60_000
 /** How much of what the user said is kept per worker (the newest part). */
 const ASKED_LIMIT = 4_000
 
-export function workerSessionId(activityId: string): string {
-  return `${SESSION_PREFIX}${activityId}`
+/** Which agent runs a worker. Empty `modelId`: the agent's own default. */
+export interface WorkerAgent {
+  providerId: AssistantProviderId
+  modelId: string
 }
 
-/** The activity id of a worker session, or undefined for any other session (the main agent's). */
-export function workerOfSession(sessionId: string): string | undefined {
-  return sessionId.startsWith(SESSION_PREFIX) ? sessionId.slice(SESSION_PREFIX.length) : undefined
+/** The agent session a worker ran in — what "continue this task" resumes. */
+export interface WorkerSessionRef extends WorkerAgent {
+  sessionId: string
 }
-
-type ApprovalHandler = NonNullable<Parameters<HarnessSession['setApprovalHandler']>[0]>
 
 export interface WorkerSpec {
   kind: WorkerKind
@@ -46,16 +46,24 @@ export interface WorkerOutcome {
 
 /** What the pool needs from the assistant runtime. */
 export interface WorkerPoolHost {
-  harness(): Promise<Harness>
-  /** The agent a worker runs as — per worker, so its tools can name it. */
-  agent(activityId: string, kind: WorkerKind): Agent
-  /** Permission policy for a session being opened, standing grants included. */
-  permission(): CreateSessionOptions['permission']
+  /** The agent workers of this kind run on (Settings). Throws when none is usable. */
+  agentFor(kind: WorkerKind): Promise<WorkerAgent>
+  /** The worker's instructions for a run of this kind. */
+  instructions(kind: WorkerKind, unattended: boolean): string
+  /** Where workers work. */
+  cwd: string
+  /** Whether workers get node_repl (browser, Chrome, Mac apps). */
+  nodeRepl(): boolean
+  /** Open (or resume) an agent session. */
+  open(params: OpenParams): Promise<RuntimeSession>
   /** Persist and broadcast. */
   activity(activity: Activity): void
   /** A stored activity, for picking a finished worker back up. */
   stored(activityId: string): Activity | undefined
-  approvalHandler(activityId: string): ApprovalHandler
+  /** A call the worker's agent left to a person. */
+  approve(activityId: string, toolName: string, input: unknown): Promise<PermissionDecision>
+  saveSession(activityId: string, ref: WorkerSessionRef): void
+  loadSession(activityId: string): WorkerSessionRef | undefined
   /** The worker's run ended; its activity is settled. */
   settled(outcome: WorkerOutcome): void
 }
@@ -64,17 +72,21 @@ interface Run {
   kind: WorkerKind
   unattended: boolean
   visible: boolean
-  session: HarnessSession
+  agent: WorkerAgent
+  channel: AgentChannel
   projector: ActivityProjector
+  sessionId?: string
+  /** Why the last turn failed, if it did. */
+  lastError?: string
   end?: RunEnd
   done?: Promise<WorkerOutcome>
 }
 
 /**
- * The assistant's workers. Each one is a framework session of its own, a peer of the main
- * agent's rather than a subagent inside it: its own log, its own context, closed when it
- * finishes and reopened if the user picks the task back up. The main agent hears about it only
- * through the notices the runtime steers in when it finishes (docs/assistant/design.md §2).
+ * The assistant's workers. Each one is an agent session of its own, a peer of the main agent's
+ * rather than a subagent inside it: its own context, closed when it finishes and resumed if the
+ * user picks the task back up. The main agent hears about it only through the notice the runtime
+ * hands it when it finishes (docs/assistant/design.md §2).
  */
 export class WorkerPool {
   private readonly runs = new Map<string, Run>()
@@ -113,12 +125,36 @@ export class WorkerPool {
     this.runs.get(activityId)?.projector.setWaiting(waiting)
   }
 
+  /** Worker `activityId` handed in its result. False: no running worker of that kind. */
+  finish(activityId: string, args: FinishArgs): boolean {
+    const run = this.runs.get(activityId)
+    if (!run || run.kind === 'heartbeat') return false
+    run.projector.handIn({ tool: 'finish_task', args })
+    return true
+  }
+
+  /** The heartbeat run `activityId` handed in what it found. */
+  heartbeatDone(activityId: string, args: HeartbeatArgs): boolean {
+    const run = this.runs.get(activityId)
+    if (!run || run.kind !== 'heartbeat') return false
+    run.projector.handIn({ tool: 'heartbeat_done', args })
+    return true
+  }
+
+  /** A milestone a running worker reported. */
+  progress(activityId: string, text: string): boolean {
+    const run = this.runs.get(activityId)
+    if (!run || run.end !== undefined) return false
+    run.projector.progress(text)
+    return true
+  }
+
   /** Start a worker. Resolves with its activity id once its session is open; the work goes on. */
   async start(spec: WorkerSpec): Promise<{ id: string; done: Promise<WorkerOutcome> }> {
     const id = this.newId()
     const activity: Activity = {
       id,
-      taskId: workerSessionId(id),
+      taskId: `aw-${id}`,
       title: spec.title,
       summary: 'Working…',
       status: 'running',
@@ -127,14 +163,9 @@ export class WorkerPool {
       ...(spec.kind !== 'task' ? { source: spec.kind } : {}),
     }
     this.addAsked(id, spec.asked)
-    const harness = await this.host.harness()
-    const session = await harness.createSession({
-      id: workerSessionId(id),
-      agent: this.host.agent(id, spec.kind),
-      title: spec.title,
-      permission: this.host.permission(),
-    })
-    const run = this.attach(session, activity, spec.kind, spec.unattended, spec.visible)
+    const agent = await this.host.agentFor(spec.kind)
+    const session = await this.host.open(this.openParams(id, agent, spec.kind, spec.unattended))
+    const run = this.attach(session, activity, spec.kind, spec.unattended, spec.visible, agent)
     if (spec.visible) run.projector.publish()
     const done = this.drive(id, run, spec.prompt)
     run.done = done
@@ -143,15 +174,15 @@ export class WorkerPool {
 
   /**
    * More instructions for a worker: folded into its current run, or — once it has finished —
-   * a new run of the same session, so it still has everything it did. Picked up by the user,
-   * so it is attended from here on whatever started it.
+   * a new run of the same agent session, so it still has everything it did. Picked up by the
+   * user, so it is attended from here on whatever started it.
    * @param asked the user's words behind this follow-up (see WorkerSpec.asked).
    */
   async continue(activityId: string, text: string, asked?: string): Promise<'delivered' | 'continued' | 'missing'> {
     const live = this.runs.get(activityId)
     if (live && live.end === undefined) {
       this.addAsked(activityId, asked)
-      live.session.steer(text)
+      await live.channel.deliver({ text })
       live.projector.note(text)
       return 'delivered'
     }
@@ -159,22 +190,30 @@ export class WorkerPool {
     const activity = this.host.stored(activityId)
     if (!activity) return 'missing'
     this.addAsked(activityId, asked)
-    // Picked up by the user, a heartbeat or scheduled run becomes an ordinary task: the task
-    // agent's tools, and the main agent hears how it ended. Its activity keeps its source.
+    // Picked up by the user, a heartbeat or scheduled run becomes an ordinary task: the main
+    // agent hears how it ended. Its activity keeps its source.
     const kind: WorkerKind = 'task'
-    const harness = await this.host.harness()
-    const agent = this.host.agent(activityId, kind)
-    let session: HarnessSession
+    const ref = this.host.loadSession(activityId)
+    let session: RuntimeSession | undefined
+    let agent: WorkerAgent | undefined
     let prompt = text
-    try {
-      session = await harness.resumeSession(workerSessionId(activityId), { agent, permission: this.host.permission() })
-    } catch {
-      // Its session is gone (or never existed: activities from before workers had their own).
-      // Start over in a fresh one, seeded with what the user saw it produce.
-      session = await harness.createSession({ id: workerSessionId(activityId), agent, title: activity.title, permission: this.host.permission() })
+    if (ref) {
+      // The same agent that did it, on its own session: everything it did is still there.
+      try {
+        agent = { providerId: ref.providerId, modelId: ref.modelId }
+        session = await this.host.open({ ...this.openParams(activityId, agent, kind, false), sessionId: ref.sessionId })
+      } catch (error) {
+        console.warn('[assistant] could not resume a worker session, starting over:', error)
+        session = undefined
+      }
+    }
+    if (!session) {
+      // Its session is gone (or never existed). Start over, told what the user saw it produce.
+      agent = await this.host.agentFor(kind)
+      session = await this.host.open(this.openParams(activityId, agent, kind, false))
       prompt = `Earlier you worked on "${activity.title}". What came of it:\n${activity.report ?? activity.summary}\n\nNow: ${text}`
     }
-    const run = this.attach(session, activity, kind, false, true)
+    const run = this.attach(session, activity, kind, false, true, agent!)
     run.projector.reopen()
     run.projector.note(text)
     run.done = this.drive(activityId, run, prompt)
@@ -185,7 +224,7 @@ export class WorkerPool {
     const run = this.runs.get(activityId)
     if (!run || run.end !== undefined) return false
     run.end = 'stopped'
-    run.session.cancel()
+    run.channel.abort()
     return true
   }
 
@@ -195,12 +234,25 @@ export class WorkerPool {
     await Promise.allSettled([...this.runs.values()].flatMap((r) => (r.done ? [r.done] : [])))
   }
 
-  private attach(session: HarnessSession, activity: Activity, kind: WorkerKind, unattended: boolean, visible: boolean): Run {
-    const run: Run = {
+  private openParams(id: string, agent: WorkerAgent, kind: WorkerKind, unattended: boolean): OpenParams {
+    return {
+      providerId: agent.providerId,
+      modelId: agent.modelId,
+      kind: unattended ? 'unattended' : 'worker',
+      caller: { role: 'worker', id },
+      cwd: this.host.cwd,
+      instructions: this.host.instructions(kind, unattended),
+      nodeRepl: this.host.nodeRepl(),
+    }
+  }
+
+  private attach(session: RuntimeSession, activity: Activity, kind: WorkerKind, unattended: boolean, visible: boolean, agent: WorkerAgent): Run {
+    const run = {} as Run
+    Object.assign(run, {
       kind,
       unattended,
       visible,
-      session,
+      agent,
       projector: new ActivityProjector(
         activity,
         (a) => {
@@ -208,17 +260,27 @@ export class WorkerPool {
         },
         this.newId,
         this.now,
+        this.host.cwd,
       ),
-    }
-    this.runs.set(activity.id, run)
-    session.onEvent((event) => {
-      try {
-        run.projector.handle(event)
-      } catch (error) {
-        console.error('[assistant] failed to project worker event', event.type, error)
-      }
+      channel: new AgentChannel(session, {
+        onPart: (part) => {
+          try {
+            run.projector.part(part)
+          } catch (error) {
+            console.error('[assistant] failed to project a worker part', part.type, error)
+          }
+        },
+        onTurnEnd: (end) => {
+          run.projector.turnEnd(end)
+          run.lastError = end.error
+        },
+        onApproval: (toolName, input) => this.host.approve(activity.id, toolName, input),
+        onSessionId: (sessionId) => {
+          run.sessionId = sessionId
+        },
+      }),
     })
-    session.setApprovalHandler(this.host.approvalHandler(activity.id))
+    this.runs.set(activity.id, run)
     return run
   }
 
@@ -226,29 +288,19 @@ export class WorkerPool {
     const timer = setTimeout(() => {
       if (run.end !== undefined) return
       run.end = 'timed_out'
-      run.session.cancel()
+      run.channel.abort()
     }, TIMEOUT_MS)
-    let status: string | undefined
     let error: string | undefined
     try {
-      status = (await run.session.prompt(prompt)).status
-      // A message steered in as the turn was ending starts one more; let those finish too.
-      for (let i = 0; i < 20 && run.end === undefined; i++) {
-        const s = run.session.status
-        if (s.state !== 'running' && !s.hasQueuedMessages) break
-        await run.session.whenIdle()
-      }
+      await run.channel.deliver({ text: prompt })
+      // Instructions folded in as the turn was ending become one more turn; those finish too.
+      await run.channel.whenIdle()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
       clearTimeout(timer)
     }
-    if (run.end === undefined) {
-      if (error) run.end = 'failed'
-      else if (status === 'aborted') run.end = 'stopped'
-      else if (status === 'completed' || status === 'max_turns') run.end = 'completed'
-      else run.end = 'failed'
-    }
+    if (run.end === undefined) run.end = error || run.lastError ? 'failed' : 'completed'
     const end = run.end
     run.projector.settle(end)
     const outcome: WorkerOutcome = {
@@ -259,7 +311,9 @@ export class WorkerPool {
       ...(run.projector.finalText ? { finalText: run.projector.finalText } : {}),
       ...((error ?? run.projector.error) ? { error: error ?? run.projector.error } : {}),
     }
-    await run.session.close().catch((e: unknown) => console.warn('[assistant] closing a worker session failed:', e))
+    const sessionId = run.sessionId ?? run.channel.sessionId
+    if (sessionId) this.host.saveSession(activityId, { ...run.agent, sessionId })
+    await run.channel.dispose()
     if (this.runs.get(activityId) === run) this.runs.delete(activityId)
     try {
       this.host.settled(outcome)

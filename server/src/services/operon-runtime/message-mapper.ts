@@ -84,6 +84,8 @@ type WorkflowEvent =
 export class OperonStreamMapper {
   private started = false
   private finished = false
+  /** An error part already went out for this turn; one is enough. */
+  private errorSent = false
   private stepIndex = -1
   /** Whether a text / thinking block is currently open (synthesise start/end around the flat deltas). */
   private textOpen = false
@@ -303,7 +305,27 @@ export class OperonStreamMapper {
         break
 
       case 'error':
+        this.errorSent = true
         push({ type: 'error', error: event.message } as RuntimeStreamPart)
+        break
+
+      // A model call that failed (a 402 from the provider, say) ends its step with the reason on
+      // the assistant message, not as an `error` event — without this the turn reads as an empty
+      // success and the user sees nothing at all.
+      case 'message.appended': {
+        const message = event.message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown }
+        if (message.role === 'assistant' && message.stopReason === 'error' && typeof message.errorMessage === 'string' && message.errorMessage.trim() && !this.errorSent) {
+          this.errorSent = true
+          push({ type: 'error', error: message.errorMessage } as RuntimeStreamPart)
+        }
+        break
+      }
+
+      case 'turn.ended':
+        if (event.reason === 'failed' && event.error && !this.errorSent) {
+          this.errorSent = true
+          push({ type: 'error', error: event.error } as RuntimeStreamPart)
+        }
         break
 
       case 'agent.ended':

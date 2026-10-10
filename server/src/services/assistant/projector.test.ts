@@ -1,250 +1,238 @@
+import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from 'operon-agents'
 import type { Activity, AssistantMessage } from '../../../../shared/assistant.js'
 import { ActivityProjector, AssistantProjector, briefError } from './projector.js'
 
-type Body = Omit<AgentEvent, 'eventId' | 'sessionId'>
+const p = (part: Record<string, unknown>) => part as unknown as RuntimeStreamPart
 
-const assistant = (text: string) => ({ role: 'assistant', content: [{ type: 'text', text }] })
-const user = (text: string) => ({ role: 'user', content: [{ type: 'text', text }] })
+/** A reply as an agent streams it: one text block. */
+function said(projector: { part(part: RuntimeStreamPart): void }, text: string, id = 't1'): void {
+  projector.part(p({ type: 'text-start', id }))
+  projector.part(p({ type: 'text-delta', id, text }))
+  projector.part(p({ type: 'text-end', id }))
+}
 
 function thread() {
-  const messages: AssistantMessage[] = []
+  const messages = new Map<string, AssistantMessage>()
   const typing: boolean[] = []
   let n = 0
   const projector = new AssistantProjector(
-    { message: (m) => messages.push(m), typing: (t) => typing.push(t) },
-    () => `id-${++n}`,
-    () => 1_000,
+    { message: (m) => messages.set(m.id, { ...m }), typing: (t) => typing.push(t) },
+    () => `m${++n}`,
+    () => 1000,
   )
-  const feed = (...events: Body[]) => {
-    for (const e of events) projector.handle({ eventId: `e${++n}`, sessionId: 's', ...e } as AgentEvent)
-  }
-  return { projector, feed, messages, typing }
+  return { projector, messages: () => [...messages.values()], typing }
 }
 
-const dispatchMessage = (text: string, callId = 'call-1') => ({
-  role: 'assistant',
-  content: [{ type: 'text', text }, { type: 'toolCall', id: callId, name: 'start_task', arguments: { title: '查苏州天气', prompt: '…' } }],
-})
-
 describe('AssistantProjector (the thread)', () => {
-  it('holds a reply that also dispatches until the dispatch runs, then links it', () => {
-    const { projector, feed, messages, typing } = thread()
-    feed(
-      { type: 'turn.started', address: 'main', turnId: 't1' } as Body,
-      { type: 'message.appended', address: 'main', message: user('查下苏州天气') } as Body,
-      { type: 'message.appended', address: 'main', message: dispatchMessage('好，我去查。') } as Body,
-    )
-    expect(messages).toEqual([])
-    projector.dispatch('call-1', 'trip')
-    expect(messages).toEqual([{ id: expect.any(String), role: 'assistant', text: '好，我去查。', createdAt: 1_000, activityId: 'trip' }])
-    feed({ type: 'turn.ended', address: 'main', turnId: 't1', reason: 'completed' } as Body)
-    expect(messages).toHaveLength(1)
-    expect(typing).toEqual([true, false])
+  it('shows each piece of text the agent says between tool calls as its own reply', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.part(p({ type: 'text-delta', id: 'a', text: 'On it.' }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: {} }))
+    said(t.projector, 'Back soon.', 'b')
+    t.projector.end()
+    expect(t.messages().map((m) => m.text)).toEqual(['On it.', 'Back soon.'])
+    expect(t.typing).toEqual([true, false])
   })
 
-  it('links an ack written after the dispatch to that worker', () => {
-    const { projector, feed, messages } = thread()
-    feed(
-      { type: 'turn.started', address: 'main', turnId: 't1' } as Body,
-      { type: 'message.appended', address: 'main', message: user('查天气') } as Body,
-    )
-    projector.dispatch('call-1', 'trip')
-    feed({ type: 'message.appended', address: 'main', message: assistant('在查了。') } as Body)
-    expect(messages[0]).toMatchObject({ text: '在查了。', activityId: 'trip' })
+  it('links the acknowledgement said before a dispatch to the worker it started', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    said(t.projector, 'Looking into it.')
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: {} }))
+    t.projector.dispatch('w1')
+    t.projector.end()
+    expect(t.messages()).toEqual([expect.objectContaining({ text: 'Looking into it.', activityId: 'w1' })])
   })
 
-  it('releases a held reply at turn end even if the dispatch never ran', () => {
-    const { feed, messages } = thread()
-    feed(
-      { type: 'turn.started', address: 'main', turnId: 't1' } as Body,
-      { type: 'message.appended', address: 'main', message: dispatchMessage('试试看', 'x') } as Body,
-      { type: 'turn.ended', address: 'main', turnId: 't1', reason: 'completed' } as Body,
-    )
-    expect(messages.map((m) => m.text)).toEqual(['试试看'])
-    expect(messages[0].activityId).toBeUndefined()
+  it('links a reply written after the dispatch to that worker', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.dispatch('w2')
+    said(t.projector, 'Started.')
+    t.projector.end()
+    expect(t.messages()[0]).toMatchObject({ text: 'Started.', activityId: 'w2' })
   })
 
   it('marks the reply to a finished-task notice as triggered by that worker', () => {
-    const { feed, messages } = thread()
-    feed(
-      { type: 'turn.started', address: 'main', turnId: 't2' } as Body,
-      {
-        type: 'message.appended',
-        address: 'main',
-        message: user('[Task finished] …'),
-        origin: { kind: 'external', source: 'worker-done', metadata: { activityId: 'trip' }, channel: 'follow_up' },
-      } as Body,
-      // Framework context injected mid-turn must not change why main is speaking.
-      { type: 'message.appended', address: 'main', message: user('<system-reminder/>'), origin: { kind: 'injection', injectorId: 'skill_catalog' } } as Body,
-      { type: 'message.appended', address: 'main', message: assistant('苏州在下小雨。') } as Body,
-    )
-    expect(messages.at(-1)).toMatchObject({ text: '苏州在下小雨。', trigger: { kind: 'worker', activityId: 'trip' }, activityId: 'trip' })
+    const t = thread()
+    t.projector.begin({ kind: 'worker', activityId: 'w3' })
+    said(t.projector, 'Done — 3 files.')
+    t.projector.end()
+    expect(t.messages()[0]).toMatchObject({ trigger: { kind: 'worker', activityId: 'w3' }, activityId: 'w3' })
   })
 
   it('tags replies to the heartbeat and to a scheduled task', () => {
-    const { feed, messages } = thread()
-    feed(
-      { type: 'message.appended', address: 'main', message: user('[Heartbeat] …'), origin: { kind: 'external', source: 'heartbeat', metadata: { activityId: 'hb' }, channel: 'follow_up' } } as Body,
-      { type: 'message.appended', address: 'main', message: assistant('刚看到一封银行邮件。') } as Body,
-      { type: 'message.appended', address: 'main', message: user('[Scheduled] …'), origin: { kind: 'external', source: 'schedule', metadata: { name: 'Morning brief', activityId: 'mb' }, channel: 'follow_up' } } as Body,
-      { type: 'message.appended', address: 'main', message: assistant('早报来了。') } as Body,
-    )
-    expect(messages[0]).toMatchObject({ trigger: { kind: 'heartbeat' }, activityId: 'hb' })
-    expect(messages[1]).toMatchObject({ trigger: { kind: 'schedule', name: 'Morning brief' }, activityId: 'mb' })
+    const t = thread()
+    t.projector.begin({ kind: 'heartbeat', activityId: 'h1' })
+    said(t.projector, 'Your bank wrote.')
+    t.projector.end()
+    t.projector.begin({ kind: 'schedule', name: 'Morning brief' })
+    said(t.projector, 'Here is today.')
+    t.projector.end()
+    expect(t.messages().map((m) => m.trigger)).toEqual([{ kind: 'heartbeat' }, { kind: 'schedule', name: 'Morning brief' }])
   })
 
-  it('attaches remembered lines to the next main reply only', () => {
-    const { projector, feed, messages } = thread()
-    projector.remember('不喝咖啡，只喝茶')
-    feed(
-      { type: 'message.appended', address: 'main', message: user('记住我只喝茶') } as Body,
-      { type: 'message.appended', address: 'main', message: assistant('记好了。') } as Body,
-      { type: 'message.appended', address: 'main', message: assistant('还有别的吗？') } as Body,
-    )
-    expect(messages[0].remembered).toEqual(['不喝咖啡，只喝茶'])
-    expect(messages[1].remembered).toBeUndefined()
+  it('follows a cause injected into a running turn', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    said(t.projector, 'Sure.')
+    t.projector.setCause({ kind: 'worker', activityId: 'w4' })
+    said(t.projector, 'And the report is ready.', 't2')
+    t.projector.end()
+    expect(t.messages().map((m) => m.trigger?.kind ?? 'user')).toEqual(['user', 'worker'])
+  })
+
+  it('carries over the cause of a turn the agent started on its own', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'worker', activityId: 'w5' })
+    t.projector.end()
+    t.projector.begin()
+    said(t.projector, 'One more thing about it.')
+    t.projector.end()
+    expect(t.messages()[0]).toMatchObject({ trigger: { kind: 'worker', activityId: 'w5' } })
+  })
+
+  it('attaches a line saved before any reply to the next reply only', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.remember('Prefers driving')
+    said(t.projector, 'Noted.')
+    said(t.projector, 'Anything else?', 't2')
+    t.projector.end()
+    expect(t.messages().map((m) => m.remembered)).toEqual([['Prefers driving'], undefined])
   })
 
   it('puts a line saved after the reply onto that same reply', () => {
-    const { projector, feed, messages } = thread()
-    feed(
-      { type: 'turn.started', address: 'main', turnId: 't1' } as Body,
-      { type: 'message.appended', address: 'main', message: user('记住我只喝茶') } as Body,
-      { type: 'message.appended', address: 'main', message: assistant('记下了。') } as Body,
-    )
-    projector.remember('只喝茶')
-    expect(messages).toHaveLength(2)
-    expect(messages[1]).toMatchObject({ id: messages[0].id, text: '记下了。', remembered: ['只喝茶'] })
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    said(t.projector, 'Got it.')
+    t.projector.remember('Daughter: Duoduo')
+    t.projector.end()
+    expect(t.messages()).toEqual([expect.objectContaining({ text: 'Got it.', remembered: ['Daughter: Duoduo'] })])
   })
 
-  it('says something when a main turn fails', () => {
-    const { feed, messages } = thread()
-    feed({ type: 'turn.ended', address: 'main', turnId: 't', reason: 'failed', error: '401 invalid key' } as Body)
-    expect(messages[0].text).toContain('401 invalid key')
+  it('says something when a turn fails, and nothing when it was stopped', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.end({ error: '402 {"error":{"message":"needs more credits"}}' })
+    t.projector.begin({ kind: 'user' })
+    t.projector.end({ error: 'aborted', aborted: true })
+    expect(t.messages().map((m) => m.text)).toEqual(['Something went wrong on my side: 402 · needs more credits'])
   })
 })
 
-function worker(seed: Partial<Activity> = {}) {
-  const published: Activity[] = []
-  let n = 0
-  const activity: Activity = { id: 'trip', taskId: 'aw-trip', title: '查苏州天气', summary: 'Working…', status: 'running', startedAt: 500, steps: [], ...seed }
-  const projector = new ActivityProjector(activity, (a) => published.push(a), () => `id-${++n}`, () => 900)
-  const feed = (...events: Body[]) => {
-    for (const e of events) projector.handle({ eventId: `e${++n}`, sessionId: 'aw-trip', ...e } as AgentEvent)
-  }
-  const last = () => published.at(-1)!
-  return { projector, feed, published, last }
+function activityOf(): Activity {
+  return { id: 'w1', taskId: 'aw-w1', title: 'Check files', summary: 'Working…', status: 'running', startedAt: 1, steps: [] }
 }
 
-/** The worker does two steps, the second fails. */
-function twoSteps(feed: ReturnType<typeof worker>['feed']) {
-  feed(
-    { type: 'tool.call.started', address: 'main', toolCallId: 'c1', toolName: 'mcp__weather__get_weather', args: { intent: '查询苏州天气', city: 'suzhou' } } as Body,
-    { type: 'tool.result', address: 'main', toolCallId: 'c1', toolName: 'mcp__weather__get_weather', result: { content: [{ type: 'text', text: 'suzhou: rain' }] }, isError: false } as Body,
-    { type: 'tool.call.started', address: 'main', toolCallId: 'c2', toolName: 'Read', args: { intent: '读行程', path: 'notes.md' } } as Body,
-    { type: 'tool.result', address: 'main', toolCallId: 'c2', toolName: 'Read', result: { content: [{ type: 'text', text: 'no such file' }] }, isError: true } as Body,
-  )
+function worker() {
+  const seen: Activity[] = []
+  let n = 0
+  const projector = new ActivityProjector(activityOf(), (a) => seen.push(a), () => `s${++n}`, () => 5, '/work')
+  return { projector, last: () => seen.at(-1)! }
 }
 
 describe('ActivityProjector (one worker)', () => {
-  it('turns tool calls into plain-language steps', () => {
-    const { feed, last } = worker()
-    twoSteps(feed)
-    const a = last()
-    expect(a.steps.map((s) => [s.label, s.status, s.tool])).toEqual([
-      ['查询苏州天气', 'done', 'mcp__weather__get_weather'],
-      ['读行程', 'failed', 'Read'],
-    ])
-    expect(a.steps[0].args).toEqual({ city: 'suzhou' })
-    expect(a.steps[0].result).toBe('suzhou: rain')
+  it("names steps off the calls themselves: Claude's description, the command, the path", () => {
+    const w = worker()
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'a', toolName: 'Bash', input: { command: 'ls', description: 'List the files' } }))
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'b', toolName: 'exec', input: { command: '/bin/zsh -lc "find . -name \'*.txt\'"' } }))
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'c', toolName: 'read', input: { filePath: '/work/notes/a.md' } }))
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'd', toolName: 'mcp__node_repl__js', input: JSON.stringify({ code: '1' }) }))
+    expect(w.last().steps.map((s) => s.label)).toEqual(['List the files', "find . -name '*.txt'", 'read: notes/a.md', 'js'])
+    expect(w.last().steps.map((s) => s.tool)).toEqual(['Bash', 'exec', 'read', 'js'])
+  })
+
+  it("leaves the assistant's own tools out of the steps", () => {
+    const w = worker()
+    for (const name of ['mcp__assistant_worker__finish_task', 'assistant_worker_report_progress', 'mcp__assistant_worker__heartbeat_done']) {
+      w.projector.part(p({ type: 'tool-call', toolCallId: name, toolName: name, input: {} }))
+    }
+    w.projector.publish()
+    expect(w.last().steps).toEqual([])
+  })
+
+  it('completes a step with what the tool returned, or fails it', () => {
+    const w = worker()
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'a', toolName: 'Read', input: { file_path: '/work/a.txt' } }))
+    w.projector.part(p({ type: 'tool-result', toolCallId: 'a', output: { content: [{ type: 'text', text: 'alpha' }] } }))
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'b', toolName: 'Bash', input: { command: 'curl x' } }))
+    w.projector.part(p({ type: 'tool-error', toolCallId: 'b', error: new Error('blocked') }))
+    expect(w.last().steps.map((s) => [s.status, s.result])).toEqual([['done', 'alpha'], ['failed', 'blocked']])
   })
 
   it('settles from finish_task, keeping the full result as the report', () => {
-    const { projector, feed, last } = worker()
-    twoSteps(feed)
-    feed(
-      { type: 'message.appended', address: 'main', message: assistant('苏州小雨，19°C。行程文件没找到。') } as Body,
-      { type: 'tool.call.started', address: 'main', toolCallId: 'c3', toolName: 'finish_task', args: { title: '苏州天气', summary: '小雨 19°C', status: 'partial' } } as Body,
-    )
-    projector.settle('completed')
-    expect(last()).toMatchObject({ status: 'partial', title: '苏州天气', summary: '小雨 19°C', finishedAt: 900 })
-    expect(last().report).toContain('行程文件没找到')
-    expect(last().steps).toHaveLength(2)
+    const w = worker()
+    said(w.projector, 'alpha.txt — alpha first line')
+    w.projector.handIn({ tool: 'finish_task', args: { title: 'Listed files', summary: '2 files', status: 'partial' } })
+    w.projector.turnEnd({})
+    w.projector.settle('completed')
+    expect(w.last()).toMatchObject({ status: 'partial', title: 'Listed files', summary: '2 files', report: '2 files\n\nalpha.txt — alpha first line' })
   })
 
   it('falls back to the final text when the worker never calls finish_task', () => {
-    const { projector, feed, last } = worker()
-    feed({ type: 'message.appended', address: 'main', message: assistant('## 结果如下：\n- **苏州**小雨，19°C') } as Body)
-    projector.settle('completed')
-    expect(last()).toMatchObject({ status: 'done', title: '查苏州天气', summary: '苏州小雨，19°C' })
+    const w = worker()
+    said(w.projector, 'Found:\nalpha.txt has one line')
+    w.projector.turnEnd({})
+    w.projector.settle('completed', 'Fallback title')
+    expect(w.last()).toMatchObject({ status: 'done', title: 'Fallback title', summary: 'alpha.txt has one line' })
   })
 
   it('marks a stopped worker and its unfinished steps', () => {
-    const { projector, feed, last } = worker()
-    feed({ type: 'tool.call.started', address: 'main', toolCallId: 'c4', toolName: 'Bash', args: { intent: '跑一下', command: 'sleep 9' } } as Body)
-    projector.settle('stopped')
-    expect(last()).toMatchObject({ status: 'stopped', summary: 'Stopped' })
-    expect(last().steps.at(-1)!.status).toBe('failed')
+    const w = worker()
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'a', toolName: 'Bash', input: { command: 'sleep 9' } }))
+    w.projector.turnEnd({ aborted: true, error: 'aborted' })
+    w.projector.settle('stopped')
+    expect(w.last()).toMatchObject({ status: 'stopped', summary: 'Stopped' })
+    expect(w.last().steps[0]!.status).toBe('failed')
   })
 
   it('fails a run whose turn failed, saying why', () => {
-    const { projector, feed, last } = worker()
-    feed({ type: 'turn.ended', address: 'main', turnId: 't', reason: 'failed', error: '402 budget exhausted' } as Body)
-    projector.settle('completed')
-    expect(last()).toMatchObject({ status: 'failed', summary: '402 budget exhausted' })
+    const w = worker()
+    w.projector.turnEnd({ error: '500 {"error":{"message":"upstream down"}}' })
+    w.projector.settle('failed')
+    expect(w.last()).toMatchObject({ status: 'failed', summary: '500 · upstream down' })
   })
 
   it('says so when a run ran out of time', () => {
-    const { projector, last } = worker()
-    projector.settle('timed_out')
-    expect(last()).toMatchObject({ status: 'failed', summary: 'Took too long and was stopped' })
+    const w = worker()
+    w.projector.settle('timed_out')
+    expect(w.last()).toMatchObject({ status: 'failed', summary: 'Took too long and was stopped' })
   })
 
   it('flips a live worker to waiting and back, and leaves a finished one alone', () => {
-    const { projector, last } = worker()
-    projector.setWaiting(true)
-    expect(last().status).toBe('waiting')
-    projector.setWaiting(false)
-    expect(last().status).toBe('running')
-    projector.settle('completed')
-    projector.setWaiting(true)
-    expect(last().status).toBe('done')
+    const w = worker()
+    w.projector.setWaiting(true)
+    expect(w.last().status).toBe('waiting')
+    w.projector.setWaiting(false)
+    expect(w.last().status).toBe('running')
+    w.projector.settle('completed')
+    w.projector.setWaiting(true)
+    expect(w.last().status).toBe('done')
   })
 
   it('reopens the same activity when a finished task is continued, steps kept', () => {
-    const { projector, feed, last } = worker()
-    twoSteps(feed)
-    projector.settle('completed')
-    projector.reopen()
-    projector.note('顺便查下上海')
-    expect(last()).toMatchObject({ status: 'running', summary: 'Working…' })
-    expect(last().finishedAt).toBeUndefined()
-    expect(last().steps.map((s) => s.label)).toEqual(['查询苏州天气', '读行程', 'You: 顺便查下上海'])
+    const w = worker()
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'a', toolName: 'Bash', input: { command: 'ls' } }))
+    w.projector.settle('completed')
+    w.projector.reopen()
+    w.projector.note('also the .md files')
+    expect(w.last()).toMatchObject({ status: 'running', summary: 'Working…' })
+    expect(w.last().steps.map((s) => s.label)).toEqual(['ls', 'You: also the .md files'])
   })
 
-  it('ignores events from anywhere but the worker itself', () => {
-    const { feed, published } = worker()
-    feed({ type: 'tool.call.started', address: 'main/helper', toolCallId: 'x', toolName: 'Bash', args: { intent: 'nested' } } as Body)
-    expect(published).toEqual([])
-  })
-
-  it("takes a failed model call's own error, not \"unknown error\"", () => {
-    const { projector, feed, last } = worker()
-    const body = '402 {"type":"error","error":{"type":"billing_error","message":"This request requires more credits, or fewer max_tokens."}}'
-    feed(
-      { type: 'message.appended', address: 'main', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: body } } as Body,
-      { type: 'turn.ended', address: 'main', turnId: 't', reason: 'failed' } as Body,
-    )
-    projector.settle('completed')
-    expect(last()).toMatchObject({ status: 'failed', summary: '402 · This request requires more credits, or fewer max_tokens.' })
+  it('shows a reported milestone as a step', () => {
+    const w = worker()
+    w.projector.progress('Found the booking page')
+    expect(w.last().steps[0]).toMatchObject({ label: 'Found the booking page', tool: 'report_progress', status: 'done' })
   })
 })
 
 describe('briefError', () => {
   it('keeps plain errors and boils JSON bodies down to status and message', () => {
-    expect(briefError('fetch failed')).toBe('fetch failed')
-    expect(briefError('429 {"error":{"message":"Rate limited"}}')).toBe('429 · Rate limited')
+    expect(briefError('socket hang up')).toBe('socket hang up')
+    expect(briefError('402 {"error":{"message":"This request requires more credits"}}')).toBe('402 · This request requires more credits')
   })
 })

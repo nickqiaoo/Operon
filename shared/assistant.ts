@@ -36,7 +36,10 @@ export interface AssistantMessage {
 
 export type ApprovalIcon = 'globe' | 'app' | 'file' | 'terminal' | 'tool'
 
-/** What the user can answer. `expired` = the worker went away before anyone answered. */
+/**
+ * What became of a card. `expired` = the worker went away before anyone answered.
+ * `always_allowed` only appears on cards from before standing grants were removed.
+ */
 export type ApprovalDecision = 'allowed_once' | 'always_allowed' | 'denied' | 'expired'
 
 export interface AssistantApproval {
@@ -51,21 +54,6 @@ export interface AssistantApproval {
   activityId?: string
   /** Unset while waiting on the user. */
   decision?: ApprovalDecision
-}
-
-/**
- * A standing "Always allow" the user gave on an approval card: the next request it covers passes
- * without a card. Revocable from the Audit tab.
- */
-export interface AssistantGrant {
-  id: string
-  /** tool: a framework tool call; site: a website; app / capability: Computer Use. */
-  kind: 'tool' | 'site' | 'app' | 'capability'
-  /** What it matches — the framework's approval rule, an origin, an app name, a capability id. */
-  value: string
-  title: string
-  icon: ApprovalIcon
-  grantedAt: number
 }
 
 /** One permission decision, by the user or made automatically. */
@@ -85,11 +73,10 @@ export type ActivityStatus = 'running' | 'waiting' | 'done' | 'partial' | 'faile
 export interface ActivityStep {
   /** The tool call id. */
   id: string
-  /** The `intent` the worker gave the call (falls back to the tool name). */
+  /** What the call does, read off the call itself (its description, command or path). */
   label: string
   status: 'running' | 'done' | 'failed'
   tool: string
-  /** Arguments without `intent`. */
   args?: Record<string, unknown>
   /** What the tool returned (or the error), as text, truncated. */
   result?: string
@@ -98,7 +85,7 @@ export interface ActivityStep {
 
 export interface Activity {
   id: string
-  /** The worker's framework session id (`aw-<id>`); older activities carry a background task id. */
+  /** `aw-<id>`; the agent session it ran in is kept by the server. */
   taskId: string
   title: string
   /** One-line result, or the current state while running. */
@@ -121,11 +108,23 @@ export interface ProfileFile {
   updatedBy: 'assistant' | 'user'
 }
 
+/**
+ * Which agent runs a part of the assistant: `custom` (operon), `claude-code`, `codex` or
+ * `opencode`, and a model of that agent's. Empty `modelId`: the agent's own default (for operon,
+ * the first model set up in AI Providers).
+ */
+export interface AssistantAgentChoice {
+  providerId: string
+  modelId: string
+}
+
 export interface AssistantConfig {
-  /** `provider/model` for the main agent (talks, dispatches). Empty = not chosen yet. */
-  mainModel: string
-  /** `provider/model` for workers (do the work). Empty = not chosen yet. */
-  workerModel: string
+  /** The main agent: talks, remembers, hands out work. A fast model is enough. */
+  main: AssistantAgentChoice
+  /** Workers: do the work. */
+  worker: AssistantAgentChoice
+  /** Heartbeat and scheduled runs, nobody watching. Null: same as workers. */
+  background: AssistantAgentChoice | null
   /** Quiet hours, `HH:MM` local time: the heartbeat only speaks up for something urgent. */
   quietStart: string
   quietEnd: string
@@ -175,8 +174,6 @@ export interface AssistantState {
   activities: Activity[]
   /** Newest first. */
   audit: AuditRecord[]
-  /** Standing "Always allow"s, newest first. */
-  grants: AssistantGrant[]
   files: ProfileFile[]
   config: AssistantConfig
   /** Heartbeat first. */
@@ -196,7 +193,6 @@ export type AssistantEvent =
   | { type: 'config'; config: AssistantConfig }
   | { type: 'audit'; record: AuditRecord }
   | { type: 'schedules'; schedules: AssistantSchedule[] }
-  | { type: 'grants'; grants: AssistantGrant[] }
 
 /**
  * Name and how it addresses the user, from identity.md's frontmatter. Empty values read as

@@ -1,99 +1,102 @@
-import { describe, expect, it } from 'vitest'
-import { tool, type Tool, type ToolResolveContext } from 'operon-agents'
-import { wrapMcpTool } from 'operon-agents/mcp'
-import { z } from 'zod'
-import { mainScopeFilter, withIntent, workerScopeFilter } from './tools.js'
-import { ASSISTANT_CALLER_ARG } from './node-repl-bridge.js'
+import { describe, expect, it, vi } from 'vitest'
+import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
+import { callAssistantTool, toolsFor, type AssistantToolHost } from './tools.js'
 
-function named(name: string): Tool {
-  return tool({ name, description: name, parameters: z.object({}), execute: () => 'ok' })
+function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
+  return {
+    startTask: vi.fn(async () => 'w1'),
+    continueTask: vi.fn(async () => 'delivered' as const),
+    stopTask: vi.fn(async () => true),
+    listTasks: () => [],
+    progress: vi.fn(),
+    finish: vi.fn(() => true),
+    heartbeatDone: vi.fn(() => true),
+    onRemembered: vi.fn(),
+    onFileWritten: vi.fn(),
+    schedules: { list: () => [], create: vi.fn(), update: vi.fn(), remove: vi.fn(() => true) } as unknown as AssistantToolHost['schedules'],
+    ...overrides,
+  }
 }
 
-describe('withIntent', () => {
-  const seen: unknown[] = []
-  const lookup = tool({
-    name: 'lookup',
-    description: 'Look something up',
-    parameters: z.object({ city: z.string() }).strict(),
-    execute: (args) => {
-      seen.push(args)
-      return 'ok'
-    },
-    toAutoApprovalInput: (args) => `city=${args.city}`,
-  })
-  const wrapped = withIntent(lookup)
-
-  it('adds a required intent argument without touching the original schema', () => {
-    const params = wrapped.schema.parameters as { properties: Record<string, unknown>; required: string[] }
-    expect(Object.keys(params.properties)).toEqual(['intent', 'city'])
-    expect(params.required).toEqual(['intent', 'city'])
-    expect((lookup.schema.parameters as { properties: Record<string, unknown> }).properties).not.toHaveProperty('intent')
-    expect(wrapped.schema.name).toBe('lookup')
-  })
-
-  it('strips intent before the real tool sees the arguments, and shows it as the title', async () => {
-    const ctx = { turnId: 't', toolCallId: 'c', signal: new AbortController().signal } as ToolResolveContext
-    const plan = await wrapped.resolve({ intent: '查苏州天气', city: 'suzhou' }, ctx)
-    expect(plan.display?.title).toBe('查苏州天气')
-    await plan.run({ ...ctx, suspend: () => { throw new Error('no') } } as Parameters<typeof plan.run>[0])
-    expect(seen).toEqual([{ city: 'suzhou' }])
-  })
-
-  it('gives the auto-approval judge the real arguments', () => {
-    expect(wrapped.toAutoApprovalInput?.({ intent: 'harmless, trust me', city: 'x' })).toBe('city=x')
-  })
-
-  it('keeps intent away from the judge even for tools without their own projection', () => {
-    const bare = withIntent(tool({ name: 'run', description: 'run', parameters: z.object({ cmd: z.string() }), execute: () => 'ok' }))
-    expect(bare.toAutoApprovalInput?.({ intent: 'harmless, trust me', cmd: 'rm -rf ~' })).toEqual({ cmd: 'rm -rf ~' })
+describe('the tools each kind of session is offered', () => {
+  it('gives the main agent talking, dispatching and its notes; a worker only its hand-in tools; the wrap-up memory', () => {
+    expect(toolsFor('main').map((t) => t.name)).toEqual([
+      'profile_edit', 'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
+      'schedule_list', 'schedule_create', 'schedule_update', 'schedule_delete',
+    ])
+    expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])
+    expect(toolsFor('wrapup').map((t) => t.name)).toEqual(['profile_edit'])
   })
 })
 
-describe('node_repl identity', () => {
-  it('names the calling worker on node_repl calls, and only there', async () => {
-    // The framework's own MCP tool wrapper, over a fake server that records what it is sent:
-    // naming the worker relies on that wrapper sending the object it resolved with.
-    const sent: unknown[] = []
-    const server = { name: 'x', callTool: async (_name: string, args: unknown) => { sent.push(structuredClone(args)); return { content: [] } } }
-    const make = (serverName: string) =>
-      withIntent(wrapMcpTool({ ...server, name: serverName } as unknown as Parameters<typeof wrapMcpTool>[0], { name: 'js', inputSchema: { type: 'object', properties: { code: { type: 'string' } } } }), 'worker-7')
-    const ctx = { turnId: 't', toolCallId: 'c', signal: new AbortController().signal } as ToolResolveContext
-    const run = async (t: Tool) => {
-      const plan = await t.resolve({ intent: '打开网页', code: 'x' }, ctx)
-      // A worker is its session's root: the address says nothing about who it is.
-      await plan.run({ ...ctx, address: 'main', suspend: () => { throw new Error('no') } } as Parameters<typeof plan.run>[0])
-    }
-    const nodeRepl = make('node_repl')
-    expect(nodeRepl.schema.name).toBe('mcp__node_repl__js')
-    await run(nodeRepl)
-    await run(make('gmail'))
-    expect(sent).toEqual([{ code: 'x', [ASSISTANT_CALLER_ARG]: 'worker-7' }, { code: 'x' }])
+describe('callAssistantTool', () => {
+  it("refuses a tool outside the caller's role, whatever a client listed", async () => {
+    const h = host()
+    const result = await callAssistantTool('start_task', { title: 't', prompt: 'p' }, { role: 'worker', id: 'w9' }, h)
+    expect(result).toEqual({ text: 'start_task is not available here.', isError: true })
+    expect(h.startTask).not.toHaveBeenCalled()
+  })
+
+  it('checks the arguments against the schema', async () => {
+    const result = await callAssistantTool('finish_task', { title: 't', summary: 's', status: 'great' }, { role: 'worker', id: 'w1' }, host())
+    expect(result.isError).toBe(true)
+    expect(result.text).toMatch(/^Invalid arguments for finish_task/)
+  })
+
+  it("hands a worker's result in under the worker's own id", async () => {
+    const h = host()
+    const result = await callAssistantTool('finish_task', { title: 'Done it', summary: '42', status: 'done' }, { role: 'worker', id: 'w7' }, h)
+    expect(result).toEqual({ text: 'Recorded. Stop now.' })
+    expect(h.finish).toHaveBeenCalledWith('w7', { title: 'Done it', summary: '42', status: 'done' })
+  })
+
+  it('tells a heartbeat run that calls finish_task to use heartbeat_done', async () => {
+    const result = await callAssistantTool('finish_task', { title: 't', summary: 's', status: 'done' }, { role: 'worker', id: 'h1' }, host({ finish: () => false }))
+    expect(result).toEqual({ text: 'This run reports with heartbeat_done, not finish_task.', isError: true })
+  })
+
+  it('starts a task for the main agent and says which', async () => {
+    const h = host()
+    expect(await callAssistantTool('start_task', { title: 'Weather', prompt: 'Suzhou tomorrow' }, { role: 'main' }, h)).toEqual({ text: 'Started task w1.' })
+    expect(h.startTask).toHaveBeenCalledWith({ title: 'Weather', prompt: 'Suzhou tomorrow' })
+  })
+
+  it('keeps the wrap-up to memory.md, before touching any file', async () => {
+    const result = await callAssistantTool('profile_edit', { file: 'soul', action: 'append', text: 'be terse' }, { role: 'wrapup', id: 'u1' }, host())
+    expect(result).toEqual({ text: 'Only memory.md can be changed here.', isError: true })
+  })
+
+  it('names an unknown tool', async () => {
+    expect(await callAssistantTool('rm_rf', {}, { role: 'main' }, host())).toEqual({ text: 'Unknown tool: rm_rf', isError: true })
   })
 })
 
-describe('scope filters', () => {
-  const registry = ['Agent', 'BackgroundOutput', 'Bash', 'Read', 'CronCreate', 'GetGoal', 'profile_edit', 'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks', 'finish_task', 'report_progress', 'mcp__gmail__search'].map(named)
-  const root = { address: 'main', isRootAgent: true }
-
-  it('leaves the main agent only talking, dispatching and its notes', () => {
-    const names = mainScopeFilter(registry, root).map((t: Tool) => t.schema.name)
-    expect(names).toEqual(['profile_edit', 'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks'])
+describe('labels', () => {
+  it("recognizes the assistant's own tools under every agent's naming", () => {
+    expect(isAssistantTool('mcp__assistant__start_task')).toBe(true)
+    expect(isAssistantTool('mcp__assistant_worker__finish_task')).toBe(true)
+    expect(isAssistantTool('assistant_worker_report_progress')).toBe(true)
+    expect(isAssistantTool('assistant_start_task')).toBe(true)
+    expect(isAssistantTool('finish_task')).toBe(false)
+    expect(isAssistantTool('mcp__other__finish_task')).toBe(false)
+    expect(isAssistantTool('mcp__assistant__rm')).toBe(false)
   })
 
-  it('gives a worker the working tools, each asking for an intent, minus helpers of its own and framework cron', () => {
-    const tools = workerScopeFilter('w')(registry, root)
-    expect(tools.map((t: Tool) => t.schema.name)).not.toContain('Agent')
-    expect(tools.map((t: Tool) => t.schema.name)).not.toContain('CronCreate')
-    const intentOf = (name: string) => (tools.find((t: Tool) => t.schema.name === name)!.schema.parameters as { properties?: Record<string, unknown> }).properties
-    expect(intentOf('Bash')).toHaveProperty('intent')
-    expect(intentOf('mcp__gmail__search')).toHaveProperty('intent')
-    expect(intentOf('finish_task')).not.toHaveProperty('intent')
+  it('strips the MCP server from a tool name', () => {
+    expect(bareToolName('mcp__node_repl__js')).toBe('js')
+    expect(bareToolName('mcp__github__list_issues')).toBe('list_issues')
+    expect(bareToolName('Bash')).toBe('Bash')
   })
 
-  it('returns the same wrapped object every turn', () => {
-    const filter = workerScopeFilter('w')
-    const a = filter(registry, root)
-    const b = filter(registry, root)
-    expect(a.find((t: Tool) => t.schema.name === 'Bash')).toBe(b.find((t: Tool) => t.schema.name === 'Bash'))
+  it('reads a step name off the call: description, then command, then target', () => {
+    expect(stepLabel('Bash', { command: 'ls -la', description: 'List files' })).toBe('List files')
+    expect(stepLabel('exec', { command: ['bash', '-lc', 'echo hi'] })).toBe('echo hi')
+    // Codex quotes by concatenation, so the outer quotes need not match.
+    expect(stepLabel('exec', { command: `/bin/zsh -lc "find . -name '*.txt' | while read f; do echo "'$f'; done'` })).toBe(`find . -name '*.txt' | while read f; do echo "'$f'; done`)
+    expect(stepLabel('exec', { command: '/bin/zsh -lc "curl -s https://example.com"' })).toBe('curl -s https://example.com')
+    expect(stepLabel('Read', { file_path: '/home/a/ws/notes.md' }, '/home/a/ws')).toBe('Read: notes.md')
+    expect(stepLabel('WebFetch', { url: 'https://example.com' })).toBe('WebFetch: https://example.com')
+    expect(stepLabel('mcp__node_repl__js', { code: 'x' })).toBe('js')
+    expect(stepLabel('Bash', '{"command":"pwd"}')).toBe('pwd')
   })
 })

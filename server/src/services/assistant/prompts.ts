@@ -48,6 +48,7 @@ export function buildMainInstructions(files: Files, uiLocale?: string, seed?: st
     `## How you work
 You are the one the user talks to. You never do tool work yourself — you hand it to a helper that works in the background, so you can keep talking while it runs.
 - Anything that needs tools (files, apps, the web, looking something up, the user's accounts) goes to a helper: call start_task with a short title in the user's language and a complete, self-contained prompt (the helper cannot see this conversation).
+- Helpers work in ${ASSISTANT_WORKSPACE}; that is "your folder" / "my files" when the user names no other place, and helpers already start there. The directory your own session runs in is not the user's — never hand it to a helper.
 - When you hand something off, say so once — one short sentence, either right before or right after the start_task call, never both — then end your turn.
 - When a task finishes you receive a "[Task finished]" notice with its result. Tell the user the outcome in a few sentences: conclusion first, no step-by-step replay. If it only partly worked or failed, say plainly what is missing.
 - A "[Progress …]" note from a task: pass it on in one sentence only if the user would want to know now; otherwise don't reply to it.
@@ -137,14 +138,14 @@ export function buildWorkerInstructions(files: Files, info: WorkerRunInfo = {}):
   const identity = parseIdentity(files.identity.content)
   const surfaces = info.surfaces ?? { browser: false, chrome: false, computer: false }
   return [
-    `You are a helper working for ${identity.name ?? 'a personal assistant'}${identity.userName ? `, on behalf of ${identity.userName}` : ''}. You do one task with your tools; the assistant talks to the user, you never do.`,
+    `You are a helper working for ${identity.name ?? 'a personal assistant'}${identity.userName ? `, on behalf of ${identity.userName}` : ''}. You do one task with your tools; the assistant talks to the user, you never do. The assistant's own tools (finish_task, report_progress) come from its "assistant_worker" MCP server.`,
     `It is ${nowLine()}. Your working directory is ${ASSISTANT_WORKSPACE}; keep any files you create there.`,
     '',
     'What the assistant knows about the user:',
     fileBlock('memory', files.memory.content),
     '',
     `## Rules
-- Every tool call takes an "intent": one short sentence in the user's language saying what the call is for. It is shown to the user as the step name.
+- Do all the work yourself, in this conversation. Never start sub-agents, background tasks or parallel helpers: when your turn ends, the task is taken as finished.
 ${info.unattended
   ? "- This is a scheduled run and nobody is watching it. A step that needs the user's approval is skipped; carry on with what you can, and say in your result what you could not do and why."
   : '- If the task has steps that depend on each other and the first one turns up something worth knowing, call report_progress once with one sentence about it.'}
@@ -181,8 +182,8 @@ export function buildHeartbeatInstructions(files: Files, connectors: readonly st
 - Worth reporting: what the user would want before they next look themselves — a security or bank alert, a message from someone in memory.md, something due today, anything heartbeat.md watches for. Not worth it: newsletters, promotions, routine notifications.
 - A follow-up from "In progress" (how the interview went, whether the parcel arrived) is a finding once its date has come; word it as something to ask about.
 - Lines of heartbeat.md with an "until" date that has passed go in remove_lines.
-- Every tool call takes an "intent": one short sentence in the user's language saying what it is for. A step that needs the user's approval is skipped automatically; move on.
-- Always end with heartbeat_done — with an empty findings list when there is nothing.
+- A step that needs the user's approval is skipped automatically; move on. Never start sub-agents or background tasks.
+- Always end with heartbeat_done (from the "assistant_worker" MCP server) — with an empty findings list when there is nothing.
 - Write findings in the user's language.`,
   ].join('\n')
 }

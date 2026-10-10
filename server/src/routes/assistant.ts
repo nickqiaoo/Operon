@@ -60,8 +60,8 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
   router.post('/approvals/:id', async (c) => {
     const body = await c.req.json<{ decision?: unknown }>().catch(() => ({}) as { decision?: unknown })
     const decision = body.decision
-    if (decision !== 'allowed_once' && decision !== 'always_allowed' && decision !== 'denied') {
-      return c.json({ error: 'decision must be allowed_once, always_allowed or denied' }, 400)
+    if (decision !== 'allowed_once' && decision !== 'denied') {
+      return c.json({ error: 'decision must be allowed_once or denied' }, 400)
     }
     const ok = runtime().answerApproval(c.req.param('id'), decision)
     return ok ? c.json({ ok }) : c.json({ error: 'not waiting for an answer' }, 404)
@@ -73,11 +73,6 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     const body = await c.req.json<{ content?: unknown }>().catch(() => ({}) as { content?: unknown })
     if (typeof body.content !== 'string') return c.json({ error: 'content required' }, 400)
     return c.json({ file: runtime().writeFile(name, body.content) })
-  })
-
-  router.delete('/grants/:id', (c) => {
-    const ok = runtime().revokeGrant(c.req.param('id'))
-    return ok ? c.json({ ok }) : c.json({ error: 'not found' }, 404)
   })
 
   router.patch('/schedules/:id', async (c) => {
@@ -114,8 +109,23 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     type Body = Partial<Record<keyof AssistantConfig, unknown>>
     const body = await c.req.json<Body>().catch((): Body => ({}))
     const patch: Partial<AssistantConfig> = {}
-    if (typeof body.mainModel === 'string') patch.mainModel = body.mainModel.trim()
-    if (typeof body.workerModel === 'string') patch.workerModel = body.workerModel.trim()
+    const choice = (value: unknown) => {
+      const v = value as { providerId?: unknown; modelId?: unknown } | null
+      return v && typeof v.providerId === 'string' && v.providerId.trim()
+        ? { providerId: v.providerId.trim(), modelId: typeof v.modelId === 'string' ? v.modelId.trim() : '' }
+        : undefined
+    }
+    for (const key of ['main', 'worker'] as const) {
+      if (body[key] === undefined) continue
+      const value = choice(body[key])
+      if (!value) return c.json({ error: `${key} must be { providerId, modelId }` }, 400)
+      patch[key] = value
+    }
+    if (body.background !== undefined) {
+      const value = body.background === null ? null : choice(body.background)
+      if (value === undefined) return c.json({ error: 'background must be { providerId, modelId } or null' }, 400)
+      patch.background = value
+    }
     const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/
     for (const key of ['quietStart', 'quietEnd'] as const) {
       const value = body[key]

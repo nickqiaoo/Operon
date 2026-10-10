@@ -1,5 +1,4 @@
 import type {
-  ApprovalDecision,
   AssistantAttachment,
   AssistantConfig,
   AssistantEvent,
@@ -26,14 +25,13 @@ export const assistantApi = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
-  decide: (approvalId: string, decision: Exclude<ApprovalDecision, 'expired'>) =>
+  decide: (approvalId: string, decision: 'allowed_once' | 'denied') =>
     request<{ ok: boolean }>(`/assistant/approvals/${encodeURIComponent(approvalId)}`, {
       method: 'POST',
       body: JSON.stringify({ decision }),
     }),
   writeFile: (name: ProfileFileName, content: string) =>
     request<{ file: ProfileFile }>(`/assistant/files/${name}`, { method: 'PUT', body: JSON.stringify({ content }) }),
-  revokeGrant: (id: string) => request<{ ok: boolean }>(`/assistant/grants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setScheduleEnabled: (id: number, enabled: boolean) =>
     request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   deleteSchedule: (id: number) => request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'DELETE' }),

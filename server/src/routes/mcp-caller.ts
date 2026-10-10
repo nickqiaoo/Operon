@@ -15,7 +15,14 @@ import type { HttpBindings } from '@hono/node-server'
 import type { Context } from 'hono'
 import { OPENCODE_CALLER_ARG, resolveOpencodeCaller } from '@operon/agent-runtime'
 import { readJsonBody } from './mcp-http.js'
-import { ASSISTANT_CALLER_ARG, ASSISTANT_KEY_PARAM, isAssistantMountKey } from '../services/assistant/node-repl-bridge.js'
+import {
+  ASSISTANT_KEY_PARAM,
+  ASSISTANT_WORKER_PARAM,
+  isAssistantId,
+  isAssistantMountKey,
+  parseAssistantConversation,
+  type AssistantCaller,
+} from '../services/assistant/node-repl-bridge.js'
 
 export const UNKNOWN_CALLER_MESSAGE =
   'Operon could not tell which conversation made this call. Send the message again; if it keeps failing, restart the app.'
@@ -48,20 +55,17 @@ export function takeCallerArg(body: unknown): { caller?: string; requestId?: unk
   return found
 }
 
-/** Remove the assistant-worker argument from every tools/call in the body; return the worker id. */
-export function takeAssistantWorkerArg(body: unknown): string | undefined {
-  const messages = Array.isArray(body) ? body : [body]
-  let worker: string | undefined
-  for (const message of messages as JsonRpcMessage[]) {
-    if (!message || typeof message !== 'object' || message.method !== 'tools/call') continue
-    const args = message.params?.arguments
-    if (!args || typeof args !== 'object' || !(ASSISTANT_CALLER_ARG in args)) continue
-    const record = args as Record<string, unknown>
-    const value = record[ASSISTANT_CALLER_ARG]
-    delete record[ASSISTANT_CALLER_ARG]
-    if (worker === undefined && typeof value === 'string' && /^[\w-]{1,80}$/.test(value)) worker = value
-  }
-  return worker
+/**
+ * Which of the personal assistant's sessions made a call on one of its URLs (they carry the
+ * process key — check that first). OpenCode names its calling session in the arguments, since it
+ * shares one client per directory; every other client is the session whose URL this is.
+ * `fromUrl` is the URL's own claim. Undefined: OpenCode named a session the assistant never bound.
+ */
+export function resolveAssistantCaller(body: unknown, fromUrl: AssistantCaller | undefined): { caller?: AssistantCaller; requestId?: unknown; unknown: boolean } {
+  const { caller, requestId } = takeCallerArg(body)
+  if (caller === undefined) return { ...(fromUrl ? { caller: fromUrl } : {}), unknown: false }
+  const resolved = caller ? parseAssistantConversation(resolveOpencodeCaller(caller)) : undefined
+  return resolved ? { caller: resolved, requestId, unknown: false } : { requestId, unknown: true }
 }
 
 /**
@@ -75,19 +79,23 @@ export async function resolveMcpCallerChat(c: Context, urlParam: string): Promis
   if (incoming.method !== 'POST') return { ok: true, chatId: urlChatId, body: undefined }
 
   const body = await readJsonBody(incoming)
-  // Stripped from every request, believed only on the assistant's own mount (its URL carries
-  // the process key): anyone else naming a worker is a model writing arguments it should not.
-  const assistantWorker = takeAssistantWorkerArg(body)
   if (isAssistantMountKey(c.req.query(ASSISTANT_KEY_PARAM))) {
-    // Calls through the assistant's mount name a worker or nobody — never a chat.
+    // Calls through the assistant's URLs name a worker or nobody — never a chat.
+    const worker = c.req.query(ASSISTANT_WORKER_PARAM)
+    const resolved = resolveAssistantCaller(body, isAssistantId(worker) ? { role: 'worker', id: worker } : undefined)
+    if (resolved.unknown) return unknownCaller(c, resolved.requestId)
+    const assistantWorker = resolved.caller?.role === 'worker' ? resolved.caller.id : undefined
     return { ok: true, chatId: null, body, ...(assistantWorker ? { assistantWorker } : {}) }
   }
-  if (assistantWorker) console.warn('[mcp-caller] ignored an assistant worker argument on a request outside the assistant')
   const { caller, requestId } = takeCallerArg(body)
   if (caller === undefined) return { ok: true, chatId: urlChatId, body }
 
   const chatId = caller ? parseChatId(resolveOpencodeCaller(caller)) : null
   if (chatId != null) return { ok: true, chatId, body }
+  return unknownCaller(c, requestId)
+}
+
+export function unknownCaller(c: Context, requestId: unknown): { ok: false; response: Response } {
   return {
     ok: false,
     response: c.json({

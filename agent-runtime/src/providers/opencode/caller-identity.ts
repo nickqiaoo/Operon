@@ -27,7 +27,8 @@ export const OPENCODE_CALLER_ARG = '__operon_opencode_session'
  * `<server>_<tool>`, so the plugin matches on the server prefix. Other servers
  * (including the user's own) never see it.
  */
-const CALLER_ROUTED_SERVERS = ['external_agent', 'workflow', 'node_repl', 'schedule']
+// `assistant` covers the personal assistant's own servers (`assistant`, `assistant_worker`, …).
+const CALLER_ROUTED_SERVERS = ['external_agent', 'workflow', 'node_repl', 'schedule', 'assistant']
 
 /** OpenCode root session id -> host conversation id. */
 const conversationBySession = new Map<string, string>()

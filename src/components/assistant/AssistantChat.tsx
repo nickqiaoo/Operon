@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { InputGroupAddon } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
-import type { ApprovalDecision, AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
+import type { AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
 import { AuditIconTile, DECISION_LABEL, dayLabel, formatClock, isSameDay } from "./shared"
 
 /** Messages further apart than this get a time label between them (same day). */
@@ -43,7 +43,7 @@ interface AssistantChatProps {
   onSend: (text: string, attachments: AssistantAttachment[]) => Promise<void>
   onOpenActivity: (activityId: string) => void
   /** Answer an approval card a worker is waiting on. */
-  onDecide: (approvalId: string, decision: Exclude<ApprovalDecision, "expired">) => void
+  onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
   /** Phone layout: narrower gutters, and the composer rests as a one-line bar. */
   compact?: boolean
@@ -294,7 +294,7 @@ interface AssistantBubbleProps {
   message: AssistantMessage
   highlighted: boolean
   onOpenActivity: (activityId: string) => void
-  onDecide: (approvalId: string, decision: Exclude<ApprovalDecision, "expired">) => void
+  onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
   compact: boolean
 }
@@ -373,7 +373,7 @@ function ApprovalCard({
 }: {
   approval: AssistantApproval
   compact: boolean
-  onDecide: (d: Exclude<ApprovalDecision, "expired">) => void
+  onDecide: (d: "allowed_once" | "denied") => void
 }) {
   const [showArgs, setShowArgs] = useState(false)
 
@@ -415,9 +415,6 @@ function ApprovalCard({
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="secondary" className="h-8" onClick={() => onDecide("allowed_once")}>
           Allow once
-        </Button>
-        <Button size="sm" variant="ghost" className="h-8" onClick={() => onDecide("always_allowed")}>
-          Always allow
         </Button>
         <Button size="sm" variant="ghost" className="h-8" onClick={() => onDecide("denied")}>
           Deny

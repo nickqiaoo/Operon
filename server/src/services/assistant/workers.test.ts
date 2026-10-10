@@ -1,209 +1,249 @@
+import type { PermissionDecision, RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import { describe, expect, it } from 'vitest'
-import type { Agent, AgentEvent, Harness, HarnessSession } from 'operon-agents'
 import type { Activity } from '../../../../shared/assistant.js'
-import { WorkerPool, workerOfSession, workerSessionId, type WorkerOutcome } from './workers.js'
+import type { OpenParams } from './agents.js'
+import { WorkerPool, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerPoolHost, type WorkerSessionRef } from './workers.js'
 
-type Body = Omit<AgentEvent, 'eventId' | 'sessionId'>
+type Part = Record<string, unknown>
 
-/** Just enough of a HarnessSession for the pool: prompts are settled by the test. */
-class FakeSession {
+/** One scripted turn: the parts it streams, optionally after `gate` opens. */
+interface Script {
+  parts: Part[]
+  gate?: Promise<void>
+  /** Called once the turn has started streaming (to hand in a result, say). */
+  onStart?: () => void
+}
+
+function reply(text: string, extra: Part[] = []): Part[] {
+  return [
+    { type: 'start' },
+    { type: 'start-step' },
+    ...extra,
+    { type: 'text-start', id: 't' },
+    { type: 'text-delta', id: 't', text },
+    { type: 'text-end', id: 't' },
+    { type: 'finish-step', finishReason: 'stop', usage: {} },
+    { type: 'finish', finishReason: 'stop', totalUsage: {} },
+  ]
+}
+
+class FakeSession implements RuntimeSession {
   readonly prompts: string[] = []
-  readonly steered: string[] = []
-  cancelled = false
-  closed = false
-  private listeners: Array<(e: AgentEvent) => void> = []
-  private finish: ((status: string) => void) | undefined
-  status = { state: 'idle' as 'idle' | 'running', hasQueuedMessages: false, activeTurnId: null }
+  readonly injected: string[] = []
+  disposed = false
+  private abortTurn: (() => void) | undefined
 
-  constructor(readonly id: string) {}
+  constructor(
+    readonly params: OpenParams,
+    private readonly scripts: Script[],
+    private readonly id = `agent-${params.caller.id}`,
+  ) {}
 
-  prompt(text: string): Promise<{ status: string }> {
-    this.prompts.push(text)
-    this.status.state = 'running'
-    return new Promise((resolve) => {
-      this.finish = (status) => {
-        this.status.state = 'idle'
-        resolve({ status })
-      }
-    })
+  stream(params: { messages: Array<{ content: unknown }> }): AsyncIterable<RuntimeStreamPart> {
+    const content = params.messages.at(-1)?.content
+    this.prompts.push(typeof content === 'string' ? content : JSON.stringify(content))
+    const script = this.scripts.shift() ?? { parts: reply('ok') }
+    const self = this
+    return (async function* () {
+      let aborted = false
+      const stopped = new Promise<void>((resolve) => {
+        self.abortTurn = () => {
+          aborted = true
+          resolve()
+        }
+      })
+      script.onStart?.()
+      if (script.gate) await Promise.race([script.gate, stopped])
+      if (aborted) return
+      for (const part of script.parts) yield part as unknown as RuntimeStreamPart
+    })()
   }
-  end(status = 'completed'): void {
-    this.finish?.(status)
+
+  abort(): void {
+    this.abortTurn?.()
   }
-  steer(text: string): void {
-    this.steered.push(text)
+
+  async dispose(): Promise<void> {
+    this.disposed = true
   }
-  cancel(): void {
-    this.cancelled = true
-    this.end('aborted')
+
+  resolvePermission(): boolean {
+    return true
   }
-  whenIdle(): Promise<void> {
-    return Promise.resolve()
+
+  getSessionId(): string {
+    return this.id
   }
-  onEvent(listener: (e: AgentEvent) => void): () => void {
-    this.listeners.push(listener)
-    return () => undefined
-  }
-  emit(...events: Body[]): void {
-    for (const e of events) for (const l of this.listeners) l({ eventId: 'e', sessionId: this.id, ...e } as AgentEvent)
-  }
-  setApprovalHandler(): void {}
-  async close(): Promise<void> {
-    this.closed = true
+
+  async injectMessage(content: string): Promise<void> {
+    this.injected.push(content)
   }
 }
 
-function setup() {
-  const sessions = new Map<string, FakeSession>()
-  const created: Array<{ id: string; resumed: boolean }> = []
+function setup(options: { scripts?: Script[]; refs?: Record<string, WorkerSessionRef>; agent?: WorkerAgent } = {}) {
   const published: Activity[] = []
   const stored = new Map<string, Activity>()
-  const outcomes: WorkerOutcome[] = []
+  const opened: FakeSession[] = []
+  const settled: WorkerOutcome[] = []
+  const refs: Record<string, WorkerSessionRef> = { ...(options.refs ?? {}) }
+  const scripts = options.scripts ?? []
   let n = 0
-  const harness = {
-    createSession: async (opts: { id: string }) => {
-      const s = new FakeSession(opts.id)
-      sessions.set(opts.id, s)
-      created.push({ id: opts.id, resumed: false })
-      return s
+  const host: WorkerPoolHost = {
+    agentFor: async (_kind: WorkerKind) => options.agent ?? { providerId: 'codex', modelId: 'gpt-x' },
+    instructions: (kind, unattended) => `instructions:${kind}:${unattended}`,
+    cwd: '/work',
+    nodeRepl: () => false,
+    open: async (params) => {
+      const session = new FakeSession(params, scripts)
+      opened.push(session)
+      return session
     },
-    resumeSession: async (id: string) => {
-      if (!sessions.has(id)) throw new Error('no such session')
-      const s = new FakeSession(id)
-      sessions.set(id, s)
-      created.push({ id, resumed: true })
-      return s
+    activity: (a) => {
+      published.push(a)
+      stored.set(a.id, a)
+    },
+    stored: (id) => stored.get(id),
+    approve: async (): Promise<PermissionDecision> => ({ type: 'allow' }),
+    saveSession: (id, ref) => {
+      refs[id] = ref
+    },
+    loadSession: (id) => refs[id],
+    settled: (outcome) => {
+      settled.push(outcome)
+      stored.set(outcome.activity.id, outcome.activity)
     },
   }
-  const pool = new WorkerPool(
-    {
-      harness: async () => harness as unknown as Harness,
-      agent: () => ({}) as Agent,
-      permission: () => undefined,
-      activity: (a) => {
-        published.push(a)
-        stored.set(a.id, a)
-      },
-      stored: (id) => stored.get(id),
-      approvalHandler: () => async () => ({ decision: 'approved' }),
-      settled: (o) => outcomes.push(o),
-    },
-    () => `w${++n}`,
-    () => 1_000,
-  )
-  const session = (activityId: string) => sessions.get(workerSessionId(activityId))!
-  const flush = () => new Promise((r) => setTimeout(r, 0))
-  return { pool, session, published, stored, outcomes, created, flush }
+  const pool = new WorkerPool(host, () => `w${++n}`, () => 100)
+  return { pool, published, stored, opened, settled, refs }
 }
 
-describe('worker sessions', () => {
-  it('maps activity ids to session ids and back, and leaves other sessions alone', () => {
-    expect(workerOfSession(workerSessionId('abc'))).toBe('abc')
-    expect(workerOfSession('9f1c-main-session')).toBeUndefined()
-  })
-})
+function gate() {
+  let open!: () => void
+  const promise = new Promise<void>((resolve) => (open = resolve))
+  return { promise, open }
+}
 
 describe('WorkerPool', () => {
-  it('runs a task in a session of its own and reports how it ended', async () => {
-    const { pool, session, published, outcomes, flush } = setup()
-    const { id, done } = await pool.start({ kind: 'task', title: '查天气', prompt: 'look it up', unattended: false, visible: true })
-    expect(published[0]).toMatchObject({ id, taskId: `aw-${id}`, status: 'running', title: '查天气' })
-    const s = session(id)
-    expect(s.prompts).toEqual(['look it up'])
-    s.emit(
-      { type: 'tool.call.started', address: 'main', toolCallId: 'c1', toolName: 'Bash', args: { intent: '查一下', command: 'curl' } } as Body,
-      { type: 'tool.result', address: 'main', toolCallId: 'c1', toolName: 'Bash', result: { content: [{ type: 'text', text: 'sunny' }] }, isError: false } as Body,
-      { type: 'message.appended', address: 'main', message: { role: 'assistant', content: [{ type: 'text', text: '晴。' }] } } as Body,
-      { type: 'tool.call.started', address: 'main', toolCallId: 'c2', toolName: 'finish_task', args: { title: '天气', summary: '晴', status: 'done' } } as Body,
-    )
-    expect(pool.isRunning(id)).toBe(true)
-    s.end('completed')
+  it('runs a task in a session of its own, on the agent picked for workers, and reports how it ended', async () => {
+    const env = setup()
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'List files', prompt: 'list them', unattended: false, visible: true })
+    env.pool.finish(id, { title: 'Listed files', summary: 'two of them', status: 'done' })
     const outcome = await done
-    await flush()
-    expect(outcome).toMatchObject({ kind: 'task', end: 'completed', finalText: '晴。' })
-    expect(published.at(-1)).toMatchObject({ status: 'done', title: '天气', summary: '晴' })
-    expect(s.closed).toBe(true)
-    expect(outcomes).toHaveLength(1)
-    expect(pool.isRunning(id)).toBe(false)
+    const session = env.opened[0]!
+    expect(session.params).toMatchObject({ providerId: 'codex', modelId: 'gpt-x', kind: 'worker', caller: { role: 'worker', id }, cwd: '/work', instructions: 'instructions:task:false' })
+    expect(session.prompts).toEqual(['list them'])
+    expect(outcome).toMatchObject({ end: 'completed', kind: 'task', finalText: 'ok', activity: { status: 'done', title: 'Listed files', summary: 'two of them' } })
+    expect(session.disposed).toBe(true)
+    expect(env.refs[id]).toEqual({ providerId: 'codex', modelId: 'gpt-x', sessionId: `agent-${id}` })
+    expect(env.settled).toHaveLength(1)
   })
 
   it('stops a running worker', async () => {
-    const { pool, session, published } = setup()
-    const { id, done } = await pool.start({ kind: 'task', title: 't', prompt: 'p', unattended: false, visible: true })
-    expect(await pool.stop(id)).toBe(true)
-    expect(session(id).cancelled).toBe(true)
-    expect((await done).end).toBe('stopped')
-    expect(published.at(-1)!.status).toBe('stopped')
-    expect(await pool.stop(id)).toBe(false)
+    const g = gate()
+    const env = setup({ scripts: [{ parts: reply('never'), gate: g.promise }] })
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'Slow', prompt: 'go', unattended: false, visible: true })
+    expect(await env.pool.stop(id)).toBe(true)
+    const outcome = await done
+    expect(outcome.end).toBe('stopped')
+    expect(outcome.activity.status).toBe('stopped')
+    expect(await env.pool.stop(id)).toBe(false)
   })
 
   it('folds a message into a running worker', async () => {
-    const { pool, session, published } = setup()
-    const { id } = await pool.start({ kind: 'task', title: 't', prompt: 'p', unattended: false, visible: true })
-    expect(await pool.continue(id, '顺便查上海')).toBe('delivered')
-    expect(session(id).steered).toEqual(['顺便查上海'])
-    expect(published.at(-1)!.steps.at(-1)!.label).toBe('You: 顺便查上海')
-  })
-
-  it('picks a finished worker back up in its own session, with what it already did', async () => {
-    const { pool, session, published, created } = setup()
-    const { id, done } = await pool.start({ kind: 'task', title: 't', prompt: 'p', unattended: false, visible: true })
-    session(id).end('completed')
+    const g = gate()
+    const env = setup({ scripts: [{ parts: reply('done'), gate: g.promise }] })
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'Slow', prompt: 'go', unattended: false, visible: true })
+    expect(await env.pool.continue(id, 'also the .md files')).toBe('delivered')
+    g.open()
     await done
-    expect(await pool.continue(id, '再改一下')).toBe('continued')
-    expect(created.at(-1)).toEqual({ id: `aw-${id}`, resumed: true })
-    expect(session(id).prompts).toEqual(['再改一下'])
-    expect(published.at(-1)).toMatchObject({ id, status: 'running' })
+    expect(env.opened[0]!.injected).toEqual(['also the .md files'])
+    expect(env.published.at(-1)!.steps.map((s) => s.label)).toContain('You: also the .md files')
   })
 
-  it('starts over, seeded with the old result, when the session is gone', async () => {
-    const { pool, session, stored, created } = setup()
-    stored.set('old', { id: 'old', taskId: 'agent-1', title: '旧任务', summary: '做了一半', report: '完整结果', status: 'done', startedAt: 1, steps: [] })
-    expect(await pool.continue('old', '接着做')).toBe('continued')
-    expect(created.at(-1)).toEqual({ id: 'aw-old', resumed: false })
-    expect(session('old').prompts[0]).toContain('完整结果')
-    expect(session('old').prompts[0]).toContain('接着做')
+  it('picks a finished worker back up on the same agent session, with what it already did', async () => {
+    const env = setup()
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'Count', prompt: 'count', unattended: false, visible: true })
+    await done
+    expect(await env.pool.continue(id, 'now divide by 7')).toBe('continued')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const resumed = env.opened[1]!
+    expect(resumed.params).toMatchObject({ providerId: 'codex', modelId: 'gpt-x', sessionId: `agent-${id}`, kind: 'worker' })
+    expect(resumed.prompts).toEqual(['now divide by 7'])
+  })
+
+  it('keeps the agent a task ran on when it is continued, even after Settings changed', async () => {
+    const env = setup({ refs: {}, agent: { providerId: 'claude-code', modelId: '' } })
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'Count', prompt: 'count', unattended: false, visible: true })
+    await done
+    env.refs[id] = { providerId: 'opencode', modelId: 'm', sessionId: 'oc-1' }
+    await env.pool.continue(id, 'again')
+    expect(env.opened[1]!.params).toMatchObject({ providerId: 'opencode', modelId: 'm', sessionId: 'oc-1' })
+  })
+
+  it('starts over, seeded with the old result, when no session is left to resume', async () => {
+    const env = setup()
+    const activity: Activity = { id: 'old', taskId: 'aw-old', title: 'Old task', summary: 'it was 42', status: 'done', startedAt: 1, steps: [], report: 'it was 42' }
+    env.stored.set('old', activity)
+    expect(await env.pool.continue('old', 'add one')).toBe('continued')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const session = env.opened[0]!
+    expect(session.params.sessionId).toBeUndefined()
+    expect(session.prompts[0]).toContain('Earlier you worked on "Old task"')
+    expect(session.prompts[0]).toContain('Now: add one')
   })
 
   it("keeps the user's words per worker, across follow-ups and a pick-up", async () => {
-    const { pool, session } = setup()
-    const a = await pool.start({ kind: 'task', title: 'a', prompt: 'p', unattended: false, visible: true, asked: '看看 github.com 的通知' })
-    const b = await pool.start({ kind: 'task', title: 'b', prompt: 'p', unattended: false, visible: true, asked: '查下天气' })
-    expect(pool.askedFor(a.id)).toBe('看看 github.com 的通知')
-    expect(pool.askedFor(b.id)).toBe('查下天气')
-    await pool.continue(a.id, '顺便看 PR', '顺便看下 PR 列表')
-    session(a.id).end('completed')
-    await a.done
-    await pool.continue(a.id, '再看 issues', '再看 issues')
-    expect(pool.askedFor(a.id)).toBe('看看 github.com 的通知\n顺便看下 PR 列表\n再看 issues')
-    expect(pool.askedFor(b.id)).toBe('查下天气')
-    const heartbeat = await pool.start({ kind: 'heartbeat', title: 'Heartbeat', prompt: 'p', unattended: true, visible: false })
-    expect(pool.askedFor(heartbeat.id)).toBe('')
+    const g = gate()
+    const env = setup({ scripts: [{ parts: reply('done'), gate: g.promise }] })
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'T', prompt: 'p', unattended: false, visible: true, asked: 'check example.com' })
+    await env.pool.continue(id, 'and docs too', 'look at docs.example.com as well')
+    g.open()
+    await done
+    expect(env.pool.askedFor(id)).toBe('check example.com\nlook at docs.example.com as well')
   })
 
   it('says a task it never had is missing', async () => {
-    const { pool } = setup()
-    expect(await pool.continue('nope', 'x')).toBe('missing')
+    const env = setup()
+    expect(await env.pool.continue('nope', 'hi')).toBe('missing')
   })
 
-  it('keeps a hidden run out of the activity list, and remembers who is unattended', async () => {
-    const { pool, session, published } = setup()
-    const { id, done } = await pool.start({ kind: 'heartbeat', title: 'Heartbeat', prompt: 'p', unattended: true, visible: false })
-    expect(pool.isUnattended(id)).toBe(true)
-    session(id).emit({ type: 'tool.call.started', address: 'main', toolCallId: 'c', toolName: 'Bash', args: { intent: '看邮件' } } as Body)
-    session(id).end('completed')
-    const outcome = await done
-    expect(published).toEqual([])
-    expect(outcome.activity).toMatchObject({ source: 'heartbeat', status: 'done' })
-    expect(outcome.activity.steps).toHaveLength(1)
+  it('keeps a hidden run out of the activity list, and opens unattended runs as such', async () => {
+    const env = setup()
+    const { id, done } = await env.pool.start({ kind: 'heartbeat', title: 'Heartbeat', prompt: 'check', unattended: true, visible: false })
+    expect(env.pool.isUnattended(id)).toBe(true)
+    await done
+    expect(env.published).toEqual([])
+    expect(env.opened[0]!.params).toMatchObject({ kind: 'unattended', instructions: 'instructions:heartbeat:true' })
+  })
+
+  it('takes a result only from the kind of run that hands it in', async () => {
+    const env = setup({ scripts: [{ parts: reply('a') }, { parts: reply('b') }] })
+    const task = await env.pool.start({ kind: 'task', title: 'T', prompt: 'p', unattended: false, visible: true })
+    const beat = await env.pool.start({ kind: 'heartbeat', title: 'H', prompt: 'p', unattended: true, visible: false })
+    expect(env.pool.heartbeatDone(task.id, { findings: [] })).toBe(false)
+    expect(env.pool.finish(beat.id, { title: 'x', summary: 'y', status: 'done' })).toBe(false)
+    expect(env.pool.heartbeatDone(beat.id, { findings: [{ text: 'Bank alert', urgent: true }] })).toBe(true)
+    expect((await beat.done).finish).toEqual({ tool: 'heartbeat_done', args: { findings: [{ text: 'Bank alert', urgent: true }] } })
+    await task.done
   })
 
   it('fails a run whose turn failed, and passes the error on', async () => {
-    const { pool, session, published } = setup()
-    const { id, done } = await pool.start({ kind: 'task', title: 't', prompt: 'p', unattended: false, visible: true })
-    session(id).emit({ type: 'turn.ended', address: 'main', turnId: 't', reason: 'failed', error: '402 budget exhausted' } as Body)
-    session(id).end('completed')
-    expect(await done).toMatchObject({ end: 'completed', error: '402 budget exhausted' })
-    expect(published.at(-1)).toMatchObject({ status: 'failed', summary: '402 budget exhausted' })
+    const env = setup({ scripts: [{ parts: [{ type: 'start' }, { type: 'error', error: '500 {"error":{"message":"upstream down"}}' }] }] })
+    const { done } = await env.pool.start({ kind: 'task', title: 'T', prompt: 'p', unattended: false, visible: true })
+    const outcome = await done
+    expect(outcome.end).toBe('failed')
+    expect(outcome.activity).toMatchObject({ status: 'failed', summary: '500 · upstream down' })
+    expect(outcome.error).toBe('500 · upstream down')
+  })
+
+  it('shows a reported milestone on the running activity', async () => {
+    const g = gate()
+    const env = setup({ scripts: [{ parts: reply('done'), gate: g.promise }] })
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'T', prompt: 'p', unattended: false, visible: true })
+    expect(env.pool.progress(id, 'Found the page')).toBe(true)
+    g.open()
+    await done
+    expect(env.pool.progress(id, 'late')).toBe(false)
+    expect(env.published.at(-1)!.steps.map((s) => s.label)).toContain('Found the page')
   })
 })

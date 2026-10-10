@@ -284,3 +284,29 @@ describe('planReviewToolCallPart', () => {
     expect(planReviewToolCallPart({ toolName: 'ExitPlanMode', toolCallId: 'e', display: { title: 'Exit plan mode' } })).toBeNull()
   })
 })
+
+describe('OperonStreamMapper model errors', () => {
+  it("surfaces a failed model call's error from the assistant message, once", () => {
+    const mapper = new OperonStreamMapper()
+    const parts = [
+      ...mapper.map(ev('main', { type: 'message.appended', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: '402 {"error":{"message":"needs more credits"}}' } })),
+      ...mapper.map(ev('main', { type: 'turn.ended', reason: 'failed', error: '402 again' })),
+    ]
+    expect(parts.filter((p) => p.type === 'error')).toEqual([{ type: 'error', error: '402 {"error":{"message":"needs more credits"}}' }])
+  })
+
+  it('falls back to the failed turn when no message carried the reason', () => {
+    const mapper = new OperonStreamMapper()
+    const parts = mapper.map(ev('main', { type: 'turn.ended', reason: 'failed', error: 'model unreachable' }))
+    expect(parts.filter((p) => p.type === 'error')).toEqual([{ type: 'error', error: 'model unreachable' }])
+  })
+
+  it('says nothing for an ordinary reply', () => {
+    const mapper = new OperonStreamMapper()
+    const parts = [
+      ...mapper.map(ev('main', { type: 'message.appended', message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }], stopReason: 'stop' } })),
+      ...mapper.map(ev('main', { type: 'turn.ended', reason: 'completed' })),
+    ]
+    expect(parts.some((p) => p.type === 'error')).toBe(false)
+  })
+})

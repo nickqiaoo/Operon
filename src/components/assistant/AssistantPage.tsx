@@ -40,13 +40,12 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
   const loadingOlder = useAssistantStore((s) => s.loadingOlder)
   const activities = useAssistantStore((s) => s.activities)
   const audit = useAssistantStore((s) => s.audit)
-  const grants = useAssistantStore((s) => s.grants)
   const files = useAssistantStore((s) => s.files)
   const schedules = useAssistantStore((s) => s.schedules)
   const config = useAssistantStore((s) => s.config)
   const typing = useAssistantStore((s) => s.typing)
   const blocker = useAssistantStore((s) => s.blocker)
-  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule, revokeGrant } = useAssistantStore.getState()
+  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule } = useAssistantStore.getState()
 
   const [tab, setTab] = useState<SidePanelTab>("activity")
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
@@ -155,7 +154,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
               <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
             )}
             {tab === "audit" && (
-              <AuditTab records={audit} grants={grants} onRevoke={(id) => void revokeGrant(id).catch(reportError)} />
+              <AuditTab records={audit} />
             )}
             {tab === "schedule" && (
               <ScheduleTab
