@@ -1,6 +1,6 @@
 import type { McpServerEntry } from '../mcp-config.js'
 import type { PluginMcpServerExport } from './codex-plugin-apps.js'
-import { gatewaySignedOut, probeGatewayGrant } from './mcp-gateway.js'
+import { gatewayNeedsAuth, gatewaySignedOut, probeGatewayGrant } from './mcp-gateway.js'
 import { hasMcpTokens } from './mcp-oauth.js'
 import { pluginManager } from './plugins.js'
 
@@ -67,11 +67,13 @@ export function pluginMcpNeedingSignIn(): Array<{ name: string; runtimeName: str
 }
 
 /**
- * Try each signed-in OAuth plugin once, so a grant revoked on the provider's side (tokens still on
- * disk) shows up in {@link pluginMcpNeedingSignIn}. Requires the plugin store to be loaded.
+ * Try each OAuth plugin that has tokens on disk once, so a grant revoked on the provider's side
+ * shows up in {@link pluginMcpNeedingSignIn}. One already marked rejected is tried again too: the
+ * mark can come from a failure that has since passed, and nothing else would ever clear it.
+ * Requires the plugin store to be loaded.
  */
 export async function checkPluginSignIns(): Promise<void> {
-  const servers = pluginManager.mcpServerExports(hasMcpTokens).filter((server) => server.requiresOAuth && !gatewaySignedOut(server))
+  const servers = pluginManager.mcpServerExports(hasMcpTokens).filter((server) => server.requiresOAuth && !gatewayNeedsAuth(server))
   await Promise.allSettled(servers.map((server) => probeGatewayGrant(server)))
 }
 

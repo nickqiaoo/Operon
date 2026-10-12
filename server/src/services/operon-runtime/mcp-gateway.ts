@@ -1,4 +1,5 @@
 import { serverFromConfig, type MCPTool, type MCPToolResult } from 'operon-agents/mcp'
+import { createRuntimeLogger } from '@operon/agent-runtime'
 import type { PluginMcpServerExport } from './codex-plugin-apps.js'
 import { hasMcpTokens, mcpOAuthService, notifyMcpAuthChanged, onMcpAuthChanged } from './mcp-oauth.js'
 
@@ -21,6 +22,7 @@ interface PoolEntry {
 }
 
 const pool = new Map<string, PoolEntry>()
+const logger = createRuntimeLogger('mcp-gateway')
 
 /** Thrown when the server needs a login that hasn't happened (or no longer works). */
 export class GatewayNeedsAuthError extends Error {
@@ -107,11 +109,22 @@ async function withUpstream<T>(server: PluginMcpServerExport, fn: (upstream: Ups
     // The OAuth provider already tried a refresh inside the transport; a 401 surviving that means
     // the grant is gone. Drop the connection so the next attempt after re-login starts clean.
     await drop(server.runtimeName, entry)
-    signalIfGrantCleared(server)
-    // After the signal: it fires the auth-changed listeners, which clear this mark.
-    rejectedGrants.add(server.runtimeName)
+    markRejected(server, error)
     throw new GatewayNeedsAuthError(server)
   }
+}
+
+function markRejected(server: PluginMcpServerExport, error: unknown): void {
+  // The SDK swallows a failed token refresh (network, 5xx, malformed response) and reports it as a
+  // plain 401, so this line is the only trace of why a signed-in server reads as signed out.
+  const tokensKept = server.config.url !== undefined && hasMcpTokens(server.runtimeName, server.config.url)
+  logger.warn(
+    `${server.runtimeName}: provider rejected the grant (${tokensKept ? 'tokens still on disk' : 'tokens cleared'}): ` +
+      (error instanceof Error ? `${error.name}: ${error.message}` : String(error)),
+  )
+  signalIfGrantCleared(server)
+  // After the signal: it fires the auth-changed listeners, which clear this mark.
+  rejectedGrants.add(server.runtimeName)
 }
 
 /**
@@ -158,8 +171,7 @@ async function connected(server: PluginMcpServerExport): Promise<PoolEntry> {
   } catch (error) {
     await drop(server.runtimeName, current)
     if (isUnauthorizedLike(error)) {
-      signalIfGrantCleared(server)
-      rejectedGrants.add(server.runtimeName)
+      markRejected(server, error)
       throw new GatewayNeedsAuthError(server)
     }
     throw error

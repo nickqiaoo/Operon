@@ -1,6 +1,10 @@
 import { McpOAuthService } from 'operon-agents'
 import type { McpOAuthClientSettings } from 'operon-agents/mcp'
+import { installRefreshSingleFlight } from './oauth-refresh-single-flight.js'
 import { HARNESS_HOME_DIR } from './paths.js'
+
+// Before any MCP transport exists: concurrent refreshes of a rotating token sign the user out.
+installRefreshSingleFlight()
 
 /**
  * One shared MCP OAuth service for the whole app. Tokens live under `HARNESS_HOME_DIR` (a
