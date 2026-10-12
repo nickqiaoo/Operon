@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [1.3.44] - 2026-10-12
+
+### Added
+
+- Assistant: one ongoing conversation with a personal assistant that works in the background, remembers what matters, checks your connected apps every 30 minutes and runs tasks on a schedule. It runs on Codex, Claude Code, OpenCode or Operon, on desktop and phone.
+- Any agent can set up a scheduled task from a conversation.
+
+### Changed
+
+- The inbox opens beside the sidebar instead of covering the window.
+- Inbox rows open the conversation or task directly, and approvals can be answered in the row.
+- The inbox skips "finished" notices for chats you are looking at, and clears read ones after 30 days.
+- Chats in the same project share one set of MCP servers instead of starting their own.
+- Claude models on OpenRouter load MCP tools only when needed.
+
+### Fixed
+
+- Plugin sign-ins such as Grafana and Linear no longer drop when their token is refreshed.
+- A plugin whose access was revoked on the provider's side now shows as not connected.
+- Tools from plugins with long names load again.
+
 ## [1.3.43] - 2026-09-29
 
 ### Added
