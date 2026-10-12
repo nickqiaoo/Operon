@@ -168,7 +168,7 @@ export function ActivityDetail({ activity, layout = "split", onClose, onStop, on
         <div className="flex shrink-0 items-start gap-3 border-b border-border/40 px-5 pb-4 pt-5">
           <div className="min-w-0 flex-1">
             <ActivityStatusBadge status={activity.status} large />
-            <div className="mt-3 text-xl font-bold leading-snug">{activity.title}</div>
+            <div className="mt-3 text-xl font-bold leading-snug [overflow-wrap:anywhere]">{activity.title}</div>
             <div className="mt-2 text-base text-foreground/80">{activitySummary(intl, activity.summary)}</div>
             <div className="mt-2 text-sm text-muted-foreground">{meta}</div>
           </div>
@@ -214,7 +214,7 @@ export function ActivityDetail({ activity, layout = "split", onClose, onStop, on
       <div className="flex items-start gap-3 border-b border-border/40 px-5 py-4">
         <div className="min-w-0 flex-1">
           <ActivityStatusBadge status={activity.status} />
-          <div className="mt-1.5 text-base font-semibold">{activity.title}</div>
+          <div className="mt-1.5 text-base font-semibold [overflow-wrap:anywhere]">{activity.title}</div>
           <div className="mt-0.5 text-xs text-muted-foreground">{meta}</div>
         </div>
         {onClose && (
@@ -272,8 +272,12 @@ function Timeline({ steps, running, selectedId, large, onSelect }: TimelineProps
           large={large}
           onClick={() => onSelect(s.id)}
         >
+          {/* A label can be a long path with nowhere to break: break anywhere, two lines at most.
+              The full label is in the step's detail. */}
           <span
+            title={s.label}
             className={cn(
+              "line-clamp-2 [overflow-wrap:anywhere]",
               large ? "text-base font-medium leading-snug" : "text-sm",
               s.status === "failed" ? "text-status-error" : "text-foreground/90",
             )}
@@ -346,7 +350,7 @@ function StepDetail({ step, onBack }: { step: ActivityStep; onBack: () => void }
       </button>
 
       <div>
-        <div className="text-sm font-semibold">{step.label}</div>
+        <div className="text-sm font-semibold [overflow-wrap:anywhere]">{step.label}</div>
         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
           <StepIcon status={step.status} />
           <FormattedMessage {...ACTIVITY_STATUS_MESSAGES[step.status === "failed" ? "failed" : step.status === "running" ? "running" : "done"]} />
