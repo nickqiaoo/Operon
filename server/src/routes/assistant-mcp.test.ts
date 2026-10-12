@@ -21,7 +21,6 @@ const host = {
   progress: () => undefined,
   finish: (id: string) => finish(id),
   heartbeatDone: () => true,
-  onRemembered: () => undefined,
   onFileWritten: () => undefined,
   schedules: { list: () => [], create: vi.fn(), update: vi.fn(), remove: () => true },
 } as unknown as AssistantToolHost

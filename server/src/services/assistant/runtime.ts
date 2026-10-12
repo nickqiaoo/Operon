@@ -48,10 +48,10 @@ import {
 } from './agents.js'
 import { AssistantApprovals, type ApprovalAnswer } from './approvals.js'
 import { buildUserInput } from './attachments.js'
-import { ensureProfileFiles, listProfileFiles, parseIdentity, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
+import { addedFacts, ensureProfileFiles, listProfileFiles, parseIdentity, peekProfileFile, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
 import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import { setAssistantElicitationHandler, type AssistantRole } from './node-repl-bridge.js'
-import { ASSISTANT_CONVERSATION_DIR, ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR } from './paths.js'
+import { ASSISTANT_DIR, ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR } from './paths.js'
 import { AssistantProjector, record, summaryLine, type Cause } from './projector.js'
 import {
   buildHeartbeatInstructions,
@@ -206,6 +206,8 @@ export class AssistantRuntime {
   private readonly schedules: AssistantSchedules
   private main: MainSession | undefined
   private mainOpening: Promise<MainSession> | undefined
+  /** Wrap-ups under way: their edits to the assistant's files are the assistant's. */
+  private wrapUps = 0
   private rotating: Promise<MainSession> | undefined
   /** Set when the main session must be replaced before its day is over. */
   private rotationWanted: RotationReason | undefined
@@ -219,7 +221,7 @@ export class AssistantRuntime {
   constructor(private readonly storage: Storage) {
     this.bus.setMaxListeners(50)
     ensureProfileFiles()
-    for (const dir of [ASSISTANT_WORKSPACE, ASSISTANT_CONVERSATION_DIR, ASSISTANT_WRAPUP_DIR]) mkdirSync(dir, { recursive: true })
+    for (const dir of [ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR]) mkdirSync(dir, { recursive: true })
 
     // Workers live inside this process; whatever was running when it last stopped is gone. The
     // tasks the user asked for are carried on (resumeInterrupted); a heartbeat or scheduled run
@@ -258,6 +260,9 @@ export class AssistantRuntime {
         agentFor: (kind) => this.agentFor(kind),
         instructions: (kind, unattended) => this.workerInstructions(kind, unattended),
         cwd: ASSISTANT_WORKSPACE,
+        // Day notes only: a worker writes what it observes there; memory.md is the main agent's to
+        // curate (the sandbox enforces it on Codex and Claude).
+        writableDirs: [DAYS_DIR],
         nodeRepl: () => {
           const s = workerSurfaces()
           return s.browser || s.chrome || s.computer
@@ -307,10 +312,15 @@ export class AssistantRuntime {
     // The assistant's own tools, served over MCP to whichever agent runs a session.
     setAssistantToolHost(this.toolHost)
 
-    watchProfileFiles((file) => {
-      this.onProfileChanged(file.name, false)
-      this.emit({ type: 'file', file })
-    })
+    // The agents edit these files with their own tools; a change while one of them is at work is
+    // taken as theirs, any other as the user's (an editor, the app's own panel goes through writeFile).
+    watchProfileFiles(
+      (file) => {
+        this.onProfileChanged(file.name, false)
+        this.emit({ type: 'file', file })
+      },
+      () => (this.main?.channel.busy || this.workers.anyRunning || this.wrapUps > 0 ? 'assistant' : 'user'),
+    )
 
     this.schedules = new AssistantSchedules(storage, (schedules) => this.emit({ type: 'schedules', schedules: this.withSignInState(schedules) }))
     // The heartbeat starts with the assistant's first use, and is always on from then on.
@@ -509,7 +519,6 @@ export class AssistantRuntime {
     },
     finish: (activityId, args) => this.workers.finish(activityId, args),
     heartbeatDone: (activityId, args) => this.workers.heartbeatDone(activityId, args),
-    onRemembered: (line) => this.projector.remember(line),
     onFileWritten: (name, role) => this.onFileWritten(name, role),
     schedules: {
       list: () => this.schedules.list(),
@@ -608,6 +617,17 @@ export class AssistantRuntime {
    * everything, so the session is renewed at the next chance; memory.md changes
    * often and reach the main agent as a note ahead of its next input — unless it made the edit.
    */
+  /**
+   * The main agent edits memory.md with its own file tools. What it added this turn shows on its
+   * reply ("Remembered: …"), and the change isn't echoed back to it as someone else's.
+   */
+  private onMainTurnMemory(before: string, reminder: ContextReminder): void {
+    const after = peekProfileFile('memory')
+    if (after === before) return
+    reminder.mark('memory')
+    for (const line of addedFacts(before, after)) this.projector.remember(line)
+  }
+
   private onProfileChanged(name: ProfileFileName, byMainAgent: boolean): void {
     if (name === 'identity' || name === 'soul') {
       this.rotationWanted ??= 'identity'
@@ -697,13 +717,15 @@ export class AssistantRuntime {
       const recent = this.storage.assistantMessageList({ limit: 60, before: from.before })
       seed = buildSessionSeed(recent, this.storage.assistantActivityList(10)) || undefined
     }
-    const reminder = new ContextReminder(() => listProfileFiles())
+    // Not taken as seen: the main agent edits these files itself, and the watcher still has to see that.
+    const reminder = new ContextReminder(() => listProfileFiles(false))
+    let memoryBefore = peekProfileFile('memory')
     const session = await openRuntimeSession({
       providerId: agent.providerId as WorkerAgent['providerId'],
       modelId: agent.modelId,
       kind: 'main',
       caller: { role: 'main' },
-      cwd: ASSISTANT_CONVERSATION_DIR,
+      cwd: ASSISTANT_DIR,
       instructions: buildMainInstructions(filesRecord(), this.storage.get<string>(LOCALE_KEY), seed),
       ...(resumed ? { sessionId: from.sessionId } : {}),
     })
@@ -722,7 +744,10 @@ export class AssistantRuntime {
       this.storage.set(STARTED_KEY, Date.now())
     }
     const channel = new AgentChannel(session, {
-      onTurnStart: (input) => this.projector.begin(input?.tag as Cause | undefined),
+      onTurnStart: (input) => {
+        memoryBefore = peekProfileFile('memory')
+        this.projector.begin(input?.tag as Cause | undefined)
+      },
       onPart: (part) => {
         try {
           this.projector.part(part)
@@ -730,7 +755,10 @@ export class AssistantRuntime {
           console.error('[assistant] failed to project a part', part.type, error)
         }
       },
-      onTurnEnd: (end) => this.projector.end(end),
+      onTurnEnd: (end) => {
+        this.onMainTurnMemory(memoryBefore, reminder)
+        this.projector.end(end)
+      },
       onApproval: async (toolName) => (isAssistantTool(toolName) ? { type: 'allow' } : { type: 'deny', reason: MAIN_DENIED }),
       onSessionId: (sessionId) => {
         const current = this.storedSession()
@@ -768,27 +796,34 @@ export class AssistantRuntime {
         .filter((a) => a.finishedAt !== undefined && a.finishedAt >= from && a.finishedAt < to)
       const agent = await this.agentFor('main')
       const id = randomUUID()
-      const session = await openRuntimeSession({
-        providerId: agent.providerId,
-        modelId: agent.modelId,
-        kind: 'unattended',
-        caller: { role: 'wrapup', id },
-        cwd: ASSISTANT_WRAPUP_DIR,
-        instructions: buildWrapUpInstructions(filesRecord()),
-      })
-      const channel = new AgentChannel(session, {
-        onApproval: async (toolName) => (isAssistantTool(toolName) ? { type: 'allow' } : { type: 'deny', reason: 'Only memory.md can be changed here.' }),
-      })
+      this.wrapUps++
       try {
-        const before = readProfileFile('memory').content
-        await channel.deliver({
-          text: `Here is the stretch of the conversation that just ended. Keep in memory.md whatever the days ahead need, then reply Done.\n\n<conversation>\n${buildWrapUpTranscript(messages, activities)}\n</conversation>`,
+        const session = await openRuntimeSession({
+          providerId: agent.providerId,
+          modelId: agent.modelId,
+          kind: 'unattended',
+          caller: { role: 'wrapup', id },
+          cwd: ASSISTANT_WRAPUP_DIR,
+          writableDirs: [ASSISTANT_DIR],
+          instructions: buildWrapUpInstructions(filesRecord(), this.storage.get<string>(LOCALE_KEY)),
         })
-        await channel.whenIdle()
-        const changed = readProfileFile('memory').content !== before
-        console.log(`[assistant] wrap-up of ${new Date(from).toISOString()}–${new Date(to).toISOString()}: memory.md ${changed ? 'updated' : 'unchanged'}`)
+        const channel = new AgentChannel(session, {
+          onApproval: async () => ({ type: 'deny', reason: `Only the files in ${ASSISTANT_DIR} can be changed here.` }),
+        })
+        try {
+          const before = peekProfileFile('memory')
+          await channel.deliver({
+            text: `Here is the stretch of the conversation that just ended. Bring memory.md and the day notes up to date, then reply Done.\n\n<conversation>\n${buildWrapUpTranscript(messages, activities)}\n</conversation>`,
+          })
+          await channel.whenIdle()
+          const changed = peekProfileFile('memory') !== before
+          console.log(`[assistant] wrap-up of ${new Date(from).toISOString()}–${new Date(to).toISOString()}: memory.md ${changed ? 'updated' : 'unchanged'}`)
+        } finally {
+          await channel.dispose()
+        }
       } finally {
-        await channel.dispose()
+        // After the file watcher's debounce, so its last edit is still credited to the assistant.
+        setTimeout(() => this.wrapUps--, 1_000)
       }
     } catch (error) {
       console.warn('[assistant] wrap-up failed:', error)

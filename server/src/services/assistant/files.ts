@@ -98,7 +98,8 @@ export function addToInProgress(memory: string, items: readonly string[]): strin
   return `${lines.join('\n')}\n`
 }
 
-export function readProfileFile(name: ProfileFileName): ProfileFile {
+/** @param seen false: leave the watcher's baseline alone, so a change it hasn't reported yet still is. */
+export function readProfileFile(name: ProfileFileName, seen = true): ProfileFile {
   const p = filePath(name)
   let content = ''
   let updatedAt = Date.now()
@@ -108,12 +109,24 @@ export function readProfileFile(name: ProfileFileName): ProfileFile {
   } catch {
     content = DEFAULT_PROFILE_FILES[name]
   }
-  lastKnown.set(name, content)
+  if (seen) lastKnown.set(name, content)
   return { name, content, updatedAt: Math.round(updatedAt), updatedBy: readMeta()[name] ?? 'user' }
 }
 
-export function listProfileFiles(): ProfileFile[] {
-  return PROFILE_FILE_NAMES.map(readProfileFile)
+/**
+ * The file's text as it is on disk, without taking it as seen: the watcher still reports a change
+ * made since (readProfileFile would swallow it).
+ */
+export function peekProfileFile(name: ProfileFileName): string {
+  try {
+    return fs.readFileSync(filePath(name), 'utf8')
+  } catch {
+    return DEFAULT_PROFILE_FILES[name]
+  }
+}
+
+export function listProfileFiles(seen = true): ProfileFile[] {
+  return PROFILE_FILE_NAMES.map((name) => readProfileFile(name, seen))
 }
 
 export function writeProfileFile(name: ProfileFileName, content: string, by: 'assistant' | 'user'): ProfileFile {
@@ -126,11 +139,22 @@ export function writeProfileFile(name: ProfileFileName, content: string, by: 'as
 
 export { parseIdentity } from '../../../../shared/assistant.js'
 
+/** Bullets in `after` that `before` didn't have, as the user would read them: no marker, no date. */
+export function addedFacts(before: string, after: string): string[] {
+  const had = new Set(before.split('\n').map((l) => l.trim()))
+  return after
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /^[-*]\s+\S/.test(l) && !had.has(l))
+    .map((l) => l.replace(/^[-*]\s+/, '').replace(/^\d{4}-\d{2}-\d{2}\s*[:：]\s*/, '').trim())
+    .filter(Boolean)
+}
+
 /**
- * Report edits made outside the app (an editor, another tool) as `user` changes.
- * Debounced per file: editors often write in several steps.
+ * Report edits made outside the app's own writes — the agents' file tools, an editor — credited to
+ * whoever `by` says is likely at work. Debounced per file: editors often write in several steps.
  */
-export function watchProfileFiles(onChange: (file: ProfileFile) => void): () => void {
+export function watchProfileFiles(onChange: (file: ProfileFile) => void, by: () => 'assistant' | 'user' = () => 'user'): () => void {
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let watcher: fs.FSWatcher
   try {
@@ -149,7 +173,7 @@ export function watchProfileFiles(onChange: (file: ProfileFile) => void): () => 
           }
           if (content === lastKnown.get(base)) return
           lastKnown.set(base, content)
-          writeMeta(base, 'user')
+          writeMeta(base, by())
           onChange(readProfileFile(base))
         }, 150),
       )

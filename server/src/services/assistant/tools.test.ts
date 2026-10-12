@@ -11,7 +11,6 @@ function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
     progress: vi.fn(),
     finish: vi.fn(() => true),
     heartbeatDone: vi.fn(() => true),
-    onRemembered: vi.fn(),
     onFileWritten: vi.fn(),
     schedules: { list: () => [], create: vi.fn(), update: vi.fn(), remove: vi.fn(() => true) } as unknown as AssistantToolHost['schedules'],
     ...overrides,
@@ -19,13 +18,13 @@ function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
 }
 
 describe('the tools each kind of session is offered', () => {
-  it('gives the main agent talking, dispatching and its notes; a worker only its hand-in tools; the wrap-up memory', () => {
+  it('gives the main agent talking and dispatching; a worker only its hand-in tools; the wrap-up none (memory is files)', () => {
     expect(toolsFor('main').map((t) => t.name)).toEqual([
-      'profile_edit', 'day_note', 'day_read', 'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
+      'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
       'schedule_list', 'schedule_create', 'schedule_update', 'schedule_delete',
     ])
     expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])
-    expect(toolsFor('wrapup').map((t) => t.name)).toEqual(['profile_edit'])
+    expect(toolsFor('wrapup')).toEqual([])
   })
 })
 
@@ -59,11 +58,6 @@ describe('callAssistantTool', () => {
     const h = host()
     expect(await callAssistantTool('start_task', { title: 'Weather', prompt: 'Suzhou tomorrow' }, { role: 'main' }, h)).toEqual({ text: 'Started task w1.' })
     expect(h.startTask).toHaveBeenCalledWith({ title: 'Weather', prompt: 'Suzhou tomorrow' })
-  })
-
-  it('keeps the wrap-up to memory.md, before touching any file', async () => {
-    const result = await callAssistantTool('profile_edit', { file: 'soul', action: 'append', text: 'be terse' }, { role: 'wrapup', id: 'u1' }, host())
-    expect(result).toEqual({ text: 'Only memory.md can be changed here.', isError: true })
   })
 
   it('names an unknown tool', async () => {

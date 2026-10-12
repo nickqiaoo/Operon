@@ -2,14 +2,12 @@ import { z } from 'zod'
 import type { AssistantSchedule, ProfileFileName } from '../../../../shared/assistant.js'
 import { MemoryService } from '../memory/index.js'
 import { execMemorySearch } from '../memory/operations.js'
-import { appendDay, isDayDate, listDays, localDate, readDay } from './days.js'
-import { MEMORY_SOFT_LIMIT } from './defaults.js'
 import { readProfileFile, writeProfileFile } from './files.js'
 import type { AssistantCaller, AssistantRole } from './node-repl-bridge.js'
 import type { ScheduleInput } from './schedule.js'
 
 /**
- * The assistant's own tools — the main agent's, a worker's, the wrap-up's — whatever agent runs
+ * The assistant's own tools — the main agent's and a worker's — whatever agent runs
  * the session. They are served over MCP by the app (routes/assistant-mcp.ts), so Codex, Claude
  * Code, OpenCode and operon all see the same ones; which session may call which is decided by
  * the caller's role, not by what a client happened to list.
@@ -59,8 +57,6 @@ export interface AssistantToolHost {
   finish(activityId: string, args: FinishArgs): boolean
   /** The heartbeat run `activityId` handed in what it found. False: not a running heartbeat. */
   heartbeatDone(activityId: string, args: HeartbeatArgs): boolean
-  /** A line was saved to memory.md by the main agent. */
-  onRemembered(line: string): void
   /** A definition file changed through a tool, by `role`. */
   onFileWritten(name: ProfileFileName, role: AssistantRole): void
   schedules: ScheduleToolHost
@@ -93,7 +89,7 @@ function failure(text: string): ToolResult {
 }
 
 // ---------------------------------------------------------------------------
-// The main agent's tools (and the wrap-up's one)
+// The main agent's tools. Its memory (memory.md, day notes) is plain files it edits itself.
 // ---------------------------------------------------------------------------
 
 /**
@@ -104,84 +100,6 @@ const changeDescription = z
   .string()
   .optional()
   .describe("What this change is, in a few words in the user's language; the user sees it in their activity log. Always fill it in.")
-
-const profileEdit = defineTool({
-  name: 'profile_edit',
-  description:
-    'Change one of your definition files: memory (what you always know about the user, including what is in progress or being watched), soul (your personality). Append a line, or replace an exact piece of text (use an empty `text` to delete it).',
-  parameters: z.object({
-    file: z.enum(['memory', 'soul']),
-    action: z.enum(['append', 'replace']),
-    text: z.string().describe('Markdown to append, or the replacement text'),
-    old_text: z.string().optional().describe('For replace: the exact text currently in the file'),
-    description: changeDescription,
-  }),
-  roles: ['main', 'wrapup'],
-  run: ({ file, action, text, old_text }, caller, host) => {
-    // The wrap-up keeps memory.md and nothing else.
-    if (caller.role === 'wrapup' && file !== 'memory') return failure('Only memory.md can be changed here.')
-    const current = readProfileFile(file).content
-    let next: string
-    if (action === 'append') {
-      next = `${current.trimEnd()}\n${text.trim()}\n`
-    } else {
-      if (!old_text || !current.includes(old_text)) {
-        return failure(`old_text was not found in ${file}.md; read the file in your instructions and try again.`)
-      }
-      next = current.replace(old_text, text)
-    }
-    writeProfileFile(file, next, 'assistant')
-    host.onFileWritten(file, caller.role)
-    if (caller.role === 'main' && file === 'memory' && action === 'append') {
-      // The fact itself, not the heading the model may have written above it.
-      const lines = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
-      const line = (lines.find((l) => /^[-*]\s/.test(l)) ?? lines[0])?.replace(/^[-*]\s*/, '').trim()
-      if (line) host.onRemembered(line)
-    }
-    const warn = file === 'memory' && next.length > MEMORY_SOFT_LIMIT
-      ? ` memory.md is now ${next.length} characters, over the ${MEMORY_SOFT_LIMIT} limit: merge or drop stale lines.`
-      : ''
-    return `Saved ${file}.md.${warn}`
-  },
-})
-
-const dayNote = defineTool({
-  name: 'day_note',
-  description:
-    "Write the details of what happened into a day's note: what the user did or decided, what a task found (amounts, names, times, links), anything they may ask about later by date. Today unless `date` is given. memory.md keeps only what matters for weeks; the specifics go here.",
-  parameters: z.object({
-    text: z.string().describe("Markdown, in the user's language; specific enough to answer a question about it later"),
-    date: z.string().optional().describe('YYYY-MM-DD, when it happened on another day (the user tells you about yesterday)'),
-    description: changeDescription,
-  }),
-  roles: ['main'],
-  run: ({ text, date }) => {
-    const day = date?.trim() || localDate()
-    if (!isDayDate(day)) return failure(`"${day}" is not a date; use YYYY-MM-DD.`)
-    if (day > localDate()) return failure('That day has not happened yet. Upcoming things go under "In progress" in memory.md.')
-    appendDay(day, text)
-    return `Saved to the note for ${day}.`
-  },
-})
-
-const dayRead = defineTool({
-  name: 'day_read',
-  description:
-    'Read the note for a day — do this first when the user brings up a particular day ("yesterday", "last Tuesday", "Oct 10"). Without `date`, lists the days that have notes.',
-  parameters: z.object({
-    date: z.string().optional().describe('YYYY-MM-DD'),
-  }),
-  roles: ['main'],
-  run: ({ date }) => {
-    if (!date?.trim()) {
-      const days = listDays()
-      return days.length ? `Days with notes, newest first: ${days.slice(0, 60).join(', ')}` : 'No day notes yet.'
-    }
-    const day = date.trim()
-    if (!isDayDate(day)) return failure(`"${day}" is not a date; use YYYY-MM-DD.`)
-    return readDay(day) ?? `Nothing was written down for ${day}. Try memory_search.`
-  },
-})
 
 /** identity.md's frontmatter, field by field — no text matching on `name:` vs `user_name:`. */
 const setIdentity = defineTool({
@@ -424,9 +342,6 @@ const reportProgress = defineTool({
 })
 
 export const ASSISTANT_TOOLS: readonly AssistantTool[] = [
-  profileEdit,
-  dayNote,
-  dayRead,
   setIdentity,
   memorySearch,
   startTask,

@@ -14,6 +14,7 @@ import { getSessionManager } from '../ai/state.js'
 import type { HostSessionOptions } from '../ai/session-options.js'
 import { mcpCliName, userMcpServersForCli, withApiToken } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
+import { toolsFor } from './tools.js'
 import {
   ASSISTANT_WORKER_PARAM,
   assistantConversationId,
@@ -43,13 +44,16 @@ export type SessionKind = 'main' | 'worker' | 'unattended'
 /**
  * Each agent's own permission modes — no judge of the assistant's own (§7). Verified against
  * each provider's `modes` list. What a mode still asks reaches the assistant as an approval.
+ * The main agent's lets it edit its own files (memory.md, day notes — its working directory)
+ * without asking; everything else it would do still asks, and is turned down (runtime.ts).
  */
 const MODES: Record<AssistantProviderId, Record<SessionKind, string>> = {
   // manual | workspace | auto | yolo                   (services/operon-runtime/index.ts)
-  custom: { main: 'manual', worker: 'auto', unattended: 'auto' },
+  custom: { main: 'workspace', worker: 'auto', unattended: 'auto' },
   // default | auto | acceptEdits | plan | bypassPermissions | dontAsk   (providers/claude/config.ts)
-  'claude-code': { main: 'default', worker: 'auto', unattended: 'auto' },
-  // requestApproval | approveForMe | fullAccess | plan  (providers/codex/index.ts)
+  'claude-code': { main: 'acceptEdits', worker: 'auto', unattended: 'auto' },
+  // requestApproval | approveForMe | fullAccess | plan  (providers/codex/index.ts) — both sandboxed
+  // to the working directory and `writableDirs`, so requestApproval already writes there freely.
   codex: { main: 'requestApproval', worker: 'approveForMe', unattended: 'approveForMe' },
   // build | plan | fullAccess                            (providers/opencode/index.ts)
   opencode: { main: 'build', worker: 'build', unattended: 'build' },
@@ -120,10 +124,15 @@ export function sessionMcpServers(
   const id = caller.id ? `&id=${encodeURIComponent(caller.id)}` : ''
   const servers: RuntimeMcpServers = {
     ...(caller.role === 'worker' ? workerServiceServers(providerId) : {}),
-    [toolServerName(caller)]: {
-      type: 'http',
-      url: withApiToken(`${apiBase()}/assistant-mcp?${assistantKeyQuery()}&role=${caller.role}${id}`),
-    },
+    // The wrap-up has none of its own: it only edits files.
+    ...(toolsFor(caller.role).length
+      ? {
+          [toolServerName(caller)]: {
+            type: 'http' as const,
+            url: withApiToken(`${apiBase()}/assistant-mcp?${assistantKeyQuery()}&role=${caller.role}${id}`),
+          },
+        }
+      : {}),
   }
   if (nodeRepl && caller.role === 'worker' && caller.id) {
     servers[nodeReplServerName(providerId)] = {
@@ -143,6 +152,8 @@ export interface OpenParams {
   cwd: string
   instructions: string
   nodeRepl?: boolean
+  /** Outside `cwd`, writable as freely as `cwd` is (day notes for a worker, all of the assistant's files for the wrap-up). */
+  writableDirs?: string[]
   /** The agent's own session id, to resume. */
   sessionId?: string
 }
@@ -166,6 +177,7 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
     mcpServers,
     ...(disabled.length > 0 ? { codex: { disabledMcpServers: disabled } } : {}),
     interactive: params.caller.role === 'main',
+    ...(params.writableDirs?.length ? { writableDirs: params.writableDirs } : {}),
     opencode: { callerTag: assistantConversationId(params.caller) },
     ...(params.sessionId ? { resume: params.sessionId } : {}),
   }

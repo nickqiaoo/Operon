@@ -73,6 +73,8 @@ export interface WorkerPoolHost {
   instructions(kind: WorkerKind, unattended: boolean): string
   /** Where workers work. */
   cwd: string
+  /** Outside `cwd`, writable as freely: the assistant's day notes. */
+  writableDirs?: string[]
   /** Whether workers get node_repl (browser, Chrome, Mac apps). */
   nodeRepl(): boolean
   /** Open (or resume) an agent session. */
@@ -123,6 +125,12 @@ export class WorkerPool {
     private readonly newId: () => string,
     private readonly now: () => number = Date.now,
   ) {}
+
+  /** Whether any worker is mid-run — a change to the assistant's files now is likely its doing. */
+  get anyRunning(): boolean {
+    for (const run of this.runs.values()) if (run.end === undefined) return true
+    return false
+  }
 
   /** Live (or settling) workers — the ones a message or a stop can still reach. */
   isRunning(activityId: string): boolean {
@@ -299,6 +307,7 @@ export class WorkerPool {
       kind: unattended ? 'unattended' : 'worker',
       caller: { role: 'worker', id },
       cwd: this.host.cwd,
+      ...(this.host.writableDirs?.length ? { writableDirs: this.host.writableDirs } : {}),
       instructions: this.host.instructions(kind, unattended),
       nodeRepl: this.host.nodeRepl(),
     }

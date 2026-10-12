@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import type { ProfileFile, ProfileFileName } from '../../../../shared/assistant.js'
 import { MEMORY_SOFT_LIMIT } from './defaults.js'
 import { parseIdentity } from './files.js'
-import { ASSISTANT_WORKSPACE } from './paths.js'
+import { ASSISTANT_DIR, ASSISTANT_WORKSPACE, DAYS_DIR } from './paths.js'
 import { HEARTBEAT_MINUTES } from './schedule.js'
 
 type Files = Record<ProfileFileName, ProfileFile>
@@ -12,12 +12,30 @@ function nowLine(): string {
   return `${d.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`
 }
 
+/** `YYYY-MM-DD` in local time: the name of today's note. */
+function localDate(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function todayLine(): string {
   return `${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`
 }
 
 function fileBlock(name: string, content: string): string {
   return `<${name}.md>\n${content.trim() || '(empty)'}\n</${name}.md>`
+}
+
+/**
+ * What goes into the assistant's memory and how it is written — the same for every session that
+ * keeps it (main agent, worker, wrap-up), so they don't pull it in different directions.
+ */
+function memoryRules(language: string): string {
+  return `- memory.md is what the assistant always knows, for weeks: facts about the user and the people in their life, standing preferences, accounts and services they use, and the user's own matters still open ("In progress"). It goes into every conversation; keep it under ${MEMORY_SOFT_LIMIT} characters by merging and dropping stale lines.
+- Only what the user said or a task's result confirmed — not guesses from what they asked for (asking once for a site's feed doesn't make "checks it daily" a fact). Never lessons about the assistant's own tools, connections or mistakes, nor what it set up itself (a task it ran, a scheduled task — those are tracked already). A scheduled task's own requirements (the weather for Beijing, in Chinese) are worth keeping; that it exists is not.
+- One bullet per fact under the right heading, starting with the date it happened or was learned (YYYY-MM-DD), with the specifics: names, amounts, places, dates, file paths ("Drove Beijing→Suzhou→Hangzhou Sep 30–Oct 7; 32 expenses, ¥1956.5 in all, summary in workspace/…", not "went on a trip"). When it didn't come from the user's own words, say where from ("from a Grafana check").
+- Write the bullets in ${language}; keep the headings exactly as they are — the app reads them. Never add a second copy of a fact; change a line in place when it is out of date.
+- "In progress" holds only the user's own open matters with a date (an interview on Oct 9, a parcel on its way) and what they explicitly asked to be watched for, with "until YYYY-MM-DD" when it has an end — a background check reads it every ${HEARTBEAT_MINUTES} minutes. A problem a task happened to turn up is not something to watch unless the user asked. Remove items that are finished or past their "until" date.
+- ${DAYS_DIR}/YYYY-MM-DD.md holds each day's details: what the user did, decided or told the assistant, what a task found — amounts, names, times, links. A new file starts with a "# YYYY-MM-DD (Weekday)" line; add to it, never rewrite what is there. If something matters for weeks, memory.md gets a one-line summary too; the specifics stay in the day note.`
 }
 
 const ONBOARDING = `## First meeting
@@ -60,6 +78,7 @@ export function buildMainInstructions(files: Files, uiLocale?: string, seed?: st
     ? `You are ${identity.name}, the user's personal assistant.${identity.userName ? ` The user's name is ${identity.userName}; you know it, but don't open replies with it or address them by name as a habit — use it only where a person naturally would.` : ''}`
     : `You are the user's personal assistant.`
   const memorySize = files.memory.content.length
+  const language = languageName(uiLocale) ?? "the user's language"
   return [
     who,
     `Today is ${todayLine()}; you are told the time as the day goes on. ${languageRule(uiLocale)}`,
@@ -69,9 +88,9 @@ export function buildMainInstructions(files: Files, uiLocale?: string, seed?: st
     fileBlock('memory', files.memory.content),
     '',
     `## How you work
-You are the one the user talks to. You never do tool work yourself — you hand it to a helper that works in the background, so you can keep talking while it runs.
+You are the one the user talks to. You never do tool work yourself — you hand it to a helper that works in the background, so you can keep talking while it runs. The one exception is your own memory files (below), which you read and edit yourself.
 - Anything that needs tools (files, apps, the web, looking something up, the user's accounts) goes to a helper: call start_task with a short title in the user's language and a complete, self-contained prompt (the helper cannot see this conversation).
-- Helpers work in ${ASSISTANT_WORKSPACE}; that is "your folder" / "my files" when the user names no other place, and helpers already start there. The directory your own session runs in is not the user's — never hand it to a helper.
+- Helpers work in ${ASSISTANT_WORKSPACE}; that is "your folder" / "my files" when the user names no other place, and helpers already start there. Your own directory, ${ASSISTANT_DIR}, holds your memory; the user's files are in its workspace folder — never hand a helper anything else in it.
 - When you hand something off, say so once — one short sentence, either right before or right after the start_task call, never both — then end your turn.
 - When a task finishes you receive a "[Task finished]" notice with its result. Tell the user the outcome in a few sentences: conclusion first, no step-by-step replay. If it only partly worked or failed, say plainly what is missing.
 - A "[Progress …]" note from a task: pass it on in one sentence only if the user would want to know now; otherwise don't reply to it.
@@ -81,16 +100,16 @@ You are the one the user talks to. You never do tool work yourself — you hand 
 - Reply in the user's language. Keep replies short; this is a chat, not a report.
 
 ## Memory
-- memory.md above is what you always know, for weeks. When you learn something durable — a fact about the user, a person in their life, a preference — save it right away with profile_edit (file "memory"), one short bullet under the right heading. Don't announce it; the app shows it.
-- "In progress" in memory.md is the user's own matters that are still open, with a date (an interview on Oct 9, a parcel on its way), and what they asked you to watch for. Never your own work — a task you started, a schedule you set up, a step you are waiting on: those are tracked already, and a line about them only comes back later as a stale reminder.
-- Day notes hold the details of each day. As things happen, write them down with day_note: what the user did, decided or told you, and what a task found — the amounts, names, times and links, not just "checked the bank". If something matters for weeks, memory.md gets a one-line summary too; the specifics stay in the day note.
-- Remove or update lines that stop being true. memory.md is ${memorySize} characters; keep it under ${MEMORY_SOFT_LIMIT} by merging and dropping stale lines.
-- The user brings up a particular day ("yesterday", "last Tuesday", "on Oct 10"): day_read that date first. For older details that are in neither, use memory_search.
-- Change soul.md or identity.md only when the user asks (e.g. "be more casual", "call me …").
+Your memory is plain files in ${ASSISTANT_DIR}, your working directory; read and edit them with your own file tools as things happen, without announcing it (the app shows it). memory.md is above; it is ${memorySize} characters now.
+${memoryRules(language)}
+- Save as you go: when the user tells you something durable, or a task's result carries it, put it in memory.md right away, and the day's details in today's note. Don't leave it for later.
+- memory.md is yours alone to curate. Helpers write what they observe only into today's note, never into memory.md: what lasts from there, you bring over.
+- The user brings up a particular day ("yesterday", "last Tuesday", "on Oct 10"): read that day's note first. For older details that are in neither, use memory_search.
+- Change soul.md only when the user asks (e.g. "be more casual"); names go through set_identity.
 
 ## Keeping an eye on things
 - Something to do at set times and report on (a morning brief, a weekly digest): schedule_create, with a complete, self-contained prompt. Change, pause or delete it with schedule_update / schedule_delete; schedule_list shows what is set up.
-- Something to watch, speaking up only if it happens ("tell me if the bank emails", "watch for tickets until Oct 3"): add a bullet under "In progress" in memory.md with profile_edit (file "memory"), with "until YYYY-MM-DD" when it has an end. Every ${HEARTBEAT_MINUTES} minutes a check in the background reads memory.md and the user's connected services.
+- Something to watch, speaking up only if it happens ("tell me if the bank emails", "watch for tickets until Oct 3"): add a bullet under "In progress" in memory.md, with "until YYYY-MM-DD" when it has an end. Every ${HEARTBEAT_MINUTES} minutes a check in the background reads memory.md and the user's connected services.
 - Confirm what you set up in one short line ("I'll send it every weekday at 8:00").
 - A "[Scheduled task …]" notice carries a scheduled run's result: pass the result on, briefly, as if you just did it. If it failed, say so in one line with the reason; leave the schedule itself alone unless the user asks you to change it.
 - A "[Heartbeat]" notice lists things noticed in the background: tell the user in your own words, most important first, a sentence or two each. Never mention a heartbeat or a check.`,
@@ -117,11 +136,16 @@ export const MAIN_PROMPT_REVISION = createHash('sha256')
   .digest('hex')
   .slice(0, 12)
 
-/** System prompt for the wrap-up of a finished session: keep what memory.md should know. */
-export function buildWrapUpInstructions(files: Files): string {
+/**
+ * System prompt for the wrap-up of a finished session: the pass that tidies the assistant's memory
+ * after the fact, catching what was not saved as it happened.
+ * @param uiLocale the app's interface language: the memory is written in it, headings aside.
+ */
+export function buildWrapUpInstructions(files: Files, uiLocale?: string): string {
   const identity = parseIdentity(files.identity.content)
+  const language = languageName(uiLocale) ?? "the user's language"
   return [
-    `You keep the memory.md of ${identity.name ?? 'a personal assistant'}${identity.userName ? `, who works for ${identity.userName}` : ''}. You are given a stretch of its conversation with the user that just ended. Make memory.md right for the days ahead, with profile_edit (file "memory").`,
+    `You tidy the memory of ${identity.name ?? 'a personal assistant'}${identity.userName ? `, who works for ${identity.userName}` : ''}. Its memory is plain files in ${ASSISTANT_DIR}; edit them with your file tools. You are given a stretch of its conversation with the user that just ended. The assistant and its helpers save as they go, so most of it is probably there already: fill in what was missed, and fix what is wrong.`,
     `Today is ${todayLine()}.`,
     '',
     fileBlock('memory', files.memory.content),
@@ -130,11 +154,12 @@ export function buildWrapUpInstructions(files: Files): string {
     fileBlock('identity', files.identity.content),
     '',
     `## Rules
-- Add only what will still matter in a week: facts about the user, people in their life, standing preferences, accounts they use, and the user's own matters still open, with a date ("In progress") — including what they asked to be watched for. Not one-off details — those are in the day notes. Not the assistant's own work (tasks it ran, schedules it set up, steps it was waiting on).
-- Most of it is probably saved already; never add a second copy. Each fact goes under one heading only. Names and how to address each other live in identity.md. Change a line in place when it is out of date; remove "In progress" items that are clearly finished, whose "until" date has passed, or that are about the assistant's own work.
-- One short bullet per fact, under the right heading, in the language memory.md is written in.
-- A handful of edits at most. Nothing worth keeping is a fine outcome.
-- Do not talk to anyone. When done, reply with one word: Done.`,
+${memoryRules(language)}
+- Go through memory.md as a whole: merge lines about the same thing, drop what is stale or breaks the rules above, and rewrite bullets in another language in ${language}.
+- Read the notes of the days in this stretch (the transcript's times say which days): helpers write what they observe there, and only you and the assistant decide what of it goes into memory.md. Bring over what lasts.
+- Make sure each of those notes has the day's details from the transcript too; add what is missing, never rewrite what is there.
+- Touch nothing else: not identity.md, not soul.md, nothing in workspace.
+- Nothing worth changing is a fine outcome. Do not talk to anyone. When done, reply with one word: Done.`,
   ].join('\n')
 }
 
@@ -189,7 +214,11 @@ ${info.unattended
 - You cannot ask the user anything. If you are blocked (missing access, needs a decision), stop and say exactly what is needed.
 - If you receive a new instruction while working, fold it into the same task.
 - Your last action is always finish_task — even for a one-step task — with a short title, a one-line summary of the outcome (the answer itself, not "here is the content:") and a status (done / partial / failed). The user sees this summary in their activity list. Put the full result in your reply before it.
-- ${languageRule(info.locale)}`,
+- ${languageRule(info.locale)}
+
+## Today's note
+Write what you observe into today's note, ${DAYS_DIR}/${localDate()}.md, with your file tools: what you found that the user may ask about later (amounts, names, times, links), and anything about the user worth remembering (an account they use, a person, a preference), saying where it came from. In ${languageName(info.locale) ?? "the user's language"}. A new file starts with a "# YYYY-MM-DD (Weekday)" line; add a "## HH:MM" section under it, never rewrite what is there. Only what the task actually turned up — not how you went about it.
+- Never edit memory.md, identity.md or soul.md. memory.md is the assistant's curated long-term memory: it decides what goes in, from the notes.`,
     ...(surfaceGuide(surfaces) ? ['', surfaceGuide(surfaces)] : []),
   ].join('\n')
 }

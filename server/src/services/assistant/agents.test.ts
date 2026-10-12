@@ -26,6 +26,10 @@ describe('assistant session servers', () => {
     expect(Object.keys(sessionMcpServers({ role: 'main' }, true, 'codex'))).toEqual(['assistant'])
   })
 
+  it('mounts no tools of its own for the wrap-up, which only edits files', () => {
+    expect(sessionMcpServers({ role: 'wrapup', id: 'u1' }, true, 'codex')).toEqual({})
+  })
+
   // The ChatGPT app puts a stdio `node_repl` in ~/.codex/config.toml; ours under the same name
   // merges into an entry with both `command` and `url`, and Codex refuses to start the session.
   it('renames node_repl on Codex and switches off the user config one', () => {
