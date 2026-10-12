@@ -216,13 +216,15 @@ interface ProjectSidebarProps {
   onOpenAssistant?: () => void
   /** The Assistant view is showing in place of the editor. */
   assistantActive?: boolean
-  /** Picking a workspace leaves the Assistant view. */
-  onLeaveAssistant?: () => void
+  /** The Inbox is showing in place of the editor. */
+  inboxActive?: boolean
+  /** Picking a workspace leaves the Assistant / Inbox view. */
+  onLeaveMainView?: () => void
   onCollapse?: () => void
   collapsed?: boolean
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenChannel, onOpenInbox, onOpenAssistant, assistantActive, onLeaveAssistant, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenChannel, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, onLeaveMainView, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
@@ -276,8 +278,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
     const chatTabIds = tabs.filter((t) => t.type === "chat").map((t) => t.id)
     if (chatTabIds.length > 0) clearUnseen(chatTabIds)
     setActiveWorkspace(workspaceId, projectId)
-    onLeaveAssistant?.()
-  }, [getWorkspaceTabs, clearUnseen, setActiveWorkspace, onLeaveAssistant])
+    onLeaveMainView?.()
+  }, [getWorkspaceTabs, clearUnseen, setActiveWorkspace, onLeaveMainView])
 
   const syncWorktrees = async (project: Project) => {
     try {
@@ -395,7 +397,12 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
           <button
             type="button"
             onClick={onOpenInbox}
-            className="w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
+            className={cn(
+              "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+              inboxActive
+                ? "bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.07]"
+                : "text-foreground/85 hover:bg-muted/60 hover:text-foreground",
+            )}
           >
             <Inbox className="h-4 w-4" />
             <span className="flex-1"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
@@ -448,7 +455,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                 project={project}
                 onSelectWorkspace={handleSelectWorkspace}
                 // Only one place is "current": while the Assistant is showing, no workspace is.
-                activeWorkspaceId={assistantActive ? null : activeWorkspaceId}
+                activeWorkspaceId={assistantActive || inboxActive ? null : activeWorkspaceId}
                 onAddWorkspace={handleOpenAddWorkspace}
                 onOpenChannel={onOpenChannel}
                 error={projectErrors[String(project.id)] ?? null}

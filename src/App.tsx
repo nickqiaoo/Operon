@@ -53,8 +53,10 @@ export default function App() {
   // Deep-link target when a task notification opens the channel page: forwarded
   // to ChannelPage → TasksPage to open that task's detail. Cleared once consumed.
   const [channelInitialTaskId, setChannelInitialTaskId] = useState<number | null>(null)
-  const [inboxOpen, setInboxOpen] = useState(false)
-  const [assistantOpen, setAssistantOpen] = useState(false)
+  // The Assistant and the Inbox take over center + right, next to the sidebar; null = the editor.
+  const [mainView, setMainView] = useState<'assistant' | 'inbox' | null>(null)
+  const assistantOpen = mainView === 'assistant'
+  const inboxOpen = mainView === 'inbox'
   const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const theme = useThemeStore((state) => state.theme)
   const lightUITheme = useThemeStore((state) => state.lightUITheme)
@@ -87,14 +89,14 @@ export default function App() {
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const handleToggleSidebar = useAppShellStore((s) => s.toggleSidebar)
 
-  const leaveAssistant = useCallback(() => setAssistantOpen(false), [])
+  const leaveMainView = useCallback(() => setMainView(null), [])
   // Switching to a tab from anywhere (Inbox, a card, a shortcut) means the
-  // editor is wanted back, so it replaces the Assistant view.
+  // editor is wanted back, so it replaces the Assistant / Inbox view.
   const lastActiveTabIdRef = useRef(activeTabId)
   useEffect(() => {
     if (lastActiveTabIdRef.current === activeTabId) return
     lastActiveTabIdRef.current = activeTabId
-    setAssistantOpen(false)
+    setMainView(null)
   }, [activeTabId])
 
   // Keep the global inbox stream live for the whole session so the bell badge
@@ -104,7 +106,8 @@ export default function App() {
   // Deep-link from an inbox notification to its source (task board / workspace chat).
   const handleOpenNotification = useCallback(
     (n: Notification) => {
-      setInboxOpen(false)
+      // Also when the source is the tab already active: no tab change would bring the editor back.
+      setMainView(null)
       if (n.taskId != null && n.projectId != null) {
         const project = projects.find((p) => p.id === n.projectId)
         if (project) {
@@ -316,7 +319,7 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  const isPageOpen = settingsOpen || pluginsOpen || canvasOpen || cronjobOpen || !!channelProject || inboxOpen
+  const isPageOpen = settingsOpen || pluginsOpen || canvasOpen || cronjobOpen || !!channelProject
 
   // The app navigates by state, not by URL, so analytics has no way to know
   // which screen the user is on unless it is told. Full-screen pages win over
@@ -423,12 +426,6 @@ export default function App() {
             </div>
           )}
 
-          {inboxOpen && (
-            <div className="fixed inset-0 z-50">
-              <InboxPage onBack={() => setInboxOpen(false)} onOpenSource={handleOpenNotification} />
-            </div>
-          )}
-
           {/* Toasts live at body level, above the full-screen pages. They used to
               sit inside the shell below, which goes `invisible` whenever a page is
               open — so every error raised from Settings / Tasks / Inbox was
@@ -458,10 +455,11 @@ export default function App() {
               onOpenPlugins={() => { setPluginsOpen(true); trackEvent('page_opened', { page: 'plugins' }) }}
               onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
               onOpenChannel={(project) => setChannelProject({ id: project.id, name: project.name })}
-              onOpenInbox={() => { setInboxOpen(true); trackEvent('page_opened', { page: 'inbox' }) }}
-              onOpenAssistant={ASSISTANT_ENABLED ? () => setAssistantOpen(true) : undefined}
+              onOpenInbox={() => { setMainView('inbox'); trackEvent('page_opened', { page: 'inbox' }) }}
+              onOpenAssistant={ASSISTANT_ENABLED ? () => setMainView('assistant') : undefined}
               assistantActive={assistantOpen}
-              onLeaveAssistant={leaveAssistant}
+              inboxActive={inboxOpen}
+              onLeaveMainView={leaveMainView}
               onCollapse={handleToggleSidebar}
               collapsed={sidebarCollapsed}
             />
@@ -469,13 +467,20 @@ export default function App() {
 
           {/* Main Content Area (Center + Right) */}
           <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
-            {/* The Assistant takes over center + right. The editor stays mounted
+            {/* The Assistant and the Inbox take over center + right. The editor stays mounted
                 underneath (display:none) so streams and terminals keep running;
                 the browser webview hides itself once its placeholder has no size. */}
             {assistantOpen && (
               <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} />
             )}
-            <div className={cn("flex min-h-0 flex-1 flex-col", assistantOpen && "hidden")}>
+            {inboxOpen && (
+              <InboxPage
+                sidebarCollapsed={sidebarCollapsed}
+                onExpandSidebar={handleToggleSidebar}
+                onOpenSource={handleOpenNotification}
+              />
+            )}
+            <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && "hidden")}>
             <AppShell>
               <div className="flex h-full min-h-0 flex-col">
                 {/* Center header (workspace breadcrumbs). The whole row is a
@@ -555,7 +560,7 @@ export default function App() {
                         <ChatPanel
                           chatId={tab.id}
                           providerId={tab.providerId}
-                          visible={isActive && !isPageOpen && !assistantOpen}
+                          visible={isActive && !isPageOpen && mainView === null}
                         />
                       </div>
                     );
@@ -574,7 +579,7 @@ export default function App() {
                         terminalId={activeTab.terminalId}
                         cwd={activeTab.cwd ?? ""}
                         launch={activeTab.launch}
-                        isActive={!isPageOpen && !assistantOpen}
+                        isActive={!isPageOpen && mainView === null}
                       />
                     </div>
                   )}
