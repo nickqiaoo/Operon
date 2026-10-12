@@ -57,13 +57,14 @@ import {
   buildHeartbeatInstructions,
   buildHeartbeatPrompt,
   buildMainInstructions,
+  MAIN_PROMPT_REVISION,
   buildScheduledPrompt,
   buildWorkerInstructions,
   buildWrapUpInstructions,
   type WorkerSurfaces,
 } from './prompts.js'
 import { buildSessionSeed, buildWrapUpTranscript, ContextReminder, rotationDue } from './rotation.js'
-import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours, removeLines } from './schedule.js'
+import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
 import { setAssistantToolHost, type AssistantToolHost } from './tools.js'
 import { WorkerPool, type InFlightRun, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerSessionRef } from './workers.js'
 
@@ -109,6 +110,8 @@ interface StoredSession {
   providerId: string
   modelId: string
   sessionId?: string
+  /** `MAIN_PROMPT_REVISION` when it was opened; a different one means its instructions are stale. */
+  promptRevision?: string
 }
 
 /** The main agent's live session. */
@@ -602,7 +605,7 @@ export class AssistantRuntime {
 
   /**
    * A definition file changed. Who the assistant is (identity, soul) changes rarely and reshapes
-   * everything, so the session is renewed at the next chance; memory.md and heartbeat.md change
+   * everything, so the session is renewed at the next chance; memory.md changes
    * often and reach the main agent as a note ahead of its next input — unless it made the edit.
    */
   private onProfileChanged(name: ProfileFileName, byMainAgent: boolean): void {
@@ -657,14 +660,20 @@ export class AssistantRuntime {
     const stored = this.storedSession()
     const startedAt = this.storage.get<number>(STARTED_KEY)
     // Resume when the session is today's, on the agent still configured, and the agent gave it an id.
-    if (stored?.sessionId && stored.providerId === agent.providerId && stored.modelId === agent.modelId && !rotationDue(startedAt, Date.now())) {
+    if (
+      stored?.sessionId &&
+      stored.providerId === agent.providerId &&
+      stored.modelId === agent.modelId &&
+      stored.promptRevision === MAIN_PROMPT_REVISION &&
+      !rotationDue(startedAt, Date.now())
+    ) {
       try {
         return await this.startMain(agent, { generation: stored.generation, sessionId: stored.sessionId })
       } catch (error) {
         console.warn('[assistant] could not resume the main session, starting a new one:', error)
       }
     }
-    // Starting over (first use, a day-old session, a new agent, or one that would not resume).
+    // Starting over (first use, a day-old session, a new agent or prompt, or one that would not resume).
     // The old stretch of the thread still gets its wrap-up.
     const hadOne = stored !== undefined || this.storage.get<string>(LEGACY_SESSION_KEY) !== undefined
     this.storage.delete(LEGACY_SESSION_KEY)
@@ -699,7 +708,13 @@ export class AssistantRuntime {
       ...(resumed ? { sessionId: from.sessionId } : {}),
     })
     reminder.markAll()
-    const record: StoredSession = { generation, providerId: agent.providerId, modelId: agent.modelId, ...(resumed ? { sessionId: from.sessionId } : {}) }
+    const record: StoredSession = {
+      generation,
+      providerId: agent.providerId,
+      modelId: agent.modelId,
+      promptRevision: MAIN_PROMPT_REVISION,
+      ...(resumed ? { sessionId: from.sessionId } : {}),
+    }
     this.storage.set(SESSION_KEY, record)
     if (!resumed) {
       if (seed) this.storage.set(SEED_KEY, { generation, text: seed })
@@ -854,7 +869,7 @@ export class AssistantRuntime {
       this.schedules.recordRun({ id: randomUUID(), scheduleId: job.id, at: now, outcome, ...(note ? { note } : {}), ...(activityId ? { activityId } : {}) })
 
     let found: Held[] = []
-    if (!heartbeatHasWork(files.heartbeat.content, files.memory.content, connectors)) {
+    if (!heartbeatHasWork(files.memory.content, connectors)) {
       logRun('silent', NOTHING_TO_CHECK_NOTE)
     } else {
       this.heartbeatConnectors = connectors
@@ -895,12 +910,6 @@ export class AssistantRuntime {
       }
       const unchecked = reported.filter((u) => !u.limited).map((u) => (u.reason ? `${u.name} (${u.reason})` : u.name))
       const uncheckedNote = unchecked.length ? unchecked.join(', ') : undefined
-      const expired = Array.isArray(args?.remove_lines) ? args.remove_lines.filter((l): l is string => typeof l === 'string') : []
-      if (expired.length) {
-        const current = readProfileFile('heartbeat').content
-        const next = removeLines(current, expired)
-        if (next !== current) this.emit({ type: 'file', file: writeProfileFile('heartbeat', next, 'assistant') })
-      }
       if (!findings.length) {
         // A check that didn't happen must not read as "nothing new".
         if (uncheckedNote) logRun('partial', uncheckedNote)

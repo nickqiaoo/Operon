@@ -108,7 +108,7 @@ export interface Activity {
 /** `taskId` of a main-agent activity, which is how storage tells it from a worker's. */
 export const MAIN_ACTIVITY_TASK_PREFIX = 'am-'
 
-export type ProfileFileName = 'identity' | 'soul' | 'memory' | 'heartbeat'
+export type ProfileFileName = 'identity' | 'soul' | 'memory'
 
 export interface ProfileFile {
   name: ProfileFileName
@@ -189,7 +189,7 @@ export interface AssistantSchedule {
    * `until` (then tried again) or until the user asks for a re-check. `service` is the key to clear.
    */
   limited?: Array<{ service: string; name: string; reason: string; until: number }>
-  /** What the worker is told on each run. Empty for the heartbeat, which reads heartbeat.md. */
+  /** What the worker is told on each run. Empty for the heartbeat, which reads memory.md and the connected services. */
   prompt: string
   /** e.g. "Every 30 minutes", "Weekdays at 08:40". */
   cadence: string

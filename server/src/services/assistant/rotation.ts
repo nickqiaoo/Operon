@@ -92,7 +92,7 @@ export function buildWrapUpTranscript(messages: readonly AssistantMessage[], act
 }
 
 /** The definition files whose edits mid-session the main agent is told about. */
-const WATCHED: readonly ProfileFileName[] = ['memory', 'heartbeat']
+const WATCHED: readonly ProfileFileName[] = ['memory']
 
 /**
  * What the main agent is told at the start of a turn, between rotations: its system prompt is

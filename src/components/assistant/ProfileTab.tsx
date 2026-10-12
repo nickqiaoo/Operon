@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react"
-import { Heart, HeartPulse, Pencil } from "lucide-react"
+import { Heart, Pencil } from "lucide-react"
 import { defineMessages, FormattedMessage, type MessageDescriptor } from "react-intl"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -10,7 +10,7 @@ import type { ProfileFile, ProfileFileName } from "./types"
  * look the same in light and dark, so they are literal gradients rather than
  * theme tokens. A grain layer on top keeps the flat gradient from banding.
  */
-const ART: Record<"soul" | "memory" | "heartbeat", CSSProperties> = {
+const ART: Record<"soul" | "memory", CSSProperties> = {
   soul: {
     background:
       "radial-gradient(120% 90% at 90% 110%, #f43f5e 0%, transparent 55%), radial-gradient(90% 80% at 25% 30%, #9f1239 0%, transparent 70%), linear-gradient(140deg, #be123c 0%, #7f1d1d 100%)",
@@ -18,10 +18,6 @@ const ART: Record<"soul" | "memory" | "heartbeat", CSSProperties> = {
   memory: {
     background:
       "radial-gradient(110% 90% at 15% 110%, #7dd3fc 0%, transparent 50%), radial-gradient(90% 90% at 80% 20%, #312e81 0%, transparent 70%), linear-gradient(140deg, #2563eb 0%, #1e1b4b 100%)",
-  },
-  heartbeat: {
-    background:
-      "radial-gradient(80% 160% at 95% 50%, #6ee7b7 0%, transparent 55%), linear-gradient(100deg, #065f46 0%, #0f766e 100%)",
   },
 }
 
@@ -40,26 +36,20 @@ export const PROFILE_FILE_META: Record<ProfileFileName, { title: MessageDescript
   }),
   memory: defineMessages({
     title: { id: "assistant.profile.memory.title", defaultMessage: "Memory" },
-    hint: { id: "assistant.profile.memory.hint", defaultMessage: "What it always knows about you. The assistant keeps it up to date." },
-  }),
-  heartbeat: defineMessages({
-    title: { id: "assistant.profile.heartbeat.title", defaultMessage: "Heartbeat" },
     hint: {
-      id: "assistant.profile.heartbeat.hint",
-      defaultMessage: "Extra things to check every 30 minutes, on top of your connected apps.",
+      id: "assistant.profile.memory.hint",
+      defaultMessage: "What it always knows about you, and what it keeps an eye on (In progress). The assistant keeps it up to date.",
     },
   }),
 }
 
 const TAGLINES = defineMessages({
   careful: { id: "assistant.profile.tagline.careful", defaultMessage: "Handle with care" },
-  watches: { id: "assistant.profile.tagline.watches", defaultMessage: "What it keeps an eye on" },
 })
 
-const PROFILE_CARDS: { name: "soul" | "memory" | "heartbeat"; tagline: MessageDescriptor }[] = [
+const PROFILE_CARDS: { name: "soul" | "memory"; tagline: MessageDescriptor }[] = [
   { name: "soul", tagline: TAGLINES.careful },
   { name: "memory", tagline: TAGLINES.careful },
-  { name: "heartbeat", tagline: TAGLINES.watches },
 ]
 
 interface ProfileTabProps {
@@ -83,11 +73,10 @@ export function ProfileTab({ files, assistantName, onOpenFile }: ProfileTabProps
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {PROFILE_CARDS.slice(0, 2).map((c) => (
+        {PROFILE_CARDS.map((c) => (
           <FileCard key={c.name} card={c} updatedAt={updatedAt(c.name)} onOpen={() => onOpenFile(c.name)} />
         ))}
       </div>
-      <FileCard card={PROFILE_CARDS[2]} updatedAt={updatedAt("heartbeat")} onOpen={() => onOpenFile("heartbeat")} wide />
     </div>
   )
 }
@@ -96,14 +85,11 @@ function FileCard({
   card,
   updatedAt,
   onOpen,
-  wide,
 }: {
   card: (typeof PROFILE_CARDS)[number]
   updatedAt: number
   onOpen: () => void
-  wide?: boolean
 }) {
-  const Icon = card.name === "heartbeat" ? HeartPulse : Heart
   return (
     <button
       type="button"
@@ -112,7 +98,7 @@ function FileCard({
       className={cn(
         "group relative flex w-full flex-col justify-between overflow-hidden rounded-xl p-4 text-left text-white shadow-card transition-[filter,transform] duration-200",
         "hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        wide ? "h-20" : "aspect-[1.1]",
+        "aspect-[1.1]",
       )}
     >
       <span className="pointer-events-none absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: GRAIN }} />
@@ -124,14 +110,10 @@ function FileCard({
           <FormattedMessage {...card.tagline} />
         </span>
       </span>
-      {wide ? (
-        <Icon className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/75" />
-      ) : (
-        <span className="relative flex items-end justify-between">
-          <span className="text-sm tabular-nums text-white/85">{formatCardDate(updatedAt)}</span>
-          <Icon className="h-5 w-5 fill-white/70 text-white/0" />
-        </span>
-      )}
+      <span className="relative flex items-end justify-between">
+        <span className="text-sm tabular-nums text-white/85">{formatCardDate(updatedAt)}</span>
+        <Heart className="h-5 w-5 fill-white/70 text-white/0" />
+      </span>
     </button>
   )
 }

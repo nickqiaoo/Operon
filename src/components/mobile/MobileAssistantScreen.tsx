@@ -186,7 +186,6 @@ export function MobileAssistantScreen({
                       .catch(reportError)
                   }}
                   onRecheck={(service) => void clearHeartbeatLimit(service).catch(reportError)}
-                  onEditHeartbeat={() => push({ kind: "file", name: "heartbeat" })}
                   onOpenActivity={(id) => push({ kind: "activity", id })}
                 />
               )}
@@ -264,7 +263,7 @@ export function MobileAssistantScreen({
             insetTop={headerHeight}
             messages={messages}
             typing={typing}
-            userName={identity.userName}
+            assistantName={identity.name}
             hasMore={hasMore}
             loadingOlder={loadingOlder}
             onLoadOlder={() => void loadOlder().catch(reportError)}

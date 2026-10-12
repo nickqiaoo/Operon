@@ -128,7 +128,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                 <AssistantChat
                   messages={messages}
                   typing={typing}
-                  userName={identity.userName}
+                  assistantName={identity.name}
                   hasMore={hasMore}
                   loadingOlder={loadingOlder}
                   onLoadOlder={() => void loadOlder().catch(reportError)}
@@ -172,7 +172,6 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                     .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runningNow", defaultMessage: "Running now" })))
                     .catch(reportError)
                 }}
-                onEditHeartbeat={() => openProfileFile("heartbeat")}
                 onOpenActivity={openActivity}
                 onConnectPlugin={openPluginsPage}
                 onRecheck={(service) => void clearHeartbeatLimit(service).catch(reportError)}

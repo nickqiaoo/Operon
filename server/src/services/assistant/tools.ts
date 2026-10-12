@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AssistantSchedule, ProfileFileName } from '../../../../shared/assistant.js'
 import { MemoryService } from '../memory/index.js'
 import { execMemorySearch } from '../memory/operations.js'
+import { appendDay, isDayDate, listDays, localDate, readDay } from './days.js'
 import { MEMORY_SOFT_LIMIT } from './defaults.js'
 import { readProfileFile, writeProfileFile } from './files.js'
 import type { AssistantCaller, AssistantRole } from './node-repl-bridge.js'
@@ -32,7 +33,6 @@ export interface FinishArgs {
 /** What the heartbeat hands in at the end of a check. */
 export interface HeartbeatArgs {
   findings: Array<{ text: string; urgent: boolean }>
-  remove_lines?: string[]
   /** Services that could not be checked, and why: this time (`error`), or at all (`limited`). */
   unchecked?: Array<{ service: string; reason: string; kind?: 'error' | 'limited' }>
 }
@@ -108,9 +108,9 @@ const changeDescription = z
 const profileEdit = defineTool({
   name: 'profile_edit',
   description:
-    'Change one of your definition files: memory (what you always know about the user), soul (your personality), heartbeat (extra things to keep an eye on). Append a line, or replace an exact piece of text (use an empty `text` to delete it).',
+    'Change one of your definition files: memory (what you always know about the user, including what is in progress or being watched), soul (your personality). Append a line, or replace an exact piece of text (use an empty `text` to delete it).',
   parameters: z.object({
-    file: z.enum(['memory', 'soul', 'heartbeat']),
+    file: z.enum(['memory', 'soul']),
     action: z.enum(['append', 'replace']),
     text: z.string().describe('Markdown to append, or the replacement text'),
     old_text: z.string().optional().describe('For replace: the exact text currently in the file'),
@@ -142,6 +142,44 @@ const profileEdit = defineTool({
       ? ` memory.md is now ${next.length} characters, over the ${MEMORY_SOFT_LIMIT} limit: merge or drop stale lines.`
       : ''
     return `Saved ${file}.md.${warn}`
+  },
+})
+
+const dayNote = defineTool({
+  name: 'day_note',
+  description:
+    "Write the details of what happened into a day's note: what the user did or decided, what a task found (amounts, names, times, links), anything they may ask about later by date. Today unless `date` is given. memory.md keeps only what matters for weeks; the specifics go here.",
+  parameters: z.object({
+    text: z.string().describe("Markdown, in the user's language; specific enough to answer a question about it later"),
+    date: z.string().optional().describe('YYYY-MM-DD, when it happened on another day (the user tells you about yesterday)'),
+    description: changeDescription,
+  }),
+  roles: ['main'],
+  run: ({ text, date }) => {
+    const day = date?.trim() || localDate()
+    if (!isDayDate(day)) return failure(`"${day}" is not a date; use YYYY-MM-DD.`)
+    if (day > localDate()) return failure('That day has not happened yet. Upcoming things go under "In progress" in memory.md.')
+    appendDay(day, text)
+    return `Saved to the note for ${day}.`
+  },
+})
+
+const dayRead = defineTool({
+  name: 'day_read',
+  description:
+    'Read the note for a day — do this first when the user brings up a particular day ("yesterday", "last Tuesday", "Oct 10"). Without `date`, lists the days that have notes.',
+  parameters: z.object({
+    date: z.string().optional().describe('YYYY-MM-DD'),
+  }),
+  roles: ['main'],
+  run: ({ date }) => {
+    if (!date?.trim()) {
+      const days = listDays()
+      return days.length ? `Days with notes, newest first: ${days.slice(0, 60).join(', ')}` : 'No day notes yet.'
+    }
+    const day = date.trim()
+    if (!isDayDate(day)) return failure(`"${day}" is not a date; use YYYY-MM-DD.`)
+    return readDay(day) ?? `Nothing was written down for ${day}. Try memory_search.`
   },
 })
 
@@ -262,7 +300,7 @@ const scheduleList = defineTool({
 const scheduleCreate = defineTool({
   name: 'schedule_create',
   description:
-    'Set up something to do at set times and report on — a morning brief, a weekly summary. Each run is a helper working on its own with `prompt`, and you get its result to pass on. Not for "tell me if X happens": that goes in heartbeat.md.',
+    'Set up something to do at set times and report on — a morning brief, a weekly summary. Each run is a helper working on its own with `prompt`, and you get its result to pass on. Not for "tell me if X happens": that goes under "In progress" in memory.md, which the background check watches.',
   parameters: z.object({
     name: z.string().describe("Short name in the user's language, shown in their schedule list"),
     prompt: z.string().describe('Complete instructions for each run; the helper cannot see this conversation'),
@@ -356,7 +394,6 @@ const heartbeatDone = defineTool({
         }),
       )
       .describe('Empty when there is nothing new worth saying'),
-    remove_lines: z.array(z.string()).optional().describe('Lines of heartbeat.md whose "until" date has passed, copied exactly'),
     unchecked: z
       .array(
         z.object({
@@ -388,6 +425,8 @@ const reportProgress = defineTool({
 
 export const ASSISTANT_TOOLS: readonly AssistantTool[] = [
   profileEdit,
+  dayNote,
+  dayRead,
   setIdentity,
   memorySearch,
   startTask,

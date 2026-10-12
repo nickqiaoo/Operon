@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useStickToBottomContext } from "use-stick-to-bottom"
-import { BookmarkCheck, CalendarClock, HeartPulse, PaperclipIcon } from "lucide-react"
+import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils"
 import type { AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
 import { AuditIconTile, formatClock, isSameDay } from "./shared"
 import { auditDetail, dayLabel, messageText } from "./assistant-i18n"
-import { PROFILE_FILE_META } from "./ProfileTab"
 
 /** Messages further apart than this get a time label between them (same day). */
 const TIME_GAP_MS = 30 * 60_000
@@ -36,7 +35,8 @@ interface AssistantChatProps {
   messages: AssistantMessage[]
   /** The main agent is composing a reply. */
   typing: boolean
-  userName?: string
+  /** The assistant's name from identity.md, for the composer placeholder. */
+  assistantName?: string
   /** Older messages exist above the first one shown. */
   hasMore: boolean
   loadingOlder: boolean
@@ -67,7 +67,7 @@ interface AssistantChatProps {
 export function AssistantChat({
   messages,
   typing,
-  userName,
+  assistantName,
   hasMore,
   loadingOlder,
   onLoadOlder,
@@ -176,8 +176,8 @@ export function AssistantChat({
           <ComposerFields
             canCollapse={compact && !composerFocused && !hasText}
             placeholder={
-              userName
-                ? intl.formatMessage({ id: "assistant.chat.placeholderNamed", defaultMessage: "Message, {name}…" }, { name: userName })
+              assistantName
+                ? intl.formatMessage({ id: "assistant.chat.placeholderTo", defaultMessage: "Message {name}…" }, { name: assistantName })
                 : intl.formatMessage({ id: "assistant.chat.placeholder", defaultMessage: "Message…" })
             }
             onTextChange={setHasText}
@@ -327,25 +327,10 @@ interface AssistantBubbleProps {
 
 function AssistantBubble({ message, onDecide, onOpenMemory, compact }: AssistantBubbleProps) {
   const intl = useIntl()
-  const { trigger, remembered, approval } = message
-  const proactive = trigger?.kind === "heartbeat" || trigger?.kind === "schedule"
+  const { remembered, approval } = message
 
   return (
     <Message from="assistant" className={cn("gap-1", compact ? "max-w-[92%]" : "max-w-[85%]")}>
-      {proactive && (
-        <div className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground/80">
-          {trigger.kind === "heartbeat" ? (
-            <>
-              <HeartPulse className="h-3 w-3" /> <FormattedMessage {...PROFILE_FILE_META.heartbeat.title} />
-            </>
-          ) : (
-            <>
-              <CalendarClock className="h-3 w-3" /> {trigger.name}
-            </>
-          )}
-        </div>
-      )}
-
       {/* An approval card is a message with nothing to say besides the card. */}
       {message.text && (
         <MessageContent

@@ -22,6 +22,11 @@ export const ACTIVITY_STATUS_MESSAGES = defineMessages({
   stopped: { id: "assistant.status.stopped", defaultMessage: "Stopped" },
 }) satisfies Record<ActivityStatus, MessageDescriptor>
 
+/** The heartbeat's name: the built-in check every 30 minutes, not a task the assistant set up. */
+export const HEARTBEAT_TITLE = defineMessages({
+  title: { id: "assistant.profile.heartbeat.title", defaultMessage: "Heartbeat" },
+}).title
+
 /** Who did an activity: the main agent in the conversation, or a worker on a task. */
 export const AGENT_MESSAGES = defineMessages({
   main: { id: "assistant.agent.main", defaultMessage: "Main" },

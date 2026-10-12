@@ -1,13 +1,13 @@
 import { useState } from "react"
-import { Ban, CalendarClock, FileText, HeartPulse, Pause, Play, PlugZap, RotateCw, Trash2 } from "lucide-react"
+import { Ban, CalendarClock, HeartPulse, Pause, Play, PlugZap, RotateCw, Trash2 } from "lucide-react"
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl"
 import { NOTHING_TO_CHECK_NOTE } from "@shared/assistant"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import type { AssistantSchedule, AssistantScheduleRun } from "./types"
 import { formatClock, isSameDay } from "./shared"
-import { cadenceLabel, dayLabel, RUN_OUTCOME_MESSAGES } from "./assistant-i18n"
-import { PROFILE_FILE_META } from "./ProfileTab"
+import { cadenceLabel, dayLabel, HEARTBEAT_TITLE, RUN_OUTCOME_MESSAGES } from "./assistant-i18n"
 import { Empty } from "./ActivityTab"
 
 interface ScheduleTabProps {
@@ -17,7 +17,6 @@ interface ScheduleTabProps {
   onToggle: (id: number, enabled: boolean) => void
   onDelete: (id: number) => void
   onRun: (id: number) => void
-  onEditHeartbeat: () => void
   onOpenActivity: (id: string) => void
   /** Open a plugin to sign in. Absent where there is no Plugins page (the phone). */
   onConnectPlugin?: (pluginId: string) => void
@@ -29,7 +28,7 @@ function when(intl: IntlShape, ms: number): string {
   return isSameDay(ms, Date.now()) ? formatClock(ms) : `${dayLabel(intl, ms)} ${formatClock(ms)}`
 }
 
-/** Heartbeat pinned on top, then the tasks the assistant set up from conversation. */
+/** Heartbeat pinned on top, then the tasks the assistant set up from conversation. One line each; the rest is in a dialog. */
 export function ScheduleTab({
   schedules,
   quietStart,
@@ -37,13 +36,14 @@ export function ScheduleTab({
   onToggle,
   onDelete,
   onRun,
-  onEditHeartbeat,
   onOpenActivity,
   onConnectPlugin,
   onRecheck,
 }: ScheduleTabProps) {
   const intl = useIntl()
-  const [expanded, setExpanded] = useState<number | null>(() => schedules.find((s) => s.builtin)?.id ?? null)
+  // By id, not by value: the schedule keeps updating (next run, new runs) while the dialog is open.
+  const [openId, setOpenId] = useState<number | null>(null)
+  const open = schedules.find((s) => s.id === openId)
 
   if (schedules.length === 0) {
     return (
@@ -55,110 +55,158 @@ export function ScheduleTab({
       />
     )
   }
-  const paused = intl.formatMessage({ id: "assistant.schedule.paused", defaultMessage: "Paused" })
 
   return (
-    <div className="space-y-1 px-2 pb-4 pt-2">
+    <div className="space-y-0.5 px-2 pb-4 pt-2">
       {schedules.map((s) => {
-        const open = expanded === s.id
         const heartbeat = s.builtin === "heartbeat"
         const Icon = heartbeat ? HeartPulse : CalendarClock
+        // A standing problem must not hide behind the click: mark the row.
+        const attention = heartbeat && Boolean(s.notConnected?.length || s.limited?.length)
         return (
-          <div key={s.id} className={cn("rounded-lg transition-colors", open && "bg-muted/40")}>
-            <button
-              type="button"
-              onClick={() => setExpanded(open ? null : s.id)}
-              className={cn("flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left", !open && "hover:bg-secondary-hover")}
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setOpenId(s.id)}
+            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary-hover"
+          >
+            <span
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60",
+                heartbeat && s.enabled ? "text-status-error" : "text-muted-foreground",
+              )}
             >
-              <span
-                className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60",
-                  heartbeat && s.enabled ? "text-status-error" : "text-muted-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className={cn("truncate text-sm font-medium", s.enabled ? "text-foreground/90" : "text-muted-foreground")}>
-                  {/* The heartbeat's name is ours; a task's is the assistant's, already in the user's language. */}
-                  {heartbeat ? intl.formatMessage(PROFILE_FILE_META.heartbeat.title) : s.name}
-                </div>
-                <div className="text-xs text-muted-foreground">{s.enabled ? cadenceLabel(intl, s) : paused}</div>
+              <Icon className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className={cn("truncate text-sm font-medium", s.enabled ? "text-foreground/90" : "text-muted-foreground")}>
+                {scheduleName(intl, s)}
               </div>
-            </button>
-
-            {open && (
-              <div className="space-y-3 px-2 pb-3 pl-13">
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  <div>
-                    {!s.enabled ? (
-                      paused
-                    ) : s.nextRunAt ? (
-                      <FormattedMessage
-                        id="assistant.schedule.nextRun"
-                        defaultMessage="Next run: {day} {time}"
-                        values={{ day: dayLabel(intl, s.nextRunAt), time: formatClock(s.nextRunAt) }}
-                      />
-                    ) : (
-                      <FormattedMessage id="assistant.schedule.noNextRun" defaultMessage="No upcoming run" />
-                    )}
-                  </div>
-                  {heartbeat ? (
-                    <div className="text-muted-foreground/80">
-                      <FormattedMessage
-                        id="assistant.schedule.quietHours"
-                        defaultMessage="Quiet {start}–{end}: only urgent things are said then, the rest waits for the morning."
-                        values={{ start: quietStart, end: quietEnd }}
-                      />
-                    </div>
-                  ) : (
-                    s.prompt && <div className="line-clamp-3 text-muted-foreground/80">{s.prompt}</div>
-                  )}
-                </div>
-
-                {heartbeat && s.notConnected?.length ? (
-                  <NotConnected plugins={s.notConnected} onConnect={onConnectPlugin} />
-                ) : null}
-                {heartbeat && s.limited?.length ? <Limited services={s.limited} onRecheck={onRecheck} /> : null}
-
-                <RunLog runs={s.runs} heartbeat={heartbeat} onOpenActivity={onOpenActivity} />
-
-                {/* The heartbeat is what makes the assistant reach out at all, so it has no
-                    off switch; what it watches is steered through heartbeat.md instead. */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {heartbeat && (
-                    <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onEditHeartbeat}>
-                      <FileText className="h-3.5 w-3.5" />
-                      <FormattedMessage id="assistant.schedule.editHeartbeat" defaultMessage="Edit heartbeat.md" />
-                    </Button>
-                  )}
-                  <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => onRun(s.id)}>
-                    <RotateCw className="h-3.5 w-3.5" />
-                    <FormattedMessage id="assistant.schedule.runNow" defaultMessage="Run now" />
-                  </Button>
-                  {!heartbeat && (
-                    <>
-                      <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => onToggle(s.id, !s.enabled)}>
-                        {s.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                        {s.enabled ? (
-                          <FormattedMessage id="assistant.schedule.pause" defaultMessage="Pause" />
-                        ) : (
-                          <FormattedMessage id="assistant.schedule.resume" defaultMessage="Resume" />
-                        )}
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => onDelete(s.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <FormattedMessage id="assistant.schedule.delete" defaultMessage="Delete" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+              <div className="truncate text-xs text-muted-foreground">{subtitle(intl, s)}</div>
+            </div>
+            {attention && <PlugZap className="h-3.5 w-3.5 shrink-0 text-status-warn" />}
+          </button>
         )
       })}
+
+      <Dialog open={open !== undefined} onOpenChange={(next) => !next && setOpenId(null)}>
+        {open && (
+          <ScheduleDialog
+            schedule={open}
+            quietStart={quietStart}
+            quietEnd={quietEnd}
+            onToggle={onToggle}
+            onDelete={(id) => {
+              setOpenId(null)
+              onDelete(id)
+            }}
+            onRun={onRun}
+            onOpenActivity={(id) => {
+              // The activity opens in its own drawer; two layers stacked would fight for focus.
+              setOpenId(null)
+              onOpenActivity(id)
+            }}
+            onConnectPlugin={onConnectPlugin}
+            onRecheck={onRecheck}
+          />
+        )}
+      </Dialog>
     </div>
+  )
+}
+
+/** The heartbeat's name is ours; a task's is the assistant's, already in the user's language. */
+function scheduleName(intl: IntlShape, s: AssistantSchedule): string {
+  return s.builtin === "heartbeat" ? intl.formatMessage(HEARTBEAT_TITLE) : s.name
+}
+
+function subtitle(intl: IntlShape, s: AssistantSchedule): string {
+  return s.enabled ? cadenceLabel(intl, s) : intl.formatMessage({ id: "assistant.schedule.paused", defaultMessage: "Paused" })
+}
+
+/** How many runs show before "Show more". */
+const RUNS_COLLAPSED = 5
+
+function ScheduleDialog({
+  schedule: s,
+  quietStart,
+  quietEnd,
+  onToggle,
+  onDelete,
+  onRun,
+  onOpenActivity,
+  onConnectPlugin,
+  onRecheck,
+}: Omit<ScheduleTabProps, "schedules"> & { schedule: AssistantSchedule }) {
+  const intl = useIntl()
+  const heartbeat = s.builtin === "heartbeat"
+
+  return (
+    <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-md">
+      <DialogHeader className="text-left">
+        <DialogTitle className="pr-6 text-base">{scheduleName(intl, s)}</DialogTitle>
+        <DialogDescription>{subtitle(intl, s)}</DialogDescription>
+      </DialogHeader>
+
+      <div className="-mx-6 min-h-0 space-y-4 overflow-y-auto px-6">
+        <div className="space-y-1 text-xs text-muted-foreground">
+          {s.enabled && (
+            <div>
+              {s.nextRunAt ? (
+                <FormattedMessage
+                  id="assistant.schedule.nextRun"
+                  defaultMessage="Next run: {day} {time}"
+                  values={{ day: dayLabel(intl, s.nextRunAt), time: formatClock(s.nextRunAt) }}
+                />
+              ) : (
+                <FormattedMessage id="assistant.schedule.noNextRun" defaultMessage="No upcoming run" />
+              )}
+            </div>
+          )}
+          {heartbeat ? (
+            <div className="text-muted-foreground/80">
+              <FormattedMessage
+                id="assistant.schedule.quietHours"
+                defaultMessage="Quiet {start}–{end}: only urgent things are said then, the rest waits for the morning."
+                values={{ start: quietStart, end: quietEnd }}
+              />
+            </div>
+          ) : (
+            s.prompt && <div className="whitespace-pre-wrap text-muted-foreground/80">{s.prompt}</div>
+          )}
+        </div>
+
+        {heartbeat && s.notConnected?.length ? <NotConnected plugins={s.notConnected} onConnect={onConnectPlugin} /> : null}
+        {heartbeat && s.limited?.length ? <Limited services={s.limited} onRecheck={onRecheck} /> : null}
+
+        <RunLog runs={s.runs} heartbeat={heartbeat} onOpenActivity={onOpenActivity} />
+      </div>
+
+      {/* The heartbeat is what makes the assistant reach out at all, so it has no
+          off switch; what it watches is "In progress" in memory.md. */}
+      <DialogFooter>
+        {!heartbeat && (
+          <>
+            <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => onDelete(s.id)}>
+              <Trash2 className="h-3.5 w-3.5" />
+              <FormattedMessage id="assistant.schedule.delete" defaultMessage="Delete" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 gap-1.5" onClick={() => onToggle(s.id, !s.enabled)}>
+              {s.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              {s.enabled ? (
+                <FormattedMessage id="assistant.schedule.pause" defaultMessage="Pause" />
+              ) : (
+                <FormattedMessage id="assistant.schedule.resume" defaultMessage="Resume" />
+              )}
+            </Button>
+          </>
+        )}
+        <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => onRun(s.id)}>
+          <RotateCw className="h-3.5 w-3.5" />
+          <FormattedMessage id="assistant.schedule.runNow" defaultMessage="Run now" />
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   )
 }
 
@@ -247,6 +295,7 @@ const OUTCOME_DOT: Record<AssistantScheduleRun["outcome"], string> = {
 
 function RunLog({ runs, heartbeat, onOpenActivity }: { runs: AssistantScheduleRun[]; heartbeat: boolean; onOpenActivity: (id: string) => void }) {
   const intl = useIntl()
+  const [all, setAll] = useState(false)
   if (runs.length === 0) {
     return (
       <div className="text-xs text-muted-foreground/70">
@@ -260,7 +309,7 @@ function RunLog({ runs, heartbeat, onOpenActivity }: { runs: AssistantScheduleRu
       <div className="text-[11px] font-medium text-muted-foreground/80">
         <FormattedMessage id="assistant.schedule.recentRuns" defaultMessage="Recent runs" />
       </div>
-      {runs.map((r) => {
+      {(all ? runs : runs.slice(0, RUNS_COLLAPSED)).map((r) => {
         // An outcome this build doesn't know (a newer server) shows as plain text rather than
         // taking the page down — the phone app ships slower than the desktop.
         const known = r.outcome in OUTCOME_DOT
@@ -299,6 +348,11 @@ function RunLog({ runs, heartbeat, onOpenActivity }: { runs: AssistantScheduleRu
           </div>
         )
       })}
+      {!all && runs.length > RUNS_COLLAPSED && (
+        <Button size="sm" variant="ghost" className="mt-1 h-7 w-full text-xs text-muted-foreground" onClick={() => setAll(true)}>
+          <FormattedMessage id="assistant.schedule.showMoreRuns" defaultMessage="Show more" />
+        </Button>
+      )}
     </div>
   )
 }

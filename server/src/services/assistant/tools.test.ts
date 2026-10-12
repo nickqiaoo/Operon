@@ -21,7 +21,7 @@ function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
 describe('the tools each kind of session is offered', () => {
   it('gives the main agent talking, dispatching and its notes; a worker only its hand-in tools; the wrap-up memory', () => {
     expect(toolsFor('main').map((t) => t.name)).toEqual([
-      'profile_edit', 'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
+      'profile_edit', 'day_note', 'day_read', 'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
       'schedule_list', 'schedule_create', 'schedule_update', 'schedule_delete',
     ])
     expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])

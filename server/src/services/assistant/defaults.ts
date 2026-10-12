@@ -30,9 +30,6 @@ Your personal assistant. Keeps an eye on things so you don't have to.
 
 # In progress
 `,
-  heartbeat: `# Heartbeat
-- Look at "In progress" in memory.md; if something is due for a follow-up, ask about it.
-`,
 }
 
 /** memory.md is injected whole into every turn, so it has to stay small. */

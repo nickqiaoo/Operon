@@ -87,6 +87,10 @@ function ownToolLabel(tool: string, args: Record<string, unknown>): string {
   switch (tool) {
     case 'profile_edit':
       return `${args.action === 'append' ? 'Add to' : 'Edit'} ${file}.md`
+    case 'day_note':
+      return `Note for ${typeof args.date === 'string' && args.date ? args.date : 'today'}`
+    case 'day_read':
+      return typeof args.date === 'string' && args.date ? `Read the note for ${args.date}` : 'List day notes'
     case 'set_identity':
       return 'Update identity.md'
     case 'schedule_create':

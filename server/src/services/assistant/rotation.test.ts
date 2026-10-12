@@ -76,7 +76,6 @@ describe('ContextReminder', () => {
     let now = at(8, 9)
     const files: ProfileFile[] = [
       { name: 'memory', content: '# About the user', updatedAt: 1, updatedBy: 'assistant' },
-      { name: 'heartbeat', content: '# Heartbeat', updatedAt: 1, updatedBy: 'assistant' },
       { name: 'soul', content: '# Soul', updatedAt: 1, updatedBy: 'user' },
     ]
     const reminder = new ContextReminder(() => files, () => now)

@@ -2,7 +2,6 @@ import type { AssistantSchedule, AssistantScheduleRun } from '../../../../shared
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobSchedule, CronjobTask } from '../../types/cronjob.js'
 import { computeNextRunAtForJob, normalizeSchedule } from '../cronjob.js'
-import { DEFAULT_PROFILE_FILES } from './defaults.js'
 
 type Storage = StorageAdapter & AssistantStorageAdapter & CronjobStorageAdapter
 
@@ -10,7 +9,7 @@ const HEARTBEAT_KEY = 'assistant:heartbeat_job'
 /** How often the heartbeat looks around. */
 export const HEARTBEAT_MINUTES = 30
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6]
-const RUNS_SHOWN = 10
+const RUNS_SHOWN = 20
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const HEARTBEAT_SCHEDULE: CronjobSchedule = { type: 'daily', time: '00:00', days: EVERY_DAY, intervalMinutes: HEARTBEAT_MINUTES, endTime: '23:59' }
@@ -69,17 +68,8 @@ export function inQuietHours(now: Date, start: string, end: string): boolean {
   return s < e ? t >= s && t < e : t >= s || t < e
 }
 
-/** List items of a markdown file, minus the ones that came with the default template. */
-function ownItems(content: string, template: string): string[] {
-  const defaults = new Set(template.split('\n').map((l) => l.trim()))
-  return content
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^[-*]\s+\S/.test(l) && !defaults.has(l))
-}
-
 /** The bullet lines under memory.md's "In progress" heading. */
-function inProgress(memory: string): string[] {
+export function inProgress(memory: string): string[] {
   const items: string[] = []
   let inside = false
   for (const line of memory.split('\n')) {
@@ -90,21 +80,11 @@ function inProgress(memory: string): string[] {
 }
 
 /**
- * Whether a heartbeat has anything to look at: a connected service, something the user asked
- * it to watch, or something in progress to follow up on. Nothing at all → skip the model call.
+ * Whether a heartbeat has anything to look at: a connected service, or something in progress
+ * (to follow up on, or to watch for). Nothing at all → skip the model call.
  */
-export function heartbeatHasWork(heartbeat: string, memory: string, connectors: readonly string[]): boolean {
-  return connectors.length > 0 || ownItems(heartbeat, DEFAULT_PROFILE_FILES.heartbeat).length > 0 || inProgress(memory).length > 0
-}
-
-/** heartbeat.md without the given lines (entries whose `until` date has passed). */
-export function removeLines(content: string, lines: readonly string[]): string {
-  const drop = new Set(lines.map((l) => l.trim()).filter(Boolean))
-  if (!drop.size) return content
-  return content
-    .split('\n')
-    .filter((l) => !drop.has(l.trim()))
-    .join('\n')
+export function heartbeatHasWork(memory: string, connectors: readonly string[]): boolean {
+  return connectors.length > 0 || inProgress(memory).length > 0
 }
 
 /**
@@ -193,7 +173,7 @@ export class AssistantSchedules {
   update(id: number, patch: Partial<ScheduleInput> & { enabled?: boolean }): AssistantSchedule {
     const current = this.job(id)
     if (!current) throw new Error(`There is no scheduled task ${id}.`)
-    if (this.isHeartbeat(id)) throw new Error('The heartbeat cannot be changed or paused. Edit heartbeat.md to change what it watches.')
+    if (this.isHeartbeat(id)) throw new Error('The heartbeat cannot be changed or paused. It watches the connected services and "In progress" in memory.md; change those instead.')
     const now = Date.now()
     const timing = patch.time !== undefined || patch.days !== undefined || patch.everyMinutes !== undefined || patch.until !== undefined
     const s = current.schedule
@@ -220,7 +200,7 @@ export class AssistantSchedules {
 
   remove(id: number): boolean {
     if (!this.job(id)) return false
-    if (this.isHeartbeat(id)) throw new Error('The heartbeat cannot be deleted. Edit heartbeat.md to change what it watches.')
+    if (this.isHeartbeat(id)) throw new Error('The heartbeat cannot be deleted. It watches the connected services and "In progress" in memory.md; change those instead.')
     this.storage.deleteCronjobById(id)
     this.storage.assistantRunDeleteFor(id)
     this.publish()
