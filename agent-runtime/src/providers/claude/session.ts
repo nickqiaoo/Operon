@@ -144,6 +144,7 @@ function buildQueryOptions(
     model: settings.modelId,
     abortController,
     cwd: settings.cwd,
+    additionalDirectories: settings.additionalDirectories,
     resume: settings.resume,
     // With `resume`, branches the conversation into a new session id instead of
     // continuing the resumed one — the parent is left untouched. Only ever set

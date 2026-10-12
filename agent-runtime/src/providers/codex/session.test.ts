@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createResponseForDecision } from './approval-response.js'
-import { resolveCodexModeConfig, resolveCodexModeId } from './config.js'
+import { resolveCodexModeConfig, resolveCodexModeId, toSandboxPolicy } from './config.js'
 import { withLocalMcpNoProxy } from './local-mcp-env.js'
 import { buildThinkingLevelsFromModelInfo, mapModelInfoToDescriptor } from './model-info.js'
 import { buildConfigOverrides } from './sdk/converters/settings-merger.js'
@@ -110,6 +110,22 @@ describe('Codex app-server config overrides', () => {
     ).toEqual({
       default_permissions: ':danger-full-access',
     })
+  })
+})
+
+describe('Codex writable dirs', () => {
+  // Measured with codex-cli 0.162.1 under the `:workspace` permission profile: a write outside
+  // cwd is refused ("operation not permitted") without these, and goes through with them.
+  it('hands them to the thread as sandbox writable roots and to each turn in its policy', () => {
+    const session = new CodexRuntimeSession({ cwd: '/home/a/ws', writableDirs: ['/home/a'] }, createRuntimeContext({ resolveBinary: () => '/mock/codex' }))
+    const settings = (session as unknown as { buildSettings(): Parameters<typeof buildConfigOverrides>[0] }).buildSettings()
+    expect(buildConfigOverrides(settings)).toMatchObject({ 'sandbox_workspace_write.writable_roots': ['/home/a'] })
+    expect(toSandboxPolicy('workspace-write', ['/home/a'])).toEqual({ type: 'workspaceWrite', writableRoots: ['/home/a'] })
+  })
+
+  it('leaves the policy as it was without any', () => {
+    expect(toSandboxPolicy('workspace-write')).toEqual({ type: 'workspaceWrite' })
+    expect(toSandboxPolicy('read-only', ['/home/a'])).toEqual({ type: 'readOnly' })
   })
 })
 

@@ -261,6 +261,13 @@ export interface SessionOptions<Mode extends string = string, Effort extends str
    * confirmation). Defaults to true.
    */
   interactive?: boolean
+  /**
+   * Directories outside `cwd` the agent may write to as freely as it writes
+   * inside it — whatever its mode lets it do in `cwd` it may do here too.
+   * Codex: the sandbox's writable roots; Claude: `additionalDirectories`.
+   * Other providers ignore it, so a write there goes through their approvals.
+   */
+  writableDirs?: string[]
 }
 
 export interface RuntimeForkSource {

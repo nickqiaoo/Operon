@@ -101,6 +101,7 @@ export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeC
     fastMode: params.serviceTier === 'fast',
     resume: params.resume,
     forkFrom: params.fork,
+    ...(params.writableDirs?.length ? { additionalDirectories: [...params.writableDirs] } : {}),
     pathToClaudeCodeExecutable: cliPath,
     settingSources: ['user', 'project', 'local'],
     persistSession: true,

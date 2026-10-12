@@ -18,6 +18,8 @@ export interface ClaudeRuntimeSettings {
   resume?: string
   /** Set for a side chat: branch off this session instead of starting a new one. */
   forkFrom?: RuntimeForkSource
+  /** Outside `cwd`, treated as part of it (`SessionOptions.writableDirs`). */
+  additionalDirectories?: string[]
   pathToClaudeCodeExecutable: string
   settingSources: Array<'user' | 'project' | 'local'>
   persistSession: boolean

@@ -114,12 +114,12 @@ export function mapSandboxMode(mode?: SandboxMode): ProtocolSandboxMode {
     : 'workspace-write'
 }
 
-export function toSandboxPolicy(mode: ProtocolSandboxMode): ProtocolSandboxPolicy {
+export function toSandboxPolicy(mode: ProtocolSandboxMode, writableRoots: readonly string[] = []): ProtocolSandboxPolicy {
   switch (mode) {
     case 'read-only':
       return { type: 'readOnly' }
     case 'workspace-write':
-      return { type: 'workspaceWrite' }
+      return writableRoots.length ? { type: 'workspaceWrite', writableRoots: [...writableRoots] } : { type: 'workspaceWrite' }
     case 'danger-full-access':
       return { type: 'dangerFullAccess' }
   }

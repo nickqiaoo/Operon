@@ -398,3 +398,11 @@ describe('ClaudeRuntimeSession side chat', () => {
     expect(sdkMock.deleteSession).not.toHaveBeenCalled();
   });
 });
+
+describe('Claude writable dirs', () => {
+  it('passes them to the CLI as additional directories, and nothing when there are none', async () => {
+    const { buildClaudeRuntimeSettings } = await import('./config.js');
+    expect(buildClaudeRuntimeSettings({ cwd: '/home/a/ws', writableDirs: ['/home/a'] }, ctx).additionalDirectories).toEqual(['/home/a']);
+    expect(buildClaudeRuntimeSettings({ cwd: '/home/a/ws' }, ctx).additionalDirectories).toBeUndefined();
+  });
+});

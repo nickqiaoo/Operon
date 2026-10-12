@@ -215,6 +215,8 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   private readonly instructions: string | undefined
   /** Set for a side chat: branch off this thread instead of starting a new one. */
   private readonly forkFrom: RuntimeForkSource | undefined
+  /** Writable as `cwd` is (`SessionOptions.writableDirs`): the sandbox's extra writable roots. */
+  private readonly writableDirs: string[]
   /** Latest known thread goal, mirrored from goal RPC responses + notifications. */
   private currentGoal: CodexGoal | null = null
 
@@ -231,6 +233,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     this.disabledMcpServers = this.nativeOptions.disabledMcpServers ?? []
     this.instructions = params.instructions?.trim() || undefined
     this.forkFrom = params.fork
+    this.writableDirs = params.writableDirs ?? []
   }
 
   private buildMemoryInstructions(): string | undefined {
@@ -256,6 +259,8 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
       approvalsReviewer: this.nativeOptions.approvalsReviewer ?? modeConfig.approvalsReviewer,
       sandboxMode: this.nativeOptions.sandbox ?? modeConfig.sandboxMode,
       defaultPermissions: this.nativeOptions.permissionProfile ?? modeConfig.defaultPermissions,
+      // The thread's sandbox reads them from config; a turn's sandboxPolicy carries them too (below).
+      ...(this.writableDirs.length ? { configOverrides: { sandbox_workspace_write: { writable_roots: this.writableDirs } } } : {}),
       ...(memoryInstructions ? { baseInstructions: memoryInstructions } : {}),
       ...(codexMcp ? { mcpServers: codexMcp } : {}),
       ...(this.currentServiceTier ? { serviceTier: this.currentServiceTier } : {}),
@@ -744,7 +749,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
         cwd: effectiveSettings.cwd,
         approvalPolicy: mapApprovalMode(effectiveSettings.approvalMode),
         approvalsReviewer: effectiveSettings.approvalsReviewer,
-        sandboxPolicy: toSandboxPolicy(mapSandboxMode(effectiveSettings.sandboxMode)),
+        sandboxPolicy: toSandboxPolicy(mapSandboxMode(effectiveSettings.sandboxMode), this.writableDirs),
         model: this.currentModelId,
         serviceTier: effectiveSettings.serviceTier,
       }
