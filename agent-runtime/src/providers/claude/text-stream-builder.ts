@@ -309,7 +309,7 @@ export class ClaudeTextStreamBuilder {
   emitRateLimits(rateLimits: RuntimeUsageLimits): void {
     this.emitRuntimePart({
       type: 'message-metadata',
-      metadata: { claudeRateLimits: rateLimits },
+      metadata: { 'claude-code': { rateLimits } },
     })
   }
 

@@ -183,7 +183,7 @@ describe('OperonStreamMapper sub-agent correlation', () => {
 })
 
 describe('OperonStreamMapper goal mapping', () => {
-  it('maps goal_updated to codexGoal message-metadata the banner consumes', () => {
+  it('maps goal_updated to the runtime goal message-metadata the banner consumes', () => {
     const m = new OperonStreamMapper()
     const parts = m.map(ev('main', {
       type: 'goal.updated',
@@ -196,9 +196,9 @@ describe('OperonStreamMapper goal mapping', () => {
       },
     }))
     const meta = parts.find((p) => (p as { type?: string }).type === 'message-metadata') as
-      | { metadata?: { codexGoal?: Record<string, unknown> } }
+      | { metadata?: { goal?: Record<string, unknown> } }
       | undefined
-    expect(meta?.metadata?.codexGoal).toEqual({
+    expect(meta?.metadata?.goal).toEqual({
       objective: 'ship the feature',
       status: 'active',
       tokenBudget: 50_000,

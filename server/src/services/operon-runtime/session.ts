@@ -365,7 +365,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     )
 
     // Goal turn: set an active thread goal first (emits `goal_updated` → the mapper turns
-    // it into `codexGoal` metadata, lighting up the banner), then run the pursuit turn.
+    // it into `goal` metadata, lighting up the banner), then run the pursuit turn.
     if (turn.asGoal) {
       const objective = latestUserText(messages)
       if (objective) await this.harness.goal.create({ objective })

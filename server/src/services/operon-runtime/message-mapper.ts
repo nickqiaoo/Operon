@@ -299,9 +299,9 @@ export class OperonStreamMapper {
       }
 
       case 'goal.updated':
-        // Surface the thread goal as `codexGoal` message-metadata — the same shape the
-        // frontend GoalBanner / useGoal already consume for the codex provider.
-        push({ type: 'message-metadata', metadata: { codexGoal: goalMetadata(event.snapshot) } })
+        // The runtime's common `goal` metadata — what Codex sends too, so the
+        // frontend GoalBanner / useGoal light up the same way.
+        push({ type: 'message-metadata', metadata: { goal: goalMetadata(event.snapshot) } })
         break
 
       case 'error':
@@ -471,7 +471,7 @@ function resultText(result: { content: ReadonlyArray<{ type: string; text?: stri
 // The engine's todo tool is `TodoList` with items `{ title, status: 'done' }`. The
 // UI's TodoWriteRenderer matches `TodoWrite` and reads items `{ content, status:
 // 'completed' }`. Remap here so the engine's list renders in the existing UI with
-// no frontend change — the same posture as goal.updated → codexGoal.
+// no frontend change — the same posture as goal.updated → goal.
 const ENGINE_TODO_TOOL = 'TodoList'
 const UI_TODO_TOOL = 'TodoWrite'
 
@@ -560,7 +560,7 @@ function calculateContextTokens(usage: Usage): number {
   return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite
 }
 
-/** Engine `GoalSnapshot` (subset we read) → the `codexGoal` shape the UI banner expects. */
+/** Engine `GoalSnapshot` (subset we read) → the runtime's `goal` metadata. */
 interface GoalSnapshotShape {
   objective?: string
   status?: string

@@ -423,7 +423,7 @@ export class CodexTextStreamEmitter {
     })
     return {
       ...base,
-      ...(this.latestGoal ? { codexGoal: this.latestGoal } : {}),
+      ...(this.latestGoal ? { goal: this.latestGoal } : {}),
       ...(this.contextCompaction ? { contextCompaction: this.contextCompaction } : {}),
       ...(this.contextCompaction?.status === 'completed'
         ? { compacted: { compacted: true, id: this.contextCompaction.id } }

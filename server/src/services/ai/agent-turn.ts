@@ -23,7 +23,8 @@ import {
 } from 'ai'
 import type { AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { PreparedTextStreamPart } from './prepared-stream-parts.js'
-import { buildStreamMessageMetadata, type StreamMessageMetadata } from '@operon/agent-runtime'
+import { buildStreamMessageMetadata } from '@operon/agent-runtime'
+import { toUiMessageMetadata, type UiMessageMetadata } from './ui-metadata.js'
 import { writeMessageMetadata, writeTextStreamPart } from '@operon/agent-runtime/ai-sdk'
 import { getSessionIdFromProviderMetadata } from '@operon/agent-runtime'
 import { createTrafficRecorder } from '@operon/agent-runtime'
@@ -67,18 +68,20 @@ const prepareTextStreamPart = ({
 }: {
   part: RuntimeStreamPart
   state: PreparedMetadataState
-}): PreparedTextStreamPart<StreamMessageMetadata> => {
+}): PreparedTextStreamPart<UiMessageMetadata> => {
   if (part.type === 'message-metadata') {
     state.hasExplicitMetadata = true
-    return { metadata: part.metadata as StreamMessageMetadata }
+    return { metadata: toUiMessageMetadata(part.metadata) }
   }
   if (part.type === 'finish-step' && !state.hasExplicitMetadata) {
     return {
       part,
-      metadata: buildStreamMessageMetadata({
-        providerMetadata: part.providerMetadata,
-        usage: part.usage,
-      }),
+      metadata: toUiMessageMetadata(
+        buildStreamMessageMetadata({
+          providerMetadata: part.providerMetadata,
+          usage: part.usage,
+        }),
+      ),
     }
   }
   return { part }
@@ -87,7 +90,7 @@ const prepareTextStreamPart = ({
 /** Render a prepared part onto a UIMessageStream writer (prepared → UIMessageChunk). */
 export const writePreparedPartToUiStream = (
   writer: Parameters<NonNullable<Parameters<typeof createUIMessageStream>[0]['execute']>>[0]['writer'],
-  preparedPart: PreparedTextStreamPart<StreamMessageMetadata>,
+  preparedPart: PreparedTextStreamPart<UiMessageMetadata>,
   assistantMessageId: string,
 ): void => {
   if (preparedPart.part) {
@@ -108,7 +111,7 @@ export const writePreparedPartToUiStream = (
  * otherwise replaces it with a generic message).
  */
 export function preparedToUIChunks(
-  preparedParts: ReadableStream<PreparedTextStreamPart<StreamMessageMetadata>>,
+  preparedParts: ReadableStream<PreparedTextStreamPart<UiMessageMetadata>>,
   assistantMessageId: string,
   originalMessages: UIMessage[] = [],
   onError?: (error: unknown) => string,
@@ -163,7 +166,7 @@ export interface AgentTurnInput {
 
 export interface AgentTurnResult {
   /** Standard event stream — normalized, provider-agnostic. Consumer renders it. */
-  preparedParts: ReadableStream<PreparedTextStreamPart<StreamMessageMetadata>>
+  preparedParts: ReadableStream<PreparedTextStreamPart<UiMessageMetadata>>
   /** Resolves when the turn finishes with the assembled assistant message. */
   done: Promise<{ message: UIMessage }>
 }
@@ -185,7 +188,7 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
   let detachHostApprovalStream: (() => void) | undefined
   let streamClosed = false
 
-  const preparedStream = new ReadableStream<PreparedTextStreamPart<StreamMessageMetadata>>({
+  const preparedStream = new ReadableStream<PreparedTextStreamPart<UiMessageMetadata>>({
     start(controller) {
       const chatId = input.traffic?.chatId
       if (chatId == null || chatId <= 0) return

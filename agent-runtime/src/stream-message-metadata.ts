@@ -5,27 +5,35 @@ import {
   getCodexRateLimitsFromProviderMetadata,
   getContextUsageFromProviderMetadata,
 } from './stream-utils.js'
-import type { CodexGoal } from './providers/codex/sdk/protocol/index.js'
-import type { RuntimeUsageLimits } from './types.js'
+import type { RuntimeGoal, RuntimeUsageLimits } from './types.js'
 
+/**
+ * What a session's `message-metadata` parts carry. The top-level fields mean
+ * the same on every provider; what only one provider reports sits under its id.
+ */
 export type StreamMessageMetadata = {
   usage?: LanguageModelUsage
   contextUsage?: Record<string, number>
-  detailedContextUsage?: Record<string, unknown>
-  codexAccount?: Record<string, unknown>
-  codexRateLimits?: Record<string, unknown>
-  /**
-   * Account quota pushed by Claude's `rate_limit_event`, forwarded live so the
-   * badge moves with the turn instead of waiting for the next poll.
-   */
-  claudeRateLimits?: RuntimeUsageLimits
   compacted?: Record<string, unknown>
   contextCompaction?: {
     id: string
     status: 'in_progress' | 'completed'
   }
-  /** Live thread-goal state forwarded from `thread/goal/updated`. */
-  codexGoal?: CodexGoal
+  /** Live thread-goal state (`features.goal`), sent whenever it changes. */
+  goal?: RuntimeGoal
+  codex?: {
+    /** The signed-in account (ChatGPT plan or API key). */
+    account?: Record<string, unknown>
+    /** Rate-limit buckets as the app-server reports them. */
+    rateLimits?: Record<string, unknown>
+  }
+  'claude-code'?: {
+    /**
+     * Account quota pushed by Claude's `rate_limit_event`, forwarded live so a
+     * badge can move with the turn instead of waiting for the next poll.
+     */
+    rateLimits?: RuntimeUsageLimits
+  }
 }
 
 export const buildStreamMessageMetadata = ({
@@ -43,8 +51,14 @@ export const buildStreamMessageMetadata = ({
   return {
     ...(usage ? { usage } : {}),
     ...(contextUsage ? { contextUsage } : {}),
-    ...(codexAccount ? { codexAccount } : {}),
-    ...(codexRateLimits ? { codexRateLimits } : {}),
+    ...(codexAccount || codexRateLimits
+      ? {
+          codex: {
+            ...(codexAccount ? { account: codexAccount } : {}),
+            ...(codexRateLimits ? { rateLimits: codexRateLimits } : {}),
+          },
+        }
+      : {}),
     ...(compacted ? { compacted } : {}),
   }
 }

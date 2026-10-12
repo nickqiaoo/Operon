@@ -34,9 +34,9 @@ const lastRateLimits = (parts: RuntimeStreamPart[]) => {
       part.type === 'message-metadata',
   )
   const metadata = metadataParts.at(-1)?.metadata as
-    | { codexRateLimits?: { rateLimitsByLimitId?: Record<string, CodexRateLimitSnapshot> } }
+    | { codex?: { rateLimits?: { rateLimitsByLimitId?: Record<string, CodexRateLimitSnapshot> } } }
     | undefined
-  return metadata?.codexRateLimits?.rateLimitsByLimitId
+  return metadata?.codex?.rateLimits?.rateLimitsByLimitId
 }
 
 describe('CodexTextStreamEmitter', () => {
