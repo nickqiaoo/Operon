@@ -1,6 +1,6 @@
 import { serverFromConfig, type MCPTool, type MCPToolResult } from 'operon-agents/mcp'
 import type { PluginMcpServerExport } from './codex-plugin-apps.js'
-import { hasMcpTokens, mcpOAuthService, notifyMcpAuthChanged } from './mcp-oauth.js'
+import { hasMcpTokens, mcpOAuthService, notifyMcpAuthChanged, onMcpAuthChanged } from './mcp-oauth.js'
 
 /**
  * Upstream side of the plugin MCP gateway (`/api/mcp-gateway/<name>`).
@@ -31,6 +31,36 @@ export class GatewayNeedsAuthError extends Error {
     )
     this.name = 'GatewayNeedsAuthError'
   }
+}
+
+/**
+ * Servers whose stored grant the provider turned down (a 401 that survived the token refresh).
+ * The tokens can still be on disk, so `gatewayNeedsAuth` can't tell; this is what says "signed
+ * out" until the user connects again (any sign-in change clears it).
+ */
+const rejectedGrants = new Set<string>()
+onMcpAuthChanged((runtimeName) => rejectedGrants.delete(runtimeName))
+
+/** Signed out as far as this process knows: never signed in, or the provider rejected the grant. */
+export function gatewaySignedOut(server: PluginMcpServerExport): boolean {
+  return gatewayNeedsAuth(server) || rejectedGrants.has(server.runtimeName)
+}
+
+/**
+ * Connect once (or reuse the pooled connection) to find out whether a signed-in server's grant
+ * still works; a rejected one lands in `rejectedGrants`. Never throws, and gives up after
+ * `timeoutMs` — a slow provider says nothing either way.
+ */
+export async function probeGatewayGrant(server: PluginMcpServerExport, timeoutMs = 10_000): Promise<void> {
+  if (gatewayNeedsAuth(server)) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    gatewayListTools(server).catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs)
+    }),
+  ])
+  clearTimeout(timer)
 }
 
 export function gatewayNeedsAuth(server: PluginMcpServerExport): boolean {
@@ -69,13 +99,17 @@ async function withUpstream<T>(server: PluginMcpServerExport, fn: (upstream: Ups
   if (gatewayNeedsAuth(server)) throw new GatewayNeedsAuthError(server)
   const entry = await connected(server)
   try {
-    return await fn(entry.server)
+    const result = await fn(entry.server)
+    rejectedGrants.delete(server.runtimeName)
+    return result
   } catch (error) {
     if (!isUnauthorizedLike(error)) throw error
     // The OAuth provider already tried a refresh inside the transport; a 401 surviving that means
     // the grant is gone. Drop the connection so the next attempt after re-login starts clean.
     await drop(server.runtimeName, entry)
     signalIfGrantCleared(server)
+    // After the signal: it fires the auth-changed listeners, which clear this mark.
+    rejectedGrants.add(server.runtimeName)
     throw new GatewayNeedsAuthError(server)
   }
 }
@@ -125,6 +159,7 @@ async function connected(server: PluginMcpServerExport): Promise<PoolEntry> {
     await drop(server.runtimeName, current)
     if (isUnauthorizedLike(error)) {
       signalIfGrantCleared(server)
+      rejectedGrants.add(server.runtimeName)
       throw new GatewayNeedsAuthError(server)
     }
     throw error

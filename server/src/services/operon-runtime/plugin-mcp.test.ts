@@ -5,7 +5,7 @@ let exportsFixture: PluginMcpServerExport[] = []
 vi.mock('./plugins.js', () => ({
   pluginManager: { mcpServerExports: () => exportsFixture },
 }))
-vi.mock('./mcp-oauth.js', () => ({ hasMcpTokens: () => false }))
+vi.mock('./mcp-oauth.js', () => ({ hasMcpTokens: () => false, onMcpAuthChanged: () => () => {} }))
 
 import { findGatewayServer, listPluginMcpMounts, pluginMcpMountName } from './plugin-mcp.js'
 

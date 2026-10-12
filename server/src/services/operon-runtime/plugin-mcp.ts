@@ -1,5 +1,6 @@
 import type { McpServerEntry } from '../mcp-config.js'
 import type { PluginMcpServerExport } from './codex-plugin-apps.js'
+import { gatewaySignedOut, probeGatewayGrant } from './mcp-gateway.js'
 import { hasMcpTokens } from './mcp-oauth.js'
 import { pluginManager } from './plugins.js'
 
@@ -47,6 +48,31 @@ export function pluginMcpMountName(runtimeName: string): string {
 /** Requires the plugin store to be loaded (`ensurePluginsLoaded`); before that it is empty. */
 export function listPluginMcpMounts(): PluginMcpMount[] {
   return pluginManager.mcpServerExports(hasMcpTokens).map(toMount)
+}
+
+/**
+ * Plugin servers that need a sign-in: never connected, or the provider has since rejected the
+ * grant. Mounted, but all they offer is `connect_required` until the user connects in Plugins.
+ */
+export function pluginMcpNeedingSignIn(): Array<{ name: string; runtimeName: string; pluginId: string; pluginName: string }> {
+  return pluginManager
+    .mcpServerExports(hasMcpTokens)
+    .filter(gatewaySignedOut)
+    .map((server) => ({
+      name: pluginMcpMountName(server.runtimeName),
+      runtimeName: server.runtimeName,
+      pluginId: server.pluginId,
+      pluginName: server.pluginName,
+    }))
+}
+
+/**
+ * Try each signed-in OAuth plugin once, so a grant revoked on the provider's side (tokens still on
+ * disk) shows up in {@link pluginMcpNeedingSignIn}. Requires the plugin store to be loaded.
+ */
+export async function checkPluginSignIns(): Promise<void> {
+  const servers = pluginManager.mcpServerExports(hasMcpTokens).filter((server) => server.requiresOAuth && !gatewaySignedOut(server))
+  await Promise.allSettled(servers.map((server) => probeGatewayGrant(server)))
 }
 
 /** The gateway-routed server a `/api/mcp-gateway/<name>` request refers to, if it still is one. */
