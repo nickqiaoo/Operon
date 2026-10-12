@@ -227,6 +227,14 @@ export interface RuntimeSessionParams {
    */
   mcpServers?: RuntimeMcpServers
   /**
+   * Servers from the agent's OWN configuration (e.g. `~/.codex/config.toml`) that
+   * this session must not load — typically because the host mounts its own under
+   * another name, and the user's copy would let the model route around it.
+   * Names only. Honoured where the agent's config can be overridden per session
+   * (Codex); other providers ignore it.
+   */
+  disabledMcpServers?: string[]
+  /**
    * Session-scoped extra instructions (agent persona, collaboration rules,
    * workflow prompts) layered on top of the provider's own system prompt.
    * The host re-derives and passes this on EVERY session creation — providers

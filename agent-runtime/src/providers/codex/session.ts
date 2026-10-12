@@ -156,6 +156,20 @@ export function toCodexMcpServers(
   return result
 }
 
+/**
+ * Config overrides switching off `requested` servers — only those `defined` (the effective
+ * `mcp_servers`) has. Overriding a name that isn't there leaves an entry with no transport,
+ * which Codex rejects outright.
+ */
+export function disabledMcpConfig(
+  requested: readonly string[],
+  defined: Record<string, unknown>,
+): Record<string, object> | undefined {
+  const names = requested.filter((name) => Object.hasOwn(defined, name))
+  if (names.length === 0) return undefined
+  return { mcp_servers: Object.fromEntries(names.map((name) => [name, { enabled: false }])) }
+}
+
 export class CodexRuntimeSession implements RuntimeSession {
   private readonly logger = createRuntimeLogger('codex-runtime')
   private client: AppServerClient | null = null
@@ -180,6 +194,7 @@ export class CodexRuntimeSession implements RuntimeSession {
   private activeSdkServers: SdkMcpServer[] = []
   private readonly mcpStartupStatuses = new Map<string, CodexMcpStartupStatus>()
   private readonly codexMcpServers: Record<string, CodexSdkMcpServerConfig> | undefined
+  private readonly disabledMcpServers: string[]
   /** Session instructions (persona) from the host — folded into developerInstructions at thread creation. */
   private readonly instructions: string | undefined
   /** Set for a side chat: branch off this thread instead of starting a new one. */
@@ -196,6 +211,7 @@ export class CodexRuntimeSession implements RuntimeSession {
     this.currentServiceTier = params.serviceTier
     this.threadId = params.sessionId
     this.codexMcpServers = toCodexMcpServers(params.mcpServers)
+    this.disabledMcpServers = params.disabledMcpServers ?? []
     this.instructions = params.instructions?.trim() || undefined
     this.forkFrom = params.forkFrom
   }
@@ -270,6 +286,37 @@ export class CodexRuntimeSession implements RuntimeSession {
         developer_instructions: null,
       },
     }
+  }
+
+  /**
+   * `disabledMcpServers` as config overrides (`mcp_servers.<name>.enabled = false`).
+   * Only for names the effective config really defines: an override naming a
+   * server that isn't there creates an entry with no transport, and Codex then
+   * refuses the whole config ("invalid transport"). Read per stream, since the
+   * user can edit their config between turns.
+   */
+  private async disabledMcpOverrides(client: AppServerClient): Promise<Record<string, object> | undefined> {
+    if (this.disabledMcpServers.length === 0) return undefined
+    let defined: Record<string, unknown>
+    try {
+      const { config } = await client.request<{ config: { mcp_servers?: Record<string, unknown> | null } }>('config/read', {
+        cwd: this.cwd,
+      })
+      defined = config.mcp_servers ?? {}
+    } catch (error) {
+      this.logger.warn(`config/read failed, not disabling ${this.disabledMcpServers.join(', ')}: ${String(error)}`)
+      return undefined
+    }
+    return disabledMcpConfig(this.disabledMcpServers, defined)
+  }
+
+  private async withDisabledMcpServers(
+    client: AppServerClient,
+    settings: CodexAppServerSettings,
+  ): Promise<CodexAppServerSettings> {
+    const overrides = await this.disabledMcpOverrides(client)
+    if (!overrides) return settings
+    return { ...settings, configOverrides: { ...(settings.configOverrides ?? {}), ...overrides } }
   }
 
   private getClient(): AppServerClient {
@@ -659,7 +706,7 @@ export class CodexRuntimeSession implements RuntimeSession {
       return
     }
 
-    const settings = this.buildSettings()
+    const settings = await this.withDisabledMcpServers(client, this.buildSettings())
     const threadMode = settings.threadMode ?? DEFAULT_THREAD_MODE
     const { resolved: resolvedMcpServers, sdkServers } = await resolveSdkMcpServers(settings.mcpServers)
     this.activeSdkServers = [...this.activeSdkServers.filter((server) => !sdkServers.includes(server)), ...sdkServers]
@@ -813,7 +860,7 @@ export class CodexRuntimeSession implements RuntimeSession {
    */
   private async *streamGoalLoop(params: RuntimeStreamParams) {
     const client = this.getClient()
-    const settings = this.buildSettings()
+    const settings = await this.withDisabledMcpServers(client, this.buildSettings())
     const threadMode = settings.threadMode ?? DEFAULT_THREAD_MODE
     const { resolved: resolvedMcpServers, sdkServers } = await resolveSdkMcpServers(settings.mcpServers)
     this.activeSdkServers = [...this.activeSdkServers.filter((server) => !sdkServers.includes(server)), ...sdkServers]

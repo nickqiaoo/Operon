@@ -5,7 +5,7 @@ import { withLocalMcpNoProxy } from './local-mcp-env.js'
 import { buildThinkingLevelsFromModelInfo, mapModelInfoToDescriptor } from './model-info.js'
 import { buildConfigOverrides } from './sdk/converters/settings-merger.js'
 import type { ModelInfo } from './sdk/protocol/messages.js'
-import { CodexRuntimeSession } from './session.js'
+import { CodexRuntimeSession, disabledMcpConfig } from './session.js'
 
 const createModelInfo = (
   overrides: Partial<ModelInfo> = {},
@@ -106,6 +106,21 @@ describe('Codex app-server config overrides', () => {
       }),
     ).toEqual({
       default_permissions: ':danger-full-access',
+    })
+  })
+})
+
+describe('Codex disabled MCP servers', () => {
+  it('switches off a server the user config defines, as a flat app-server key', () => {
+    const overrides = disabledMcpConfig(['node_repl'], { node_repl: { command: '/x' }, playwright: {} })
+    expect(overrides).toEqual({ mcp_servers: { node_repl: { enabled: false } } })
+    expect(buildConfigOverrides({ configOverrides: overrides })).toEqual({ 'mcp_servers.node_repl.enabled': false })
+  })
+
+  it('leaves out a name the config does not define (a bare `enabled` is an invalid entry)', () => {
+    expect(disabledMcpConfig(['node_repl'], { playwright: {} })).toBeUndefined()
+    expect(disabledMcpConfig(['node_repl', 'playwright'], { playwright: {} })).toEqual({
+      mcp_servers: { playwright: { enabled: false } },
     })
   })
 })
