@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.3.45] - 2026-10-12
+
+### Changed
+
+- Assistant: remembers things as you talk, in your language, with dates and details instead of vague summaries.
+- Assistant: tasks and scheduled runs write what they find into that day's notes.
+
 ## [1.3.44] - 2026-10-12
 
 ### Added
