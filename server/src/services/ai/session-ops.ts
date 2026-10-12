@@ -6,7 +6,7 @@ import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
 import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
-import type { AccountRateLimitsReadResult } from '@operon/agent-runtime'
+import type { AccountRateLimitsReadResult } from '@operon/agent-runtime/codex'
 import type {
   DetailedContextUsage,
   SessionPatch,

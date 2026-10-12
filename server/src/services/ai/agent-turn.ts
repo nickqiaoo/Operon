@@ -24,7 +24,7 @@ import {
 import type { AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { PreparedTextStreamPart } from './prepared-stream-parts.js'
 import { buildStreamMessageMetadata, type StreamMessageMetadata } from '@operon/agent-runtime'
-import { writeMessageMetadata, writeTextStreamPart } from './text-stream-part-to-ui.js'
+import { writeMessageMetadata, writeTextStreamPart } from '@operon/agent-runtime/ai-sdk'
 import { getSessionIdFromProviderMetadata } from '@operon/agent-runtime'
 import { createTrafficRecorder } from '@operon/agent-runtime'
 import { readStreamAsAsyncIterable } from '@operon/agent-runtime'

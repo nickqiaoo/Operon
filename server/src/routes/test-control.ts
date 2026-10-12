@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import type { SqliteStorage } from '../storage/sqlite.js'
-import { FakeRuntimeProvider } from '@operon/agent-runtime'
-import { BUILTIN_SCRIPT_NAMES } from '@operon/agent-runtime'
+import { BUILTIN_SCRIPT_NAMES, FakeRuntimeProvider } from '@operon/agent-runtime/testing'
 import { getSessionManager } from '../services/ai/state.js'
 
 /**

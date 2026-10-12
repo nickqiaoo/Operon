@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { OPENCODE_CALLER_ARG } from '@operon/agent-runtime'
+import { OPENCODE_CALLER_ARG } from '@operon/agent-runtime/opencode'
 import { bindOpencodeCaller } from '../../../agent-runtime/src/providers/opencode/caller-identity.js'
 import {
   ASSISTANT_KEY_PARAM,

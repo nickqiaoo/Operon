@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { Hono } from 'hono'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { OPENCODE_CALLER_ARG } from '@operon/agent-runtime'
+import { OPENCODE_CALLER_ARG } from '@operon/agent-runtime/opencode'
 import { bindOpencodeCaller } from '../../../agent-runtime/src/providers/opencode/caller-identity.js'
 import { assistantConversationId, assistantKeyQuery } from '../services/assistant/node-repl-bridge.js'
 import { setAssistantToolHost, type AssistantToolHost } from '../services/assistant/tools.js'

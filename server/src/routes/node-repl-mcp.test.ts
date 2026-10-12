@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const CALLER_ARG = '__operon_opencode_session'
 const bindings = vi.hoisted(() => new Map<string, string>())
-vi.mock('@operon/agent-runtime', async (importOriginal) => ({
+vi.mock('@operon/agent-runtime/opencode', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   resolveOpencodeCaller: (sessionId: string) => bindings.get(sessionId),
 }))

@@ -10,7 +10,7 @@ import type {
 } from '../types/cronjob.js'
 import { startChat, getSessionManager } from './ai.js'
 import { readPreparedTextStreamParts } from './ai/prepared-stream-parts.js'
-import { createUiStreamFromTextParts } from './ai/text-stream-part-to-ui.js'
+import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'
 import { startCanvasWorkflowExecution } from './canvas-workflow/index.js'
 import { ChatHistoryService } from './chat-history.js'
 
@@ -594,10 +594,9 @@ export const executeCronjob = async (
       skipSnapshot: true,
     })
 
-    const assistantMessage = await collectAssistantMessage(createUiStreamFromTextParts({
+    const assistantMessage = await collectAssistantMessage(toUIMessageStream(readPreparedTextStreamParts(chatCtx.preparedParts), {
       originalMessages: chatCtx.normalizedMessages,
       messageId: chatCtx.assistantMessageId,
-      parts: readPreparedTextStreamParts(chatCtx.preparedParts),
     }))
     await chatCtx.persistDone
 

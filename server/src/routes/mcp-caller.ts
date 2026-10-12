@@ -13,7 +13,7 @@
  */
 import type { HttpBindings } from '@hono/node-server'
 import type { Context } from 'hono'
-import { OPENCODE_CALLER_ARG, resolveOpencodeCaller } from '@operon/agent-runtime'
+import { OPENCODE_CALLER_ARG, resolveOpencodeCaller } from '@operon/agent-runtime/opencode'
 import { readJsonBody } from './mcp-http.js'
 import {
   ASSISTANT_KEY_PARAM,

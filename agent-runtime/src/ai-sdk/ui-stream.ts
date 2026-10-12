@@ -1,6 +1,20 @@
-import { createUIMessageStream, type UIMessage, type UIMessageStreamWriter } from 'ai'
-import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  type UIMessage,
+  type UIMessageChunk,
+  type UIMessageStreamWriter,
+} from 'ai'
+import { isUserFacingRuntimeError, type RuntimeStreamPart, type RuntimeTextStreamPart } from '../types.js'
 import { normalizeToolInput } from './normalize-tool-input.js'
+
+/**
+ * Turn a session's stream into the AI SDK's UI message stream — what `useChat`
+ * and AI Elements render. The runtime streams `TextStreamPart`s (the layer
+ * `streamText().fullStream` yields); the AI SDK only converts that layer to UI
+ * chunks inside `streamText`, so this is the same conversion, for a stream that
+ * came from an agent instead.
+ */
 
 export type StreamMessageMetadataBuilder = (part: RuntimeTextStreamPart) => Record<string, unknown> | undefined
 
@@ -12,13 +26,6 @@ export function writeMessageMetadata<UI_MESSAGE extends UIMessage>(
     type: 'message-metadata',
     messageMetadata: metadata as never,
   })
-}
-
-type StreamToUiOptions<UI_MESSAGE extends UIMessage> = {
-  originalMessages: UI_MESSAGE[]
-  messageId: string
-  parts: AsyncIterable<RuntimeTextStreamPart>
-  messageMetadata?: StreamMessageMetadataBuilder
 }
 
 export function writeTextStreamPart<UI_MESSAGE extends UIMessage>(
@@ -218,19 +225,56 @@ export function writeTextStreamPart<UI_MESSAGE extends UIMessage>(
   }
 }
 
-export function createUiStreamFromTextParts<UI_MESSAGE extends UIMessage>({
-  originalMessages,
-  messageId,
-  parts,
-  messageMetadata,
-}: StreamToUiOptions<UI_MESSAGE>): ReadableStream {
+export interface ToUIMessageStreamOptions<UI_MESSAGE extends UIMessage = UIMessage> {
+  /** The assistant message id the chunks belong to. */
+  messageId: string
+  /** The conversation so far, for the AI SDK's message assembly. */
+  originalMessages?: UI_MESSAGE[]
+  /**
+   * Text for an error the client will see — a thrown one or an `error` part.
+   * Defaults to the message of a `UserFacingRuntimeError` and a generic notice
+   * for anything else, so internals never reach the browser.
+   */
+  onError?: (error: unknown) => string
+  /** Message metadata to attach at a part, on top of the session's own `message-metadata` parts. */
+  messageMetadata?: StreamMessageMetadataBuilder
+}
+
+const defaultErrorText = (error: unknown): string =>
+  isUserFacingRuntimeError(error) ? error.message : 'An error occurred.'
+
+export function toUIMessageStream<UI_MESSAGE extends UIMessage = UIMessage>(
+  parts: AsyncIterable<RuntimeStreamPart>,
+  options: ToUIMessageStreamOptions<UI_MESSAGE>,
+): ReadableStream<UIMessageChunk> {
+  const onError = options.onError ?? defaultErrorText
   return createUIMessageStream<UI_MESSAGE>({
-    originalMessages,
-    generateId: () => messageId,
+    originalMessages: options.originalMessages ?? [],
+    generateId: () => options.messageId,
+    onError,
     execute: async ({ writer }) => {
       for await (const part of parts) {
-        writeTextStreamPart(writer, part, messageId, messageMetadata)
+        if (part.type === 'message-metadata') {
+          writeMessageMetadata(writer, part.metadata)
+        } else if (part.type === 'error') {
+          writer.write({ type: 'error', errorText: onError(part.error) })
+        } else {
+          writeTextStreamPart(writer, part, options.messageId, options.messageMetadata)
+        }
       }
     },
+  })
+}
+
+/** `toUIMessageStream` as a streaming HTTP response, for a route handler. */
+export function toUIMessageStreamResponse<UI_MESSAGE extends UIMessage = UIMessage>(
+  parts: AsyncIterable<RuntimeStreamPart>,
+  options: ToUIMessageStreamOptions<UI_MESSAGE> & { headers?: Record<string, string>; status?: number },
+): Response {
+  const { headers, status, ...streamOptions } = options
+  return createUIMessageStreamResponse({
+    stream: toUIMessageStream(parts, streamOptions),
+    ...(headers ? { headers } : {}),
+    ...(status ? { status } : {}),
   })
 }

@@ -1,10 +1,11 @@
 import process from 'node:process'
-import {
-  builtinProviders,
-  createRuntime,
-  fakeAgent,
-  type Runtime,
-} from '@operon/agent-runtime'
+import { createRuntime, type Runtime } from '@operon/agent-runtime'
+import { antigravity, cursor, grok, kimi } from '@operon/agent-runtime/acp'
+import { claudeCode } from '@operon/agent-runtime/claude-code'
+import { codex } from '@operon/agent-runtime/codex'
+import { copilot } from '@operon/agent-runtime/copilot'
+import { opencode } from '@operon/agent-runtime/opencode'
+import { fakeAgent } from '@operon/agent-runtime/testing'
 import { ChatHistoryService } from '../chat-history.js'
 import { startNotificationPruning } from '../notification-service.js'
 import { appRuntimeHost } from './app-runtime-host.js'
@@ -41,7 +42,15 @@ process.on('uncaughtException', (err: Error & { code?: string; syscall?: string 
  * Operon's own agent.
  */
 const appProviders = () => [
-  ...builtinProviders().map(withAgentPrompts),
+  withAgentPrompts(claudeCode()),
+  withAgentPrompts(codex()),
+  withAgentPrompts(grok()),
+  withAgentPrompts(kimi()),
+  withAgentPrompts(opencode()),
+  withAgentPrompts(cursor()),
+  withAgentPrompts(antigravity()),
+  // Copilot never got the standing prompts; kept as it was.
+  copilot(),
   ...(process.env.OPERON_ENABLE_FAKE_RUNTIME === '1' ? [fakeAgent()] : []),
   operonAgent(),
 ]

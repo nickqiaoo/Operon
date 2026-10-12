@@ -3,10 +3,17 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "description": "Provider-agnostic runtime for driving coding-agent CLIs (Claude, Codex, Gemini, Kimi, OpenCode, Cursor, Copilot) behind one streaming interface.",
+  "description": "Drive Claude Code, Codex, OpenCode, Copilot, Cursor, Grok, Kimi and Antigravity from TypeScript: one session lifecycle, every native capability, typed.",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./claude-code": "./src/claude-code.ts",
+    "./codex": "./src/codex.ts",
+    "./opencode": "./src/opencode.ts",
+    "./copilot": "./src/copilot.ts",
+    "./acp": "./src/acp.ts",
+    "./ai-sdk": "./src/ai-sdk/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "dependencies": {
     "@ai-sdk/provider": "^4.0.9",
