@@ -6,7 +6,9 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import { setRuntimeHost } from '../../host.js';
+import { createRuntimeContext } from '../../context.js';
+
+const ctx = createRuntimeContext({ resolveBinary: () => '/mock/claude' });
 import { ClaudeRuntimeSession } from './session.js';
 import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js';
 
@@ -97,13 +99,6 @@ function mockStreamingQuery(options?: {
 }
 
 describe('ClaudeRuntimeSession stream completion', () => {
-  beforeEach(() => {
-    setRuntimeHost({
-      resolveCliPath: () => '/mock/claude',
-      getShellEnv: () => ({}),
-      getUserEnv: () => ({}),
-    });
-  });
 
   afterEach(() => {
     vi.useRealTimers();
@@ -118,7 +113,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
     const parts = [];
 
@@ -152,7 +147,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
     const streamPromise = (async () => {
       const parts = [];
@@ -195,7 +190,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
     const streamPromise = (async () => {
       const parts = [];
@@ -234,7 +229,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
 
     for await (const _part of session.stream({
@@ -304,7 +299,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
 
     for await (const _part of session.stream({
@@ -339,13 +334,6 @@ describe('ClaudeRuntimeSession stream completion', () => {
 });
 
 describe('ClaudeRuntimeSession side chat', () => {
-  beforeEach(() => {
-    setRuntimeHost({
-      resolveCliPath: () => '/mock/claude',
-      getShellEnv: () => ({}),
-      getUserEnv: () => ({}),
-    });
-  });
 
   afterEach(() => {
     sdkMock.query.mockReset();
@@ -371,7 +359,7 @@ describe('ClaudeRuntimeSession side chat', () => {
     const receivedMessages: SDKUserMessage[] = [];
     mockStreamingQuery({ onUserMessage: (message) => receivedMessages.push(message) });
 
-    const session = new ClaudeRuntimeSession(forkParams);
+    const session = new ClaudeRuntimeSession(forkParams, ctx);
     await runTurn(session, 'request-1');
 
     // The fork resumes the PARENT — the branch has no id of its own yet.
@@ -400,7 +388,7 @@ describe('ClaudeRuntimeSession side chat', () => {
   it('resumes its own branch, not the parent, when the query is rebuilt', async () => {
     mockStreamingQuery();
 
-    const session = new ClaudeRuntimeSession(forkParams);
+    const session = new ClaudeRuntimeSession(forkParams, ctx);
     await runTurn(session, 'request-1');
 
     // Kill the warm query the way a dropped CLI process would.
@@ -418,7 +406,7 @@ describe('ClaudeRuntimeSession side chat', () => {
   it('deletes the branch it forked when discarded, but keeps it across a rebuild', async () => {
     mockStreamingQuery();
 
-    const session = new ClaudeRuntimeSession(forkParams);
+    const session = new ClaudeRuntimeSession(forkParams, ctx);
     await runTurn(session, 'request-1');
 
     await session.dispose('rebuild');
@@ -436,7 +424,7 @@ describe('ClaudeRuntimeSession side chat', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
     await runTurn(session, 'request-1');
     await session.dispose();
 

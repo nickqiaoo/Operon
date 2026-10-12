@@ -1,3 +1,4 @@
+import type { RuntimeContext } from '../../context.js'
 import { randomUUID } from 'node:crypto'
 import {
   type MCPServerConfig,
@@ -144,7 +145,11 @@ export class CopilotRuntimeSession implements RuntimeSession {
   // Slash commands discovered from the live session (skills + SDK commands).
   private readonly slashCommandState = createCopilotSlashCommandState()
 
-  constructor(params: RuntimeSessionParams, supportedEffortLevels: string[] = []) {
+  constructor(
+    params: RuntimeSessionParams,
+    private readonly ctx: RuntimeContext,
+    supportedEffortLevels: string[] = [],
+  ) {
     this.cwd = params.cwd
     this.env = params.env
     this.isWorker = params.isWorker ?? false
@@ -508,9 +513,9 @@ export class CopilotRuntimeSession implements RuntimeSession {
     // `client-registry.ts`. Everything below is session-scoped config the SDK
     // keeps separate per session, so sharing the client changes nothing about it.
     const lease = await acquireCopilotClient({
-      cliPath: resolveCopilotCliPath(),
+      cliPath: resolveCopilotCliPath(this.ctx),
       cwd: this.cwd,
-      env: copilotRuntimeEnv(this.env),
+      env: copilotRuntimeEnv(this.ctx, this.env),
     })
     const client = lease.client
     this.clientLease = lease.release

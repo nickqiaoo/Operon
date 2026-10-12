@@ -1,3 +1,9 @@
+import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+import { defineProvider } from '../../runtime.js'
+import type { RuntimeUsageLimits } from '../../types.js'
+import type { ClaudeThinkingLevel } from './types.js'
+import { getClaudeAccountUsage, peekClaudeAccountUsage } from './usage-probe.js'
+import { readClaudeSubagentTranscript, type ClaudeSubagentTranscript } from './subagent-transcript.js'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKControlInitializeResponse } from '@anthropic-ai/claude-agent-sdk'
 import type { ProviderDescriptor, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
@@ -14,17 +20,22 @@ import {
 } from './config.js'
 import type { Model } from '../../types.js'
 import { ClaudeRuntimeSession } from './session.js'
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 
 const logger = createRuntimeLogger('claude-init')
 
-/** Shared init info cache across all ClaudeRuntimeProvider instances */
-let sharedInitInfo: SDKControlInitializeResponse | null = null
-let sharedFetchPromise: Promise<void> | null = null
+/** Init info cache shared by every ClaudeRuntimeProvider instance of one runtime. */
+interface ClaudeInitCache {
+  info: SDKControlInitializeResponse | null
+  fetching: Promise<void> | null
+}
 
-async function doFetchInitInfo(): Promise<void> {
-  const cliPath = getRuntimeHost().resolveCliPath('claude-code')
+const initCache = (ctx: RuntimeContext): ClaudeInitCache =>
+  ctx.shared<ClaudeInitCache>('claude-code:init-info', () => ({ info: null, fetching: null }))
+
+async function doFetchInitInfo(ctx: RuntimeContext): Promise<void> {
+  const cliPath = ctx.resolveBinary('claude-code')
   if (!cliPath) {
     logger.info('CLI not available, skipping init info fetch')
     return
@@ -43,7 +54,7 @@ async function doFetchInitInfo(): Promise<void> {
     })
 
     const init = await q.initializationResult()
-    sharedInitInfo = init
+    initCache(ctx).info = init
     logger.info(`Init info fetched: ${init.models?.length ?? 0} models, account: ${init.account?.email ?? 'unknown'}`)
   } catch (err) {
     logger.error(`Failed to fetch init info: ${err instanceof Error ? err.message : String(err)}`)
@@ -64,24 +75,28 @@ export class ClaudeRuntimeProvider implements RuntimeProviderFactory {
   }
 
   readonly providerInfo = ClaudeRuntimeProvider.providerInfo
+
+  constructor(private readonly ctx: RuntimeContext) {}
+
   private currentModelId = DEFAULT_MODEL_ID
   private currentModeId = DEFAULT_MODE_ID
   private currentThinkingLevel = DEFAULT_THINKING_LEVEL
 
   async fetchInitInfo(): Promise<void> {
-    if (sharedInitInfo) return
-    if (sharedFetchPromise) return sharedFetchPromise
+    const cache = initCache(this.ctx)
+    if (cache.info) return
+    if (cache.fetching) return cache.fetching
 
-    sharedFetchPromise = doFetchInitInfo()
+    cache.fetching = doFetchInitInfo(this.ctx)
     try {
-      await sharedFetchPromise
+      await cache.fetching
     } finally {
-      sharedFetchPromise = null
+      cache.fetching = null
     }
   }
 
   async getDescriptor(): Promise<ProviderDescriptor> {
-    const initInfo = sharedInitInfo
+    const initInfo = initCache(this.ctx).info
 
     // Live model list (with per-model capabilities) from the CLI init response.
     // Empty when CLI is unavailable — no static fallback table (it drifts).
@@ -168,6 +183,31 @@ export class ClaudeRuntimeProvider implements RuntimeProviderFactory {
     ) {
       this.currentThinkingLevel = params.thinkingLevel
     }
-    return new ClaudeRuntimeSession(params)
+    return new ClaudeRuntimeSession(params, this.ctx)
   }
 }
+
+/** Claude Code extras that need no session. */
+export interface ClaudeCodeNative {
+  /** Subscription quota for the signed-in account; null when the CLI cannot answer. */
+  accountUsage(options?: { force?: boolean }): Promise<RuntimeUsageLimits | null>
+  /** The last quota snapshot (polled or pushed by a session), without polling. */
+  peekAccountUsage(): RuntimeUsageLimits | null
+  /** The steps of the background sub-agent spawned by `toolUseId` in session `sessionId`. */
+  subagentTranscript(sessionId: string, toolUseId: string): Promise<ClaudeSubagentTranscript | null>
+}
+
+export type ClaudeCodeEffort = ClaudeThinkingLevel
+
+/** Claude Code, driven through `@anthropic-ai/claude-agent-sdk`. */
+export const claudeCode = () =>
+  defineProvider<'claude-code', { mode: PermissionMode; effort: ClaudeCodeEffort; native: ClaudeCodeNative }>({
+    id: 'claude-code',
+    info: ClaudeRuntimeProvider.providerInfo,
+    create: (ctx) => new ClaudeRuntimeProvider(ctx),
+    native: (ctx) => ({
+      accountUsage: (options) => getClaudeAccountUsage(ctx, options),
+      peekAccountUsage: () => peekClaudeAccountUsage(ctx),
+      subagentTranscript: (sessionId, toolUseId) => readClaudeSubagentTranscript(ctx, sessionId, toolUseId),
+    }),
+  })

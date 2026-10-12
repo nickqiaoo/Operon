@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionManager } from './session-manager.js'
+import { createRuntime, defineProvider } from './runtime.js'
 import type {
   DynamicSetApplied,
   DynamicSetPayload,
@@ -8,7 +9,7 @@ import type {
   RuntimeSessionParams,
 } from './types.js'
 
-const createRuntime = (resolvePermission: RuntimeSession['resolvePermission']): RuntimeSession => ({
+const createRuntimeSession = (resolvePermission: RuntimeSession['resolvePermission']): RuntimeSession => ({
   async *stream() {},
   abort() {},
   async dispose() {},
@@ -18,7 +19,7 @@ const createRuntime = (resolvePermission: RuntimeSession['resolvePermission']): 
 describe('SessionManager permission resolution', () => {
   it('returns the runtime result instead of treating every existing session as resolved', async () => {
     const resolvePermission = vi.fn<RuntimeSession['resolvePermission']>().mockReturnValue(false)
-    const runtime = createRuntime(resolvePermission)
+    const runtime = createRuntimeSession(resolvePermission)
     const provider: RuntimeProviderFactory = {
       providerInfo: { id: 'approval-test', label: 'Approval Test', logo: '' },
       async getDescriptor() {
@@ -28,8 +29,9 @@ describe('SessionManager permission resolution', () => {
         return runtime
       },
     }
-    const manager = new SessionManager()
-    manager.register('approval-test', () => provider, provider.providerInfo)
+    const manager = new SessionManager(createRuntime({
+      providers: [defineProvider({ id: 'approval-test', info: provider.providerInfo, create: () => provider })],
+    }))
     await manager.getOrCreate(42, 'approval-test', { cwd: '/tmp' })
 
     const decision = { type: 'allow' as const }
@@ -64,8 +66,9 @@ function stubProvider(options: StubOptions = {}) {
       }
     },
   }
-  const manager = new SessionManager()
-  manager.register('stub', () => provider, provider.providerInfo)
+  const manager = new SessionManager(createRuntime({
+    providers: [defineProvider({ id: 'stub', info: provider.providerInfo, create: () => provider })],
+  }))
   return { manager, created }
 }
 

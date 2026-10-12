@@ -1,9 +1,7 @@
 import type { McpServerConfig, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 import type { ProviderDescriptor, RuntimeSessionParams } from '../../types.js'
-import { buildRuntimeEnv } from '../../runtime-env.js'
 import type { ClaudeRuntimeSettings, ClaudeThinkingLevel } from './types.js'
-import { MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT } from '../../memory-resolver-prompt.js'
 
 /** CLI alias: clear overrides / use account or org recommended model. */
 export const DEFAULT_MODEL_ID = 'default'
@@ -51,15 +49,13 @@ export const CLAUDE_SLASH_COMMANDS: ProviderDescriptor['slashCommands'] = [
 ]
 
 /**
- * Memory prompts plus the host's session instructions (persona / collab rules).
- * Baked into the preset append at settings-build time — the warm query reads
+ * The host's session instructions (persona / collab rules). Baked into the preset append at settings-build time — the warm query reads
  * systemPrompt once at creation, and resume does NOT restore a previous append
  * (the CLI rebuilds the system prompt from the current invocation), so the
  * host re-passes instructions on every session creation.
  */
 function buildSystemPromptAppend(instructions?: string): string | undefined {
-  const parts = [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, instructions?.trim()].filter(Boolean)
-  return parts.length > 0 ? parts.join('\n\n') : undefined
+  return instructions?.trim() || undefined
 }
 
 function resolvePermissionMode(modeId?: string): PermissionMode {
@@ -79,8 +75,8 @@ function resolveThinkingLevel(level?: string): ClaudeThinkingLevel {
   }
 }
 
-export function buildClaudeRuntimeSettings(params: RuntimeSessionParams): ClaudeRuntimeSettings {
-  const cliPath = getRuntimeHost().resolveCliPath('claude-code')
+export function buildClaudeRuntimeSettings(params: RuntimeSessionParams, ctx: RuntimeContext): ClaudeRuntimeSettings {
+  const cliPath = ctx.resolveBinary('claude-code')
   if (!cliPath) {
     throw new Error('Claude Code CLI not configured. Set the path in Settings.')
   }
@@ -88,7 +84,7 @@ export function buildClaudeRuntimeSettings(params: RuntimeSessionParams): Claude
   const systemPromptAppend = buildSystemPromptAppend(params.instructions)
   const permissionMode = resolvePermissionMode(params.modeId)
   const thinkingLevel = resolveThinkingLevel(params.thinkingLevel)
-  const env = buildRuntimeEnv(params.env)
+  const env = ctx.env(params.env)
   // Tag SDK-spawned sessions with the `cli` entrypoint so Claude Code's
   // interactive `/resume` picker lists them — it hides `sdk-ts` sessions by
   // default. The SDK only fills CLAUDE_CODE_ENTRYPOINT when unset, so setting

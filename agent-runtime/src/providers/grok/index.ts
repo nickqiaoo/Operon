@@ -1,5 +1,6 @@
+import { defineProvider } from '../../runtime.js'
+import type { RuntimeContext } from '../../context.js'
 import type { ProviderDescriptor, ProviderInfo, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
-import { applyRuntimeEnv } from '../../runtime-env.js'
 import { AcpRuntimeSession, buildAcpDescriptor, probeAcpModels } from '../acp/index.js'
 import { GROK_CONFIG } from './config.js'
 
@@ -11,12 +12,14 @@ export class GrokRuntimeProvider implements RuntimeProviderFactory {
   }
 
   readonly providerInfo = GrokRuntimeProvider.providerInfo
+
+  constructor(private readonly ctx: RuntimeContext) {}
+
   private currentModelId = GROK_CONFIG.defaultModelId
   private currentModeId = GROK_CONFIG.defaultModeId
 
   async getDescriptor(): Promise<ProviderDescriptor> {
-    applyRuntimeEnv()
-    const ctx = await probeAcpModels(GROK_CONFIG)
+    const ctx = await probeAcpModels(this.ctx, GROK_CONFIG)
     const { models, currentModelId } = GROK_CONFIG.extractModels(ctx, this.currentModelId)
     this.currentModelId = currentModelId
     return buildAcpDescriptor(
@@ -29,6 +32,17 @@ export class GrokRuntimeProvider implements RuntimeProviderFactory {
   async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
     if (params.modelId) this.currentModelId = params.modelId
     if (params.modeId) this.currentModeId = params.modeId
-    return new AcpRuntimeSession(params, GROK_CONFIG)
+    return new AcpRuntimeSession(params, GROK_CONFIG, this.ctx)
   }
 }
+
+/** Modes known today; an ACP agent may announce others at runtime. */
+export type GrokMode = 'default' | 'auto' | 'plan' | 'bypassPermissions' | (string & {})
+
+/** Grok, driven over ACP. */
+export const grok = () =>
+  defineProvider<'grok', { mode: GrokMode; effort: never }>({
+    id: 'grok',
+    info: GrokRuntimeProvider.providerInfo,
+    create: (ctx) => new GrokRuntimeProvider(ctx),
+  })

@@ -1,15 +1,10 @@
 import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
 import type { UIMessage } from 'ai'
-import { getSessionManager, getChatStorage } from './state.js'
+import { getRuntime, getSessionManager, getChatStorage } from './state.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
-import {
-  getClaudeAccountUsage,
-  peekClaudeAccountUsage,
-  getCodexAccountUsage,
-  RuntimeInjectionUnavailableError,
-} from '@operon/agent-runtime'
+import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
 import type { AccountRateLimitsReadResult } from '@operon/agent-runtime'
 import type {
   DetailedContextUsage,
@@ -169,7 +164,7 @@ export async function getClaudeUsageLimits(options?: { force?: boolean }): Promi
     // pushes fold into it between polls, so the cached copy can be behind a
     // number the client has already been shown, and serving it would step the
     // badge backwards. `peek` is an in-memory read of that same snapshot.
-    return { success: true, data: peekClaudeAccountUsage() ?? claudeUsageCache.data }
+    return { success: true, data: getRuntime().native('claude-code').peekAccountUsage() ?? claudeUsageCache.data }
   }
 
   if (!force && claudeUsageInFlight) {
@@ -186,7 +181,7 @@ export async function getClaudeUsageLimits(options?: { force?: boolean }): Promi
     }
   }
 
-  const request = getClaudeAccountUsage(force ? { force: true } : undefined)
+  const request = getRuntime().native('claude-code').accountUsage(force ? { force: true } : undefined)
   claudeUsageInFlight = request
   try {
     const data = await request
@@ -236,7 +231,7 @@ export async function getCodexUsageLimits(options?: { force?: boolean }): Promis
     return data ? { success: true, data } : { success: false, error: 'No Codex usage data available' }
   }
 
-  const request = getCodexAccountUsage(force ? 0 : undefined)
+  const request = getRuntime().native('codex').accountUsage(force ? 0 : undefined)
   codexUsageInFlight = request
   try {
     const data = await request

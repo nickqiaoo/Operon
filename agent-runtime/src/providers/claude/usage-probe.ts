@@ -6,7 +6,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import type { RuntimeUsageLimits, RuntimeUsageLimitWindow } from '../../types.js'
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 
 const logger = createRuntimeLogger('claude-usage')
@@ -163,6 +163,8 @@ const silentInput: AsyncIterable<SDKUserMessage> = {
  * kept — a single idle process costs little and every caller shares it.
  */
 export class ClaudeUsageProbe {
+  constructor(private readonly ctx: RuntimeContext) {}
+
   private active: Query | null = null
   private starting: Promise<Query | null> | null = null
   private inFlight: Promise<RuntimeUsageLimits | null> | null = null
@@ -339,7 +341,7 @@ export class ClaudeUsageProbe {
   }
 
   private async startQuery(): Promise<Query | null> {
-    const cliPath = getRuntimeHost().resolveCliPath('claude-code')
+    const cliPath = this.ctx.resolveBinary('claude-code')
     if (!cliPath) {
       logger.info('CLI not available, skipping usage probe')
       return null
@@ -400,16 +402,20 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   }
 }
 
-const probe = new ClaudeUsageProbe()
+/** The runtime's one probe — shared by its sessions (for pushes) and the account-usage native. */
+export function claudeUsageProbe(ctx: RuntimeContext): ClaudeUsageProbe {
+  return ctx.shared('claude-code:usage-probe', () => new ClaudeUsageProbe(ctx))
+}
 
 /**
  * Account-level Claude subscription quota, independent of any conversation.
  * Returns null when the CLI is unavailable or the account has no plan limits.
  */
-export function getClaudeAccountUsage(options?: {
-  force?: boolean
-}): Promise<RuntimeUsageLimits | null> {
-  return probe.get(options)
+export function getClaudeAccountUsage(
+  ctx: RuntimeContext,
+  options?: { force?: boolean },
+): Promise<RuntimeUsageLimits | null> {
+  return claudeUsageProbe(ctx).get(options)
 }
 
 /**
@@ -420,19 +426,14 @@ export function getClaudeAccountUsage(options?: {
  * and the poll is left to cover what a push cannot see: spend by other clients
  * and window resets while this app sends nothing.
  */
-export function applyClaudeUsagePush(info: SDKRateLimitInfo): boolean {
+export function applyClaudeUsagePush(ctx: RuntimeContext, info: SDKRateLimitInfo): boolean {
   const windows = mapPushedRateLimitWindows(info)
   if (!windows) return false
-  probe.applyPush(windows)
+  claudeUsageProbe(ctx).applyPush(windows)
   return true
 }
 
 /** The account snapshot as it stands, without polling. */
-export function peekClaudeAccountUsage(): RuntimeUsageLimits | null {
-  return probe.peek()
-}
-
-/** Stop the shared probe process (app shutdown). */
-export function disposeClaudeUsageProbe(): Promise<void> {
-  return probe.dispose()
+export function peekClaudeAccountUsage(ctx: RuntimeContext): RuntimeUsageLimits | null {
+  return claudeUsageProbe(ctx).peek()
 }

@@ -1,18 +1,8 @@
+import { defineProvider } from '../../runtime.js'
 import type { ProviderDescriptor, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
 import type { ProviderInfo } from '../../types.js'
-import { applyRuntimeEnv } from '../../runtime-env.js'
+import type { RuntimeContext } from '../../context.js'
 import { OpencodeClientManager } from './client-manager.js'
-
-/**
- * Stop the OpenCode server this process started, on the way out.
- *
- * Without this the server outlives the app as a leaked process. It can no
- * longer be mistaken for the next launch's server (each launch starts its own
- * on a random port), but it still holds memory until a later launch reaps it.
- */
-export async function disposeOpencodeServer(): Promise<void> {
-  await OpencodeClientManager.getInstance().dispose()
-}
 import { listOpencodeDescriptorModels, OpencodeRuntimeSession } from './session.js'
 
 export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
@@ -23,14 +13,16 @@ export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
   }
 
   readonly providerInfo = OpencodeRuntimeProvider.providerInfo
+
+  constructor(private readonly ctx: RuntimeContext) {}
+
   private currentModelId = 'opencode/big-pickle'
   private currentModeId = 'build'
   private cwd = process.cwd()
 
   async getDescriptor(): Promise<ProviderDescriptor> {
-    applyRuntimeEnv()
     // Live list from the OpenCode provider API only — no static model table.
-    const { models, currentModelId } = await listOpencodeDescriptorModels(this.cwd, this.currentModelId).catch(() => ({
+    const { models, currentModelId } = await listOpencodeDescriptorModels(this.ctx, this.cwd, this.currentModelId).catch(() => ({
       models: [] as Array<{ id: string; name: string; description?: string }>,
       currentModelId: this.currentModelId,
     }))
@@ -38,7 +30,7 @@ export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
 
     let slashCommands = [] as ProviderDescriptor['slashCommands']
     try {
-      const clientManager = OpencodeClientManager.getInstance({
+      const clientManager = OpencodeClientManager.getInstance(this.ctx, {
         autoStartServer: true,
         cwd: this.cwd,
       })
@@ -86,6 +78,16 @@ export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
     this.cwd = params.cwd
     if (params.modelId) this.currentModelId = params.modelId
     if (params.modeId) this.currentModeId = params.modeId
-    return new OpencodeRuntimeSession(params)
+    return new OpencodeRuntimeSession(params, this.ctx)
   }
 }
+
+export type OpencodeMode = 'build' | 'plan' | 'fullAccess'
+
+/** OpenCode, driven through one `opencode serve` shared by the runtime's sessions. */
+export const opencode = () =>
+  defineProvider<'opencode', { mode: OpencodeMode; effort: never }>({
+    id: 'opencode',
+    info: OpencodeRuntimeProvider.providerInfo,
+    create: (ctx) => new OpencodeRuntimeProvider(ctx),
+  })

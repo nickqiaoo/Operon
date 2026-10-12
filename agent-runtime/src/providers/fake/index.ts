@@ -1,3 +1,4 @@
+import { defineProvider } from '../../runtime.js'
 import type {
   PermissionDecision,
   ProviderDescriptor,
@@ -273,3 +274,14 @@ export function setBuiltinScriptInstaller(fn: () => void): void {
   installBuiltinProviderScripts = fn
   fn()
 }
+
+/**
+ * A scriptable stand-in agent for tests: no CLI, no network. Pick the script
+ * with `FakeRuntimeProvider.currentScript` (built-ins in `BUILTIN_SCRIPT_NAMES`).
+ */
+export const fakeAgent = () =>
+  defineProvider<'fake', { mode: 'default' | 'plan'; effort: never }>({
+    id: 'fake',
+    info: FakeRuntimeProvider.providerInfo,
+    create: () => new FakeRuntimeProvider(),
+  })

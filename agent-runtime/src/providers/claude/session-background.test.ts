@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { setRuntimeHost } from '../../host.js';
+import { createRuntimeContext } from '../../context.js';
+
+const ctx = createRuntimeContext({ resolveBinary: () => '/mock/claude' });
 import type { RuntimeBackgroundEvent, RuntimeBackgroundTask, RuntimeStreamPart } from '../../types.js';
 import { ClaudeRuntimeSession } from './session.js';
 
@@ -106,13 +108,6 @@ function text(parts: RuntimeStreamPart[]): string {
 }
 
 describe('ClaudeRuntimeSession between turns', () => {
-  beforeEach(() => {
-    setRuntimeHost({
-      resolveCliPath: () => '/mock/claude',
-      getShellEnv: () => ({}),
-      getUserEnv: () => ({}),
-    });
-  });
 
   afterEach(() => {
     sdkMock.query.mockReset();
@@ -125,7 +120,7 @@ describe('ClaudeRuntimeSession between turns', () => {
       providerId: 'claude-code',
       modelId: 'claude-sonnet-4-5',
       modeId: 'default',
-    });
+    }, ctx);
 
     const taskSnapshots: RuntimeBackgroundTask[][] = [];
     let agentTurn: Promise<RuntimeStreamPart[]> | undefined;

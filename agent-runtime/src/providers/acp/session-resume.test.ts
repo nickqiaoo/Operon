@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as acp from '@zed-industries/agent-client-protocol'
 import type { RuntimeSessionParams } from '../../types.js'
 import type { AcpProviderConfig } from './types.js'
+import { createRuntimeContext } from '../../context.js'
+
+const ctx = createRuntimeContext()
 
 /**
  * Covers resuming an ACP conversation across an app restart.
@@ -83,7 +86,7 @@ function mockConnection(options: { canLoad: boolean; loadFails?: boolean }): Har
 }
 
 async function connect(params: Partial<RuntimeSessionParams>): Promise<InstanceType<typeof AcpRuntimeSession>> {
-  const session = new AcpRuntimeSession({ cwd: '/tmp/workspace', ...params } as RuntimeSessionParams, CONFIG)
+  const session = new AcpRuntimeSession({ cwd: '/tmp/workspace', ...params } as RuntimeSessionParams, CONFIG, ctx)
   await (session as unknown as { ensureConnected(): Promise<void> }).ensureConnected()
   return session
 }

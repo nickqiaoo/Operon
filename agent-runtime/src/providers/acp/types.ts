@@ -50,7 +50,7 @@ export interface AcpProviderConfig {
   /**
    * Last-chance fixup of the environment the agent process is spawned with.
    * Only for agents with environment quirks of their own — the shared
-   * `buildRuntimeEnv` already merges shell, process, user and session env, and
+   * `RuntimeContext.env` already merges shell, process, host and session env, and
    * that is what every other provider gets. Applied to both the probe and the
    * real session so they cannot diverge.
    */

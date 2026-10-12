@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { getSubagentMessages } from '@anthropic-ai/claude-agent-sdk'
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 
 /**
  * One tool call a sub-agent made, shaped like the tool parts a sub-agent card
@@ -34,8 +34,8 @@ const INTERNAL_TOOLS = new Set([HANDBACK_TOOL])
 /** `<sessionId>` → the directory holding its `subagents/`, once found. */
 const sessionDirs = new Map<string, string>()
 
-function claudeConfigDir(): string {
-  const configured = getRuntimeHost().getUserEnv().CLAUDE_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR
+function claudeConfigDir(ctx: RuntimeContext): string {
+  const configured = ctx.env().CLAUDE_CONFIG_DIR
   return configured || join(homedir(), '.claude')
 }
 
@@ -45,10 +45,10 @@ function claudeConfigDir(): string {
  * mangled cwd (long ones are hashed), so rather than re-derive it, look for the
  * session under every project — session ids are unique.
  */
-async function findSubagentsDir(sessionId: string): Promise<string | undefined> {
+async function findSubagentsDir(ctx: RuntimeContext, sessionId: string): Promise<string | undefined> {
   const cached = sessionDirs.get(sessionId)
   if (cached && existsSync(cached)) return cached
-  const projectsDir = join(claudeConfigDir(), 'projects')
+  const projectsDir = join(claudeConfigDir(ctx), 'projects')
   let projects: string[]
   try {
     projects = await readdir(projectsDir)
@@ -112,10 +112,11 @@ function toolResultText(content: unknown): string {
  * `sessionId`. Null when there is no such transcript (yet).
  */
 export async function readClaudeSubagentTranscript(
+  ctx: RuntimeContext,
   sessionId: string,
   toolUseId: string,
 ): Promise<ClaudeSubagentTranscript | null> {
-  const dir = await findSubagentsDir(sessionId)
+  const dir = await findSubagentsDir(ctx, sessionId)
   if (!dir) return null
   const agentId = await findAgentId(dir, toolUseId)
   if (!agentId) return null

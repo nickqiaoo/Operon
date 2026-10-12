@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type * as acp from '@zed-industries/agent-client-protocol'
-import { getRuntimeHost } from '../../host.js'
-import { buildRuntimeEnv } from '../../runtime-env.js'
+import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
-import { FILE_REFERENCE_PROMPT, MEMORY_RESOLVER_PROMPT } from '../../memory-resolver-prompt.js'
 import type {
   DynamicSetApplied,
   DynamicSetPayload,
@@ -114,7 +112,7 @@ export class AcpRuntimeSession implements RuntimeSession {
   private initPromise: Promise<void> | null = null
   private activeQueue: AsyncQueue<RuntimeStreamPart> | null = null
   private activeMapper: AcpEventMapper | null = null
-  private didPrependResolver = false
+  private didPrependInstructions = false
   private readonly pendingDecisions = new Map<string, PendingDecision>()
   /** Advertised context window per model id, read off the initialize handshake. */
   private contextWindows = new Map<string, number>()
@@ -124,10 +122,11 @@ export class AcpRuntimeSession implements RuntimeSession {
   constructor(
     params: RuntimeSessionParams,
     private readonly config: AcpProviderConfig,
+    private readonly ctx: RuntimeContext,
   ) {
     this.logger = createRuntimeLogger(`${config.providerId}-runtime`)
     this.cwd = params.cwd
-    const env = buildRuntimeEnv(params.env)
+    const env = ctx.env(params.env)
     this.env = config.patchEnv ? config.patchEnv(env) : env
     this.mcpServers = toAcpMcpServers(params.mcpServers)
     this.currentModelId = params.modelId ?? config.defaultModelId
@@ -176,12 +175,9 @@ export class AcpRuntimeSession implements RuntimeSession {
     // would silently drop the persona whenever an agent's `session/load`
     // restores visible turns but not the preamble — and would also pin the chat
     // to the persona it was created with, ignoring later edits.
-    if (!this.didPrependResolver) {
-      const preamble = [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, this.instructions]
-        .filter((s): s is string => !!s && s.trim().length > 0)
-        .join('\n\n')
-      conversion.prompt = prependTextToPrompt(conversion.prompt, preamble)
-      this.didPrependResolver = true
+    if (!this.didPrependInstructions) {
+      if (this.instructions) conversion.prompt = prependTextToPrompt(conversion.prompt, this.instructions)
+      this.didPrependInstructions = true
     }
 
     const queue = new AsyncQueue<RuntimeStreamPart>()
@@ -244,7 +240,7 @@ export class AcpRuntimeSession implements RuntimeSession {
   }
 
   private async connect(): Promise<void> {
-    const cliPath = getRuntimeHost().resolveCliPath(this.config.cliId) ?? this.config.fallbackCommand
+    const cliPath = this.ctx.resolveBinary(this.config.cliId) ?? this.config.fallbackCommand
     if (!cliPath) {
       throw new Error(`${this.config.label} CLI not configured`)
     }

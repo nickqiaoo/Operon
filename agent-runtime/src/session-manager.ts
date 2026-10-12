@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import type { Runtime } from './runtime.js'
 import type {
   ActiveRequest,
   DynamicSetApplied,
@@ -12,11 +13,6 @@ import type {
   SessionDisposeReason,
   SessionRecord,
 } from './types.js'
-
-interface ProviderEntry {
-  create: () => RuntimeProviderFactory
-  info: ProviderInfo
-}
 
 /**
  * The settings an ordinary conversation actually changes, and the only ones a live
@@ -93,35 +89,27 @@ const buildStructuralKey = (params: RuntimeSessionParams): string =>
 
 export class SessionManager {
   private sessions = new Map<number, SessionRecord>()
-  private providers = new Map<string, ProviderEntry>()
   private externalPermissionResolver:
     | ((chatId: number, approvalId: string, decision: PermissionDecision) => boolean)
     | null = null
   private backgroundHandler: ((chatId: number, event: RuntimeBackgroundEvent) => void) | null = null
 
-  register(providerId: string, create: () => RuntimeProviderFactory, info: ProviderInfo): void {
-    this.providers.set(providerId, { create, info })
-  }
+  constructor(readonly runtime: Runtime) {}
 
   createProvider(providerId: string): RuntimeProviderFactory {
-    const entry = this.providers.get(providerId)
-    if (!entry) {
-      throw new Error(`No runtime provider registered for: ${providerId}`)
-    }
-    return entry.create()
+    return this.runtime.provider(providerId)
   }
 
   async createStandaloneSession(providerId: string, params: RuntimeSessionParams): Promise<RuntimeSession> {
-    const provider = this.createProvider(providerId)
-    return provider.createSession(params)
+    return this.runtime.createSession(providerId, params)
   }
 
   listProviders(): ProviderInfo[] {
-    return Array.from(this.providers.values()).map((entry) => entry.info)
+    return this.runtime.providers()
   }
 
   hasProvider(providerId: string): boolean {
-    return this.providers.has(providerId)
+    return this.runtime.has(providerId)
   }
 
   /**
@@ -184,8 +172,7 @@ export class SessionManager {
       await this.destroy(chatId, 'rebuild')
     }
 
-    const provider = this.createProvider(providerId)
-    const runtime = await provider.createSession(params)
+    const runtime = await this.runtime.createSession(providerId, params)
     const record: SessionRecord = {
       chatId,
       providerId,

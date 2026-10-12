@@ -6,6 +6,9 @@ import { buildThinkingLevelsFromModelInfo, mapModelInfoToDescriptor } from './mo
 import { buildConfigOverrides } from './sdk/converters/settings-merger.js'
 import type { ModelInfo } from './sdk/protocol/messages.js'
 import { CodexRuntimeSession, disabledMcpConfig } from './session.js'
+import { createRuntimeContext } from '../../context.js'
+
+const ctx = createRuntimeContext()
 
 const createModelInfo = (
   overrides: Partial<ModelInfo> = {},
@@ -136,7 +139,7 @@ describe('Codex MCP status', () => {
           url: 'http://127.0.0.1:3000/mcp',
         },
       },
-    })
+    }, ctx)
     const request = vi.fn(async (method: string, params?: unknown) => {
       expect(method).toBe('mcpServerStatus/list')
       const cursor = (params as { cursor?: string | null } | undefined)?.cursor
@@ -193,7 +196,7 @@ describe('Codex MCP status', () => {
   })
 
   it('keeps Codex MCP controls read-only', async () => {
-    const session = new CodexRuntimeSession({ cwd: '/tmp' })
+    const session = new CodexRuntimeSession({ cwd: '/tmp' }, ctx)
 
     await expect(session.agentControl('mcp.reconnect', { name: 'browser' })).rejects.toThrow(
       'Unsupported Codex session control method: mcp.reconnect',

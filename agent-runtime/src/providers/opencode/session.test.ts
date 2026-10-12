@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { McpStatus } from '@opencode-ai/sdk/v2'
 import { OpencodeRuntimeSession } from './session.js'
+import { createRuntimeContext } from '../../context.js'
+
+const ctx = createRuntimeContext()
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -21,7 +24,7 @@ describe('OpenCode MCP session control', () => {
         remote: { type: 'http', url: 'https://example.com/mcp' },
         events: { type: 'sse', url: 'https://example.com/events' },
       },
-    })
+    }, ctx)
     const status = vi.fn(async () => ({
       data: {
         local: { status: 'connected' },
@@ -65,7 +68,7 @@ describe('OpenCode MCP session control', () => {
   })
 
   it('maps toggle and reconnect to disconnect and connect', async () => {
-    const session = new OpencodeRuntimeSession({ cwd: '/workspace' })
+    const session = new OpencodeRuntimeSession({ cwd: '/workspace' }, ctx)
     let currentStatus: McpStatus = { status: 'connected' }
     const status = vi.fn(async () => ({
       data: { browser: currentStatus },
@@ -107,7 +110,7 @@ describe('OpenCode MCP session control', () => {
     const session = new OpencodeRuntimeSession({
       cwd: '/workspace',
       sessionId: 'session-1',
-    })
+    }, ctx)
     const connection = deferred<void>()
     let currentStatus: McpStatus = { status: 'disabled' }
     const status = vi.fn(async () => ({
@@ -165,7 +168,7 @@ describe('OpenCode side chat', () => {
     const session = new OpencodeRuntimeSession({
       cwd: '/workspace',
       forkFrom: { sessionId: 'parent-1', ephemeral: true },
-    })
+    }, ctx)
     const mocks = mockForkableClient()
     Object.assign(session, { clientManager: mocks.clientManager })
 
@@ -185,7 +188,7 @@ describe('OpenCode side chat', () => {
     const session = new OpencodeRuntimeSession({
       cwd: '/workspace',
       forkFrom: { sessionId: 'parent-1', ephemeral: true },
-    })
+    }, ctx)
     const mocks = mockForkableClient()
     Object.assign(session, { clientManager: mocks.clientManager })
 
@@ -204,7 +207,7 @@ describe('OpenCode side chat', () => {
   })
 
   it('creates an ordinary session and never deletes it', async () => {
-    const session = new OpencodeRuntimeSession({ cwd: '/workspace' })
+    const session = new OpencodeRuntimeSession({ cwd: '/workspace' }, ctx)
     const mocks = mockForkableClient()
     Object.assign(session, { clientManager: mocks.clientManager })
 

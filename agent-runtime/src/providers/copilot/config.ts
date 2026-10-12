@@ -1,5 +1,5 @@
 import type { ModelMessage } from 'ai'
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 import type { ProviderDescriptor } from '../../types.js'
 
 /** Explicit process-level override, highest priority. Mainly for development. */
@@ -20,8 +20,8 @@ export const COPILOT_CLI_PATH = process.env.COPILOT_CLI_PATH || undefined
  * its `conn.path ?? env.COPILOT_CLI_PATH ?? getBundledCliPath()` chain would
  * short-circuit straight into that bundled lookup.
  */
-export function resolveCopilotCliPath(): string {
-  const cliPath = COPILOT_CLI_PATH ?? getRuntimeHost().resolveCliPath('copilot')
+export function resolveCopilotCliPath(ctx: RuntimeContext): string {
+  const cliPath = COPILOT_CLI_PATH ?? ctx.resolveBinary('copilot')
   if (!cliPath) {
     throw new Error(
       'GitHub Copilot CLI not found. Install it (`brew install copilot-cli` or `npm i -g @github/copilot`), or set the path in Settings.',
@@ -69,9 +69,10 @@ const STRIP_ELECTRON_VERSION_NODE_OPTION =
  * the delete is a no-op).
  */
 export function copilotRuntimeEnv(
+  ctx: RuntimeContext,
   extra?: Record<string, string | undefined>,
 ): Record<string, string | undefined> {
-  const merged: Record<string, string | undefined> = { ...process.env, ...extra }
+  const merged: Record<string, string | undefined> = ctx.env(extra)
   if (!process.versions.electron) return merged
   // Append our flag so any NODE_OPTIONS the caller/host already set is preserved.
   const nodeOptions = [merged.NODE_OPTIONS, STRIP_ELECTRON_VERSION_NODE_OPTION]

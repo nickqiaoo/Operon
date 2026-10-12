@@ -12,7 +12,6 @@ import { createNodeAnalytics } from './analytics'
 import { startServer } from '../server/src/start.js'
 import { getApiToken, isApiTokenAuthDisabled } from '../server/src/services/api-token.js'
 import { approveRemotePairing, getPairingApprovalNonce } from '../server/src/services/remote-e2ee.js'
-import { disposeOpencodeServer } from '@operon/agent-runtime'
 import { cleanupAllTerminals } from '../server/src/services/terminal.js'
 import { shutdownOperonTracing } from '../server/src/services/operon-runtime/tracing.js'
 import { shutdownTelemetry } from '../server/src/services/analytics/telemetry.js'
@@ -21,7 +20,7 @@ import { stopComputerUseEngine } from '../server/src/services/computer-use-lifec
 import { ensureComputerUseService } from '../server/src/routes/node-repl-mcp.js'
 import { registerComputerUsePermissions } from './computer-use-permissions.js'
 import { isUserAtDesktop, setDesktopPresenceProbe } from '../server/src/services/desktop-presence.js'
-import { disposeClaudeUsageProbe, disposeCodexUsageProbe } from '@operon/agent-runtime'
+import { disposeRuntime } from '../server/src/services/ai/state.js'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
 import { registerBrowserUseIpc, startIabBackend, stopIabBackend } from './browser-use-driver.js'
 import { runChromeNativeHost } from '../packages/browser-use/chrome-native-host-main.ts'
@@ -555,14 +554,11 @@ const cleanupAll = () => {
   // The IAB backend's socket file does not vanish on exit; leaving it behind makes
   // clients discover a dead backend they can't connect to.
   void stopIabBackend()
-  // The Claude quota probe holds an idle CLI process.
-  void disposeClaudeUsageProbe()
-  // The Codex probe only holds a connection when no conversation had one open,
-  // but that connection owns an app-server process just the same.
-  disposeCodexUsageProbe()
-  // The OpenCode server we started is a child that would otherwise outlive us
-  // as a leaked process (the next launch starts its own and reaps this one).
-  void disposeOpencodeServer()
+  // The agent runtime's shared processes: the Claude quota probe's idle CLI, the
+  // Codex probe's app-server (when no conversation had one open), and the
+  // OpenCode server we started, which would otherwise outlive us as a leaked
+  // process (the next launch starts its own and reaps this one).
+  void disposeRuntime()
   // Push the last buffered spans to the local collector before the process goes.
   void shutdownOperonTracing()
   // Drain the framework telemetry appender into the PostHog client before that client goes.

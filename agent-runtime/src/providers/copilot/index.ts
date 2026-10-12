@@ -1,3 +1,6 @@
+import { defineProvider } from '../../runtime.js'
+import type { CopilotAgentMode, CopilotReasoningEffort } from './config.js'
+import type { RuntimeContext } from '../../context.js'
 import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
 import type {
   EffortLevel,
@@ -134,16 +137,16 @@ async function discoverSlashCommands(client: CopilotClient): Promise<SlashComman
   return getCopilotSlashCommands(state)
 }
 
-async function doFetchModels(): Promise<void> {
+async function doFetchModels(ctx: RuntimeContext): Promise<void> {
   // copilotRuntimeEnv() sets ELECTRON_RUN_AS_NODE so a `.js` runtime runs as
   // plain Node instead of a full Electron app (see config.ts) — without it,
   // start()/listModels stall inside the Electron main process.
   const client = new CopilotClient({
     workingDirectory: process.cwd(),
-    env: copilotRuntimeEnv(),
+    env: copilotRuntimeEnv(ctx),
     // Unconditional — see resolveCopilotCliPath(); an omitted `connection` would
     // send the SDK looking for a bundled runtime this build does not ship.
-    connection: RuntimeConnection.forStdio({ path: resolveCopilotCliPath() }),
+    connection: RuntimeConnection.forStdio({ path: resolveCopilotCliPath(ctx) }),
   })
   try {
     await withTimeout(client.start(), MODEL_PROBE_TIMEOUT_MS, 'copilot start()')
@@ -175,6 +178,9 @@ export class CopilotRuntimeProvider implements RuntimeProviderFactory {
   }
 
   readonly providerInfo = CopilotRuntimeProvider.providerInfo
+
+  constructor(private readonly ctx: RuntimeContext) {}
+
   private currentModelId = COPILOT_DEFAULT_MODEL
   private currentModeId = COPILOT_DEFAULT_MODE
   // Undefined = use the model's own default reasoning effort (and omit it for
@@ -192,7 +198,7 @@ export class CopilotRuntimeProvider implements RuntimeProviderFactory {
    */
   async fetchInitInfo(): Promise<void> {
     if (sharedModels || sharedFetchPromise) return
-    sharedFetchPromise = doFetchModels()
+    sharedFetchPromise = doFetchModels(this.ctx)
       .catch((err) => {
         logger.warn(`listModels failed: ${err instanceof Error ? err.message : String(err)}`)
       })
@@ -236,6 +242,14 @@ export class CopilotRuntimeProvider implements RuntimeProviderFactory {
     // Resolve the model's accepted effort levels now (cache is loaded by the time
     // the picker has been shown) so the session can gate `reasoningEffort`.
     const supportedEffortLevels = effortLevelsForModel(params.modelId ?? this.currentModelId)
-    return new CopilotRuntimeSession(params, supportedEffortLevels)
+    return new CopilotRuntimeSession(params, this.ctx, supportedEffortLevels)
   }
 }
+
+/** GitHub Copilot, driven through `@github/copilot-sdk`. */
+export const copilot = () =>
+  defineProvider<'copilot', { mode: CopilotAgentMode; effort: CopilotReasoningEffort }>({
+    id: 'copilot',
+    info: CopilotRuntimeProvider.providerInfo,
+    create: (ctx) => new CopilotRuntimeProvider(ctx),
+  })

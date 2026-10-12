@@ -11,7 +11,7 @@
  * nothing is connected.
  */
 
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import {
   acquireAppServerClient,
@@ -23,33 +23,44 @@ import type { AccountRateLimitsReadResult } from './sdk/protocol/index.js'
 const logger = createRuntimeLogger('codex-usage')
 
 /**
- * Held for the lifetime of the app once taken, rather than acquired and
- * released per read: releasing the last lease disposes the server, so a
- * per-read lease would spawn and kill a process on every poll.
+ * The probe's own connection, held per runtime for as long as the runtime lives
+ * once taken, rather than acquired and released per read: releasing the last
+ * lease disposes the server, so a per-read lease would spawn and kill a process
+ * on every poll. Disposed with the runtime (`RuntimeContext.disposeShared`).
  */
-let probeLease: AppServerLease | null = null
+class CodexUsageProbe {
+  private lease: AppServerLease | null = null
 
-/**
- * Reuse whatever a conversation already has open; fall back to a connection of
- * our own. The env is deliberately left empty — it takes part in the registry's
- * connection key, and a probe that guessed at one would key to its own entry
- * and start a second server beside the one already running.
- */
-function resolveClient(): ReturnType<typeof peekAnyAppServerClient> {
-  const shared = peekAnyAppServerClient()
-  if (shared) return shared
+  constructor(private readonly ctx: RuntimeContext) {}
 
-  if (!probeLease) {
-    const codexPath = getRuntimeHost().resolveCliPath('codex')
-    if (!codexPath) {
-      logger.info('Codex CLI not available, skipping usage probe')
-      return undefined
+  /**
+   * Reuse whatever a conversation already has open; fall back to a connection of
+   * our own. The env is deliberately left empty — it takes part in the registry's
+   * connection key, and a probe that guessed at one would key to its own entry
+   * and start a second server beside the one already running.
+   */
+  client(): ReturnType<typeof peekAnyAppServerClient> {
+    const shared = peekAnyAppServerClient()
+    if (shared) return shared
+
+    if (!this.lease) {
+      const codexPath = this.ctx.resolveBinary('codex')
+      if (!codexPath) {
+        logger.info('Codex CLI not available, skipping usage probe')
+        return undefined
+      }
+      this.lease = acquireAppServerClient({ codexPath })
+      logger.info('Usage probe connection opened')
     }
-    probeLease = acquireAppServerClient({ codexPath })
-    logger.info('Usage probe connection opened')
+
+    return this.lease.client
   }
 
-  return probeLease.client
+  dispose(): void {
+    const lease = this.lease
+    this.lease = null
+    lease?.release()
+  }
 }
 
 /**
@@ -62,9 +73,10 @@ function resolveClient(): ReturnType<typeof peekAnyAppServerClient> {
  * same number is the one answer the press cannot mean.
  */
 export async function getCodexAccountUsage(
+  ctx: RuntimeContext,
   maxAgeMs?: number,
 ): Promise<AccountRateLimitsReadResult | null> {
-  const client = resolveClient()
+  const client = ctx.shared('codex:usage-probe', () => new CodexUsageProbe(ctx)).client()
   if (!client) return null
 
   try {
@@ -73,11 +85,4 @@ export async function getCodexAccountUsage(
     logger.info(`usage read failed: ${error instanceof Error ? error.message : String(error)}`)
     return null
   }
-}
-
-/** Release the probe's own connection, if it ever took one (app shutdown). */
-export function disposeCodexUsageProbe(): void {
-  const lease = probeLease
-  probeLease = null
-  lease?.release()
 }

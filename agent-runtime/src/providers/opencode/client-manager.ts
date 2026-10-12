@@ -3,9 +3,10 @@ import { createTimeoutError, extractErrorMessage } from './errors.js'
 import { getLogger } from './logger.js'
 import { forgetServer, pidListeningOn, reapOrphanedServers, recordServer } from './server-pidfile.js'
 import type { OpencodeLogger } from './types.js'
+import type { RuntimeContext } from '../../context.js'
+import { startOpencodeServer, type OpencodeServer } from './server.js'
 
 type OpencodeClient = Awaited<ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>>
-type OpencodeServer = Awaited<ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeServer>>
 
 export interface ClientManagerOptions {
   hostname?: string
@@ -20,7 +21,6 @@ export interface ClientManagerOptions {
 }
 
 export class OpencodeClientManager {
-  private static instance: OpencodeClientManager | null = null
   private client: OpencodeClient | null = null
   private server: OpencodeServer | null = null
   private serverPid: number | undefined
@@ -30,7 +30,10 @@ export class OpencodeClientManager {
   private options: Required<Pick<ClientManagerOptions, 'hostname' | 'port' | 'autoStartServer' | 'serverTimeout'>> &
     Omit<ClientManagerOptions, 'hostname' | 'port' | 'autoStartServer' | 'serverTimeout'>
 
-  private constructor(options: ClientManagerOptions) {
+  private constructor(
+    private readonly ctx: RuntimeContext,
+    options: ClientManagerOptions,
+  ) {
     this.options = {
       hostname: options.hostname ?? '127.0.0.1',
       port: options.port ?? 0,
@@ -43,11 +46,13 @@ export class OpencodeClientManager {
     this.logger = getLogger(options.logger)
   }
 
-  static getInstance(options?: ClientManagerOptions): OpencodeClientManager {
-    if (!OpencodeClientManager.instance) {
-      OpencodeClientManager.instance = new OpencodeClientManager(options ?? {})
-    }
-    return OpencodeClientManager.instance
+  /**
+   * The runtime's one manager — one OpenCode server serves every session of a
+   * runtime. The first caller's options win, as they always have; it is disposed
+   * with the runtime (`RuntimeContext.disposeShared`).
+   */
+  static getInstance(ctx: RuntimeContext, options?: ClientManagerOptions): OpencodeClientManager {
+    return ctx.shared('opencode:client-manager', () => new OpencodeClientManager(ctx, options ?? {}))
   }
 
   async getClient(): Promise<OpencodeClient> {
@@ -94,7 +99,7 @@ export class OpencodeClientManager {
   }
 
   private async initializeClient(): Promise<OpencodeClient> {
-    const { createOpencodeClient, createOpencodeServer } = await import('@opencode-ai/sdk/v2')
+    const { createOpencodeClient } = await import('@opencode-ai/sdk/v2')
 
     if (this.options.baseUrl) {
       return createOpencodeClient({
@@ -117,7 +122,9 @@ export class OpencodeClientManager {
     reapOrphanedServers(this.logger)
 
     try {
-      this.server = await createOpencodeServer({
+      this.server = await startOpencodeServer({
+        binary: this.ctx.resolveBinary('opencode') ?? 'opencode',
+        env: this.ctx.env(),
         hostname: this.options.hostname,
         port: this.options.port,
         timeout: this.options.serverTimeout,

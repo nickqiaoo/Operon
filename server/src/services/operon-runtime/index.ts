@@ -4,6 +4,7 @@ import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprov
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
 import { fetchProviderModels, getProviderConfigs, PROVIDER_META } from '../provider-config.js'
+import { defineProvider } from '@operon/agent-runtime'
 import type {
   Model,
   ProviderDescriptor,
@@ -527,3 +528,11 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
     return session
   }
 }
+
+/** Operon's own in-process agent, registered next to the external CLIs under the id `custom`. */
+export const operonAgent = () =>
+  defineProvider({
+    id: 'custom',
+    info: OperonRuntimeProvider.providerInfo,
+    create: () => new OperonRuntimeProvider(),
+  })

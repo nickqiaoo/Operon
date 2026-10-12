@@ -1,13 +1,9 @@
+import type { AnyProviderDefinition } from '@operon/agent-runtime'
+
 /**
- * Memory Rules — injected into every runtime provider's system prompt.
- * See the memory engine for the resolution rules.
- *
- * Wired in via:
- *   - claude/config.ts      → buildMemoryAppend()
- *   - opencode/session.ts   → buildMemoryPrompt()
- *   - codex/config.ts       → buildDeveloperInstructions()
- *   - kimi/*                → systemPrompt assembly
- *   - providers/custom.ts   → memoryParts
+ * Operon's standing rules for the external agents: memory use and file
+ * citations. They ride on the session's `instructions` — see
+ * `withAgentPrompts` below, applied once where the providers are registered.
  *
  * No file IO at runtime. Update this file + rebuild to change the rules.
  */
@@ -99,3 +95,28 @@ A genuine **change** to a durable fact or preference is the opposite of noise �
 8. **A change to something that already has — or should have — a page goes in THAT page's timeline; do not mint a new page for the change.** A channel renamed, an issue's status changed, a person switched jobs, the user's preference shifted → merge into the entity / \`user\` page and record the transition (what it was → what it is now → when → why). The truth holds the *current* state; the timeline holds the *history of how it got there* — keep both, never silently overwrite history. Reserve \`events\` for dated happenings with no home entity (a launch, an outage).
 9. **Truth format: structured markdown, not a wall of text.** Truth is a *summary of what is true now*, read by humans and re-read by future sessions — write it as short markdown: a one-line opening statement, then \`-\` bullets grouped under bold labels when there are multiple facets. One fact per bullet. Keep the whole truth under ~150 words; details, histories, and one-off findings belong in timeline entries, not the truth. When merging, rewrite and CONDENSE — never concatenate the new fact onto the old text.
 `
+
+/**
+ * Every session of `definition` gets the standing rules ahead of its own
+ * instructions. Applied at registration so no path that opens a session —
+ * chat, workflow, assistant, channel — can forget them. The runtime passes
+ * `instructions` to each agent's native channel (Claude's system-prompt
+ * append, Codex developer instructions, an ACP preamble, …).
+ */
+export function withAgentPrompts<D extends AnyProviderDefinition>(definition: D): D {
+  return {
+    ...definition,
+    create(ctx) {
+      const provider = definition.create(ctx)
+      const createSession = provider.createSession.bind(provider)
+      provider.createSession = (params) =>
+        createSession({
+          ...params,
+          instructions: [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, params.instructions?.trim()]
+            .filter(Boolean)
+            .join('\n\n'),
+        })
+      return provider
+    },
+  }
+}

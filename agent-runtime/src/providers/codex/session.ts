@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { getRuntimeHost } from '../../host.js'
+import type { RuntimeContext } from '../../context.js'
 import type {
   DynamicSetApplied,
   DynamicSetPayload,
@@ -15,7 +15,6 @@ import type {
 import { UserFacingRuntimeError, RuntimeInjectionUnavailableError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
-import { buildRuntimeEnv } from '../../runtime-env.js'
 import { acquireAppServerClient } from './sdk/client-registry.js'
 import {
   buildDeveloperInstructions,
@@ -202,12 +201,12 @@ export class CodexRuntimeSession implements RuntimeSession {
   /** Latest known thread goal, mirrored from goal RPC responses + notifications. */
   private currentGoal: CodexGoal | null = null
 
-  constructor(params: RuntimeSessionParams) {
+  constructor(params: RuntimeSessionParams, private readonly ctx: RuntimeContext) {
     this.currentModelId = params.modelId ?? DEFAULT_CODEX_MODEL_ID
     this.currentModeId = resolveCodexModeId(params.modeId)
     if (params.thinkingLevel) this.currentThinkingLevel = params.thinkingLevel
     this.cwd = params.cwd
-    this.env = withLocalMcpNoProxy(buildRuntimeEnv(params.env))
+    this.env = withLocalMcpNoProxy(ctx.env(params.env))
     this.currentServiceTier = params.serviceTier
     this.threadId = params.sessionId
     this.codexMcpServers = toCodexMcpServers(params.mcpServers)
@@ -223,7 +222,7 @@ export class CodexRuntimeSession implements RuntimeSession {
   private buildSettings(): CodexAppServerSettings {
     const memoryInstructions = this.buildMemoryInstructions()
     const codexMcp = this.codexMcpServers
-    const codexPath = getRuntimeHost().resolveCliPath('codex')
+    const codexPath = this.ctx.resolveBinary('codex')
     if (!codexPath) {
       throw new Error('Codex CLI not configured')
     }
@@ -1281,7 +1280,7 @@ export class CodexRuntimeSession implements RuntimeSession {
   }
 }
 
-export async function refreshCodexModels(modelState: CodexModelState): Promise<void> {
+export async function refreshCodexModels(ctx: RuntimeContext, modelState: CodexModelState): Promise<void> {
   const logger = createRuntimeLogger('codex-runtime')
   if (modelState.refreshInFlight) {
     await modelState.refreshInFlight
@@ -1292,11 +1291,11 @@ export async function refreshCodexModels(modelState: CodexModelState): Promise<v
   const refresh = (async () => {
     let loaded = false
     try {
-      const codexPath = getRuntimeHost().resolveCliPath('codex')
+      const codexPath = ctx.resolveBinary('codex')
       if (!codexPath) return
       const { models, defaultModel } = await listModels({
         codexPath,
-        env: buildRuntimeEnv(),
+        env: ctx.env(),
       })
       const normalized = models.map(mapModelInfoToDescriptor)
       // No static fallback table — only the live list (or empty if discovery fails).

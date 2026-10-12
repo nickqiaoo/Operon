@@ -9,13 +9,13 @@
 //   background agent that finished). Run as a detached turn — streamed to any
 //   open tab and persisted — and announced like a reply the user asked for.
 
-import { readClaudeSubagentTranscript, type RuntimeBackgroundEvent, type RuntimeStreamPart } from '@operon/agent-runtime'
+import type { RuntimeBackgroundEvent, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { SubagentTranscript } from '../../../../shared/background-tasks.js'
 import { notify } from '../notification-service.js'
 import { setChatBackgroundTasks } from './chat-background-tasks.js'
 import { observePendingInputPart } from './chat-pending-input.js'
 import { replySnippet, runDetachedTurn } from './detached-turn.js'
-import { getChatHistoryService, getNotificationStorage, getSessionManager } from './state.js'
+import { getChatHistoryService, getNotificationStorage, getRuntime, getSessionManager } from './state.js'
 
 export function handleRuntimeBackgroundEvent(chatId: number, event: RuntimeBackgroundEvent): void {
   if (event.type === 'tasks') {
@@ -78,5 +78,5 @@ export async function getSubagentTranscript(chatId: number, toolUseId: string): 
     getSessionManager().get(chatId)?.runtime.getSessionId?.() ??
     getChatHistoryService()?.getChatMeta(chatId)?.sessionId
   if (!sessionId) return null
-  return readClaudeSubagentTranscript(sessionId, toolUseId)
+  return getRuntime().native('claude-code').subagentTranscript(sessionId, toolUseId)
 }

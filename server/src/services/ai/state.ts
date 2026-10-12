@@ -1,7 +1,10 @@
 import process from 'node:process'
 import {
-  createSessionManager,
-  type SessionManager,
+  builtinProviders,
+  createRuntime,
+  fakeAgent,
+  SessionManager,
+  type Runtime,
 } from '@operon/agent-runtime'
 import { ChatHistoryService } from '../chat-history.js'
 import { startNotificationPruning } from '../notification-service.js'
@@ -9,7 +12,8 @@ import { appRuntimeHost } from './app-runtime-host.js'
 import { resolveHostApproval } from './host-approval-broker.js'
 import { resolveDetachedApproval } from '../agents/detached-approvals.js'
 import { handleRuntimeBackgroundEvent } from './background-events.js'
-import { OperonRuntimeProvider } from '../operon-runtime/index.js'
+import { operonAgent } from '../operon-runtime/index.js'
+import { withAgentPrompts } from './agent-prompts.js'
 import type { ChatStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
 
 // Global guard: prevent unhandled spawn ENOENT / EPIPE errors from crashing the process.
@@ -31,6 +35,20 @@ process.on('uncaughtException', (err: Error & { code?: string; syscall?: string 
 // on the ESM circular import between runtime-provider/* and services/ai/*.
 // Otherwise some provider imports land in the TDZ when this module is loaded
 // transitively from inside one of those providers (e.g. via custom-provider).
+/**
+ * The app's agent providers: the external CLIs (with Operon's standing
+ * prompts), the scripted fake agent when the test server asks for it, and
+ * Operon's own agent.
+ */
+const appProviders = () => [
+  ...builtinProviders().map(withAgentPrompts),
+  ...(process.env.OPERON_ENABLE_FAKE_RUNTIME === '1' ? [fakeAgent()] : []),
+  operonAgent(),
+]
+
+export type AppRuntime = Runtime<ReturnType<typeof appProviders>>
+
+let runtime: AppRuntime | null = null
 let sessionManager: SessionManager | null = null
 let chatStorage: ChatStorageAdapter | null = null
 let chatHistoryService: ChatHistoryService | null = null
@@ -40,9 +58,20 @@ const _agentFinishListeners: Array<(chatId: number) => void> = []
 
 // ---- Accessors ----
 
+/** The app's one agent runtime. */
+export function getRuntime(): AppRuntime {
+  runtime ??= createRuntime({ providers: appProviders(), host: appRuntimeHost })
+  return runtime
+}
+
+/** Stop the runtime's shared processes: usage probes, the OpenCode server (app shutdown). */
+export async function disposeRuntime(): Promise<void> {
+  await runtime?.dispose()
+}
+
 export function getSessionManager(): SessionManager {
   if (!sessionManager) {
-    sessionManager = createSessionManager(appRuntimeHost, [OperonRuntimeProvider])
+    sessionManager = new SessionManager(getRuntime())
     // Two kinds of approval originate outside a chat session's own stream, and
     // both answer through the same `POST /permission-response`: host elicitations
     // (Browser/Computer Use, asked from inside node_repl) and detached sub-agent

@@ -22,13 +22,13 @@ const CLI_RESOLVERS: Record<string, () => string | undefined> = {
 }
 
 /**
- * The XUI/Operon host implementation for runtime providers: resolves the bundled
- * agent CLIs and supplies login-shell + user-configured env. Injected once via
- * `createSessionManager(appRuntimeHost)` so providers never import app packaging
- * modules directly.
+ * Operon's host for the agent runtime: resolves the agent CLIs (bundled or
+ * configured in Settings) and supplies the login-shell env plus the variables
+ * the user set in the app. Handed to `createRuntime` in state.ts, so providers
+ * never import app packaging modules directly.
  */
 export const appRuntimeHost: RuntimeHost = {
-  resolveCliPath: (cliId) => CLI_RESOLVERS[cliId]?.(),
-  getShellEnv,
-  getUserEnv: getEnvVars,
+  resolveBinary: (cliId) => CLI_RESOLVERS[cliId]?.(),
+  shellEnv: getShellEnv,
+  env: getEnvVars,
 }

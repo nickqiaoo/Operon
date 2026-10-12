@@ -1,5 +1,4 @@
-import { getRuntimeHost } from '../../host.js'
-import { MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT } from '../../memory-resolver-prompt.js'
+import type { RuntimeContext } from '../../context.js'
 import type {
   DynamicSetApplied,
   DynamicSetPayload,
@@ -38,7 +37,6 @@ import type {
 } from './types.js'
 import { isRuntimeVerbose } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
-import { applyRuntimeEnv } from '../../runtime-env.js'
 import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
 import type { McpStatus } from '@opencode-ai/sdk/v2'
 
@@ -90,16 +88,6 @@ function mapMcpStatus(status: McpStatus): {
   }
 }
 
-function ensureOpencodeInPath(): void {
-  const opencodePath = getRuntimeHost().resolveCliPath('opencode')
-  if (!opencodePath) return
-  const separatorIndex = opencodePath.lastIndexOf('/')
-  const directory = separatorIndex >= 0 ? opencodePath.slice(0, separatorIndex) : ''
-  if (directory && !process.env.PATH?.includes(directory)) {
-    process.env.PATH = `${directory}:${process.env.PATH ?? ''}`
-  }
-}
-
 function parseModelId(modelId: string): ParsedModelId {
   const trimmed = modelId.trim()
   if (!trimmed) {
@@ -116,9 +104,9 @@ function parseModelId(modelId: string): ParsedModelId {
   }
 }
 
-/** Memory prompts plus the host's session instructions (persona / collab rules). */
+/** The host's session instructions (persona / collab rules). */
 function buildSystemPrompt(instructions?: string): string {
-  return [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, instructions?.trim()].filter(Boolean).join('\n\n')
+  return instructions?.trim() ?? ''
 }
 
 async function registerMcpServers(
@@ -199,8 +187,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
    */
   private boundaryPending: boolean
 
-  constructor(params: RuntimeSessionParams) {
-    ensureOpencodeInPath()
+  constructor(params: RuntimeSessionParams, ctx: RuntimeContext) {
     this.cwd = params.cwd
     this.currentModelId = params.modelId ?? 'opencode/big-pickle'
     this.currentModeId = params.modeId ?? 'build'
@@ -226,7 +213,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
         Grep: true,
       },
     }
-    this.clientManager = OpencodeClientManager.getInstance({
+    this.clientManager = OpencodeClientManager.getInstance(ctx, {
       autoStartServer: true,
       cwd: this.cwd,
     })
@@ -234,7 +221,6 @@ export class OpencodeRuntimeSession implements RuntimeSession {
   }
 
   async *stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart> {
-    applyRuntimeEnv(this.settings.env)
     await this.mcpReadyPromise
 
     if (isCompactCommand(params.messages)) {
@@ -839,9 +825,8 @@ export class OpencodeRuntimeSession implements RuntimeSession {
   }
 }
 
-export async function listOpencodeDescriptorModels(cwd: string, currentModelId: string): Promise<{ models: Array<{ id: string; name: string; description?: string }>; currentModelId: string }> {
-  ensureOpencodeInPath()
-  const clientManager = OpencodeClientManager.getInstance({
+export async function listOpencodeDescriptorModels(ctx: RuntimeContext, cwd: string, currentModelId: string): Promise<{ models: Array<{ id: string; name: string; description?: string }>; currentModelId: string }> {
+  const clientManager = OpencodeClientManager.getInstance(ctx, {
     autoStartServer: true,
     cwd,
   })

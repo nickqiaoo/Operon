@@ -32,6 +32,7 @@ import type {
 import { RuntimeInjectionUnavailableError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { buildClaudeRuntimeSettings } from './config.js'
+import type { RuntimeContext } from '../../context.js'
 import { convertToClaudeMessages } from './message-mapper.js'
 import { ClaudeTextStreamBuilder } from './text-stream-builder.js'
 import { applyClaudeUsagePush, peekClaudeAccountUsage } from './usage-probe.js'
@@ -200,8 +201,8 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // user message carries the boundary marker — see `stream()`.
   private boundaryPending: boolean
 
-  constructor(params: RuntimeSessionParams) {
-    this.settings = buildClaudeRuntimeSettings(params)
+  constructor(params: RuntimeSessionParams, private readonly ctx: RuntimeContext) {
+    this.settings = buildClaudeRuntimeSettings(params, ctx)
     this.currentModelId = this.settings.modelId
     this.currentModeId = this.settings.permissionMode
     this.currentThinkingLevel = this.settings.thinkingLevel
@@ -550,8 +551,8 @@ export class ClaudeRuntimeSession implements RuntimeSession {
    * stream to put it on.
    */
   private handleRateLimitEvent(message: SDKRateLimitEvent): void {
-    if (!applyClaudeUsagePush(message.rate_limit_info)) return
-    const usage = peekClaudeAccountUsage()
+    if (!applyClaudeUsagePush(this.ctx, message.rate_limit_info)) return
+    const usage = peekClaudeAccountUsage(this.ctx)
     if (usage) this.turn?.builder.emitRateLimits(usage)
   }
 

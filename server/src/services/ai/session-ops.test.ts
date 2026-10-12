@@ -21,11 +21,9 @@ vi.mock('./state.js', () => ({
   getSessionManager: () => ({
     get: stateMock.getSession,
   }),
-}));
-
-vi.mock('@operon/agent-runtime', async (original) => ({
-  ...await original<typeof import('@operon/agent-runtime')>(),
-  getClaudeAccountUsage: runtimeMock.getClaudeAccountUsage,
+  getRuntime: () => ({
+    native: () => ({ accountUsage: runtimeMock.getClaudeAccountUsage, peekAccountUsage: () => null }),
+  }),
 }));
 
 vi.mock('./helpers.js', () => ({

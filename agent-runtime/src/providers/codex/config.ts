@@ -1,4 +1,3 @@
-import { MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT } from '../../memory-resolver-prompt.js'
 import type {
   ApprovalMode,
   ApprovalsReviewer,
@@ -111,7 +110,7 @@ export function buildDeveloperInstructions(
   settings: CodexAppServerSettings,
   instructions?: string,
 ): string | undefined {
-  const parts = [settings.baseInstructions, MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, instructions].filter(Boolean) as string[]
+  const parts = [settings.baseInstructions, instructions].filter(Boolean) as string[]
   return parts.length ? parts.join('\n\n') : undefined
 }
 

@@ -1,4 +1,4 @@
-import { MEMORY_RESOLVER_PROMPT } from '@operon/agent-runtime'
+import { MEMORY_RESOLVER_PROMPT } from '../ai/agent-prompts.js'
 
 export const EXTRACT_TASK_INSTRUCTION = `You are running as a background memory-extraction task.
 

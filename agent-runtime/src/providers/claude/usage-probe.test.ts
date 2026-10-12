@@ -9,13 +9,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }))
 
-vi.mock('../../host.js', () => ({
-  getRuntimeHost: () => ({
-    resolveCliPath: () => '/usr/local/bin/claude',
-    getShellEnv: () => ({}),
-    getUserEnv: () => ({}),
-  }),
-}))
+const { createRuntimeContext } = await import('../../context.js')
+const ctx = createRuntimeContext({ resolveBinary: () => '/usr/local/bin/claude' })
 
 const { ClaudeUsageProbe, mapUsageToRateLimitWindows, mapPushedRateLimitWindows } = await import('./usage-probe.js')
 
@@ -60,7 +55,7 @@ describe('ClaudeUsageProbe merge', () => {
   })
 
   it('drops a reading that predates the one it holds', async () => {
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
     await probe.get()
 
     probe.applyPush({ five_hour: win(56, FIVE_HOUR_RESET) })
@@ -79,7 +74,7 @@ describe('ClaudeUsageProbe merge', () => {
   })
 
   it('still drops to zero when the window actually resets', async () => {
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
     await probe.get()
     probe.applyPush({ five_hour: win(98, FIVE_HOUR_RESET) })
 
@@ -193,7 +188,7 @@ describe('ClaudeUsageProbe backoff', () => {
       .mockResolvedValueOnce(usageResponse({ rate_limits_available: false, rate_limits: undefined }))
       .mockResolvedValue(usageResponse())
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     expect(await probe.get()).toBeNull()
     expect(usage).toHaveBeenCalledTimes(1)
@@ -215,7 +210,7 @@ describe('ClaudeUsageProbe backoff', () => {
   it('doubles the delay while polls keep coming back empty', async () => {
     const usage = vi.fn().mockResolvedValue(usageResponse({ rate_limits_available: false }))
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     await probe.get() // streak 1 → 60s
     vi.advanceTimersByTime(61_000)
@@ -235,7 +230,7 @@ describe('ClaudeUsageProbe backoff', () => {
   it('caps the delay at an hour', async () => {
     const usage = vi.fn().mockResolvedValue(usageResponse({ rate_limits_available: false }))
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     // Enough failures that an unclamped exponent would push the next attempt
     // past any duration this loop could advance through.
@@ -253,7 +248,7 @@ describe('ClaudeUsageProbe backoff', () => {
       .mockResolvedValueOnce(usageResponse())
       .mockResolvedValue(usageResponse({ rate_limits_available: false }))
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     await probe.get() // fail → 60s
     vi.advanceTimersByTime(61_000)
@@ -272,7 +267,7 @@ describe('ClaudeUsageProbe backoff', () => {
       .mockResolvedValueOnce(usageResponse({ rate_limits_available: false }))
       .mockResolvedValue(usageResponse())
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     expect(await probe.get()).toBeNull() // empty → backing off for a minute
     expect(usage).toHaveBeenCalledTimes(1)
@@ -291,7 +286,7 @@ describe('ClaudeUsageProbe backoff', () => {
   it('leaves the streak alone when forced, so a held button cannot reset the backoff', async () => {
     const usage = vi.fn().mockResolvedValue(usageResponse({ rate_limits_available: false }))
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     await probe.get() // streak 1 → 60s
     await probe.get({ force: true }) // streak 2 → 120s
@@ -310,7 +305,7 @@ describe('ClaudeUsageProbe backoff', () => {
       .mockResolvedValueOnce(usageResponse())
       .mockRejectedValue(new Error('CLI died'))
     queryMock.mockImplementation(() => fakeQuery(usage))
-    const probe = new ClaudeUsageProbe()
+    const probe = new ClaudeUsageProbe(ctx)
 
     await probe.get()
     const afterFailure = await probe.get()

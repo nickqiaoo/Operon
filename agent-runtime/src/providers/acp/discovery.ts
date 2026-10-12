@@ -1,6 +1,5 @@
 import type * as acp from '@zed-industries/agent-client-protocol'
-import { getRuntimeHost } from '../../host.js'
-import { buildRuntimeEnv } from '../../runtime-env.js'
+import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type { ProviderDescriptor } from '../../types.js'
 import { toSlashCommands } from './commands.js'
@@ -36,13 +35,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
  * deep as `config.modelProbe` requires, then tear the process down. Returns an
  * empty context on failure so callers fall back to static defaults.
  */
-export async function probeAcpModels(config: AcpProviderConfig): Promise<AcpDiscoveryContext> {
+export async function probeAcpModels(ctx: RuntimeContext, config: AcpProviderConfig): Promise<AcpDiscoveryContext> {
   const empty: AcpDiscoveryContext = { initialize: null, session: null, commands: null }
   // Commands only exist inside a session, so wanting them forces the deeper probe.
   const needsSession = config.modelProbe === 'session' || config.probeCommands === true
   if (config.modelProbe === 'none' && !config.probeCommands) return empty
 
-  const cliPath = getRuntimeHost().resolveCliPath(config.cliId) ?? config.fallbackCommand
+  const cliPath = ctx.resolveBinary(config.cliId) ?? config.fallbackCommand
   if (!cliPath) return empty
 
   // The push can in principle beat the newSession response, so capture it from
@@ -60,7 +59,7 @@ export async function probeAcpModels(config: AcpProviderConfig): Promise<AcpDisc
       command: cliPath,
       args: config.agentArgs,
       cwd: process.cwd(),
-      env: config.patchEnv ? config.patchEnv(buildRuntimeEnv()) : buildRuntimeEnv(),
+      env: config.patchEnv ? config.patchEnv(ctx.env()) : ctx.env(),
       // A throwaway probe keeps its own process rather than borrowing a shared
       // one: it runs before any conversation exists and is disposed immediately.
       callbacks: {},
