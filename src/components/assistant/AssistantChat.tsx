@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { BookmarkCheck, CalendarClock, HeartPulse, PaperclipIcon } from "lucide-react"
+import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
@@ -19,7 +20,9 @@ import { Button } from "@/components/ui/button"
 import { InputGroupAddon } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
 import type { AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
-import { AuditIconTile, DECISION_LABEL, dayLabel, formatClock, isSameDay } from "./shared"
+import { AuditIconTile, formatClock, isSameDay } from "./shared"
+import { auditDetail, dayLabel, messageText } from "./assistant-i18n"
+import { PROFILE_FILE_META } from "./ProfileTab"
 
 /** Messages further apart than this get a time label between them (same day). */
 const TIME_GAP_MS = 30 * 60_000
@@ -38,10 +41,8 @@ interface AssistantChatProps {
   hasMore: boolean
   loadingOlder: boolean
   onLoadOlder: () => void
-  highlightedActivityId: string | null
   /** Rejects when the message did not go out; the composer then keeps its attachments. */
   onSend: (text: string, attachments: AssistantAttachment[]) => Promise<void>
-  onOpenActivity: (activityId: string) => void
   /** Answer an approval card a worker is waiting on. */
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
@@ -52,6 +53,11 @@ interface AssistantChatProps {
    * reader who was at the newest message looking at older ones; toggling it re-pins.
    */
   keyboardOpen?: boolean
+  /**
+   * Height of chrome floating over the top of the thread (the phone's glass
+   * header). The thread scrolls up under it but starts, and stops, below it.
+   */
+  insetTop?: number
 }
 
 /**
@@ -65,14 +71,17 @@ export function AssistantChat({
   hasMore,
   loadingOlder,
   onLoadOlder,
-  highlightedActivityId,
   onSend,
-  onOpenActivity,
   onDecide,
   onOpenMemory,
   compact = false,
   keyboardOpen = false,
+  insetTop,
 }: AssistantChatProps) {
+  const intl = useIntl()
+  // An approval card is there to be answered; once it is, it leaves the thread (the Audit tab
+  // keeps the record). A message that is nothing but an answered card is not shown at all.
+  const shown = useMemo(() => messages.filter((m) => !(m.approval?.decision && !m.text)), [messages])
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
@@ -92,8 +101,13 @@ export function AssistantChat({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Conversation initial="instant">
-        <ConversationContent scrollClassName="scroll-fade-y">
-          <div className={cn("mx-auto flex w-full max-w-3xl flex-col gap-3 pt-4", compact ? "px-2 pb-4" : "px-6 pb-6")}>
+        {/* Phone: the content's own p-4 would stack on the gutter (24px a side); drop it so
+            the bubbles get the width. */}
+        <ConversationContent scrollClassName="scroll-fade-y" className={cn(compact && "p-0")}>
+          <div
+            className={cn("mx-auto flex w-full max-w-3xl flex-col gap-3 pt-4", compact ? "px-3 pb-4" : "px-6 pb-6")}
+            style={insetTop ? { paddingTop: insetTop + 8 } : undefined}
+          >
             {hasMore && (
               <button
                 type="button"
@@ -101,24 +115,26 @@ export function AssistantChat({
                 disabled={loadingOlder}
                 className="mx-auto rounded-lg px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground disabled:opacity-60"
               >
-                {loadingOlder ? "Loading…" : "Load earlier messages"}
+                {loadingOlder ? (
+                  <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />
+                ) : (
+                  <FormattedMessage id="assistant.chat.loadEarlier" defaultMessage="Load earlier messages" />
+                )}
               </button>
             )}
-            {messages.map((m, i) => {
-              const prev = messages[i - 1]
+            {shown.map((m, i) => {
+              const prev = shown[i - 1]
               const newDay = !prev || !isSameDay(prev.createdAt, m.createdAt)
               const gap = !newDay && prev != null && m.createdAt - prev.createdAt > TIME_GAP_MS
               return (
                 <Fragment key={m.id}>
-                  {newDay && <Separator label={dayLabel(m.createdAt)} />}
+                  {newDay && <Separator label={dayLabel(intl, m.createdAt)} />}
                   {gap && <Separator label={formatClock(m.createdAt)} />}
                   {m.role === "user" ? (
-                    <UserMessage message={m} />
+                    <UserMessage message={m} compact={compact} />
                   ) : (
                     <AssistantBubble
                       message={m}
-                      highlighted={m.activityId != null && m.activityId === highlightedActivityId}
-                      onOpenActivity={onOpenActivity}
                       onDecide={onDecide}
                       onOpenMemory={onOpenMemory}
                       compact={compact}
@@ -127,7 +143,7 @@ export function AssistantChat({
                 </Fragment>
               )
             })}
-            {typing && <TypingBubble />}
+            {typing && <TypingBubble compact={compact} />}
           </div>
         </ConversationContent>
         <ConversationScrollButton />
@@ -159,7 +175,11 @@ export function AssistantChat({
         >
           <ComposerFields
             canCollapse={compact && !composerFocused && !hasText}
-            placeholder={userName ? `Message, ${userName}…` : "Message…"}
+            placeholder={
+              userName
+                ? intl.formatMessage({ id: "assistant.chat.placeholderNamed", defaultMessage: "Message, {name}…" }, { name: userName })
+                : intl.formatMessage({ id: "assistant.chat.placeholder", defaultMessage: "Message…" })
+            }
             onTextChange={setHasText}
           />
         </PromptInput>
@@ -230,9 +250,11 @@ function ComposerFields({
 }
 
 function AttachButton() {
+  const intl = useIntl()
   const attachments = usePromptInputAttachments()
   return (
-    <PromptInputButton title="Attach files" onClick={() => attachments.openFileDialog()}>
+    <PromptInputButton
+      title={intl.formatMessage({ id: "assistant.chat.attach", defaultMessage: "Attach files" })} onClick={() => attachments.openFileDialog()}>
       <PaperclipIcon className="h-4 w-4" />
     </PromptInputButton>
   )
@@ -255,7 +277,7 @@ function ComposerAttachments() {
 }
 
 /** Attachments sit above the text in a bubble of their own, as in chats (MessagePartRenderer). */
-function UserMessage({ message }: { message: AssistantMessage }) {
+function UserMessage({ message, compact }: { message: AssistantMessage; compact: boolean }) {
   const files = message.attachments ?? []
   return (
     <>
@@ -276,8 +298,14 @@ function UserMessage({ message }: { message: AssistantMessage }) {
         </Message>
       )}
       {message.text && (
-        <Message from="user">
-          <MessageContent>
+        <Message from="user" className={cn(compact && "max-w-[85%]")}>
+          {/* Phone: the brand colour, so the two sides of the thread tell apart at a glance. */}
+          <MessageContent
+            className={cn(
+              compact &&
+                "text-[17px] leading-[1.4] group-[.is-user]:bg-brand-fill group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-brand-fg group-[.is-user]:shadow-none",
+            )}
+          >
             <span className="whitespace-pre-wrap">{message.text}</span>
           </MessageContent>
         </Message>
@@ -292,15 +320,14 @@ function Separator({ label }: { label: string }) {
 
 interface AssistantBubbleProps {
   message: AssistantMessage
-  highlighted: boolean
-  onOpenActivity: (activityId: string) => void
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
   compact: boolean
 }
 
-function AssistantBubble({ message, highlighted, onOpenActivity, onDecide, onOpenMemory, compact }: AssistantBubbleProps) {
-  const { trigger, activityId, remembered, approval } = message
+function AssistantBubble({ message, onDecide, onOpenMemory, compact }: AssistantBubbleProps) {
+  const intl = useIntl()
+  const { trigger, remembered, approval } = message
   const proactive = trigger?.kind === "heartbeat" || trigger?.kind === "schedule"
 
   return (
@@ -309,7 +336,7 @@ function AssistantBubble({ message, highlighted, onOpenActivity, onDecide, onOpe
         <div className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground/80">
           {trigger.kind === "heartbeat" ? (
             <>
-              <HeartPulse className="h-3 w-3" /> Heartbeat
+              <HeartPulse className="h-3 w-3" /> <FormattedMessage {...PROFILE_FILE_META.heartbeat.title} />
             </>
           ) : (
             <>
@@ -323,17 +350,25 @@ function AssistantBubble({ message, highlighted, onOpenActivity, onDecide, onOpe
       {message.text && (
         <MessageContent
           className={cn(
-            "rounded-xl bg-muted/50 px-3.5 py-2.5 transition-shadow dark:bg-muted/40",
-            highlighted && "ring-1 ring-border",
+            "rounded-xl px-3.5 py-2.5 transition-shadow",
+            // Phone: a solid surface so the reply reads as a bubble against the canvas.
+            compact ? "bg-muted" : "bg-muted/50 dark:bg-muted/40",
           )}
         >
-          <MessageResponse>{message.text}</MessageResponse>
+          {/* Phone: 17px at 1.4, the system's own reading size — the desktop's
+              0.9rem at prose's loose leading reads small and airy at arm's length. */}
+          <MessageResponse className={cn(compact && "text-[17px] leading-[1.4] [&_li]:leading-[1.4] [&_p]:leading-[1.4]")}>
+            {messageText(intl, message.text)}
+          </MessageResponse>
         </MessageContent>
       )}
 
-      {approval && <ApprovalCard approval={approval} compact={compact} onDecide={(d) => onDecide(approval.id, d)} />}
+      {/* Only while it waits for an answer; the Audit tab keeps what was decided. */}
+      {approval && !approval.decision && (
+        <ApprovalCard approval={approval} compact={compact} onDecide={(d) => onDecide(approval.id, d)} />
+      )}
 
-      {(remembered?.length || activityId) && (
+      {remembered?.length ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-muted-foreground/80">
           {remembered?.map((fact) => (
             <button
@@ -341,27 +376,14 @@ function AssistantBubble({ message, highlighted, onOpenActivity, onDecide, onOpe
               type="button"
               onClick={onOpenMemory}
               className="flex items-center gap-1 transition-colors hover:text-foreground"
-              title="Open memory.md"
+              title={intl.formatMessage({ id: "assistant.chat.openMemory", defaultMessage: "Open memory.md" })}
             >
               <BookmarkCheck className="h-3 w-3" />
-              Remembered: {fact}
+              <FormattedMessage id="assistant.chat.remembered" defaultMessage="Remembered: {fact}" values={{ fact }} />
             </button>
           ))}
-          {activityId && (
-            <button
-              type="button"
-              onClick={() => onOpenActivity(activityId)}
-              className={cn(
-                "transition-opacity hover:text-foreground",
-                // Revealed on hover on desktop; a phone has no hover, so it just shows.
-                !compact && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-              )}
-            >
-              View activity
-            </button>
-          )}
         </div>
-      )}
+      ) : null}
     </Message>
   )
 }
@@ -375,23 +397,8 @@ function ApprovalCard({
   compact: boolean
   onDecide: (d: "allowed_once" | "denied") => void
 }) {
+  const intl = useIntl()
   const [showArgs, setShowArgs] = useState(false)
-
-  if (approval.decision) {
-    return (
-      <div className="flex items-center gap-2 px-1 text-[11px] text-muted-foreground/80">
-        <span>{approval.title}</span>
-        <span className="text-muted-foreground/50">·</span>
-        <span
-          className={
-            approval.decision === "denied" ? "text-status-error" : approval.decision === "expired" ? "text-muted-foreground" : "text-status-ok"
-          }
-        >
-          {DECISION_LABEL[approval.decision]}
-        </span>
-      </div>
-    )
-  }
 
   return (
     <div
@@ -404,7 +411,7 @@ function ApprovalCard({
         <AuditIconTile icon={approval.icon} />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">{approval.title}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{approval.detail}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{auditDetail(intl, approval.detail)}</div>
         </div>
       </div>
       {showArgs && approval.args && (
@@ -414,10 +421,10 @@ function ApprovalCard({
       )}
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="secondary" className="h-8" onClick={() => onDecide("allowed_once")}>
-          Allow once
+          <FormattedMessage id="assistant.approval.allowOnce" defaultMessage="Allow once" />
         </Button>
         <Button size="sm" variant="ghost" className="h-8" onClick={() => onDecide("denied")}>
-          Deny
+          <FormattedMessage id="assistant.approval.deny" defaultMessage="Deny" />
         </Button>
         {approval.args && (
           <button
@@ -425,7 +432,11 @@ function ApprovalCard({
             onClick={() => setShowArgs((v) => !v)}
             className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            {showArgs ? "Hide details" : "Details"}
+            {showArgs ? (
+              <FormattedMessage id="assistant.approval.hideDetails" defaultMessage="Hide details" />
+            ) : (
+              <FormattedMessage id="assistant.approval.details" defaultMessage="Details" />
+            )}
           </button>
         )}
       </div>
@@ -433,9 +444,14 @@ function ApprovalCard({
   )
 }
 
-function TypingBubble() {
+function TypingBubble({ compact }: { compact: boolean }) {
   return (
-    <div className="flex w-fit items-center gap-1 rounded-xl bg-muted/50 px-3.5 py-3 dark:bg-muted/40">
+    <div
+      className={cn(
+        "flex w-fit items-center gap-1 rounded-xl px-3.5 py-3",
+        compact ? "bg-muted" : "bg-muted/50 dark:bg-muted/40",
+      )}
+    >
       {[0, 150, 300].map((delay) => (
         <span
           key={delay}

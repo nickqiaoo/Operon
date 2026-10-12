@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
 import { useIntl } from "react-intl"
-import { hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace } from "@/lib/native"
+import { hasNativeAssistantBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace } from "@/lib/native"
 import { useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
 import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
 import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
@@ -23,7 +23,7 @@ import { MobileChatsScreen } from "./MobileChatsScreen"
 import { MobileChannelScreen } from "./MobileChannelScreen"
 import { MobileReviewScreen } from "./MobileReviewScreen"
 import { MobileMoreScreen } from "./MobileMoreScreen"
-import { MobileAssistantScreen } from "./MobileAssistantScreen"
+import { MobileAssistantScreen, type AssistantHeader } from "./MobileAssistantScreen"
 import { InstallPrompt } from "@/components/web/InstallPrompt"
 import { setAnalyticsScreen } from "@/lib/analytics"
 
@@ -68,6 +68,12 @@ export function MobileApp() {
   // the bar is showing so nothing ends up underneath.
   const nativeTabBar = useMemo(() => hasNativeTabBar(), [])
   const [nativeTabBarHeight, setNativeTabBarHeight] = useState(0)
+  // iOS: the assistant's header is the native bar too (real Liquid Glass). The
+  // page reports what it shows; the bar floats over the thread, so the page
+  // pads by the bar's height itself (44 until the shell reports the real one).
+  const nativeAssistantBar = useMemo(() => hasNativeAssistantBar(), [])
+  const [assistantHeader, setAssistantHeader] = useState<AssistantHeader | null>(null)
+  const [nativeTopBarHeight, setNativeTopBarHeight] = useState(44)
   const overlayCount = useNativeShellOverlayCount()
   const tabBarVisible = !keyboardOpen && !immersive
 
@@ -126,6 +132,14 @@ export function MobileApp() {
     void NativeShell.setTabBarVisible({ visible: tabBarVisible && overlayCount === 0 }).catch(() => {})
   }, [nativeTabBar, tabBarVisible, overlayCount])
 
+  // The phone's type is the system font, not the desktop stack (globals.css).
+  // On <html> rather than this tree's root: the pages pushed over a screen are
+  // portalled to <body>.
+  useEffect(() => {
+    document.documentElement.classList.add("mobile-shell")
+    return () => document.documentElement.classList.remove("mobile-shell")
+  }, [])
+
   useInboxStream()
   useNativeStatusBar()
   // Last resorts, after every screen has had its turn: close the context
@@ -182,6 +196,9 @@ export function MobileApp() {
       // keep the padding tied to *our* visibility state, not the animation.
       NativeShell.addListener("layout", ({ tabBarInset }) => {
         if (tabBarInset > 0) setNativeTabBarHeight(tabBarInset)
+      }),
+      NativeShell.addListener("topBarLayout", ({ height }) => {
+        if (height > 0) setNativeTopBarHeight(height)
       }),
       // Same rules as MobileContextSwitcher: a workspace activates its project
       // too; a project with no workspaces is activated on its own.
@@ -462,6 +479,24 @@ export function MobileApp() {
   const topBarSubtitle = activeInfo?.workspace.name
   useEffect(() => {
     if (!nativeTabBar) return
+    if (tab === "assistant") {
+      // Off while one of its pages is pushed: those are web pages over the
+      // whole screen, and the bar would float on top of them.
+      const header = nativeAssistantBar && assistantHeader && !assistantHeader.covered ? assistantHeader : null
+      void NativeShell.setTopBar(
+        header
+          ? {
+              mode: "assistant",
+              title: header.title,
+              subtitle: header.subtitle,
+              busy: header.busy,
+              unread: false,
+              interactive: overlayCount === 0,
+            }
+          : { mode: "hidden", title: topBarTitle, unread: false, interactive: true },
+      ).catch(() => {})
+      return
+    }
     void NativeShell.setTopBar({
       mode: hideTopBar ? "hidden" : immersive ? "back" : "context",
       title: topBarTitle,
@@ -469,7 +504,18 @@ export function MobileApp() {
       unread: inboxUnread,
       interactive: overlayCount === 0,
     }).catch(() => {})
-  }, [nativeTabBar, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount])
+  }, [nativeTabBar, nativeAssistantBar, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount])
+
+  // On iOS the top safe-area inset already includes the native navigation
+  // bar, so list screens just pad by it; immersive screens carry their own
+  // inset (see MobileChatsScreen). Android needs none of this: its shell
+  // moves the web view below the bars instead of drawing over it, so the
+  // space is already gone, and padding again would double it. Without the
+  // web top bar (the assistant) the page takes the status-bar inset itself.
+  const topInset =
+    (nativeTabBar && !immersive && !nativeTopBarTakesSpace()) || (!nativeTabBar && hideTopBar)
+      ? "env(safe-area-inset-top)"
+      : "0px"
 
   useEffect(() => {
     useTabsStore
@@ -506,19 +552,12 @@ export function MobileApp() {
         />
       )}
 
-      {/* On iOS the top safe-area inset already includes the native navigation
-          bar, so list screens just pad by it; immersive screens carry their own
-          inset (see MobileChatsScreen). Android needs none of this: its shell
-          moves the web view below the bars instead of drawing over it, so the
-          space is already gone, and padding again would double it. Without the
-          web top bar (the assistant) the page takes the status-bar inset itself. */}
+      {/* The assistant's header floats over its thread, which scrolls up under
+          the status bar; it is handed the inset instead of being pushed down. */}
       <main
         className="min-h-0 flex-1 overflow-hidden"
         style={{
-          paddingTop:
-            (nativeTabBar && !immersive && !nativeTopBarTakesSpace()) || (!nativeTabBar && hideTopBar)
-              ? "env(safe-area-inset-top)"
-              : undefined,
+          paddingTop: tab !== "assistant" && topInset !== "0px" ? topInset : undefined,
           paddingBottom: nativeTabBar && tabBarVisible ? `${nativeTabBarHeight}px` : undefined,
         }}
       >
@@ -531,7 +570,12 @@ export function MobileApp() {
             onImmersiveChange={setImmersive}
           />
         )}
-        {tab === "assistant" && <MobileAssistantScreen keyboardOpen={keyboardOpen} />}
+        {tab === "assistant" && <MobileAssistantScreen
+            keyboardOpen={keyboardOpen}
+            topInset={topInset}
+            nativeBarHeight={nativeAssistantBar ? nativeTopBarHeight : null}
+            onHeaderChange={setAssistantHeader}
+          />}
         {tab === "channel" && (
           <MobileChannelScreen
             keyboardOpen={keyboardOpen}

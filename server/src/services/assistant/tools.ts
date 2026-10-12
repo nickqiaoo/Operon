@@ -33,6 +33,8 @@ export interface FinishArgs {
 export interface HeartbeatArgs {
   findings: Array<{ text: string; urgent: boolean }>
   remove_lines?: string[]
+  /** Services that could not be checked, and why: this time (`error`), or at all (`limited`). */
+  unchecked?: Array<{ service: string; reason: string; kind?: 'error' | 'limited' }>
 }
 
 /** The schedule tools' view of the assistant (schedule.ts does the work). */
@@ -94,6 +96,15 @@ function failure(text: string): ToolResult {
 // The main agent's tools (and the wrap-up's one)
 // ---------------------------------------------------------------------------
 
+/**
+ * The main agent's changes show in the user's Activity log as steps, named by this (stepLabel
+ * reads `description` first) — the tools' other arguments say how, not what for.
+ */
+const changeDescription = z
+  .string()
+  .optional()
+  .describe("What this change is, in a few words in the user's language; the user sees it in their activity log. Always fill it in.")
+
 const profileEdit = defineTool({
   name: 'profile_edit',
   description:
@@ -103,6 +114,7 @@ const profileEdit = defineTool({
     action: z.enum(['append', 'replace']),
     text: z.string().describe('Markdown to append, or the replacement text'),
     old_text: z.string().optional().describe('For replace: the exact text currently in the file'),
+    description: changeDescription,
   }),
   roles: ['main', 'wrapup'],
   run: ({ file, action, text, old_text }, caller, host) => {
@@ -140,6 +152,7 @@ const setIdentity = defineTool({
   parameters: z.object({
     name: z.string().optional().describe('Your name'),
     user_name: z.string().optional().describe('What you call the user'),
+    description: changeDescription,
   }),
   roles: ['main'],
   run: ({ name, user_name }, caller, host) => {
@@ -254,6 +267,7 @@ const scheduleCreate = defineTool({
     name: z.string().describe("Short name in the user's language, shown in their schedule list"),
     prompt: z.string().describe('Complete instructions for each run; the helper cannot see this conversation'),
     ...scheduleTiming,
+    description: changeDescription,
   }),
   roles: ['main'],
   run: ({ name, prompt, time, days, every_minutes, until }, _caller, host) => {
@@ -278,6 +292,7 @@ const scheduleUpdate = defineTool({
     every_minutes: scheduleTiming.every_minutes,
     until: scheduleTiming.until,
     enabled: z.boolean().optional().describe('false pauses it, true resumes it'),
+    description: changeDescription,
   }),
   roles: ['main'],
   run: ({ id, name, prompt, time, days, every_minutes, until, enabled }, _caller, host) => {
@@ -301,7 +316,7 @@ const scheduleUpdate = defineTool({
 const scheduleDelete = defineTool({
   name: 'schedule_delete',
   description: 'Delete a scheduled task.',
-  parameters: z.object({ id: z.number().int() }),
+  parameters: z.object({ id: z.number().int(), description: changeDescription }),
   roles: ['main'],
   run: ({ id }, _caller, host) => {
     try {
@@ -342,6 +357,19 @@ const heartbeatDone = defineTool({
       )
       .describe('Empty when there is nothing new worth saying'),
     remove_lines: z.array(z.string()).optional().describe('Lines of heartbeat.md whose "until" date has passed, copied exactly'),
+    unchecked: z
+      .array(
+        z.object({
+          service: z.string(),
+          reason: z.string().describe('Briefly, in the user\'s language: "token expired", "needs the Business plan to search by date", …'),
+          kind: z
+            .enum(['error', 'limited'])
+            .optional()
+            .describe('error: failed this time (expired sign-in, an outage). limited: works, but can\'t do this check at all (plan, permissions) — it is skipped on later runs'),
+        }),
+      )
+      .optional()
+      .describe('Services you could not check this time. Never leave a failed check out: an empty findings list alone reads as "nothing new"'),
   }),
   roles: ['worker'],
   run: (args, caller, host) => (host.heartbeatDone(caller.id ?? '', args) ? 'Recorded. Stop now.' : failure('This is not a background check; finish with finish_task.')),

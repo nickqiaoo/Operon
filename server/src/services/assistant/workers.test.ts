@@ -2,13 +2,15 @@ import type { PermissionDecision, RuntimeSession, RuntimeStreamPart } from '@ope
 import { describe, expect, it } from 'vitest'
 import type { Activity } from '../../../../shared/assistant.js'
 import type { OpenParams } from './agents.js'
-import { WorkerPool, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerPoolHost, type WorkerSessionRef } from './workers.js'
+import { WorkerPool, type InFlightRun, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerPoolHost, type WorkerSessionRef } from './workers.js'
 
 type Part = Record<string, unknown>
 
 /** One scripted turn: the parts it streams, optionally after `gate` opens. */
 interface Script {
   parts: Part[]
+  /** Streamed before waiting on `gate`. */
+  early?: Part[]
   gate?: Promise<void>
   /** Called once the turn has started streaming (to hand in a result, say). */
   onStart?: () => void
@@ -53,6 +55,7 @@ class FakeSession implements RuntimeSession {
         }
       })
       script.onStart?.()
+      for (const part of script.early ?? []) yield part as unknown as RuntimeStreamPart
       if (script.gate) await Promise.race([script.gate, stopped])
       if (aborted) return
       for (const part of script.parts) yield part as unknown as RuntimeStreamPart
@@ -86,6 +89,7 @@ function setup(options: { scripts?: Script[]; refs?: Record<string, WorkerSessio
   const opened: FakeSession[] = []
   const settled: WorkerOutcome[] = []
   const refs: Record<string, WorkerSessionRef> = { ...(options.refs ?? {}) }
+  const inFlight: Record<string, InFlightRun> = {}
   const scripts = options.scripts ?? []
   let n = 0
   const host: WorkerPoolHost = {
@@ -108,13 +112,19 @@ function setup(options: { scripts?: Script[]; refs?: Record<string, WorkerSessio
       refs[id] = ref
     },
     loadSession: (id) => refs[id],
+    saveRun: (id, run) => {
+      inFlight[id] = run
+    },
+    clearRun: (id) => {
+      delete inFlight[id]
+    },
     settled: (outcome) => {
       settled.push(outcome)
       stored.set(outcome.activity.id, outcome.activity)
     },
   }
   const pool = new WorkerPool(host, () => `w${++n}`, () => 100)
-  return { pool, published, stored, opened, settled, refs }
+  return { pool, published, stored, opened, settled, refs, inFlight }
 }
 
 function gate() {
@@ -200,6 +210,48 @@ describe('WorkerPool', () => {
     g.open()
     await done
     expect(env.pool.askedFor(id)).toBe('check example.com\nlook at docs.example.com as well')
+  })
+
+  // A restart cuts a run off without it ever ending. What it takes to carry it on must already be
+  // on disk by then: the session as soon as the agent names it, and the run itself while it goes.
+  it('keeps a running task on disk — its session as soon as it is known — and clears it at the end', async () => {
+    const g = gate()
+    const early: Part[] = [{ type: 'start', providerMetadata: { codex: { sessionId: 'thread-1' } } }]
+    const env = setup({ scripts: [{ early, parts: reply('done').slice(1), gate: g.promise }] })
+    const { id, done } = await env.pool.start({ kind: 'task', title: 'T', prompt: 'do it', unattended: false, visible: true, asked: 'please do it' })
+    expect(env.inFlight[id]).toEqual({ kind: 'task', unattended: false, prompt: 'do it', asked: 'please do it' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Mid-turn: the turn has not ended, the session is already saved.
+    expect(env.refs[id]).toMatchObject({ sessionId: 'thread-1' })
+    g.open()
+    await done
+    expect(env.inFlight[id]).toBeUndefined()
+  })
+
+  it('carries on a task a restart cut off on its own session, told to check before redoing', async () => {
+    const g = gate()
+    const env = setup({
+      refs: { cut: { providerId: 'claude-code', modelId: '', sessionId: 's-cut' } },
+      scripts: [{ parts: reply('done'), gate: g.promise }],
+    })
+    const activity: Activity = { id: 'cut', taskId: 'aw-cut', title: 'Cut off', summary: 'Interrupted', status: 'stopped', startedAt: 1, steps: [] }
+    env.stored.set('cut', activity)
+    expect(await env.pool.resume('cut', { kind: 'task', unattended: false, prompt: 'the original job' })).toBe(true)
+    const session = env.opened[0]!
+    expect(session.params).toMatchObject({ providerId: 'claude-code', sessionId: 's-cut', kind: 'worker' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(session.prompts[0]).toContain('The app restarted')
+    expect(env.published.at(-1)).toMatchObject({ id: 'cut', status: 'running' })
+    g.open()
+  })
+
+  it('starts a cut-off task over from its original prompt when it never got a session', async () => {
+    const env = setup()
+    env.stored.set('early', { id: 'early', taskId: 'aw-early', title: 'Early', summary: 'Interrupted', status: 'stopped', startedAt: 1, steps: [] })
+    expect(await env.pool.resume('early', { kind: 'task', unattended: false, prompt: 'the original job' })).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(env.opened[0]!.params.sessionId).toBeUndefined()
+    expect(env.opened[0]!.prompts[0]).toBe('the original job')
   })
 
   it('says a task it never had is missing', async () => {

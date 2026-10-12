@@ -155,7 +155,9 @@ export interface NativeShellPlugin {
   setTabBarVisible(options: { visible: boolean }): Promise<void>
   /**
    * The navigation bar. `context` = project › workspace title + inbox bell
-   * (list screens), `back` = a lone back button (open conversation), `hidden`.
+   * (list screens), `back` = a lone back button (open conversation),
+   * `assistant` = the assistant's name/status capsule + Activity button (iOS
+   * only, see {@link hasNativeAssistantBar}), `hidden`.
    */
   setTopBar(options: {
     mode: NativeTopBarMode
@@ -164,10 +166,14 @@ export interface NativeShellPlugin {
     unread: boolean
     /** False while a web overlay is up: the bar stays put but stops taking taps. */
     interactive: boolean
+    /** `assistant`: the status dot shows busy rather than idle. */
+    busy?: boolean
   }): Promise<void>
   addListener(eventName: 'tabSelected', listener: (event: { tab: string }) => void): Promise<PluginListenerHandle>
   addListener(eventName: 'layout', listener: (event: { tabBarInset: number }) => void): Promise<PluginListenerHandle>
   addListener(eventName: 'topBarAction', listener: (event: { action: NativeTopBarAction }) => void): Promise<PluginListenerHandle>
+  /** The navigation bar's height, sent when it changes while showing (iOS). */
+  addListener(eventName: 'topBarLayout', listener: (event: { height: number }) => void): Promise<PluginListenerHandle>
   /**
    * Project → workspace picker as a system sheet. Resolves once the sheet is
    * up; the pick arrives as `contextPicked`, every dismissal as
@@ -261,8 +267,8 @@ export interface NativeInboxState {
   unreadCount: number
 }
 
-export type NativeTopBarMode = 'hidden' | 'context' | 'back'
-export type NativeTopBarAction = 'context' | 'inbox' | 'back'
+export type NativeTopBarMode = 'hidden' | 'context' | 'back' | 'assistant'
+export type NativeTopBarAction = 'context' | 'inbox' | 'back' | 'assistantProfile'
 
 export const NativeShell = registerPlugin<NativeShellPlugin>('NativeShell')
 
@@ -290,4 +296,13 @@ export function hasNativeTabBar(): boolean {
  */
 export function nativeTopBarTakesSpace(): boolean {
   return hasNativeTabBar() && nativePlatform() === 'android'
+}
+
+/**
+ * True when the assistant tab's header is the native bar (`assistant` mode) —
+ * a real Liquid Glass capsule on iOS 26. Only the iOS shell has that mode; the
+ * Android shell would reject it, so there the page keeps drawing its own.
+ */
+export function hasNativeAssistantBar(): boolean {
+  return hasNativeTabBar() && nativePlatform() === 'ios'
 }

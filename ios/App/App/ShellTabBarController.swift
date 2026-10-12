@@ -136,8 +136,14 @@ final class ShellChromeController: UINavigationController {
         set { tabsController.onTabSelected = newValue }
     }
     /// Fired when the user taps something in the top bar: `context` (the
-    /// project / workspace title), `inbox` (the bell) or `back`.
+    /// project / workspace title), `inbox` (the bell), `back`, or in the
+    /// assistant's bar `assistantProfile` (the capsule).
     var onTopBarAction: ((String) -> Void)?
+    /// Height of the navigation bar whenever it is laid out while showing.
+    /// For the bars that float over the page (`back`, `assistant`) the page
+    /// pads its content by this itself, since the safe area does not grow.
+    var onTopBarHeightChanged: ((CGFloat) -> Void)?
+    private var reportedBarHeight: CGFloat = 0
     /// Space the tab bar takes from the bottom (0 while hidden).
     var onTabBarInsetChanged: ((CGFloat) -> Void)? {
         get { tabsController.onTabBarInsetChanged }
@@ -176,6 +182,11 @@ final class ShellChromeController: UINavigationController {
             topBarInset = top
             onTopBarInsetChanged?(top)
         }
+        let barHeight = navigationBar.frame.height
+        if !isNavigationBarHidden, barHeight > 0, barHeight != reportedBarHeight {
+            reportedBarHeight = barHeight
+            onTopBarHeightChanged?(barHeight)
+        }
     }
 
     // MARK: - Driven by the plugin
@@ -189,7 +200,51 @@ final class ShellChromeController: UINavigationController {
     /// project/workspace title with the inbox bell on list screens, a lone
     /// back button over an open conversation, or nothing.
     enum TopBarMode: String {
-        case hidden, context, back
+        case hidden, context, back, assistant
+    }
+
+    /// The assistant tab's title: avatar and status in one glass capsule,
+    /// floating over the thread (which scrolls under it, as in `back`).
+    private lazy var assistantButton: UIButton = {
+        var config: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            config = .glass()
+        } else {
+            config = .plain()
+        }
+        config.imagePlacement = .leading
+        config.imagePadding = 8
+        config.titleAlignment = .leading
+        config.titlePadding = 1
+        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 5, bottom: 4, trailing: 14)
+        config.titleLineBreakMode = .byTruncatingTail
+        config.subtitleLineBreakMode = .byTruncatingTail
+        let button = UIButton(configuration: config)
+        // One line each, always: left to wrap, a longer status ("Working on 1") broke into three
+        // lines and blew the capsule up into a circle.
+        button.titleLabel?.numberOfLines = 1
+        button.subtitleLabel?.numberOfLines = 1
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        button.widthAnchor.constraint(lessThanOrEqualToConstant: 240).isActive = true
+        button.addAction(UIAction { [weak self] _ in self?.onTopBarAction?("assistantProfile") }, for: .touchUpInside)
+        return button
+    }()
+
+    /// The assistant's initial in a filled circle, as the web page draws it.
+    private func avatarImage(letter: String) -> UIImage {
+        let size = CGSize(width: 30, height: 30)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.tertiarySystemFill.setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+            let text = NSAttributedString(string: letter, attributes: [
+                .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: UIColor.label.withAlphaComponent(0.8),
+            ])
+            let bounds = text.size()
+            text.draw(at: CGPoint(x: (size.width - bounds.width) / 2, y: (size.height - bounds.height) / 2))
+        }
+        // Not a template: the button would tint it flat.
+        return image.withRenderingMode(.alwaysOriginal)
     }
 
     private lazy var titleButton: UIButton = {
@@ -220,7 +275,7 @@ final class ShellChromeController: UINavigationController {
     /// drawn inside the web view, under the bar, so the bar must at least stop
     /// taking taps. Hiding it instead would shrink the safe area and shift the
     /// page under the scrim.
-    func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool) {
+    func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool, busy: Bool = false) {
         topBarMode = mode
         setNavigationBarHidden(mode == .hidden, animated: true)
         navigationBar.isUserInteractionEnabled = interactive
@@ -244,6 +299,27 @@ final class ShellChromeController: UINavigationController {
             )
             bell.accessibilityLabel = "Inbox"
             item.rightBarButtonItem = bell
+        case .assistant:
+            var config = assistantButton.configuration ?? .plain()
+            // Avatar and status only; the name is on the page the capsule opens.
+            // The status dot is a coloured glyph in the title rather than a
+            // view, so the capsule stays a single system button.
+            var dot = AttributedString("● ")
+            dot.font = .systemFont(ofSize: 9)
+            dot.foregroundColor = busy ? .systemOrange : .systemGreen
+            var status = AttributedString(subtitle ?? "")
+            status.font = .systemFont(ofSize: 14, weight: .medium)
+            status.foregroundColor = .secondaryLabel
+            config.attributedTitle = dot + status
+            config.attributedSubtitle = nil
+            config.image = avatarImage(letter: String(title.prefix(1)).uppercased())
+            assistantButton.configuration = config
+            assistantButton.accessibilityLabel = [title, subtitle].compactMap { $0 }.joined(separator: ", ")
+            item.titleView = assistantButton
+            item.leftBarButtonItem = nil
+            // The capsule is the only way in: it opens the assistant's page on
+            // its Activity list, as Muse does.
+            item.rightBarButtonItem = nil
         case .back:
             item.titleView = nil
             item.rightBarButtonItem = nil

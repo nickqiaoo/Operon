@@ -1,8 +1,10 @@
 import { useState } from "react"
 import { ChevronDown } from "lucide-react"
+import { FormattedMessage, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import type { AuditRecord } from "./types"
-import { AuditIconTile, DECISION_LABEL, timeAgo } from "./shared"
+import { AuditIconTile } from "./shared"
+import { auditDetail, DECISION_MESSAGES, timeAgo } from "./assistant-i18n"
 import { Empty } from "./ActivityTab"
 
 interface AuditTabProps {
@@ -15,10 +17,18 @@ interface AuditTabProps {
  * What an agent's own mode let through never reaches the assistant, so it is not listed here.
  */
 export function AuditTab({ records }: AuditTabProps) {
+  const intl = useIntl()
   const [expanded, setExpanded] = useState<string | null>(null)
 
   if (records.length === 0) {
-    return <Empty text="No permission decisions yet. When a task needs your OK, it shows up here." />
+    return (
+      <Empty
+        text={intl.formatMessage({
+          id: "assistant.audit.empty",
+          defaultMessage: "No permission decisions yet. When a task needs your OK, it shows up here.",
+        })}
+      />
+    )
   }
 
   return (
@@ -35,11 +45,13 @@ export function AuditTab({ records }: AuditTabProps) {
               <AuditIconTile icon={r.icon} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-foreground/90">{r.title}</div>
-                <div className="text-xs text-muted-foreground">{r.detail}</div>
+                <div className="text-xs text-muted-foreground">{auditDetail(intl, r.detail)}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground/70">
-                  <span className={cn(r.decision === "denied" && "text-status-error")}>{DECISION_LABEL[r.decision]}</span>
+                  <span className={cn(r.decision === "denied" && "text-status-error")}>
+                    <FormattedMessage {...DECISION_MESSAGES[r.decision]} />
+                  </span>
                   {" · "}
-                  {timeAgo(r.at)}
+                  {timeAgo(intl, r.at)}
                 </div>
               </div>
               {r.args && (

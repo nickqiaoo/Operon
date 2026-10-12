@@ -1,6 +1,7 @@
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import type { Activity, ActivityStatus, ActivityStep, AssistantMessage, AssistantTrigger } from '../../../../shared/assistant.js'
-import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
+import { MAIN_ACTIVITY_TASK_PREFIX, TURN_ERROR_PREFIX, WORKING_SUMMARY } from '../../../../shared/assistant.js'
+import { assistantToolName, bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import type { FinishArgs, HeartbeatArgs } from './tools.js'
 
 const RESULT_LIMIT = 4_000
@@ -96,7 +97,15 @@ export interface ThreadSink {
   /** Insert, or replace the message with the same id (a reply gaining a link or a remembered line). */
   message(message: AssistantMessage): void
   typing(typing: boolean): void
+  /** The main agent's own work this turn, as an Activity (insert or replace by id). */
+  activity(activity: Activity): void
 }
+
+/**
+ * The main agent's tools that are not work to show in Activity: handing out tasks (each task is
+ * an activity of its own) and looking things up.
+ */
+const QUIET_MAIN_TOOLS: ReadonlySet<string> = new Set(['start_task', 'continue_task', 'stop_task', 'list_tasks', 'schedule_list', 'memory_search'])
 
 /** Why the main agent is speaking: what the host handed it. */
 export type Cause =
@@ -122,20 +131,27 @@ function triggerOf(cause: Cause): AssistantTrigger | undefined {
 
 /**
  * Folds the main agent's turns into the thread the user sees: its replies only (no tool calls),
- * each tagged with why it was said and which activity it is about, plus whether it is typing.
- * The runtime tells it what each turn was fed (`begin`, `setCause`) — the host composes every
- * input, so it knows — and which worker a dispatch started (`dispatch`).
+ * each tagged with why it was said, plus whether it is typing. The runtime tells it what each turn
+ * was fed (`begin`, `setCause`) — the host composes every input, so it knows.
+ *
+ * A turn in which the main agent changed something itself (memory, its files, a schedule) also
+ * becomes an Activity marked `agent: 'main'`, its tool calls the steps — the thread only says
+ * what it did, the Activity tab shows how.
+ *
+ * Replies are not linked to an activity. Which task a reply is about could only be guessed from
+ * timing, and with two things in flight the guess picked the wrong one; the Activity tab is
+ * where tasks are looked at.
  */
 export class AssistantProjector {
   private cause: Cause = { kind: 'user' }
-  /** The worker the current turn dispatched — replies after the dispatch link to it. */
-  private spawnedThisTurn: string | undefined
   /** Lines saved to memory.md this turn before any reply existed to carry them. */
   private remembered: string[] = []
-  /** Replies emitted in the current turn — a remembered line or a dispatch attaches to the latest. */
+  /** Replies emitted in the current turn — a remembered line attaches to the latest. */
   private turnMessages: AssistantMessage[] = []
   private segments = new TextSegments()
   private typing = false
+  /** This turn's own work, once it has done any. */
+  private work: ActivityProjector | undefined
 
   constructor(
     private readonly sink: ThreadSink,
@@ -154,20 +170,27 @@ export class AssistantProjector {
   /** Something else was injected into the running turn; what follows is about it. */
   setCause(cause: Cause): void {
     this.cause = cause
+    this.turnMessages = []
   }
 
   part(part: RuntimeStreamPart): void {
     const text = this.segments.feed(part)
     if (text) this.say(text)
+    if (!this.work && part.type === 'tool-call') this.startWork(part)
+    this.work?.part(part)
   }
 
   /** The turn is over: say what is left, and say so if it failed. */
   end(result: { error?: string; aborted?: boolean } = {}): void {
     const rest = this.segments.flush()
     if (rest) this.say(rest)
-    if (result.error && !result.aborted) this.say(`Something went wrong on my side: ${briefError(result.error)}`)
+    if (result.error && !result.aborted) this.say(`${TURN_ERROR_PREFIX}${briefError(result.error)}`)
+    if (this.work) {
+      this.work.turnEnd(result)
+      this.work.settle(result.aborted ? 'stopped' : 'completed')
+      this.work = undefined
+    }
     this.setTyping(false)
-    this.spawnedThisTurn = undefined
     this.turnMessages = []
     this.remembered = []
   }
@@ -187,14 +210,25 @@ export class AssistantProjector {
     this.sink.message({ ...last })
   }
 
-  /** The current turn started worker `activityId`: its acknowledgement links to it. */
-  dispatch(activityId: string): void {
-    this.spawnedThisTurn = activityId
-    const last = this.turnMessages.at(-1)
-    if (last && !last.activityId && !last.trigger) {
-      last.activityId = activityId
-      this.sink.message({ ...last })
+  /** The turn's first call that changes something opens its Activity, named after that call. */
+  private startWork(part: RuntimeStreamPart): void {
+    const p = part as Record<string, unknown>
+    const toolName = String(p.toolName ?? '')
+    if (QUIET_MAIN_TOOLS.has(assistantToolName(toolName) ?? '')) return
+    const id = this.newId()
+    const activity: Activity = {
+      id,
+      taskId: `${MAIN_ACTIVITY_TASK_PREFIX}${id}`,
+      agent: 'main',
+      title: stepLabel(toolName, p.input),
+      summary: WORKING_SUMMARY,
+      status: 'running',
+      startedAt: this.now(),
+      steps: [],
     }
+    this.work = new ActivityProjector(activity, (a) => this.sink.activity(a), this.newId, this.now, undefined, (name) =>
+      QUIET_MAIN_TOOLS.has(assistantToolName(name) ?? ''),
+    )
   }
 
   private setTyping(typing: boolean): void {
@@ -204,7 +238,6 @@ export class AssistantProjector {
   }
 
   private say(text: string): void {
-    const activityId = 'activityId' in this.cause && this.cause.activityId ? this.cause.activityId : this.spawnedThisTurn
     const trigger = triggerOf(this.cause)
     const message: AssistantMessage = {
       id: this.newId(),
@@ -212,7 +245,6 @@ export class AssistantProjector {
       text,
       createdAt: this.now(),
       ...(trigger ? { trigger } : {}),
-      ...(activityId ? { activityId } : {}),
       ...(this.remembered.length ? { remembered: this.remembered.splice(0) } : {}),
     }
     this.turnMessages.push(message)
@@ -248,6 +280,8 @@ export class ActivityProjector {
     private readonly now: () => number = Date.now,
     /** The worker's directory: paths in step names are shown relative to it. */
     private readonly cwd?: string,
+    /** Tool calls that are not steps. A worker's: the assistant's own tools (finish_task…). */
+    private readonly skip: (toolName: string) => boolean = isAssistantTool,
   ) {}
 
   get live(): boolean {
@@ -276,7 +310,7 @@ export class ActivityProjector {
   /** Working again on the same activity: a finished task continued, more steps to come. */
   reopen(): void {
     this.activity.status = 'running'
-    this.activity.summary = 'Working…'
+    this.activity.summary = WORKING_SUMMARY
     delete this.activity.finishedAt
     this.finish = undefined
     this.lastText = undefined
@@ -364,8 +398,8 @@ export class ActivityProjector {
   }
 
   private onToolCall(toolCallId: string, toolName: string, input: unknown): void {
-    // The assistant's own tools (finish_task, report_progress…) are not steps of the work.
-    if (isAssistantTool(toolName)) return
+    // A worker's own tools (finish_task, report_progress…) are not steps of the work.
+    if (this.skip(toolName)) return
     const args = record(typeof input === 'string' ? safeJson(input) : input)
     this.pushStep({
       id: toolCallId,

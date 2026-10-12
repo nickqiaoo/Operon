@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react"
 import { Heart, HeartPulse, Pencil } from "lucide-react"
+import { defineMessages, FormattedMessage, type MessageDescriptor } from "react-intl"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { ProfileFile, ProfileFileName } from "./types"
@@ -28,17 +29,37 @@ const GRAIN =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"
 
 /** Title and one-line purpose of each definition file, for its card and its editor. */
-export const PROFILE_FILE_META: Record<ProfileFileName, { title: string; hint: string }> = {
-  identity: { title: "Identity", hint: "Its name, avatar, and what it calls you." },
-  soul: { title: "Soul", hint: "Personality and tone. Only the assistant reads this." },
-  memory: { title: "Memory", hint: "What it always knows about you. The assistant keeps it up to date." },
-  heartbeat: { title: "Heartbeat", hint: "Extra things to check every 30 minutes, on top of your connected apps." },
+export const PROFILE_FILE_META: Record<ProfileFileName, { title: MessageDescriptor; hint: MessageDescriptor }> = {
+  identity: defineMessages({
+    title: { id: "assistant.profile.identity.title", defaultMessage: "Identity" },
+    hint: { id: "assistant.profile.identity.hint", defaultMessage: "Its name, avatar, and what it calls you." },
+  }),
+  soul: defineMessages({
+    title: { id: "assistant.profile.soul.title", defaultMessage: "Soul" },
+    hint: { id: "assistant.profile.soul.hint", defaultMessage: "Personality and tone. Only the assistant reads this." },
+  }),
+  memory: defineMessages({
+    title: { id: "assistant.profile.memory.title", defaultMessage: "Memory" },
+    hint: { id: "assistant.profile.memory.hint", defaultMessage: "What it always knows about you. The assistant keeps it up to date." },
+  }),
+  heartbeat: defineMessages({
+    title: { id: "assistant.profile.heartbeat.title", defaultMessage: "Heartbeat" },
+    hint: {
+      id: "assistant.profile.heartbeat.hint",
+      defaultMessage: "Extra things to check every 30 minutes, on top of your connected apps.",
+    },
+  }),
 }
 
-const PROFILE_CARDS: { name: "soul" | "memory" | "heartbeat"; tagline: string }[] = [
-  { name: "soul", tagline: "Handle with care" },
-  { name: "memory", tagline: "Handle with care" },
-  { name: "heartbeat", tagline: "What it keeps an eye on" },
+const TAGLINES = defineMessages({
+  careful: { id: "assistant.profile.tagline.careful", defaultMessage: "Handle with care" },
+  watches: { id: "assistant.profile.tagline.watches", defaultMessage: "What it keeps an eye on" },
+})
+
+const PROFILE_CARDS: { name: "soul" | "memory" | "heartbeat"; tagline: MessageDescriptor }[] = [
+  { name: "soul", tagline: TAGLINES.careful },
+  { name: "memory", tagline: TAGLINES.careful },
+  { name: "heartbeat", tagline: TAGLINES.watches },
 ]
 
 interface ProfileTabProps {
@@ -57,7 +78,7 @@ export function ProfileTab({ files, assistantName, onOpenFile }: ProfileTabProps
         <div className="text-base font-semibold">{assistantName}</div>
         <Button size="sm" variant="secondary" className="h-8 w-full gap-1.5" onClick={() => onOpenFile("identity")}>
           <Pencil className="h-3.5 w-3.5" />
-          Edit
+          <FormattedMessage id="assistant.profile.edit" defaultMessage="Edit" />
         </Button>
       </div>
 
@@ -96,8 +117,12 @@ function FileCard({
     >
       <span className="pointer-events-none absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: GRAIN }} />
       <span className="relative">
-        <span className="block text-lg font-semibold uppercase tracking-wide">{PROFILE_FILE_META[card.name].title}</span>
-        <span className="block text-xs text-white/75">{card.tagline}</span>
+        <span className="block text-lg font-semibold uppercase tracking-wide">
+          <FormattedMessage {...PROFILE_FILE_META[card.name].title} />
+        </span>
+        <span className="block text-xs text-white/75">
+          <FormattedMessage {...card.tagline} />
+        </span>
       </span>
       {wide ? (
         <Icon className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/75" />

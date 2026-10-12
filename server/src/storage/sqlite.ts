@@ -27,6 +27,7 @@ import type {
   AssistantStorageAdapter,
 } from './interface.js'
 import type { Activity, ActivityStep, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
+import { MAIN_ACTIVITY_TASK_PREFIX } from '../../../shared/assistant.js'
 import type {
   AgentBinding,
   AgentInboxMessageRow,
@@ -2902,6 +2903,7 @@ export class SqliteStorage
       summary: row.summary as string,
       status: row.status as Activity['status'],
       ...(row.source ? { source: row.source as Activity['source'] } : {}),
+      ...(String(row.task_id).startsWith(MAIN_ACTIVITY_TASK_PREFIX) ? { agent: 'main' as const } : {}),
       ...(row.report ? { report: row.report as string } : {}),
       steps: JSON.parse((row.steps as string) || '[]') as ActivityStep[],
       startedAt: row.started_at as number,

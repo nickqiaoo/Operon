@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Activity, AssistantAttachment, AssistantConfig, AssistantEvent, AssistantMessage, AssistantSchedule, AuditRecord, ProfileFile } from '@shared/assistant'
+import type { Activity, AssistantAttachment, AssistantBlockerReason, AssistantConfig, AssistantEvent, AssistantMessage, AssistantSchedule, AuditRecord, ProfileFile } from '@shared/assistant'
 import { assistantApi, subscribeAssistant } from '@/lib/assistant-api'
 import type { SseSubscription } from '@/lib/sse'
 import { resolveLocale, useLocaleStore } from '@/stores/locale-store'
@@ -24,6 +24,7 @@ interface AssistantStore {
   typing: boolean
   /** Why the assistant can't run yet (no model…). */
   blocker: string | null
+  blockerReason: AssistantBlockerReason | null
 
   /** Start loading + live updates. Ref-counted: pair every call with the returned release. */
   open(): () => void
@@ -36,6 +37,8 @@ interface AssistantStore {
   setScheduleEnabled(id: number, enabled: boolean): Promise<void>
   deleteSchedule(id: number): Promise<void>
   runSchedule(id: number): Promise<void>
+  /** Let the heartbeat try a service it had found it can't check. */
+  clearHeartbeatLimit(service: string): Promise<void>
 }
 
 /** Insert or replace by id, keeping `createdAt` order. */
@@ -75,6 +78,7 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
         schedules: state.schedules,
         typing: state.typing,
         blocker: state.blocker ?? null,
+        blockerReason: state.blockerReason ?? null,
       })
     } catch (error) {
       if (generation !== loadGeneration) return
@@ -123,6 +127,7 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     schedules: [],
     typing: false,
     blocker: null,
+    blockerReason: null,
 
     open() {
       openCount++
@@ -156,8 +161,18 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     },
 
     async send(text, attachments) {
-      const { message } = await assistantApi.send(text, attachments)
-      set((s) => ({ messages: upsertMessage(s.messages, message) }))
+      // Shown at once, under an id of our own that the server keeps — so its answer and the
+      // stream's copy both land on this row instead of adding a second one.
+      const id = crypto.randomUUID()
+      const pending: AssistantMessage = { id, role: 'user', text, createdAt: Date.now(), ...(attachments?.length ? { attachments } : {}) }
+      set((s) => ({ messages: upsertMessage(s.messages, pending) }))
+      try {
+        const { message } = await assistantApi.send(text, attachments, id)
+        set((s) => ({ messages: upsertMessage(s.messages, message) }))
+      } catch (error) {
+        set((s) => ({ messages: s.messages.filter((m) => m.id !== id) }))
+        throw error
+      }
     },
 
     async stopActivity(id) {
@@ -187,6 +202,10 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
 
     async runSchedule(id) {
       await assistantApi.runSchedule(id)
+    },
+
+    async clearHeartbeatLimit(service) {
+      await assistantApi.clearHeartbeatLimit(service)
     },
 
   }

@@ -15,13 +15,14 @@ function said(projector: { part(part: RuntimeStreamPart): void }, text: string, 
 function thread() {
   const messages = new Map<string, AssistantMessage>()
   const typing: boolean[] = []
+  const activities = new Map<string, Activity>()
   let n = 0
   const projector = new AssistantProjector(
-    { message: (m) => messages.set(m.id, { ...m }), typing: (t) => typing.push(t) },
+    { message: (m) => messages.set(m.id, { ...m }), typing: (t) => typing.push(t), activity: (a) => activities.set(a.id, a) },
     () => `m${++n}`,
     () => 1000,
   )
-  return { projector, messages: () => [...messages.values()], typing }
+  return { projector, messages: () => [...messages.values()], typing, activities: () => [...activities.values()] }
 }
 
 describe('AssistantProjector (the thread)', () => {
@@ -36,23 +37,17 @@ describe('AssistantProjector (the thread)', () => {
     expect(t.typing).toEqual([true, false])
   })
 
-  it('links the acknowledgement said before a dispatch to the worker it started', () => {
+  // Which task a reply is about could only be guessed from timing, and the guess was wrong when
+  // two things were in flight — so replies carry no activity at all.
+  it('does not link replies to a task, even around a dispatch or a finished-task notice', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
     said(t.projector, 'Looking into it.')
     t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: {} }))
-    t.projector.dispatch('w1')
+    t.projector.setCause({ kind: 'worker', activityId: 'w1' })
+    said(t.projector, 'Done — 3 files.')
     t.projector.end()
-    expect(t.messages()).toEqual([expect.objectContaining({ text: 'Looking into it.', activityId: 'w1' })])
-  })
-
-  it('links a reply written after the dispatch to that worker', () => {
-    const t = thread()
-    t.projector.begin({ kind: 'user' })
-    t.projector.dispatch('w2')
-    said(t.projector, 'Started.')
-    t.projector.end()
-    expect(t.messages()[0]).toMatchObject({ text: 'Started.', activityId: 'w2' })
+    for (const message of t.messages()) expect(message.activityId).toBeUndefined()
   })
 
   it('marks the reply to a finished-task notice as triggered by that worker', () => {
@@ -60,7 +55,7 @@ describe('AssistantProjector (the thread)', () => {
     t.projector.begin({ kind: 'worker', activityId: 'w3' })
     said(t.projector, 'Done — 3 files.')
     t.projector.end()
-    expect(t.messages()[0]).toMatchObject({ trigger: { kind: 'worker', activityId: 'w3' }, activityId: 'w3' })
+    expect(t.messages()[0]).toMatchObject({ trigger: { kind: 'worker', activityId: 'w3' } })
   })
 
   it('tags replies to the heartbeat and to a scheduled task', () => {
@@ -120,6 +115,43 @@ describe('AssistantProjector (the thread)', () => {
     t.projector.begin({ kind: 'user' })
     t.projector.end({ error: 'aborted', aborted: true })
     expect(t.messages().map((m) => m.text)).toEqual(['Something went wrong on my side: 402 · needs more credits'])
+  })
+
+  it('records a turn that changed something as a main-agent activity, its calls the steps', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'mcp__assistant__memory_search', input: { query: 'calendar' } }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__profile_edit', input: { file: 'memory', action: 'append', text: '- No Google Calendar', description: 'Note: no Google Calendar' } }))
+    t.projector.part(p({ type: 'tool-result', toolCallId: 'c1', output: 'Saved memory.md.' }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c2', toolName: 'mcp__assistant__set_identity', input: { user_name: 'Nick' } }))
+    t.projector.part(p({ type: 'tool-result', toolCallId: 'c2', output: 'Saved identity.md.' }))
+    said(t.projector, 'Noted: no Google Calendar.')
+    t.projector.end()
+    const [activity] = t.activities()
+    expect(t.activities()).toHaveLength(1)
+    expect(activity).toMatchObject({ agent: 'main', taskId: `am-${activity!.id}`, title: 'Note: no Google Calendar', status: 'done', summary: 'Noted: no Google Calendar.' })
+    expect(activity!.steps.map((s) => [s.label, s.status])).toEqual([
+      ['Note: no Google Calendar', 'done'],
+      ['Update identity.md', 'done'],
+    ])
+  })
+
+  it("reads the description out of Codex's MCP call envelope", () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__schedule_delete', input: { server: 'assistant', tool: 'schedule_delete', arguments: { id: 10, description: 'Delete the test schedule' } } }))
+    t.projector.end()
+    expect(t.activities()[0]).toMatchObject({ title: 'Delete the test schedule', steps: [{ label: 'Delete the test schedule' }] })
+  })
+
+  it('records nothing for a turn that only talked, looked things up or handed out work', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'mcp__assistant__memory_search', input: { query: 'x' } }))
+    t.projector.part(p({ type: 'tool-call', toolCallId: 'c1', toolName: 'mcp__assistant__start_task', input: { title: 'x', prompt: 'y' } }))
+    said(t.projector, 'On it.')
+    t.projector.end()
+    expect(t.activities()).toEqual([])
   })
 })
 

@@ -11,12 +11,14 @@ import Capacitor
 ///   - `setTabBarVisible({ visible })` hides the bar for immersive screens,
 ///     the keyboard, and full-screen overlays that would otherwise slide in
 ///     *under* it.
-///   - `setTopBar({ mode, title, subtitle, unread })` drives the navigation
-///     bar: `context` = project › workspace title + inbox bell, `back` = a
-///     lone back button (open conversation), `hidden`.
+///   - `setTopBar({ mode, title, subtitle, unread, busy })` drives the
+///     navigation bar: `context` = project › workspace title + inbox bell,
+///     `back` = a lone back button (open conversation), `assistant` = the
+///     assistant's name + status capsule and an Activity button, `hidden`.
 ///   - Events: `tabSelected { tab }` on a tap, `layout { tabBarInset }` when the
-///     bar's height changes, `topBarAction { action }` for `context` / `inbox`
-///     / `back` taps.
+///     bar's height changes, `topBarLayout { height }` when the navigation
+///     bar's does, `topBarAction { action }` for `context` / `inbox` / `back` /
+///     `assistantProfile` taps.
 ///
 /// See `src/lib/native.ts` for the JS side.
 @objc(NativeShellPlugin)
@@ -81,6 +83,9 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
             shell.onTopBarAction = { action in
                 self?.notifyListeners("topBarAction", data: ["action": action])
             }
+            shell.onTopBarHeightChanged = { height in
+                self?.notifyListeners("topBarLayout", data: ["height": height])
+            }
             call.resolve(["tabBarInset": shell.tabBarInset])
         }
     }
@@ -98,15 +103,16 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setTopBar(_ call: CAPPluginCall) {
         guard let mode = ShellChromeController.TopBarMode(rawValue: call.getString("mode") ?? "") else {
-            call.reject("mode must be hidden | context | back")
+            call.reject("mode must be hidden | context | back | assistant")
             return
         }
         let title = call.getString("title") ?? "operon"
         let subtitle = call.getString("subtitle")
         let unread = call.getBool("unread") ?? false
         let interactive = call.getBool("interactive") ?? true
+        let busy = call.getBool("busy") ?? false
         onMain(call) { shell in
-            shell.setTopBar(mode: mode, title: title, subtitle: subtitle, unread: unread, interactive: interactive)
+            shell.setTopBar(mode: mode, title: title, subtitle: subtitle, unread: unread, interactive: interactive, busy: busy)
             call.resolve()
         }
     }

@@ -1,5 +1,6 @@
 import type { PermissionDecision, RuntimeSession } from '@operon/agent-runtime'
 import type { Activity } from '../../../../shared/assistant.js'
+import { WORKING_SUMMARY } from '../../../../shared/assistant.js'
 import { AgentChannel, type AssistantProviderId, type OpenParams } from './agents.js'
 import { ActivityProjector, type RunEnd, type WorkerFinish } from './projector.js'
 import type { FinishArgs, HeartbeatArgs } from './tools.js'
@@ -22,6 +23,26 @@ export interface WorkerAgent {
 export interface WorkerSessionRef extends WorkerAgent {
   sessionId: string
 }
+
+/**
+ * A run in progress, as kept on disk until it ends. One still there when the app starts again was
+ * cut off by the restart (workers live in this process), and this is what it takes to carry on.
+ */
+export interface InFlightRun {
+  kind: WorkerKind
+  unattended: boolean
+  /** What this run was handed: the task's prompt, or a follow-up. */
+  prompt: string
+  /** The user's words behind it (WorkerSpec.asked). */
+  asked?: string
+}
+
+/** What a worker cut off by an app restart is told when it is picked back up on its own session. */
+const RESUME_PROMPT =
+  'The app restarted while you were working on this task: your last step was cut off, and any command or process it started is gone. ' +
+  'Pick up where you left off and finish the task. Steps that only read or wait (reading, listing, searching, fetching, sleeping) are safe: just run them again. ' +
+  'Only for a step that sends, posts, buys or changes something, first check whether it already took effect, and never do it twice. ' +
+  'Finish with finish_task as usual.'
 
 export interface WorkerSpec {
   kind: WorkerKind
@@ -64,6 +85,9 @@ export interface WorkerPoolHost {
   approve(activityId: string, toolName: string, input: unknown): Promise<PermissionDecision>
   saveSession(activityId: string, ref: WorkerSessionRef): void
   loadSession(activityId: string): WorkerSessionRef | undefined
+  /** Keep a run on disk while it goes, so a restart can carry it on (InFlightRun). */
+  saveRun(activityId: string, run: InFlightRun): void
+  clearRun(activityId: string): void
   /** The worker's run ended; its activity is settled. */
   settled(outcome: WorkerOutcome): void
 }
@@ -156,7 +180,7 @@ export class WorkerPool {
       id,
       taskId: `aw-${id}`,
       title: spec.title,
-      summary: 'Working…',
+      summary: WORKING_SUMMARY,
       status: 'running',
       startedAt: this.now(),
       steps: [],
@@ -220,6 +244,40 @@ export class WorkerPool {
     return 'continued'
   }
 
+  /**
+   * Carry on a task the last run of the app cut off: on its own agent session when it had one
+   * (everything it did is still there), else from the prompt it started with. Its activity is
+   * picked up where it stopped, steps kept.
+   */
+  async resume(activityId: string, cut: InFlightRun): Promise<boolean> {
+    const activity = this.host.stored(activityId)
+    if (!activity || this.runs.has(activityId)) return false
+    this.addAsked(activityId, cut.asked)
+    const ref = this.host.loadSession(activityId)
+    let session: RuntimeSession | undefined
+    let agent: WorkerAgent | undefined
+    let prompt = cut.prompt
+    if (ref) {
+      try {
+        agent = { providerId: ref.providerId, modelId: ref.modelId }
+        session = await this.host.open({ ...this.openParams(activityId, agent, cut.kind, cut.unattended), sessionId: ref.sessionId })
+        prompt = RESUME_PROMPT
+      } catch (error) {
+        console.warn('[assistant] could not resume an interrupted worker session, starting it over:', error)
+        session = undefined
+      }
+    }
+    if (!session) {
+      agent = await this.host.agentFor(cut.kind)
+      session = await this.host.open(this.openParams(activityId, agent, cut.kind, cut.unattended))
+      prompt = cut.prompt
+    }
+    const run = this.attach(session, activity, cut.kind, cut.unattended, true, agent!)
+    run.projector.reopen()
+    run.done = this.drive(activityId, run, prompt)
+    return true
+  }
+
   async stop(activityId: string): Promise<boolean> {
     const run = this.runs.get(activityId)
     if (!run || run.end !== undefined) return false
@@ -276,6 +334,9 @@ export class WorkerPool {
         },
         onApproval: (toolName, input) => this.host.approve(activity.id, toolName, input),
         onSessionId: (sessionId) => {
+          // On disk straight away, not only when the run ends: a run cut off by a restart never
+          // ends, and without its session it could only start over.
+          if (run.sessionId !== sessionId) this.host.saveSession(activity.id, { ...agent, sessionId })
           run.sessionId = sessionId
         },
       }),
@@ -291,6 +352,12 @@ export class WorkerPool {
       run.channel.abort()
     }, TIMEOUT_MS)
     let error: string | undefined
+    this.host.saveRun(activityId, {
+      kind: run.kind,
+      unattended: run.unattended,
+      prompt,
+      ...(this.asked.has(activityId) ? { asked: this.asked.get(activityId) } : {}),
+    })
     try {
       await run.channel.deliver({ text: prompt })
       // Instructions folded in as the turn was ending become one more turn; those finish too.
@@ -313,6 +380,7 @@ export class WorkerPool {
     }
     const sessionId = run.sessionId ?? run.channel.sessionId
     if (sessionId) this.host.saveSession(activityId, { ...run.agent, sessionId })
+    this.host.clearRun(activityId)
     await run.channel.dispose()
     if (this.runs.get(activityId) === run) this.runs.delete(activityId)
     try {

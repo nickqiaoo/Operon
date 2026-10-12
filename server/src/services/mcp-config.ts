@@ -82,19 +82,12 @@ function formatMcpServerTarget(entry: McpServerEntry): string {
 }
 
 /**
- * Build full MCP servers config for a CLI adapter.
- * Merges user-configured servers + memory + external_agent.
- * Pass agentId (+ projectId for workspace/task-board; or imBridge: true for
- * IM) to also inject first-party agent communication MCP servers.
+ * The user's own servers, as an agent run through `providerId` (CLI name) gets them: Settings → MCP
+ * plus the installed plugins'. These are the services an agent can look at and work with;
+ * first-party servers (memory, task board, …) go on top. Shared by chats and the assistant's
+ * workers, so both see the same services under the same names.
  */
-export function buildMcpServersForCli(
-  providerId: string,
-  options?: BuildMcpOptions,
-  /** Runtime provider id of the caller (`custom`, `claude-code`, …), as opposed to
-   *  the CLI name `providerId` carries. Only external_agent needs it, to leave the
-   *  caller out of its own delegation list. */
-  callerProviderId?: string,
-): McpServersConfig | undefined {
+export function userMcpServersForCli(providerId: string): McpServersConfig {
   const servers = getMcpServers()
   const appPort = process.env.OPERON_PORT ?? '3100'
 
@@ -128,6 +121,25 @@ export function buildMcpServersForCli(
         : { type: 'http', url: withApiToken(`http://127.0.0.1:${appPort}/api/mcp-gateway/${mount.name}`) }
     }
   }
+  return servers
+}
+
+/**
+ * Build full MCP servers config for a CLI adapter.
+ * Merges user-configured servers + memory + external_agent.
+ * Pass agentId (+ projectId for workspace/task-board; or imBridge: true for
+ * IM) to also inject first-party agent communication MCP servers.
+ */
+export function buildMcpServersForCli(
+  providerId: string,
+  options?: BuildMcpOptions,
+  /** Runtime provider id of the caller (`custom`, `claude-code`, …), as opposed to
+   *  the CLI name `providerId` carries. Only external_agent needs it, to leave the
+   *  caller out of its own delegation list. */
+  callerProviderId?: string,
+): McpServersConfig | undefined {
+  const servers = userMcpServersForCli(providerId)
+  const appPort = process.env.OPERON_PORT ?? '3100'
 
   if (getEmbeddingConfig()?.enabled) {
     servers['memory'] = {
@@ -316,6 +328,11 @@ const MCP_CLI_NAME_BY_PROVIDER: Record<string, string> = {
   grok: 'grok',
   copilot: 'copilot',
   custom: 'operon',
+}
+
+/** The CLI name {@link buildMcpServersForCli} expects for a runtime provider id; undefined = no MCP. */
+export function mcpCliName(runtimeProviderId: string): string | undefined {
+  return MCP_CLI_NAME_BY_PROVIDER[runtimeProviderId]
 }
 
 /**

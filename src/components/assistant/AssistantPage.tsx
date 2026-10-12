@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { AlertCircle, Loader2, PanelLeft, Settings } from "lucide-react"
+import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { openSettingsTab } from "@/lib/open-settings"
+import { openPluginsPage, openSettingsTab } from "@/lib/open-settings"
 import { useAssistantStore } from "@/stores/assistant-store"
 import { AssistantChat } from "./AssistantChat"
 import { AssistantSidePanel, type SidePanelTab } from "./AssistantSidePanel"
@@ -14,6 +15,7 @@ import { ProfileTab } from "./ProfileTab"
 import { ProfileFileDrawer } from "./ProfileFileDrawer"
 import { ScheduleTab } from "./ScheduleTab"
 import { parseIdentity } from "./shared"
+import { blockerText } from "./assistant-i18n"
 import type { ProfileFileName } from "./types"
 
 interface AssistantPageProps {
@@ -45,8 +47,10 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
   const config = useAssistantStore((s) => s.config)
   const typing = useAssistantStore((s) => s.typing)
   const blocker = useAssistantStore((s) => s.blocker)
-  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule } = useAssistantStore.getState()
+  const blockerReason = useAssistantStore((s) => s.blockerReason)
+  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule, clearHeartbeatLimit } = useAssistantStore.getState()
 
+  const intl = useIntl()
   const [tab, setTab] = useState<SidePanelTab>("activity")
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
   /** The definition file open in the drawer. Only one drawer shows at a time. */
@@ -55,7 +59,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
   useEffect(() => open(), [open])
 
   const identity = parseIdentity(files.find((f) => f.name === "identity")?.content ?? "")
-  const assistantName = identity.name ?? "Assistant"
+  const assistantName = identity.name ?? intl.formatMessage({ id: "assistant.defaultName", defaultMessage: "Assistant" })
   const busyCount = activities.filter((a) => a.status === "running" || a.status === "waiting").length
   const selectedActivity = useMemo(
     () => activities.find((a) => a.id === selectedActivityId) ?? null,
@@ -85,20 +89,22 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
           <button
             type="button"
             onClick={onExpandSidebar}
-            title="Expand sidebar"
+            title={intl.formatMessage({ id: "assistant.expandSidebar", defaultMessage: "Expand sidebar" })}
             className="no-drag flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
           >
             <PanelLeft className="h-4 w-4" />
           </button>
         )}
-        <span className="text-xs text-muted-foreground">Assistant</span>
+        <span className="text-xs text-muted-foreground">
+          <FormattedMessage id="mobile.tab.assistant" defaultMessage="Assistant" />
+        </span>
       </div>
 
       <div className="relative flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
           {!loaded ? (
             <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+              <Loader2 className="h-4 w-4 animate-spin" /> <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
             </div>
           ) : loadError && messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center gap-2 text-xs text-destructive">
@@ -110,10 +116,10 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                 <div className="mx-auto mt-4 w-full max-w-3xl px-6">
                   <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-3 dark:border-border/35">
                     <AlertCircle className="h-4 w-4 shrink-0 text-status-warn" />
-                    <span className="flex-1 text-xs text-muted-foreground">{blocker}</span>
+                    <span className="flex-1 text-xs text-muted-foreground">{blockerText(intl, blocker, blockerReason)}</span>
                     <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => openSettingsTab("assistant")}>
                       <Settings className="h-3.5 w-3.5" />
-                      Settings
+                      <FormattedMessage id="mobile.more.settings" defaultMessage="Settings" />
                     </Button>
                   </div>
                 </div>
@@ -126,14 +132,12 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                   hasMore={hasMore}
                   loadingOlder={loadingOlder}
                   onLoadOlder={() => void loadOlder().catch(reportError)}
-                  highlightedActivityId={selectedActivityId}
                   onSend={(text, attachments) =>
                     send(text, attachments).catch((error: unknown) => {
                       reportError(error)
                       throw error
                     })
                   }
-                  onOpenActivity={openActivity}
                   onDecide={(approvalId, decision) => void decide(approvalId, decision).catch(reportError)}
                   onOpenMemory={() => openProfileFile("memory")}
                 />
@@ -165,11 +169,13 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                 onDelete={(id) => void deleteSchedule(id).catch(reportError)}
                 onRun={(id) => {
                   void runSchedule(id)
-                    .then(() => toast.success("Running now"))
+                    .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runningNow", defaultMessage: "Running now" })))
                     .catch(reportError)
                 }}
                 onEditHeartbeat={() => openProfileFile("heartbeat")}
                 onOpenActivity={openActivity}
+                onConnectPlugin={openPluginsPage}
+                onRecheck={(service) => void clearHeartbeatLimit(service).catch(reportError)}
               />
             )}
             {tab === "profile" && (

@@ -4,7 +4,7 @@ import type { AssistantConfig } from '../../../shared/assistant.js'
 import type { AssistantStorageAdapter, StorageAdapter } from '../storage/interface.js'
 import { normalizeAttachments } from '../services/assistant/attachments.js'
 import { isProfileFileName } from '../services/assistant/files.js'
-import { getAssistantRuntime } from '../services/assistant/runtime.js'
+import { getAssistantRuntime, resumeInterruptedAssistantWork } from '../services/assistant/runtime.js'
 import { executeCronjob, setAssistantCronRunner, type CronjobStorage } from '../services/cronjob.js'
 
 /** Personal assistant (docs/assistant/design.md). Mounted at /api/assistant. */
@@ -14,6 +14,15 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
   // The app's scheduler times the heartbeat and scheduled tasks; running one wakes the assistant
   // (built on first use, so a heartbeat due after a restart brings it up on its own).
   setAssistantCronRunner((job) => runtime().runSchedule(job))
+  // Tasks a restart cut off are carried on without waiting for someone to open the assistant.
+  // A little after startup: the agents' availability is still being probed right now.
+  setTimeout(() => {
+    try {
+      resumeInterruptedAssistantWork(storage)
+    } catch (error) {
+      console.warn('[assistant] could not resume interrupted tasks:', error)
+    }
+  }, 5_000).unref?.()
 
   // Registered first so 'stream' is never read as a path argument.
   router.get('/stream', (c) =>
@@ -39,12 +48,15 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
   })
 
   router.post('/messages', async (c) => {
-    type Body = { text?: unknown; attachments?: unknown }
+    type Body = { text?: unknown; attachments?: unknown; id?: unknown }
     const body = await c.req.json<Body>().catch((): Body => ({}))
     const text = typeof body.text === 'string' ? body.text.trim() : ''
     const attachments = normalizeAttachments(body.attachments)
     if (!text && attachments.length === 0) return c.json({ error: 'text or attachments required' }, 400)
-    return c.json({ message: await runtime().send(text, attachments) })
+    // The client shows the message under its own id before this answers; keeping it means the
+    // reply and the stream's copy land on that same row.
+    const id = typeof body.id === 'string' && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : undefined
+    return c.json({ message: await runtime().send(text, attachments, id) })
   })
 
   router.post('/activities/:id/stop', async (c) => c.json({ stopped: await runtime().stopActivity(c.req.param('id')) }))
@@ -101,6 +113,12 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     if (!runtime().hasSchedule(id)) return c.json({ error: 'not found' }, 404)
     void executeCronjob(storage, id).catch((error: unknown) => console.error(`[assistant] run of schedule ${id} failed:`, error))
     return c.json({ started: id })
+  })
+
+  /** Forget that the heartbeat can't check a service, so the next run tries it again. */
+  router.delete('/heartbeat/limits/:service', (c) => {
+    const ok = runtime().clearHeartbeatLimit(c.req.param('service'))
+    return ok ? c.json({ ok }) : c.json({ error: 'not found' }, 404)
   })
 
   router.get('/config', (c) => c.json(runtime().getConfig()))

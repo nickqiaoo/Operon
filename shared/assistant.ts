@@ -97,7 +97,16 @@ export interface Activity {
   report?: string
   steps: ActivityStep[]
   source?: 'heartbeat' | 'schedule'
+  /**
+   * Who did it. Unset: a worker on a task. `main`: the main agent itself, in the conversation —
+   * a turn where it changed something (memory, its files, a schedule). It can't be followed up
+   * or stopped; there is no task behind it.
+   */
+  agent?: 'main'
 }
+
+/** `taskId` of a main-agent activity, which is how storage tells it from a worker's. */
+export const MAIN_ACTIVITY_TASK_PREFIX = 'am-'
 
 export type ProfileFileName = 'identity' | 'soul' | 'memory' | 'heartbeat'
 
@@ -130,7 +139,29 @@ export interface AssistantConfig {
   quietEnd: string
 }
 
-export type ScheduleRunOutcome = 'silent' | 'found' | 'failed'
+/**
+ * English the server writes into stored records, which the UI recognizes and words in the
+ * user's language. Stored, so the text is a contract: changing it orphans old rows.
+ */
+/** The note on a heartbeat run that had nothing to look at. */
+export const NOTHING_TO_CHECK_NOTE = 'Nothing to check'
+/** Audit detail of a step skipped because nobody was watching; the rest of the detail follows. */
+export const UNATTENDED_SKIP_PREFIX = 'Skipped while running unattended: '
+/** Summary of a run cut off by an app restart. */
+export const INTERRUPTED_SUMMARY = 'Interrupted when the app restarted'
+/** Summary of a run that is still going. */
+export const WORKING_SUMMARY = 'Working…'
+/** Start of the message the assistant posts when its own turn failed; the error follows. */
+export const TURN_ERROR_PREFIX = 'Something went wrong on my side: '
+
+/** Why the assistant can't run, as a code the UI words itself (`blocker` keeps the English). */
+export type AssistantBlockerReason =
+  | { kind: 'unknown-agent'; agent: string }
+  | { kind: 'not-installed'; agent: string }
+  | { kind: 'no-model' }
+
+/** `partial`: the heartbeat ran but could not check some services (the note says which). */
+export type ScheduleRunOutcome = 'silent' | 'found' | 'partial' | 'failed'
 
 /** One run of the heartbeat or a scheduled task. */
 export interface AssistantScheduleRun {
@@ -148,6 +179,16 @@ export interface AssistantScheduleRun {
 export interface AssistantSchedule {
   id: number
   name: string
+  /**
+   * Heartbeat only: plugins it would look at but that aren't signed in, so it skips them. A
+   * standing state shown on the heartbeat, not a failure of each run.
+   */
+  notConnected?: Array<{ pluginId: string; name: string }>
+  /**
+   * Heartbeat only: services it found it can't check at all (plan, permissions), skipped until
+   * `until` (then tried again) or until the user asks for a re-check. `service` is the key to clear.
+   */
+  limited?: Array<{ service: string; name: string; reason: string; until: number }>
   /** What the worker is told on each run. Empty for the heartbeat, which reads heartbeat.md. */
   prompt: string
   /** e.g. "Every 30 minutes", "Weekdays at 08:40". */
@@ -182,6 +223,7 @@ export interface AssistantState {
   typing: boolean
   /** Why the assistant cannot run, e.g. no model configured. */
   blocker?: string
+  blockerReason?: AssistantBlockerReason
 }
 
 /** Live updates on `/api/assistant/stream`. */

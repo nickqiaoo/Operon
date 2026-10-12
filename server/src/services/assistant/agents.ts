@@ -12,7 +12,8 @@ import {
 import { runAgentTurn } from '../ai/agent-turn.js'
 import { extractAssistantText } from '../ai/message-utils.js'
 import { getSessionManager } from '../ai/state.js'
-import { withApiToken } from '../mcp-config.js'
+import { mcpCliName, userMcpServersForCli, withApiToken } from '../mcp-config.js'
+import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
 import {
   ASSISTANT_WORKER_PARAM,
   assistantConversationId,
@@ -75,21 +76,57 @@ function toolServerName(caller: AssistantCaller): string {
 }
 
 /**
- * The servers a session of the assistant gets: its own tools, and for a worker node_repl (web,
+ * What a worker's node_repl is called on an agent. Codex users who run the ChatGPT app have a
+ * stdio `node_repl` of its own in `~/.codex/config.toml`; Codex merges same-named entries field
+ * by field, so ours (a URL) on top of it is a server with both `command` and `url`, which Codex
+ * rejects — the session never starts ("url is not supported for stdio"). So on Codex ours gets
+ * another name and theirs is switched off for the session ({@link disabledMcpServers}): left on,
+ * the model could drive the browser through it and skip our approvals and audit.
+ */
+export function nodeReplServerName(providerId: AssistantProviderId): string {
+  return providerId === 'codex' ? 'operon_node_repl' : 'node_repl'
+}
+
+/** The agent's own servers this session must not load (see {@link nodeReplServerName}). */
+export function disabledMcpServers(providerId: AssistantProviderId, servers: RuntimeMcpServers): string[] {
+  const name = nodeReplServerName(providerId)
+  return name !== 'node_repl' && name in servers ? ['node_repl'] : []
+}
+
+/**
+ * The user's own services for a worker on this agent — Settings → MCP and the plugins', mounted
+ * the same way chats mount them. The heartbeat is told exactly these names, so what it is told it
+ * can check is what it has. (node_repl is a tool, not a service, and is mounted on its own.)
+ */
+export function workerServiceServers(providerId: AssistantProviderId): RuntimeMcpServers {
+  const cli = mcpCliName(providerId)
+  if (!cli) return {}
+  const servers: RuntimeMcpServers = userMcpServersForCli(cli)
+  delete servers.node_repl
+  return servers
+}
+
+/**
+ * The servers a session of the assistant gets: its own tools, a worker's services, and for a worker node_repl (web,
  * Chrome, Mac apps) when Settings allow any of it. Each URL names the session and carries the
  * process key. Separate server names per role keep OpenCode, which shares one client per name
  * in a directory, from offering a worker the main agent's tools.
  */
-export function sessionMcpServers(caller: AssistantCaller, nodeRepl: boolean): RuntimeMcpServers {
+export function sessionMcpServers(
+  caller: AssistantCaller,
+  nodeRepl: boolean,
+  providerId: AssistantProviderId,
+): RuntimeMcpServers {
   const id = caller.id ? `&id=${encodeURIComponent(caller.id)}` : ''
   const servers: RuntimeMcpServers = {
+    ...(caller.role === 'worker' ? workerServiceServers(providerId) : {}),
     [toolServerName(caller)]: {
       type: 'http',
       url: withApiToken(`${apiBase()}/assistant-mcp?${assistantKeyQuery()}&role=${caller.role}${id}`),
     },
   }
   if (nodeRepl && caller.role === 'worker' && caller.id) {
-    servers.node_repl = {
+    servers[nodeReplServerName(providerId)] = {
       type: 'http',
       url: withApiToken(`${apiBase()}/node-repl-mcp?${assistantKeyQuery()}&${ASSISTANT_WORKER_PARAM}=${encodeURIComponent(caller.id)}`),
     }
@@ -112,13 +149,23 @@ export interface OpenParams {
 
 /** Open (or resume) one of the assistant's sessions on the runtime the chats use. */
 export async function openRuntimeSession(params: OpenParams): Promise<RuntimeSession> {
+  // The plugins' servers come from the plugin store, which is empty until loaded — chats load it
+  // before building theirs (chat-flow.ts); a worker can be the first thing to run after startup.
+  await ensurePluginsLoaded().catch((error) => console.error('[assistant] plugin load failed:', error))
+  const mcpServers = sessionMcpServers(params.caller, params.nodeRepl ?? false, params.providerId)
+  const disabled = disabledMcpServers(params.providerId, mcpServers)
   const runtimeParams: RuntimeSessionParams = {
     cwd: params.cwd,
     providerId: params.providerId,
     ...(params.modelId ? { modelId: params.modelId } : {}),
     modeId: modeFor(params.providerId, params.kind),
-    instructions: params.instructions,
-    mcpServers: sessionMcpServers(params.caller, params.nodeRepl ?? false),
+    // The skills say "node_repl"; under another name the model has to be told it is the same thing.
+    instructions:
+      disabled.length > 0
+        ? `${params.instructions}\n\nHere the node_repl MCP server is named "${nodeReplServerName(params.providerId)}": wherever a skill says node_repl, use its js tool.`
+        : params.instructions,
+    mcpServers,
+    ...(disabled.length > 0 ? { disabledMcpServers: disabled } : {}),
     isWorker: params.caller.role !== 'main',
     hostConversationId: assistantConversationId(params.caller),
     ...(params.sessionId ? { sessionId: params.sessionId } : {}),
@@ -178,6 +225,8 @@ export class AgentChannel {
   private controller: AbortController | undefined
   private idleWaiters: Array<() => void> = []
   private disposed = false
+  /** The session id last passed to `onSessionId`. */
+  private reportedSessionId: string | undefined
 
   constructor(
     readonly session: RuntimeSession,
@@ -274,7 +323,7 @@ export class AgentChannel {
         assistantMessageId: randomUUID(),
         originalMessages: [],
         onPart: (part) => this.onPart(part, (message) => (error ??= message)),
-        onSessionId: (id) => this.hooks.onSessionId?.(id),
+        onSessionId: (id) => this.reportSessionId(id),
       })
       // The consumer branch of the tee must be drained; the parts already went to onPart.
       for await (const _ of readStreamAsAsyncIterable(preparedParts)) {
@@ -286,8 +335,7 @@ export class AgentChannel {
     } finally {
       if (this.controller === controller) this.controller = undefined
     }
-    const id = this.session.getSessionId?.()
-    if (id) this.hooks.onSessionId?.(id)
+    this.reportSessionId(this.session.getSessionId?.())
     this.hooks.onTurnEnd?.({ text, ...(error && !controller.signal.aborted ? { error } : {}), aborted: controller.signal.aborted })
   }
 
@@ -316,7 +364,17 @@ export class AgentChannel {
     else this.settleIdle()
   }
 
+  /** Once per new id: the agent's session id, as soon as anything knows it. */
+  private reportSessionId(id: string | undefined): void {
+    if (!id || id === this.reportedSessionId) return
+    this.reportedSessionId = id
+    this.hooks.onSessionId?.(id)
+  }
+
   private onPart(part: RuntimeStreamPart, noteError: (message: string) => void): void {
+    // Codex's parts carry no session id, but it has its thread from the start: ask, so a turn a
+    // restart cuts off already has its session on disk.
+    this.reportSessionId(this.session.getSessionId?.())
     if (part.type === 'tool-approval-request') {
       const call = (part as { toolCall?: { toolName?: string; input?: unknown } }).toolCall ?? {}
       const approvalId = (part as { approvalId: string }).approvalId

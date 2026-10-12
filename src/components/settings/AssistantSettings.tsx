@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { AlertCircle, Bot, Check, Loader2, Moon, Save } from "lucide-react"
+import { FormattedMessage, useIntl } from "react-intl"
 import type { AssistantAgentChoice, AssistantConfig } from "@shared/assistant"
 import { api } from "@/lib/api"
 import { assistantApi } from "@/lib/assistant-api"
@@ -42,6 +43,7 @@ function sameChoice(a: AssistantAgentChoice | null, b: AssistantAgentChoice | nu
  * do the work.
  */
 export function AssistantSettings() {
+  const intl = useIntl()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [available, setAvailable] = useState<Record<string, boolean>>({})
@@ -70,7 +72,11 @@ export function AssistantSettings() {
   const saveButton = (dirty: boolean) => (
     <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => void save()} disabled={!dirty || saving}>
       {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-      {justSaved ? "Saved" : "Save"}
+      {justSaved ? (
+        <FormattedMessage id="assistant.settings.saved" defaultMessage="Saved" />
+      ) : (
+        <FormattedMessage id="assistant.settings.save" defaultMessage="Save" />
+      )}
     </Button>
   )
 
@@ -96,37 +102,52 @@ export function AssistantSettings() {
         <div className="flex items-start gap-3">
           <Bot className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
-            <div className="mb-1 text-sm font-semibold">Agents</div>
+            <div className="mb-1 text-sm font-semibold">
+              <FormattedMessage id="assistant.settings.agents" defaultMessage="Agents" />
+            </div>
             <div className="text-xs text-muted-foreground">
-              Each part of the assistant can run on Operon or on an agent you already use — Claude Code, Codex or
-              OpenCode — with your own subscription. Work done on them counts toward that subscription&apos;s limits.
+              <FormattedMessage
+                id="assistant.settings.agentsHint"
+                defaultMessage="Each part of the assistant can run on Operon or on an agent you already use — Claude Code, Codex or OpenCode — with your own subscription. Work done on them counts toward that subscription's limits."
+              />
             </div>
           </div>
         </div>
 
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            <Loader2 className="h-4 w-4 animate-spin" /> <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
           </div>
         ) : (
           <>
             <AgentField
-              label="Conversation"
-              hint="Talks to you, remembers things, hands out tasks. A fast model is enough. A change starts a fresh session on your next message; the conversation carries over."
+              label={intl.formatMessage({ id: "assistant.settings.conversation", defaultMessage: "Conversation" })}
+              hint={intl.formatMessage({
+                id: "assistant.settings.conversationHint",
+                defaultMessage:
+                  "Talks to you, remembers things, hands out tasks. A fast model is enough. A change starts a fresh session on your next message; the conversation carries over.",
+              })}
               value={draft.main}
               available={available}
               onChange={(main) => main && setDraft((d) => ({ ...d, main }))}
             />
             <AgentField
-              label="Work"
-              hint="Does the work: files, apps, the web. Applies to the next task; a task you continue stays on the agent that started it."
+              label={intl.formatMessage({ id: "assistant.settings.work", defaultMessage: "Work" })}
+              hint={intl.formatMessage({
+                id: "assistant.settings.workHint",
+                defaultMessage:
+                  "Does the work: files, apps, the web. Applies to the next task; a task you continue stays on the agent that started it.",
+              })}
               value={draft.worker}
               available={available}
               onChange={(worker) => worker && setDraft((d) => ({ ...d, worker }))}
             />
             <AgentField
-              label="Background checks"
-              hint="The heartbeat and scheduled tasks, which run with nobody watching — every 30 minutes for the heartbeat."
+              label={intl.formatMessage({ id: "assistant.settings.background", defaultMessage: "Background checks" })}
+              hint={intl.formatMessage({
+                id: "assistant.settings.backgroundHint",
+                defaultMessage: "The heartbeat and scheduled tasks, which run with nobody watching — every 30 minutes for the heartbeat.",
+              })}
               value={draft.background}
               available={available}
               sameAsWork
@@ -147,10 +168,14 @@ export function AssistantSettings() {
         <div className="flex items-start gap-3">
           <Moon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
-            <div className="mb-1 text-sm font-semibold">Quiet hours</div>
+            <div className="mb-1 text-sm font-semibold">
+              <FormattedMessage id="assistant.settings.quietHours" defaultMessage="Quiet hours" />
+            </div>
             <div className="text-xs text-muted-foreground">
-              The assistant keeps checking in the background, but during these hours it only speaks up for something
-              urgent. Everything else waits until they end.
+              <FormattedMessage
+                id="assistant.settings.quietHoursHint"
+                defaultMessage="The assistant keeps checking in the background, but during these hours it only speaks up for something urgent. Everything else waits until they end."
+              />
             </div>
           </div>
         </div>
@@ -159,15 +184,17 @@ export function AssistantSettings() {
             <div className="flex items-center gap-2 text-xs">
               <Input
                 type="time"
-                aria-label="Quiet hours start"
+                aria-label={intl.formatMessage({ id: "assistant.settings.quietStart", defaultMessage: "Quiet hours start" })}
                 value={draft.quietStart}
                 onChange={(e) => setDraft((d) => ({ ...d, quietStart: e.target.value }))}
                 className="h-8 w-28 border-border/50 bg-background/80 text-xs"
               />
-              <span className="text-muted-foreground">to</span>
+              <span className="text-muted-foreground">
+                <FormattedMessage id="assistant.settings.to" defaultMessage="to" />
+              </span>
               <Input
                 type="time"
-                aria-label="Quiet hours end"
+                aria-label={intl.formatMessage({ id: "assistant.settings.quietEnd", defaultMessage: "Quiet hours end" })}
                 value={draft.quietEnd}
                 onChange={(e) => setDraft((d) => ({ ...d, quietEnd: e.target.value }))}
                 className="h-8 w-28 border-border/50 bg-background/80 text-xs"
@@ -199,6 +226,7 @@ function AgentField({
   sameAsWork?: boolean
   onChange: (value: AssistantAgentChoice | null) => void
 }) {
+  const intl = useIntl()
   const [models, setModels] = useState<ModelOption[] | null>(null)
   const providerId = value?.providerId
 
@@ -221,8 +249,15 @@ function AgentField({
 
   const modelId = value?.modelId ?? ""
   // A saved model that is no longer offered still shows, so the user sees why.
-  const options = models && modelId && !models.some((m) => m.modelId === modelId) ? [{ modelId, name: `${modelId} (unavailable)` }, ...models] : (models ?? [])
-  const defaultLabel = providerId === "custom" ? "First model set up" : "Agent default"
+  const unavailable = intl.formatMessage(
+    { id: "assistant.settings.modelUnavailable", defaultMessage: "{model} (unavailable)" },
+    { model: modelId },
+  )
+  const options = models && modelId && !models.some((m) => m.modelId === modelId) ? [{ modelId, name: unavailable }, ...models] : (models ?? [])
+  const defaultLabel =
+    providerId === "custom"
+      ? intl.formatMessage({ id: "assistant.settings.firstModel", defaultMessage: "First model set up" })
+      : intl.formatMessage({ id: "assistant.settings.agentDefault", defaultMessage: "Agent default" })
 
   return (
     <div className="space-y-1.5">
@@ -238,13 +273,18 @@ function AgentField({
           <SelectContent>
             {sameAsWork && (
               <SelectItem value={SAME_AS_WORK} className="text-xs">
-                Same as Work
+                <FormattedMessage id="assistant.settings.sameAsWork" defaultMessage="Same as Work" />
               </SelectItem>
             )}
             {AGENTS.map((agent) => (
               <SelectItem key={agent.id} value={agent.id} disabled={available[agent.id] === false} className="text-xs">
                 {agent.label}
-                {available[agent.id] === false ? " (not installed)" : ""}
+                {available[agent.id] === false && (
+                  <>
+                    {" "}
+                    <FormattedMessage id="assistant.settings.notInstalled" defaultMessage="(not installed)" />
+                  </>
+                )}
               </SelectItem>
             ))}
           </SelectContent>
@@ -252,7 +292,13 @@ function AgentField({
         {value && (
           <Select value={modelId || DEFAULT_MODEL} onValueChange={(next) => onChange({ providerId: value.providerId, modelId: next === DEFAULT_MODEL ? "" : next })}>
             <SelectTrigger className="h-8 w-full max-w-[320px] border-border/50 bg-background/80 text-xs">
-              <SelectValue placeholder={models === null ? "Loading models…" : defaultLabel} />
+              <SelectValue
+                placeholder={
+                  models === null
+                    ? intl.formatMessage({ id: "assistant.settings.loadingModels", defaultMessage: "Loading models…" })
+                    : defaultLabel
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={DEFAULT_MODEL} className="text-xs">

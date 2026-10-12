@@ -16,8 +16,9 @@ export const assistantApi = {
   state: (locale?: string) => request<AssistantState>(`/assistant/state${locale ? `?locale=${encodeURIComponent(locale)}` : ''}`),
   olderMessages: (before: number) =>
     request<{ messages: AssistantMessage[]; hasMore: boolean }>(`/assistant/messages?before=${before}`),
-  send: (text: string, attachments: AssistantAttachment[] = []) =>
-    request<{ message: AssistantMessage }>('/assistant/messages', { method: 'POST', body: JSON.stringify({ text, attachments }) }),
+  /** `id`: the client's own id for the message, which the server keeps. */
+  send: (text: string, attachments: AssistantAttachment[] = [], id?: string) =>
+    request<{ message: AssistantMessage }>('/assistant/messages', { method: 'POST', body: JSON.stringify({ text, attachments, id }) }),
   stopActivity: (id: string) =>
     request<{ stopped: boolean }>(`/assistant/activities/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
   followUp: (id: string, text: string) =>
@@ -36,6 +37,8 @@ export const assistantApi = {
     request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   deleteSchedule: (id: number) => request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'DELETE' }),
   runSchedule: (id: number) => request<{ started: number }>(`/assistant/schedules/${id}/run`, { method: 'POST' }),
+  clearHeartbeatLimit: (service: string) =>
+    request<{ ok: boolean }>(`/assistant/heartbeat/limits/${encodeURIComponent(service)}`, { method: 'DELETE' }),
   getConfig: () => request<AssistantConfig>('/assistant/config'),
   setConfig: (patch: Partial<AssistantConfig>) =>
     request<AssistantConfig>('/assistant/config', { method: 'PUT', body: JSON.stringify(patch) }),

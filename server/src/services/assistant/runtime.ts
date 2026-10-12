@@ -15,7 +15,9 @@ import type {
   ProfileFile,
   ProfileFileName,
 } from '../../../../shared/assistant.js'
-import type { ApprovalIcon, AuditRecord } from '../../../../shared/assistant.js'
+import type { ApprovalIcon, AssistantSchedule, AuditRecord, ScheduleRunOutcome } from '../../../../shared/assistant.js'
+import { INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX } from '../../../../shared/assistant.js'
+import type { AssistantBlockerReason } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobTask } from '../../types/cronjob.js'
 import type { AssistantCronRunner } from '../cronjob.js'
@@ -32,8 +34,18 @@ import { getBrowserUseConfig } from '../browser-use-config.js'
 import { getChromeUseConfig } from '../chrome-use-config.js'
 import { getComputerUseConfig } from '../computer-use-config.js'
 import { listOperonModels } from '../operon-runtime/index.js'
-import { pluginManager } from '../operon-runtime/plugins.js'
-import { AgentChannel, isAssistantProvider, openRuntimeSession, PROVIDER_LABEL, type TurnInput } from './agents.js'
+import { ensurePluginsLoaded, pluginManager } from '../operon-runtime/plugins.js'
+import { onMcpAuthChanged } from '../operon-runtime/mcp-oauth.js'
+import { checkPluginSignIns, listPluginMcpMounts, pluginMcpNeedingSignIn } from '../operon-runtime/plugin-mcp.js'
+import {
+  AgentChannel,
+  isAssistantProvider,
+  openRuntimeSession,
+  PROVIDER_LABEL,
+  workerServiceServers,
+  type AssistantProviderId,
+  type TurnInput,
+} from './agents.js'
 import { AssistantApprovals, type ApprovalAnswer } from './approvals.js'
 import { buildUserInput } from './attachments.js'
 import { ensureProfileFiles, listProfileFiles, parseIdentity, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
@@ -53,7 +65,7 @@ import {
 import { buildSessionSeed, buildWrapUpTranscript, ContextReminder, rotationDue } from './rotation.js'
 import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours, removeLines } from './schedule.js'
 import { setAssistantToolHost, type AssistantToolHost } from './tools.js'
-import { WorkerPool, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerSessionRef } from './workers.js'
+import { WorkerPool, type InFlightRun, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerSessionRef } from './workers.js'
 
 type Storage = StorageAdapter & AssistantStorageAdapter & CronjobStorageAdapter
 
@@ -68,12 +80,20 @@ const STARTED_KEY = 'assistant:session_started_at'
 const SEED_KEY = 'assistant:session_seed'
 /** The agent session each worker ran in, so a finished task can be continued. */
 const WORKER_SESSIONS_KEY = 'assistant:worker_sessions'
+/** Worker runs in progress (InFlightRun); what is left here at startup was cut off by the restart. */
+const WORKER_RUNS_KEY = 'assistant:worker_runs'
 const WORKER_SESSIONS_KEPT = 300
 const LOCALE_KEY = 'assistant:ui_locale'
 /** What the heartbeat has told the user lately, so it does not say it twice. */
 const HEARTBEAT_TOLD_KEY = 'assistant:heartbeat_told'
 /** Findings held back during quiet hours, said at the first check after. */
 const HEARTBEAT_HELD_KEY = 'assistant:heartbeat_held'
+/** Services the heartbeat can't check at all (plan, permissions), by the name its session had them under. */
+const HEARTBEAT_LIMITS_KEY = 'assistant:heartbeat_limits'
+/** A limit is tried again after this: the plan may have changed. */
+const HEARTBEAT_LIMIT_MS = 7 * 24 * 3600_000
+
+type HeartbeatLimit = { name: string; reason: string; until: number }
 const TOLD_KEPT = 12
 const TOLD_TTL_MS = 3 * 24 * 60 * 60_000
 const QUIET_DEFAULT = { quietStart: '23:00', quietEnd: '08:00' }
@@ -190,19 +210,26 @@ export class AssistantRuntime {
   private heartbeatConnectors: string[] = []
   private typing = false
   private onboardingKicked = false
+  /** Tasks the last run of the app cut off, to carry on (resumeInterrupted). */
+  private interrupted: Array<[string, InFlightRun]> = []
 
   constructor(private readonly storage: Storage) {
     this.bus.setMaxListeners(50)
     ensureProfileFiles()
     for (const dir of [ASSISTANT_WORKSPACE, ASSISTANT_CONVERSATION_DIR, ASSISTANT_WRAPUP_DIR]) mkdirSync(dir, { recursive: true })
 
-    // Workers live inside this process; whatever was running when it last stopped is gone.
+    // Workers live inside this process; whatever was running when it last stopped is gone. The
+    // tasks the user asked for are carried on (resumeInterrupted); a heartbeat or scheduled run
+    // just waits for its next turn.
+    const cut = storage.get<Record<string, InFlightRun>>(WORKER_RUNS_KEY) ?? {}
+    this.interrupted = Object.entries(cut).filter(([, run]) => run.kind === 'task' && !run.unattended)
+    storage.set(WORKER_RUNS_KEY, {})
     for (const a of storage.assistantActivityList(PAGE_SIZE)) {
       if (a.status !== 'running' && a.status !== 'waiting') continue
       storage.assistantActivityUpsert({
         ...a,
         status: 'stopped',
-        summary: 'Interrupted when the app restarted',
+        summary: INTERRUPTED_SUMMARY,
         finishedAt: a.finishedAt ?? Date.now(),
         steps: a.steps.map((s) => (s.status === 'running' ? { ...s, status: 'failed' as const } : s)),
       })
@@ -218,6 +245,7 @@ export class AssistantRuntime {
           this.typing = typing
           this.emit({ type: 'typing', typing })
         },
+        activity: (activity) => this.saveActivity(activity),
       },
       () => randomUUID(),
     )
@@ -233,10 +261,20 @@ export class AssistantRuntime {
         },
         open: (params) => openRuntimeSession(params),
         activity: (activity) => this.saveActivity(activity),
-        stored: (id) => storage.assistantActivityGet(id) ?? undefined,
+        // The main agent's own activities have no task behind them to pick back up.
+        stored: (id) => {
+          const activity = storage.assistantActivityGet(id)
+          return activity && activity.agent !== 'main' ? activity : undefined
+        },
         approve: (id, toolName, input) => this.onWorkerApproval(id, toolName, input),
         saveSession: (id, ref) => this.saveWorkerSession(id, ref),
         loadSession: (id) => this.workerSessions()[id],
+        saveRun: (id, run) => this.storage.set(WORKER_RUNS_KEY, { ...this.storage.get<Record<string, InFlightRun>>(WORKER_RUNS_KEY), [id]: run }),
+        clearRun: (id) => {
+          const runs = { ...this.storage.get<Record<string, InFlightRun>>(WORKER_RUNS_KEY) }
+          delete runs[id]
+          this.storage.set(WORKER_RUNS_KEY, runs)
+        },
         settled: (outcome) => this.onWorkerSettled(outcome),
       },
       () => randomUUID(),
@@ -271,9 +309,20 @@ export class AssistantRuntime {
       this.emit({ type: 'file', file })
     })
 
-    this.schedules = new AssistantSchedules(storage, (schedules) => this.emit({ type: 'schedules', schedules }))
+    this.schedules = new AssistantSchedules(storage, (schedules) => this.emit({ type: 'schedules', schedules: this.withSignInState(schedules) }))
     // The heartbeat starts with the assistant's first use, and is always on from then on.
     this.schedules.ensureHeartbeat()
+    // Connecting (or disconnecting) a plugin changes what the heartbeat card says right away.
+    const pushSchedules = () => this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
+    onMcpAuthChanged(pushSchedules)
+    // Which plugins are signed in is only known once the plugin store has loaded, and whether a
+    // stored grant still works only once something has tried it.
+    void ensurePluginsLoaded()
+      .then(() => {
+        pushSchedules()
+        return checkPluginSignIns()
+      })
+      .then(pushSchedules, (error: unknown) => console.error('[assistant] plugin load failed:', error))
   }
 
   private saveActivity(activity: Activity): void {
@@ -313,7 +362,7 @@ export class AssistantRuntime {
     }
     // Nobody is watching a heartbeat or a scheduled run: skip the step, the result says so.
     if (this.workers.isUnattended(workerId)) {
-      this.audit({ id: randomUUID(), ...entry, detail: `Skipped while running unattended: ${request.message}`, decision: 'denied', at: Date.now() })
+      this.audit({ id: randomUUID(), ...entry, detail: `${UNATTENDED_SKIP_PREFIX}${request.message}`, decision: 'denied', at: Date.now() })
       return { action: 'decline' }
     }
     const answer = await this.approvals.request(entry)
@@ -333,7 +382,7 @@ export class AssistantRuntime {
     const icon = toolIcon(toolName)
     const args = record(input)
     if (this.workers.isUnattended(activityId)) {
-      this.audit({ id: randomUUID(), title: label, detail: `Skipped while running unattended: ${detail}`, icon, decision: 'denied', at: Date.now(), activityId })
+      this.audit({ id: randomUUID(), title: label, detail: `${UNATTENDED_SKIP_PREFIX}${detail}`, icon, decision: 'denied', at: Date.now(), activityId })
       return { type: 'deny', reason: "This step needs the user's approval and nobody is watching this run. Skip it and say in your result what you could not do and why." }
     }
     const answer = await this.approvals.request({ title: label, detail, icon, activityId, ...(Object.keys(args).length ? { args } : {}) })
@@ -383,17 +432,25 @@ export class AssistantRuntime {
    * The agent and model behind a choice, ready to run — or why not. An empty operon model falls
    * back to the first one set up; an empty model on the other agents is their own default.
    */
-  private async resolveChoice(choice: AssistantAgentChoice): Promise<WorkerAgent | { blocker: string }> {
+  private async resolveChoice(choice: AssistantAgentChoice): Promise<WorkerAgent | { blocker: string; reason: AssistantBlockerReason }> {
     const { providerId } = choice
-    if (!isAssistantProvider(providerId)) return { blocker: `The assistant can't run on "${providerId}". Pick Operon, Claude Code, Codex or OpenCode in Settings → Assistant.` }
+    if (!isAssistantProvider(providerId)) {
+      return {
+        blocker: `The assistant can't run on "${providerId}". Pick Operon, Claude Code, Codex or OpenCode in Settings → Assistant.`,
+        reason: { kind: 'unknown-agent', agent: providerId },
+      }
+    }
     const known = getProviders().find((p) => p.id === providerId)
     if (known && known.available === false) {
-      return { blocker: `${PROVIDER_LABEL[providerId]} is not installed on this computer. Install it, or pick another agent in Settings → Assistant.` }
+      return {
+        blocker: `${PROVIDER_LABEL[providerId]} is not installed on this computer. Install it, or pick another agent in Settings → Assistant.`,
+        reason: { kind: 'not-installed', agent: PROVIDER_LABEL[providerId] },
+      }
     }
     if (providerId !== 'custom' || choice.modelId) return { providerId, modelId: choice.modelId }
     const models = await listOperonModels().catch(() => [])
     const fallback = models[0]?.id
-    return fallback ? { providerId, modelId: fallback } : { blocker: NO_MODEL }
+    return fallback ? { providerId, modelId: fallback } : { blocker: NO_MODEL, reason: { kind: 'no-model' } }
   }
 
   /** The agent a kind of session runs on. Throws (with a message for the user) when none can. */
@@ -406,11 +463,11 @@ export class AssistantRuntime {
   }
 
   /** Why the assistant cannot run at all right now, if it cannot. */
-  private async blocker(): Promise<string | undefined> {
+  private async blocker(): Promise<{ blocker: string; reason: AssistantBlockerReason } | undefined> {
     const config = this.getConfig()
     for (const choice of [config.main, config.worker]) {
       const resolved = await this.resolveChoice(choice)
-      if ('blocker' in resolved) return resolved.blocker
+      if ('blocker' in resolved) return resolved
     }
     return undefined
   }
@@ -433,7 +490,6 @@ export class AssistantRuntime {
   private readonly toolHost: AssistantToolHost = {
     startTask: async ({ title, prompt }) => {
       const { id } = await this.workers.start({ kind: 'task', title, prompt, unattended: false, visible: true, asked: this.latestUserText() })
-      this.projector.dispatch(id)
       return id
     },
     // The main agent's message is its own rewording; the user's words are what it acts on.
@@ -442,6 +498,7 @@ export class AssistantRuntime {
     listTasks: () =>
       this.storage
         .assistantActivityList(LISTED_TASKS)
+        .filter((a) => a.agent !== 'main')
         .map((a) => ({ id: a.id, title: a.title, status: a.status, summary: a.summary })),
     progress: (activityId, text) => {
       if (!this.workers.progress(activityId, text) || this.workers.isUnattended(activityId)) return
@@ -465,16 +522,60 @@ export class AssistantRuntime {
     this.emit({ type: 'file', file: readProfileFile(name) })
   }
 
-  /** Services the heartbeat can look at: the user's MCP servers and the plugins' (node_repl is a tool, not a service). */
-  private async connectors(): Promise<string[]> {
-    const names = new Set([...Object.keys(await loadUserMcpServers()), ...Object.keys(pluginManager.mcpServerConfigs())])
+  /**
+   * Services the heartbeat can look at, by the names its session has them under. On an external
+   * agent that is exactly what the worker gets mounted ({@link workerServiceServers}); Operon's own
+   * harness loads the user's MCP config and the plugins itself. (node_repl is a tool, not a service.)
+   */
+  private async connectors(providerId: AssistantProviderId | undefined): Promise<string[]> {
+    const external = providerId !== undefined && providerId !== 'custom'
+    const names = external
+      ? new Set(Object.keys(workerServiceServers(providerId)))
+      : new Set([...Object.keys(await loadUserMcpServers()), ...Object.keys(pluginManager.mcpServerConfigs())])
     names.delete('node_repl')
+    // Not signed in: nothing to check there yet. The heartbeat card says so (withSignInState);
+    // left in, every run would come back "couldn't check" for the same standing reason.
+    for (const plugin of pluginMcpNeedingSignIn()) names.delete(external ? plugin.name : plugin.runtimeName)
+    // Can't be checked at all; the card says so, and asking again every 30 minutes changes nothing.
+    for (const service of Object.keys(this.heartbeatLimits())) names.delete(service)
     return [...names].sort()
   }
 
+  /** The standing limits that haven't expired (expired ones are dropped on the way). */
+  private heartbeatLimits(): Record<string, HeartbeatLimit> {
+    const all = this.storage.get<Record<string, HeartbeatLimit>>(HEARTBEAT_LIMITS_KEY) ?? {}
+    const now = Date.now()
+    const live = Object.fromEntries(Object.entries(all).filter(([, limit]) => limit.until > now))
+    if (Object.keys(live).length !== Object.keys(all).length) this.storage.set(HEARTBEAT_LIMITS_KEY, live)
+    return live
+  }
+
+  /** Forget a limit so the next check tries the service again (the user upgraded, granted access…). */
+  clearHeartbeatLimit(service: string): boolean {
+    const limits = this.heartbeatLimits()
+    if (!(service in limits)) return false
+    delete limits[service]
+    this.storage.set(HEARTBEAT_LIMITS_KEY, limits)
+    this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
+    return true
+  }
+
+  /** The heartbeat, carrying the plugins it skips because they aren't signed in. */
+  private withSignInState(schedules: AssistantSchedule[]): AssistantSchedule[] {
+    const byPlugin = new Map(pluginMcpNeedingSignIn().map((p) => [p.pluginId, { pluginId: p.pluginId, name: p.pluginName }]))
+    const notConnected = [...byPlugin.values()]
+    const limited = Object.entries(this.heartbeatLimits()).map(([service, limit]) => ({ service, ...limit }))
+    return schedules.map((s) =>
+      s.builtin === 'heartbeat' && (notConnected.length || limited.length)
+        ? { ...s, ...(notConnected.length ? { notConnected } : {}), ...(limited.length ? { limited } : {}) }
+        : s,
+    )
+  }
+
   private workerInstructions(kind: WorkerKind, unattended: boolean): string {
-    if (kind === 'heartbeat') return buildHeartbeatInstructions(filesRecord(), this.heartbeatConnectors)
-    return buildWorkerInstructions(filesRecord(), { surfaces: workerSurfaces(), unattended })
+    const locale = this.storage.get<string>(LOCALE_KEY)
+    if (kind === 'heartbeat') return buildHeartbeatInstructions(filesRecord(), this.heartbeatConnectors, locale)
+    return buildWorkerInstructions(filesRecord(), { surfaces: workerSurfaces(), unattended, locale })
   }
 
   private workerSessions(): Record<string, WorkerSessionRef> {
@@ -722,7 +823,7 @@ export class AssistantRuntime {
   /** One due run of the heartbeat or a scheduled task. Resolves when the run is over. */
   readonly runSchedule: AssistantCronRunner = async (job) => {
     const blocker = await this.blocker()
-    if (blocker) return { status: 'error', error: blocker }
+    if (blocker) return { status: 'error', error: blocker.blocker }
     return this.schedules.isHeartbeat(job.id) ? this.runHeartbeat(job) : this.runScheduled(job)
   }
 
@@ -742,13 +843,19 @@ export class AssistantRuntime {
     const quiet = inQuietHours(new Date(now), config.quietStart, config.quietEnd)
     const held = this.storage.get<Held[]>(HEARTBEAT_HELD_KEY) ?? []
     const files = filesRecord()
-    const connectors = await this.connectors()
-    const logRun = (outcome: 'silent' | 'found' | 'failed', note?: string, activityId?: string) =>
+    // The agent it will run on decides the services' names; with none, the start below fails anyway.
+    const agent = await this.agentFor('heartbeat').catch(() => undefined)
+    await ensurePluginsLoaded()
+      .then(() => checkPluginSignIns())
+      .catch((error: unknown) => console.error('[assistant] plugin load failed:', error))
+    this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
+    const connectors = await this.connectors(agent?.providerId)
+    const logRun = (outcome: ScheduleRunOutcome, note?: string, activityId?: string) =>
       this.schedules.recordRun({ id: randomUUID(), scheduleId: job.id, at: now, outcome, ...(note ? { note } : {}), ...(activityId ? { activityId } : {}) })
 
     let found: Held[] = []
     if (!heartbeatHasWork(files.heartbeat.content, files.memory.content, connectors)) {
-      logRun('silent', 'Nothing to check')
+      logRun('silent', NOTHING_TO_CHECK_NOTE)
     } else {
       this.heartbeatConnectors = connectors
       const { id, done } = await this.workers.start({
@@ -767,6 +874,27 @@ export class AssistantRuntime {
       const findings = (Array.isArray(args?.findings) ? args.findings : [])
         .filter((f) => typeof f.text === 'string' && f.text.trim())
         .map((f) => ({ text: f.text.trim(), urgent: f.urgent === true }))
+      // By the plugin's own name ("Notion"), not the mount name the agent saw (plugin_notion); the
+      // run log already says "Couldn't check", so the note is just which and why.
+      const displayName = new Map(listPluginMcpMounts().flatMap((m) => [[m.name, m.pluginName], [m.runtimeName, m.pluginName]] as const))
+      const reported = (Array.isArray(args?.unchecked) ? args.unchecked : [])
+        .filter((u) => typeof u.service === 'string' && u.service.trim())
+        .map((u) => ({
+          service: u.service.trim(),
+          name: displayName.get(u.service.trim()) ?? u.service.trim(),
+          reason: typeof u.reason === 'string' ? u.reason.trim() : '',
+          limited: u.kind === 'limited',
+        }))
+      // A standing limit goes on the card and out of later checks; it doesn't make this run partial.
+      const newLimits = reported.filter((u) => u.limited)
+      if (newLimits.length) {
+        const limits = this.heartbeatLimits()
+        for (const u of newLimits) limits[u.service] = { name: u.name, reason: u.reason, until: now + HEARTBEAT_LIMIT_MS }
+        this.storage.set(HEARTBEAT_LIMITS_KEY, limits)
+        this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
+      }
+      const unchecked = reported.filter((u) => !u.limited).map((u) => (u.reason ? `${u.name} (${u.reason})` : u.name))
+      const uncheckedNote = unchecked.length ? unchecked.join(', ') : undefined
       const expired = Array.isArray(args?.remove_lines) ? args.remove_lines.filter((l): l is string => typeof l === 'string') : []
       if (expired.length) {
         const current = readProfileFile('heartbeat').content
@@ -774,7 +902,9 @@ export class AssistantRuntime {
         if (next !== current) this.emit({ type: 'file', file: writeProfileFile('heartbeat', next, 'assistant') })
       }
       if (!findings.length) {
-        logRun('silent')
+        // A check that didn't happen must not read as "nothing new".
+        if (uncheckedNote) logRun('partial', uncheckedNote)
+        else logRun('silent')
         // Nothing worth continuing: the run log line is the whole record.
         this.forgetWorkerSession(id)
       } else {
@@ -784,7 +914,7 @@ export class AssistantRuntime {
         activity.report = findings.map((f) => `- ${f.urgent ? '(urgent) ' : ''}${f.text}`).join('\n')
         this.saveActivity(activity)
         found = findings.map((f) => ({ ...f, at: now, activityId: id }))
-        logRun('found', findings[0]!.text, id)
+        logRun('found', uncheckedNote ? `${findings[0]!.text} · couldn't check ${uncheckedNote}` : findings[0]!.text, id)
       }
     }
 
@@ -882,9 +1012,9 @@ export class AssistantRuntime {
       audit: this.storage.assistantAuditList(PAGE_SIZE),
       files: listProfileFiles(),
       config: this.getConfig(),
-      schedules: this.schedules.list(),
+      schedules: this.withSignInState(this.schedules.list()),
       typing: this.typing,
-      ...(blocker ? { blocker } : {}),
+      ...(blocker ? { blocker: blocker.blocker, blockerReason: blocker.reason } : {}),
     }
   }
 
@@ -900,9 +1030,10 @@ export class AssistantRuntime {
     this.tellMain(ONBOARDING_KICK, { kind: 'system' })
   }
 
-  async send(text: string, attachments: AssistantAttachment[] = []): Promise<AssistantMessage> {
+  /** @param id the client's own id for it (it shows the message before this returns); a fresh one otherwise. */
+  async send(text: string, attachments: AssistantAttachment[] = [], id?: string): Promise<AssistantMessage> {
     const message: AssistantMessage = {
-      id: randomUUID(),
+      id: id ?? randomUUID(),
       role: 'user',
       text,
       createdAt: Date.now(),
@@ -911,12 +1042,28 @@ export class AssistantRuntime {
     this.storage.assistantMessageUpsert(message)
     this.emit({ type: 'message', message })
     const input = buildUserInput(text, attachments)
-    try {
-      await this.toMain({ text: input.text, images: input.images, cause: { kind: 'user' } }, message.createdAt)
-    } catch (error) {
-      this.sayFromHost(error instanceof Error ? error.message : String(error))
-    }
+    // Not awaited: reaching the main agent (opening its session, the first time) can take seconds,
+    // and the composer waits on this request. Two sends in a row still arrive in order — the
+    // session is opened once (ensureMain) and each delivery queues behind the last.
+    void this.toMain({ text: input.text, images: input.images, cause: { kind: 'user' } }, message.createdAt).catch((error: unknown) =>
+      this.sayFromHost(error instanceof Error ? error.message : String(error)),
+    )
     return message
+  }
+
+  /**
+   * Carry on the tasks the app's last run cut off, each on its own session where it had one. Once:
+   * the list is taken. Failures only reach the log — the activity then stays as it was left,
+   * stopped, and the user can still pick it up from there.
+   */
+  resumeInterrupted(): void {
+    const cut = this.interrupted
+    this.interrupted = []
+    for (const [id, run] of cut) {
+      void this.workers
+        .resume(id, run)
+        .catch((error: unknown) => console.warn(`[assistant] could not carry on interrupted task ${id}:`, error))
+    }
   }
 
   async stopActivity(id: string): Promise<boolean> {
@@ -948,4 +1095,15 @@ let instance: AssistantRuntime | undefined
 export function getAssistantRuntime(storage: Storage): AssistantRuntime {
   instance ??= new AssistantRuntime(storage)
   return instance
+}
+
+/**
+ * At startup: when the app's last run cut tasks off mid-way, bring the assistant up and carry them
+ * on. Otherwise the assistant stays unstarted — starting it is what turns the heartbeat on, which
+ * must wait for someone to actually use it.
+ */
+export function resumeInterruptedAssistantWork(storage: Storage): void {
+  const cut = storage.get<Record<string, InFlightRun>>(WORKER_RUNS_KEY)
+  if (!cut || Object.keys(cut).length === 0) return
+  getAssistantRuntime(storage).resumeInterrupted()
 }

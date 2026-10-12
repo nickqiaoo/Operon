@@ -23,6 +23,29 @@ const ONBOARDING = `## First meeting
 You don't have a name yet, so this is your first conversation with the user. Introduce yourself in one or two warm sentences, then ask — one question per message — what you should call them, and what they would like to call you. Save each answer with set_identity as soon as you have it. When both are set, say a short line that you are ready and they can hand you anything. Don't explain how you work unless asked.`
 
 /**
+ * The app's language as a model can't misread it. "zh-CN" alone has had helpers write in
+ * Traditional characters; naming the script settles it.
+ */
+export function languageName(locale: string | undefined): string | undefined {
+  if (!locale) return undefined
+  if (/^zh(-(CN|SG|Hans.*))?$/i.test(locale)) return 'Simplified Chinese (简体中文)'
+  if (/^zh-(TW|HK|MO|Hant.*)$/i.test(locale)) return 'Traditional Chinese (繁體中文)'
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(locale) ?? locale
+  } catch {
+    return locale
+  }
+}
+
+/** The language rule every session gets: everything the user may see is in this language. */
+function languageRule(locale: string | undefined): string {
+  const name = languageName(locale)
+  return name
+    ? `Everything the user may see — replies, titles, summaries, findings, reasons, and the one-line descriptions of your own actions — is in ${name}, unless the user writes to you in another language.`
+    : "Write in the user's language."
+}
+
+/**
  * System prompt for the main agent, the one the user talks to. Built once per session and kept
  * (prompt cache): the time of day and later edits to memory.md / heartbeat.md arrive as turn
  * reminders instead (rotation.ts `ContextReminder`).
@@ -38,7 +61,7 @@ export function buildMainInstructions(files: Files, uiLocale?: string, seed?: st
   const memorySize = files.memory.content.length
   return [
     who,
-    `Today is ${todayLine()}; you are told the time as the day goes on.${uiLocale ? ` The user's app is set to ${uiLocale}: until they write to you, speak that language.` : ''}`,
+    `Today is ${todayLine()}; you are told the time as the day goes on. ${languageRule(uiLocale)}`,
     '',
     fileBlock('identity', files.identity.content),
     fileBlock('soul', files.soul.content),
@@ -129,6 +152,8 @@ function surfaceGuide(surfaces: WorkerSurfaces): string {
 /** What a run of a worker is: asked for by the user, or a scheduled run nobody is watching. */
 export interface WorkerRunInfo {
   surfaces?: WorkerSurfaces
+  /** The app's interface language (`zh-CN`…). */
+  locale?: string
   /** Scheduled: steps that need the user's approval are skipped, and progress notes go nowhere. */
   unattended?: boolean
 }
@@ -152,13 +177,13 @@ ${info.unattended
 - You cannot ask the user anything. If you are blocked (missing access, needs a decision), stop and say exactly what is needed.
 - If you receive a new instruction while working, fold it into the same task.
 - Your last action is always finish_task — even for a one-step task — with a short title, a one-line summary of the outcome (the answer itself, not "here is the content:") and a status (done / partial / failed). The user sees this summary in their activity list. Put the full result in your reply before it.
-- Write in the user's language.`,
+- ${languageRule(info.locale)}`,
     ...(surfaceGuide(surfaces) ? ['', surfaceGuide(surfaces)] : []),
   ].join('\n')
 }
 
 /** System prompt for the heartbeat: a quick look around, handing anything new to the assistant. */
-export function buildHeartbeatInstructions(files: Files, connectors: readonly string[]): string {
+export function buildHeartbeatInstructions(files: Files, connectors: readonly string[], locale?: string): string {
   const identity = parseIdentity(files.identity.content)
   return [
     `You are the background check of ${identity.name ?? 'a personal assistant'}${identity.userName ? `, who works for ${identity.userName}` : ''}. Every ${HEARTBEAT_MINUTES} minutes you look around for anything the user would want to hear about now. You never talk to the user: you hand what you find to the assistant, who decides how to say it.`,
@@ -183,8 +208,9 @@ export function buildHeartbeatInstructions(files: Files, connectors: readonly st
 - A follow-up from "In progress" (how the interview went, whether the parcel arrived) is a finding once its date has come; word it as something to ask about.
 - Lines of heartbeat.md with an "until" date that has passed go in remove_lines.
 - A step that needs the user's approval is skipped automatically; move on. Never start sub-agents or background tasks.
+- Use the connected services listed above, not other connectors that happen to reach the same service. If one's tools are missing or fail (not signed in, an error), don't look for another way in: put it in unchecked with the reason — a check that didn't happen is not "nothing new". Mark it limited when the service works but can't show what is new at all (the plan or permissions don't allow it); that is remembered, and later checks skip it.
 - Always end with heartbeat_done (from the "assistant_worker" MCP server) — with an empty findings list when there is nothing.
-- Write findings in the user's language.`,
+- ${languageRule(locale)}`,
   ].join('\n')
 }
 
