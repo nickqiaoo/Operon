@@ -1,7 +1,6 @@
 import { FileDiff, LayoutDashboard, MessageSquare, Menu, Sparkles } from "lucide-react"
 import { defineMessages, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
-import { ASSISTANT_ENABLED } from "@/components/assistant/flags"
 
 export type MobileTab = "chats" | "assistant" | "channel" | "changes" | "more"
 
@@ -9,9 +8,7 @@ export type MobileTab = "chats" | "assistant" | "channel" | "changes" | "more"
  * The tabs this build shows, in order. The native bars draw exactly these
  * (NativeShell.configure), so a tab hidden here is hidden there too.
  */
-export const MOBILE_TABS: readonly MobileTab[] = ASSISTANT_ENABLED
-  ? ["chats", "assistant", "channel", "changes", "more"]
-  : ["chats", "channel", "changes", "more"]
+export const MOBILE_TABS: readonly MobileTab[] = ["chats", "assistant", "channel", "changes", "more"]
 
 export function isMobileTab(value: string): value is MobileTab {
   return (MOBILE_TABS as readonly string[]).includes(value)

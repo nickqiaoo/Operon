@@ -32,7 +32,6 @@ import { cn } from "@/lib/utils"
 import { useState, useMemo } from "react"
 import type { ConfigFileDefinition } from "./useConfigEditor"
 import { AssistantSettings } from "./AssistantSettings"
-import { ASSISTANT_ENABLED } from "@/components/assistant/flags"
 
 interface SettingsPageProps {
     onBack: () => void
@@ -99,7 +98,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "copilot", label: <FormattedMessage id="settings.tab.copilot" defaultMessage="Copilot" />, icon: CopilotIcon },
         { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
-        ...(ASSISTANT_ENABLED ? [{ id: "assistant" as const, label: <FormattedMessage id="settings.tab.assistant" defaultMessage="Assistant" />, icon: MessageCircle }] : []),
+        { id: "assistant", label: <FormattedMessage id="settings.tab.assistant" defaultMessage="Assistant" />, icon: MessageCircle },
         // Agent capabilities
         { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
         { id: "skills", label: <FormattedMessage id="settings.tab.skills" defaultMessage="Skills" />, icon: Sparkles },

@@ -28,7 +28,6 @@ import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
 import { AssistantPage } from "@/components/assistant/AssistantPage"
-import { ASSISTANT_ENABLED } from "@/components/assistant/flags"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import type { Notification } from "@/types/notification"
 import { useAppShellStore } from "@/stores/app-shell-store"
@@ -456,7 +455,7 @@ export default function App() {
               onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
               onOpenChannel={(project) => setChannelProject({ id: project.id, name: project.name })}
               onOpenInbox={() => { setMainView('inbox'); trackEvent('page_opened', { page: 'inbox' }) }}
-              onOpenAssistant={ASSISTANT_ENABLED ? () => setMainView('assistant') : undefined}
+              onOpenAssistant={() => setMainView('assistant')}
               assistantActive={assistantOpen}
               inboxActive={inboxOpen}
               onLeaveMainView={leaveMainView}
