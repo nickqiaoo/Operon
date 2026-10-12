@@ -344,7 +344,7 @@ export function aiRoutes(storage: SddStorage) {
       modeId?: string
       thinkingLevel?: string
     }>()
-    const result = await aiService.handleCCDynamicSet(chatId, { modelId, modeId, thinkingLevel })
+    const result = await aiService.handleCCDynamicSet(chatId, { model: modelId, mode: modeId, effort: thinkingLevel })
     return c.json(result)
   })
 

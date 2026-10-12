@@ -7,9 +7,9 @@ import type {
   Model,
   ProviderDescriptor,
   ProviderInfo,
+  AgentSession,
   RuntimeProviderFactory,
-  RuntimeSession,
-  RuntimeSessionParams,
+  SessionOptions,
   SlashCommandItem,
 } from '../../types.js'
 import { createRuntimeLogger } from '../../logger.js'
@@ -235,13 +235,13 @@ export class CopilotRuntimeProvider implements RuntimeProviderFactory {
     }
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
-    if (params.modelId) this.currentModelId = params.modelId
-    if (params.modeId) this.currentModeId = params.modeId
-    if (params.thinkingLevel) this.currentThinkingLevel = params.thinkingLevel
+  async createSession(params: SessionOptions): Promise<AgentSession> {
+    if (params.model) this.currentModelId = params.model
+    if (params.mode) this.currentModeId = params.mode
+    if (params.effort) this.currentThinkingLevel = params.effort
     // Resolve the model's accepted effort levels now (cache is loaded by the time
     // the picker has been shown) so the session can gate `reasoningEffort`.
-    const supportedEffortLevels = effortLevelsForModel(params.modelId ?? this.currentModelId)
+    const supportedEffortLevels = effortLevelsForModel(params.model ?? this.currentModelId)
     return new CopilotRuntimeSession(params, this.ctx, supportedEffortLevels)
   }
 }

@@ -11,13 +11,12 @@ import type {
   ProviderInfo,
   RuntimeProviderFactory,
   RuntimeMcpServers,
-  RuntimeSession,
-  RuntimeSessionParams,
+  SessionOptions,
   ThinkingLevel,
 } from '@operon/agent-runtime'
 import { createOperonTracing } from './tracing.js'
 import { getModelCapabilities, resolveModel } from './resolve-model.js'
-import { MODE_TO_PERMISSION, OperonRuntimeSession } from './session.js'
+import { MODE_TO_PERMISSION, OperonRuntimeSession, type OperonSessionNative } from './session.js'
 import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
 import { configurePeersHost, createTeamsHostService } from './peers.js'
 import { TEAMS_SERVICE } from '../../extensions/peers/contract.js'
@@ -43,7 +42,7 @@ export function registerOperonRuntimeTools(tools: readonly Tool[]): void {
 
 // Persist the framework session tree on disk so chats survive reopen / restart.
 // The harness writes under `<homeDir>/sessions`; the route layer maps each chat's
-// `getSessionId()` ↔ DB record and feeds it back as `params.sessionId` to resume.
+// session `id` ↔ DB record and feeds it back as `resume`.
 // Data dirs are shared with the plugin manager via ./paths.
 
 // App namespace for config / MCP discovery. Drives the file layout the framework
@@ -121,7 +120,7 @@ async function loadWorkspaceConfig(root: string): Promise<WorkspaceConfig> {
 
 // Thinking effort options offered in the picker. The UI filters these by each
 // model's `supportedEffortLevels`, so unsupported levels are hidden per model. The
-// id is sent back as `params.thinkingLevel` and applied via `session.setThinking`.
+// id is sent back as `effort` and applied via `session.setThinking`.
 const THINKING_LEVELS: ThinkingLevel[] = [
   { id: 'low', name: 'Low' },
   { id: 'medium', name: 'Medium' },
@@ -398,7 +397,7 @@ async function buildHarness(): Promise<Harness> {
  * (goal / plan / todo / skills / cron / background / compaction), and the builtin
  * coding toolset (read/write/edit/glob/grep/bash).
  */
-export class OperonRuntimeProvider implements RuntimeProviderFactory {
+export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOptions, OperonSessionNative> {
   static readonly providerInfo: ProviderInfo = { id: 'custom', label: 'Operon', logo: 'custom' }
   readonly providerInfo = OperonRuntimeProvider.providerInfo
 
@@ -469,19 +468,19 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
     return models[0]?.id ?? this.currentModelId
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
-    const modelId = params.modelId ?? (await this.defaultModelId())
-    const modeId = params.modeId ?? this.currentModeId
+  async createSession(params: SessionOptions): Promise<OperonRuntimeSession> {
+    const modelId = params.model ?? (await this.defaultModelId())
+    const modeId = params.mode ?? this.currentModeId
     this.currentModelId = modelId
     this.currentModeId = modeId
-    if (params.thinkingLevel !== undefined) this.currentThinkingLevel = params.thinkingLevel
+    if (params.effort !== undefined) this.currentThinkingLevel = params.effort
 
-    const session = await this.openSession(params.sessionId, params.cwd, params.mcpServers, params.instructions)
+    const session = await this.openSession(params.resume, params.cwd, params.mcpServers, params.instructions)
     session.setModel(await resolveModel(modelId))
     session.setPermissionMode(MODE_TO_PERMISSION[modeId] ?? 'manual')
     // Only the models that advertise the level will surface it in the picker, so a
     // present value is safe to apply; absent = leave the model's default thinking.
-    if (params.thinkingLevel) session.setThinking(params.thinkingLevel as EngineThinkingLevel)
+    if (params.effort) session.setThinking(params.effort as EngineThinkingLevel)
 
     return new OperonRuntimeSession(session, modelId, modeId)
   }
@@ -531,7 +530,7 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory {
 
 /** Operon's own in-process agent, registered next to the external CLIs under the id `custom`. */
 export const operonAgent = () =>
-  defineProvider({
+  defineProvider<'custom', { sessionNative: OperonSessionNative }>({
     id: 'custom',
     info: OperonRuntimeProvider.providerInfo,
     create: () => new OperonRuntimeProvider(),

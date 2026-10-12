@@ -75,7 +75,7 @@ export async function getSubagentTranscript(chatId: number, toolUseId: string): 
   // The live session knows its id before the chat row does (that is written as
   // the turn ends).
   const sessionId =
-    getSessionManager().get(chatId)?.runtime.getSessionId?.() ??
+    getSessionManager().get(chatId)?.runtime.id ??
     getChatHistoryService()?.getChatMeta(chatId)?.sessionId
   if (!sessionId) return null
   return getRuntime().native('claude-code').subagentTranscript(sessionId, toolUseId)

@@ -1,4 +1,5 @@
 import type { ModelMessage, UIMessage } from 'ai'
+import type { AgentInput } from '@operon/agent-runtime'
 import type { FileMessagePartWithContent } from './types.js'
 import { getAttachment, parseAttachmentUrl } from '../attachment-store.js'
 
@@ -144,3 +145,21 @@ export const normalizeUiMessagesFileAttachments = (messages: UIMessage[]): UIMes
     })
     return { ...message, parts: normalizedParts } as UIMessage
   })
+
+/**
+ * The latest user message's content: what a turn hands the agent session. The
+ * agents keep their own history, so this is all of the transcript they take.
+ */
+export function latestUserInput(messages: readonly ModelMessage[]): AgentInput {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message?.role === 'user') return message.content
+  }
+  return ''
+}
+
+/** A turn input's text, parts joined — e.g. a goal objective. */
+export function inputText(input: AgentInput): string {
+  if (typeof input === 'string') return input
+  return input.map((part) => (part.type === 'text' ? part.text : '')).join('\n').trim()
+}

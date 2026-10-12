@@ -122,7 +122,7 @@ async function onTeammateCreated(sessionId: string, member: PeerMemberOptions): 
         ?? (leadRecord ? withId(storage.getChatMeta(leadRecord.chatId), leadRecord.chatId) : undefined))
     : undefined
 
-  const modelId = cfg?.modelId ?? leadChat?.model ?? leadRecord?.params.modelId ?? (await deps.defaultModelId())
+  const modelId = cfg?.modelId ?? leadChat?.model ?? leadRecord?.params.model ?? (await deps.defaultModelId())
   try {
     session.setModel(await resolveModel(modelId))
   } catch (error) {

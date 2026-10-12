@@ -1,4 +1,4 @@
-import type { ModelMessage, TextStreamPart, ToolSet } from 'ai'
+import type { TextStreamPart, ToolSet, UserModelMessage } from 'ai'
 
 export interface DetailedContextUsageCategory {
   name: string
@@ -206,51 +206,42 @@ export type RuntimeMcpServer =
   | { type: 'http'; url: string; headers?: Record<string, string> }
   | { type: 'sse'; url: string; headers?: Record<string, string> }
 
-/** Map of server name → config, as handed to a provider via RuntimeSessionParams. */
+/** Map of server name → config, as handed to a provider via `SessionOptions.mcpServers`. */
 export type RuntimeMcpServers = Record<string, RuntimeMcpServer>
 
-export interface RuntimeSessionParams {
+/**
+ * What every provider's session accepts. Native values (`mode`, `effort`) are
+ * the agent's own ids — typed per provider through `createRuntime`, plain
+ * strings to code that handles any provider. Provider-only settings come in a
+ * block named after the provider (`codex: { … }`), see each provider's options.
+ */
+export interface SessionOptions<Mode extends string = string, Effort extends string = string> {
   cwd: string
   env?: Record<string, string | undefined>
-  modelId?: string
-  providerId?: string
-  modeId?: string
-  thinkingLevel?: string
+  model?: string
+  /** The agent's permission mode, in its own vocabulary (`describe()` lists them). */
+  mode?: Mode
+  /** Thinking effort, in the agent's own vocabulary. */
+  effort?: Effort
   serviceTier?: ServiceTier
-  sessionId?: string
+  /** Continue this provider-native session (Claude session id, Codex thread id, …). */
+  resume?: string
   /**
    * MCP servers to expose to the underlying agent, already resolved by the host.
-   * Provider-agnostic: the host decides which servers (workspace chat, task board,
-   * IM bridge, team inbox, memory, cross-agent, user-configured) to inject and
-   * bakes any identity into the server URLs; the provider only adapts this map to
-   * its own transport format. Undefined when the host injects nothing.
+   * The host decides which servers to inject and bakes any identity into their
+   * URLs; the provider only adapts this map to its own transport format.
    */
   mcpServers?: RuntimeMcpServers
   /**
-   * Servers from the agent's OWN configuration (e.g. `~/.codex/config.toml`) that
-   * this session must not load — typically because the host mounts its own under
-   * another name, and the user's copy would let the model route around it.
-   * Names only. Honoured where the agent's config can be overridden per session
-   * (Codex); other providers ignore it.
-   */
-  disabledMcpServers?: string[]
-  /**
    * Session-scoped extra instructions (agent persona, collaboration rules,
-   * workflow prompts) layered on top of the provider's own system prompt.
-   * The host re-derives and passes this on EVERY session creation — providers
-   * must not expect it to arrive via `messages` (system-role messages are
-   * ignored by the CLI-agent providers). Each provider maps it to its native
-   * mechanism: Claude `systemPrompt.append`, Codex `developerInstructions`,
-   * Gemini `userMemory`, Copilot `systemMessage.append`, ACP first-prompt
-   * preamble.
+   * workflow prompts) layered on top of the agent's own system prompt. Pass it
+   * on EVERY session creation — a resumed session does not get it back on its
+   * own, and system-role input is ignored by the CLI agents. Each provider maps
+   * it to its native mechanism: Claude `systemPrompt.append`, Codex
+   * `developerInstructions`, Copilot `systemMessage.append`, OpenCode `system`,
+   * an ACP first-prompt preamble.
    */
   instructions?: string
-  /**
-   * Set by the worker pool when spawning a sub-agent session (e.g. for the
-   * Workflow tool's agent() fan-out). Worker sessions do not get their own
-   * orchestration tools, preventing unbounded workflow-within-workflow nesting.
-   */
-  isWorker?: boolean
   /**
    * Branch this session off an existing one instead of starting fresh — what a
    * side chat is built on. The new session inherits the source's history as
@@ -259,37 +250,33 @@ export interface RuntimeSessionParams {
    *
    * Only honoured by providers that declare `features.sideChat`; others ignore
    * it and start a normal session. Applies to the FIRST thread this session
-   * creates — once `sessionId` is known the session resumes it as usual, so a
-   * side chat forks once, not on every turn.
+   * creates — once the session has an id it resumes it as usual, so a side chat
+   * forks once, not on every turn.
    */
-  forkFrom?: RuntimeForkSource
+  fork?: RuntimeForkSource
   /**
-   * The host's id for this conversation. Providers that share one MCP
-   * registration across sessions (OpenCode) cannot bake it into server URLs, so
-   * they report it per call instead; see `resolveOpencodeCaller`.
+   * False when no person is there to answer — a background task, a sub-agent in
+   * a workflow. Providers then leave off the interactive callbacks that would
+   * block on a question nobody sees (Copilot's ask_user and plan-exit
+   * confirmation). Defaults to true.
    */
-  hostConversationId?: string
+  interactive?: boolean
 }
 
 export interface RuntimeForkSource {
   /** Provider-native id of the session to branch from (the parent's thread). */
-  sessionId: string
+  from: string
   /** Branch after this turn instead of at the parent's tail. */
-  lastTurnId?: string
+  afterTurn?: string
   /** Do not persist the fork as a resumable session. Side chats are ephemeral. */
   ephemeral?: boolean
 }
 
-export interface RuntimeStreamParams {
-  requestId: string
-  messages: ModelMessage[]
+/** One turn's input: text, or text plus images / files. */
+export type AgentInput = string | Exclude<UserModelMessage['content'], string>
+
+export interface SendOptions {
   signal?: AbortSignal
-  /**
-   * When true, the latest user message is treated as a goal objective: the
-   * runtime sets an active thread goal and streams the autonomous pursuit
-   * (one or more codex-initiated turns) instead of starting a normal turn.
-   */
-  asGoal?: boolean
 }
 
 export type RuntimeTextStreamPart = TextStreamPart<ToolSet>
@@ -302,20 +289,20 @@ export interface RuntimeMessageMetadataPart {
 export type RuntimeStreamPart = RuntimeTextStreamPart | RuntimeMessageMetadataPart
 
 /** Settings a live session can be asked to change without being rebuilt. */
-export interface DynamicSetPayload {
-  modelId?: string
-  modeId?: string
-  thinkingLevel?: string
+export interface SessionPatch<Mode extends string = string, Effort extends string = string> {
+  model?: string
+  mode?: Mode
+  effort?: Effort
   /**
    * Fast mode. Unlike the fields above, `undefined` here is a VALUE — it means
-   * "not fast" — so a provider must test `'serviceTier' in payload` rather than
+   * "not fast" — so a provider must test `'serviceTier' in patch` rather than
    * truthiness, or turning fast mode back off will silently do nothing.
    */
   serviceTier?: ServiceTier
 }
 
-/** Which requested fields the session actually applied — see `RuntimeSession.dynamicSet`. */
-export type DynamicSetApplied = Array<keyof DynamicSetPayload>
+/** Which requested fields the session actually applied — see `AgentSession.set`. */
+export type SessionPatchApplied = Array<keyof SessionPatch>
 
 /**
  * Why a session is being torn down.
@@ -326,7 +313,7 @@ export type DynamicSetApplied = Array<keyof DynamicSetPayload>
  * must survive it. `'discard'` is the end of the conversation itself: the chat is
  * going away, and everything it owns can go with it.
  */
-export type SessionDisposeReason = 'discard' | 'rebuild'
+export type SessionCloseReason = 'discard' | 'rebuild'
 
 /** A provider rejected injection before enqueueing or sending anything. Safe to retry later. */
 export class RuntimeInjectionUnavailableError extends Error {}
@@ -352,67 +339,111 @@ export interface RuntimeBackgroundTask {
 }
 
 /**
- * What a session does while no `stream()` call is open.
+ * What a session does while no `send()` is open.
  *
  * `tasks` is a level signal: the session's whole background-task list after any
  * change, never a delta. `turn` is a reply the agent started on its own — Claude
  * Code answers a finished background agent without being asked — handed over as
- * the same parts a `stream()` would yield, ending when the reply does.
+ * the same parts a `send()` would yield, ending when the reply does.
  */
 export type RuntimeBackgroundEvent =
   | { type: 'tasks'; tasks: RuntimeBackgroundTask[] }
   | { type: 'turn'; parts: AsyncIterable<RuntimeStreamPart> }
 
-export interface RuntimeSession {
-  stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart>
-  abort(): void
-  dispose(reason?: SessionDisposeReason): Promise<void>
-  /** True when this approval was still pending and accepted by the runtime. */
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean
-  getSessionId?(): string | undefined
-  injectMessage?(content: string): Promise<void>
-  /** Read the current thread goal (null when none / unsupported). */
-  getGoal?(): Promise<RuntimeGoal | null>
-  /** Set the thread-goal status without streaming (e.g. pause). */
-  setGoalStatus?(status: 'active' | 'paused'): Promise<RuntimeGoal | null>
-  /** Clear the thread goal. */
-  clearGoal?(): Promise<void>
+/** A persisted thread goal the agent pursues on its own (`features.goal`). */
+export interface GoalControl {
+  /** The current goal, or null when there is none. */
+  get(): Promise<RuntimeGoal | null>
+  /** Set the goal's status without starting a turn (e.g. pause). */
+  setStatus(status: 'active' | 'paused'): Promise<RuntimeGoal | null>
+  clear(): Promise<void>
   /**
-   * Change model / permission mode / thinking effort on a live session.
+   * Make `objective` the active goal and stream the autonomous pursuit — one or
+   * more agent-initiated turns — until it is met, paused or the signal aborts.
+   */
+  run(objective: string, options?: SendOptions): AsyncIterable<RuntimeStreamPart>
+}
+
+/** One MCP server as a session sees it — what a Session panel lists. */
+export interface McpServerInfo {
+  name: string
+  /** The provider's own status word: `connected`, `failed`, `needs-auth`, `disabled`, `pending`, … */
+  status: string
+  transport?: string
+  error?: string
+  toolCount?: number
+}
+
+/** Read-only MCP status (Codex). */
+export interface McpStatusControl {
+  list(): Promise<McpServerInfo[]>
+}
+
+/** MCP status plus live control (Claude Code, OpenCode). */
+export interface McpControl extends McpStatusControl {
+  reconnect(name: string): Promise<void>
+  toggle(name: string, enabled: boolean): Promise<void>
+}
+
+/** What a session currently runs with, as it reports it. */
+export type SessionState = Partial<
+  Pick<
+    ProviderDescriptor,
+    'currentModelId' | 'currentModeId' | 'currentThinkingLevel' | 'currentServiceTier' | 'slashCommands'
+  >
+>
+
+/**
+ * A live conversation with one agent. Every provider implements the required
+ * members; the optional ones follow the provider's `features`. `Native` is what
+ * only this provider can do (see `native`).
+ */
+export interface AgentSession<Native = unknown> {
+  /** The provider-native session id — known once the first turn starts. Store it, pass it back as `resume`. */
+  readonly id: string | undefined
+  /** Run one turn. The agent keeps its own history; pass only this turn's input. */
+  send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart>
+  abort(): void
+  close(reason?: SessionCloseReason): Promise<void>
+  /** Answer a `tool-approval-request`. True when it was still pending and the agent took the answer. */
+  respond(approvalId: string, decision: PermissionDecision): boolean
+  /**
+   * Add a message to the turn that is running (`features.injection`). Throws
+   * `RuntimeInjectionUnavailableError` when there is no turn to add it to.
+   */
+  inject?(text: string): Promise<void>
+  /**
+   * Change model / permission mode / effort on a live session (`features.dynamicSwitch`).
    *
    * Returns the subset it actually applied in place. Support is uneven — Claude's
    * SDK, for instance, can `setModel` and `setPermissionMode` on a running query
-   * but has no setter for effort — and the caller uses the answer to keep the
-   * session-reuse fingerprint honest. Claiming a field that did not take would
-   * leave the record describing a session that never changed, and the switch
-   * would silently do nothing.
+   * but has no setter for effort — so a caller tracking what a session runs with
+   * must record only what came back, and rebuild for the rest.
    */
-  dynamicSet?(payload: DynamicSetPayload): Promise<DynamicSetApplied>
-  getDescriptorPatch?(): Partial<
-    Pick<
-      ProviderDescriptor,
-      'currentModelId' | 'currentModeId' | 'currentThinkingLevel' | 'currentServiceTier' | 'slashCommands'
-    >
-  >
-  getContextUsage?(): Promise<DetailedContextUsage | null>
-  /**
-   * Session runtime control surfaced to the chat UI's Session panel. Providers
-   * implement the methods they support (for example MCP control on Claude Code
-   * and OpenCode, read-only MCP status on Codex, or MCP / cron / tasks / skills
-   * on the Operon agent).
-   */
-  agentControl?(method: string, params: unknown): Promise<unknown>
+  set?(patch: SessionPatch): Promise<SessionPatchApplied>
+  state?(): SessionState
+  /** Where the context window is going, by category (`features.contextUsage`). */
+  contextUsage?(): Promise<DetailedContextUsage | null>
+  /** The thread goal (`features.goal`). */
+  readonly goal?: GoalControl
   /**
    * Receive what the session does between turns (see `RuntimeBackgroundEvent`).
-   * Without a listener a provider drops that output, as it always has.
+   * Without a listener a provider drops that output. Returns the unsubscribe.
    */
-  onBackground?(listener: (event: RuntimeBackgroundEvent) => void): void
+  onBackground?(listener: (event: RuntimeBackgroundEvent) => void): () => void
+  /** What only this provider can do — MCP server control, sub-agent transcripts, … */
+  readonly native?: Native
 }
 
-export interface RuntimeProviderFactory {
+/**
+ * A provider instance, as a provider implements it. `createSession` takes the
+ * provider's full options (`SessionOptions` plus its own block); a method, so
+ * instances with narrower options still fit the general type.
+ */
+export interface RuntimeProviderFactory<Options extends SessionOptions = SessionOptions, Native = unknown> {
   readonly providerInfo: ProviderInfo
   getDescriptor(): Promise<ProviderDescriptor>
-  createSession(params: RuntimeSessionParams): Promise<RuntimeSession>
+  createSession(options: Options): Promise<AgentSession<Native>>
   /** Pre-fetch provider metadata (models, account, commands) without starting a session */
   fetchInitInfo?(): Promise<void>
 }
@@ -421,20 +452,6 @@ export interface ProviderInfo {
   id: string
   label: string
   logo: string
-}
-
-export interface ActiveRequest {
-  requestId: string
-  abortController: AbortController
-}
-
-export interface SessionRecord {
-  chatId: number
-  providerId: string
-  runtime: RuntimeSession
-  params: RuntimeSessionParams
-  createdAt: number
-  activeRequest: ActiveRequest | null
 }
 
 /**

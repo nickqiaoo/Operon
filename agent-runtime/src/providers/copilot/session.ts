@@ -11,16 +11,19 @@ import {
   type SessionEventHandler,
 } from '@github/copilot-sdk'
 import type {
-  DynamicSetApplied,
-  DynamicSetPayload,
+  AgentInput,
+  AgentSession,
   PermissionDecision,
   RuntimeMcpServers,
-  RuntimeSession,
-  RuntimeSessionParams,
-  RuntimeStreamParams,
   RuntimeStreamPart,
+  RuntimeTextStreamPart,
+  SendOptions,
+  SessionOptions,
+  SessionPatch,
+  SessionPatchApplied,
   SlashCommandItem,
 } from '../../types.js'
+import { toUserMessages } from '../../utils/agent-input.js'
 import { acquireCopilotClient } from './client-registry.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
@@ -113,10 +116,12 @@ type UserInputResult = Awaited<ReturnType<UserInputHandler>>
  * the SDK's push-style events into the pull-style RuntimeStreamPart iterable via
  * a ReadableStream, completing when `session.idle` fires.
  */
-export class CopilotRuntimeSession implements RuntimeSession {
+type ToolCallPart = Extract<RuntimeTextStreamPart, { type: 'tool-call' }>
+
+export class CopilotRuntimeSession implements AgentSession {
   private readonly cwd: string
   private readonly env?: Record<string, string | undefined>
-  private readonly isWorker: boolean
+  private readonly interactive: boolean
   private readonly mcpServers: Record<string, MCPServerConfig> | undefined
   private modelId: string
   private modeId: string
@@ -146,19 +151,19 @@ export class CopilotRuntimeSession implements RuntimeSession {
   private readonly slashCommandState = createCopilotSlashCommandState()
 
   constructor(
-    params: RuntimeSessionParams,
+    params: SessionOptions,
     private readonly ctx: RuntimeContext,
     supportedEffortLevels: string[] = [],
   ) {
     this.cwd = params.cwd
     this.env = params.env
-    this.isWorker = params.isWorker ?? false
+    this.interactive = params.interactive ?? true
     this.mcpServers = toCopilotMcpServers(params.mcpServers)
-    this.modelId = params.modelId ?? COPILOT_DEFAULT_MODEL
-    this.modeId = params.modeId ?? COPILOT_DEFAULT_MODE
-    this.thinkingLevel = params.thinkingLevel
+    this.modelId = params.model ?? COPILOT_DEFAULT_MODEL
+    this.modeId = params.mode ?? COPILOT_DEFAULT_MODE
+    this.thinkingLevel = params.effort
     this.supportedEffortLevels = supportedEffortLevels
-    this.sessionId = params.sessionId
+    this.sessionId = params.resume
     this.instructions = params.instructions?.trim() || undefined
   }
 
@@ -206,10 +211,10 @@ export class CopilotRuntimeSession implements RuntimeSession {
     // then the approval request. Gate the mapper so the runtime's duplicate
     // execution_start is dropped while its completion still renders the result.
     this.activeMapper?.gateApprovedTool(toolCallId, toolName, JSON.stringify(input))
-    const toolCall = { type: 'tool-call' as const, toolCallId, toolName, input, providerExecuted: true, dynamic: true }
+    const toolCall: ToolCallPart = { type: 'tool-call', toolCallId, toolName, input, providerExecuted: true, dynamic: true }
     emit({ type: 'tool-input-start', id: toolCallId, toolName, providerExecuted: true, dynamic: true } as RuntimeStreamPart)
-    emit(toolCall as unknown as RuntimeStreamPart)
-    emit({ type: 'tool-approval-request', approvalId, toolCall } as unknown as RuntimeStreamPart)
+    emit(toolCall)
+    emit({ type: 'tool-approval-request', approvalId, toolCall })
 
     const decision = await new Promise<PermissionDecision>((resolve) => {
       this.pendingApprovals.set(approvalId, resolve)
@@ -300,8 +305,8 @@ export class CopilotRuntimeSession implements RuntimeSession {
     // by the time the approval card opens — the main UI transform drops the
     // toolCall from the approval-request chunk and reads input from the prior
     // tool-call. dynamic+providerExecuted mark it as run by the agent itself.
-    const toolCall = {
-      type: 'tool-call' as const,
+    const toolCall: ToolCallPart = {
+      type: 'tool-call',
       toolCallId: approvalId,
       toolName,
       input,
@@ -309,8 +314,8 @@ export class CopilotRuntimeSession implements RuntimeSession {
       dynamic: true,
     }
     emit({ type: 'tool-input-start', id: approvalId, toolName, providerExecuted: true, dynamic: true } as RuntimeStreamPart)
-    emit(toolCall as unknown as RuntimeStreamPart)
-    emit({ type: 'tool-approval-request', approvalId, toolCall } as unknown as RuntimeStreamPart)
+    emit(toolCall)
+    emit({ type: 'tool-approval-request', approvalId, toolCall })
 
     const decision = await new Promise<PermissionDecision>((resolve) => {
       this.pendingApprovals.set(approvalId, resolve)
@@ -342,8 +347,12 @@ export class CopilotRuntimeSession implements RuntimeSession {
     this.pendingApprovals.clear()
   }
 
-  async *stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart> {
-    const prompt = buildPrompt(params.messages)
+  send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
+    return this.runTurn(input, options?.signal)
+  }
+
+  private async *runTurn(input: AgentInput, signal: AbortSignal | undefined): AsyncIterable<RuntimeStreamPart> {
+    const prompt = buildPrompt(toUserMessages(input))
     const session = await this.ensureSession()
     const mapper = new CopilotMessageMapper()
     let unsubscribe: () => void = () => {}
@@ -351,7 +360,7 @@ export class CopilotRuntimeSession implements RuntimeSession {
     const onAbort = () => {
       void session.abort()
     }
-    params.signal?.addEventListener('abort', onAbort, { once: true })
+    signal?.addEventListener('abort', onAbort, { once: true })
 
     const stream = new ReadableStream<RuntimeStreamPart>({
       start: (controller) => {
@@ -421,11 +430,11 @@ export class CopilotRuntimeSession implements RuntimeSession {
       this.drainPendingApprovals('Turn closed.')
       this.activeEmit = null
       this.activeMapper = null
-      params.signal?.removeEventListener('abort', onAbort)
+      signal?.removeEventListener('abort', onAbort)
     }
   }
 
-  getSessionId(): string | undefined {
+  get id(): string | undefined {
     return this.sessionId
   }
 
@@ -434,7 +443,7 @@ export class CopilotRuntimeSession implements RuntimeSession {
     void this.session?.abort()
   }
 
-  async dispose(): Promise<void> {
+  async close(): Promise<void> {
     this.drainPendingApprovals('Session disposed.')
     try {
       // disconnect preserves session state on disk (so it can be resumed later).
@@ -456,7 +465,7 @@ export class CopilotRuntimeSession implements RuntimeSession {
   // Tool permission is resolved inline by handlePermission (autonomous). The
   // pending requests here are the interactive callbacks (ask_user /
   // exit_plan_mode), answered by the UI through this method.
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     const resolve = this.pendingApprovals.get(approvalId)
     if (!resolve) return false
     this.pendingApprovals.delete(approvalId)
@@ -468,28 +477,28 @@ export class CopilotRuntimeSession implements RuntimeSession {
    * No `thinkingLevel`: effort is resolved once into `SessionConfigBase` when the
    * session is built, so changing it needs a rebuild.
    */
-  async dynamicSet(payload: DynamicSetPayload): Promise<DynamicSetApplied> {
-    const applied: DynamicSetApplied = []
-    if (payload.modelId && payload.modelId !== this.modelId) {
-      this.modelId = payload.modelId
+  async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    const applied: SessionPatchApplied = []
+    if (patch.model && patch.model !== this.modelId) {
+      this.modelId = patch.model
       if (this.session) {
         try {
-          await this.session.setModel(payload.modelId)
+          await this.session.setModel(patch.model)
         } catch (err) {
-          logger.warn(`setModel(${payload.modelId}) failed: ${err instanceof Error ? err.message : String(err)}`)
+          logger.warn(`setModel(${patch.model}) failed: ${err instanceof Error ? err.message : String(err)}`)
           return applied
         }
       }
-      applied.push('modelId')
+      applied.push('model')
     }
-    if (payload.modeId) {
-      this.modeId = payload.modeId
-      applied.push('modeId')
+    if (patch.mode) {
+      this.modeId = patch.mode
+      applied.push('mode')
     }
     return applied
   }
 
-  getDescriptorPatch(): {
+  state(): {
     currentModelId: string
     currentModeId: string
     slashCommands?: SlashCommandItem[]
@@ -544,7 +553,7 @@ export class CopilotRuntimeSession implements RuntimeSession {
       // onExitPlanModeRequest enables plan-mode exits. Worker sessions have no
       // UI to answer, so we leave both off to avoid the agent blocking on a
       // question nobody can see.
-      ...(this.isWorker
+      ...(!this.interactive
         ? {}
         : {
             onUserInputRequest: this.handleUserInput,

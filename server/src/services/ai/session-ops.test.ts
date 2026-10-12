@@ -71,7 +71,7 @@ describe('injectIntoChat', () => {
     };
     stateMock.getSession.mockReturnValue({
       activeRequest: { requestId: 'request-1', abortController: new AbortController() },
-      runtime: { injectMessage },
+      runtime: { inject: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue(steerMessage);
     persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: true });
@@ -96,7 +96,7 @@ describe('injectIntoChat', () => {
   it('distinguishes accepted injection from a failed transcript save', async () => {
     const injectMessage = vi.fn().mockResolvedValue(undefined);
     stateMock.getSession.mockReturnValue({
-      activeRequest: { requestId: 'request-1' }, runtime: { injectMessage },
+      activeRequest: { requestId: 'request-1' }, runtime: { inject: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer', role: 'user', parts: [] });
     persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: false, error: 'disk full' });
@@ -107,7 +107,7 @@ describe('injectIntoChat', () => {
 
   it('keeps a definite provider rejection retryable', async () => {
     const injectMessage = vi.fn();
-    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'request' }, runtime: { injectMessage } });
+    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'request' }, runtime: { inject: injectMessage } });
     const { injectIntoChat } = await loadSessionOps();
     const { RuntimeInjectionUnavailableError } = await import('@operon/agent-runtime');
     injectMessage.mockRejectedValue(new RuntimeInjectionUnavailableError('Not ready'));
@@ -117,7 +117,7 @@ describe('injectIntoChat', () => {
   it('does not inject into a replacement request and treats provider errors as uncertain', async () => {
     const injectMessage = vi.fn().mockRejectedValue(new Error('connection lost'));
     stateMock.getSession.mockReturnValue({
-      activeRequest: { requestId: 'new-request' }, runtime: { injectMessage },
+      activeRequest: { requestId: 'new-request' }, runtime: { inject: injectMessage },
     });
     const { injectIntoChat } = await loadSessionOps();
     await expect(injectIntoChat(7, 'result', undefined, { expectedRequestId: 'old-request' }))

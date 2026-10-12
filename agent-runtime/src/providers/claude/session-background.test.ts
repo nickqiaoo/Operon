@@ -117,9 +117,8 @@ describe('ClaudeRuntimeSession between turns', () => {
     const { release } = mockBackgroundAgentRun();
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
 
     const taskSnapshots: RuntimeBackgroundTask[][] = [];
@@ -129,7 +128,7 @@ describe('ClaudeRuntimeSession between turns', () => {
       else agentTurn = collect(event.parts);
     });
 
-    const launch = await collect(session.stream({ requestId: 'r1', messages: [{ role: 'user', content: 'go' }] }));
+    const launch = await collect(session.send('go'));
     expect(text(launch)).toBe('launched');
     expect(taskSnapshots.at(-1)).toEqual([
       expect.objectContaining({ taskId: 'agent-1', toolUseId: AGENT_CALL, status: 'running' }),
@@ -147,6 +146,6 @@ describe('ClaudeRuntimeSession between turns', () => {
       expect.objectContaining({ status: 'completed', toolUses: 1, lastToolName: 'Bash', summary: 'Docs are current' }),
     ]);
 
-    await session.dispose();
+    await session.close();
   });
 });

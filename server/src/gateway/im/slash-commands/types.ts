@@ -1,4 +1,4 @@
-import type { SessionManager } from '@operon/agent-runtime'
+import type { SessionManager } from '../../../services/ai/session-manager.js'
 import type { SqliteStorage } from '../../../storage/sqlite.js'
 import type { Agent } from '../../../types/channel.js'
 import type { IMMessageRow, IMSource } from '../../../types/im.js'

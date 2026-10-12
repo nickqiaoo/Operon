@@ -1,20 +1,21 @@
 import { defineProvider } from '../../runtime.js'
-import type { CodexModeId } from './config.js'
+import type { CodexModeId, CodexSessionOptions } from './config.js'
 import type { AccountRateLimitsReadResult } from './sdk/protocol/index.js'
 import { getCodexAccountUsage } from './usage-probe.js'
 import type { RuntimeContext } from '../../context.js'
-import type { ProviderDescriptor, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
+import type { ProviderDescriptor, RuntimeProviderFactory, SessionOptions } from '../../types.js'
 import type { ProviderInfo } from '../../types.js'
 import { CODEX_DEFAULT_MODE_ID, resolveCodexModeId } from './config.js'
 import { listSkills } from './sdk/discovery.js'
 import {
   type CodexModelState,
   CodexRuntimeSession,
+  type CodexSessionNative,
   DEFAULT_CODEX_MODEL_ID,
   refreshCodexModels,
 } from './session.js'
 
-export class CodexRuntimeProvider implements RuntimeProviderFactory {
+export class CodexRuntimeProvider implements RuntimeProviderFactory<SessionOptions & CodexSessionOptions, CodexSessionNative> {
   static readonly providerInfo: ProviderInfo = { id: 'codex', label: 'Codex', logo: 'openai' }
   readonly providerInfo = CodexRuntimeProvider.providerInfo
 
@@ -102,10 +103,10 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory {
     }
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
+  async createSession(params: SessionOptions & CodexSessionOptions): Promise<CodexRuntimeSession> {
     this.cwd = params.cwd
-    if (params.modeId) this.currentModeId = resolveCodexModeId(params.modeId)
-    if (params.thinkingLevel) this.currentThinkingLevel = params.thinkingLevel
+    if (params.mode) this.currentModeId = resolveCodexModeId(params.mode)
+    if (params.effort) this.currentThinkingLevel = params.effort
     this.currentServiceTier = params.serviceTier
     return new CodexRuntimeSession(params, this.ctx)
   }
@@ -125,7 +126,13 @@ export type CodexEffort = 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
 
 /** Codex, driven through `codex app-server`. */
 export const codex = () =>
-  defineProvider<'codex', { mode: CodexModeId; effort: CodexEffort; native: CodexNative }>({
+  defineProvider<'codex', {
+    mode: CodexModeId
+    effort: CodexEffort
+    options: CodexSessionOptions
+    sessionNative: CodexSessionNative
+    native: CodexNative
+  }>({
     id: 'codex',
     info: CodexRuntimeProvider.providerInfo,
     create: (ctx) => new CodexRuntimeProvider(ctx),

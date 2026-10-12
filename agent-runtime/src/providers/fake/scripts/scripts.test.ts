@@ -16,7 +16,7 @@ function makeCtx(overrides: Partial<FakeSessionState> = {}): FakeScriptCtx {
     ...overrides,
   }
   return {
-    params: { requestId: 'r-test', messages: [] },
+    input: '',
     session,
     delay: async () => {},
   }

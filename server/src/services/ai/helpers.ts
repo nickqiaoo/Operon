@@ -52,7 +52,7 @@ export const getProviderDescriptorPatch = (
 ): ProviderDescriptorPatch | undefined => {
   const sessionManager = getSessionManager()
   for (const session of sessionManager.findByProvider(providerId)) {
-    return session.runtime.getDescriptorPatch?.()
+    return session.runtime.state?.()
   }
   return undefined
 }

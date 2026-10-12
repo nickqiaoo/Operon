@@ -1,27 +1,40 @@
 import { randomUUID } from 'crypto'
-import type { Runtime } from './runtime.js'
 import type {
-  ActiveRequest,
-  DynamicSetApplied,
-  DynamicSetPayload,
   PermissionDecision,
   ProviderInfo,
   RuntimeBackgroundEvent,
   RuntimeProviderFactory,
-  RuntimeSession,
-  RuntimeSessionParams,
-  SessionDisposeReason,
-  SessionRecord,
-} from './types.js'
+  AgentSession,
+  SessionCloseReason,
+  SessionPatch,
+  SessionPatchApplied,
+  Runtime,
+} from '@operon/agent-runtime'
+import type { HostSessionOptions } from './session-options.js'
+
+export interface ActiveRequest {
+  requestId: string
+  abortController: AbortController
+}
+
+/** One chat's live session, and the options it was built with (its reuse fingerprint). */
+export interface SessionRecord {
+  chatId: number
+  providerId: string
+  runtime: AgentSession
+  params: HostSessionOptions
+  createdAt: number
+  activeRequest: ActiveRequest | null
+}
 
 /**
  * The settings an ordinary conversation actually changes, and the only ones a live
- * session has any chance of absorbing (`RuntimeSession.dynamicSet`). Kept out of the
+ * session has any chance of absorbing (`AgentSession.set`). Kept out of the
  * structural key below: a difference here is an invitation to reconfigure, not a
  * reason to rebuild. Whether the reconfigure sticks is up to the runtime, which
  * reports back which fields it applied.
  */
-const RECONFIGURABLE_FIELDS = ['modelId', 'modeId', 'thinkingLevel', 'serviceTier'] as const
+const RECONFIGURABLE_FIELDS = ['model', 'mode', 'effort', 'serviceTier'] as const
 
 type ReconfigurableField = (typeof RECONFIGURABLE_FIELDS)[number]
 
@@ -37,15 +50,15 @@ const CLEARABLE_FIELDS = new Set<ReconfigurableField>(['serviceTier'])
 /**
  * Write one reconfigurable field into whichever of the two shapes carries it.
  *
- * `DynamicSetPayload` and `RuntimeSessionParams` declare these four fields
+ * `SessionPatch` and `HostSessionOptions` declare these four fields
  * identically, but indexing either with a union key severs the tie between the key
  * and its value type — `serviceTier` is `'fast'` where the rest are plain strings —
  * and TypeScript refuses the write. The generic pins both sides to one `K`.
  */
 function setField<K extends ReconfigurableField>(
-  target: DynamicSetPayload | RuntimeSessionParams,
+  target: SessionPatch | HostSessionOptions,
   field: K,
-  value: RuntimeSessionParams[K],
+  value: HostSessionOptions[K],
 ): void {
   Object.assign(target, { [field]: value })
 }
@@ -58,7 +71,7 @@ function setField<K extends ReconfigurableField>(
  * is fixed, and mcpServers is derived from ids that do not change for a given chat
  * (it moves only when the user edits MCP settings, which is meant to rebuild).
  */
-const buildStructuralKey = (params: RuntimeSessionParams): string =>
+const buildStructuralKey = (params: HostSessionOptions): string =>
   JSON.stringify({
     cwd: params.cwd,
     env: params.env ?? {},
@@ -73,6 +86,10 @@ const buildStructuralKey = (params: RuntimeSessionParams): string =>
     // conversation id in its URL; reusing a session with a different map would
     // silently leave the agent connected to the wrong persistent kernel.
     mcpServers: params.mcpServers ?? {},
+    // Each provider's own options block is baked in at creation too (Codex's
+    // disabled servers and sandbox, OpenCode's caller tag).
+    codex: params.codex ?? {},
+    opencode: params.opencode ?? {},
     // NOTE: instructions is intentionally excluded. For a given chat it is stable:
     // a workspace chat gets the SDD hint from its first message on (chat-flow
     // resolves sourceChatId before the session exists), and a channel agent's
@@ -100,8 +117,8 @@ export class SessionManager {
     return this.runtime.provider(providerId)
   }
 
-  async createStandaloneSession(providerId: string, params: RuntimeSessionParams): Promise<RuntimeSession> {
-    return this.runtime.createSession(providerId, params)
+  async createStandaloneSession(providerId: string, params: HostSessionOptions): Promise<AgentSession> {
+    return this.runtime.provider(providerId).createSession(params)
   }
 
   listProviders(): ProviderInfo[] {
@@ -146,12 +163,12 @@ export class SessionManager {
    */
   findBySessionId(sessionId: string): SessionRecord | undefined {
     for (const record of this.sessions.values()) {
-      if (record.runtime.getSessionId?.() === sessionId) return record
+      if (record.runtime.id === sessionId) return record
     }
     return undefined
   }
 
-  async getOrCreate(chatId: number, providerId: string, params: RuntimeSessionParams): Promise<SessionRecord> {
+  async getOrCreate(chatId: number, providerId: string, params: HostSessionOptions): Promise<SessionRecord> {
     const current = this.sessions.get(chatId)
     const reusable =
       current !== undefined &&
@@ -172,7 +189,7 @@ export class SessionManager {
       await this.destroy(chatId, 'rebuild')
     }
 
-    const runtime = await this.runtime.createSession(providerId, params)
+    const runtime = await this.runtime.provider(providerId).createSession(params)
     const record: SessionRecord = {
       chatId,
       providerId,
@@ -199,9 +216,9 @@ export class SessionManager {
    * a session that took the new model but not the new effort is not the session the
    * request asked for, and pretending otherwise would silently drop the setting.
    */
-  private async reconfigure(session: SessionRecord, next: RuntimeSessionParams): Promise<boolean> {
-    const patch: DynamicSetPayload = {}
-    const changed: DynamicSetApplied = []
+  private async reconfigure(session: SessionRecord, next: HostSessionOptions): Promise<boolean> {
+    const patch: SessionPatch = {}
+    const changed: SessionPatchApplied = []
     for (const field of RECONFIGURABLE_FIELDS) {
       const value = next[field]
       if (value === session.params[field]) continue
@@ -210,9 +227,9 @@ export class SessionManager {
       changed.push(field)
     }
     if (changed.length === 0) return true
-    if (typeof session.runtime.dynamicSet !== 'function') return false
+    if (typeof session.runtime.set !== 'function') return false
 
-    const applied = await session.runtime.dynamicSet(patch)
+    const applied = await session.runtime.set(patch)
     if (!changed.every((field) => applied.includes(field))) return false
 
     Object.assign(session.params, patch)
@@ -220,7 +237,7 @@ export class SessionManager {
   }
 
   /**
-   * Fold a successful `dynamicSet` back into the record's params.
+   * Fold a successful `set` back into the record's params.
    *
    * The stored params ARE the reuse fingerprint (`buildParamsKey`). Switching model
    * or mode on a live session without updating them leaves the record describing a
@@ -228,7 +245,7 @@ export class SessionManager {
    * request against a stale key, decides the session is incompatible, and destroys
    * it — throwing away exactly the session the hot switch just avoided rebuilding.
    */
-  applyDynamicParams(chatId: number, patch: DynamicSetPayload, applied: DynamicSetApplied): void {
+  applyDynamicParams(chatId: number, patch: SessionPatch, applied: SessionPatchApplied): void {
     const session = this.sessions.get(chatId)
     if (!session) return
     // Only fold in what the session confirmed it changed. Recording a field the
@@ -275,20 +292,20 @@ export class SessionManager {
     if (!session) {
       return false
     }
-    return session.runtime.resolvePermission(approvalId, decision)
+    return session.runtime.respond(approvalId, decision)
   }
 
   get(chatId: number): SessionRecord | undefined {
     return this.sessions.get(chatId)
   }
 
-  async destroy(chatId: number, reason: SessionDisposeReason = 'discard'): Promise<void> {
+  async destroy(chatId: number, reason: SessionCloseReason = 'discard'): Promise<void> {
     const session = this.sessions.get(chatId)
     if (!session) return
     if (session.activeRequest) {
       session.activeRequest.abortController.abort()
     }
-    await session.runtime.dispose(reason)
+    await session.runtime.close(reason)
     this.sessions.delete(chatId)
     // The process that ran them is gone, and its background agents with it.
     this.backgroundHandler?.(chatId, { type: 'tasks', tasks: [] })

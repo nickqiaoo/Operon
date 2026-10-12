@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { createUIMessageStreamResponse, type UIMessage } from 'ai'
-import type { RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
+import type { AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import { preparedToUIChunks, runAgentTurn } from './agent-turn.js'
 import { createChatResponseHeaders } from './helpers.js'
 import { pumpToLiveTurn, startLiveTurn } from './live-turn-hub.js'
@@ -34,13 +34,14 @@ export async function runDetachedTurn(
   target: DetachedTurnTarget,
   parts: AsyncIterable<RuntimeStreamPart>,
 ): Promise<UIMessage | undefined> {
-  const detached: RuntimeSession = {
-    stream: async function* () {
+  const detached: AgentSession = {
+    id: undefined,
+    send: async function* () {
       yield* parts
     },
     abort: () => undefined,
-    dispose: async () => undefined,
-    resolvePermission: () => false,
+    close: async () => undefined,
+    respond: () => false,
   }
 
   const assistantMessageId = randomUUID()
@@ -50,7 +51,7 @@ export async function runDetachedTurn(
   let streamError: string | undefined
   const { preparedParts, done } = runAgentTurn(detached, {
     requestId: randomUUID(),
-    messages: [],
+    input: '',
     signal: new AbortController().signal,
     assistantMessageId,
     originalMessages: [],

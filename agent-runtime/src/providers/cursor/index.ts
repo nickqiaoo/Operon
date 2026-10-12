@@ -1,6 +1,6 @@
 import { defineProvider } from '../../runtime.js'
 import type { RuntimeContext } from '../../context.js'
-import type { ProviderDescriptor, ProviderInfo, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
+import type { AgentSession, ProviderDescriptor, ProviderInfo, RuntimeProviderFactory, SessionOptions } from '../../types.js'
 import { AcpRuntimeSession, buildAcpDescriptor, probeAcpModels } from '../acp/index.js'
 import { CURSOR_CONFIG } from './config.js'
 
@@ -29,9 +29,9 @@ export class CursorRuntimeProvider implements RuntimeProviderFactory {
     )
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
-    if (params.modelId) this.currentModelId = params.modelId
-    if (params.modeId) this.currentModeId = params.modeId
+  async createSession(params: SessionOptions): Promise<AgentSession> {
+    if (params.model) this.currentModelId = params.model
+    if (params.mode) this.currentModeId = params.mode
     return new AcpRuntimeSession(params, CURSOR_CONFIG, this.ctx)
   }
 }

@@ -1,6 +1,6 @@
 import type { McpServerConfig, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { RuntimeContext } from '../../context.js'
-import type { ProviderDescriptor, RuntimeSessionParams } from '../../types.js'
+import type { ProviderDescriptor, SessionOptions } from '../../types.js'
 import type { ClaudeRuntimeSettings, ClaudeThinkingLevel } from './types.js'
 
 /** CLI alias: clear overrides / use account or org recommended model. */
@@ -75,15 +75,15 @@ function resolveThinkingLevel(level?: string): ClaudeThinkingLevel {
   }
 }
 
-export function buildClaudeRuntimeSettings(params: RuntimeSessionParams, ctx: RuntimeContext): ClaudeRuntimeSettings {
+export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeContext): ClaudeRuntimeSettings {
   const cliPath = ctx.resolveBinary('claude-code')
   if (!cliPath) {
     throw new Error('Claude Code CLI not configured. Set the path in Settings.')
   }
 
   const systemPromptAppend = buildSystemPromptAppend(params.instructions)
-  const permissionMode = resolvePermissionMode(params.modeId)
-  const thinkingLevel = resolveThinkingLevel(params.thinkingLevel)
+  const permissionMode = resolvePermissionMode(params.mode)
+  const thinkingLevel = resolveThinkingLevel(params.effort)
   const env = ctx.env(params.env)
   // Tag SDK-spawned sessions with the `cli` entrypoint so Claude Code's
   // interactive `/resume` picker lists them — it hides `sdk-ts` sessions by
@@ -94,13 +94,13 @@ export function buildClaudeRuntimeSettings(params: RuntimeSessionParams, ctx: Ru
   }
 
   return {
-    modelId: normalizeModelId(params.modelId),
+    modelId: normalizeModelId(params.model),
     cwd: params.cwd,
     permissionMode,
     thinkingLevel,
     fastMode: params.serviceTier === 'fast',
-    resume: params.sessionId,
-    forkFrom: params.forkFrom,
+    resume: params.resume,
+    forkFrom: params.fork,
     pathToClaudeCodeExecutable: cliPath,
     settingSources: ['user', 'project', 'local'],
     persistSession: true,

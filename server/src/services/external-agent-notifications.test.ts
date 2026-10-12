@@ -20,7 +20,7 @@ vi.mock('./ai/session-ops.js', () => ({ injectIntoChat: mocks.inject }))
 const chatId = 910
 const message = (id: string): UIMessage => ({ id, role: 'user', parts: [{ type: 'text', text: `Result ${id}` }] })
 const finish = () => emitChatTurnFinished({ chatId, turnId: 'parent', status: 'completed' })
-const activeSession = () => ({ activeRequest: { requestId: 'parent' }, runtime: { injectMessage: vi.fn() } })
+const activeSession = () => ({ activeRequest: { requestId: 'parent' }, runtime: { inject: vi.fn() } })
 const tick = () => vi.advanceTimersByTimeAsync(100)
 
 describe('external result notification inbox', () => {

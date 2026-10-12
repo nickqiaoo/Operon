@@ -110,17 +110,13 @@ describe('ClaudeRuntimeSession stream completion', () => {
 
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
     const parts = [];
 
-    for await (const part of session.stream({
-      requestId: 'request-1',
-      messages,
-    })) {
+    for await (const part of session.send('Hello')) {
       parts.push(part);
     }
 
@@ -128,7 +124,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
     expect(usageLimits).not.toHaveBeenCalled();
     expect(contextUsage).not.toHaveBeenCalled();
 
-    await session.dispose();
+    await session.close();
   });
 
   it('waits for pending MCP servers before delivering the first user message', async () => {
@@ -144,17 +140,13 @@ describe('ClaudeRuntimeSession stream completion', () => {
 
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
     const streamPromise = (async () => {
       const parts = [];
-      for await (const part of session.stream({
-        requestId: 'request-1',
-        messages,
-      })) {
+      for await (const part of session.send('Hello')) {
         parts.push(part);
       }
       return parts;
@@ -171,7 +163,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
     expect(receivedMessages).toHaveLength(1);
     expect(parts.some((part) => part.type === 'finish')).toBe(true);
 
-    await session.dispose();
+    await session.close();
   });
 
   it('proceeds after the MCP readiness timeout instead of hanging the turn', async () => {
@@ -187,17 +179,13 @@ describe('ClaudeRuntimeSession stream completion', () => {
 
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
     const streamPromise = (async () => {
       const parts = [];
-      for await (const part of session.stream({
-        requestId: 'request-1',
-        messages,
-      })) {
+      for await (const part of session.send('Hello')) {
         parts.push(part);
       }
       return parts;
@@ -209,7 +197,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
     expect(receivedMessages).toHaveLength(1);
     expect(parts.some((part) => part.type === 'finish')).toBe(true);
 
-    await session.dispose();
+    await session.close();
   });
 
   it('exposes MCP status, reconnect, and toggle through session control', async () => {
@@ -226,42 +214,30 @@ describe('ClaudeRuntimeSession stream completion', () => {
     const { reconnectMcpServer, toggleMcpServer } = mockStreamingQuery({ mcpServerStatus });
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
 
-    for await (const _part of session.stream({
-      requestId: 'request-1',
-      messages,
-    })) {
+    for await (const _part of session.send('Hello')) {
       // Start the warm query before exercising session controls.
     }
 
-    await expect(session.agentControl('mcp.list', undefined)).resolves.toEqual({
-      servers: [
+    await expect(session.native.mcp.list()).resolves.toEqual([
         {
           name: 'electron-devtools',
           status: 'connected',
           transport: 'stdio',
           toolCount: 2,
         },
-      ],
-    });
-    await session.agentControl('mcp.reconnect', { name: 'electron-devtools' });
+      ]);
+    await session.native.mcp.reconnect('electron-devtools');
     await Promise.resolve();
     expect(mcpServerStatus).toHaveBeenCalledTimes(3);
 
-    await session.agentControl('mcp.toggle', {
-      name: 'electron-devtools',
-      enabled: false,
-    });
+    await session.native.mcp.toggle('electron-devtools', false);
     expect(mcpServerStatus).toHaveBeenCalledTimes(3);
-    await session.agentControl('mcp.toggle', {
-      name: 'electron-devtools',
-      enabled: true,
-    });
+    await session.native.mcp.toggle('electron-devtools', true);
     await Promise.resolve();
 
     expect(reconnectMcpServer).toHaveBeenCalledWith('electron-devtools');
@@ -269,7 +245,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
     expect(toggleMcpServer).toHaveBeenNthCalledWith(2, 'electron-devtools', true);
     expect(mcpServerStatus).toHaveBeenCalledTimes(4);
 
-    await session.dispose();
+    await session.close();
   });
 
   it('waits again before the next message after reconnecting an MCP server', async () => {
@@ -296,26 +272,19 @@ describe('ClaudeRuntimeSession stream completion', () => {
 
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
     const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
 
-    for await (const _part of session.stream({
-      requestId: 'request-1',
-      messages,
-    })) {
+    for await (const _part of session.send('Hello')) {
       // Complete the first turn with the initially connected server.
     }
     expect(receivedMessages).toHaveLength(1);
 
-    await session.agentControl('mcp.reconnect', { name: 'electron-devtools' });
+    await session.native.mcp.reconnect('electron-devtools');
     const secondStream = (async () => {
-      for await (const _part of session.stream({
-        requestId: 'request-2',
-        messages,
-      })) {
+      for await (const _part of session.send('Hello')) {
         // The message should not reach the input queue while MCP is pending.
       }
     })();
@@ -329,7 +298,7 @@ describe('ClaudeRuntimeSession stream completion', () => {
     expect(reconnectStatusChecks).toBe(2);
     expect(receivedMessages).toHaveLength(2);
 
-    await session.dispose();
+    await session.close();
   });
 });
 
@@ -342,15 +311,14 @@ describe('ClaudeRuntimeSession side chat', () => {
 
   const forkParams = {
     cwd: '/tmp',
-    providerId: 'claude-code',
-    modelId: 'claude-sonnet-4-5',
-    modeId: 'default',
-    forkFrom: { sessionId: 'parent-session', ephemeral: true },
+    model: 'claude-sonnet-4-5',
+    mode: 'default',
+    fork: { from: 'parent-session', ephemeral: true },
   };
   const messages: ModelMessage[] = [{ role: 'user', content: 'Hello' }];
 
   async function runTurn(session: ClaudeRuntimeSession, requestId: string) {
-    for await (const _part of session.stream({ requestId, messages })) {
+    for await (const _part of session.send('Hello')) {
       // Drain the turn.
     }
   }
@@ -382,7 +350,7 @@ describe('ClaudeRuntimeSession side chat', () => {
     const secondBlock = (secondContent as Array<{ type: string; text?: string }>)[0];
     expect(secondBlock.text).not.toBe(SIDE_CHAT_BOUNDARY_PROMPT);
 
-    await session.dispose();
+    await session.close();
   });
 
   it('resumes its own branch, not the parent, when the query is rebuilt', async () => {
@@ -400,7 +368,7 @@ describe('ClaudeRuntimeSession side chat', () => {
     expect(secondOptions.resume).toBe('session-1');
     expect(secondOptions.forkSession).toBe(false);
 
-    await session.dispose();
+    await session.close();
   });
 
   it('deletes the branch it forked when discarded, but keeps it across a rebuild', async () => {
@@ -409,10 +377,10 @@ describe('ClaudeRuntimeSession side chat', () => {
     const session = new ClaudeRuntimeSession(forkParams, ctx);
     await runTurn(session, 'request-1');
 
-    await session.dispose('rebuild');
+    await session.close('rebuild');
     expect(sdkMock.deleteSession).not.toHaveBeenCalled();
 
-    await session.dispose('discard');
+    await session.close('discard');
     expect(sdkMock.deleteSession).toHaveBeenCalledWith('session-1', { dir: '/tmp' });
   });
 
@@ -421,12 +389,11 @@ describe('ClaudeRuntimeSession side chat', () => {
 
     const session = new ClaudeRuntimeSession({
       cwd: '/tmp',
-      providerId: 'claude-code',
-      modelId: 'claude-sonnet-4-5',
-      modeId: 'default',
+      model: 'claude-sonnet-4-5',
+      mode: 'default',
     }, ctx);
     await runTurn(session, 'request-1');
-    await session.dispose();
+    await session.close();
 
     expect(sdkMock.deleteSession).not.toHaveBeenCalled();
   });

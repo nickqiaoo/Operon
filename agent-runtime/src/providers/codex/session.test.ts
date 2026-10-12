@@ -132,7 +132,7 @@ describe('Codex MCP status', () => {
   it('lists every app-server status page and maps it to the Session panel shape', async () => {
     const session = new CodexRuntimeSession({
       cwd: '/tmp',
-      sessionId: 'thread-1',
+      resume: 'thread-1',
       mcpServers: {
         browser: {
           type: 'http',
@@ -171,8 +171,7 @@ describe('Codex MCP status', () => {
     })
     Object.assign(session, { client: { request } })
 
-    await expect(session.agentControl('mcp.list', undefined)).resolves.toEqual({
-      servers: [
+    await expect(session.native.mcp.list()).resolves.toEqual([
         {
           name: 'browser',
           status: 'connected',
@@ -184,8 +183,7 @@ describe('Codex MCP status', () => {
           status: 'needs-auth',
           toolCount: 0,
         },
-      ],
-    })
+      ])
     expect(request).toHaveBeenCalledTimes(2)
     expect(request).toHaveBeenNthCalledWith(1, 'mcpServerStatus/list', {
       cursor: null,
@@ -195,12 +193,10 @@ describe('Codex MCP status', () => {
     })
   })
 
-  it('keeps Codex MCP controls read-only', async () => {
+  it('keeps Codex MCP controls read-only', () => {
     const session = new CodexRuntimeSession({ cwd: '/tmp' }, ctx)
 
-    await expect(session.agentControl('mcp.reconnect', { name: 'browser' })).rejects.toThrow(
-      'Unsupported Codex session control method: mcp.reconnect',
-    )
+    expect(Object.keys(session.native.mcp)).toEqual(['list'])
   })
 })
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import type { RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
+import type { AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import { runAgentTurn } from './agent-turn.js'
 import {
   requestHostElicitation,
@@ -17,8 +17,9 @@ describe('runAgentTurn host approval bridge', () => {
     const providerPaused = new Promise<void>((resolve) => {
       finishProvider = resolve
     })
-    const session: RuntimeSession = {
-      async *stream(): AsyncIterable<RuntimeStreamPart> {
+    const session: AgentSession = {
+      id: undefined,
+      async *send(): AsyncIterable<RuntimeStreamPart> {
         yield { type: 'start' } as RuntimeStreamPart
         yield {
           type: 'tool-call',
@@ -46,15 +47,15 @@ describe('runAgentTurn host approval bridge', () => {
         } as RuntimeStreamPart
       },
       abort() {},
-      async dispose() {},
-      resolvePermission() {
+      async close() {},
+      respond() {
         return false
       },
     }
 
     const turn = runAgentTurn(session, {
       requestId: 'request-1',
-      messages: [],
+      input: '',
       signal: new AbortController().signal,
       assistantMessageId: 'assistant-1',
       originalMessages: [],

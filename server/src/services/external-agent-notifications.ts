@@ -57,7 +57,7 @@ async function flush(chatId: number, inbox: Inbox): Promise<void> {
   const session = getSessionManager().get(chatId)
   const request = session?.activeRequest
   // Also wait through stream draining/persistence after the runtime turns idle.
-  if ((request && !session.runtime.injectMessage) || (!request && isChatTurnBusy(chatId))) return
+  if ((request && !session.runtime.inject) || (!request && isChatTurnBusy(chatId))) return
 
   const batch = [...inbox.pending.values()]
   if (!batch.length) { inboxes.delete(chatId); return }

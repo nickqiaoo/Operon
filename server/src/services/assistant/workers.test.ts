@@ -1,4 +1,4 @@
-import type { PermissionDecision, RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
+import type { PermissionDecision, AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import { describe, expect, it } from 'vitest'
 import type { Activity } from '../../../../shared/assistant.js'
 import type { OpenParams } from './agents.js'
@@ -29,20 +29,22 @@ function reply(text: string, extra: Part[] = []): Part[] {
   ]
 }
 
-class FakeSession implements RuntimeSession {
+class FakeSession implements AgentSession {
   readonly prompts: string[] = []
   readonly injected: string[] = []
   disposed = false
   private abortTurn: (() => void) | undefined
 
+  readonly id: string
+
   constructor(
     readonly params: OpenParams,
     private readonly scripts: Script[],
-    private readonly id = `agent-${params.caller.id}`,
-  ) {}
+  ) {
+    this.id = `agent-${params.caller.id}`
+  }
 
-  stream(params: { messages: Array<{ content: unknown }> }): AsyncIterable<RuntimeStreamPart> {
-    const content = params.messages.at(-1)?.content
+  send(content: AgentInput): AsyncIterable<RuntimeStreamPart> {
     this.prompts.push(typeof content === 'string' ? content : JSON.stringify(content))
     const script = this.scripts.shift() ?? { parts: reply('ok') }
     const self = this
@@ -66,19 +68,15 @@ class FakeSession implements RuntimeSession {
     this.abortTurn?.()
   }
 
-  async dispose(): Promise<void> {
+  async close(): Promise<void> {
     this.disposed = true
   }
 
-  resolvePermission(): boolean {
+  respond(): boolean {
     return true
   }
 
-  getSessionId(): string {
-    return this.id
-  }
-
-  async injectMessage(content: string): Promise<void> {
+  async inject(content: string): Promise<void> {
     this.injected.push(content)
   }
 }

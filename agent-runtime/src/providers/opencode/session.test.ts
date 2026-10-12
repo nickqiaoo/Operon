@@ -43,8 +43,7 @@ describe('OpenCode MCP session control', () => {
       },
     })
 
-    await expect(session.agentControl('mcp.list', undefined)).resolves.toEqual({
-      servers: [
+    await expect(session.native.mcp.list()).resolves.toEqual([
         { name: 'local', status: 'connected', transport: 'stdio' },
         { name: 'remote', status: 'disabled', transport: 'http' },
         {
@@ -59,8 +58,7 @@ describe('OpenCode MCP session control', () => {
           status: 'needs-client-registration',
           error: 'Dynamic registration is unavailable',
         },
-      ],
-    })
+      ])
     expect(status).toHaveBeenCalledWith(
       { directory: '/workspace' },
       { throwOnError: true },
@@ -90,26 +88,26 @@ describe('OpenCode MCP session control', () => {
     })
 
     await expect(
-      session.agentControl('mcp.toggle', { name: 'browser', enabled: false }),
-    ).resolves.toEqual({ ok: true })
+      session.native.mcp.toggle('browser', false),
+    ).resolves.toBeUndefined()
     expect(disconnect).toHaveBeenCalledWith(
       { name: 'browser', directory: '/workspace' },
       { throwOnError: true },
     )
 
     await expect(
-      session.agentControl('mcp.toggle', { name: 'browser', enabled: true }),
-    ).resolves.toEqual({ ok: true })
+      session.native.mcp.toggle('browser', true),
+    ).resolves.toBeUndefined()
     await expect(
-      session.agentControl('mcp.reconnect', { name: 'browser' }),
-    ).resolves.toEqual({ ok: true })
+      session.native.mcp.reconnect('browser'),
+    ).resolves.toBeUndefined()
     expect(connect).toHaveBeenCalledTimes(2)
   })
 
   it('holds the next injected message until MCP connection is ready', async () => {
     const session = new OpencodeRuntimeSession({
       cwd: '/workspace',
-      sessionId: 'session-1',
+      resume: 'session-1',
     }, ctx)
     const connection = deferred<void>()
     let currentStatus: McpStatus = { status: 'disabled' }
@@ -131,8 +129,8 @@ describe('OpenCode MCP session control', () => {
       },
     })
 
-    const reconnecting = session.agentControl('mcp.reconnect', { name: 'browser' })
-    const injecting = session.injectMessage('continue')
+    const reconnecting = session.native.mcp.reconnect('browser')
+    const injecting = session.inject('continue')
     await Promise.resolve()
     await Promise.resolve()
     expect(promptAsync).not.toHaveBeenCalled()
@@ -167,39 +165,39 @@ describe('OpenCode side chat', () => {
   it('branches off the parent once and reuses the branch after that', async () => {
     const session = new OpencodeRuntimeSession({
       cwd: '/workspace',
-      forkFrom: { sessionId: 'parent-1', ephemeral: true },
+      fork: { from: 'parent-1', ephemeral: true },
     }, ctx)
     const mocks = mockForkableClient()
     Object.assign(session, { clientManager: mocks.clientManager })
 
-    await session.injectMessage('hello')
+    await session.inject('hello')
     expect(mocks.fork).toHaveBeenCalledWith({
       sessionID: 'parent-1',
       directory: '/workspace',
     })
     expect(mocks.create).not.toHaveBeenCalled()
-    expect(session.getSessionId()).toBe('fork-1')
+    expect(session.id).toBe('fork-1')
 
-    await session.injectMessage('again')
+    await session.inject('again')
     expect(mocks.fork).toHaveBeenCalledTimes(1)
   })
 
   it('deletes the branch it forked when discarded, but keeps it across a rebuild', async () => {
     const session = new OpencodeRuntimeSession({
       cwd: '/workspace',
-      forkFrom: { sessionId: 'parent-1', ephemeral: true },
+      fork: { from: 'parent-1', ephemeral: true },
     }, ctx)
     const mocks = mockForkableClient()
     Object.assign(session, { clientManager: mocks.clientManager })
 
-    await session.injectMessage('hello')
+    await session.inject('hello')
 
-    await session.dispose('rebuild')
+    await session.close('rebuild')
     expect(mocks.remove).not.toHaveBeenCalled()
     // The rebuilt session resumes the branch by id, so it must still be known.
-    expect(session.getSessionId()).toBe('fork-1')
+    expect(session.id).toBe('fork-1')
 
-    await session.dispose('discard')
+    await session.close('discard')
     expect(mocks.remove).toHaveBeenCalledWith({
       sessionID: 'fork-1',
       directory: '/workspace',
@@ -211,11 +209,11 @@ describe('OpenCode side chat', () => {
     const mocks = mockForkableClient()
     Object.assign(session, { clientManager: mocks.clientManager })
 
-    await session.injectMessage('hello')
+    await session.inject('hello')
     expect(mocks.create).toHaveBeenCalled()
     expect(mocks.fork).not.toHaveBeenCalled()
 
-    await session.dispose()
+    await session.close()
     expect(mocks.remove).not.toHaveBeenCalled()
   })
 })

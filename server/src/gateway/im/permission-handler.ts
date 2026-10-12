@@ -1,4 +1,4 @@
-import type { SessionManager } from '@operon/agent-runtime'
+import type { SessionManager } from '../../services/ai/session-manager.js'
 import type { ChannelRef, Choice, IMProvider } from './types.js'
 import type { SessionConfigStore } from './interactive/session-config.js'
 

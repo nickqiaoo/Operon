@@ -19,7 +19,7 @@ import type {
   AssistantContinuationState,
   StartChatOptions,
 } from './types.js'
-import { mergeConsecutiveSameRole, normalizeUiMessagesFileAttachments } from './message-utils.js'
+import { latestUserInput, mergeConsecutiveSameRole, normalizeUiMessagesFileAttachments } from './message-utils.js'
 import {
   resolveProviderId,
   findLatestUserMessage,
@@ -166,15 +166,14 @@ export async function startChat(
   const session = await sessionManager.getOrCreate(chatId, providerId, {
     cwd,
     env: payload.env,
-    modelId: payload.modelId,
-    providerId: payload.providerId,
-    modeId: payload.modeId,
-    thinkingLevel: payload.thinkingLevel,
+    model: payload.modelId,
+    mode: payload.modeId,
+    effort: payload.thinkingLevel,
     serviceTier: payload.serviceTier,
-    sessionId: chatRecord.sessionId,
+    resume: chatRecord.sessionId,
     mcpServers,
     instructions,
-    ...(chatId > 0 ? { hostConversationId: String(chatId) } : {}),
+    ...(chatId > 0 ? { opencode: { callerTag: String(chatId) } } : {}),
     ...resolveForkSource(chatId),
   })
   const request = sessionManager.startRequest(chatId, requestId)
@@ -224,7 +223,7 @@ export async function startChat(
       turnError = err instanceof Error ? err.message : String(err)
       console.error('[AI] Background persistence error:', err)
     } finally {
-      const runtimeSessionId = session.runtime.getSessionId?.()
+      const runtimeSessionId = session.runtime.id
       if (runtimeSessionId) {
         persistSessionId(chatId, sessionIdRef, runtimeSessionId)
       }
@@ -238,7 +237,7 @@ export async function startChat(
   if (chatId > 0) clearPendingApprovals(chatId)
   const { preparedParts, done } = runAgentTurn(session.runtime, {
     requestId,
-    messages,
+    input: latestUserInput(messages),
     signal: request.abortController.signal,
     assistantMessageId,
     originalMessages: normalizedMessages,
@@ -330,7 +329,7 @@ export async function startChat(
  * started a provider session yet (nothing to fork from — that chat then just
  * starts fresh).
  */
-function resolveForkSource(chatId: number): { forkFrom?: { sessionId: string; ephemeral: boolean } } {
+function resolveForkSource(chatId: number): { fork?: { from: string; ephemeral: boolean } } {
   if (chatId <= 0) return {}
   const storage = getChatStorage()
   const meta = storage?.getChatMeta(chatId)
@@ -339,7 +338,7 @@ function resolveForkSource(chatId: number): { forkFrom?: { sessionId: string; ep
   if (parentChatId == null) return {}
   const parentSessionId = storage?.getChatMeta(parentChatId)?.sessionId
   if (!parentSessionId) return {}
-  return { forkFrom: { sessionId: parentSessionId, ephemeral: true } }
+  return { fork: { from: parentSessionId, ephemeral: true } }
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {

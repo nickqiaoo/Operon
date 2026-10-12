@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { PermissionDecision, RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
+import type { PermissionDecision, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import {
   watchDetachedApprovals,
   resolveDetachedApproval,
@@ -29,18 +29,19 @@ afterEach(() => {
 })
 
 /** Minimal session that records what the bridge hands back to the provider. */
-function fakeSession(): RuntimeSession & { decisions: Array<{ id: string; decision: PermissionDecision }> } {
+function fakeSession(): AgentSession & { decisions: Array<{ id: string; decision: PermissionDecision }> } {
   const decisions: Array<{ id: string; decision: PermissionDecision }> = []
   return {
     decisions,
     // eslint-disable-next-line require-yield
-    async *stream() {},
+    id: undefined,
+    async *send() {},
     abort() {},
-    async dispose() {},
-    resolvePermission(approvalId: string, decision: PermissionDecision) {
+    async close() {},
+    respond(approvalId: string, decision: PermissionDecision) {
       decisions.push({ id: approvalId, decision })
     },
-  } as unknown as RuntimeSession & { decisions: Array<{ id: string; decision: PermissionDecision }> }
+  } as unknown as AgentSession & { decisions: Array<{ id: string; decision: PermissionDecision }> }
 }
 
 function approvalPart(approvalId: string, toolName = 'Bash'): RuntimeStreamPart {
@@ -112,13 +113,13 @@ describe('detached sub-agent approvals', () => {
     expect(resolveDetachedApproval(7, 'ap-4', { type: 'allow' })).toBe(false)
   })
 
-  it('survives a session that throws on resolvePermission', () => {
+  it('survives a session that throws on respond', () => {
     const session = {
       ...fakeSession(),
-      resolvePermission() {
+      respond() {
         throw new Error('session already disposed')
       },
-    } as unknown as RuntimeSession
+    } as unknown as AgentSession
     const { onPart, dispose } = watchDetachedApprovals({ session, parentChatId: 7, agentId: 'codex-a1' })
     onPart(approvalPart('ap-6'))
 

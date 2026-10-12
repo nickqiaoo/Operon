@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto'
 import { convertToModelMessages, type UIMessage, type UIMessageChunk } from 'ai'
 import { getSessionManager } from '../ai.js'
+import { latestUserInput } from '../ai/message-utils.js'
 import { runAgentTurnText } from '../ai/agent-turn.js'
 import { subagentMode } from '../agents/subagent-mode.js'
 import {
@@ -60,11 +61,11 @@ export async function runProviderAgent(params: ProviderAgentParams): Promise<str
   const manager = getSessionManager()
   const session = await manager.createStandaloneSession(params.providerId, {
     cwd: params.cwd,
-    modelId: params.modelId,
+    model: params.modelId,
     // Fixed per provider, NOT derived from the parent turn: a sub-agent runs
     // unattended, and any mode that stops to ask would stall it. Throws for an
     // unregistered provider rather than guessing an id (see subagent-mode.ts).
-    modeId: subagentMode(params.providerId),
+    mode: subagentMode(params.providerId),
   })
   // The mode above suppresses ordinary permission prompts, but it cannot suppress
   // everything — `AskUserQuestion` is the agent's own deliberate question, and a
@@ -90,7 +91,7 @@ export async function runProviderAgent(params: ProviderAgentParams): Promise<str
       session,
       {
         requestId: randomUUID(),
-        messages: await convertToModelMessages([userMessage]),
+        input: latestUserInput(await convertToModelMessages([userMessage])),
         signal: params.signal,
         assistantMessageId: randomUUID(),
         originalMessages: [userMessage],
@@ -102,6 +103,6 @@ export async function runProviderAgent(params: ProviderAgentParams): Promise<str
     // Deny before dispose: a request still outstanding here will never be answered
     // (the session is going away), and leaving it pending would strand an inbox row.
     approvals.dispose()
-    await session.dispose().catch(() => {})
+    await session.close().catch(() => {})
   }
 }

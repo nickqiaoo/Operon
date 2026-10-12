@@ -15,19 +15,24 @@ export {
   type ProviderIdOf,
   type ProviderOf,
   type ProviderNativeOf,
+  type SessionNativeOf,
+  type SessionOptionsOf,
 } from './runtime.js'
 export { createRuntimeContext, type RuntimeContext, type RuntimeHost } from './context.js'
 
 export { claudeCode, type ClaudeCodeNative, type ClaudeCodeEffort } from './providers/claude/index.js'
+export type { ClaudeSessionNative } from './providers/claude/session.js'
 export { codex, type CodexNative, type CodexEffort } from './providers/codex/index.js'
+export type { CodexSessionNative } from './providers/codex/session.js'
+export type { CodexModeId, CodexOptions, CodexSessionOptions } from './providers/codex/config.js'
 export { copilot } from './providers/copilot/index.js'
 export { opencode, type OpencodeMode } from './providers/opencode/index.js'
+export type { OpencodeSessionNative, OpencodeSessionOptions } from './providers/opencode/session.js'
 export { cursor, type CursorMode } from './providers/cursor/index.js'
 export { grok, type GrokMode } from './providers/grok/index.js'
 export { kimi, type KimiMode } from './providers/kimi/index.js'
 export { antigravity, type AntigravityMode } from './providers/antigravity/index.js'
 
-export { SessionManager } from './session-manager.js'
 export { createRuntimeLogger, isRuntimeVerbose, type RuntimeLogger } from './logger.js'
 export { readStreamAsAsyncIterable } from './utils/read-stream.js'
 export type { CodexGoal } from './providers/codex/sdk/protocol/index.js'

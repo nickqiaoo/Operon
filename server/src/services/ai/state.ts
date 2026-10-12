@@ -3,12 +3,12 @@ import {
   builtinProviders,
   createRuntime,
   fakeAgent,
-  SessionManager,
   type Runtime,
 } from '@operon/agent-runtime'
 import { ChatHistoryService } from '../chat-history.js'
 import { startNotificationPruning } from '../notification-service.js'
 import { appRuntimeHost } from './app-runtime-host.js'
+import { SessionManager } from './session-manager.js'
 import { resolveHostApproval } from './host-approval-broker.js'
 import { resolveDetachedApproval } from '../agents/detached-approvals.js'
 import { handleRuntimeBackgroundEvent } from './background-events.js'

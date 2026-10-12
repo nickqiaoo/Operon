@@ -17,18 +17,24 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import { deleteSession, query } from '@anthropic-ai/claude-agent-sdk'
 import type {
+  AgentInput,
+  AgentSession,
   DetailedContextUsage,
-  DynamicSetApplied,
-  DynamicSetPayload,
+  McpControl,
+  McpServerInfo,
   PermissionDecision,
   RuntimeBackgroundEvent,
   RuntimeBackgroundTask,
-  RuntimeSession,
-  RuntimeSessionParams,
-  RuntimeStreamParams,
-  SessionDisposeReason,
+  SendOptions,
+  SessionCloseReason,
+  SessionOptions,
+  SessionPatch,
+  SessionPatchApplied,
+  RuntimeStreamPart,
   SlashCommandItem,
 } from '../../types.js'
+import type { ModelMessage } from 'ai'
+import { toUserMessages } from '../../utils/agent-input.js'
 import { RuntimeInjectionUnavailableError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { buildClaudeRuntimeSettings } from './config.js'
@@ -171,7 +177,12 @@ function buildQueryOptions(
 // ClaudeRuntimeSession — warm-session model (single query across turns)
 // ---------------------------------------------------------------------------
 
-export class ClaudeRuntimeSession implements RuntimeSession {
+/** What only Claude Code sessions offer. */
+export interface ClaudeSessionNative {
+  mcp: McpControl
+}
+
+export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
   private readonly logger = createRuntimeLogger('claude-runtime')
   private readonly settings: ClaudeRuntimeSettings
   private currentModelId: string
@@ -201,7 +212,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // user message carries the boundary marker — see `stream()`.
   private boundaryPending: boolean
 
-  constructor(params: RuntimeSessionParams, private readonly ctx: RuntimeContext) {
+  constructor(params: SessionOptions, private readonly ctx: RuntimeContext) {
     this.settings = buildClaudeRuntimeSettings(params, ctx)
     this.currentModelId = this.settings.modelId
     this.currentModeId = this.settings.permissionMode
@@ -231,7 +242,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     // that id like any other conversation — so a dropped CLI process reconnects
     // to the branch rather than forking the parent a second time.
     const forkingNow = !this.sessionId && this.settings.forkFrom != null
-    const resume = forkingNow ? this.settings.forkFrom!.sessionId : this.sessionId
+    const resume = forkingNow ? this.settings.forkFrom!.from : this.sessionId
 
     const queryOptions = buildQueryOptions(
       {
@@ -448,8 +459,11 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     }
   }
 
-  onBackground(listener: (event: RuntimeBackgroundEvent) => void): void {
+  onBackground(listener: (event: RuntimeBackgroundEvent) => void): () => void {
     this.backgroundListener = listener
+    return () => {
+      if (this.backgroundListener === listener) this.backgroundListener = null
+    }
   }
 
   /**
@@ -589,7 +603,11 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // stream() — enqueues a user message and returns the output for one turn
   // -----------------------------------------------------------------------
 
-  async *stream(params: RuntimeStreamParams) {
+  send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
+    return this.runTurn(toUserMessages(input), options?.signal)
+  }
+
+  private async *runTurn(messages: ModelMessage[], signal: AbortSignal | undefined) {
     this.logger.info(`Starting stream with model ${this.currentModelId} in mode ${this.currentModeId}`)
 
     // The agent may be mid-way through a reply it started itself. The CLI answers
@@ -598,7 +616,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     const backgroundTurn = this.turn?.background
     if (backgroundTurn) await backgroundTurn.finished
 
-    const converted = convertToClaudeMessages(params.messages)
+    const converted = convertToClaudeMessages(messages)
     const warnings = (converted.warnings ?? []).map((message) => ({ type: 'other' as const, message }))
 
     // Promise that resolves when this turn's result is received
@@ -622,8 +640,8 @@ export class ClaudeRuntimeSession implements RuntimeSession {
         this.turn = { builder, controller, done: turnDone }
 
         // Connect external abort signal
-        if (params.signal) {
-          params.signal.addEventListener(
+        if (signal) {
+          signal.addEventListener(
             'abort',
             () => void this.activeQuery?.interrupt().catch(() => {}),
             { once: true },
@@ -714,7 +732,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // dispose — tears down the entire warm session
   // -----------------------------------------------------------------------
 
-  async dispose(reason: SessionDisposeReason = 'discard'): Promise<void> {
+  async close(reason: SessionCloseReason = 'discard'): Promise<void> {
     this.logger.info('Disposing warm session')
     this.inputQueue?.close()
     this.inputQueue = null
@@ -753,7 +771,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     const source = this.settings.forkFrom
     if (!source || source.ephemeral === false) return
     const forkedId = this.sessionId
-    if (!forkedId || forkedId === source.sessionId) return
+    if (!forkedId || forkedId === source.from) return
     this.sessionId = undefined
     try {
       await deleteSession(forkedId, { dir: this.settings.cwd })
@@ -767,7 +785,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // Permission handling
   // -----------------------------------------------------------------------
 
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     const pending = this.pendingApprovals.get(approvalId)
     if (!pending) return false
     this.pendingApprovals.delete(approvalId)
@@ -802,7 +820,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // Inject — enqueue a follow-up message into the current turn
   // -----------------------------------------------------------------------
 
-  async injectMessage(content: string): Promise<void> {
+  async inject(content: string): Promise<void> {
     const activeQuery = this.activeQuery
     const inputQueue = this.inputQueue
     await this.mcpReadyPromise
@@ -825,54 +843,48 @@ export class ClaudeRuntimeSession implements RuntimeSession {
     })
   }
 
-  async agentControl(method: string, params: unknown): Promise<unknown> {
+  readonly native: ClaudeSessionNative = {
+    mcp: {
+      list: () => this.listMcpServers(),
+      reconnect: (name) => this.mutateMcp(true, (query) => query.reconnectMcpServer(name)),
+      toggle: (name, enabled) => this.mutateMcp(enabled, (query) => query.toggleMcpServer(name, enabled)),
+    },
+  }
+
+  private liveQuery(): Query {
     const activeQuery = this.activeQuery
     if (!activeQuery || this.messageLoopDead) {
       throw new Error('No active Claude Code session')
     }
+    return activeQuery
+  }
 
-    switch (method) {
-      case 'mcp.list': {
-        const servers = await activeQuery.mcpServerStatus()
-        return {
-          servers: servers.map((server) => {
-            const config = server.config
-            const transport =
-              config && 'type' in config && typeof config.type === 'string'
-                ? config.type
-                : config && 'command' in config
-                  ? 'stdio'
-                  : undefined
+  private async listMcpServers(): Promise<McpServerInfo[]> {
+    const servers = await this.liveQuery().mcpServerStatus()
+    return servers.map((server) => {
+      const config = server.config
+      const transport =
+        config && 'type' in config && typeof config.type === 'string'
+          ? config.type
+          : config && 'command' in config
+            ? 'stdio'
+            : undefined
 
-            return {
-              name: server.name,
-              status: server.status,
-              ...(transport ? { transport } : {}),
-              ...(server.error ? { error: server.error } : {}),
-              ...(server.tools ? { toolCount: server.tools.length } : {}),
-            }
-          }),
-        }
+      return {
+        name: server.name,
+        status: server.status,
+        ...(transport ? { transport } : {}),
+        ...(server.error ? { error: server.error } : {}),
+        ...(server.tools ? { toolCount: server.tools.length } : {}),
       }
-      case 'mcp.reconnect': {
-        const mutation = activeQuery.reconnectMcpServer(readControlString(params, 'name'))
-        this.gateMessagesOnMcpMutation(activeQuery, mutation, true)
-        await mutation
-        return { ok: true }
-      }
-      case 'mcp.toggle': {
-        const enabled = readControlBoolean(params, 'enabled')
-        const mutation = activeQuery.toggleMcpServer(
-          readControlString(params, 'name'),
-          enabled,
-        )
-        this.gateMessagesOnMcpMutation(activeQuery, mutation, enabled)
-        await mutation
-        return { ok: true }
-      }
-      default:
-        throw new Error(`Unsupported Claude session control method: ${method}`)
-    }
+    })
+  }
+
+  private async mutateMcp(waitForConnection: boolean, run: (query: Query) => Promise<void>): Promise<void> {
+    const activeQuery = this.liveQuery()
+    const mutation = run(activeQuery)
+    this.gateMessagesOnMcpMutation(activeQuery, mutation, waitForConnection)
+    await mutation
   }
 
   private gateMessagesOnMcpMutation(
@@ -893,7 +905,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
   // Session info
   // -----------------------------------------------------------------------
 
-  getSessionId(): string | undefined {
+  get id(): string | undefined {
     return this.sessionId
   }
 
@@ -906,7 +918,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
    * renders) was ~50KB of every response on a poll the client runs every few
    * seconds during a turn, all of it crossing the tunnel to the browser.
    */
-  async getContextUsage(): Promise<DetailedContextUsage | null> {
+  async contextUsage(): Promise<DetailedContextUsage | null> {
     if (!this.activeQuery) return null
     try {
       const usage = await this.activeQuery.getContextUsage()
@@ -936,19 +948,19 @@ export class ClaudeRuntimeSession implements RuntimeSession {
    * would take tearing the warm query down — i.e. restarting the CLI subprocess —
    * so we report it as not applied and let the caller rebuild the session instead.
    */
-  async dynamicSet(payload: DynamicSetPayload): Promise<DynamicSetApplied> {
-    const applied: DynamicSetApplied = []
-    if (payload.modelId) {
-      this.logger.info(`Switching model to ${payload.modelId}`)
-      this.currentModelId = payload.modelId
-      await this.activeQuery?.setModel(payload.modelId)
-      applied.push('modelId')
+  async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    const applied: SessionPatchApplied = []
+    if (patch.model) {
+      this.logger.info(`Switching model to ${patch.model}`)
+      this.currentModelId = patch.model
+      await this.activeQuery?.setModel(patch.model)
+      applied.push('model')
     }
-    if (payload.modeId) {
-      this.logger.info(`Switching permission mode to ${payload.modeId}`)
-      this.currentModeId = payload.modeId
-      await this.activeQuery?.setPermissionMode(payload.modeId as PermissionMode)
-      applied.push('modeId')
+    if (patch.mode) {
+      this.logger.info(`Switching permission mode to ${patch.mode}`)
+      this.currentModeId = patch.mode
+      await this.activeQuery?.setPermissionMode(patch.mode as PermissionMode)
+      applied.push('mode')
     }
     return applied
   }
@@ -960,7 +972,7 @@ export class ClaudeRuntimeSession implements RuntimeSession {
       : undefined
   }
 
-  getDescriptorPatch(): {
+  state(): {
     currentModelId: string
     currentModeId: string
     currentThinkingLevel: string
@@ -997,24 +1009,4 @@ export class ClaudeRuntimeSession implements RuntimeSession {
       ...(slashCommands.length > 0 ? { slashCommands } : {}),
     }
   }
-}
-
-function readControlString(params: unknown, key: string): string {
-  const value = params && typeof params === 'object'
-    ? (params as Record<string, unknown>)[key]
-    : undefined
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`Session control requires string param '${key}'`)
-  }
-  return value
-}
-
-function readControlBoolean(params: unknown, key: string): boolean {
-  const value = params && typeof params === 'object'
-    ? (params as Record<string, unknown>)[key]
-    : undefined
-  if (typeof value !== 'boolean') {
-    throw new Error(`Session control requires boolean param '${key}'`)
-  }
-  return value
 }

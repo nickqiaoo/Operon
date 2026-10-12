@@ -18,18 +18,17 @@
 import {
   createUIMessageStream,
   type LanguageModelUsage,
-  type ModelMessage,
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
-import type { RuntimeSession, RuntimeStreamPart } from '@operon/agent-runtime'
+import type { AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { PreparedTextStreamPart } from './prepared-stream-parts.js'
 import { buildStreamMessageMetadata, type StreamMessageMetadata } from '@operon/agent-runtime'
 import { writeMessageMetadata, writeTextStreamPart } from './text-stream-part-to-ui.js'
 import { getSessionIdFromProviderMetadata } from '@operon/agent-runtime'
 import { createTrafficRecorder } from '@operon/agent-runtime'
 import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
-import { extractAssistantText } from './message-utils.js'
+import { extractAssistantText, inputText } from './message-utils.js'
 import {
   attachHostApprovalStream,
   observeHostApprovalStreamPart,
@@ -136,8 +135,8 @@ export interface AgentTurnTrafficContext {
 
 export interface AgentTurnInput {
   requestId: string
-  /** Model-ready messages (already converted from UI messages). */
-  messages: ModelMessage[]
+  /** This turn's input. The agent keeps the history; see `latestUserInput` to take it from a transcript. */
+  input: AgentInput
   signal: AbortSignal
   assistantMessageId: string
   /** Prior UI messages — context for assembling the response message. */
@@ -170,13 +169,11 @@ export interface AgentTurnResult {
 }
 
 /** Run one turn on `session` and produce the standard event stream + final message. */
-export function runAgentTurn(session: RuntimeSession, input: AgentTurnInput): AgentTurnResult {
-  const rawParts = session.stream({
-    requestId: input.requestId,
-    messages: input.messages,
-    signal: input.signal,
-    asGoal: input.asGoal,
-  })
+export function runAgentTurn(session: AgentSession, input: AgentTurnInput): AgentTurnResult {
+  const rawParts =
+    input.asGoal && session.goal
+      ? session.goal.run(inputText(input.input), { signal: input.signal })
+      : session.send(input.input, { signal: input.signal })
 
   const recorder = input.traffic
     ? createTrafficRecorder({ requestId: input.requestId, ...input.traffic })
@@ -283,7 +280,7 @@ export function runAgentTurn(session: RuntimeSession, input: AgentTurnInput): Ag
  * like an empty success.
  */
 export async function runAgentTurnText(
-  session: RuntimeSession,
+  session: AgentSession,
   input: AgentTurnInput,
   /**
    * Receives the turn's UI chunks as they arrive, for callers that want to SHOW

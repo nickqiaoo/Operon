@@ -61,6 +61,30 @@ export const MODES_CONFIG: Record<CodexModeId, CodexModeConfig> = {
   },
 }
 
+/**
+ * Codex's own knobs, passed through as they are. Each one set here overrides
+ * what the `mode` preset would pick, for as long as the session lives (a mode
+ * switch keeps them).
+ */
+export interface CodexOptions {
+  approvalPolicy?: ApprovalMode
+  sandbox?: SandboxMode
+  /** Who answers approvals: the user, or Codex's own reviewer. */
+  approvalsReviewer?: ApprovalsReviewer
+  permissionProfile?: PermissionProfileId
+  /**
+   * Servers from the user's own `~/.codex/config.toml` this session must not
+   * load — typically because the host mounts its own under another name, and
+   * the user's copy would let the model route around it. Names only.
+   */
+  disabledMcpServers?: string[]
+}
+
+/** Codex's options block on `createSession`. */
+export interface CodexSessionOptions {
+  codex?: CodexOptions
+}
+
 export const DEFAULT_THREAD_MODE = 'persistent' as const
 
 export function resolveCodexModeId(modeId?: string): CodexModeId {

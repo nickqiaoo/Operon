@@ -9,7 +9,7 @@ beforeEach(() => {
 async function collect(provider: FakeRuntimeProvider): Promise<RuntimeStreamPart[]> {
   const session = await provider.createSession({ cwd: '/tmp' })
   const parts: RuntimeStreamPart[] = []
-  for await (const part of session.stream({ requestId: 'r1', messages: [] })) {
+  for await (const part of session.send('')) {
     parts.push(part)
   }
   return parts
@@ -27,7 +27,7 @@ describe('FakeRuntimeProvider', () => {
     const provider = new FakeRuntimeProvider()
     const session = await provider.createSession({ cwd: '/tmp' })
     await expect(async () => {
-      for await (const _p of session.stream({ requestId: 'x', messages: [] })) {
+      for await (const _p of session.send('')) {
         // drain
       }
     }).rejects.toThrow(/no-such-script/)
@@ -48,14 +48,7 @@ describe('FakeRuntimeProvider', () => {
 
     const provider = new FakeRuntimeProvider()
     const session = await provider.createSession({ cwd: '/tmp' })
-    for await (const _p of session.stream({
-      requestId: 'r1',
-      messages: [
-        { role: 'user', content: 'first' },
-        { role: 'assistant', content: 'reply' },
-        { role: 'user', content: 'most recent' },
-      ],
-    })) {
+    for await (const _p of session.send('most recent')) {
       // drain
     }
     expect(observed).toBe('most recent')
@@ -76,7 +69,7 @@ describe('FakeRuntimeProvider', () => {
     const provider = new FakeRuntimeProvider()
     const session = await provider.createSession({ cwd: '/tmp' })
     for (let i = 0; i < 3; i += 1) {
-      for await (const _p of session.stream({ requestId: `r${i}`, messages: [] })) {
+      for await (const _p of session.send('')) {
         // drain
       }
     }
@@ -116,7 +109,7 @@ describe('FakeRuntimeProvider', () => {
 
     const provider = new FakeRuntimeProvider()
     const session = await provider.createSession({ cwd: '/tmp' })
-    const iterator = session.stream({ requestId: 'r1', messages: [] })[Symbol.asyncIterator]()
+    const iterator = session.send('')[Symbol.asyncIterator]()
     const first = await iterator.next()
     expect(first.value?.type).toBe('tool-approval-request')
 
@@ -162,11 +155,11 @@ describe('FakeRuntimeProvider', () => {
 
     const provider = new FakeRuntimeProvider()
     const session = await provider.createSession({ cwd: '/tmp' })
-    const iterator = session.stream({ requestId: 'r1', messages: [] })[Symbol.asyncIterator]()
+    const iterator = session.send('')[Symbol.asyncIterator]()
     const approval = await iterator.next()
     expect(approval.value?.type).toBe('tool-approval-request')
 
-    session.resolvePermission('p1', { type: 'allow', updatedInput: { ok: true } })
+    session.respond('p1', { type: 'allow', updatedInput: { ok: true } })
 
     let finished = false
     while (true) {

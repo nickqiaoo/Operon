@@ -25,14 +25,13 @@ export async function runOneShotPrompt(options: OneShotPromptOptions): Promise<s
   const manager = getSessionManager()
   const session = await manager.createStandaloneSession(options.providerId, {
     cwd: options.cwd,
-    providerId: options.providerId,
-    modelId: options.modelId,
+    model: options.modelId,
   })
 
   try {
     const { preparedParts, done } = runAgentTurn(session, {
       requestId: randomUUID(),
-      messages: [{ role: 'user', content: options.prompt }],
+      input: options.prompt,
       signal: options.signal ?? new AbortController().signal,
       assistantMessageId: randomUUID(),
       originalMessages: [],
@@ -42,6 +41,6 @@ export async function runOneShotPrompt(options: OneShotPromptOptions): Promise<s
     const { message } = await done
     return extractAssistantText(message)
   } finally {
-    await session.dispose().catch(() => {})
+    await session.close().catch(() => {})
   }
 }

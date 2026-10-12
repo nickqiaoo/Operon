@@ -1,11 +1,18 @@
 import { defineProvider } from '../../runtime.js'
-import type { ProviderDescriptor, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
+import type { ProviderDescriptor, RuntimeProviderFactory, SessionOptions } from '../../types.js'
 import type { ProviderInfo } from '../../types.js'
 import type { RuntimeContext } from '../../context.js'
 import { OpencodeClientManager } from './client-manager.js'
-import { listOpencodeDescriptorModels, OpencodeRuntimeSession } from './session.js'
+import {
+  listOpencodeDescriptorModels,
+  OpencodeRuntimeSession,
+  type OpencodeSessionNative,
+  type OpencodeSessionOptions,
+} from './session.js'
 
-export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
+export class OpencodeRuntimeProvider
+  implements RuntimeProviderFactory<SessionOptions & OpencodeSessionOptions, OpencodeSessionNative>
+{
   static readonly providerInfo: ProviderInfo = {
     id: 'opencode',
     label: 'OpenCode',
@@ -74,10 +81,10 @@ export class OpencodeRuntimeProvider implements RuntimeProviderFactory {
     }
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
+  async createSession(params: SessionOptions & OpencodeSessionOptions): Promise<OpencodeRuntimeSession> {
     this.cwd = params.cwd
-    if (params.modelId) this.currentModelId = params.modelId
-    if (params.modeId) this.currentModeId = params.modeId
+    if (params.model) this.currentModelId = params.model
+    if (params.mode) this.currentModeId = params.mode
     return new OpencodeRuntimeSession(params, this.ctx)
   }
 }
@@ -86,7 +93,12 @@ export type OpencodeMode = 'build' | 'plan' | 'fullAccess'
 
 /** OpenCode, driven through one `opencode serve` shared by the runtime's sessions. */
 export const opencode = () =>
-  defineProvider<'opencode', { mode: OpencodeMode; effort: never }>({
+  defineProvider<'opencode', {
+    mode: OpencodeMode
+    effort: never
+    options: OpencodeSessionOptions
+    sessionNative: OpencodeSessionNative
+  }>({
     id: 'opencode',
     info: OpencodeRuntimeProvider.providerInfo,
     create: (ctx) => new OpencodeRuntimeProvider(ctx),

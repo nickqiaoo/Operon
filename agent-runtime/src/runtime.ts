@@ -1,11 +1,5 @@
 import { createRuntimeContext, type RuntimeContext, type RuntimeHost } from './context.js'
-import type {
-  ProviderDescriptor,
-  ProviderInfo,
-  RuntimeProviderFactory,
-  RuntimeSession,
-  RuntimeSessionParams,
-} from './types.js'
+import type { AgentSession, ProviderDescriptor, ProviderInfo, RuntimeProviderFactory, SessionOptions } from './types.js'
 
 /**
  * Type-only facts about one provider, carried by its definition so a runtime
@@ -17,6 +11,10 @@ export interface ProviderTypes {
   mode?: string
   /** Native effort ids. */
   effort?: string
+  /** The provider's own options block (`{ codex?: CodexOptions }`). */
+  options?: object
+  /** What `session.native` offers on this provider's sessions. */
+  sessionNative?: unknown
   /** Provider-level extras that need no session (account usage, …). */
   native?: object
 }
@@ -33,7 +31,7 @@ export interface ProviderDefinition<Id extends string = string, T extends Provid
    * descriptor state ("current model") that must not leak between callers;
    * anything worth sharing lives in `ctx.shared`.
    */
-  create(ctx: RuntimeContext): RuntimeProviderFactory
+  create(ctx: RuntimeContext): RuntimeProviderFactory<SessionOptions & NonNullable<T['options']>, T['sessionNative']>
   /** The provider-level extras, built once per runtime. */
   native?(ctx: RuntimeContext): NonNullable<T['native']>
   /** Type-level only — never set at runtime. */
@@ -46,7 +44,14 @@ export type AnyProviderDefinition = ProviderDefinition<string, ProviderTypes>
 export type ProviderIdOf<P extends readonly AnyProviderDefinition[]> = P[number]['id']
 export type ProviderOf<P extends readonly AnyProviderDefinition[], Id> = Extract<P[number], { id: Id }>
 type TypesOf<D> = D extends ProviderDefinition<string, infer T> ? T : never
-export type ProviderNativeOf<D> = NonNullable<TypesOf<D>['native']>
+type Field<D, K extends keyof ProviderTypes, Fallback> = TypesOf<D>[K] extends infer V
+  ? unknown extends V ? Fallback : NonNullable<V>
+  : never
+export type ProviderNativeOf<D> = Field<D, 'native', object>
+export type SessionNativeOf<D> = Field<D, 'sessionNative', unknown>
+/** Everything `createSession` accepts for provider `D`, native values narrowed. */
+export type SessionOptionsOf<D> = SessionOptions<Field<D, 'mode', string>, Field<D, 'effort', string>> &
+  Field<D, 'options', unknown>
 
 export function defineProvider<const Id extends string, T extends ProviderTypes = ProviderTypes>(
   definition: Omit<ProviderDefinition<Id, T>, '__types'>,
@@ -65,13 +70,20 @@ export interface Runtime<P extends readonly AnyProviderDefinition[] = readonly A
   /** Every registered provider, in registration order. */
   providers(): ProviderInfo[]
   has(id: string): id is ProviderIdOf<P>
-  /** A fresh provider instance — what `describe` and `createSession` go through. */
-  provider(id: ProviderIdOf<P>): RuntimeProviderFactory
+  /**
+   * A fresh provider instance — what `describe` and `createSession` go through.
+   * Its `createSession` is untyped beyond `SessionOptions`, for hosts that pick
+   * the provider at run time.
+   */
+  provider(id: string): RuntimeProviderFactory
   /** Models, modes, effort levels, commands and features, as the provider reports them now. */
   describe(id: ProviderIdOf<P>): Promise<ProviderDescriptor>
   /** Warm the provider's metadata (models, account) in the background, without a session. */
   prefetch(id: ProviderIdOf<P>): Promise<void>
-  createSession(id: ProviderIdOf<P>, params: RuntimeSessionParams): Promise<RuntimeSession>
+  createSession<Id extends ProviderIdOf<P>>(
+    id: Id,
+    options: SessionOptionsOf<ProviderOf<P, Id>>,
+  ): Promise<AgentSession<SessionNativeOf<ProviderOf<P, Id>>>>
   /** Provider-level extras (account usage, …), built once per runtime. */
   native<Id extends ProviderIdOf<P>>(id: Id): ProviderNativeOf<ProviderOf<P, Id>>
   /** Stop what the runtime's providers share: usage probes, the OpenCode server, … */
@@ -104,12 +116,13 @@ export function createRuntime<const P extends readonly AnyProviderDefinition[]>(
     prefetch: async (id) => {
       await provider(id).fetchInitInfo?.()
     },
-    createSession: (id, params) => provider(id).createSession(params),
+    createSession: (id, options) =>
+      provider(id).createSession(options) as Promise<AgentSession<SessionNativeOf<ProviderOf<P, typeof id>>>>,
     native(id) {
       const definition = definitionOf(id)
       if (!definition.native) throw new Error(`Provider ${id} has no provider-level native API`)
       const build = definition.native
-      return context.shared(`${id}:native`, () => build(context))
+      return context.shared(`${id}:native`, () => build(context)) as ProviderNativeOf<ProviderOf<P, typeof id>>
     },
     dispose: () => context.disposeShared(),
   }

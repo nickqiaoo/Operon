@@ -1,25 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionManager } from './session-manager.js'
-import { createRuntime, defineProvider } from './runtime.js'
-import type {
-  DynamicSetApplied,
-  DynamicSetPayload,
-  RuntimeProviderFactory,
-  RuntimeSession,
-  RuntimeSessionParams,
-} from './types.js'
+import {
+  createRuntime,
+  defineProvider,
+  type AgentSession,
+  type RuntimeProviderFactory,
+  type SessionOptions,
+  type SessionPatch,
+  type SessionPatchApplied,
+} from '@operon/agent-runtime'
 
-const createRuntimeSession = (resolvePermission: RuntimeSession['resolvePermission']): RuntimeSession => ({
-  async *stream() {},
+const createAgentSession = (respond: AgentSession['respond']): AgentSession => ({
+  id: undefined,
+  async *send() {},
   abort() {},
-  async dispose() {},
-  resolvePermission,
+  async close() {},
+  respond,
 })
 
 describe('SessionManager permission resolution', () => {
   it('returns the runtime result instead of treating every existing session as resolved', async () => {
-    const resolvePermission = vi.fn<RuntimeSession['resolvePermission']>().mockReturnValue(false)
-    const runtime = createRuntimeSession(resolvePermission)
+    const resolvePermission = vi.fn<AgentSession['respond']>().mockReturnValue(false)
+    const runtime = createAgentSession(resolvePermission)
     const provider: RuntimeProviderFactory = {
       providerInfo: { id: 'approval-test', label: 'Approval Test', logo: '' },
       async getDescriptor() {
@@ -44,12 +46,12 @@ describe('SessionManager permission resolution', () => {
 })
 
 interface StubOptions {
-  dynamicSet?: RuntimeSession['dynamicSet']
-  dispose?: RuntimeSession['dispose']
+  set?: AgentSession['set']
+  close?: AgentSession['close']
 }
 
 function stubProvider(options: StubOptions = {}) {
-  const created: RuntimeSessionParams[] = []
+  const created: SessionOptions[] = []
   const provider: RuntimeProviderFactory = {
     providerInfo: { id: 'stub', label: 'Stub', logo: '' },
     async getDescriptor() {
@@ -58,11 +60,12 @@ function stubProvider(options: StubOptions = {}) {
     async createSession(params) {
       created.push(params)
       return {
-        async *stream() {},
+        id: undefined,
+        async *send() {},
         abort() {},
-        dispose: options.dispose ?? (async () => {}),
-        resolvePermission: () => false,
-        ...(options.dynamicSet ? { dynamicSet: options.dynamicSet } : {}),
+        close: options.close ?? (async () => {}),
+        respond: () => false,
+        ...(options.set ? { set: options.set } : {}),
       }
     },
   }
@@ -73,9 +76,9 @@ function stubProvider(options: StubOptions = {}) {
 }
 
 /** A provider that takes every field it is handed. */
-const acceptAll = vi.fn(async (payload: DynamicSetPayload) => {
-  const applied: DynamicSetApplied = []
-  for (const field of ['modelId', 'modeId', 'thinkingLevel', 'serviceTier'] as const) {
+const acceptAll = vi.fn(async (payload: SessionPatch) => {
+  const applied: SessionPatchApplied = []
+  for (const field of ['model', 'mode', 'effort', 'serviceTier'] as const) {
     if (field in payload) applied.push(field)
   }
   return applied
@@ -89,7 +92,7 @@ describe('SessionManager reconfigure', () => {
   })
 
   it('keeps the session when the provider takes a fast-mode change', async () => {
-    const { manager, created } = stubProvider({ dynamicSet: acceptAll })
+    const { manager, created } = stubProvider({ set: acceptAll })
 
     const before = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
     const after = await manager.getOrCreate(1, 'stub', { cwd: '/tmp', serviceTier: 'fast' })
@@ -100,7 +103,7 @@ describe('SessionManager reconfigure', () => {
   })
 
   it('forwards fast mode being switched off, rather than reading it as unspecified', async () => {
-    const { manager, created } = stubProvider({ dynamicSet: acceptAll })
+    const { manager, created } = stubProvider({ set: acceptAll })
 
     await manager.getOrCreate(1, 'stub', { cwd: '/tmp', serviceTier: 'fast' })
     await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
@@ -112,8 +115,8 @@ describe('SessionManager reconfigure', () => {
   })
 
   it('rebuilds when the provider cannot take a fast-mode change', async () => {
-    const refuse = vi.fn(async () => [] as DynamicSetApplied)
-    const { manager, created } = stubProvider({ dynamicSet: refuse })
+    const refuse = vi.fn(async () => [] as SessionPatchApplied)
+    const { manager, created } = stubProvider({ set: refuse })
 
     const before = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
     const after = await manager.getOrCreate(1, 'stub', { cwd: '/tmp', serviceTier: 'fast' })
@@ -124,9 +127,9 @@ describe('SessionManager reconfigure', () => {
   })
 
   it('reads a missing model as "unchanged", not as a change to nothing', async () => {
-    const { manager, created } = stubProvider({ dynamicSet: acceptAll })
+    const { manager, created } = stubProvider({ set: acceptAll })
 
-    await manager.getOrCreate(1, 'stub', { cwd: '/tmp', modelId: 'm1' })
+    await manager.getOrCreate(1, 'stub', { cwd: '/tmp', model: 'm1' })
     await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
 
     expect(acceptAll).not.toHaveBeenCalled()
@@ -134,15 +137,15 @@ describe('SessionManager reconfigure', () => {
   })
 
   it('tells a structurally-replaced session that a rebuild is coming, not a discard', async () => {
-    const dispose = vi.fn(async () => {})
-    const { manager } = stubProvider({ dispose })
+    const close = vi.fn(async () => {})
+    const { manager } = stubProvider({ close })
 
     await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
     await manager.getOrCreate(1, 'stub', { cwd: '/elsewhere' })
 
-    expect(dispose).toHaveBeenCalledWith('rebuild')
+    expect(close).toHaveBeenCalledWith('rebuild')
 
     await manager.destroy(1)
-    expect(dispose).toHaveBeenLastCalledWith('discard')
+    expect(close).toHaveBeenLastCalledWith('discard')
   })
 })

@@ -1,23 +1,25 @@
 import { defineProvider } from '../../runtime.js'
 import type {
+  AgentInput,
+  AgentSession,
   PermissionDecision,
   ProviderDescriptor,
   ProviderInfo,
   RuntimeProviderFactory,
-  RuntimeSession,
-  RuntimeSessionParams,
-  RuntimeStreamParams,
   RuntimeStreamPart,
+  SendOptions,
+  SessionOptions,
 } from '../../types.js'
+import { inputText } from '../../utils/agent-input.js'
 
 /**
- * A fake script generator. The single-argument form
- * `(ctx: { params }) => AsyncIterable<RuntimeStreamPart>` is kept for backwards
- * compatibility with existing tests; new scripts can use `ctx.session` to wait
- * for permission decisions and `ctx.delay` to insert pauses.
+ * A fake script generator: given the turn's input, yields the parts the turn
+ * streams. `ctx.session` waits for permission decisions, `ctx.delay` inserts
+ * pauses.
  */
 export type FakeScriptCtx = {
-  params: RuntimeStreamParams
+  input: AgentInput
+  signal?: AbortSignal
   session: FakeSessionState
   delay: (ms: number) => Promise<void>
 }
@@ -25,17 +27,17 @@ export type FakeScriptCtx = {
 export type FakeScript = (ctx: FakeScriptCtx) => AsyncIterable<RuntimeStreamPart>
 
 /**
- * State exposed to a script for the duration of a single stream() call. Mirrors
+ * State exposed to a script for the duration of a single send() call. Mirrors
  * the real provider permission flow: scripts can yield a `tool-approval-request`
  * and `await session.waitForPermission(approvalId)` to suspend until the user
- * resolves it via `RuntimeSession.resolvePermission`.
+ * resolves it via `AgentSession.respond`.
  */
 export interface FakeSessionState {
-  /** Last user message text (if any), extracted from `params.messages`. */
+  /** The turn's input text. */
   readonly userMessage: string
   /** 0-based index of the current turn within this session. */
   readonly turnIndex: number
-  /** Suspends the script until `resolvePermission(approvalId, ...)` is called. */
+  /** Suspends the script until `respond(approvalId, ...)` is called. */
   waitForPermission(approvalId: string): Promise<PermissionDecision>
   /** Throws if the stream has been aborted. Use to cooperatively cancel. */
   throwIfAborted(): void
@@ -52,7 +54,7 @@ interface QueuedDecision {
   decision: PermissionDecision
 }
 
-class FakeRuntimeSession implements RuntimeSession {
+class FakeRuntimeSession implements AgentSession {
   private aborted = false
   private turnIndex = -1
   private readonly pendingApprovals = new Map<string, PendingApproval>()
@@ -60,12 +62,14 @@ class FakeRuntimeSession implements RuntimeSession {
   private currentModelId: string
   private currentModeId: string
 
-  constructor(params: RuntimeSessionParams) {
-    this.currentModelId = params.modelId ?? 'fake-1'
-    this.currentModeId = params.modeId ?? 'default'
+  constructor(params: SessionOptions) {
+    this.currentModelId = params.model ?? 'fake-1'
+    this.currentModeId = params.mode ?? 'default'
   }
 
-  async *stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart> {
+  readonly id = undefined
+
+  async *send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
     this.aborted = false
     this.turnIndex += 1
 
@@ -75,7 +79,7 @@ class FakeRuntimeSession implements RuntimeSession {
       throw new Error(`No fake script registered: ${scriptName}`)
     }
 
-    const userMessage = extractLastUserText(params.messages)
+    const userMessage = inputText(input)
     const turnIndex = this.turnIndex
     const sessionState: FakeSessionState = {
       userMessage,
@@ -102,13 +106,13 @@ class FakeRuntimeSession implements RuntimeSession {
           cleanup()
           reject(new AbortError())
         }
-        const signal = params.signal
+        const signal = options?.signal
         signal?.addEventListener('abort', onAbort)
         const cleanup = () => signal?.removeEventListener('abort', onAbort)
       })
 
     try {
-      for await (const part of script({ params, session: sessionState, delay })) {
+      for await (const part of script({ input, signal: options?.signal, session: sessionState, delay })) {
         if (this.aborted) return
         yield part
       }
@@ -125,12 +129,12 @@ class FakeRuntimeSession implements RuntimeSession {
     this.rejectAllPending(new AbortError())
   }
 
-  async dispose(): Promise<void> {
+  async close(): Promise<void> {
     this.aborted = true
     this.rejectAllPending(new AbortError())
   }
 
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     const pending = this.pendingApprovals.get(approvalId)
     if (pending) {
       this.pendingApprovals.delete(approvalId)
@@ -143,11 +147,11 @@ class FakeRuntimeSession implements RuntimeSession {
     return true
   }
 
-  async injectMessage(_content: string): Promise<void> {
+  async inject(_content: string): Promise<void> {
     // no-op
   }
 
-  getDescriptorPatch(): {
+  state(): {
     currentModelId: string
     currentModeId: string
   } {
@@ -182,23 +186,6 @@ class AbortError extends Error {
   }
 }
 
-function extractLastUserText(messages: RuntimeStreamParams['messages']): string {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const msg = messages[i]
-    if (!msg || msg.role !== 'user') continue
-    const content = msg.content
-    if (typeof content === 'string') return content
-    if (Array.isArray(content)) {
-      const textPart = content.find(
-        (p): p is { type: 'text'; text: string } =>
-          typeof p === 'object' && p !== null && (p as { type?: string }).type === 'text',
-      )
-      if (textPart) return textPart.text
-    }
-    return ''
-  }
-  return ''
-}
 
 const BUILTIN_DEFAULT_SCRIPT: FakeScript = async function* () {
   yield { type: 'text-start', id: 'fake-1' } as RuntimeStreamPart
@@ -261,7 +248,7 @@ export class FakeRuntimeProvider implements RuntimeProviderFactory {
     }
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
+  async createSession(params: SessionOptions): Promise<AgentSession> {
     return new FakeRuntimeSession(params)
   }
 }

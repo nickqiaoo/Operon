@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from 'ai'
 import { getSessionManager } from '../ai/state.js'
+import { latestUserInput } from '../ai/message-utils.js'
 import { runAgentTurn } from '../ai/agent-turn.js'
 import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
 import { subagentMode } from '../agents/subagent-mode.js'
@@ -105,10 +106,10 @@ export async function runHeadlessMemoryAgent(params: HeadlessRunParams): Promise
   const memoryServer = resolveMcpServersForSession(params.providerId)?.memory
   const session = await manager.createStandaloneSession(params.providerId, {
     cwd: params.cwd,
-    modelId: params.modelId,
+    model: params.modelId,
     // Nobody is there to approve a tool call: each provider's own non-interactive mode. (An
     // invented id falls back to the provider's ask-first mode, and the run hangs.)
-    modeId: subagentMode(params.providerId),
+    mode: subagentMode(params.providerId),
     ...(memoryServer ? { mcpServers: { memory: memoryServer } } : {}),
     // The extraction prompt rides as session instructions — providers ignore
     // system-role messages in `messages`.
@@ -126,14 +127,12 @@ export async function runHeadlessMemoryAgent(params: HeadlessRunParams): Promise
   let textBuffer = ''
   let reasoningBuffer = ''
 
-  const messages: ModelMessage[] = [...params.messages]
-
   // Same shared turn core as chat/workflow. We consume the normalized
   // `preparedParts` directly (no SSE/assembly needed) for tool telemetry; the
   // assembly branch behind `done` drains itself, we just don't use it.
   const { preparedParts } = runAgentTurn(session, {
     requestId: randomUUID(),
-    messages,
+    input: latestUserInput(params.messages),
     signal: params.signal ?? new AbortController().signal,
     assistantMessageId: randomUUID(),
     originalMessages: [],
@@ -248,7 +247,7 @@ export async function runHeadlessMemoryAgent(params: HeadlessRunParams): Promise
     finishReason = params.signal?.aborted ? 'aborted' : 'error'
     errorMessage = err instanceof Error ? err.message : String(err)
   } finally {
-    await session.dispose().catch(() => {})
+    await session.close().catch(() => {})
   }
 
   if (reasoningBuffer.trim()) {

@@ -1,17 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeContext } from '../../context.js'
 import type {
-  DynamicSetApplied,
-  DynamicSetPayload,
+  AgentInput,
+  AgentSession,
+  GoalControl,
+  McpServerInfo,
+  McpStatusControl,
   Model,
   PermissionDecision,
   ProviderDescriptor,
   RuntimeMcpServers,
-  RuntimeSession,
   RuntimeForkSource,
-  RuntimeSessionParams,
-  RuntimeStreamParams,
+  RuntimeStreamPart,
+  SendOptions,
+  SessionOptions,
+  SessionPatch,
+  SessionPatchApplied,
 } from '../../types.js'
+import type { ModelMessage } from 'ai'
+import { toUserMessages } from '../../utils/agent-input.js'
 import { UserFacingRuntimeError, RuntimeInjectionUnavailableError } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
@@ -27,6 +34,8 @@ import {
   materializeCollaborationMode,
   REASONING_EFFORT_MAP,
   resolveCodexModeConfig,
+  type CodexOptions,
+  type CodexSessionOptions,
   resolveCodexModeId,
   toSandboxPolicy,
 } from './config.js'
@@ -169,7 +178,13 @@ export function disabledMcpConfig(
   return { mcp_servers: Object.fromEntries(names.map((name) => [name, { enabled: false }])) }
 }
 
-export class CodexRuntimeSession implements RuntimeSession {
+/** What only Codex sessions offer. */
+export interface CodexSessionNative {
+  /** MCP status as the app-server reports it; Codex has no per-session control. */
+  mcp: McpStatusControl
+}
+
+export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   private readonly logger = createRuntimeLogger('codex-runtime')
   private client: AppServerClient | null = null
   /** Releases this session's hold on the shared app-server connection. */
@@ -194,6 +209,8 @@ export class CodexRuntimeSession implements RuntimeSession {
   private readonly mcpStartupStatuses = new Map<string, CodexMcpStartupStatus>()
   private readonly codexMcpServers: Record<string, CodexSdkMcpServerConfig> | undefined
   private readonly disabledMcpServers: string[]
+  /** Codex's own knobs, overriding the mode preset (see `CodexOptions`). */
+  private readonly nativeOptions: CodexOptions
   /** Session instructions (persona) from the host — folded into developerInstructions at thread creation. */
   private readonly instructions: string | undefined
   /** Set for a side chat: branch off this thread instead of starting a new one. */
@@ -201,18 +218,19 @@ export class CodexRuntimeSession implements RuntimeSession {
   /** Latest known thread goal, mirrored from goal RPC responses + notifications. */
   private currentGoal: CodexGoal | null = null
 
-  constructor(params: RuntimeSessionParams, private readonly ctx: RuntimeContext) {
-    this.currentModelId = params.modelId ?? DEFAULT_CODEX_MODEL_ID
-    this.currentModeId = resolveCodexModeId(params.modeId)
-    if (params.thinkingLevel) this.currentThinkingLevel = params.thinkingLevel
+  constructor(params: SessionOptions & CodexSessionOptions, private readonly ctx: RuntimeContext) {
+    this.currentModelId = params.model ?? DEFAULT_CODEX_MODEL_ID
+    this.currentModeId = resolveCodexModeId(params.mode)
+    if (params.effort) this.currentThinkingLevel = params.effort
     this.cwd = params.cwd
     this.env = withLocalMcpNoProxy(ctx.env(params.env))
     this.currentServiceTier = params.serviceTier
-    this.threadId = params.sessionId
+    this.threadId = params.resume
     this.codexMcpServers = toCodexMcpServers(params.mcpServers)
-    this.disabledMcpServers = params.disabledMcpServers ?? []
+    this.nativeOptions = params.codex ?? {}
+    this.disabledMcpServers = this.nativeOptions.disabledMcpServers ?? []
     this.instructions = params.instructions?.trim() || undefined
-    this.forkFrom = params.forkFrom
+    this.forkFrom = params.fork
   }
 
   private buildMemoryInstructions(): string | undefined {
@@ -234,10 +252,10 @@ export class CodexRuntimeSession implements RuntimeSession {
       env: this.env,
       cwd: this.cwd,
       threadMode: DEFAULT_THREAD_MODE,
-      approvalMode: modeConfig.approvalMode,
-      approvalsReviewer: modeConfig.approvalsReviewer,
-      sandboxMode: modeConfig.sandboxMode,
-      defaultPermissions: modeConfig.defaultPermissions,
+      approvalMode: this.nativeOptions.approvalPolicy ?? modeConfig.approvalMode,
+      approvalsReviewer: this.nativeOptions.approvalsReviewer ?? modeConfig.approvalsReviewer,
+      sandboxMode: this.nativeOptions.sandbox ?? modeConfig.sandboxMode,
+      defaultPermissions: this.nativeOptions.permissionProfile ?? modeConfig.defaultPermissions,
       ...(memoryInstructions ? { baseInstructions: memoryInstructions } : {}),
       ...(codexMcp ? { mcpServers: codexMcp } : {}),
       ...(this.currentServiceTier ? { serviceTier: this.currentServiceTier } : {}),
@@ -417,15 +435,7 @@ export class CodexRuntimeSession implements RuntimeSession {
     return { status: 'pending' }
   }
 
-  private async listMcpServers(): Promise<{
-    servers: Array<{
-      name: string
-      status: SessionMcpStatus
-      transport?: 'stdio' | 'http'
-      error?: string
-      toolCount: number
-    }>
-  }> {
+  private async listMcpServers(): Promise<McpServerInfo[]> {
     const client = this.getClient()
     const servers: CodexMcpServerStatus[] = []
     let cursor: string | null = null
@@ -444,19 +454,17 @@ export class CodexRuntimeSession implements RuntimeSession {
       cursor = page.nextCursor
     } while (cursor)
 
-    return {
-      servers: servers.map((server) => {
-        const display = this.getMcpDisplayStatus(server)
-        const transport = this.codexMcpServers?.[server.name]?.transport
-        return {
-          name: server.name,
-          status: display.status,
-          ...(transport === 'stdio' || transport === 'http' ? { transport } : {}),
-          ...(display.error ? { error: display.error } : {}),
-          toolCount: Object.keys(server.tools).length,
-        }
-      }),
-    }
+    return servers.map((server) => {
+      const display = this.getMcpDisplayStatus(server)
+      const transport = this.codexMcpServers?.[server.name]?.transport
+      return {
+        name: server.name,
+        status: display.status,
+        ...(transport === 'stdio' || transport === 'http' ? { transport } : {}),
+        ...(display.error ? { error: display.error } : {}),
+        toolCount: Object.keys(server.tools).length,
+      }
+    })
   }
 
   private interruptTrackedSubTurns(): void {
@@ -658,10 +666,10 @@ export class CodexRuntimeSession implements RuntimeSession {
     instructions: string | undefined,
   ): Promise<string> {
     const source = this.forkFrom!
-    this.logger.info(`Forking thread ${source.sessionId} for a side chat`)
+    this.logger.info(`Forking thread ${source.from} for a side chat`)
     const forked = await client.forkThread({
-      threadId: source.sessionId,
-      ...(source.lastTurnId ? { lastTurnId: source.lastTurnId } : {}),
+      threadId: source.from,
+      ...(source.afterTurn ? { lastTurnId: source.afterTurn } : {}),
       model: this.currentModelId,
       serviceTier: effectiveSettings.serviceTier,
       cwd: effectiveSettings.cwd,
@@ -688,15 +696,14 @@ export class CodexRuntimeSession implements RuntimeSession {
     return threadId
   }
 
-  async *stream(params: RuntimeStreamParams) {
+  send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
+    return this.runTurn(toUserMessages(input), options?.signal)
+  }
+
+  private async *runTurn(messages: ModelMessage[], signal: AbortSignal | undefined) {
     const client = this.getClient()
     this.logger.info(`Starting stream with model ${this.currentModelId} in mode ${this.currentModeId}`)
-    if (params.asGoal) {
-      this.logger.info('Running goal pursuit loop')
-      yield* this.streamGoalLoop(params)
-      return
-    }
-    if (isCompactCommand(params.messages)) {
+    if (isCompactCommand(messages)) {
       this.logger.info('Running compact command')
       const compactStream = await this.runCompactCommand(client)
       for await (const part of readStreamAsAsyncIterable(compactStream)) {
@@ -714,7 +721,7 @@ export class CodexRuntimeSession implements RuntimeSession {
       mcpServers: resolvedMcpServers as Record<string, CodexSdkMcpServerConfig>,
     }
 
-    const { inputs, warnings, tempFiles } = convertPrompt(params.messages, threadMode)
+    const { inputs, warnings, tempFiles } = convertPrompt(messages, threadMode)
     const willReuseThread = threadMode !== 'stateless' && !!(effectiveSettings.resume || this.threadId)
     if (willReuseThread && this.instructions) {
       warnings.push({ type: 'other', message: 'Session instructions are ignored when reusing an existing thread.' })
@@ -762,7 +769,7 @@ export class CodexRuntimeSession implements RuntimeSession {
       throw error
     }
 
-    const abortSignal = this.createAbortSignal(params.signal)
+    const abortSignal = this.createAbortSignal(signal)
     const stream = new ReadableStream<import('../../types.js').RuntimeStreamPart>({
       start: (controller) => {
         controller.enqueue({ type: 'start' })
@@ -857,7 +864,7 @@ export class CodexRuntimeSession implements RuntimeSession {
    * we pause the goal (and interrupt the active turn), exactly like codex's
    * "owner became unavailable → pause".
    */
-  private async *streamGoalLoop(params: RuntimeStreamParams) {
+  private async *streamGoalLoop(messages: ModelMessage[], signal: AbortSignal | undefined) {
     const client = this.getClient()
     const settings = await this.withDisabledMcpServers(client, this.buildSettings())
     const threadMode = settings.threadMode ?? DEFAULT_THREAD_MODE
@@ -868,7 +875,7 @@ export class CodexRuntimeSession implements RuntimeSession {
       mcpServers: resolvedMcpServers as Record<string, CodexSdkMcpServerConfig>,
     }
 
-    const { inputs, warnings, tempFiles } = convertPrompt(params.messages, threadMode)
+    const { inputs, warnings, tempFiles } = convertPrompt(messages, threadMode)
     const objective = inputs
       .filter((input): input is { type: 'text'; text: string } => input.type === 'text')
       .map((input) => input.text)
@@ -884,7 +891,7 @@ export class CodexRuntimeSession implements RuntimeSession {
       throw error
     }
 
-    const abortSignal = this.createAbortSignal(params.signal)
+    const abortSignal = this.createAbortSignal(signal)
     const MAX_GOAL_ITERATIONS = 50
 
     const stream = new ReadableStream<import('../../types.js').RuntimeStreamPart>({
@@ -1161,12 +1168,11 @@ export class CodexRuntimeSession implements RuntimeSession {
     this.interruptTrackedSubTurns()
   }
 
-  async agentControl(method: string, _params: unknown): Promise<unknown> {
-    if (method === 'mcp.list') return this.listMcpServers()
-    throw new Error(`Unsupported Codex session control method: ${method}`)
+  readonly native: CodexSessionNative = {
+    mcp: { list: () => this.listMcpServers() },
   }
 
-  async dispose(): Promise<void> {
+  async close(): Promise<void> {
     this.abort()
     this.activeRouter = null
     this.codexSession = null
@@ -1185,7 +1191,7 @@ export class CodexRuntimeSession implements RuntimeSession {
     this.activeSdkServers = []
   }
 
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     const pending = this.pendingApprovals.get(approvalId)
     if (!pending) return false
     this.pendingApprovals.delete(approvalId)
@@ -1193,11 +1199,11 @@ export class CodexRuntimeSession implements RuntimeSession {
     return true
   }
 
-  getSessionId(): string | undefined {
+  get id(): string | undefined {
     return this.threadId
   }
 
-  async injectMessage(content: string): Promise<void> {
+  async inject(content: string): Promise<void> {
     if (!this.codexSession) {
       throw new RuntimeInjectionUnavailableError('[CodexRuntime] No active Codex session')
     }
@@ -1205,7 +1211,17 @@ export class CodexRuntimeSession implements RuntimeSession {
     await this.codexSession.injectMessage(content)
   }
 
-  async getGoal(): Promise<CodexGoal | null> {
+  readonly goal: GoalControl = {
+    get: () => this.getGoal(),
+    setStatus: (status) => this.setGoalStatus(status),
+    clear: () => this.clearGoal(),
+    run: (objective, options) => {
+      this.logger.info('Running goal pursuit loop')
+      return this.streamGoalLoop(toUserMessages(objective), options?.signal)
+    },
+  }
+
+  private async getGoal(): Promise<CodexGoal | null> {
     if (!this.threadId) return this.currentGoal
     try {
       const { goal } = await this.getClient().getGoal({ threadId: this.threadId })
@@ -1216,14 +1232,14 @@ export class CodexRuntimeSession implements RuntimeSession {
     return this.currentGoal
   }
 
-  async setGoalStatus(status: 'active' | 'paused'): Promise<CodexGoal | null> {
+  private async setGoalStatus(status: 'active' | 'paused'): Promise<CodexGoal | null> {
     if (!this.threadId) return this.currentGoal
     const { goal } = await this.getClient().setGoal({ threadId: this.threadId, status })
     this.currentGoal = goal ?? null
     return this.currentGoal
   }
 
-  async clearGoal(): Promise<void> {
+  private async clearGoal(): Promise<void> {
     this.currentGoal = null
     if (!this.threadId) return
     await this.getClient().clearGoal({ threadId: this.threadId })
@@ -1239,33 +1255,33 @@ export class CodexRuntimeSession implements RuntimeSession {
    * cannot be re-parameterised, since its request went out when it started. This is
    * the between-turns path only, which is what spares the session a rebuild.
    */
-  async dynamicSet(payload: DynamicSetPayload): Promise<DynamicSetApplied> {
-    const applied: DynamicSetApplied = []
-    if (payload.modelId) {
-      this.currentModelId = payload.modelId
-      applied.push('modelId')
+  async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    const applied: SessionPatchApplied = []
+    if (patch.model) {
+      this.currentModelId = patch.model
+      applied.push('model')
     }
-    if (payload.modeId) {
-      this.currentModeId = resolveCodexModeId(payload.modeId)
-      applied.push('modeId')
+    if (patch.mode) {
+      this.currentModeId = resolveCodexModeId(patch.mode)
+      applied.push('mode')
     }
-    if (payload.thinkingLevel) {
-      this.currentThinkingLevel = payload.thinkingLevel
-      applied.push('thinkingLevel')
+    if (patch.effort) {
+      this.currentThinkingLevel = patch.effort
+      applied.push('effort')
     }
     // Presence, not truthiness: `serviceTier: undefined` is fast mode being turned
     // off, and a truthiness check would drop it and leave the session fast forever.
     // Taking this here is what keeps a fast-mode toggle from rebuilding the session
     // — which for codex would mean a fresh thread, restarted SDK MCP servers, and a
     // released app-server lease that can take a side chat's fork down with it.
-    if ('serviceTier' in payload) {
-      this.currentServiceTier = payload.serviceTier
+    if ('serviceTier' in patch) {
+      this.currentServiceTier = patch.serviceTier
       applied.push('serviceTier')
     }
     return applied
   }
 
-  getDescriptorPatch(): {
+  state(): {
     currentModelId: string
     currentModeId: string
     currentThinkingLevel: string

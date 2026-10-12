@@ -33,7 +33,7 @@
  * approve/deny inline.
  */
 
-import type { PermissionDecision, RuntimeSession, RuntimeStreamPart, RuntimeTextStreamPart } from '@operon/agent-runtime'
+import type { PermissionDecision, AgentSession, RuntimeStreamPart, RuntimeTextStreamPart } from '@operon/agent-runtime'
 import { observePendingInputPart, resolvePendingApproval } from '../ai/chat-pending-input.js'
 
 type ApprovalRequestPart = Extract<RuntimeTextStreamPart, { type: 'tool-approval-request' }>
@@ -110,7 +110,7 @@ export interface DetachedApprovalRequest {
  * with an unanswered request must not leave a live row anywhere.
  */
 export function watchDetachedApprovals(params: {
-  session: RuntimeSession
+  session: AgentSession
   /** The conversation that launched this sub-agent; <= 0 disables the inbox row. */
   parentChatId: number | null | undefined
   /** Sub-agent label used in log lines (e.g. 'codex-a3'). */
@@ -150,7 +150,7 @@ export function watchDetachedApprovals(params: {
     // Hand the decision to the provider that is blocked on it. Guarded: a
     // disposed session throwing here must not take down the run.
     try {
-      session.resolvePermission(approvalId, decision)
+      session.respond(approvalId, decision)
     } catch (err) {
       console.error(`[Workflow] ${agentId}: resolvePermission failed for ${approvalId}:`, err)
     }
@@ -180,7 +180,7 @@ export function watchDetachedApprovals(params: {
     if (toolName === PLAN_REVIEW_TOOL || req.approvalId.startsWith('plan-approval-')) {
       console.log(`[Workflow] ${agentId}: ${toolName} is not applicable to a sub-agent — declining`)
       try {
-        session.resolvePermission(req.approvalId, { type: 'deny', reason: PLAN_REVIEW_REASON })
+        session.respond(req.approvalId, { type: 'deny', reason: PLAN_REVIEW_REASON })
       } catch (err) {
         console.error(`[Workflow] ${agentId}: resolvePermission failed for ${req.approvalId}:`, err)
       }

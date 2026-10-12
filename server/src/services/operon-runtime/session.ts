@@ -2,15 +2,17 @@ import { randomUUID } from 'crypto'
 import type { ModelMessage } from 'ai'
 import type { AgentInput, ApprovalResponse, HarnessSession, ImageContent, Message, PermissionMode, QuestionResult, TextContent, ThinkingLevel as EngineThinkingLevel } from 'operon-agents'
 import type {
+  AgentInput as RuntimeAgentInput,
+  AgentSession,
   DetailedContextUsage,
   DetailedContextUsageCategory,
-  DynamicSetApplied,
-  DynamicSetPayload,
+  GoalControl,
   PermissionDecision,
   RuntimeGoal,
-  RuntimeSession,
-  RuntimeStreamParams,
   RuntimeStreamPart,
+  SendOptions,
+  SessionPatch,
+  SessionPatchApplied,
 } from '@operon/agent-runtime'
 import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 import { operonAgentControl } from './control.js'
@@ -216,12 +218,17 @@ const injectionLabel = (id: string): string =>
   INJECTION_LABELS[id] ?? id.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
 
 /**
- * `RuntimeSession` backed by an in-process `operon-agents` HarnessSession.
+ * `AgentSession` backed by an in-process `operon-agents` HarnessSession.
  *
  * The HarnessSession is stateful (it persists its own conversation tree), so each
  * `stream()` feeds only the latest user message and lets the engine carry history.
  */
-export class OperonRuntimeSession implements RuntimeSession {
+/** What only Operon's own agent offers: its harness control plane (MCP, cron, tasks, skills, …). */
+export interface OperonSessionNative {
+  control(method: string, params: unknown): Promise<unknown>
+}
+
+export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   private readonly harness: HarnessSession
   private currentModelId: string
   private currentModeId: string
@@ -240,10 +247,33 @@ export class OperonRuntimeSession implements RuntimeSession {
     this.currentModeId = modeId
   }
 
-  async *stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart> {
+  send(input: RuntimeAgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
+    return this.runTurn([{ role: 'user', content: input }], options?.signal)
+  }
+
+  readonly goal: GoalControl = {
+    get: async () => {
+      const snapshot = this.harness.goal.snapshot()
+      return snapshot ? toRuntimeGoal(snapshot) : null
+    },
+    setStatus: async (status) => {
+      const snapshot = status === 'paused' ? await this.harness.goal.pause() : await this.harness.goal.resume()
+      return snapshot ? toRuntimeGoal(snapshot) : null
+    },
+    clear: async () => {
+      await this.harness.goal.cancel()
+    },
+    run: (objective, options) => this.runTurn([{ role: 'user', content: objective }], options?.signal, { asGoal: true }),
+  }
+
+  private async *runTurn(
+    messages: ModelMessage[],
+    turnSignal: AbortSignal | undefined,
+    turn: { asGoal?: boolean } = {},
+  ): AsyncIterable<RuntimeStreamPart> {
     // Slash commands (/compact, /plan …) are control-plane actions, not model turns:
     // run them against the session and stream a short confirmation instead of prompting.
-    const command = parseSlashCommand(latestUserText(params.messages))
+    const command = parseSlashCommand(latestUserText(messages))
     if (command && isSupportedCommand(command.name)) {
       yield* this.streamCommand(command)
       return
@@ -262,7 +292,7 @@ export class OperonRuntimeSession implements RuntimeSession {
     this.harness.setApprovalHandler(
       (request, options) =>
         new Promise<ApprovalResponse>((resolve) => {
-          const signal = options?.signal ?? params.signal
+          const signal = options?.signal ?? turnSignal
           if (signal?.aborted) {
             resolve({ decision: 'cancelled' })
             return
@@ -303,7 +333,7 @@ export class OperonRuntimeSession implements RuntimeSession {
     this.harness.setQuestionHandler(
       (request, options) =>
         new Promise<QuestionResult>((resolve) => {
-          const signal = options?.signal ?? params.signal
+          const signal = options?.signal ?? turnSignal
           if (signal?.aborted) {
             resolve(null)
             return
@@ -336,12 +366,12 @@ export class OperonRuntimeSession implements RuntimeSession {
 
     // Goal turn: set an active thread goal first (emits `goal_updated` → the mapper turns
     // it into `codexGoal` metadata, lighting up the banner), then run the pursuit turn.
-    if (params.asGoal) {
-      const objective = latestUserText(params.messages)
+    if (turn.asGoal) {
+      const objective = latestUserText(messages)
       if (objective) await this.harness.goal.create({ objective })
     }
 
-    const input = buildAgentInput(params.messages)
+    const input = buildAgentInput(messages)
     const run = this.harness.prompt(input)
     void run
       .catch((error) => queue.push({ type: 'error', error } as RuntimeStreamPart))
@@ -417,17 +447,7 @@ export class OperonRuntimeSession implements RuntimeSession {
     this.rejectPending()
   }
 
-  async getGoal(): Promise<RuntimeGoal | null> {
-    const snapshot = this.harness.goal.snapshot()
-    return snapshot ? toRuntimeGoal(snapshot) : null
-  }
-
-  async setGoalStatus(status: 'active' | 'paused'): Promise<RuntimeGoal | null> {
-    const snapshot = status === 'paused' ? await this.harness.goal.pause() : await this.harness.goal.resume()
-    return snapshot ? toRuntimeGoal(snapshot) : null
-  }
-
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     // AskUserQuestion answers arrive on this same channel (updatedInput.answers).
     const resolveQuestion = this.pendingQuestions.get(approvalId)
     if (resolveQuestion) {
@@ -442,7 +462,7 @@ export class OperonRuntimeSession implements RuntimeSession {
     return true
   }
 
-  async injectMessage(content: string): Promise<void> {
+  async inject(content: string): Promise<void> {
     const trimmed = content.trim()
     if (trimmed) this.harness.steer(trimmed)
   }
@@ -456,26 +476,26 @@ export class OperonRuntimeSession implements RuntimeSession {
    * the session-rebuild path entirely: those are the only settings that change once
    * a chat is under way.
    */
-  async dynamicSet(payload: DynamicSetPayload): Promise<DynamicSetApplied> {
-    const applied: DynamicSetApplied = []
-    if (payload.modelId) {
-      this.currentModelId = payload.modelId
-      this.harness.setModel(await resolveModel(payload.modelId))
-      applied.push('modelId')
+  async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    const applied: SessionPatchApplied = []
+    if (patch.model) {
+      this.currentModelId = patch.model
+      this.harness.setModel(await resolveModel(patch.model))
+      applied.push('model')
     }
-    if (payload.modeId) {
-      this.currentModeId = payload.modeId
-      await this.harness.setPermissionMode(MODE_TO_PERMISSION[payload.modeId] ?? 'manual')
-      applied.push('modeId')
+    if (patch.mode) {
+      this.currentModeId = patch.mode
+      await this.harness.setPermissionMode(MODE_TO_PERMISSION[patch.mode] ?? 'manual')
+      applied.push('mode')
     }
-    if (payload.thinkingLevel) {
-      this.harness.setThinking(payload.thinkingLevel as EngineThinkingLevel)
-      applied.push('thinkingLevel')
+    if (patch.effort) {
+      this.harness.setThinking(patch.effort as EngineThinkingLevel)
+      applied.push('effort')
     }
     return applied
   }
 
-  getDescriptorPatch(): { currentModelId: string; currentModeId: string } {
+  state(): { currentModelId: string; currentModeId: string } {
     return { currentModelId: this.currentModelId, currentModeId: this.currentModeId }
   }
 
@@ -491,7 +511,7 @@ export class OperonRuntimeSession implements RuntimeSession {
    * Returns null until the first turn has been prepared: the snapshot is taken on
    * the way into a turn, so a freshly opened session has nothing to report yet.
    */
-  async getContextUsage(): Promise<DetailedContextUsage | null> {
+  async contextUsage(): Promise<DetailedContextUsage | null> {
     const breakdown = this.harness.getContextBreakdown()
     if (!breakdown) return null
 
@@ -530,14 +550,14 @@ export class OperonRuntimeSession implements RuntimeSession {
 
   /**
    * The framework session id (= core session id). The route layer persists this on
-   * the chat record and feeds it back as `params.sessionId` to resume after the
+   * the chat record and feeds it back as `resume` after the
    * in-memory session is evicted or the app restarts.
    */
-  getSessionId(): string | undefined {
+  get id(): string | undefined {
     return this.harness.id
   }
 
-  async dispose(): Promise<void> {
+  async close(): Promise<void> {
     this.abort()
     await this.harness.close()
   }
@@ -551,7 +571,7 @@ export class OperonRuntimeSession implements RuntimeSession {
 
   /** Agent runtime control (MCP / cron / tasks / skills / …) — delegates each
    *  method to this session's harness. See `control.ts`. */
-  agentControl(method: string, params: unknown): Promise<unknown> {
-    return operonAgentControl(this.harness, method, params)
+  readonly native: OperonSessionNative = {
+    control: (method, params) => operonAgentControl(this.harness, method, params),
   }
 }

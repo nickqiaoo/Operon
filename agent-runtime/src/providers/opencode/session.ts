@@ -1,14 +1,19 @@
 import type { RuntimeContext } from '../../context.js'
 import type {
-  DynamicSetApplied,
-  DynamicSetPayload,
+  AgentInput,
+  AgentSession,
+  McpControl,
+  McpServerInfo,
   PermissionDecision,
-  RuntimeSession,
-  RuntimeSessionParams,
   RuntimeStreamPart,
-  RuntimeStreamParams,
-  SessionDisposeReason,
+  SendOptions,
+  SessionCloseReason,
+  SessionOptions,
+  SessionPatch,
+  SessionPatchApplied,
 } from '../../types.js'
+import type { ModelMessage } from 'ai'
+import { toUserMessages } from '../../utils/agent-input.js'
 import { bindOpencodeCaller, unbindOpencodeCaller } from './caller-identity.js'
 import { OpencodeClientManager } from './client-manager.js'
 import { extractErrorMessage, isAbortError } from './errors.js'
@@ -58,19 +63,7 @@ type SessionMcpStatus =
   | 'needs-auth'
   | 'needs-client-registration'
 
-function readControlName(params: unknown): string {
-  if (!params || typeof params !== 'object') throw new Error('MCP server name is required')
-  const name = (params as Record<string, unknown>).name
-  if (typeof name !== 'string' || !name.trim()) throw new Error('MCP server name is required')
-  return name.trim()
-}
 
-function readControlEnabled(params: unknown): boolean {
-  if (!params || typeof params !== 'object') throw new Error('MCP enabled state is required')
-  const enabled = (params as Record<string, unknown>).enabled
-  if (typeof enabled !== 'boolean') throw new Error('MCP enabled state is required')
-  return enabled
-}
 
 function mapMcpStatus(status: McpStatus): {
   status: SessionMcpStatus
@@ -166,7 +159,25 @@ async function registerMcpServers(
   }
 }
 
-export class OpencodeRuntimeSession implements RuntimeSession {
+/** OpenCode's options block on `createSession`. */
+export interface OpencodeSessionOptions {
+  opencode?: {
+    /**
+     * The host's id for this conversation. All sessions share one OpenCode
+     * server and so one MCP registration, which cannot carry a per-conversation
+     * URL; the server's plugin tags each tool call with it instead — read it
+     * back with `resolveOpencodeCaller`.
+     */
+    callerTag?: string
+  }
+}
+
+/** What only OpenCode sessions offer. */
+export interface OpencodeSessionNative {
+  mcp: McpControl
+}
+
+export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNative> {
   private readonly cwd: string
   private currentModelId: string
   private currentModeId: string
@@ -187,20 +198,20 @@ export class OpencodeRuntimeSession implements RuntimeSession {
    */
   private boundaryPending: boolean
 
-  constructor(params: RuntimeSessionParams, ctx: RuntimeContext) {
+  constructor(params: SessionOptions & OpencodeSessionOptions, ctx: RuntimeContext) {
     this.cwd = params.cwd
-    this.currentModelId = params.modelId ?? 'opencode/big-pickle'
-    this.currentModeId = params.modeId ?? 'build'
-    this.sessionId = params.sessionId
-    this.hostConversationId = params.hostConversationId
-    this.boundaryPending = params.forkFrom != null && !params.sessionId
+    this.currentModelId = params.model ?? 'opencode/big-pickle'
+    this.currentModeId = params.mode ?? 'build'
+    this.sessionId = params.resume
+    this.hostConversationId = params.opencode?.callerTag
+    this.boundaryPending = params.fork != null && !params.resume
     const mcpServers = params.mcpServers as Record<string, OpencodeMcpServerEntry> | undefined
     console.log('[opencode-session] MCP servers:', mcpServers ? Object.keys(mcpServers).join(', ') : '(none)')
     this.settings = {
       cwd: params.cwd,
       env: params.env,
-      sessionId: params.sessionId,
-      forkFrom: params.forkFrom,
+      sessionId: params.resume,
+      forkFrom: params.fork,
       systemPrompt: buildSystemPrompt(params.instructions),
       verbose: isRuntimeVerbose(),
       mcpServers,
@@ -220,17 +231,21 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     this.logger = getLogger(undefined, this.settings.verbose)
   }
 
-  async *stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart> {
+  send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
+    return this.runTurn(toUserMessages(input), options?.signal)
+  }
+
+  private async *runTurn(messages: ModelMessage[], signal: AbortSignal | undefined): AsyncIterable<RuntimeStreamPart> {
     await this.mcpReadyPromise
 
-    if (isCompactCommand(params.messages)) {
+    if (isCompactCommand(messages)) {
       yield* this.streamCompact()
       return
     }
 
     const warnings = logUnsupportedCallOptions(this.logger, {})
     const mode = { type: 'regular' as const }
-    const converted = convertToOpencodeMessages(params.messages, {
+    const converted = convertToOpencodeMessages(messages, {
       logger: this.logger,
       mode,
     })
@@ -266,8 +281,8 @@ export class OpencodeRuntimeSession implements RuntimeSession {
 
     const abortController = new AbortController()
     this.abortController = abortController
-    if (params.signal) {
-      params.signal.addEventListener('abort', () => abortController.abort(), { once: true })
+    if (signal) {
+      signal.addEventListener('abort', () => abortController.abort(), { once: true })
     }
 
     yield { type: 'start' }
@@ -435,7 +450,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     return [{ type: 'text', text: SIDE_CHAT_BOUNDARY_PROMPT }]
   }
 
-  async dispose(reason: SessionDisposeReason = 'discard'): Promise<void> {
+  async close(reason: SessionCloseReason = 'discard'): Promise<void> {
     this.abort()
     // A rebuild hands the same OpenCode session to its replacement, which may
     // already have bound it; only a discarded conversation gives the id up.
@@ -463,7 +478,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     const source = this.settings.forkFrom
     if (!source || source.ephemeral === false) return
     const forkedId = this.sessionId
-    if (!forkedId || forkedId === source.sessionId) return
+    if (!forkedId || forkedId === source.from) return
     this.sessionId = undefined
     try {
       const client = await this.clientManager.getClient()
@@ -548,7 +563,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     }
   }
 
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     if (!this.pendingApprovalIds.delete(approvalId)) return false
     void this.replyPermission(approvalId, decision)
     return true
@@ -562,11 +577,11 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     }
   }
 
-  getSessionId(): string | undefined {
+  get id(): string | undefined {
     return this.sessionId
   }
 
-  async injectMessage(content: string): Promise<void> {
+  async inject(content: string): Promise<void> {
     await this.mcpReadyPromise
     const sessionId = await this.getOrCreateSession()
     const client = await this.clientManager.getClient()
@@ -578,40 +593,17 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     })
   }
 
-  async agentControl(method: string, params: unknown): Promise<unknown> {
-    switch (method) {
-      case 'mcp.list': {
-        const client = await this.clientManager.getClient()
-        const mcp = client.mcp
-        const result = await mcp.status({ directory: this.cwd }, { throwOnError: true })
-        const configured = this.settings.mcpServers
-        return {
-          servers: Object.entries(result.data).map(([name, rawStatus]) => {
-            const mapped = mapMcpStatus(rawStatus)
-            const entry = configured?.[name]
-            const transport = !entry?.type || entry.type === 'stdio' ? 'stdio' : entry.type
-            return {
-              name,
-              status: mapped.status,
-              ...(entry ? { transport } : {}),
-              ...(mapped.error ? { error: mapped.error } : {}),
-            }
-          }),
-        }
-      }
-      case 'mcp.reconnect': {
-        const name = readControlName(params)
-        await this.runMcpMutation(name, async () => {
+  readonly native: OpencodeSessionNative = {
+    mcp: {
+      list: () => this.listMcpServers(),
+      reconnect: (name) =>
+        this.runMcpMutation(name, async () => {
           const mcp = (await this.clientManager.getClient()).mcp
           await mcp.connect({ name, directory: this.cwd }, { throwOnError: true })
           await this.waitForMcpStatus(mcp, name, 'connected')
-        })
-        return { ok: true }
-      }
-      case 'mcp.toggle': {
-        const name = readControlName(params)
-        const enabled = readControlEnabled(params)
-        await this.runMcpMutation(name, async () => {
+        }),
+      toggle: (name, enabled) =>
+        this.runMcpMutation(name, async () => {
           const mcp = (await this.clientManager.getClient()).mcp
           if (enabled) {
             await mcp.connect({ name, directory: this.cwd }, { throwOnError: true })
@@ -620,12 +612,25 @@ export class OpencodeRuntimeSession implements RuntimeSession {
             await mcp.disconnect({ name, directory: this.cwd }, { throwOnError: true })
             await this.waitForMcpStatus(mcp, name, 'disabled')
           }
-        })
-        return { ok: true }
+        }),
+    },
+  }
+
+  private async listMcpServers(): Promise<McpServerInfo[]> {
+    const client = await this.clientManager.getClient()
+    const result = await client.mcp.status({ directory: this.cwd }, { throwOnError: true })
+    const configured = this.settings.mcpServers
+    return Object.entries(result.data).map(([name, rawStatus]) => {
+      const mapped = mapMcpStatus(rawStatus)
+      const entry = configured?.[name]
+      const transport = !entry?.type || entry.type === 'stdio' ? 'stdio' : entry.type
+      return {
+        name,
+        status: mapped.status,
+        ...(entry ? { transport } : {}),
+        ...(mapped.error ? { error: mapped.error } : {}),
       }
-      default:
-        throw new Error(`Unsupported OpenCode session control method: ${method}`)
-    }
+    })
   }
 
   private async runMcpMutation(
@@ -671,15 +676,15 @@ export class OpencodeRuntimeSession implements RuntimeSession {
   }
 
   /** Both are read fresh when the next request body is built, so storing them is enough. */
-  async dynamicSet(payload: DynamicSetPayload): Promise<DynamicSetApplied> {
-    const applied: DynamicSetApplied = []
-    if (payload.modelId) {
-      this.currentModelId = payload.modelId
-      applied.push('modelId')
+  async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    const applied: SessionPatchApplied = []
+    if (patch.model) {
+      this.currentModelId = patch.model
+      applied.push('model')
     }
-    if (payload.modeId) {
-      this.currentModeId = payload.modeId
-      applied.push('modeId')
+    if (patch.mode) {
+      this.currentModeId = patch.mode
+      applied.push('mode')
     }
     return applied
   }
@@ -709,16 +714,16 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     // `parentID`, so a parent that happens to be mid-turn never mistakes it for
     // sub-agent output on the shared event stream.
     //
-    // `forkFrom.lastTurnId` is deliberately NOT forwarded as `messageID`. The two
+    // `fork.afterTurn` is deliberately NOT forwarded as `messageID`. The two
     // mean opposite things — codex branches *after* the turn it names, while
     // OpenCode slices the history to *before* the message it names — so passing it
     // through would silently drop the last turn. Nothing sets it today; a side
     // chat always branches at the tail.
     const source = this.settings.forkFrom
     if (source && !this.settings.createNewSession) {
-      this.logger.info(`Forking session ${source.sessionId} for a side chat`)
+      this.logger.info(`Forking session ${source.from} for a side chat`)
       const forked = await client.session.fork({
-        sessionID: source.sessionId,
+        sessionID: source.from,
         directory: this.settings.cwd,
       })
       const forkedId = (forked.data as { id?: string } | undefined)?.id
@@ -814,7 +819,7 @@ export class OpencodeRuntimeSession implements RuntimeSession {
     })
   }
 
-  getDescriptorPatch(): {
+  state(): {
     currentModelId: string
     currentModeId: string
   } {

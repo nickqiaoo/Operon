@@ -1,17 +1,17 @@
 import { randomUUID } from 'crypto'
-import type { ModelMessage } from 'ai'
 import {
   readStreamAsAsyncIterable,
   RuntimeInjectionUnavailableError,
   type PermissionDecision,
   type RuntimeMcpServers,
-  type RuntimeSession,
-  type RuntimeSessionParams,
+  type AgentInput,
+  type AgentSession,
   type RuntimeStreamPart,
 } from '@operon/agent-runtime'
 import { runAgentTurn } from '../ai/agent-turn.js'
 import { extractAssistantText } from '../ai/message-utils.js'
 import { getSessionManager } from '../ai/state.js'
+import type { HostSessionOptions } from '../ai/session-options.js'
 import { mcpCliName, userMcpServersForCli, withApiToken } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
 import {
@@ -148,27 +148,26 @@ export interface OpenParams {
 }
 
 /** Open (or resume) one of the assistant's sessions on the runtime the chats use. */
-export async function openRuntimeSession(params: OpenParams): Promise<RuntimeSession> {
+export async function openRuntimeSession(params: OpenParams): Promise<AgentSession> {
   // The plugins' servers come from the plugin store, which is empty until loaded — chats load it
   // before building theirs (chat-flow.ts); a worker can be the first thing to run after startup.
   await ensurePluginsLoaded().catch((error) => console.error('[assistant] plugin load failed:', error))
   const mcpServers = sessionMcpServers(params.caller, params.nodeRepl ?? false, params.providerId)
   const disabled = disabledMcpServers(params.providerId, mcpServers)
-  const runtimeParams: RuntimeSessionParams = {
+  const runtimeParams: HostSessionOptions = {
     cwd: params.cwd,
-    providerId: params.providerId,
-    ...(params.modelId ? { modelId: params.modelId } : {}),
-    modeId: modeFor(params.providerId, params.kind),
+    ...(params.modelId ? { model: params.modelId } : {}),
+    mode: modeFor(params.providerId, params.kind),
     // The skills say "node_repl"; under another name the model has to be told it is the same thing.
     instructions:
       disabled.length > 0
         ? `${params.instructions}\n\nHere the node_repl MCP server is named "${nodeReplServerName(params.providerId)}": wherever a skill says node_repl, use its js tool.`
         : params.instructions,
     mcpServers,
-    ...(disabled.length > 0 ? { disabledMcpServers: disabled } : {}),
-    isWorker: params.caller.role !== 'main',
-    hostConversationId: assistantConversationId(params.caller),
-    ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+    ...(disabled.length > 0 ? { codex: { disabledMcpServers: disabled } } : {}),
+    interactive: params.caller.role === 'main',
+    opencode: { callerTag: assistantConversationId(params.caller) },
+    ...(params.sessionId ? { resume: params.sessionId } : {}),
   }
   return getSessionManager().createStandaloneSession(params.providerId, runtimeParams)
 }
@@ -181,15 +180,12 @@ export interface TurnInput {
   tag?: unknown
 }
 
-function toModelMessage(input: TurnInput): ModelMessage {
-  if (!input.images?.length) return { role: 'user', content: input.text }
-  return {
-    role: 'user',
-    content: [
-      ...(input.text ? [{ type: 'text' as const, text: input.text }] : []),
-      ...input.images.map((image) => ({ type: 'image' as const, image: image.data, mediaType: image.mediaType })),
-    ],
-  }
+function toAgentInput(input: TurnInput): AgentInput {
+  if (!input.images?.length) return input.text
+  return [
+    ...(input.text ? [{ type: 'text' as const, text: input.text }] : []),
+    ...input.images.map((image) => ({ type: 'image' as const, image: image.data, mediaType: image.mediaType })),
+  ]
 }
 
 export interface TurnEnd {
@@ -229,7 +225,7 @@ export class AgentChannel {
   private reportedSessionId: string | undefined
 
   constructor(
-    readonly session: RuntimeSession,
+    readonly session: AgentSession,
     private readonly hooks: ChannelHooks,
   ) {
     session.onBackground?.((event) => {
@@ -244,7 +240,7 @@ export class AgentChannel {
 
   /** The agent's own id for this session, once it has one. */
   get sessionId(): string | undefined {
-    return this.session.getSessionId?.()
+    return this.session.id
   }
 
   /**
@@ -258,9 +254,9 @@ export class AgentChannel {
       void this.drain()
       return 'turn'
     }
-    if (!input.images?.length && this.session.injectMessage) {
+    if (!input.images?.length && this.session.inject) {
       try {
-        await this.session.injectMessage(input.text)
+        await this.session.inject(input.text)
         return 'injected'
       } catch (error) {
         if (!(error instanceof RuntimeInjectionUnavailableError)) console.warn('[assistant] injecting into a running turn failed:', errorText(error))
@@ -287,7 +283,7 @@ export class AgentChannel {
     this.disposed = true
     this.queue.length = 0
     this.controller?.abort()
-    await this.session.dispose('discard').catch(() => undefined)
+    await this.session.close('discard').catch(() => undefined)
     this.settleIdle()
   }
 
@@ -318,7 +314,7 @@ export class AgentChannel {
     try {
       const { preparedParts, done } = runAgentTurn(this.session, {
         requestId: randomUUID(),
-        messages: [toModelMessage(input)],
+        input: toAgentInput(input),
         signal: controller.signal,
         assistantMessageId: randomUUID(),
         originalMessages: [],
@@ -335,7 +331,7 @@ export class AgentChannel {
     } finally {
       if (this.controller === controller) this.controller = undefined
     }
-    this.reportSessionId(this.session.getSessionId?.())
+    this.reportSessionId(this.session.id)
     this.hooks.onTurnEnd?.({ text, ...(error && !controller.signal.aborted ? { error } : {}), aborted: controller.signal.aborted })
   }
 
@@ -374,14 +370,14 @@ export class AgentChannel {
   private onPart(part: RuntimeStreamPart, noteError: (message: string) => void): void {
     // Codex's parts carry no session id, but it has its thread from the start: ask, so a turn a
     // restart cuts off already has its session on disk.
-    this.reportSessionId(this.session.getSessionId?.())
+    this.reportSessionId(this.session.id)
     if (part.type === 'tool-approval-request') {
       const call = (part as { toolCall?: { toolName?: string; input?: unknown } }).toolCall ?? {}
       const approvalId = (part as { approvalId: string }).approvalId
       void this.hooks
         .onApproval(call.toolName ?? '', call.input)
         .catch((): PermissionDecision => ({ type: 'deny', reason: 'The approval could not be handled.' }))
-        .then((decision) => this.session.resolvePermission(approvalId, decision))
+        .then((decision) => this.session.respond(approvalId, decision))
     }
     if (part.type === 'error') noteError(errorText((part as { error?: unknown }).error))
     this.hooks.onPart?.(part)

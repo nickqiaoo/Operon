@@ -1,4 +1,4 @@
-import type { PermissionDecision, RuntimeSession } from '@operon/agent-runtime'
+import type { PermissionDecision, AgentSession } from '@operon/agent-runtime'
 import type { Activity } from '../../../../shared/assistant.js'
 import { WORKING_SUMMARY } from '../../../../shared/assistant.js'
 import { AgentChannel, type AssistantProviderId, type OpenParams } from './agents.js'
@@ -76,7 +76,7 @@ export interface WorkerPoolHost {
   /** Whether workers get node_repl (browser, Chrome, Mac apps). */
   nodeRepl(): boolean
   /** Open (or resume) an agent session. */
-  open(params: OpenParams): Promise<RuntimeSession>
+  open(params: OpenParams): Promise<AgentSession>
   /** Persist and broadcast. */
   activity(activity: Activity): void
   /** A stored activity, for picking a finished worker back up. */
@@ -218,7 +218,7 @@ export class WorkerPool {
     // agent hears how it ended. Its activity keeps its source.
     const kind: WorkerKind = 'task'
     const ref = this.host.loadSession(activityId)
-    let session: RuntimeSession | undefined
+    let session: AgentSession | undefined
     let agent: WorkerAgent | undefined
     let prompt = text
     if (ref) {
@@ -254,7 +254,7 @@ export class WorkerPool {
     if (!activity || this.runs.has(activityId)) return false
     this.addAsked(activityId, cut.asked)
     const ref = this.host.loadSession(activityId)
-    let session: RuntimeSession | undefined
+    let session: AgentSession | undefined
     let agent: WorkerAgent | undefined
     let prompt = cut.prompt
     if (ref) {
@@ -304,7 +304,7 @@ export class WorkerPool {
     }
   }
 
-  private attach(session: RuntimeSession, activity: Activity, kind: WorkerKind, unattended: boolean, visible: boolean, agent: WorkerAgent): Run {
+  private attach(session: AgentSession, activity: Activity, kind: WorkerKind, unattended: boolean, visible: boolean, agent: WorkerAgent): Run {
     const run = {} as Run
     Object.assign(run, {
       kind,

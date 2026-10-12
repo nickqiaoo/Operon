@@ -1,6 +1,7 @@
 import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
 import type { UIMessage } from 'ai'
 import { getRuntime, getSessionManager, getChatStorage } from './state.js'
+import { runSessionControl, supportsSessionControl } from './session-control.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
@@ -8,7 +9,7 @@ import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
 import type { AccountRateLimitsReadResult } from '@operon/agent-runtime'
 import type {
   DetailedContextUsage,
-  DynamicSetPayload,
+  SessionPatch,
   RuntimeGoal,
   RuntimeUsageLimits,
 } from '@operon/agent-runtime'
@@ -87,7 +88,7 @@ export async function injectIntoChat(
     return { success: false, delivery: 'not-sent', error: 'Session is not currently generating' }
   }
 
-  if (typeof session.runtime.injectMessage !== 'function') {
+  if (typeof session.runtime.inject !== 'function') {
     console.warn(`[AI] injectIntoChat(${chatId}): provider does not support inject`)
     return { success: false, delivery: 'not-sent', error: 'Current provider does not support steer' }
   }
@@ -98,7 +99,7 @@ export async function injectIntoChat(
 
   let accepted = false
   try {
-    await session.runtime.injectMessage(trimmed)
+    await session.runtime.inject(trimmed)
     accepted = true
     const generated = createSteerUserMessage(trimmed, turnMessageId)
     const steerMessage = options?.message
@@ -126,11 +127,11 @@ export async function getContextUsage(
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
   if (!session) return { success: false, error: 'No active session' }
-  if (typeof session.runtime.getContextUsage !== 'function') {
+  if (typeof session.runtime.contextUsage !== 'function') {
     return { success: false, error: 'Provider does not support context usage' }
   }
   try {
-    const data = await session.runtime.getContextUsage()
+    const data = await session.runtime.contextUsage()
     if (!data) return { success: false, error: 'No context usage available' }
     return { success: true, data }
   } catch (err) {
@@ -260,11 +261,11 @@ export async function agentControl(
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
   if (!session) return { success: false, error: 'No active session' }
-  if (typeof session.runtime.agentControl !== 'function') {
+  if (!supportsSessionControl(session.runtime)) {
     return { success: false, error: 'Current provider does not support agent control' }
   }
   try {
-    const data = await session.runtime.agentControl(method, params)
+    const data = await runSessionControl(session.runtime, method, params)
     return { success: true, data }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -277,22 +278,22 @@ export async function agentControl(
  * Dynamically switch model / permission mode on a live session.
  *
  * Named for Claude Code because it shipped first, but gated on the capability
- * rather than the provider id — every runtime implementing `dynamicSet` (Claude,
+ * rather than the provider id — every runtime implementing `set` (Claude,
  * Operon, Copilot, OpenCode, ACP) can take the switch mid-turn.
  */
 export async function handleCCDynamicSet(
   chatId: number,
-  payload: DynamicSetPayload,
+  payload: SessionPatch,
 ): Promise<{ success: boolean; error?: string }> {
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
   if (!session) return { success: false, error: 'No active session' }
 
   try {
-    if (typeof session.runtime.dynamicSet !== 'function') {
+    if (typeof session.runtime.set !== 'function') {
       return { success: false, error: 'This provider does not support dynamic updates' }
     }
-    const applied = await session.runtime.dynamicSet(payload)
+    const applied = await session.runtime.set(payload)
     // Keep the reuse fingerprint in step, or the next turn rebuilds the session
     // we just switched in place (and reconnects every MCP server with it). Fields
     // the runtime could not apply stay stale on purpose, so that rebuild still
@@ -316,11 +317,12 @@ export async function getChatGoal(
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
   if (!session) return { success: true, goal: null }
-  if (typeof session.runtime.getGoal !== 'function') {
+  const goalControl = session.runtime.goal
+  if (!goalControl) {
     return { success: false, error: 'Current provider does not support goals' }
   }
   try {
-    const goal = await session.runtime.getGoal()
+    const goal = await goalControl.get()
     return { success: true, goal }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -339,7 +341,8 @@ export async function clearChatGoal(
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
   if (!session) return { success: true }
-  if (typeof session.runtime.clearGoal !== 'function') {
+  const goalControl = session.runtime.goal
+  if (!goalControl) {
     return { success: false, error: 'Current provider does not support goals' }
   }
   try {
@@ -348,7 +351,7 @@ export async function clearChatGoal(
       session.activeRequest.abortController.abort()
       sessionManager.finishRequest(chatId, session.activeRequest.requestId)
     }
-    await session.runtime.clearGoal()
+    await goalControl.clear()
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -368,7 +371,8 @@ export async function setChatGoalStatus(
   const sessionManager = getSessionManager()
   const session = sessionManager.get(chatId)
   if (!session) return { success: false, error: 'No active session' }
-  if (typeof session.runtime.setGoalStatus !== 'function') {
+  const goalControl = session.runtime.goal
+  if (!goalControl) {
     return { success: false, error: 'Current provider does not support goals' }
   }
   try {
@@ -378,7 +382,7 @@ export async function setChatGoalStatus(
       sessionManager.finishRequest(chatId, session.activeRequest.requestId)
       return { success: true }
     }
-    const goal = await session.runtime.setGoalStatus(status)
+    const goal = await goalControl.setStatus(status)
     return { success: true, goal }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

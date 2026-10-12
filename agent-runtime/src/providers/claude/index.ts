@@ -6,7 +6,7 @@ import { getClaudeAccountUsage, peekClaudeAccountUsage } from './usage-probe.js'
 import { readClaudeSubagentTranscript, type ClaudeSubagentTranscript } from './subagent-transcript.js'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKControlInitializeResponse } from '@anthropic-ai/claude-agent-sdk'
-import type { ProviderDescriptor, RuntimeProviderFactory, RuntimeSession, RuntimeSessionParams } from '../../types.js'
+import type { ProviderDescriptor, RuntimeProviderFactory, SessionOptions } from '../../types.js'
 import type { ProviderInfo } from '../../types.js'
 import {
   CLAUDE_MODES,
@@ -19,7 +19,7 @@ import {
   normalizeModelId,
 } from './config.js'
 import type { Model } from '../../types.js'
-import { ClaudeRuntimeSession } from './session.js'
+import { ClaudeRuntimeSession, type ClaudeSessionNative } from './session.js'
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 
@@ -67,7 +67,7 @@ async function doFetchInitInfo(ctx: RuntimeContext): Promise<void> {
   }
 }
 
-export class ClaudeRuntimeProvider implements RuntimeProviderFactory {
+export class ClaudeRuntimeProvider implements RuntimeProviderFactory<SessionOptions, ClaudeSessionNative> {
   static readonly providerInfo: ProviderInfo = {
     id: 'claude-code',
     label: 'Claude Code',
@@ -171,17 +171,17 @@ export class ClaudeRuntimeProvider implements RuntimeProviderFactory {
     }
   }
 
-  async createSession(params: RuntimeSessionParams): Promise<RuntimeSession> {
-    if (params.modelId) this.currentModelId = normalizeModelId(params.modelId)
-    if (params.modeId) this.currentModeId = params.modeId
+  async createSession(params: SessionOptions): Promise<ClaudeRuntimeSession> {
+    if (params.model) this.currentModelId = normalizeModelId(params.model)
+    if (params.mode) this.currentModeId = params.mode
     if (
-      params.thinkingLevel === 'low' ||
-      params.thinkingLevel === 'medium' ||
-      params.thinkingLevel === 'high' ||
-      params.thinkingLevel === 'xhigh' ||
-      params.thinkingLevel === 'max'
+      params.effort === 'low' ||
+      params.effort === 'medium' ||
+      params.effort === 'high' ||
+      params.effort === 'xhigh' ||
+      params.effort === 'max'
     ) {
-      this.currentThinkingLevel = params.thinkingLevel
+      this.currentThinkingLevel = params.effort
     }
     return new ClaudeRuntimeSession(params, this.ctx)
   }
@@ -201,7 +201,12 @@ export type ClaudeCodeEffort = ClaudeThinkingLevel
 
 /** Claude Code, driven through `@anthropic-ai/claude-agent-sdk`. */
 export const claudeCode = () =>
-  defineProvider<'claude-code', { mode: PermissionMode; effort: ClaudeCodeEffort; native: ClaudeCodeNative }>({
+  defineProvider<'claude-code', {
+    mode: PermissionMode
+    effort: ClaudeCodeEffort
+    sessionNative: ClaudeSessionNative
+    native: ClaudeCodeNative
+  }>({
     id: 'claude-code',
     info: ClaudeRuntimeProvider.providerInfo,
     create: (ctx) => new ClaudeRuntimeProvider(ctx),

@@ -3,17 +3,19 @@ import type * as acp from '@zed-industries/agent-client-protocol'
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type {
-  DynamicSetApplied,
-  DynamicSetPayload,
+  AgentInput,
+  AgentSession,
   PermissionDecision,
   ProviderDescriptor,
   RuntimeMcpServers,
-  RuntimeSession,
-  RuntimeSessionParams,
-  RuntimeStreamParams,
   RuntimeStreamPart,
+  SendOptions,
+  SessionOptions,
+  SessionPatch,
+  SessionPatchApplied,
   SlashCommandItem,
 } from '../../types.js'
+import { toUserMessages } from '../../utils/agent-input.js'
 import { AsyncQueue } from './async-queue.js'
 import { toSlashCommands } from './commands.js'
 import type { AcpConnection, AcpSessionCallbacks } from './connection.js'
@@ -93,7 +95,7 @@ export function normalizeAcpError(error: unknown): Error {
   return error instanceof Error ? error : new Error(describeError(error))
 }
 
-export class AcpRuntimeSession implements RuntimeSession {
+export class AcpRuntimeSession implements AgentSession {
   private readonly logger
   private readonly cwd: string
   private readonly env: Record<string, string>
@@ -120,7 +122,7 @@ export class AcpRuntimeSession implements RuntimeSession {
   private slashCommands: SlashCommandItem[] = []
 
   constructor(
-    params: RuntimeSessionParams,
+    params: SessionOptions,
     private readonly config: AcpProviderConfig,
     private readonly ctx: RuntimeContext,
   ) {
@@ -129,20 +131,20 @@ export class AcpRuntimeSession implements RuntimeSession {
     const env = ctx.env(params.env)
     this.env = config.patchEnv ? config.patchEnv(env) : env
     this.mcpServers = toAcpMcpServers(params.mcpServers)
-    this.currentModelId = params.modelId ?? config.defaultModelId
-    this.currentModeId = params.modeId ?? config.defaultModeId
+    this.currentModelId = params.model ?? config.defaultModelId
+    this.currentModeId = params.mode ?? config.defaultModeId
     this.instructions = params.instructions?.trim() || undefined
     // The host stores whatever `getSessionId()` reported for a chat and hands it
     // back here on the next run. Holding it before `connect()` is what lets the
     // session resume the agent's own history instead of starting a blank one.
-    this.sessionId = params.sessionId
+    this.sessionId = params.resume
   }
 
-  getSessionId(): string | undefined {
+  get id(): string | undefined {
     return this.sessionId
   }
 
-  getDescriptorPatch(): Partial<
+  state(): Partial<
     Pick<ProviderDescriptor, 'currentModelId' | 'currentModeId' | 'slashCommands'>
   > {
     return {
@@ -154,14 +156,18 @@ export class AcpRuntimeSession implements RuntimeSession {
     }
   }
 
-  async *stream(params: RuntimeStreamParams): AsyncIterable<RuntimeStreamPart> {
+  send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
+    return this.runTurn(input, options?.signal)
+  }
+
+  private async *runTurn(input: AgentInput, signal: AbortSignal | undefined): AsyncIterable<RuntimeStreamPart> {
     if (this.activeQueue) {
       throw new Error(`A ${this.config.label} turn is already in progress`)
     }
 
     await this.ensureConnected()
 
-    const conversion = convertToAcpPrompt(params.messages)
+    const conversion = convertToAcpPrompt(toUserMessages(input))
     if (conversion.warnings.length > 0) {
       for (const warning of conversion.warnings) this.logger.warn(`[message-mapper] ${warning.message}`)
     }
@@ -196,10 +202,10 @@ export class AcpRuntimeSession implements RuntimeSession {
     for (const part of mapper.startStep()) queue.push(part)
 
     const handleAbort = () => this.abort()
-    params.signal?.addEventListener('abort', handleAbort, { once: true })
+    signal?.addEventListener('abort', handleAbort, { once: true })
 
     const promptPromise = this.runPrompt(conversion.prompt, mapper, queue).finally(() => {
-      params.signal?.removeEventListener('abort', handleAbort)
+      signal?.removeEventListener('abort', handleAbort)
       if (this.activeQueue === queue) this.activeQueue = null
       if (this.activeMapper === mapper) this.activeMapper = null
       queue.close()
@@ -209,7 +215,7 @@ export class AcpRuntimeSession implements RuntimeSession {
       for await (const part of queue) yield part
       await promptPromise
     } finally {
-      params.signal?.removeEventListener('abort', handleAbort)
+      signal?.removeEventListener('abort', handleAbort)
     }
   }
 
@@ -419,7 +425,7 @@ export class AcpRuntimeSession implements RuntimeSession {
     })
   }
 
-  resolvePermission(approvalId: string, decision: PermissionDecision): boolean {
+  respond(approvalId: string, decision: PermissionDecision): boolean {
     const pending = this.pendingDecisions.get(approvalId)
     if (!pending) return false
     this.pendingDecisions.delete(approvalId)
@@ -448,22 +454,22 @@ export class AcpRuntimeSession implements RuntimeSession {
   }
 
   /** ACP's session/set_model and session/set_mode only cover these two. */
-  async dynamicSet(payload: DynamicSetPayload): Promise<DynamicSetApplied> {
-    const applied: DynamicSetApplied = []
-    if (payload.modelId && payload.modelId !== this.currentModelId) {
-      this.currentModelId = payload.modelId
+  async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    const applied: SessionPatchApplied = []
+    if (patch.model && patch.model !== this.currentModelId) {
+      this.currentModelId = patch.model
       await this.applyModel()
-      applied.push('modelId')
+      applied.push('model')
     }
-    if (payload.modeId && payload.modeId !== this.currentModeId) {
-      this.currentModeId = payload.modeId
+    if (patch.mode && patch.mode !== this.currentModeId) {
+      this.currentModeId = patch.mode
       await this.applyMode()
-      applied.push('modeId')
+      applied.push('mode')
     }
     return applied
   }
 
-  async dispose(): Promise<void> {
+  async close(): Promise<void> {
     for (const pending of this.pendingDecisions.values()) {
       pending.resolve({ outcome: { outcome: 'cancelled' } })
     }
