@@ -4,7 +4,7 @@ import type { ProfileFile, ProfileFileName } from '../../../../shared/assistant.
 import { DEFAULT_PROFILE_FILES } from './defaults.js'
 import { ASSISTANT_DIR } from './paths.js'
 
-export const PROFILE_FILE_NAMES: readonly ProfileFileName[] = ['identity', 'soul', 'memory']
+export const PROFILE_FILE_NAMES: readonly ProfileFileName[] = ['identity', 'soul', 'memory', 'heartbeat']
 
 export function isProfileFileName(value: string): value is ProfileFileName {
   return (PROFILE_FILE_NAMES as readonly string[]).includes(value)
@@ -12,7 +12,7 @@ export function isProfileFileName(value: string): value is ProfileFileName {
 
 /** Who last changed each file. Kept beside the files rather than in the db: it describes them. */
 const META_PATH = path.join(ASSISTANT_DIR, '.meta.json')
-type Meta = Partial<Record<ProfileFileName | 'heartbeat', 'assistant' | 'user'>>
+type Meta = Partial<Record<ProfileFileName, 'assistant' | 'user'>>
 
 function readMeta(): Meta {
   try {
@@ -39,7 +39,6 @@ const lastKnown = new Map<ProfileFileName, string>()
 /** Create the folder and any missing file from its default. Existing files are left alone. */
 export function ensureProfileFiles(): void {
   fs.mkdirSync(ASSISTANT_DIR, { recursive: true })
-  migrateHeartbeatFile()
   for (const name of PROFILE_FILE_NAMES) {
     if (!fs.existsSync(filePath(name))) {
       fs.writeFileSync(filePath(name), DEFAULT_PROFILE_FILES[name])
@@ -48,54 +47,6 @@ export function ensureProfileFiles(): void {
     // Baseline for the watcher: the write above (or what is already there) is not an edit.
     lastKnown.set(name, fs.readFileSync(filePath(name), 'utf8'))
   }
-}
-
-/** The one line the old heartbeat.md template came with; not something the user asked for. */
-const OLD_HEARTBEAT_DEFAULT = '- Look at "In progress" in memory.md; if something is due for a follow-up, ask about it.'
-
-/**
- * heartbeat.md is gone: what to watch for now lives under "In progress" in memory.md, which the
- * heartbeat already reads. Move the user's own lines there once, then drop the file.
- */
-function migrateHeartbeatFile(): void {
-  const old = path.join(ASSISTANT_DIR, 'heartbeat.md')
-  let content: string
-  try {
-    content = fs.readFileSync(old, 'utf8')
-  } catch {
-    return
-  }
-  const items = content
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^[-*]\s+\S/.test(l) && l !== OLD_HEARTBEAT_DEFAULT)
-  if (items.length) {
-    let memory: string
-    try {
-      memory = fs.readFileSync(filePath('memory'), 'utf8')
-    } catch {
-      memory = DEFAULT_PROFILE_FILES.memory
-    }
-    fs.writeFileSync(filePath('memory'), addToInProgress(memory, items))
-    writeMeta('memory', 'assistant')
-  }
-  fs.rmSync(old, { force: true })
-  const meta = readMeta()
-  delete meta.heartbeat
-  fs.writeFileSync(META_PATH, JSON.stringify(meta, null, 2))
-}
-
-/** memory.md with `items` added at the end of its "In progress" section (created when missing). */
-export function addToInProgress(memory: string, items: readonly string[]): string {
-  const lines = memory.replace(/\n+$/, '').split('\n')
-  const start = lines.findIndex((l) => /^#+\s*in progress\s*$/i.test(l.trim()))
-  if (start === -1) return `${lines.join('\n')}\n\n# In progress\n${items.join('\n')}\n`
-  let end = lines.findIndex((l, i) => i > start && /^#+\s/.test(l))
-  if (end === -1) end = lines.length
-  // After the section's last non-blank line, so a blank line before the next heading stays.
-  while (end > start + 1 && lines[end - 1]!.trim() === '') end--
-  lines.splice(end, 0, ...items)
-  return `${lines.join('\n')}\n`
 }
 
 /** @param seen false: leave the watcher's baseline alone, so a change it hasn't reported yet still is. */

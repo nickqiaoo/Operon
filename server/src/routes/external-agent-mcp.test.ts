@@ -35,7 +35,7 @@ describe('ExternalAgent MCP', () => {
     expect(handlers.create).not.toHaveBeenCalled()
     handlers.create.mockResolvedValue({ agent_id: 'ext-10', chat_id: 10 })
     await client.callTool({ name: 'external_agent_run', arguments: { ...input, model: 'fresh-model', selection_confirmed: true } })
-    expect(handlers.create).toHaveBeenCalledWith({ parentChatId: 42, providerId: 'codex', model: 'fresh-model', prompt: 'Review', description: 'Review' })
+    expect(handlers.create).toHaveBeenCalledWith({ parent: { chatId: 42 }, providerId: 'codex', model: 'fresh-model', prompt: 'Review', description: 'Review' })
   })
 
   it('accepts an explicitly chosen default and does not ask again when following up', async () => {

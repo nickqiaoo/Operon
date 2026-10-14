@@ -38,7 +38,14 @@ export const PROFILE_FILE_META: Record<ProfileFileName, { title: MessageDescript
     title: { id: "assistant.profile.memory.title", defaultMessage: "Memory" },
     hint: {
       id: "assistant.profile.memory.hint",
-      defaultMessage: "What it always knows about you, and what it keeps an eye on (In progress). The assistant keeps it up to date.",
+      defaultMessage: "What it always knows about you, and your own matters it follows up on (In progress). The assistant keeps it up to date.",
+    },
+  }),
+  heartbeat: defineMessages({
+    title: { id: "assistant.profile.checklist.title", defaultMessage: "Checklist" },
+    hint: {
+      id: "assistant.profile.checklist.hint",
+      defaultMessage: "What the background check looks at every 30 minutes: one section per check, with the tool to call and what is worth telling you. Nothing else is checked.",
     },
   }),
 }

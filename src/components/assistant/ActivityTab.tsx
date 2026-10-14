@@ -2,6 +2,7 @@ import { HeartPulse, CalendarClock } from "lucide-react"
 import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import type { Activity } from "./types"
+import { codingAgentName } from "./CodingAgentCard"
 import { ActivityStatusTile, formatClock, isSameDay } from "./shared"
 import { AGENT_MESSAGES, activitySummary, dayLabel } from "./assistant-i18n"
 
@@ -9,12 +10,14 @@ interface ActivityTabProps {
   activities: Activity[]
   selectedId: string | null
   onSelect: (id: string) => void
+  /** A coding agent's row opens its conversation rather than the drawer: the work is there. */
+  onOpenCoding: (activity: Activity) => void
   /** The phone's page: bigger rows and day headings. */
   large?: boolean
 }
 
 /** Everything the assistant did — its workers and its own changes — newest first, grouped by day. */
-export function ActivityTab({ activities, selectedId, onSelect, large }: ActivityTabProps) {
+export function ActivityTab({ activities, selectedId, onSelect, onOpenCoding, large }: ActivityTabProps) {
   const intl = useIntl()
   const sorted = [...activities].sort((a, b) => b.startedAt - a.startedAt)
 
@@ -40,7 +43,7 @@ export function ActivityTab({ activities, selectedId, onSelect, large }: Activit
           )}
           <button
             type="button"
-            onClick={() => onSelect(a.id)}
+            onClick={() => (a.coding ? onOpenCoding(a) : onSelect(a.id))}
             className={cn(
               "flex w-full items-start text-left transition-colors",
               large ? "gap-3.5 rounded-xl px-3 py-2.5 active:bg-secondary-active" : "gap-3 rounded-lg px-2 py-2",
@@ -63,6 +66,15 @@ export function ActivityTab({ activities, selectedId, onSelect, large }: Activit
                   <>
                     <span className="text-muted-foreground/50">·</span>
                     {intl.formatMessage(AGENT_MESSAGES.main)}
+                  </>
+                )}
+                {a.coding && (
+                  <>
+                    <span className="text-muted-foreground/50">·</span>
+                    <span className="truncate">
+                      {codingAgentName(a.coding.providerId)} · {a.coding.projectName ? `${a.coding.projectName} / ` : ""}
+                      {a.coding.workspaceName}
+                    </span>
                   </>
                 )}
               </div>

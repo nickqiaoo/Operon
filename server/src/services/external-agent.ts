@@ -48,10 +48,37 @@ export function listExternalAgents(parentChatId?: number): ExternalAgentView[] {
     .flatMap((entry) => externalAgentView(entry.id) ?? [])
 }
 
-export function ownedExternalAgent(parentChatId: number, agentId: string): ExternalAgentView {
+/** Who started an external agent: a parent conversation's id, or the personal assistant. */
+export type ExternalAgentOwner = number | 'assistant'
+
+/** What the personal assistant is told when one of its conversations finishes a turn. */
+export interface AssistantAgentResult {
+  view: ExternalAgentView
+  event: ChatTurnFinished
+  /** The turn's prompt came from the assistant, not from the user typing in the conversation. */
+  dispatched: boolean
+  /** Everything the turn said. */
+  result: string
+  /** Its last text part — where an agent concludes, after narrating its work in the earlier ones. */
+  final: string
+}
+
+let assistantResultSink: ((result: AssistantAgentResult) => void) | undefined
+
+/** The personal assistant's runtime takes the results of the conversations it started. */
+export function setAssistantAgentResultSink(sink: ((result: AssistantAgentResult) => void) | undefined): void {
+  assistantResultSink = sink
+}
+
+const ownedBy = (view: ExternalAgentView, owner: ExternalAgentOwner): boolean =>
+  owner === 'assistant' ? view.assistantActivityId != null : !view.assistantActivityId && view.parentChatId === owner
+
+export function ownedExternalAgent(owner: ExternalAgentOwner, agentId: string): ExternalAgentView {
   const match = /^ext-(\d+)$/.exec(agentId)
   const view = match ? externalAgentView(Number(match[1])) : undefined
-  if (!view || view.parentChatId !== parentChatId) throw new Error('External agent not found in this conversation')
+  if (!view || !ownedBy(view, owner)) {
+    throw new Error(owner === 'assistant' ? 'Not a conversation you started' : 'External agent not found in this conversation')
+  }
   return view
 }
 
@@ -70,8 +97,8 @@ function promptMessage(prompt: string): UIMessage {
     metadata: { externalAgentDispatch: true } }
 }
 
-export function sendExternalAgent(parentChatId: number, agentId: string, prompt: string) {
-  const view = ownedExternalAgent(parentChatId, agentId)
+export function sendExternalAgent(owner: ExternalAgentOwner, agentId: string, prompt: string) {
+  const view = ownedExternalAgent(owner, agentId)
   const turnId = randomUUID()
   const status = isChatTurnBusy(view.childChatId) ? 'queued' : 'running'
   if (!activeTurns.has(view.childChatId)) {
@@ -106,39 +133,45 @@ async function dispatchNextPrompt(chatId: number): Promise<void> {
 onChatTurnAborted((chatId) => { pendingPrompts.delete(chatId) })
 
 export async function createExternalAgent(params: {
-  parentChatId: number; providerId: string; model: string; description: string; prompt: string
+  /** A parent conversation (the child joins its workspace), or the assistant naming the workspace. */
+  parent: { chatId: number } | { assistantActivityId: string; workspaceId: number }
+  providerId: string; model: string; description: string; prompt: string
 }) {
   const storage = getChatStorage()
-  const parent = storage?.getChatMeta(params.parentChatId)
-  if (!storage || !parent?.workspaceId) throw new Error('External agents require an existing workspace conversation')
+  const { parent } = params
+  const workspaceId = 'chatId' in parent ? storage?.getChatMeta(parent.chatId)?.workspaceId : parent.workspaceId
+  if (!storage || !workspaceId) throw new Error('External agents require an existing workspace conversation')
+  const parentChatId = 'chatId' in parent ? parent.chatId : 0
+  const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId : 'assistant'
   const modelId = params.model === 'default'
     ? (await getProviderModels(params.providerId)).currentModelId || undefined
     : params.model
   const modeId = subagentMode(params.providerId)
   const created = storage.patchChatEntry(null, {
     baseRevision: 0, replaceFrom: 0, tailMessages: [], tp: 'subagent',
-    title: `Agent: ${params.description}`, workspaceId: parent.workspaceId,
+    title: `Agent: ${params.description}`, workspaceId,
     providerId: params.providerId, model: modelId,
     updatedAt: Date.now(), metadata: { modeId },
   })
   if (!created.success) throw new Error('Could not create external agent conversation')
   const agentId = `ext-${created.chatId}`
   storage.updateChatMetadata(created.chatId, { modeId, externalAgent: {
-    agentId, parentChatId: params.parentChatId, description: params.description, model: params.model,
+    agentId, parentChatId, description: params.description, model: params.model,
+    ...('assistantActivityId' in parent ? { assistantActivityId: parent.assistantActivityId } : {}),
   } })
-  const result = sendExternalAgent(params.parentChatId, agentId, params.prompt)
+  const result = sendExternalAgent(owner, agentId, params.prompt)
   const view = externalAgentView(created.chatId)
   if (view) publish({ type: 'created', agent: view })
   return result
 }
 
-export function stopExternalAgent(parentChatId: number, agentId: string) {
-  const view = ownedExternalAgent(parentChatId, agentId)
+export function stopExternalAgent(owner: ExternalAgentOwner, agentId: string) {
+  const view = ownedExternalAgent(owner, agentId)
   return { agent_id: agentId, stopped: abortChat(view.childChatId) }
 }
 
-export function getExternalAgentStatus(parentChatId: number, agentId: string) {
-  const view = ownedExternalAgent(parentChatId, agentId)
+export function getExternalAgentStatus(owner: ExternalAgentOwner, agentId: string) {
+  const view = ownedExternalAgent(owner, agentId)
   const messageId = view.lastTurn?.resultMessageId
   const entry = messageId ? getChatStorage()?.getChatEntry(view.childChatId) : undefined
   const message = (entry?.messages as UIMessage[] | undefined)?.find((item) => item.id === messageId)
@@ -161,11 +194,16 @@ function textOf(message?: UIMessage): string {
 const escape = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 
 function deliverResult(view: ExternalAgentView, event: ChatTurnFinished): void {
+  const dispatched = (event.prompt?.metadata as { externalAgentDispatch?: boolean } | undefined)?.externalAgentDispatch === true
+  const result = textOf(event.message).slice(0, 20_000)
+  if (view.assistantActivityId) {
+    const final = event.message?.parts.filter((part) => part.type === 'text').at(-1)?.text.trim() ?? ''
+    assistantResultSink?.({ view, event, dispatched, result, final })
+    return
+  }
   const parent = getChatStorage()?.getChatMeta(view.parentChatId)
   if (!parent) return
-  const source = (event.prompt?.metadata as { externalAgentDispatch?: boolean } | undefined)?.externalAgentDispatch
-    ? 'parent agent' : 'user in child chat'
-  const result = textOf(event.message).slice(0, 20_000)
+  const source = dispatched ? 'parent agent' : 'user in child chat'
   const text = `[External Agent Result]\n<external-agent-result>
 <task-id>${event.turnId}</task-id>
 <agent-id>${view.agentId}</agent-id>

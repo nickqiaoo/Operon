@@ -30,6 +30,17 @@ Your personal assistant. Keeps an eye on things so you don't have to.
 
 # In progress
 `,
+  heartbeat: `# Heartbeat
+
+Every 30 minutes a background check works through this list. One section per check: the service, the tool to call and with what, and what is worth telling you. Services not listed here are left alone.
+
+<!-- Example:
+## Grafana
+- Call list_alert_rules with state: firing
+- Tell me about a firing alert I haven't heard about yet: rule name, severity, since when
+- Ignore rules in the "Sandbox" folder
+-->
+`,
 }
 
 /** memory.md is injected whole into every turn, so it has to stay small. */

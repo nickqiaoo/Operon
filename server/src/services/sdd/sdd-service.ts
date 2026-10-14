@@ -16,13 +16,12 @@ import type {
   TaskStorageAdapter,
 } from '../../storage/interface.js'
 import {
-  worktreeAdd,
   getDefaultBaseBranch,
   commit,
   mergeBranch,
   gitShow,
 } from '../git.js'
-import { worktreePathFor } from '../worktree-paths.js'
+import { provisionWorkspace } from '../workspace-provision.js'
 import { ensureTeamNamed } from '../task-team.js'
 import { splitPlanTaskText } from '@shared/taskboard/plan-task'
 
@@ -175,14 +174,11 @@ export async function promoteToTask(storage: SddStorage, input: PromoteToTaskInp
 
   // 2. Change branch operon/task-<N> + dedicated worktree, based off main.
   const branchName = changeBranchName(task.number)
-  const worktreePath = worktreePathFor(projectId, project.rootPath, `task-${task.number}`)
-  const base = (await getDefaultBaseBranch(project.rootPath)) ?? undefined
-  await fs.mkdir(path.dirname(worktreePath), { recursive: true })
-  await worktreeAdd(project.rootPath, worktreePath, branchName, true, base)
-  const workspace = storage.createWorkspace(projectId, {
+  const workspace = await provisionWorkspace(storage, {
+    projectId,
     name: `SDD · task #${task.number}`,
-    branchName,
-    worktreePath,
+    branch: branchName,
+    dir: `task-${task.number}`,
   })
 
   // 3. Pin branch + workspace on the task.

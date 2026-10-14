@@ -8,6 +8,7 @@ export type AssistantTrigger =
   | { kind: 'heartbeat' }
   | { kind: 'schedule'; name: string }
   | { kind: 'worker'; activityId: string }
+  | { kind: 'coding'; activityId: string }
 
 /** A file the user sent with a message. */
 export interface AssistantAttachment {
@@ -100,15 +101,61 @@ export interface Activity {
   /**
    * Who did it. Unset: a worker on a task. `main`: the main agent itself, in the conversation —
    * a turn where it changed something (memory, its files, a schedule). It can't be followed up
-   * or stopped; there is no task behind it.
+   * or stopped; there is no task behind it. `coding`: a coding agent in one of the user's
+   * workspaces (`coding` says which); its work is in that conversation, not in `steps`.
    */
-  agent?: 'main'
+  agent?: 'main' | 'coding'
+  coding?: ActivityCoding
 }
+
+/** A coding agent's conversation the assistant started in one of the user's workspaces. */
+export interface ActivityCoding {
+  chatId: number
+  workspaceId: number
+  workspaceName: string
+  projectName?: string
+  branch?: string
+  /** `codex`, `claude-code`, … */
+  providerId: string
+  /** The model the user chose; `default` = the agent's own. */
+  model: string
+  /** What the conversation is asking the user, while the Activity is `waiting`. */
+  waitingFor?: string
+  /**
+   * The requests themselves, so the card answers them in place (POST /ai/permission-response
+   * with `chatId`): a tool to allow, a question (`input.questions`), a plan (`input.plan`).
+   */
+  pending?: CodingPendingInput[]
+  /** Uncommitted changes in the workspace when the last turn finished. */
+  diffStat?: { files: number; additions: number; deletions: number }
+}
+
+/** One thing a coding agent's conversation is blocked on until the user answers. */
+export interface CodingPendingInput {
+  approvalId: string
+  toolName: string
+  /** One line of what is asked. */
+  preview?: string
+  /** The asking tool's full input. */
+  input?: unknown
+}
+
+/** `taskId` of a coding agent's activity: the conversation it runs in. */
+export const CODING_ACTIVITY_TASK_PREFIX = 'ac-'
 
 /** `taskId` of a main-agent activity, which is how storage tells it from a worker's. */
 export const MAIN_ACTIVITY_TASK_PREFIX = 'am-'
 
-export type ProfileFileName = 'identity' | 'soul' | 'memory'
+export type ProfileFileName = 'identity' | 'soul' | 'memory' | 'heartbeat'
+
+/** The checks in heartbeat.md: its "## …" sections, by heading. The commented-out example doesn't count. */
+export function heartbeatChecks(heartbeat: string): string[] {
+  return heartbeat
+    .replace(/<!--[\s\S]*?(-->|$)/g, '')
+    .split('\n')
+    .map((l) => /^##\s+(\S.*)$/.exec(l.trim())?.[1]?.trim())
+    .filter((h): h is string => Boolean(h))
+}
 
 export interface ProfileFile {
   name: ProfileFileName
@@ -151,6 +198,8 @@ export const UNATTENDED_SKIP_PREFIX = 'Skipped while running unattended: '
 export const INTERRUPTED_SUMMARY = 'Interrupted when the app restarted'
 /** Summary of a run that is still going. */
 export const WORKING_SUMMARY = 'Working…'
+/** Summary of a coding agent's activity blocked on the user; the rest says on what. The UI translates the prefix. */
+export const WAITING_SUMMARY_PREFIX = 'Waiting for you: '
 /** Start of the message the assistant posts when its own turn failed; the error follows. */
 export const TURN_ERROR_PREFIX = 'Something went wrong on my side: '
 
@@ -184,12 +233,7 @@ export interface AssistantSchedule {
    * standing state shown on the heartbeat, not a failure of each run.
    */
   notConnected?: Array<{ pluginId: string; name: string }>
-  /**
-   * Heartbeat only: services it found it can't check at all (plan, permissions), skipped until
-   * `until` (then tried again) or until the user asks for a re-check. `service` is the key to clear.
-   */
-  limited?: Array<{ service: string; name: string; reason: string; until: number }>
-  /** What the worker is told on each run. Empty for the heartbeat, which reads memory.md and the connected services. */
+  /** What the worker is told on each run. Empty for the heartbeat, which works through heartbeat.md and memory.md's "In progress". */
   prompt: string
   /** e.g. "Every 30 minutes", "Weekdays at 08:40". */
   cadence: string
@@ -235,6 +279,8 @@ export type AssistantEvent =
   | { type: 'config'; config: AssistantConfig }
   | { type: 'audit'; record: AuditRecord }
   | { type: 'schedules'; schedules: AssistantSchedule[] }
+  /** It changed the projects (made a workspace): the sidebar's tree is stale. */
+  | { type: 'projects' }
 
 /**
  * Name and how it addresses the user, from identity.md's frontmatter. Empty values read as

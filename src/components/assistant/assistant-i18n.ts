@@ -3,6 +3,7 @@ import {
   INTERRUPTED_SUMMARY,
   TURN_ERROR_PREFIX,
   UNATTENDED_SKIP_PREFIX,
+  WAITING_SUMMARY_PREFIX,
   WORKING_SUMMARY,
   type AssistantBlockerReason,
 } from "@shared/assistant"
@@ -202,6 +203,12 @@ export function activitySummary(intl: IntlShape, summary: string): string {
   if (summary === WORKING_SUMMARY) return intl.formatMessage({ id: "assistant.activity.working", defaultMessage: "Working…" })
   if (summary === INTERRUPTED_SUMMARY) {
     return intl.formatMessage({ id: "assistant.activity.interrupted", defaultMessage: "Interrupted when the app restarted" })
+  }
+  if (summary.startsWith(WAITING_SUMMARY_PREFIX)) {
+    return intl.formatMessage(
+      { id: "assistant.coding.waitingFor", defaultMessage: "Waiting for you: {what}" },
+      { what: summary.slice(WAITING_SUMMARY_PREFIX.length) },
+    )
   }
   return summary
 }

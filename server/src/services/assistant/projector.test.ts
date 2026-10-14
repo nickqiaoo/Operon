@@ -117,6 +117,18 @@ describe('AssistantProjector (the thread)', () => {
     expect(t.messages().map((m) => m.text)).toEqual(['Something went wrong on my side: 402 · needs more credits'])
   })
 
+  it('keeps a turn that only looked at the coding work out of Activity', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    for (const [id, tool] of [['l1', 'workspace_list'], ['l2', 'waiting_list'], ['l3', 'workspace_overview']]) {
+      t.projector.part(p({ type: 'tool-call', toolCallId: id, toolName: `mcp__assistant__${tool}`, input: {} }))
+      t.projector.part(p({ type: 'tool-result', toolCallId: id, output: '…' }))
+    }
+    said(t.projector, 'Nothing is waiting for you.')
+    t.projector.end()
+    expect(t.activities()).toEqual([])
+  })
+
   it('records a turn that changed something as a main-agent activity, its calls the steps', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })

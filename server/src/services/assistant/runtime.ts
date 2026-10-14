@@ -65,10 +65,26 @@ import {
 } from './prompts.js'
 import { buildSessionSeed, buildWrapUpTranscript, ContextReminder, rotationDue } from './rotation.js'
 import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
+import { createOperonState, type OperonState, type OperonStateStorage } from './operon-state.js'
+import { CodingAgents } from './coding.js'
+import { createOperonActions, type OperonActions, type OperonActionsStorage } from './operon-actions.js'
+import {
+  createExternalAgent,
+  externalAgentView,
+  getExternalAgentStatus,
+  sendExternalAgent,
+  setAssistantAgentResultSink,
+  stopExternalAgent,
+  subscribeExternalAgents,
+} from '../external-agent.js'
+import { subscribePendingInput } from '../ai/chat-pending-input.js'
+import { agentModelCatalog } from '../agents/model-catalog.js'
+import { getDiffStat } from '../git.js'
+import { SUPPORTED_EXTERNAL_AGENT_IDS } from '../../routes/external-agent-mcp.js'
 import { setAssistantToolHost, type AssistantToolHost } from './tools.js'
 import { WorkerPool, type InFlightRun, type WorkerAgent, type WorkerKind, type WorkerOutcome, type WorkerSessionRef } from './workers.js'
 
-type Storage = StorageAdapter & AssistantStorageAdapter & CronjobStorageAdapter
+type Storage = StorageAdapter & AssistantStorageAdapter & CronjobStorageAdapter & OperonStateStorage & OperonActionsStorage
 
 const CONFIG_KEY = 'assistant:config'
 /** The main agent's current session: which agent, and its own session id once it has one. */
@@ -89,12 +105,9 @@ const LOCALE_KEY = 'assistant:ui_locale'
 const HEARTBEAT_TOLD_KEY = 'assistant:heartbeat_told'
 /** Findings held back during quiet hours, said at the first check after. */
 const HEARTBEAT_HELD_KEY = 'assistant:heartbeat_held'
-/** Services the heartbeat can't check at all (plan, permissions), by the name its session had them under. */
-const HEARTBEAT_LIMITS_KEY = 'assistant:heartbeat_limits'
-/** A limit is tried again after this: the plan may have changed. */
-const HEARTBEAT_LIMIT_MS = 7 * 24 * 3600_000
+/** Left by builds where the heartbeat explored services and marked some "can't check"; now heartbeat.md says what to check. */
+const OLD_HEARTBEAT_LIMITS_KEY = 'assistant:heartbeat_limits'
 
-type HeartbeatLimit = { name: string; reason: string; until: number }
 const TOLD_KEPT = 12
 const TOLD_TTL_MS = 3 * 24 * 60 * 60_000
 const QUIET_DEFAULT = { quietStart: '23:00', quietEnd: '08:00' }
@@ -204,6 +217,8 @@ export class AssistantRuntime {
   private readonly approvals: AssistantApprovals
   private readonly workers: WorkerPool
   private readonly schedules: AssistantSchedules
+  /** Coding agents it started in the user's workspaces. */
+  private readonly coding: CodingAgents
   private main: MainSession | undefined
   private mainOpening: Promise<MainSession> | undefined
   /** Wrap-ups under way: their edits to the assistant's files are the assistant's. */
@@ -269,10 +284,11 @@ export class AssistantRuntime {
         },
         open: (params) => openRuntimeSession(params),
         activity: (activity) => this.saveActivity(activity),
-        // The main agent's own activities have no task behind them to pick back up.
+        // Only a worker's own activities have a worker task behind them to pick back up: not the
+        // main agent's turns, not a coding agent's conversation.
         stored: (id) => {
           const activity = storage.assistantActivityGet(id)
-          return activity && activity.agent !== 'main' ? activity : undefined
+          return activity && !activity.agent ? activity : undefined
         },
         approve: (id, toolName, input) => this.onWorkerApproval(id, toolName, input),
         saveSession: (id, ref) => this.saveWorkerSession(id, ref),
@@ -286,6 +302,58 @@ export class AssistantRuntime {
         settled: (outcome) => this.onWorkerSettled(outcome),
       },
       () => randomUUID(),
+    )
+
+    this.coding = new CodingAgents(
+      {
+        workspace: (id) => {
+          const workspace = storage.getWorkspace(id)
+          if (!workspace) return undefined
+          return { workspace, project: storage.getProject(workspace.projectId) ?? undefined }
+        },
+        create: async (input) => {
+          const started = await createExternalAgent({
+            parent: { assistantActivityId: input.activityId, workspaceId: input.workspaceId },
+            providerId: input.providerId,
+            model: input.model,
+            description: input.title,
+            prompt: input.prompt,
+          })
+          return { chatId: started.chat_id }
+        },
+        activityOf: (chatId) => externalAgentView(chatId)?.assistantActivityId,
+        send: (chatId, prompt) => void sendExternalAgent('assistant', `ext-${chatId}`, prompt),
+        stop: (chatId) => stopExternalAgent('assistant', `ext-${chatId}`).stopped,
+        status: (chatId) => getExternalAgentStatus('assistant', `ext-${chatId}`),
+        diffStat: async (path) => {
+          const { staged, unstaged } = await getDiffStat(path)
+          return { ...staged, ...unstaged }
+        },
+        activity: (id) => storage.assistantActivityGet(id) ?? undefined,
+        save: (activity) => this.saveActivity(activity),
+        // An empty message carrying the activity: the thread renders it as the conversation's card.
+        card: (activityId) => {
+          const message: AssistantMessage = { id: randomUUID(), role: 'assistant', text: '', createdAt: Date.now(), activityId }
+          storage.assistantMessageUpsert(message)
+          this.emit({ type: 'message', message })
+        },
+        tell: (text, cause) => this.tellMain(text, cause),
+        now: () => Date.now(),
+      },
+      () => randomUUID(),
+    )
+    setAssistantAgentResultSink(({ view, event, dispatched, final, result }) => {
+      void this.coding
+        .turnEnded({ chatId: view.childChatId, status: event.status, ...(event.error ? { error: event.error } : {}), dispatched, result: final || result })
+        .catch((error: unknown) => console.warn('[assistant] coding agent result:', error))
+    })
+    subscribeExternalAgents((frame) => {
+      if (frame.type === 'updated' && frame.agent.assistantActivityId && frame.agent.status === 'running') {
+        this.coding.turnStarted(frame.agent.childChatId)
+      }
+    })
+    subscribePendingInput((change) =>
+      this.coding.pendingChanged(change.chatId, change.pending, change.reason === 'requested' && change.first),
     )
 
     this.approvals = new AssistantApprovals(
@@ -322,6 +390,7 @@ export class AssistantRuntime {
       () => (this.main?.channel.busy || this.workers.anyRunning || this.wrapUps > 0 ? 'assistant' : 'user'),
     )
 
+    storage.delete(OLD_HEARTBEAT_LIMITS_KEY)
     this.schedules = new AssistantSchedules(storage, (schedules) => this.emit({ type: 'schedules', schedules: this.withSignInState(schedules) }))
     // The heartbeat starts with the assistant's first use, and is always on from then on.
     this.schedules.ensureHeartbeat()
@@ -506,7 +575,13 @@ export class AssistantRuntime {
       return id
     },
     // The main agent's message is its own rewording; the user's words are what it acts on.
-    continueTask: (id, message) => this.workers.continue(id, message, this.latestUserText()),
+    continueTask: (id, message) => {
+      // A coding agent's task id leads to its conversation (the main agent may use either tool).
+      const chatId = this.coding.chatOf(id)
+      if (chatId == null) return this.workers.continue(id, message, this.latestUserText())
+      this.coding.send(chatId, message, {})
+      return Promise.resolve('continued' as const)
+    },
     stopTask: (id) => this.stopActivity(id),
     listTasks: () =>
       this.storage
@@ -526,6 +601,65 @@ export class AssistantRuntime {
       update: (id, patch) => this.schedules.update(id, patch),
       remove: (id) => this.schedules.remove(id),
     },
+    coding: {
+      models: async (types, query) => {
+        const available = codingAgentIds()
+        const unknown = types.filter((t) => !available.includes(t))
+        if (unknown.length) throw new Error(`Not available: ${unknown.join(', ')}. Available agents: ${available.join(', ') || 'none'}`)
+        return JSON.stringify({ agents: await agentModelCatalog(types.length ? types : available, query, 'coding_agents') })
+      },
+      start: async (input) => {
+        const available = codingAgentIds()
+        if (!available.includes(input.providerId)) throw new Error(`Available agents: ${available.join(', ') || 'none'}`)
+        const activity = await this.coding.start(input)
+        return `Started in conversation chat_id ${activity.coding!.chatId} (task ${activity.id}). The user sees a card for it in this thread. You get a notice when it finishes or needs the user; end your turn rather than polling.`
+      },
+      send: (chatId, message, title) => {
+        this.coding.send(chatId, message, title ? { title } : {})
+        return 'Sent. You get a notice when it finishes or needs the user.'
+      },
+      status: (chatId) => JSON.stringify(this.coding.status(chatId)),
+      stop: (chatId) => (this.coding.stop(chatId) ? 'Stopped.' : 'It was not running.'),
+    },
+    actions: {
+      addProject: async (input) => {
+        const result = await this.operonActions().addProject(input)
+        this.emit({ type: 'projects' })
+        return result
+      },
+      githubPrs: (projectId, state) => this.operonActions().githubPrs(projectId, state),
+      githubPr: (projectId, number) => this.operonActions().githubPr(projectId, number),
+      githubPrCreate: (workspaceId, input) => this.operonActions().githubPrCreate(workspaceId, input),
+      createWorkspace: async (input) => {
+        const result = await this.operonActions().createWorkspace(input)
+        this.emit({ type: 'projects' })
+        return result
+      },
+      boardList: (projectId, status) => this.operonActions().boardList(projectId, status),
+      boardGet: (projectId, task) => this.operonActions().boardGet(projectId, task),
+      boardCreate: (projectId, input) => this.operonActions().boardCreate(projectId, input),
+      boardUpdate: (projectId, task, updates) => this.operonActions().boardUpdate(projectId, task, updates),
+      boardComment: (projectId, task, body) => this.operonActions().boardComment(projectId, task, body),
+    },
+    // Built on first use: field initializers run before the constructor has `storage`.
+    operon: {
+      workspaceList: () => this.operonState().workspaceList(),
+      workspaceOverview: (id) => this.operonState().workspaceOverview(id),
+      waitingList: () => this.operonState().waitingList(),
+    },
+  }
+
+  private operon?: OperonState
+  private operonState(): OperonState {
+    this.operon ??= createOperonState(this.storage)
+    return this.operon
+  }
+
+  private actions?: OperonActions
+  /** Board changes are recorded under the assistant's name, as it is when they happen. */
+  private operonActions(): OperonActions {
+    this.actions ??= createOperonActions(this.storage, () => parseIdentity(readProfileFile('identity').content).name ?? 'Assistant')
+    return this.actions
   }
 
   private onFileWritten(name: ProfileFileName, role: AssistantRole): void {
@@ -535,9 +669,11 @@ export class AssistantRuntime {
   }
 
   /**
-   * Services the heartbeat can look at, by the names its session has them under. On an external
-   * agent that is exactly what the worker gets mounted ({@link workerServiceServers}); Operon's own
-   * harness loads the user's MCP config and the plugins itself. (node_repl is a tool, not a service.)
+   * Services the heartbeat can call, by the names its session has them under, with the plugin's own
+   * name beside a plugin's ("plugin_grafana (Grafana)") so heartbeat.md can name either. On an
+   * external agent that is exactly what the worker gets mounted ({@link workerServiceServers});
+   * Operon's own harness loads the user's MCP config and the plugins itself. (node_repl is a tool,
+   * not a service.)
    */
   private async connectors(providerId: AssistantProviderId | undefined): Promise<string[]> {
     const external = providerId !== undefined && providerId !== 'custom'
@@ -545,43 +681,21 @@ export class AssistantRuntime {
       ? new Set(Object.keys(workerServiceServers(providerId)))
       : new Set([...Object.keys(await loadUserMcpServers()), ...Object.keys(pluginManager.mcpServerConfigs())])
     names.delete('node_repl')
-    // Not signed in: nothing to check there yet. The heartbeat card says so (withSignInState);
-    // left in, every run would come back "couldn't check" for the same standing reason.
+    // Not signed in: all it offers is "connect first". The heartbeat card says so (withSignInState),
+    // and a section that needs it is reported as not done.
     for (const plugin of pluginMcpNeedingSignIn()) names.delete(external ? plugin.name : plugin.runtimeName)
-    // Can't be checked at all; the card says so, and asking again every 30 minutes changes nothing.
-    for (const service of Object.keys(this.heartbeatLimits())) names.delete(service)
-    return [...names].sort()
-  }
-
-  /** The standing limits that haven't expired (expired ones are dropped on the way). */
-  private heartbeatLimits(): Record<string, HeartbeatLimit> {
-    const all = this.storage.get<Record<string, HeartbeatLimit>>(HEARTBEAT_LIMITS_KEY) ?? {}
-    const now = Date.now()
-    const live = Object.fromEntries(Object.entries(all).filter(([, limit]) => limit.until > now))
-    if (Object.keys(live).length !== Object.keys(all).length) this.storage.set(HEARTBEAT_LIMITS_KEY, live)
-    return live
-  }
-
-  /** Forget a limit so the next check tries the service again (the user upgraded, granted access…). */
-  clearHeartbeatLimit(service: string): boolean {
-    const limits = this.heartbeatLimits()
-    if (!(service in limits)) return false
-    delete limits[service]
-    this.storage.set(HEARTBEAT_LIMITS_KEY, limits)
-    this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
-    return true
+    const pluginName = new Map(listPluginMcpMounts().flatMap((m) => [[m.name, m.pluginName], [m.runtimeName, m.pluginName]] as const))
+    return [...names].sort().map((name) => {
+      const plugin = pluginName.get(name)
+      return plugin && plugin !== name ? `${name} (${plugin})` : name
+    })
   }
 
   /** The heartbeat, carrying the plugins it skips because they aren't signed in. */
   private withSignInState(schedules: AssistantSchedule[]): AssistantSchedule[] {
     const byPlugin = new Map(pluginMcpNeedingSignIn().map((p) => [p.pluginId, { pluginId: p.pluginId, name: p.pluginName }]))
     const notConnected = [...byPlugin.values()]
-    const limited = Object.entries(this.heartbeatLimits()).map(([service, limit]) => ({ service, ...limit }))
-    return schedules.map((s) =>
-      s.builtin === 'heartbeat' && (notConnected.length || limited.length)
-        ? { ...s, ...(notConnected.length ? { notConnected } : {}), ...(limited.length ? { limited } : {}) }
-        : s,
-    )
+    return schedules.map((s) => (s.builtin === 'heartbeat' && notConnected.length ? { ...s, notConnected } : s))
   }
 
   private workerInstructions(kind: WorkerKind, unattended: boolean): string {
@@ -621,11 +735,12 @@ export class AssistantRuntime {
    * The main agent edits memory.md with its own file tools. What it added this turn shows on its
    * reply ("Remembered: …"), and the change isn't echoed back to it as someone else's.
    */
-  private onMainTurnMemory(before: string, reminder: ContextReminder): void {
+  private onMainTurnMemory(before: { memory: string; heartbeat: string }, reminder: ContextReminder): void {
+    if (peekProfileFile('heartbeat') !== before.heartbeat) reminder.mark('heartbeat')
     const after = peekProfileFile('memory')
-    if (after === before) return
+    if (after === before.memory) return
     reminder.mark('memory')
-    for (const line of addedFacts(before, after)) this.projector.remember(line)
+    for (const line of addedFacts(before.memory, after)) this.projector.remember(line)
   }
 
   private onProfileChanged(name: ProfileFileName, byMainAgent: boolean): void {
@@ -719,7 +834,8 @@ export class AssistantRuntime {
     }
     // Not taken as seen: the main agent edits these files itself, and the watcher still has to see that.
     const reminder = new ContextReminder(() => listProfileFiles(false))
-    let memoryBefore = peekProfileFile('memory')
+    const filesBefore = () => ({ memory: peekProfileFile('memory'), heartbeat: peekProfileFile('heartbeat') })
+    let memoryBefore = filesBefore()
     const session = await openRuntimeSession({
       providerId: agent.providerId as WorkerAgent['providerId'],
       modelId: agent.modelId,
@@ -745,7 +861,7 @@ export class AssistantRuntime {
     }
     const channel = new AgentChannel(session, {
       onTurnStart: (input) => {
-        memoryBefore = peekProfileFile('memory')
+        memoryBefore = filesBefore()
         this.projector.begin(input?.tag as Cause | undefined)
       },
       onPart: (part) => {
@@ -904,7 +1020,7 @@ export class AssistantRuntime {
       this.schedules.recordRun({ id: randomUUID(), scheduleId: job.id, at: now, outcome, ...(note ? { note } : {}), ...(activityId ? { activityId } : {}) })
 
     let found: Held[] = []
-    if (!heartbeatHasWork(files.memory.content, connectors)) {
+    if (!heartbeatHasWork(files.memory.content, files.heartbeat.content)) {
       logRun('silent', NOTHING_TO_CHECK_NOTE)
     } else {
       this.heartbeatConnectors = connectors
@@ -924,26 +1040,10 @@ export class AssistantRuntime {
       const findings = (Array.isArray(args?.findings) ? args.findings : [])
         .filter((f) => typeof f.text === 'string' && f.text.trim())
         .map((f) => ({ text: f.text.trim(), urgent: f.urgent === true }))
-      // By the plugin's own name ("Notion"), not the mount name the agent saw (plugin_notion); the
-      // run log already says "Couldn't check", so the note is just which and why.
-      const displayName = new Map(listPluginMcpMounts().flatMap((m) => [[m.name, m.pluginName], [m.runtimeName, m.pluginName]] as const))
-      const reported = (Array.isArray(args?.unchecked) ? args.unchecked : [])
-        .filter((u) => typeof u.service === 'string' && u.service.trim())
-        .map((u) => ({
-          service: u.service.trim(),
-          name: displayName.get(u.service.trim()) ?? u.service.trim(),
-          reason: typeof u.reason === 'string' ? u.reason.trim() : '',
-          limited: u.kind === 'limited',
-        }))
-      // A standing limit goes on the card and out of later checks; it doesn't make this run partial.
-      const newLimits = reported.filter((u) => u.limited)
-      if (newLimits.length) {
-        const limits = this.heartbeatLimits()
-        for (const u of newLimits) limits[u.service] = { name: u.name, reason: u.reason, until: now + HEARTBEAT_LIMIT_MS }
-        this.storage.set(HEARTBEAT_LIMITS_KEY, limits)
-        this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
-      }
-      const unchecked = reported.filter((u) => !u.limited).map((u) => (u.reason ? `${u.name} (${u.reason})` : u.name))
+      // Reported under the checklist section's heading, which is already what the user reads.
+      const unchecked = (Array.isArray(args?.unchecked) ? args.unchecked : [])
+        .filter((u) => typeof u.check === 'string' && u.check.trim())
+        .map((u) => (typeof u.reason === 'string' && u.reason.trim() ? `${u.check.trim()} (${u.reason.trim()})` : u.check.trim()))
       const uncheckedNote = unchecked.length ? unchecked.join(', ') : undefined
       if (!findings.length) {
         // A check that didn't happen must not read as "nothing new".
@@ -1111,14 +1211,21 @@ export class AssistantRuntime {
   }
 
   async stopActivity(id: string): Promise<boolean> {
+    const chatId = this.coding.chatOf(id)
+    if (chatId != null) return this.coding.stop(chatId)
     this.approvals.expireFor(id)
     return this.workers.stop(id)
   }
 
   /** The drawer's input: straight to the worker, running or finished — the thread is not involved. */
   async followUp(id: string, text: string): Promise<'delivered' | 'continued' | 'missing'> {
-    if (!this.storage.assistantActivityGet(id)) return 'missing'
+    const activity = this.storage.assistantActivityGet(id)
+    if (!activity) return 'missing'
     try {
+      if (activity.coding) {
+        this.coding.send(activity.coding.chatId, text)
+        return activity.status === 'running' ? 'delivered' : 'continued'
+      }
       return await this.workers.continue(id, text, text)
     } catch (error) {
       this.sayFromHost(error instanceof Error ? error.message : String(error))
@@ -1135,6 +1242,13 @@ export class AssistantRuntime {
 }
 
 let instance: AssistantRuntime | undefined
+
+/** The coding agents installed here that the assistant may start in a workspace. */
+function codingAgentIds(): string[] {
+  return getProviders()
+    .filter((p) => p.available && (SUPPORTED_EXTERNAL_AGENT_IDS as readonly string[]).includes(p.id))
+    .map((p) => p.id)
+}
 
 export function getAssistantRuntime(storage: Storage): AssistantRuntime {
   instance ??= new AssistantRuntime(storage)

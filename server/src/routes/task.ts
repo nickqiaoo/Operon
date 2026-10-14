@@ -4,9 +4,6 @@ import type { NotificationStorageAdapter, TaskStorageAdapter } from '../storage/
 import {
   dispatchProjectTask,
   wakeTaskBinding,
-  maybeAutoDispatchTask,
-  maybeAutoIntegrate,
-  completeTaskAfterHumanReview,
   dispatchVerifier,
 } from '../services/channel/agent-orchestrator.js'
 import {
@@ -21,10 +18,8 @@ import {
 import { broadcastTask } from '../services/task-events.js'
 import { ensureParentTeam } from '../services/task-team.js'
 import { onTaskEvent } from '../services/channel-bus.js'
-import { notifyTaskStatusChange } from '../services/notification-service.js'
-import { mirrorHumanComment } from '../gateway/surfaces/surface-sync.js'
+import { commentOnTaskAsHuman, updateTaskAsHuman } from '../services/task-human-actions.js'
 import {
-  isValidTaskTransition,
   type CreateTaskInput,
   type CreateTaskLabelInput,
   type CreateTeamInput,
@@ -227,54 +222,8 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
     if (!existing) return c.json({ error: 'Not found' }, 404)
     const body = (await c.req.json<UpdateTaskInput & { actorName?: string }>()) ?? {}
     const { actorName, ...updates } = body
-    if (updates.status !== undefined && !isValidTaskTransition(existing.status, updates.status)) {
-      return c.json({ error: `Invalid transition: ${existing.status} → ${updates.status}` }, 400)
-    }
-    if (updates.status !== undefined) {
-      // Human Done is the review sign-off. It performs the required merge first:
-      // SDD children merge into the parent branch; ordinary tasks and SDD parents
-      // merge their branch into the default branch. Only then is the task marked done.
-      if (updates.status === 'done') {
-        const res = await completeTaskAfterHumanReview(id, {
-          type: 'human',
-          id: null,
-          name: actorName?.trim() || 'You',
-        })
-        if (!res.ok) {
-          return res.gateDetail ? c.json(res.gateDetail, 409) : c.json({ error: res.reason }, 409)
-        }
-        notifyTaskStatusChange(storage, existing, 'done', existing.status)
-        return c.json({ task: storage.taskDetail(id) })
-      }
-      // Demote any drifted approved artifact first, so the gate sees fresh state.
-      if (existing.sddManaged) await detectAndApplyDrift(storage, existing)
-      try {
-        assertGateOrThrow(storage, existing, updates.status)
-      } catch (e) {
-        if (e instanceof GateError) return c.json(e.detail, 409)
-        throw e
-      }
-    }
-    storage.taskUpdate(id, updates, { type: 'human', name: actorName?.trim() || 'You' })
-    broadcastTask(storage, id)
-    if (updates.status !== undefined) {
-      // Inbox: human moved the task (e.g. → in_review, cancelled).
-      notifyTaskStatusChange(storage, existing, updates.status, existing.status)
-    }
-    // Moving a task to in_progress with an assignee should actually start it
-    // running in its worktree — not just flip a DB field (guarded inside).
-    if (updates.status === 'in_progress') {
-      void maybeAutoDispatchTask(id).catch((err) =>
-        console.error('[Task] auto-dispatch after PATCH failed:', err),
-      )
-    } else if (updates.status === 'in_review') {
-      // Review-ready only. SDD child merge happens later when a human marks Done.
-      void maybeAutoIntegrate(id, updates.status, {
-        type: 'human',
-        id: null,
-        name: actorName?.trim() || 'You',
-      }).catch((err) => console.error('[Task] auto-integrate after PATCH failed:', err))
-    }
+    const res = await updateTaskAsHuman(storage, existing, updates, actorName?.trim() || 'You')
+    if (!res.ok) return c.json(res.body as Record<string, unknown>, res.status)
     return c.json({ task: storage.taskDetail(id) })
   })
 
@@ -441,36 +390,8 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
     const task = storage.taskGet(id)
     if (!task) return c.json({ error: 'Not found' }, 404)
     const body = await c.req.json<{ body: string; actorName?: string }>()
-    const text = body.body?.trim()
-    if (!text) return c.json({ error: 'body required' }, 400)
-    const activity = storage.taskAppendActivity(id, {
-      kind: 'comment',
-      actorType: 'human',
-      actorName: body.actorName?.trim() || 'You',
-      body: body.body,
-    })
-    broadcastTask(storage, id)
-    // The same note shows up on the Linear issue, if the task has one.
-    mirrorHumanComment(id, body.actorName?.trim() || 'You', body.body)
-
-    // Wake the task's agent so a human comment steers the running turn (or
-    // resurrects an idle session) — the local analog of Linear's "post a
-    // comment to resurrect the session". Fire-and-forget so the comment lands
-    // instantly; the agent's reply arrives via the activity feed. Only tasks
-    // that have been dispatched (bindingId set) have a session to wake.
-    let woke = false
-    if (task.bindingId != null) {
-      const commenter = body.actorName?.trim() || 'the human'
-      const notification =
-        `[New comment on task #${task.number} from ${commenter}]: ${text}\n` +
-        `Re-read the full task with get_project_task(task: ${task.number}) if you need context, ` +
-        `then continue the work or reply with comment_project_task(task: ${task.number}, body: "...").`
-      woke = true
-      void wakeTaskBinding(task.bindingId, notification).catch((err) => {
-        console.warn(`[Task] wake-on-comment failed for task=${id}:`, err)
-      })
-    }
-    return c.json({ activity, woke })
+    if (!body.body?.trim()) return c.json({ error: 'body required' }, 400)
+    return c.json(commentOnTaskAsHuman(storage, task, body.body, body.actorName?.trim() || undefined))
   })
 
   // A comment that arrived from Linear / GitHub by someone other than the

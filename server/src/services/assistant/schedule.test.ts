@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROFILE_FILES } from './defaults.js'
+import { heartbeatChecks } from '../../../../shared/assistant.js'
 import { cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
 import { buildHeartbeatPrompt } from './prompts.js'
 
@@ -33,16 +34,23 @@ describe('inQuietHours', () => {
 
 describe('heartbeatHasWork', () => {
   const memory = DEFAULT_PROFILE_FILES.memory
-  it('skips when there is nothing to look at: the template alone, no services', () => {
-    expect(heartbeatHasWork(memory, [])).toBe(false)
+  const checklist = DEFAULT_PROFILE_FILES.heartbeat
+  it('skips when there is nothing to do: both templates alone, the example commented out', () => {
+    expect(heartbeatHasWork(memory, checklist)).toBe(false)
   })
-  it('runs for a connected service, or something in progress or being watched', () => {
-    expect(heartbeatHasWork(memory, ['gmail'])).toBe(true)
-    expect(heartbeatHasWork(memory.replace('# In progress\n', '# In progress\n- 10-09 面试\n'), [])).toBe(true)
-    expect(heartbeatHasWork(memory.replace('# In progress\n', '# In progress\n- 留意 12306 放票 until 2026-10-03\n'), [])).toBe(true)
+  it('runs for a check in heartbeat.md, or something in progress', () => {
+    expect(heartbeatHasWork(memory, `${checklist}\n## Grafana\n- Call list_alert_rules\n`)).toBe(true)
+    expect(heartbeatHasWork(memory.replace('# In progress\n', '# In progress\n- 10-09 面试\n'), checklist)).toBe(true)
   })
   it('does not count list items under other headings as in progress', () => {
-    expect(heartbeatHasWork(memory.replace('# People\n', '# People\n- 小王：同事\n'), [])).toBe(false)
+    expect(heartbeatHasWork(memory.replace('# People\n', '# People\n- 小王：同事\n'), checklist)).toBe(false)
+  })
+})
+
+describe('heartbeatChecks', () => {
+  it('lists the sections by heading, outside comments', () => {
+    expect(heartbeatChecks('# Heartbeat\n<!--\n## Example\n-->\n## Grafana\n- x\n## PostHog errors\n- y\n')).toEqual(['Grafana', 'PostHog errors'])
+    expect(heartbeatChecks('<!-- unclosed\n## Example\n')).toEqual([])
   })
 })
 

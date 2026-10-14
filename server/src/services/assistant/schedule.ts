@@ -1,4 +1,4 @@
-import type { AssistantSchedule, AssistantScheduleRun } from '../../../../shared/assistant.js'
+import { heartbeatChecks, type AssistantSchedule, type AssistantScheduleRun } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobSchedule, CronjobTask } from '../../types/cronjob.js'
 import { computeNextRunAtForJob, normalizeSchedule } from '../cronjob.js'
@@ -80,11 +80,11 @@ export function inProgress(memory: string): string[] {
 }
 
 /**
- * Whether a heartbeat has anything to look at: a connected service, or something in progress
- * (to follow up on, or to watch for). Nothing at all → skip the model call.
+ * Whether a heartbeat has anything to do: a check in heartbeat.md, or one of the user's matters in
+ * progress to follow up on. Nothing at all → skip the model call.
  */
-export function heartbeatHasWork(memory: string, connectors: readonly string[]): boolean {
-  return connectors.length > 0 || inProgress(memory).length > 0
+export function heartbeatHasWork(memory: string, heartbeat: string): boolean {
+  return heartbeatChecks(heartbeat).length > 0 || inProgress(memory).length > 0
 }
 
 /**

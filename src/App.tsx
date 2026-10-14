@@ -102,6 +102,28 @@ export default function App() {
   // updates even when the relevant chat/task tab is unmounted.
   useInboxStream()
 
+  /**
+   * Open a conversation in its workspace's editor: from the Inbox, or a card in the assistant.
+   * `subAgent`: it is an agent's conversation (tp 'subagent'), which keeps the model it was given.
+   */
+  const openChat = useCallback(
+    (target: { chatId: number; workspaceId?: number; title?: string; subAgent?: boolean }) => {
+      setMainView(null)
+      if (target.workspaceId != null) {
+        const project = projects.find((p) => p.workspaces.some((w) => w.id === target.workspaceId))
+        // Switch both stores before opening the tab. The project-store update
+        // drives React asynchronously; waiting for the syncing effect would
+        // otherwise open the conversation in the workspace we just left.
+        setActiveWorkspace(target.workspaceId, project?.id)
+        setWorkspace(target.workspaceId, project?.id ?? null)
+      }
+      const tabId = `chat:${target.chatId}`
+      openChatTab(tabId, target.title, undefined, undefined, target.subAgent || undefined)
+      setTabChatId(tabId, target.chatId)
+    },
+    [projects, setActiveWorkspace, setWorkspace, openChatTab, setTabChatId],
+  )
+
   // Deep-link from an inbox notification to its source (task board / workspace chat).
   const handleOpenNotification = useCallback(
     (n: Notification) => {
@@ -115,24 +137,9 @@ export default function App() {
         }
         return
       }
-      if (n.chatId != null) {
-        const project =
-          n.workspaceId != null
-            ? projects.find((p) => p.workspaces.some((w) => w.id === n.workspaceId))
-            : undefined
-        if (n.workspaceId != null) {
-          // Switch both stores before opening the tab. The project-store update
-          // drives React asynchronously; waiting for the syncing effect would
-          // otherwise open the Inbox conversation in the workspace we just left.
-          setActiveWorkspace(n.workspaceId, project?.id)
-          setWorkspace(n.workspaceId, project?.id ?? null)
-        }
-        const tabId = `chat:${n.chatId}`
-        openChatTab(tabId, n.title)
-        setTabChatId(tabId, n.chatId)
-      }
+      if (n.chatId != null) openChat({ chatId: n.chatId, workspaceId: n.workspaceId ?? undefined, title: n.title })
     },
-    [projects, setActiveWorkspace, setWorkspace, openChatTab, setTabChatId],
+    [projects, openChat],
   )
 
   // Browser Use: let the main-process IAB backend open/close browser tabs.
@@ -470,7 +477,7 @@ export default function App() {
                 underneath (display:none) so streams and terminals keep running;
                 the browser webview hides itself once its placeholder has no size. */}
             {assistantOpen && (
-              <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} />
+              <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
             )}
             {inboxOpen && (
               <InboxPage

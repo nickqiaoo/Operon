@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
@@ -19,12 +19,22 @@ import {
 import { Button } from "@/components/ui/button"
 import { InputGroupAddon } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
-import type { AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
+import type { Activity, AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
+import { CodingAgentCard, CodingChip } from "./CodingAgentCard"
 import { AuditIconTile, formatClock, isSameDay } from "./shared"
 import { auditDetail, dayLabel, messageText } from "./assistant-i18n"
 
 /** Messages further apart than this get a time label between them (same day). */
 const TIME_GAP_MS = 30 * 60_000
+
+/**
+ * Messages out of view skip layout and paint (as in the chat's MessagesList): the elements stay
+ * in the DOM, so find-in-page and the stick-to-bottom scroller keep working. The browser remembers
+ * each one's measured height once shown; the fallback is for those never shown yet.
+ */
+const OFFSCREEN_DEFER_STYLE: CSSProperties = { contentVisibility: "auto", containIntrinsicSize: "auto 160px" }
+/** The newest few are never deferred: the reader is usually there, and cards update in place. */
+const LIVE_TAIL_SIZE = 8
 
 /** Same as the chat composer (ChatInputArea). */
 const ATTACH_ACCEPT =
@@ -46,6 +56,12 @@ interface AssistantChatProps {
   /** Answer an approval card a worker is waiting on. */
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
+  /** Activities by id: a message about a coding agent's conversation shows its card. */
+  activities: Activity[]
+  /** Open a coding agent's conversation in its workspace. */
+  onOpenChat: (activity: Activity) => void
+  /** The reader came back to the newest message (the store trims what was loaded above). */
+  onAtBottom?: () => void
   /** Phone layout: narrower gutters, and the composer rests as a one-line bar. */
   compact?: boolean
   /**
@@ -74,6 +90,9 @@ export function AssistantChat({
   onSend,
   onDecide,
   onOpenMemory,
+  activities,
+  onOpenChat,
+  onAtBottom,
   compact = false,
   keyboardOpen = false,
   insetTop,
@@ -81,7 +100,18 @@ export function AssistantChat({
   const intl = useIntl()
   // An approval card is there to be answered; once it is, it leaves the thread (the Audit tab
   // keeps the record). A message that is nothing but an answered card is not shown at all.
-  const shown = useMemo(() => messages.filter((m) => !(m.approval?.decision && !m.text)), [messages])
+  const codingById = useMemo(() => new Map(activities.filter((a) => a.coding).map((a) => [a.id, a])), [activities])
+  // An empty message stands for a coding agent's card; with its activity out of reach it shows nothing.
+  // Handing the same agent more work puts its card down again at the end: only the latest one shows.
+  const shown = useMemo(() => {
+    const latestCard = new Map<string, string>()
+    for (const m of messages) if (!m.text && !m.approval && m.activityId) latestCard.set(m.activityId, m.id)
+    return messages.filter((m) => {
+      if (m.approval) return !(m.approval.decision && !m.text)
+      if (m.text || m.attachments?.length) return true
+      return m.activityId != null && codingById.has(m.activityId) && latestCard.get(m.activityId) === m.id
+    })
+  }, [messages, codingById])
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
@@ -127,7 +157,11 @@ export function AssistantChat({
               const newDay = !prev || !isSameDay(prev.createdAt, m.createdAt)
               const gap = !newDay && prev != null && m.createdAt - prev.createdAt > TIME_GAP_MS
               return (
-                <Fragment key={m.id}>
+                <div
+                  key={m.id}
+                  className="flex flex-col gap-3"
+                  style={i < shown.length - LIVE_TAIL_SIZE ? OFFSCREEN_DEFER_STYLE : undefined}
+                >
                   {newDay && <Separator label={dayLabel(intl, m.createdAt)} />}
                   {gap && <Separator label={formatClock(m.createdAt)} />}
                   {m.role === "user" ? (
@@ -135,12 +169,14 @@ export function AssistantChat({
                   ) : (
                     <AssistantBubble
                       message={m}
+                      coding={m.activityId ? codingById.get(m.activityId) : undefined}
                       onDecide={onDecide}
                       onOpenMemory={onOpenMemory}
+                      onOpenChat={onOpenChat}
                       compact={compact}
                     />
                   )}
-                </Fragment>
+                </div>
               )
             })}
             {typing && <TypingBubble compact={compact} />}
@@ -148,6 +184,7 @@ export function AssistantChat({
         </ConversationContent>
         <ConversationScrollButton />
         <RepinOnChange value={keyboardOpen} />
+        {onAtBottom && <AtBottom onChange={onAtBottom} />}
       </Conversation>
 
       <div
@@ -186,6 +223,15 @@ export function AssistantChat({
       </div>
     </div>
   )
+}
+
+/** Calls `onChange` each time the reader arrives at the newest message. */
+function AtBottom({ onChange }: { onChange: () => void }) {
+  const { isAtBottom } = useStickToBottomContext()
+  useEffect(() => {
+    if (isAtBottom) onChange()
+  }, [isAtBottom, onChange])
+  return null
 }
 
 /** Scroll back to the newest message when `value` changes, if that is where the reader was. */
@@ -277,7 +323,7 @@ function ComposerAttachments() {
 }
 
 /** Attachments sit above the text in a bubble of their own, as in chats (MessagePartRenderer). */
-function UserMessage({ message, compact }: { message: AssistantMessage; compact: boolean }) {
+const UserMessage = memo(function UserMessage({ message, compact }: { message: AssistantMessage; compact: boolean }) {
   const files = message.attachments ?? []
   return (
     <>
@@ -312,7 +358,7 @@ function UserMessage({ message, compact }: { message: AssistantMessage; compact:
       )}
     </>
   )
-}
+})
 
 function Separator({ label }: { label: string }) {
   return <div className="py-2 text-center text-[11px] font-medium text-muted-foreground/70">{label}</div>
@@ -320,12 +366,16 @@ function Separator({ label }: { label: string }) {
 
 interface AssistantBubbleProps {
   message: AssistantMessage
+  /** The coding agent's activity this message is about: its card (no text) or a chip (a reply). */
+  coding?: Activity
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
+  onOpenChat: (activity: Activity) => void
   compact: boolean
 }
 
-function AssistantBubble({ message, onDecide, onOpenMemory, compact }: AssistantBubbleProps) {
+/** Memoized: the thread re-renders on every store event (typing, activities); an unchanged reply skips re-parsing its markdown. */
+const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecide, onOpenMemory, onOpenChat, compact }: AssistantBubbleProps) {
   const intl = useIntl()
   const { remembered, approval } = message
 
@@ -347,6 +397,9 @@ function AssistantBubble({ message, onDecide, onOpenMemory, compact }: Assistant
           </MessageResponse>
         </MessageContent>
       )}
+
+      {coding && !message.text && <CodingAgentCard activity={coding} onOpen={onOpenChat} compact={compact} />}
+      {coding && message.text && <CodingChip activity={coding} onOpen={onOpenChat} />}
 
       {/* Only while it waits for an answer; the Audit tab keeps what was decided. */}
       {approval && !approval.decision && (
@@ -371,7 +424,7 @@ function AssistantBubble({ message, onDecide, onOpenMemory, compact }: Assistant
       ) : null}
     </Message>
   )
-}
+})
 
 function ApprovalCard({
   approval,

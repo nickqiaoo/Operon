@@ -72,7 +72,7 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
         const model = requiredText(args, 'model')
         if (!availableAgents.includes(providerId)) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
         if (args.selection_confirmed !== true) throw new Error(`Call ${MODEL_TOOL} and ask the user to choose the agent and model, then set selection_confirmed:true.`)
-        return json(await createExternalAgent({ parentChatId, providerId, model,
+        return json(await createExternalAgent({ parent: { chatId: parentChatId }, providerId, model,
           prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description') }))
       }
       const id = requiredText(args, 'agent_id')

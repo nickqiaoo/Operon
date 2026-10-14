@@ -55,7 +55,7 @@ function toolError(text: string): ToolResult {
   return { text, isError: true }
 }
 
-type TaskBoardStorage = TaskStorageAdapter &
+export type TaskBoardStorage = TaskStorageAdapter &
   ChannelStorageAdapter &
   ProjectStorageAdapter &
   NotificationStorageAdapter

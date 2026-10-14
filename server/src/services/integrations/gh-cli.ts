@@ -152,3 +152,90 @@ export async function ghPrForBranch(cwd: string, branch: string): Promise<Existi
     return null
   }
 }
+
+/** A pull request as the assistant reads it: where it stands, not its diff. */
+export interface GhPrSummary {
+  number: number
+  title: string
+  url: string
+  state: string
+  isDraft: boolean
+  headRefName: string
+  baseRefName: string
+  author: string
+  updatedAt: string
+  /** APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED / '' */
+  reviewDecision: string
+  checks: { passed: number; failed: string[]; pending: number }
+}
+
+const PR_FIELDS = 'number,title,url,state,isDraft,headRefName,baseRefName,author,updatedAt,reviewDecision,statusCheckRollup'
+
+type RawCheck = { name?: string; context?: string; conclusion?: string | null; status?: string; state?: string }
+type RawPr = Omit<GhPrSummary, 'author' | 'checks' | 'reviewDecision'> & {
+  author?: { login?: string } | null
+  reviewDecision?: string | null
+  statusCheckRollup?: RawCheck[] | null
+}
+
+/** CheckRuns carry status + conclusion; legacy StatusContexts carry state. */
+function summarizeChecks(rollup: RawCheck[] | null | undefined): GhPrSummary['checks'] {
+  const checks = { passed: 0, failed: [] as string[], pending: 0 }
+  for (const c of rollup ?? []) {
+    const outcome = (c.conclusion || c.state || '').toUpperCase()
+    if (c.status && c.status.toUpperCase() !== 'COMPLETED') checks.pending++
+    else if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(outcome)) checks.passed++
+    else if (outcome === 'PENDING' || outcome === 'EXPECTED' || !outcome) checks.pending++
+    else checks.failed.push(c.name || c.context || 'check')
+  }
+  return checks
+}
+
+function toSummary(pr: RawPr): GhPrSummary {
+  return {
+    number: pr.number,
+    title: pr.title,
+    url: pr.url,
+    state: pr.state,
+    isDraft: pr.isDraft,
+    headRefName: pr.headRefName,
+    baseRefName: pr.baseRefName,
+    author: pr.author?.login ?? '',
+    updatedAt: pr.updatedAt,
+    reviewDecision: pr.reviewDecision ?? '',
+    checks: summarizeChecks(pr.statusCheckRollup),
+  }
+}
+
+/** The repository's pull requests, newest first. */
+export async function ghPrList(cwd: string, state: 'open' | 'closed' | 'merged' | 'all' = 'open', limit = 20): Promise<GhPrSummary[]> {
+  try {
+    const { stdout } = await run('gh', ['pr', 'list', '--state', state, '--limit', String(limit), '--json', PR_FIELDS], {
+      cwd,
+      env: ghEnv(),
+      timeout: GH_TIMEOUT_MS,
+    })
+    return (JSON.parse(stdout || '[]') as RawPr[]).map(toSummary)
+  } catch (err) {
+    throw ghError(err, 'gh pr list failed')
+  }
+}
+
+/** One pull request, with its description and latest comments. */
+export async function ghPrView(cwd: string, number: number): Promise<GhPrSummary & { body: string; comments: Array<{ author: string; body: string }> }> {
+  try {
+    const { stdout } = await run('gh', ['pr', 'view', String(number), '--json', `${PR_FIELDS},body,comments`], {
+      cwd,
+      env: ghEnv(),
+      timeout: GH_TIMEOUT_MS,
+    })
+    const pr = JSON.parse(stdout) as RawPr & { body?: string; comments?: Array<{ author?: { login?: string }; body?: string }> }
+    return {
+      ...toSummary(pr),
+      body: pr.body ?? '',
+      comments: (pr.comments ?? []).slice(-5).map((c) => ({ author: c.author?.login ?? '', body: c.body ?? '' })),
+    }
+  } catch (err) {
+    throw ghError(err, 'gh pr view failed')
+  }
+}

@@ -29,7 +29,10 @@ import { setAnalyticsScreen } from "@/lib/analytics"
 
 type NotificationTarget = Partial<
   Pick<Notification, "chatId" | "taskId" | "projectId" | "workspaceId" | "title">
->
+> & {
+  /** An agent's conversation (tp 'subagent'), e.g. one the assistant dispatched: it keeps its model. */
+  subAgent?: boolean
+}
 
 /**
  * Phone shell: top context bar + single-column screen + bottom tab bar.
@@ -48,7 +51,7 @@ export function MobileApp() {
   const [immersive, setImmersive] = useState(false)
   // Pending inbox deep-link: switch to the right tab, then the target screen
   // opens the specific chat/task and clears this via onDeepLinkConsumed.
-  const [deepLink, setDeepLink] = useState<{ chatId?: number; taskId?: number; title?: string } | null>(null)
+  const [deepLink, setDeepLink] = useState<{ chatId?: number; taskId?: number; title?: string; subAgent?: boolean } | null>(null)
 
   const projects = useProjectStore((s) => s.projects)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
@@ -173,7 +176,7 @@ export function MobileApp() {
         setActiveWorkspace(n.workspaceId, project?.id ?? null)
       }
       setTab("chats")
-      setDeepLink({ chatId: n.chatId, title: n.title })
+      setDeepLink({ chatId: n.chatId, title: n.title, subAgent: n.subAgent })
     }
   }, [projects, setActiveProject, setActiveWorkspace])
 
@@ -566,6 +569,7 @@ export function MobileApp() {
             keyboardOpen={keyboardOpen}
             openChatId={deepLink?.chatId ?? null}
             openChatTitle={deepLink?.title}
+            openChatSubAgent={deepLink?.subAgent}
             onDeepLinkConsumed={() => setDeepLink(null)}
             onImmersiveChange={setImmersive}
           />
@@ -575,6 +579,7 @@ export function MobileApp() {
             topInset={topInset}
             nativeBarHeight={nativeAssistantBar ? nativeTopBarHeight : null}
             onHeaderChange={setAssistantHeader}
+            onOpenChat={(target) => handleOpenNotification(target)}
           />}
         {tab === "channel" && (
           <MobileChannelScreen

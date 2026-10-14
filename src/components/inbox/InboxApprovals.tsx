@@ -14,7 +14,7 @@ interface PendingApproval {
   requestedAt: number
   /** Set when a detached workflow sub-agent asked, not this chat's own turn. */
   origin?: string
-  /** The asking tool's input (AskUserQuestion questions), sub-agents only. */
+  /** The asking tool's input (AskUserQuestion questions). */
   toolInput?: unknown
 }
 
@@ -38,9 +38,9 @@ function asToolInput(value: unknown): Record<string, unknown> | undefined {
  * tool in another project without leaving this one). Everything else about the
  * chat lives in the chat; clicking the row goes there.
  *
- * Asks that need the conversation itself (the chat's own question form, a plan
- * to review) render nothing here: the row's text already says so, and the row
- * click opens it.
+ * A question is answered here too, with the same form the chat shows. A plan to
+ * review renders nothing: it reads best in the conversation, which the row click
+ * opens.
  */
 export function InboxApprovals({ chatId, version }: { chatId: number; version: number }) {
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
@@ -95,7 +95,7 @@ export function InboxApprovals({ chatId, version }: { chatId: number; version: n
     <div className="space-y-1.5">
       {answerable.map((a) =>
         a.toolName === "AskUserQuestion" ? (
-          <SubAgentQuestion key={a.approvalId} approval={a} busy={busyId === a.approvalId} onDecide={decide} />
+          <QuestionApproval key={a.approvalId} approval={a} busy={busyId === a.approvalId} onDecide={decide} />
         ) : (
           <ToolApproval key={a.approvalId} approval={a} busy={busyId === a.approvalId} onDecide={decide} />
         ),
@@ -157,12 +157,12 @@ function ToolApproval({
 }
 
 /**
- * A question from a detached workflow sub-agent. It has no chat page of its own
- * to open, so it is answered here: the same form the chat renders, fed a
- * synthetic tool part built from the question payload. Collapsed until asked
- * for, so one question does not blow the list row up.
+ * A question the chat — or a detached workflow sub-agent it launched, which has
+ * no chat page of its own — is waiting on, answered here: the same form the chat
+ * renders, fed a synthetic tool part built from the question payload. Collapsed
+ * until asked for, so one question does not blow the list row up.
  */
-function SubAgentQuestion({
+function QuestionApproval({
   approval,
   busy,
   onDecide,
@@ -190,7 +190,7 @@ function SubAgentQuestion({
               Sub-agent <span className="font-mono">{approval.origin}</span> asked a question
             </>
           ) : (
-            "A sub-agent asked a question"
+            "The agent asked a question"
           )}
         </span>
         <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => setOpen((v) => !v)}>

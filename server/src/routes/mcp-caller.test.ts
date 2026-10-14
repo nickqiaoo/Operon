@@ -58,7 +58,7 @@ describe('per-call MCP caller identity', () => {
   it('keeps routing by the chat id in the URL for clients that do not tag calls', async () => {
     const client = await connect('?caller=claude-code&chatId=42')
     await client.callTool({ name: 'external_agent_run', arguments: run })
-    expect(handlers.create).toHaveBeenCalledWith(expect.objectContaining({ parentChatId: 42 }))
+    expect(handlers.create).toHaveBeenCalledWith(expect.objectContaining({ parent: { chatId: 42 } }))
   })
 
   it('routes two OpenCode sessions sharing one URL to their own chats', async () => {
@@ -70,9 +70,9 @@ describe('per-call MCP caller identity', () => {
     handlers.send.mockReturnValue({ status: 'queued' })
     await client.callTool({ name: 'external_agent_send', arguments: { agent_id: 'ext-1', prompt: 'more', [CALLER_ARG]: 'ses_b' } })
 
-    expect(handlers.create.mock.calls.map(([input]) => input.parentChatId)).toEqual([101, 202])
+    expect(handlers.create.mock.calls.map(([input]) => input.parent.chatId)).toEqual([101, 202])
     // The routing argument never reaches the tool.
-    expect(handlers.create.mock.calls[0][0]).toEqual({ parentChatId: 101, providerId: 'codex', model: 'default', prompt: 'Review', description: 'Review' })
+    expect(handlers.create.mock.calls[0][0]).toEqual({ parent: { chatId: 101 }, providerId: 'codex', model: 'default', prompt: 'Review', description: 'Review' })
     expect(handlers.send).toHaveBeenCalledWith(202, 'ext-1', 'more')
   })
 

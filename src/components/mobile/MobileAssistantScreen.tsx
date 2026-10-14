@@ -22,7 +22,8 @@ import { ScheduleTab } from "@/components/assistant/ScheduleTab"
 import { DetentSheet } from "./DetentSheet"
 import { parseIdentity } from "@/components/assistant/shared"
 import { blockerText, busyLabel } from "@/components/assistant/assistant-i18n"
-import type { ProfileFileName } from "@/components/assistant/types"
+import type { Activity, ProfileFileName } from "@/components/assistant/types"
+import { chatTargetOf, type ChatTarget } from "@/components/assistant/AssistantPage"
 
 /** A page pushed over the thread (an activity: a sheet). Only the top one is shown. */
 type Layer =
@@ -52,6 +53,8 @@ interface MobileAssistantScreenProps {
    */
   nativeBarHeight?: number | null
   onHeaderChange?: (header: AssistantHeader | null) => void
+  /** Open a coding agent's conversation (the Chats tab, in its workspace). */
+  onOpenChat: (target: ChatTarget) => void
 }
 
 /**
@@ -65,6 +68,7 @@ export function MobileAssistantScreen({
   topInset = "0px",
   nativeBarHeight = null,
   onHeaderChange,
+  onOpenChat,
 }: MobileAssistantScreenProps) {
   const intl = useIntl()
   const open = useAssistantStore((s) => s.open)
@@ -81,7 +85,7 @@ export function MobileAssistantScreen({
   const typing = useAssistantStore((s) => s.typing)
   const blocker = useAssistantStore((s) => s.blocker)
   const blockerReason = useAssistantStore((s) => s.blockerReason)
-  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule, clearHeartbeatLimit } =
+  const { send, loadOlder, settleAtBottom, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule } =
     useAssistantStore.getState()
 
   // Each pushed page keeps an id of its own, so it slides out as itself when
@@ -103,6 +107,19 @@ export function MobileAssistantScreen({
     setLayers((prev) => [...prev, { id, layer }])
   }, [])
   const pop = () => setLayers((prev) => prev.slice(0, -1))
+  // Stable, so the thread's memoized bubbles don't all re-render on every event.
+  const onDecide = useCallback(
+    (approvalId: string, decision: "allowed_once" | "denied") => void decide(approvalId, decision).catch(reportError),
+    [decide],
+  )
+  const openMemory = useCallback(() => push({ kind: "file", name: "memory" }), [push])
+  const openCoding = useCallback(
+    (activity: Activity) => {
+      const target = chatTargetOf(activity)
+      if (target) onOpenChat(target)
+    },
+    [onOpenChat],
+  )
   const openPanel = useCallback(
     (tab: SidePanelTab) => {
       setPanelTab(tab)
@@ -170,6 +187,7 @@ export function MobileAssistantScreen({
                   activities={activities}
                   selectedId={null}
                   onSelect={(id) => push({ kind: "activity", id })}
+                  onOpenCoding={openCoding}
                 />
               )}
               {panelTab === "audit" && <AuditTab records={audit} />}
@@ -185,7 +203,8 @@ export function MobileAssistantScreen({
                       .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runningNow", defaultMessage: "Running now" })))
                       .catch(reportError)
                   }}
-                  onRecheck={(service) => void clearHeartbeatLimit(service).catch(reportError)}
+                  checklist={files.find((f) => f.name === "heartbeat")?.content ?? ""}
+                  onOpenChecklist={() => push({ kind: "file", name: "heartbeat" })}
                   onOpenActivity={(id) => push({ kind: "activity", id })}
                 />
               )}
@@ -273,8 +292,11 @@ export function MobileAssistantScreen({
                 throw error
               })
             }
-            onDecide={(approvalId, decision) => void decide(approvalId, decision).catch(reportError)}
-            onOpenMemory={() => push({ kind: "file", name: "memory" })}
+            onDecide={onDecide}
+            onOpenMemory={openMemory}
+            activities={activities}
+            onOpenChat={openCoding}
+            onAtBottom={settleAtBottom}
           />
         )}
       </div>

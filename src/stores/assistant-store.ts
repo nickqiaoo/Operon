@@ -3,6 +3,21 @@ import type { Activity, AssistantAttachment, AssistantBlockerReason, AssistantCo
 import { assistantApi, subscribeAssistant } from '@/lib/assistant-api'
 import type { SseSubscription } from '@/lib/sse'
 import { resolveLocale, useLocaleStore } from '@/stores/locale-store'
+import { useProjectStore } from '@/stores/project-store'
+
+/**
+ * A coding agent the assistant started in a workspace the sidebar doesn't have yet (it just
+ * created it): the project tree is reloaded once for it, so the workspace shows and its card opens.
+ */
+const reloadedFor = new Set<number>()
+function ensureWorkspaceKnown(activity: Activity): void {
+  const workspaceId = activity.coding?.workspaceId
+  if (workspaceId == null || reloadedFor.has(workspaceId)) return
+  const { projects, loadProjects } = useProjectStore.getState()
+  if (projects.some((p) => p.workspaces.some((w) => w.id === workspaceId))) return
+  reloadedFor.add(workspaceId)
+  void loadProjects().catch(() => reloadedFor.delete(workspaceId))
+}
 
 interface AssistantStore {
   loaded: boolean
@@ -12,6 +27,8 @@ interface AssistantStore {
   messages: AssistantMessage[]
   hasMore: boolean
   loadingOlder: boolean
+  /** The reader loaded earlier pages: the list is left whole until they are back at the newest. */
+  browsingOlder: boolean
   /** Newest first. */
   activities: Activity[]
   /** Newest first. */
@@ -29,6 +46,8 @@ interface AssistantStore {
   /** Start loading + live updates. Ref-counted: pair every call with the returned release. */
   open(): () => void
   loadOlder(): Promise<void>
+  /** The reader is at the newest message: the list goes back down to its window. */
+  settleAtBottom(): void
   send(text: string, attachments?: AssistantAttachment[]): Promise<void>
   stopActivity(id: string): Promise<void>
   decide(approvalId: string, decision: 'allowed_once' | 'denied'): Promise<void>
@@ -37,11 +56,22 @@ interface AssistantStore {
   setScheduleEnabled(id: number, enabled: boolean): Promise<void>
   deleteSchedule(id: number): Promise<void>
   runSchedule(id: number): Promise<void>
-  /** Let the heartbeat try a service it had found it can't check. */
-  clearHeartbeatLimit(service: string): Promise<void>
 }
 
 /** Insert or replace by id, keeping `createdAt` order. */
+/**
+ * Messages kept while the reader is at the newest. The thread never ends — the heartbeat, schedules
+ * and coding agents keep adding to it while the app stays open for days — so the list in memory
+ * is a window over it: past this many, the oldest are let go (still a "Load earlier" away).
+ * The first page the server sends is 200.
+ */
+export const MESSAGE_WINDOW = 300
+
+export function windowed(messages: AssistantMessage[], browsingOlder: boolean): Pick<AssistantStore, 'messages'> | Pick<AssistantStore, 'messages' | 'hasMore'> {
+  if (browsingOlder || messages.length <= MESSAGE_WINDOW) return { messages }
+  return { messages: messages.slice(-MESSAGE_WINDOW), hasMore: true }
+}
+
 function upsertMessage(list: AssistantMessage[], message: AssistantMessage): AssistantMessage[] {
   const i = list.findIndex((m) => m.id === message.id)
   if (i >= 0) return list.map((m, j) => (j === i ? message : m))
@@ -71,6 +101,7 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
         error: null,
         messages: state.messages,
         hasMore: state.hasMore,
+        browsingOlder: false,
         activities: state.activities,
         audit: state.audit,
         files: state.files,
@@ -89,10 +120,14 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
   const apply = (event: AssistantEvent) => {
     switch (event.type) {
       case 'message':
-        set((s) => ({ messages: upsertMessage(s.messages, event.message) }))
+        set((s) => windowed(upsertMessage(s.messages, event.message), s.browsingOlder))
         return
       case 'activity':
         set((s) => ({ activities: upsertActivity(s.activities, event.activity) }))
+        ensureWorkspaceKnown(event.activity)
+        return
+      case 'projects':
+        void useProjectStore.getState().loadProjects().catch(() => {})
         return
       case 'file':
         set((s) => ({ files: s.files.some((f) => f.name === event.file.name) ? s.files.map((f) => (f.name === event.file.name ? event.file : f)) : [...s.files, event.file] }))
@@ -120,6 +155,7 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     messages: [],
     hasMore: false,
     loadingOlder: false,
+    browsingOlder: false,
     activities: [],
     audit: [],
     files: [],
@@ -151,7 +187,7 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     async loadOlder() {
       const { messages, hasMore, loadingOlder } = get()
       if (!hasMore || loadingOlder || messages.length === 0) return
-      set({ loadingOlder: true })
+      set({ loadingOlder: true, browsingOlder: true })
       try {
         const page = await assistantApi.olderMessages(messages[0].createdAt)
         set((s) => ({ messages: [...page.messages, ...s.messages], hasMore: page.hasMore }))
@@ -160,12 +196,18 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
       }
     },
 
+    settleAtBottom() {
+      const { browsingOlder, messages } = get()
+      if (!browsingOlder && messages.length <= MESSAGE_WINDOW) return
+      set({ browsingOlder: false, ...windowed(messages, false) })
+    },
+
     async send(text, attachments) {
       // Shown at once, under an id of our own that the server keeps — so its answer and the
       // stream's copy both land on this row instead of adding a second one.
       const id = crypto.randomUUID()
       const pending: AssistantMessage = { id, role: 'user', text, createdAt: Date.now(), ...(attachments?.length ? { attachments } : {}) }
-      set((s) => ({ messages: upsertMessage(s.messages, pending) }))
+      set((s) => windowed(upsertMessage(s.messages, pending), s.browsingOlder))
       try {
         const { message } = await assistantApi.send(text, attachments, id)
         set((s) => ({ messages: upsertMessage(s.messages, message) }))
@@ -203,10 +245,5 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     async runSchedule(id) {
       await assistantApi.runSchedule(id)
     },
-
-    async clearHeartbeatLimit(service) {
-      await assistantApi.clearHeartbeatLimit(service)
-    },
-
   }
 })

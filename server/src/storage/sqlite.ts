@@ -26,7 +26,7 @@ import type {
   NotificationStorageAdapter,
   AssistantStorageAdapter,
 } from './interface.js'
-import type { Activity, ActivityStep, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
+import type { Activity, ActivityCoding, ActivityStep, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
 import { MAIN_ACTIVITY_TASK_PREFIX } from '../../../shared/assistant.js'
 import type {
   AgentBinding,
@@ -2804,12 +2804,13 @@ export class SqliteStorage
   assistantActivityUpsert(activity: Activity): void {
     this.db
       .prepare(
-        `INSERT INTO assistant_activities (id, task_id, title, summary, status, source, report, steps, started_at, finished_at)
-         VALUES (@id, @taskId, @title, @summary, @status, @source, @report, @steps, @startedAt, @finishedAt)
+        `INSERT INTO assistant_activities (id, task_id, title, summary, status, source, report, steps, started_at, finished_at, coding_json)
+         VALUES (@id, @taskId, @title, @summary, @status, @source, @report, @steps, @startedAt, @finishedAt, @coding)
          ON CONFLICT(id) DO UPDATE SET
            task_id = excluded.task_id, title = excluded.title, summary = excluded.summary,
            status = excluded.status, source = excluded.source, report = excluded.report,
-           steps = excluded.steps, started_at = excluded.started_at, finished_at = excluded.finished_at`,
+           steps = excluded.steps, started_at = excluded.started_at, finished_at = excluded.finished_at,
+           coding_json = excluded.coding_json`,
       )
       .run({
         id: activity.id,
@@ -2822,6 +2823,7 @@ export class SqliteStorage
         steps: JSON.stringify(activity.steps),
         startedAt: activity.startedAt,
         finishedAt: activity.finishedAt ?? null,
+        coding: activity.coding ? JSON.stringify(activity.coding) : null,
       })
   }
 
@@ -2904,6 +2906,7 @@ export class SqliteStorage
       status: row.status as Activity['status'],
       ...(row.source ? { source: row.source as Activity['source'] } : {}),
       ...(String(row.task_id).startsWith(MAIN_ACTIVITY_TASK_PREFIX) ? { agent: 'main' as const } : {}),
+      ...(row.coding_json ? { agent: 'coding' as const, coding: JSON.parse(row.coding_json as string) as ActivityCoding } : {}),
       ...(row.report ? { report: row.report as string } : {}),
       steps: JSON.parse((row.steps as string) || '[]') as ActivityStep[],
       startedAt: row.started_at as number,

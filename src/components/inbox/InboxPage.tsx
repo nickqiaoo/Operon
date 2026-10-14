@@ -3,7 +3,7 @@ import { FormattedMessage, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { useInboxStore } from "@/stores/inbox-store"
 import type { Notification } from "@/types/notification"
-import { InboxPanel } from "./InboxPanel"
+import { InboxFilterTabs, InboxMarkAllRead, InboxPanel } from "./InboxPanel"
 
 interface InboxPageProps {
   /** The left sidebar is collapsed: make room for the window controls and offer to expand it. */
@@ -49,10 +49,12 @@ export function InboxPage({ sidebarCollapsed, onExpandSidebar, onOpenSource }: I
         <span className="text-xs text-muted-foreground">
           <FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" />
         </span>
+        <InboxFilterTabs className="no-drag ml-2" />
+        <InboxMarkAllRead className="no-drag ml-auto" />
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1">
-        <InboxPanel onItemClick={handleOpen} hideHeader />
+      <div className="flex min-h-0 flex-1">
+        <InboxPanel onItemClick={handleOpen} variant="page" />
       </div>
     </div>
   )

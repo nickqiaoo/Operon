@@ -18,13 +18,13 @@ export type { PendingInputSummary }
 
 export interface PendingApproval extends PendingInputSummary {
   /**
-   * The asking tool's input (an `AskUserQuestion`'s `questions`, with options).
-   *
-   * Only carried for detached sub-agents. A normal chat renders the question from
-   * the tool-call part in its own message stream; a sub-agent's stream is not on
-   * screen anywhere, so the inbox has to receive the question itself in order to
-   * show the form. The answer goes back through the ordinary permission response
-   * as `updatedInput.answers`. Not sent on the live-status stream.
+   * The asking tool's input (an `AskUserQuestion`'s `questions` with options, an
+   * `ExitPlanMode`'s plan). Carried for every request, so a surface away from the
+   * conversation — the inbox row, the assistant's card for a coding agent — can
+   * show the form itself; a detached sub-agent's stream is not on screen anywhere,
+   * so for it this is the only copy. The answer goes back through the ordinary
+   * permission response (`updatedInput.answers` for a question). Not sent on the
+   * live-status stream.
    */
   toolInput?: unknown
 }
@@ -105,6 +105,17 @@ function previewOf(input: unknown): string | undefined {
   return text.length > PREVIEW_LIMIT ? `${text.slice(0, PREVIEW_LIMIT)}…` : text
 }
 
+/** Some providers send the tool input as its JSON text (Claude's approval request does); surfaces want the object. */
+function structured(input: unknown): unknown {
+  if (typeof input !== 'string') return input
+  try {
+    const parsed: unknown = JSON.parse(input)
+    return parsed !== null && typeof parsed === 'object' ? parsed : input
+  } catch {
+    return input
+  }
+}
+
 /**
  * Watch one turn's stream parts for approval traffic. Runs server-side off the
  * assembly branch, so it keeps observing after the SSE client disconnects.
@@ -133,7 +144,7 @@ export function observePendingInputPart(
     toolName: req.toolCall?.toolName || 'tool',
     requestedAt: Date.now(),
     origin: options.origin,
-    toolInput: options.toolInput,
+    toolInput: options.toolInput ?? structured(req.toolCall?.input),
     inputPreview: previewOf(options.toolInput ?? req.toolCall?.input),
     userFacing: options.userFacing,
   }

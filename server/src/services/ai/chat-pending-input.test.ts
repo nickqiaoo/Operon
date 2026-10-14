@@ -66,6 +66,15 @@ describe('chat pending input', () => {
     expect(summary).toMatchObject({ approvalId: 'q1', origin: 'agent-3', userFacing: true })
   })
 
+  it("keeps a conversation's own request input too, for surfaces that answer it away from the chat", () => {
+    const questions = [{ question: 'Throw or Infinity?', options: [{ label: 'Throw' }, { label: 'Infinity' }] }]
+    registry.observePendingInputPart(9, request('q2', 'AskUserQuestion', { questions }), { userFacing: true })
+    expect(registry.listPendingApprovals(9)[0]).toMatchObject({ approvalId: 'q2', toolInput: { questions } })
+    // Claude sends the input as its JSON text.
+    registry.observePendingInputPart(10, request('q3', 'AskUserQuestion', JSON.stringify({ questions })), { userFacing: true })
+    expect(registry.listPendingApprovals(10)[0]).toMatchObject({ approvalId: 'q3', toolInput: { questions } })
+  })
+
   it('lets the inbox announce user-facing requests and retire them once answered', () => {
     registry.observePendingInputPart(8, request('b1', 'Bash'), { userFacing: false })
     expect(inbox.notify).not.toHaveBeenCalled()

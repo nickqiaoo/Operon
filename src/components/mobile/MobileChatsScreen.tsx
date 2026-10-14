@@ -24,6 +24,8 @@ interface MobileChatsScreenProps {
   /** Inbox deep-link: open this DB chat directly. Cleared via onDeepLinkConsumed. */
   openChatId?: number | null
   openChatTitle?: string
+  /** The deep-linked chat is an agent's conversation (tp 'subagent'), which keeps its model. */
+  openChatSubAgent?: boolean
   onDeepLinkConsumed?: () => void
   /**
    * Reports whether a conversation is open, so the shell can drop its top
@@ -57,7 +59,7 @@ const formatRelativeTime = (timestamp: number): string => {
  * the active workspace — otherwise switching workspace or reloading the web app
  * would show "No chats yet" even though past conversations exist.
  */
-export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTitle, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
+export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
   const intl = useIntl()
   const tabs = useEditorStore((s) => s.tabs)
   const currentWorkspaceId = useEditorStore((s) => s.currentWorkspaceId)
@@ -136,12 +138,12 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
   // clears the pending link so re-tapping the same notification works again.
   useEffect(() => {
     if (openChatId == null) return
-    const tabId = openChatTab(`chat:${openChatId}`, openChatTitle || "Chat")
+    const tabId = openChatTab(`chat:${openChatId}`, openChatTitle || "Chat", undefined, undefined, openChatSubAgent || undefined)
     setTabChatId(tabId, openChatId)
     setActiveTab(tabId)
     setOpenId(tabId)
     onDeepLinkConsumed?.()
-  }, [openChatId, openChatTitle, openChatTab, setTabChatId, setActiveTab, onDeepLinkConsumed])
+  }, [openChatId, openChatTitle, openChatSubAgent, openChatTab, setTabChatId, setActiveTab, onDeepLinkConsumed])
 
   const loadProviders = async (): Promise<Provider[]> => {
     if (providers.length > 0) return providers
@@ -207,7 +209,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
   // exist, so tapping the conversation you had just been in did nothing while
   // every other row opened fine.
   const openHistory = (item: ChatHistoryItem) => {
-    const tabId = openChatTab(`chat:${item.id}`, item.title, undefined, item.providerId ?? undefined)
+    const tabId = openChatTab(`chat:${item.id}`, item.title, undefined, item.providerId ?? undefined, item.tp === "subagent" || undefined)
     setTabChatId(tabId, item.id)
     setActiveTab(tabId)
     setOpenId(tabId)

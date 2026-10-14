@@ -37,8 +37,6 @@ export const assistantApi = {
     request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   deleteSchedule: (id: number) => request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'DELETE' }),
   runSchedule: (id: number) => request<{ started: number }>(`/assistant/schedules/${id}/run`, { method: 'POST' }),
-  clearHeartbeatLimit: (service: string) =>
-    request<{ ok: boolean }>(`/assistant/heartbeat/limits/${encodeURIComponent(service)}`, { method: 'DELETE' }),
   getConfig: () => request<AssistantConfig>('/assistant/config'),
   setConfig: (patch: Partial<AssistantConfig>) =>
     request<AssistantConfig>('/assistant/config', { method: 'PUT', body: JSON.stringify(patch) }),

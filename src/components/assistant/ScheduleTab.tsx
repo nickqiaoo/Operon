@@ -1,7 +1,7 @@
 import { useState } from "react"
-import { Ban, CalendarClock, HeartPulse, Pause, Play, PlugZap, RotateCw, Trash2 } from "lucide-react"
+import { CalendarClock, HeartPulse, ListChecks, Pause, Pencil, Play, PlugZap, RotateCw, Trash2 } from "lucide-react"
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl"
-import { NOTHING_TO_CHECK_NOTE } from "@shared/assistant"
+import { heartbeatChecks, NOTHING_TO_CHECK_NOTE } from "@shared/assistant"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
@@ -20,8 +20,10 @@ interface ScheduleTabProps {
   onOpenActivity: (id: string) => void
   /** Open a plugin to sign in. Absent where there is no Plugins page (the phone). */
   onConnectPlugin?: (pluginId: string) => void
-  /** Have the heartbeat try a service it found it can't check (the plan changed…). */
-  onRecheck: (service: string) => void
+  /** heartbeat.md, whose sections are the heartbeat's checks. */
+  checklist: string
+  /** Open heartbeat.md in the editor. */
+  onOpenChecklist: () => void
 }
 
 function when(intl: IntlShape, ms: number): string {
@@ -38,7 +40,8 @@ export function ScheduleTab({
   onRun,
   onOpenActivity,
   onConnectPlugin,
-  onRecheck,
+  checklist,
+  onOpenChecklist,
 }: ScheduleTabProps) {
   const intl = useIntl()
   // By id, not by value: the schedule keeps updating (next run, new runs) while the dialog is open.
@@ -62,7 +65,7 @@ export function ScheduleTab({
         const heartbeat = s.builtin === "heartbeat"
         const Icon = heartbeat ? HeartPulse : CalendarClock
         // A standing problem must not hide behind the click: mark the row.
-        const attention = heartbeat && Boolean(s.notConnected?.length || s.limited?.length)
+        const attention = heartbeat && Boolean(s.notConnected?.length)
         return (
           <button
             key={s.id}
@@ -107,7 +110,12 @@ export function ScheduleTab({
               onOpenActivity(id)
             }}
             onConnectPlugin={onConnectPlugin}
-            onRecheck={onRecheck}
+            checklist={checklist}
+            onOpenChecklist={() => {
+              // The file opens in its own drawer; same as an activity, one layer at a time.
+              setOpenId(null)
+              onOpenChecklist()
+            }}
           />
         )}
       </Dialog>
@@ -136,7 +144,8 @@ function ScheduleDialog({
   onRun,
   onOpenActivity,
   onConnectPlugin,
-  onRecheck,
+  checklist,
+  onOpenChecklist,
 }: Omit<ScheduleTabProps, "schedules"> & { schedule: AssistantSchedule }) {
   const intl = useIntl()
   const heartbeat = s.builtin === "heartbeat"
@@ -176,14 +185,14 @@ function ScheduleDialog({
           )}
         </div>
 
+        {heartbeat && <Checklist checks={heartbeatChecks(checklist)} onOpen={onOpenChecklist} />}
         {heartbeat && s.notConnected?.length ? <NotConnected plugins={s.notConnected} onConnect={onConnectPlugin} /> : null}
-        {heartbeat && s.limited?.length ? <Limited services={s.limited} onRecheck={onRecheck} /> : null}
 
         <RunLog runs={s.runs} heartbeat={heartbeat} onOpenActivity={onOpenActivity} />
       </div>
 
       {/* The heartbeat is what makes the assistant reach out at all, so it has no
-          off switch; what it watches is "In progress" in memory.md. */}
+          off switch; what it checks is heartbeat.md. */}
       <DialogFooter>
         {!heartbeat && (
           <>
@@ -250,38 +259,37 @@ function NotConnected({ plugins, onConnect }: { plugins: NonNullable<AssistantSc
 }
 
 /**
- * Services the heartbeat found it can't check at all — the plan or permissions don't allow it.
- * Said once here, skipped by later checks; tried again on its own after a week, or right away
- * from here once the user has changed something.
+ * What the heartbeat checks: the sections of heartbeat.md. It looks at nothing else, so an empty
+ * list means it only follows up on what is in progress.
  */
-function Limited({ services, onRecheck }: { services: NonNullable<AssistantSchedule["limited"]>; onRecheck: (service: string) => void }) {
+function Checklist({ checks, onOpen }: { checks: string[]; onOpen: () => void }) {
   const intl = useIntl()
   return (
-    <div className="space-y-3 rounded-lg border border-border/40 bg-background/40 p-3 text-xs">
-      {services.map((s) => (
-        <div key={s.service} className="space-y-2">
-          <div className="flex items-start gap-2">
-            <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 text-muted-foreground">
-              {/* The reason is the agent's own sentence; its full stop would double up with ours. */}
+    <div className="space-y-2 rounded-lg border border-border/40 bg-background/40 p-3 text-xs">
+      <div className="flex items-start gap-2">
+        <ListChecks className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 text-muted-foreground">
+          {checks.length ? (
+            <>
               <span className="font-medium text-foreground/85">
-                <FormattedMessage id="assistant.schedule.cantCheck" defaultMessage="Can't check {name}:" values={{ name: s.name }} />
+                <FormattedMessage id="assistant.schedule.checks" defaultMessage="Checks:" />
               </span>{" "}
-              <FormattedMessage
-                id="assistant.schedule.cantCheckReason"
-                defaultMessage="{reason}. Skipped until {day}."
-                values={{ reason: s.reason.replace(/[。.!！]+$/, ""), day: dayLabel(intl, s.until) }}
-              />
-            </div>
-          </div>
-          <div className="pl-5.5">
-            <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => onRecheck(s.service)}>
-              <RotateCw className="h-3.5 w-3.5" />
-              <FormattedMessage id="assistant.schedule.checkAgain" defaultMessage="Check again" />
-            </Button>
-          </div>
+              {intl.formatList(checks)}
+            </>
+          ) : (
+            <FormattedMessage
+              id="assistant.schedule.noChecks"
+              defaultMessage="No checks yet. Ask the assistant to watch something for you, or add one to the checklist."
+            />
+          )}
         </div>
-      ))}
+      </div>
+      <div className="pl-5.5">
+        <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onOpen}>
+          <Pencil className="h-3.5 w-3.5" />
+          <FormattedMessage id="assistant.schedule.editChecklist" defaultMessage="Edit checklist" />
+        </Button>
+      </div>
     </div>
   )
 }

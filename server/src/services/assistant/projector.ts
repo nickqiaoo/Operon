@@ -105,7 +105,11 @@ export interface ThreadSink {
  * The main agent's tools that are not work to show in Activity: handing out tasks (each task is
  * an activity of its own) and looking things up.
  */
-const QUIET_MAIN_TOOLS: ReadonlySet<string> = new Set(['start_task', 'continue_task', 'stop_task', 'list_tasks', 'schedule_list', 'memory_search'])
+const QUIET_MAIN_TOOLS: ReadonlySet<string> = new Set([
+  'start_task', 'continue_task', 'stop_task', 'list_tasks', 'schedule_list', 'memory_search',
+  'workspace_list', 'workspace_overview', 'waiting_list', 'board_list', 'board_get', 'github_prs', 'github_pr',
+  'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
+])
 
 /** Why the main agent is speaking: what the host handed it. */
 export type Cause =
@@ -114,12 +118,16 @@ export type Cause =
   | { kind: 'progress'; activityId?: string }
   | { kind: 'heartbeat'; activityId?: string }
   | { kind: 'schedule'; name: string; activityId?: string }
+  /** A coding agent it started finished a turn or is waiting for the user. */
+  | { kind: 'coding'; activityId: string }
   | { kind: 'system' }
 
 function triggerOf(cause: Cause): AssistantTrigger | undefined {
   switch (cause.kind) {
     case 'worker':
       return cause.activityId ? { kind: 'worker', activityId: cause.activityId } : undefined
+    case 'coding':
+      return { kind: 'coding', activityId: cause.activityId }
     case 'heartbeat':
       return { kind: 'heartbeat' }
     case 'schedule':
@@ -245,6 +253,8 @@ export class AssistantProjector {
       text,
       createdAt: this.now(),
       ...(trigger ? { trigger } : {}),
+      // About one coding conversation, known for certain (the host said which): the UI links it.
+      ...(this.cause.kind === 'coding' ? { activityId: this.cause.activityId } : {}),
       ...(this.remembered.length ? { remembered: this.remembered.splice(0) } : {}),
     }
     this.turnMessages.push(message)

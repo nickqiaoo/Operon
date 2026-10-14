@@ -13,6 +13,20 @@ function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
     heartbeatDone: vi.fn(() => true),
     onFileWritten: vi.fn(),
     schedules: { list: () => [], create: vi.fn(), update: vi.fn(), remove: vi.fn(() => true) } as unknown as AssistantToolHost['schedules'],
+    operon: { workspaceList: () => '', workspaceOverview: async () => '', waitingList: () => '' },
+    actions: {
+      addProject: vi.fn(async () => 'Added'),
+      githubPrs: vi.fn(async () => ''),
+      githubPr: vi.fn(async () => ''),
+      githubPrCreate: vi.fn(async () => ''),
+      createWorkspace: vi.fn(async () => 'Created'),
+      boardList: vi.fn(() => ''),
+      boardGet: vi.fn(async () => ''),
+      boardCreate: vi.fn(() => ''),
+      boardUpdate: vi.fn(async () => ''),
+      boardComment: vi.fn(() => ''),
+    },
+    coding: { models: vi.fn(async () => '[]'), start: vi.fn(async () => 'Started'), send: vi.fn(() => 'Sent'), status: vi.fn(() => '{}'), stop: vi.fn(() => 'Stopped') },
     ...overrides,
   }
 }
@@ -21,6 +35,9 @@ describe('the tools each kind of session is offered', () => {
   it('gives the main agent talking and dispatching; a worker only its hand-in tools; the wrap-up none (memory is files)', () => {
     expect(toolsFor('main').map((t) => t.name)).toEqual([
       'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
+      'workspace_list', 'workspace_overview', 'waiting_list',
+      'workspace_create', 'project_add', 'github_prs', 'github_pr', 'github_pr_create', 'board_list', 'board_get', 'board_create', 'board_update', 'board_comment',
+      'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
       'schedule_list', 'schedule_create', 'schedule_update', 'schedule_delete',
     ])
     expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])

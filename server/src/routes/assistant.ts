@@ -2,13 +2,15 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AssistantConfig } from '../../../shared/assistant.js'
 import type { AssistantStorageAdapter, StorageAdapter } from '../storage/interface.js'
+import type { OperonStateStorage } from '../services/assistant/operon-state.js'
+import type { OperonActionsStorage } from '../services/assistant/operon-actions.js'
 import { normalizeAttachments } from '../services/assistant/attachments.js'
 import { isProfileFileName } from '../services/assistant/files.js'
 import { getAssistantRuntime, resumeInterruptedAssistantWork } from '../services/assistant/runtime.js'
 import { executeCronjob, setAssistantCronRunner, type CronjobStorage } from '../services/cronjob.js'
 
 /** Personal assistant (docs/assistant/design.md). Mounted at /api/assistant. */
-export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapter & CronjobStorage) {
+export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapter & CronjobStorage & OperonStateStorage & OperonActionsStorage) {
   const router = new Hono()
   const runtime = () => getAssistantRuntime(storage)
   // The app's scheduler times the heartbeat and scheduled tasks; running one wakes the assistant
@@ -113,12 +115,6 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     if (!runtime().hasSchedule(id)) return c.json({ error: 'not found' }, 404)
     void executeCronjob(storage, id).catch((error: unknown) => console.error(`[assistant] run of schedule ${id} failed:`, error))
     return c.json({ started: id })
-  })
-
-  /** Forget that the heartbeat can't check a service, so the next run tries it again. */
-  router.delete('/heartbeat/limits/:service', (c) => {
-    const ok = runtime().clearHeartbeatLimit(c.req.param('service'))
-    return ok ? c.json({ ok }) : c.json({ error: 'not found' }, 404)
   })
 
   router.get('/config', (c) => c.json(runtime().getConfig()))

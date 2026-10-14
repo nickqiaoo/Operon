@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertCircle, Loader2, PanelLeft, Settings } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
@@ -16,12 +16,28 @@ import { ProfileFileDrawer } from "./ProfileFileDrawer"
 import { ScheduleTab } from "./ScheduleTab"
 import { parseIdentity } from "./shared"
 import { blockerText } from "./assistant-i18n"
-import type { ProfileFileName } from "./types"
+import type { Activity, ProfileFileName } from "./types"
+
+/** A conversation in one of the user's workspaces, to open in its tab. */
+export interface ChatTarget {
+  chatId: number
+  workspaceId: number
+  title: string
+  /** An agent's conversation (tp 'subagent'): it keeps the model it was started with. */
+  subAgent: boolean
+}
+
+/** Where a coding agent's activity leads: its conversation. */
+export function chatTargetOf(activity: Activity): ChatTarget | undefined {
+  const c = activity.coding
+  return c ? { chatId: c.chatId, workspaceId: c.workspaceId, title: activity.title, subAgent: true } : undefined
+}
 
 interface AssistantPageProps {
   /** With the app sidebar collapsed the header clears the traffic lights and offers to expand it. */
   sidebarCollapsed: boolean
   onExpandSidebar: () => void
+  onOpenChat: (target: ChatTarget) => void
 }
 
 function reportError(error: unknown): void {
@@ -33,7 +49,7 @@ function reportError(error: unknown): void {
  * app sidebar still on the left: the thread in the middle, what it is doing on the
  * right. State lives on the server (`/api/assistant`) and streams in live.
  */
-export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPageProps) {
+export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }: AssistantPageProps) {
   const open = useAssistantStore((s) => s.open)
   const loaded = useAssistantStore((s) => s.loaded)
   const loadError = useAssistantStore((s) => s.error)
@@ -48,7 +64,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
   const typing = useAssistantStore((s) => s.typing)
   const blocker = useAssistantStore((s) => s.blocker)
   const blockerReason = useAssistantStore((s) => s.blockerReason)
-  const { send, loadOlder, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule, clearHeartbeatLimit } = useAssistantStore.getState()
+  const { send, loadOlder, settleAtBottom, stopActivity, decide, followUp, saveFile, setScheduleEnabled, deleteSchedule, runSchedule } = useAssistantStore.getState()
 
   const intl = useIntl()
   const [tab, setTab] = useState<SidePanelTab>("activity")
@@ -72,10 +88,23 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
     setSelectedActivityId(id)
   }
 
-  const openProfileFile = (file: ProfileFileName) => {
+  const openProfileFile = useCallback((file: ProfileFileName) => {
     setSelectedActivityId(null)
     setOpenFile(file)
-  }
+  }, [])
+  // Stable, so the thread's memoized bubbles don't all re-render on every event.
+  const openMemory = useCallback(() => openProfileFile("memory"), [openProfileFile])
+  const onDecide = useCallback(
+    (approvalId: string, decision: "allowed_once" | "denied") => void decide(approvalId, decision).catch(reportError),
+    [decide],
+  )
+  const openCoding = useCallback(
+    (activity: Activity) => {
+      const target = chatTargetOf(activity)
+      if (target) onOpenChat(target)
+    },
+    [onOpenChat],
+  )
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -138,8 +167,11 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                       throw error
                     })
                   }
-                  onDecide={(approvalId, decision) => void decide(approvalId, decision).catch(reportError)}
-                  onOpenMemory={() => openProfileFile("memory")}
+                  onDecide={onDecide}
+                  onOpenMemory={openMemory}
+                  activities={activities}
+                  onOpenChat={openCoding}
+                  onAtBottom={settleAtBottom}
                 />
               </div>
             </>
@@ -155,7 +187,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
             onEditIdentity={() => openProfileFile("identity")}
           >
             {tab === "activity" && (
-              <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
+              <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} onOpenCoding={openCoding} />
             )}
             {tab === "audit" && (
               <AuditTab records={audit} />
@@ -174,7 +206,8 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar }: AssistantPa
                 }}
                 onOpenActivity={openActivity}
                 onConnectPlugin={openPluginsPage}
-                onRecheck={(service) => void clearHeartbeatLimit(service).catch(reportError)}
+                checklist={files.find((f) => f.name === "heartbeat")?.content ?? ""}
+                onOpenChecklist={() => openProfileFile("heartbeat")}
               />
             )}
             {tab === "profile" && (
