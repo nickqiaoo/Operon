@@ -16,7 +16,7 @@ vi.mock('../external-agent.js', () => ({
 }))
 
 const { SUPPORTED_EXTERNAL_AGENT_IDS } = await import('../../routes/external-agent-mcp.js')
-const { subagentMode } = await import('./subagent-mode.js')
+const { subagentMode, assistantAgentMode } = await import('./subagent-mode.js')
 
 describe('subagentMode', () => {
   it.each([...SUPPORTED_EXTERNAL_AGENT_IDS])('registers a mode for external agent %s', (id) => {
@@ -25,5 +25,16 @@ describe('subagentMode', () => {
 
   it('throws for an unregistered provider', () => {
     expect(() => subagentMode('not-a-provider')).toThrow(/No sub-agent permission mode/)
+  })
+})
+
+describe('assistantAgentMode', () => {
+  it.each([...SUPPORTED_EXTERNAL_AGENT_IDS])('registers a mode for external agent %s', (id) => {
+    expect(() => assistantAgentMode(id)).not.toThrow()
+  })
+
+  it('uses the auto-approval tier, not the one that never asks', () => {
+    expect(assistantAgentMode('claude-code')).toBe('auto')
+    expect(assistantAgentMode('codex')).toBe('approveForMe')
   })
 })

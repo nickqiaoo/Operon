@@ -68,3 +68,40 @@ export function subagentMode(providerId: string): string {
 export function subagentCapableProviders(): string[] {
   return Object.keys(SUBAGENT_MODE)
 }
+
+/**
+ * The mode a coding agent the assistant starts runs in (docs/assistant/operon-manager.md).
+ *
+ * Unlike the sub-agents above, someone is reachable: the conversation is an ordinary tab, a request
+ * wakes the assistant, and the card in its thread answers it in place. So each provider gets its
+ * auto-approval tier — it runs what looks safe and asks about the rest — rather than the one that
+ * never asks. Providers without such a tier get the mode that asks, except Cursor, which has none.
+ */
+const ASSISTANT_AGENT_MODE: Record<string, string> = {
+  // A model judges each action.
+  custom: 'auto',
+  // Claude decides per action; the composer offers it for every model, so do we.
+  'claude-code': 'auto',
+  // "Only ask for detected risky operations".
+  codex: 'approveForMe',
+  kimi: 'auto',
+  grok: 'auto',
+  // Edits go ahead, commands ask: its nearest to an auto tier.
+  antigravity: 'auto_edit',
+  // No auto tier: ask, answered on the card.
+  opencode: 'build',
+  copilot: 'interactive',
+  cursor: 'agent',
+}
+
+/** Resolve the mode for a coding agent the assistant starts on `providerId`; throws like `subagentMode`. */
+export function assistantAgentMode(providerId: string): string {
+  const mode = ASSISTANT_AGENT_MODE[providerId]
+  if (!mode) {
+    throw new Error(
+      `No assistant agent permission mode registered for provider '${providerId}'. ` +
+        `Add it to ASSISTANT_AGENT_MODE (server/src/services/agents/subagent-mode.ts).`,
+    )
+  }
+  return mode
+}

@@ -6,7 +6,7 @@ import { handleChat } from './ai/chat-flow.js'
 import { abortChat } from './ai/session-ops.js'
 import { isChatTurnBusy, onChatTurnFinished, onChatTurnStarted, onChatTurnAborted, type ChatTurnFinished } from './ai/chat-turn-lifecycle.js'
 import { getProviderModels } from './ai/providers.js'
-import { subagentMode } from './agents/subagent-mode.js'
+import { assistantAgentMode, subagentMode } from './agents/subagent-mode.js'
 import { enqueueExternalAgentResult } from './external-agent-notifications.js'
 import { listPendingApprovals } from './ai/chat-pending-input.js'
 
@@ -146,7 +146,8 @@ export async function createExternalAgent(params: {
   const modelId = params.model === 'default'
     ? (await getProviderModels(params.providerId)).currentModelId || undefined
     : params.model
-  const modeId = subagentMode(params.providerId)
+  // The assistant's agents can reach the user (its card answers requests), so they ask about risky steps.
+  const modeId = 'assistantActivityId' in parent ? assistantAgentMode(params.providerId) : subagentMode(params.providerId)
   const created = storage.patchChatEntry(null, {
     baseRevision: 0, replaceFrom: 0, tailMessages: [], tp: 'subagent',
     title: `Agent: ${params.description}`, workspaceId,
