@@ -87,8 +87,24 @@ describe("Browser runtime security contract", () => {
     expect(harness.createElicitation).not.toHaveBeenCalled();
   });
 
+  it("opens sites without asking by default, but still honours a blocked site", async () => {
+    const harness = installSecurityHarness({
+      browserConfig: { origins: { denied: ["https://blocked.example"] } },
+    });
+    await expect(ensureNavigationAllowed("https://example.com/a")).resolves.toBeUndefined();
+    await expect(ensureNavigationAllowed("https://blocked.example/a")).rejects.toThrow("should not be used");
+    expect(harness.createElicitation).not.toHaveBeenCalled();
+  });
+
+  it("still asks before a download by default", async () => {
+    const harness = installSecurityHarness();
+    await ensureFileTransferAllowed("https://example.com/report", "download");
+    expect(harness.createElicitation).toHaveBeenCalledTimes(1);
+  });
+
   it("persists an explicit origin approval at session scope", async () => {
     const harness = installSecurityHarness({
+      browserConfig: { approval_mode: "ask" },
       elicitation: { action: "accept", _meta: { persist: "session" } },
     });
     await ensureNavigationAllowed("https://example.com/a");
@@ -103,6 +119,7 @@ describe("Browser runtime security contract", () => {
 
   it("keeps an auto-reviewed origin in the current-turn cache without persisting it", async () => {
     const harness = installSecurityHarness({
+      browserConfig: { approval_mode: "ask" },
       elicitation: {
         action: "accept",
         _meta: { approvals_reviewer: "auto_review" },
@@ -123,6 +140,7 @@ describe("Browser runtime security contract", () => {
 
   it("applies the same current-turn cache semantics to Guardian approvals", async () => {
     const harness = installSecurityHarness({
+      browserConfig: { approval_mode: "ask" },
       elicitation: {
         action: "accept",
         _meta: { approvals_reviewer: "guardian_subagent" },

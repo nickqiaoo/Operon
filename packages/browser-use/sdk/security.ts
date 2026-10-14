@@ -61,6 +61,17 @@ interface BrowserSecurityConfig {
   [key: string]: unknown;
 }
 
+/**
+ * What an unset mode means. Opening a page is reading, so it goes ahead unless the
+ * user chose to be asked (Codex asks here; a prompt for every site an agent looks
+ * something up on made unattended runs useless). Moving files in or out and reading
+ * browsing history still ask. Blocked sites and the network policy apply either way.
+ * server/src/routes/browser-use.ts reports the same defaults to Settings.
+ */
+const DEFAULT_APPROVAL_MODES: Partial<Record<keyof BrowserSecurityConfig, string>> = {
+  approval_mode: "never_ask",
+};
+
 interface TurnOriginApproval {
   origin: string;
   turnId: string;
@@ -277,7 +288,8 @@ async function lookupDecision(
   if (sessionDecision === "deny" || globalDecision === "deny") return "deny";
   if (table === "origins" && hasTurnOriginApproval(repl, value)) return "approve";
   if (sessionDecision === "approve" || globalDecision === "approve") return "approve";
-  return globalConfig[approvalModeKey] === "never_ask" ? "approve" : null;
+  const mode = globalConfig[approvalModeKey] ?? DEFAULT_APPROVAL_MODES[approvalModeKey];
+  return mode === "never_ask" ? "approve" : null;
 }
 
 function persistScope(result: ElicitationResult, defaultScope?: PersistScope): PersistScope | undefined {

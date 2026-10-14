@@ -34,6 +34,10 @@ async function post(path: string, body: Record<string, unknown>) {
   })
 }
 
+async function get(path: string) {
+  return (await browserUseRoutes().request(path)).json() as Promise<{ modes: Record<string, string> }>
+}
+
 describe('browser permission settings', () => {
   beforeEach(() => {
     files.clear()
@@ -72,13 +76,18 @@ describe('browser permission settings', () => {
   })
 
   it('changes prompting mode while preserving specific rules and rejects invalid input', async () => {
-    expect((await post('/approvals/mode', { resource: 'origins', mode: 'never_ask' })).status).toBe(200)
+    // Opening sites defaults to allowed, so only asking is written down.
+    expect((await get('/approvals')).modes).toMatchObject({ origins: 'never_ask', downloads: 'ask' })
+    expect((await post('/approvals/mode', { resource: 'origins', mode: 'ask' })).status).toBe(200)
     expect(files.get('browser/config.toml')).toMatchObject({
-      approval_mode: 'never_ask',
+      approval_mode: 'ask',
       origins: { allowed: ['https://existing.example'] },
     })
-    expect((await post('/approvals/mode', { resource: 'origins', mode: 'ask' })).status).toBe(200)
+    expect((await get('/approvals')).modes.origins).toBe('ask')
+    expect((await post('/approvals/mode', { resource: 'origins', mode: 'never_ask' })).status).toBe(200)
     expect(files.get('browser/config.toml')).not.toHaveProperty('approval_mode')
+    expect((await post('/approvals/mode', { resource: 'downloads', mode: 'never_ask' })).status).toBe(200)
+    expect(files.get('browser/config.toml')).toMatchObject({ download_approval_mode: 'never_ask' })
     expect((await post('/approvals/rule', { resource: 'origins', origin: 'file:///etc/passwd', decision: 'allow' })).status).toBe(400)
     expect((await post('/approvals/mode', { resource: 'unknown', mode: 'never_ask' })).status).toBe(400)
   })

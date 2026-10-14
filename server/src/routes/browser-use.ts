@@ -57,8 +57,21 @@ function readResource(doc: unknown, resource: BrowserResource, key: 'allowed' | 
   return Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : []
 }
 
+/**
+ * What an unset mode means — must match DEFAULT_APPROVAL_MODES in
+ * packages/browser-use/sdk/security.ts. Opening a site is reading, so it goes
+ * ahead; file transfers and history ask.
+ */
+const DEFAULT_MODES: Record<BrowserMode, 'ask' | 'never_ask'> = {
+  origins: 'never_ask',
+  downloads: 'ask',
+  uploads: 'ask',
+  history: 'ask',
+}
+
 function readMode(doc: unknown, resource: BrowserMode): 'ask' | 'never_ask' {
-  return isRecord(doc) && doc[MODE_KEYS[resource]] === 'never_ask' ? 'never_ask' : 'ask'
+  const value = isRecord(doc) ? doc[MODE_KEYS[resource]] : undefined
+  return value === 'ask' || value === 'never_ask' ? value : DEFAULT_MODES[resource]
 }
 
 export interface BrowserApprovals {
@@ -253,8 +266,8 @@ export function browserUseRoutes() {
     }
     try {
       const doc = globalDocument(await store.readToml(GLOBAL_TOML))
-      if (mode === 'never_ask') doc[MODE_KEYS[resource]] = 'never_ask'
-      else delete doc[MODE_KEYS[resource]]
+      if (mode === DEFAULT_MODES[resource]) delete doc[MODE_KEYS[resource]]
+      else doc[MODE_KEYS[resource]] = mode
       await store.writeToml(GLOBAL_TOML, doc)
       return c.json({ ok: true })
     } catch (e) {
