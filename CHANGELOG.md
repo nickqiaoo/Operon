@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-14
+
+The assistant now manages your coding work across projects.
+
+### Added
+
+- Assistant: manages your coding work — tells you how your projects are going, starts Codex, Claude Code and other agents in a workspace, and reports back when they finish or need you.
+- Assistant: can have several agents propose a design, let them answer each other, and give you one recommendation.
+- Assistant: adds projects, creates workspaces, opens pull requests and updates board tasks when you ask.
+- An agent's approvals and questions can be answered right on its card in the assistant; questions can also be answered from the inbox.
+- Choose the reasoning effort when the assistant or a chat starts another agent.
+
+### Changed
+
+- Agents the assistant starts approve safe actions on their own and ask you about risky ones.
+- The heartbeat follows a checklist you and the assistant keep, instead of checking every connected app.
+- Coding activities open their details first, with a button into the conversation.
+- Agents using the browser open sites without asking; downloads, uploads and history still ask.
+
 ## [1.3.45] - 2026-10-12
 
 ### Changed
