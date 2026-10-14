@@ -187,7 +187,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
             onEditIdentity={() => openProfileFile("identity")}
           >
             {tab === "activity" && (
-              <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} onOpenCoding={openCoding} />
+              <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
             )}
             {tab === "audit" && (
               <AuditTab records={audit} />
@@ -221,6 +221,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
           onClose={() => setSelectedActivityId(null)}
           onStop={(id) => void stopActivity(id).catch(reportError)}
           onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}
+          onOpenCoding={openCoding}
         />
         <ProfileFileDrawer
           file={files.find((f) => f.name === openFile) ?? null}

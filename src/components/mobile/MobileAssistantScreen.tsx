@@ -187,7 +187,6 @@ export function MobileAssistantScreen({
                   activities={activities}
                   selectedId={null}
                   onSelect={(id) => push({ kind: "activity", id })}
-                  onOpenCoding={openCoding}
                 />
               )}
               {panelTab === "audit" && <AuditTab records={audit} />}
@@ -227,6 +226,7 @@ export function MobileAssistantScreen({
             onClose={pop}
             onStop={(id) => void stopActivity(id).catch(reportError)}
             onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}
+            onOpenCoding={openCoding}
           />
         ) : (
           <LayerMissing />

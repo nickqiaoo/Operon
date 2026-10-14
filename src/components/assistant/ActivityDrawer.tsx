@@ -8,24 +8,27 @@ import type { Activity, ActivityStep } from "./types"
 import { ActivityStatusBadge, formatClock } from "./shared"
 import { ACTIVITY_STATUS_MESSAGES, AGENT_MESSAGES, activitySummary } from "./assistant-i18n"
 import { DrawerShell, useDrawer } from "./Drawer"
+import { CodingOverview } from "./CodingAgentCard"
 
 interface ActivityDrawerProps {
   activity: Activity | null
   onClose: () => void
   onStop: (id: string) => void
   onFollowUp: (id: string, text: string) => void
+  /** A coding agent's activity: into its conversation. */
+  onOpenCoding: (activity: Activity) => void
 }
 
 /**
  * One worker's run, slid in over the right rail. Non-modal: the thread stays
  * usable underneath, so you can keep talking while you watch it work.
  */
-export function ActivityDrawer({ activity, onClose, onStop, onFollowUp }: ActivityDrawerProps) {
+export function ActivityDrawer({ activity, onClose, onStop, onFollowUp, onOpenCoding }: ActivityDrawerProps) {
   const { shown, active } = useDrawer(activity, onClose)
   if (!shown) return null
   return (
     <DrawerShell active={active}>
-      <ActivityDetail activity={shown} onClose={onClose} onStop={onStop} onFollowUp={onFollowUp} />
+      <ActivityDetail activity={shown} onClose={onClose} onStop={onStop} onFollowUp={onFollowUp} onOpenCoding={onOpenCoding} />
     </DrawerShell>
   )
 }
@@ -42,10 +45,11 @@ interface ActivityDetailProps {
   onClose?: () => void
   onStop: (id: string) => void
   onFollowUp: (id: string, text: string) => void
+  onOpenCoding: (activity: Activity) => void
 }
 
 /** The run itself: header, steps and summary, and a box to steer or follow up on it. */
-export function ActivityDetail({ activity, layout = "split", onClose, onStop, onFollowUp }: ActivityDetailProps) {
+export function ActivityDetail({ activity, layout = "split", onClose, onStop, onFollowUp, onOpenCoding }: ActivityDetailProps) {
   const intl = useIntl()
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
@@ -197,10 +201,19 @@ export function ActivityDetail({ activity, layout = "split", onClose, onStop, on
                   <MessageResponse className="text-base leading-relaxed">{activity.report}</MessageResponse>
                 </div>
               )}
-              <div className="px-5 pb-1 pt-4 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {agentLabel}
-              </div>
-              <div className="px-2 pb-4">{timeline}</div>
+              {/* A coding agent's steps are in its conversation, not here. */}
+              {activity.coding ? (
+                <div className="px-5 py-4">
+                  <CodingOverview activity={activity} onOpen={onOpenCoding} large />
+                </div>
+              ) : (
+                <>
+                  <div className="px-5 pb-1 pt-4 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {agentLabel}
+                  </div>
+                  <div className="px-2 pb-4">{timeline}</div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -229,15 +242,23 @@ export function ActivityDetail({ activity, layout = "split", onClose, onStop, on
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="scroll-fade-y w-[42%] shrink-0 overflow-y-auto border-r border-border/40 p-2">
-          <div className="heading-section px-3 pb-1 pt-1">{agentLabel}</div>
-          {timeline}
+      {/* A coding agent's steps are in its conversation: one column, the agent above what it concluded. */}
+      {activity.coding ? (
+        <div className="scroll-fade-y min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+          <CodingOverview activity={activity} onOpen={onOpenCoding} />
+          <div>{summary}</div>
         </div>
-        <div className="scroll-fade-y min-w-0 flex-1 overflow-y-auto px-5 py-4">
-          {selectedStep ? <StepDetail step={selectedStep} onBack={() => setSelectedStepId(null)} /> : summary}
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div className="scroll-fade-y w-[42%] shrink-0 overflow-y-auto border-r border-border/40 p-2">
+            <div className="heading-section px-3 pb-1 pt-1">{agentLabel}</div>
+            {timeline}
+          </div>
+          <div className="scroll-fade-y min-w-0 flex-1 overflow-y-auto px-5 py-4">
+            {selectedStep ? <StepDetail step={selectedStep} onBack={() => setSelectedStepId(null)} /> : summary}
+          </div>
         </div>
-      </div>
+      )}
 
       {!byMain && composer}
     </>
