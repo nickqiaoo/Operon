@@ -316,6 +316,7 @@ export class AssistantRuntime {
             parent: { assistantActivityId: input.activityId, workspaceId: input.workspaceId },
             providerId: input.providerId,
             model: input.model,
+            effort: input.effort,
             description: input.title,
             prompt: input.prompt,
           })

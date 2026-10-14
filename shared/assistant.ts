@@ -119,6 +119,8 @@ export interface ActivityCoding {
   providerId: string
   /** The model the user chose; `default` = the agent's own. */
   model: string
+  /** Reasoning effort the user chose; unset = the agent's own. */
+  effort?: string
   /** What the conversation is asking the user, while the Activity is `waiting`. */
   waitingFor?: string
   /**

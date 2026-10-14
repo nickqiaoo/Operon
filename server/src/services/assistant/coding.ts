@@ -16,7 +16,7 @@ import { describePending } from './operon-state.js'
 export interface CodingHost {
   workspace(id: number): { workspace: Workspace; project?: Project } | undefined
   /** Open the conversation and send the first prompt. */
-  create(input: { activityId: string; workspaceId: number; providerId: string; model: string; title: string; prompt: string }): Promise<{ chatId: number }>
+  create(input: { activityId: string; workspaceId: number; providerId: string; model: string; effort?: string; title: string; prompt: string }): Promise<{ chatId: number }>
   /** The activity of a conversation the assistant started; undefined for any other. */
   activityOf(chatId: number): string | undefined
   send(chatId: number, prompt: string): void
@@ -52,7 +52,7 @@ export class CodingAgents {
     private readonly newId: () => string,
   ) {}
 
-  async start(input: { workspaceId: number; title: string; prompt: string; providerId: string; model: string }): Promise<Activity> {
+  async start(input: { workspaceId: number; title: string; prompt: string; providerId: string; model: string; effort?: string }): Promise<Activity> {
     const where = this.host.workspace(input.workspaceId)
     if (!where) throw new Error(`There is no workspace ${input.workspaceId}. Call workspace_list for the ids.`)
     const id = this.newId()
@@ -65,6 +65,7 @@ export class CodingAgents {
       ...(where.workspace.branchName ? { branch: where.workspace.branchName } : {}),
       providerId: input.providerId,
       model: input.model,
+      ...(input.effort ? { effort: input.effort } : {}),
     }
     const activity: Activity = {
       id,

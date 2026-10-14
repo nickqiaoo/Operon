@@ -73,7 +73,7 @@ export interface AssistantToolHost {
 export interface CodingToolHost {
   /** The agents the user can pick and their models, as JSON. */
   models(agentTypes: string[], query: string | undefined): Promise<string>
-  start(input: { workspaceId: number; title: string; prompt: string; providerId: string; model: string }): Promise<string>
+  start(input: { workspaceId: number; title: string; prompt: string; providerId: string; model: string; effort?: string }): Promise<string>
   /** `title`: a new name for its card, when this is a new piece of work. */
   send(chatId: number, message: string, title?: string): string
   status(chatId: number): string
@@ -452,15 +452,19 @@ const codingStart = defineTool({
       .describe('Complete, self-contained instructions — the agent cannot see this conversation. It starts in the workspace\'s worktree.'),
     agent: z.string().describe(`An agent id from ${CODING_MODELS}`),
     model: z.string().describe(`A model id from ${CODING_MODELS}, or "default" if the user accepted the agent's own`),
+    effort: z
+      .string()
+      .optional()
+      .describe(`Reasoning effort, one of the levels ${CODING_MODELS} lists for that agent and model. Only when the user asked for one or memory.md records theirs; omit for the agent's own`),
     selection_confirmed: z
       .boolean()
       .describe('True only once the user has chosen both the agent and the model — just now, or the model as recorded in memory.md'),
   }),
   roles: ['main'],
-  run: async ({ workspace_id, title, prompt, agent, model, selection_confirmed }, _caller, host) => {
+  run: async ({ workspace_id, title, prompt, agent, model, effort, selection_confirmed }, _caller, host) => {
     if (!selection_confirmed) return failure(`Ask the user which agent and model to use (${CODING_MODELS} lists them), then call again with selection_confirmed: true.`)
     try {
-      return await host.coding.start({ workspaceId: workspace_id, title, prompt, providerId: agent, model })
+      return await host.coding.start({ workspaceId: workspace_id, title, prompt, providerId: agent, model, ...(effort?.trim() ? { effort: effort.trim() } : {}) })
     } catch (error) {
       return failure(messageOf(error))
     }

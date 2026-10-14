@@ -37,6 +37,7 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
         agent_type: { type: 'string', enum: availableAgents }, prompt,
         description: { type: 'string', description: 'Short task title.' },
         model: { type: 'string', description: `An ID from ${MODEL_TOOL}, or 'default' explicitly accepted by the user.` },
+        effort: { type: 'string', description: `Reasoning effort, one of the levels ${MODEL_TOOL} lists for that agent and model. Only when the user asked for one; omit to use the agent's own.` },
         selection_confirmed: { type: 'boolean', description: 'True only when the user has chosen both the agent and model.' },
       }, required: ['agent_type', 'prompt', 'description', 'model', 'selection_confirmed'] },
     },
@@ -72,7 +73,8 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
         const model = requiredText(args, 'model')
         if (!availableAgents.includes(providerId)) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
         if (args.selection_confirmed !== true) throw new Error(`Call ${MODEL_TOOL} and ask the user to choose the agent and model, then set selection_confirmed:true.`)
-        return json(await createExternalAgent({ parent: { chatId: parentChatId }, providerId, model,
+        const effort = typeof args.effort === 'string' && args.effort.trim() ? args.effort.trim() : undefined
+        return json(await createExternalAgent({ parent: { chatId: parentChatId }, providerId, model, effort,
           prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description') }))
       }
       const id = requiredText(args, 'agent_id')

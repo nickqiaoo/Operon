@@ -24,7 +24,14 @@ export interface AgentModelCatalogEntry {
   /** What this agent runs when a script passes `model: 'default'`. Never filtered out. */
   currentModel?: string
   /** The choosable list — present only when short enough to choose from directly. */
-  models?: Array<{ id: string; name?: string }>
+  models?: Array<{ id: string; name?: string; efforts?: string[] }>
+  /**
+   * Reasoning effort levels the agent takes, low to high; absent when it has no such setting.
+   * A model with its own `efforts` takes only those.
+   */
+  efforts?: string[]
+  /** The level the agent runs at when none is given. */
+  currentEffort?: string
   /** Total matching this lookup. Present only when `models` was withheld. */
   totalModels?: number
   /** Vendor prefixes with counts — the menu to put in front of the user. */
@@ -89,16 +96,29 @@ function toEntry(
 ): AgentModelCatalogEntry {
   const currentModel = result.currentModelId || undefined
   const matching = query ? result.models.filter((model) => matches(model, query)) : result.models
+  const effortOption = result.configOptions?.find((option) => option.category === 'thought_level')
+  const efforts = effortOption?.options.map((option) => option.value)
+  const modelEfforts = new Map(
+    (result.configOptions?.find((option) => option.category === 'model')?.options ?? []).flatMap((option) =>
+      option.supportedEffortLevels ? [[option.value, option.supportedEffortLevels] as const] : [],
+    ),
+  )
+  const listed = (model: (typeof matching)[number]) => {
+    // Same narrowing as the composer's effort menu: the agent's levels this model supports.
+    const own = efforts && modelEfforts.get(model.modelId)?.filter((level) => efforts.includes(level))
+    return { id: model.modelId, name: model.name, ...(own ? { efforts: own } : {}) }
+  }
   const base = {
     agentType,
     currentModel,
+    ...(efforts?.length ? { efforts, ...(effortOption?.currentValue ? { currentEffort: effortOption.currentValue } : {}) } : {}),
     ...(result.modelsPending ? { pending: true } : {}),
   }
 
   if (matching.length <= INLINE_MODEL_LIMIT) {
     return {
       ...base,
-      models: matching.map((model) => ({ id: model.modelId, name: model.name })),
+      models: matching.map(listed),
       ...(query && matching.length === 0
         ? { hint: `No model matches "${query}" for ${agentType}. Call again with a different query, or omit it.` }
         : {}),
@@ -114,7 +134,7 @@ function toEntry(
   if (groups.length < 2) {
     return {
       ...base,
-      models: matching.slice(0, INLINE_MODEL_LIMIT).map((model) => ({ id: model.modelId, name: model.name })),
+      models: matching.slice(0, INLINE_MODEL_LIMIT).map(listed),
       totalModels: matching.length,
       hint:
         `Showing ${INLINE_MODEL_LIMIT} of ${matching.length}${query ? ` matching "${query}"` : ''}. ` +

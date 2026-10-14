@@ -136,6 +136,8 @@ export async function createExternalAgent(params: {
   /** A parent conversation (the child joins its workspace), or the assistant naming the workspace. */
   parent: { chatId: number } | { assistantActivityId: string; workspaceId: number }
   providerId: string; model: string; description: string; prompt: string
+  /** Reasoning effort; unset runs at the agent's own level. */
+  effort?: string
 }) {
   const storage = getChatStorage()
   const { parent } = params
@@ -143,15 +145,21 @@ export async function createExternalAgent(params: {
   if (!storage || !workspaceId) throw new Error('External agents require an existing workspace conversation')
   const parentChatId = 'chatId' in parent ? parent.chatId : 0
   const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId : 'assistant'
-  const modelId = params.model === 'default'
-    ? (await getProviderModels(params.providerId)).currentModelId || undefined
-    : params.model
+  const models = params.model === 'default' || params.effort ? await getProviderModels(params.providerId) : undefined
+  const modelId = params.model === 'default' ? models?.currentModelId || undefined : params.model
+  if (params.effort) {
+    const levels = models?.configOptions?.find((option) => option.category === 'thought_level')?.options.map((option) => option.value) ?? []
+    if (!levels.includes(params.effort)) {
+      throw new Error(levels.length ? `Effort levels for ${params.providerId}: ${levels.join(', ')}` : `${params.providerId} has no effort setting`)
+    }
+  }
   // The assistant's agents can reach the user (its card answers requests), so they ask about risky steps.
   const modeId = 'assistantActivityId' in parent ? assistantAgentMode(params.providerId) : subagentMode(params.providerId)
   const created = storage.patchChatEntry(null, {
     baseRevision: 0, replaceFrom: 0, tailMessages: [], tp: 'subagent',
     title: `Agent: ${params.description}`, workspaceId,
     providerId: params.providerId, model: modelId,
+    ...(params.effort ? { thinkingLevel: params.effort } : {}),
     updatedAt: Date.now(), metadata: { modeId },
   })
   if (!created.success) throw new Error('Could not create external agent conversation')

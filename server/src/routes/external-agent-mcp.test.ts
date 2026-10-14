@@ -10,7 +10,14 @@ vi.mock('../services/external-agent.js', () => ({
 }))
 vi.mock('../services/ai/providers.js', () => ({
   getProviders: () => [{ id: 'codex', available: true }],
-  getProviderModels: async () => ({ models: [{ modelId: 'fresh-model', name: 'Fresh Model' }], currentModelId: 'fresh-model' }),
+  getProviderModels: async () => ({
+    models: [{ modelId: 'fresh-model', name: 'Fresh Model' }, { modelId: 'mini', name: 'Mini' }],
+    currentModelId: 'fresh-model',
+    configOptions: [
+      { category: 'model', options: [{ value: 'fresh-model', name: 'Fresh Model', supportedEffortLevels: ['low', 'high', 'max'] }, { value: 'mini', name: 'Mini' }] },
+      { category: 'thought_level', currentValue: 'medium', options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] },
+    ],
+  }),
 }))
 vi.mock('../services/ai/provider-models-cache.js', () => ({ warmAllProviders: async () => {} }))
 
@@ -36,6 +43,20 @@ describe('ExternalAgent MCP', () => {
     handlers.create.mockResolvedValue({ agent_id: 'ext-10', chat_id: 10 })
     await client.callTool({ name: 'external_agent_run', arguments: { ...input, model: 'fresh-model', selection_confirmed: true } })
     expect(handlers.create).toHaveBeenCalledWith({ parent: { chatId: 42 }, providerId: 'codex', model: 'fresh-model', prompt: 'Review', description: 'Review' })
+  })
+
+  it('lists effort levels per model and passes the chosen one on', async () => {
+    const catalog = await client.callTool({ name: 'external_agent_list_models', arguments: { agentTypes: ['codex'] } })
+    const [entry] = JSON.parse((catalog.content as Array<{ text: string }>)[0].text).agents
+    expect(entry.efforts).toEqual(['low', 'medium', 'high'])
+    expect(entry.currentEffort).toBe('medium')
+    // Narrowed to the agent's own levels, like the composer's menu; a model without its own list takes them all.
+    expect(entry.models).toEqual([{ id: 'fresh-model', name: 'Fresh Model', efforts: ['low', 'high'] }, { id: 'mini', name: 'Mini' }])
+    handlers.create.mockResolvedValue({ agent_id: 'ext-10', chat_id: 10 })
+    await client.callTool({ name: 'external_agent_run', arguments: {
+      agent_type: 'codex', model: 'fresh-model', effort: 'high', selection_confirmed: true, prompt: 'Review', description: 'Review',
+    } })
+    expect(handlers.create.mock.calls[0][0].effort).toBe('high')
   })
 
   it('accepts an explicitly chosen default and does not ask again when following up', async () => {
