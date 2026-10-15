@@ -133,14 +133,20 @@ export function MobileAssistantScreen({
 
   const native = nativeBarHeight != null
   const covered = layers.length > 0
+  // Nothing until the first load lands: the name comes with it (identity.md), and showing the
+  // default "Assistant" first read as the name changing a moment later.
   useEffect(() => {
-    onHeaderChange?.({
-      title: assistantName,
-      subtitle: status,
-      busy: busyCount > 0,
-      covered,
-    })
-  }, [onHeaderChange, assistantName, status, busyCount, covered])
+    onHeaderChange?.(
+      loaded
+        ? {
+            title: assistantName,
+            subtitle: status,
+            busy: busyCount > 0,
+            covered,
+          }
+        : null,
+    )
+  }, [onHeaderChange, loaded, assistantName, status, busyCount, covered])
   useEffect(() => () => onHeaderChange?.(null), [onHeaderChange])
 
   // The native bar's taps.
@@ -329,7 +335,12 @@ export function MobileAssistantScreen({
               type="button"
               onClick={() => openPanel("activity")}
               aria-label={`${assistantName}, ${status}`}
-              className="liquid-glass pointer-events-auto flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-full py-1.5 pl-1.5 pr-4 text-left transition-transform active:scale-[0.97]"
+              // Held invisible (not removed) until the first load, so it comes in with the real
+              // name and the thread below doesn't shift when it does.
+              className={cn(
+                "liquid-glass pointer-events-auto flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-full py-1.5 pl-1.5 pr-4 text-left transition-transform active:scale-[0.97]",
+                loaded ? "animate-in fade-in-0 duration-200" : "invisible",
+              )}
             >
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-muted to-secondary text-[13px] font-semibold text-foreground/80">
                 {assistantName.slice(0, 1).toUpperCase()}
