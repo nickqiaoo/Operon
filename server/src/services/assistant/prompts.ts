@@ -30,12 +30,12 @@ function fileBlock(name: string, content: string): string {
  * keeps it (main agent, worker, wrap-up), so they don't pull it in different directions.
  */
 function memoryRules(language: string): string {
-  return `- memory.md is what the assistant always knows, for weeks: facts about the user and the people in their life, standing preferences, accounts and services they use, and the user's own matters still open ("In progress"). It goes into every conversation; keep it under ${MEMORY_SOFT_LIMIT} characters by merging and dropping stale lines.
+  return `- memory.md is what the assistant always knows: facts about the user and the people in their life, standing preferences, accounts and services they use, things that happened to them, and the user's own matters still open ("In progress"). What earns a line is whether it will still be worth knowing later — not how big it was or how long it lasted: one remark (the first mention of their wife, the car they drive) can matter for good. It goes into every conversation; keep it under ${MEMORY_SOFT_LIMIT} characters by keeping each line to one sentence, merging lines about the same thing, and dropping what is no longer true — the day notes keep the details, so a line can be short.
 - Only what the user said or a task's result confirmed — not guesses from what they asked for (asking once for a site's feed doesn't make "checks it daily" a fact). Never lessons about the assistant's own tools, connections or mistakes, nor what it set up itself (a task it ran, a scheduled task — those are tracked already). A scheduled task's own requirements (the weather for Beijing, in Chinese) are worth keeping; that it exists is not.
 - One bullet per fact under the right heading, starting with the date it happened or was learned (YYYY-MM-DD), with the specifics: names, amounts, places, dates, file paths ("Drove Beijing→Suzhou→Hangzhou Sep 30–Oct 7; 32 expenses, ¥1956.5 in all, summary in workspace/…", not "went on a trip"). When it didn't come from the user's own words, say where from ("from a Grafana check").
 - Write the bullets in ${language}; keep the headings exactly as they are — the app reads them. Never add a second copy of a fact; change a line in place when it is out of date.
 - "In progress" holds only the user's own open matters with a date (an interview on Oct 9, a parcel on its way) — a background check follows up on them when their date comes. What to watch a service for goes into heartbeat.md, not here. A problem a task happened to turn up is not something to watch unless the user asked. Remove items that are finished or whose date has passed.
-- ${DAYS_DIR}/YYYY-MM-DD.md holds each day's details: what the user did, decided or told the assistant, what a task found — amounts, names, times, links. A new file starts with a "# YYYY-MM-DD (Weekday)" line; add to it, never rewrite what is there. If something matters for weeks, memory.md gets a one-line summary too; the specifics stay in the day note.`
+- ${DAYS_DIR}/YYYY-MM-DD.md holds each day's details: what the user did, decided or told the assistant, what a task found — amounts, names, times, links. A new file starts with a "# YYYY-MM-DD (Weekday)" line; add to it, never rewrite what is there. If it will still be worth knowing later, memory.md gets a one-line summary too; the specifics stay in the day note.`
 }
 
 const ONBOARDING = `## First meeting
@@ -141,8 +141,9 @@ The project board (tasks with todo / in_progress / in_review / done):
 Your memory is plain files in ${ASSISTANT_DIR}, your working directory; read and edit them with your own file tools as things happen, without announcing it (the app shows it). memory.md is above; it is ${memorySize} characters now.
 ${memoryRules(language)}
 - Save as you go: when the user tells you something durable, or a task's result carries it, put it in memory.md right away, and the day's details in today's note. Don't leave it for later.
-- memory.md is yours alone to curate. Helpers write what they observe only into today's note, never into memory.md: what lasts from there, you bring over.
-- The user brings up a particular day ("yesterday", "last Tuesday", "on Oct 10"): read that day's note first. For older details that are in neither, use memory_search.
+- memory.md is yours alone to curate. Helpers write what they observe only into today's note, never into memory.md: what will still be worth knowing later, you bring over.
+- The user brings up a particular day ("yesterday", "last Tuesday", "on Oct 10"): read that day's note first.
+- Something from the past that memory.md doesn't have (a number, a name, what a task found, "that time we…"): search the day notes — grep ${DAYS_DIR} for a few keywords, in both the user's language and English, and synonyms when the first try misses — then read the matching days. Only if they have nothing, use memory_search. Say so when you can't find it; never fill the gap from guesswork.
 - Change soul.md only when the user asks (e.g. "be more casual"); names go through set_identity.
 
 ## Keeping an eye on things
@@ -196,8 +197,8 @@ export function buildWrapUpInstructions(files: Files, uiLocale?: string): string
     '',
     `## Rules
 ${memoryRules(language)}
-- Go through memory.md as a whole: merge lines about the same thing, drop what is stale or breaks the rules above, and rewrite bullets in another language in ${language}.
-- Read the notes of the days in this stretch (the transcript's times say which days): helpers write what they observe there, and only you and the assistant decide what of it goes into memory.md. Bring over what lasts.
+- Go through memory.md as a whole: merge lines about the same thing, drop what is no longer true or breaks the rules above (old is not the same as stale: a line from months ago still worth knowing stays), and rewrite bullets in another language in ${language}.
+- Read the notes of the days in this stretch (the transcript's times say which days): helpers write what they observe there, and only you and the assistant decide what of it goes into memory.md. Bring over what will still be worth knowing later, small things included.
 - Make sure each of those notes has the day's details from the transcript too; add what is missing, never rewrite what is there.
 - Touch nothing else: not identity.md, not soul.md, not heartbeat.md, nothing in workspace.
 - Nothing worth changing is a fine outcome. Do not talk to anyone. When done, reply with one word: Done.`,
