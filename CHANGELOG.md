@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-15
+
+### Added
+
+- Pin projects to the top of the sidebar.
+- The assistant's top bar shows your Codex and Claude Code usage.
+- Each assistant profile file explains what it is, when it's used and who changes it.
+- The board's toolbar has an Agents button; tasks and dispatches link straight to managing agents.
+
+### Changed
+
+- The board opens on the board instead of a channel; channels open in a side panel. On a phone it opens on the task list.
+- Agents show as coloured avatars on the board, in the assistant and in the phone's chat list.
+- Assistant: remembers small things that will matter later, and finds older details in its daily notes.
+- Assistant: a friendlier default personality for new users.
+
+### Fixed
+
+- Assistant: scrolling up the conversation on a phone no longer jitters.
+- Assistant: the heartbeat no longer misses an alert, and no longer counts a check that didn't finish as "nothing new".
+- Assistant: the phone's header no longer shows "Assistant" before your assistant's name loads.
+- Long task titles no longer push the task list off the screen.
+
 ## [1.4.0] - 2026-10-14
 
 The assistant now manages your coding work across projects.
