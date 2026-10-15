@@ -19,7 +19,9 @@ export function TaskListView({ tasks, agents, sessions, groups, groupKeyOf, onOp
   if (tasks.length === 0) return <EmptyTasks />
 
   return (
-    <ScrollArea className="h-full">
+    // The viewport's inner wrapper is `display: table`, which grows to the longest title and
+    // defeats the rows' truncate (the date and assignee went off-screen); block keeps it to the width.
+    <ScrollArea className="h-full" viewportClassName="[&>div]:!block">
       <div className="py-2">
         {groups.map((group) => {
           const inGroup = tasks.filter((t) => groupKeyOf(t) === group.key)

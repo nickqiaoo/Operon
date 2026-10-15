@@ -171,7 +171,7 @@ export function TaskDetailView({
           )}
         </div>
 
-        <div className="md:flex-1 md:overflow-y-auto md:min-h-0 px-6 py-5">
+        <div className="min-w-0 md:flex-1 md:overflow-y-auto md:min-h-0 px-6 py-5">
           {/* Reading width, centered: the column keeps a text-friendly measure and splits leftover space evenly on wide windows. */}
           <div className="mx-auto w-full max-w-3xl space-y-6">
           {/* Title */}
@@ -196,7 +196,7 @@ export function TaskDetailView({
                 setTitleDraft(displayedTitle)
                 setEditingTitle(true)
               }}
-              className="text-xl font-semibold leading-snug cursor-text hover:bg-muted/20 rounded px-1 -mx-1"
+              className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-muted/20 rounded px-1 -mx-1"
             >
               {displayedTitle}
             </h1>

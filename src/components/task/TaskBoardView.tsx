@@ -166,7 +166,8 @@ function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
         <span className="text-[11px] text-muted-foreground/50 tabular-nums">#{task.number}</span>
         {archived && <Archive className="w-3 h-3 text-muted-foreground/50" />}
       </div>
-      <div className="text-sm text-foreground/90 leading-snug line-clamp-3">{task.title}</div>
+      {/* anywhere: a path or file name in the title has no spaces to break at, and would run out of the card. */}
+      <div className="text-sm text-foreground/90 leading-snug line-clamp-3 [overflow-wrap:anywhere]">{task.title}</div>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 flex-wrap min-w-0">
           {task.labels.slice(0, 2).map((l) => (
