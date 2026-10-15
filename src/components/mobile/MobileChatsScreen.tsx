@@ -9,7 +9,9 @@ import { useEditorStore } from "@/stores/editor-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { ChatPanel } from "@/components/editor/ChatPanel"
 import { hasNativeTabBar, NativeShell } from "@/lib/native"
-import { ProviderIcon, providerLogoName } from "@/components/editor/components/ModelSelectorPanel"
+import { ProviderIcon } from "@/components/editor/components/ModelSelectorPanel"
+import { providerLogoName } from "@/lib/provider-logos"
+import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import { MobileSheet } from "./MobileSheet"
 
 interface Provider {
@@ -300,7 +302,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
                 "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
               )}
             >
-              <ProviderIcon id={tab.providerId ?? ""} size={16} />
+              <AgentAvatar provider={tab.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{tab.title}</span>
             </button>
           ))}
@@ -314,7 +316,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
                 "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
               )}
             >
-              <ProviderIcon id={item.providerId ?? ""} size={16} />
+              <AgentAvatar provider={item.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{item.title}</span>
               <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">
                 {formatRelativeTime(item.updatedAt)}

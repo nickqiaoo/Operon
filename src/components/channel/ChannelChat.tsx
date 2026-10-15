@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Users, ChevronDown, Hash } from 'lucide-react'
-import { AgentAvatar } from './AgentAvatar'
+import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { MentionPicker, detectMentionToken, useMentionMatches, useMentionState } from './MentionPicker'
 import type { Agent } from '@/types/channel'
 import { useChannelStore } from '@/stores/channel-store'

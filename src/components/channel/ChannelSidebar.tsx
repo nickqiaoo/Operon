@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Plus, Hash, Settings2, Trash2, Square, RotateCcw, MessageSquare, ExternalLink, XIcon, ListTodo, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { AgentAvatar } from './AgentAvatar'
+import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { BindingRow } from './binding-ui'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {

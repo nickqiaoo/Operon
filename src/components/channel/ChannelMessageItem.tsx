@@ -4,7 +4,7 @@ import { Check, Copy, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChannelMessage, Agent } from '@/types/channel'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
-import { AgentAvatar, UserAvatar } from './AgentAvatar'
+import { AgentAvatar, UserAvatar } from '@/components/icons/AgentAvatar'
 
 /** How long the copy button stays on its confirmed state. Matches the chat composer's. */
 const COPIED_RESET_MS = 1500

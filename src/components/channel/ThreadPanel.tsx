@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { X } from 'lucide-react'
-import { AgentAvatar, UserAvatar } from './AgentAvatar'
+import { AgentAvatar, UserAvatar } from '@/components/icons/AgentAvatar'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FormattedMessage } from 'react-intl'
 import { cn } from '@/lib/utils'
-import { AgentAvatar } from './AgentAvatar'
+import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import type { Agent } from '@/types/channel'
 
 /**

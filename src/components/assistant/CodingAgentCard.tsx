@@ -2,6 +2,7 @@ import { ArrowUpRight, GitBranch } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Button } from "@/components/ui/button"
 import { ProviderIcon } from "@/components/editor/components/ModelSelectorPanel"
+import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import { cn } from "@/lib/utils"
 import type { ActivityCoding } from "@shared/assistant"
 import type { Activity } from "./types"
@@ -124,9 +125,7 @@ export function CodingAgentCard({ activity, onOpen, compact }: CodingAgentCardPr
     >
       {/* One row: who and where on the left, state and the way in on the right. */}
       <div className="flex items-center gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-          <ProviderIcon id={c.providerId} size={16} />
-        </span>
+        <AgentAvatar provider={c.providerId} size="md" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{activity.title}</div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
@@ -174,9 +173,7 @@ export function CodingOverview({ activity, onOpen, large }: { activity: Activity
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/40 p-3 dark:border-border/35">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-          <ProviderIcon id={c.providerId} size={16} />
-        </span>
+        <AgentAvatar provider={c.providerId} size="md" />
         <div className="min-w-0 flex-1">
           <div className={cn("flex min-w-0 items-center gap-1.5 font-medium", large ? "text-base" : "text-sm")}>
             <span className="shrink-0">{codingAgentName(c.providerId)}</span>

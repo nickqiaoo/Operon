@@ -12,7 +12,7 @@ import {
   CircleDashed,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { AgentAvatar } from '@/components/channel/AgentAvatar'
+import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import type { Agent, AgentSession } from '@/types/channel'
 import type { TaskStatus, TaskPriority, TaskLabel } from '@/types/task'
 
