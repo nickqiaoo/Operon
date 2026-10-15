@@ -275,8 +275,11 @@ export interface ProjectStorageAdapter {
   // Projects
   createProject(input: CreateProjectInput): Project
   getProject(id: number): Project | null
+  /** Pinned first (in the order they were pinned), then the rest newest first. */
   listProjects(): Project[]
   deleteProject(id: number): void
+  /** Pin to / unpin from the top of the list. Null when there is no such project. */
+  setProjectPinned(id: number, pinned: boolean): Project | null
 
   // Workspaces
   createWorkspace(projectId: number, input: CreateWorkspaceInput): Workspace

@@ -14,7 +14,7 @@ function setup(overrides: Partial<CodingHost> = {}) {
       id === 6
         ? {
             workspace: { id: 6, projectId: 5, name: 'main', branchName: 'main', worktreePath: '/src/xui', createdAt: 0, updatedAt: 0 },
-            project: { id: 5, name: 'xui', rootPath: '/src/xui', createdAt: 0, updatedAt: 0 },
+            project: { id: 5, name: 'xui', rootPath: '/src/xui', createdAt: 0, updatedAt: 0, pinnedAt: null },
           }
         : undefined,
     create: vi.fn(async ({ activityId }) => {

@@ -40,6 +40,8 @@ export type ProjectDTO = {
   rootPath: string
   createdAt: number
   updatedAt: number
+  /** When it was pinned to the top of the sidebar; null when not pinned. */
+  pinnedAt: number | null
 }
 
 export type WorkspaceDTO = {
@@ -760,6 +762,8 @@ export const api = {
     post<{ project: ProjectDTO }>('/projects', input),
   projectDelete: (id: number) =>
     del<{ success: boolean }>(`/projects/${id}`),
+  projectSetPinned: (id: number, pinned: boolean) =>
+    put<{ project: ProjectDTO }>(`/projects/${id}/pin`, { pinned }),
   workspaceList: (projectId: number) =>
     get<{ workspaces: WorkspaceDTO[] }>(`/projects/${projectId}/workspaces`),
   workspaceCreate: (projectId: number, input: { name: string; branchName: string; worktreePath: string }) =>

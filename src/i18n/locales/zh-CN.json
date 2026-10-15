@@ -389,6 +389,8 @@
   "web.auth.switchMachine": "切换机器",
   "workspaceBrowser.refreshTitle": "刷新文件树和预览",
   "sidebar.openBoard": "打开看板",
+  "sidebar.pinProject": "钉在顶部",
+  "sidebar.unpinProject": "取消钉住",
   "sidebar.newWorkspace": "在新分支上新建工作区",
   "sidebar.collapse": "收起侧栏",
   "sidebar.workspaces": "工作区",

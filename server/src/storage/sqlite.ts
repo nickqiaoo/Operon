@@ -1561,30 +1561,30 @@ export class SqliteStorage
       rootPath: input.rootPath,
       createdAt: now,
       updatedAt: now,
+      pinnedAt: null,
     }
   }
 
   getProject(id: number): Project | null {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Record<string, unknown> | undefined
-    if (!row) return null
-    return {
-      id: row.id as number,
-      name: row.name as string,
-      rootPath: row.root_path as string,
-      createdAt: row.created_at as number,
-      updatedAt: row.updated_at as number,
-    }
+    return row ? rowToProject(row) : null
   }
 
   listProjects(): Project[] {
-    const rows = this.db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all() as Array<Record<string, unknown>>
-    return rows.map(row => ({
-      id: row.id as number,
-      name: row.name as string,
-      rootPath: row.root_path as string,
-      createdAt: row.created_at as number,
-      updatedAt: row.updated_at as number,
-    }))
+    const rows = this.db.prepare(
+      'SELECT * FROM projects ORDER BY pinned_at IS NULL, pinned_at ASC, updated_at DESC'
+    ).all() as Array<Record<string, unknown>>
+    return rows.map(rowToProject)
+  }
+
+  setProjectPinned(id: number, pinned: boolean): Project | null {
+    // Pinning again keeps the original time, so re-pinning doesn't reshuffle the pinned ones.
+    if (pinned) {
+      this.db.prepare('UPDATE projects SET pinned_at = COALESCE(pinned_at, ?) WHERE id = ?').run(Date.now(), id)
+    } else {
+      this.db.prepare('UPDATE projects SET pinned_at = NULL WHERE id = ?').run(id)
+    }
+    return this.getProject(id)
   }
 
   deleteProject(id: number): void {
@@ -3666,6 +3666,17 @@ export class SqliteStorage
 /** Escape LIKE special characters */
 function escapeLike(s: string): string {
   return s.replace(/[%_\\]/g, (ch) => '\\' + ch)
+}
+
+function rowToProject(row: Record<string, unknown>): Project {
+  return {
+    id: row.id as number,
+    name: row.name as string,
+    rootPath: row.root_path as string,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+    pinnedAt: (row.pinned_at as number | null) ?? null,
+  }
 }
 
 function rowToAgent(row: Record<string, unknown>): Agent {

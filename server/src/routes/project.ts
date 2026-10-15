@@ -37,6 +37,15 @@ export function projectRoutes(storage: ProjectStorageAdapter) {
     return c.json({ project })
   })
 
+  // Pin to / unpin from the top of the list
+  router.put('/:id/pin', async (c) => {
+    const id = parseInt(c.req.param('id'), 10)
+    const { pinned } = await c.req.json<{ pinned: boolean }>()
+    const project = storage.setProjectPinned(id, pinned === true)
+    if (!project) return c.json({ error: 'Not found' }, 404)
+    return c.json({ project })
+  })
+
   // Delete project
   router.delete('/:id', (c) => {
     const id = parseInt(c.req.param('id'), 10)

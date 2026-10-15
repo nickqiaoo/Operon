@@ -28,6 +28,27 @@ export interface Project {
   workspaces: Workspace[]
   createdAt: number
   updatedAt: number
+  /**
+   * When the user pinned it to the top of the sidebar; null / absent when not
+   * pinned. Optional: a tree cached before the field existed has none.
+   */
+  pinnedAt?: number | null
+}
+
+/**
+ * The sidebar's order, same as the server's: pinned first in the order they
+ * were pinned, then the rest newest first. Used where the store changes the
+ * list itself (pin, add) instead of reloading it.
+ */
+export function sortProjects(projects: Project[]): Project[] {
+  return [...projects].sort((a, b) => {
+    const pa = a.pinnedAt ?? null
+    const pb = b.pinnedAt ?? null
+    if (pa != null && pb != null) return pa - pb
+    if (pa != null) return -1
+    if (pb != null) return 1
+    return b.updatedAt - a.updatedAt
+  })
 }
 
 interface ProjectStore {
@@ -51,6 +72,8 @@ interface ProjectStore {
   resetProjects: () => void
   addProject: (input: { name: string; rootPath: string; workspaces: Omit<Workspace, "id">[] }) => Promise<Project>
   removeProject: (id: number) => Promise<void>
+  /** Pin to / unpin from the top of the list. Moves it at once; puts it back if the server refuses. */
+  setProjectPinned: (id: number, pinned: boolean) => Promise<void>
   setActiveProject: (id: number | null) => void
   setActiveWorkspace: (id: number | null, projectId?: number | null) => void
   addWorkspace: (projectId: number, workspace: Omit<Workspace, "id">) => Promise<Workspace>
@@ -140,7 +163,7 @@ export const useProjectStore = create<ProjectStore>()(
         }
         const fullProject: Project = { ...project, workspaces }
         set((state) => ({
-          projects: [...state.projects, fullProject],
+          projects: sortProjects([...state.projects, fullProject]),
           activeProjectId: fullProject.id,
           activeWorkspaceId: workspaces[0]?.id ?? null,
         }))
@@ -154,6 +177,23 @@ export const useProjectStore = create<ProjectStore>()(
           projects: state.projects.filter((p) => p.id !== id),
           activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
         }))
+      },
+
+      setProjectPinned: async (id, pinned) => {
+        const before = get().projects.find((p) => p.id === id)
+        if (!before) return
+        const patch = (pinnedAt: number | null | undefined) =>
+          set((state) => ({
+            projects: sortProjects(state.projects.map((p) => (p.id === id ? { ...p, pinnedAt } : p))),
+          }))
+        patch(pinned ? before.pinnedAt ?? Date.now() : null)
+        try {
+          const { project } = await api.projectSetPinned(id, pinned)
+          patch(project.pinnedAt)
+        } catch (error) {
+          patch(before.pinnedAt)
+          throw error
+        }
       },
 
       setActiveProject: (id) => {

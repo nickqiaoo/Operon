@@ -1,7 +1,8 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, Folder, GitBranch, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { CalendarClock, Folder, GitBranch, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { toast } from "sonner"
+import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -28,6 +29,7 @@ interface ProjectItemProps {
   activeWorkspaceId?: number | null
   onAddWorkspace: (project: Project) => void
   onOpenChannel?: (project: Project) => void
+  onTogglePin: (project: Project) => void
   error?: string | null
   workspaceDiffStats?: Record<string, WorkspaceDiffStat>
   streamingCounts?: Record<number, number>
@@ -79,17 +81,34 @@ function ProjectItem({
   activeWorkspaceId,
   onAddWorkspace,
   onOpenChannel,
+  onTogglePin,
   error,
   workspaceDiffStats,
   streamingCounts,
   unseenCounts,
 }: ProjectItemProps) {
   const intl = useIntl()
+  const pinned = project.pinnedAt != null
   return (
     <div className="group/project px-4">
       <div className="flex items-center gap-2 pb-1 text-sm text-foreground/80 font-medium">
         <Folder className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
+        {/* Hover-only like its neighbours: a pinned project already says so by sitting above the
+            hairline, and a mark kept up here floated mid-row (the hidden buttons still take room). */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          onClick={() => onTogglePin(project)}
+          title={
+            pinned
+              ? intl.formatMessage({ id: "sidebar.unpinProject", defaultMessage: "Unpin" })
+              : intl.formatMessage({ id: "sidebar.pinProject", defaultMessage: "Pin to top" })
+          }
+        >
+          {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -234,6 +253,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
   const addWorkspace = useProjectStore((s) => s.addWorkspace)
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
   const setProjectWorkspaces = useProjectStore((s) => s.setProjectWorkspaces)
+  const setProjectPinned = useProjectStore((s) => s.setProjectPinned)
   const workspaceDiffStats = useProjectStore((s) => s.workspaceDiffStats)
   const [projectErrors, setProjectErrors] = useState<Record<string, string | null>>({})
 
@@ -280,6 +300,12 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
     setActiveWorkspace(workspaceId, projectId)
     onLeaveMainView?.()
   }, [getWorkspaceTabs, clearUnseen, setActiveWorkspace, onLeaveMainView])
+
+  const handleTogglePin = useCallback((project: Project) => {
+    void setProjectPinned(project.id, project.pinnedAt == null).catch((error: unknown) => {
+      toast.error(error instanceof Error ? error.message : String(error))
+    })
+  }, [setProjectPinned])
 
   const syncWorktrees = async (project: Project) => {
     try {
@@ -449,20 +475,26 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
               No projects yet.
             </div>
           ) : (
-            projects.map((project) => (
-              <ProjectItem
-                key={project.id}
-                project={project}
-                onSelectWorkspace={handleSelectWorkspace}
-                // Only one place is "current": while the Assistant is showing, no workspace is.
-                activeWorkspaceId={assistantActive || inboxActive ? null : activeWorkspaceId}
-                onAddWorkspace={handleOpenAddWorkspace}
-                onOpenChannel={onOpenChannel}
-                error={projectErrors[String(project.id)] ?? null}
-                workspaceDiffStats={workspaceDiffStats}
-                streamingCounts={streamingCounts}
-                unseenCounts={unseenCounts}
-              />
+            projects.map((project, i) => (
+              <Fragment key={project.id}>
+                {/* A hairline where the pinned ones end. */}
+                {i > 0 && projects[i - 1].pinnedAt != null && project.pinnedAt == null && (
+                  <div className="mx-4 my-2 border-t border-border/40" />
+                )}
+                <ProjectItem
+                  project={project}
+                  onSelectWorkspace={handleSelectWorkspace}
+                  // Only one place is "current": while the Assistant is showing, no workspace is.
+                  activeWorkspaceId={assistantActive || inboxActive ? null : activeWorkspaceId}
+                  onAddWorkspace={handleOpenAddWorkspace}
+                  onOpenChannel={onOpenChannel}
+                  onTogglePin={handleTogglePin}
+                  error={projectErrors[String(project.id)] ?? null}
+                  workspaceDiffStats={workspaceDiffStats}
+                  streamingCounts={streamingCounts}
+                  unseenCounts={unseenCounts}
+                />
+              </Fragment>
             ))
           )}
         </div>

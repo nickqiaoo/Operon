@@ -4,6 +4,8 @@ export interface Project {
   rootPath: string
   createdAt: number
   updatedAt: number
+  /** When the user pinned it to the top of the list; null when not pinned. */
+  pinnedAt: number | null
 }
 
 export interface Workspace {

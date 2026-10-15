@@ -6,7 +6,7 @@ import type { PendingInputSummary } from '../../../../shared/pending-input.js'
 import { createOperonState, describePending, type OperonLiveState, type OperonStateStorage } from './operon-state.js'
 
 const NOW = 1_800_000_000_000
-const project: Project = { id: 1, name: 'operon', rootPath: '/src/operon', createdAt: 0, updatedAt: 0 }
+const project: Project = { id: 1, name: 'operon', rootPath: '/src/operon', createdAt: 0, updatedAt: 0, pinnedAt: null }
 const workspaces: Workspace[] = [
   { id: 10, projectId: 1, name: 'main', branchName: 'main', worktreePath: '/src/operon', createdAt: 0, updatedAt: 0 },
   { id: 11, projectId: 1, name: 'login', branchName: 'feat/login', worktreePath: '/wt/login', createdAt: 0, updatedAt: 0 },
