@@ -4,6 +4,7 @@ import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { openPluginsPage, openSettingsTab } from "@/lib/open-settings"
 import { useAssistantStore } from "@/stores/assistant-store"
 import { AssistantChat } from "./AssistantChat"
@@ -110,7 +111,8 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
     <div className="flex h-full flex-col bg-background">
       <div
         className={cn(
-          "drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4",
+          // @container/topbar: the usage bar thins out by this row's width, as in the workspace top bar.
+          "@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4",
           sidebarCollapsed && __APP_TARGET__ !== "web" ? "pl-20" : "pl-4",
         )}
       >
@@ -124,9 +126,12 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
             <PanelLeft className="h-4 w-4" />
           </button>
         )}
-        <span className="text-xs text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           <FormattedMessage id="mobile.tab.assistant" defaultMessage="Assistant" />
         </span>
+        {/* Account quota, same as the workspace top bar: it is the app's, not a workspace's.
+            A real child of this drag row so its `no-drag` holds. */}
+        <AccountUsageBar className="shrink-0" />
       </div>
 
       <div className="relative flex min-h-0 flex-1">
