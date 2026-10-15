@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
@@ -31,10 +31,24 @@ const TIME_GAP_MS = 30 * 60_000
  * Messages out of view skip layout and paint (as in the chat's MessagesList): the elements stay
  * in the DOM, so find-in-page and the stick-to-bottom scroller keep working. The browser remembers
  * each one's measured height once shown; the fallback is for those never shown yet.
+ *
+ * Not on the phone: WebKit has no scroll anchoring, so a message first laid out above the
+ * viewport (fallback → real height) shoves what the reader is looking at, and each of those
+ * resizes makes the stick-to-bottom scroller ignore the swipe and pull back to the bottom.
+ * The thread there is paged and trimmed, so there is little to skip anyway.
  */
 const OFFSCREEN_DEFER_STYLE: CSSProperties = { contentVisibility: "auto", containIntrinsicSize: "auto 160px" }
 /** The newest few are never deferred: the reader is usually there, and cards update in place. */
 const LIVE_TAIL_SIZE = 8
+
+/**
+ * Messages put in the DOM at a time. The store holds a few hundred (the server's first page is
+ * 200), but the reader is at the newest almost always: render the tail, and the next batch above
+ * only as they scroll toward it — as the chat transcript does with its 10-message pages.
+ */
+const RENDER_BATCH = 40
+/** How close to the top (in viewport heights) the next batch goes in, so it is there before the reader is. */
+const REVEAL_AHEAD_VIEWPORTS = 1.5
 
 /** Same as the chat composer (ChatInputArea). */
 const ATTACH_ACCEPT =
@@ -112,6 +126,24 @@ export function AssistantChat({
       return m.activityId != null && codingById.has(m.activityId) && latestCard.get(m.activityId) === m.id
     })
   }, [messages, codingById])
+  // Where the rendered part starts: `null` follows the tail (the newest RENDER_BATCH); a time pins
+  // the top while the reader is up the thread, so what arrives below shifts nothing above.
+  // By time, not id: an answered approval leaves `shown`, and the store trims the oldest.
+  const [startAt, setStartAt] = useState<number | null>(null)
+  const start = useMemo(() => {
+    const tail = Math.max(0, shown.length - RENDER_BATCH)
+    if (startAt == null) return tail
+    const i = shown.findIndex((m) => m.createdAt >= startAt)
+    return i < 0 ? tail : i
+  }, [shown, startAt])
+  const rendered = start > 0 ? shown.slice(start) : shown
+  const revealOlder = useCallback(() => {
+    if (start > 0) setStartAt(shown[Math.max(0, start - RENDER_BATCH)].createdAt)
+  }, [shown, start])
+  const pinStart = useCallback(
+    (pinned: boolean) => setStartAt(pinned && shown[start] ? shown[start].createdAt : null),
+    [shown, start],
+  )
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
@@ -138,21 +170,16 @@ export function AssistantChat({
             className={cn("mx-auto flex w-full max-w-3xl flex-col gap-3 pt-4", compact ? "px-3 pb-4" : "px-6 pb-6")}
             style={insetTop ? { paddingTop: insetTop + 8 } : undefined}
           >
-            {hasMore && (
-              <button
-                type="button"
-                onClick={onLoadOlder}
-                disabled={loadingOlder}
-                className="mx-auto rounded-lg px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground disabled:opacity-60"
-              >
-                {loadingOlder ? (
-                  <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />
-                ) : (
-                  <FormattedMessage id="assistant.chat.loadEarlier" defaultMessage="Load earlier messages" />
-                )}
-              </button>
+            {/* Held open while anything is left above, so "Loading…" coming and going doesn't
+                push the thread around; it leaves in the same commit as the last batch, which
+                the scroll make-up already counts. */}
+            {(hasMore || loadingOlder || start > 0) && (
+              <div className="flex h-6 shrink-0 items-center justify-center text-[11px] text-muted-foreground">
+                {loadingOlder && <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />}
+              </div>
             )}
-            {shown.map((m, i) => {
+            {rendered.map((m, j) => {
+              const i = start + j
               const prev = shown[i - 1]
               const newDay = !prev || !isSameDay(prev.createdAt, m.createdAt)
               const gap = !newDay && prev != null && m.createdAt - prev.createdAt > TIME_GAP_MS
@@ -160,7 +187,7 @@ export function AssistantChat({
                 <div
                   key={m.id}
                   className="flex flex-col gap-3"
-                  style={i < shown.length - LIVE_TAIL_SIZE ? OFFSCREEN_DEFER_STYLE : undefined}
+                  style={!compact && i < shown.length - LIVE_TAIL_SIZE ? OFFSCREEN_DEFER_STYLE : undefined}
                 >
                   {newDay && <Separator label={dayLabel(intl, m.createdAt)} />}
                   {gap && <Separator label={formatClock(m.createdAt)} />}
@@ -184,6 +211,16 @@ export function AssistantChat({
         </ConversationContent>
         <ConversationScrollButton />
         <RepinOnChange value={keyboardOpen} />
+        <EscapeOnTouchScroll />
+        <RevealOlderOnScroll
+          start={start}
+          canReveal={start > 0}
+          canLoad={hasMore}
+          loadingOlder={loadingOlder}
+          onReveal={revealOlder}
+          onLoad={onLoadOlder}
+          onPinStart={pinStart}
+        />
         {onAtBottom && <AtBottom onChange={onAtBottom} />}
       </Conversation>
 
@@ -231,6 +268,113 @@ function AtBottom({ onChange }: { onChange: () => void }) {
   useEffect(() => {
     if (isAtBottom) onChange()
   }, [isAtBottom, onChange])
+  return null
+}
+
+/**
+ * Lets go of the bottom as soon as a finger drags the thread toward older messages. The
+ * scroller does this for a mouse wheel, but a touch has no wheel event: it only notices from
+ * scroll events, and skips those while the content is resizing (a reply streaming in), so it
+ * keeps pulling back to the bottom against the swipe.
+ */
+function EscapeOnTouchScroll() {
+  const { scrollRef, state, stopScroll } = useStickToBottomContext()
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    let lastY: number | null = null
+    const onStart = (e: TouchEvent) => {
+      lastY = e.touches[0]?.clientY ?? null
+    }
+    const onMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY
+      if (y == null || lastY == null) return
+      // Finger moving down = content scrolling up, toward older messages.
+      if (y > lastY && state.isAtBottom && el.scrollHeight > el.clientHeight) stopScroll()
+      lastY = y
+    }
+    el.addEventListener("touchstart", onStart, { passive: true })
+    el.addEventListener("touchmove", onMove, { passive: true })
+    return () => {
+      el.removeEventListener("touchstart", onStart)
+      el.removeEventListener("touchmove", onMove)
+    }
+  }, [scrollRef, state, stopScroll])
+  return null
+}
+
+/**
+ * Grows the rendered part upward as the reader nears its top: first the messages already loaded,
+ * then the next page from the server. What goes in above is made up for in scrollTop before the
+ * frame is painted, so what the reader is looking at doesn't move.
+ */
+function RevealOlderOnScroll({
+  start,
+  canReveal,
+  canLoad,
+  loadingOlder,
+  onReveal,
+  onLoad,
+  onPinStart,
+}: {
+  /** Index of the first rendered message; changes when a batch goes in. */
+  start: number
+  canReveal: boolean
+  canLoad: boolean
+  loadingOlder: boolean
+  onReveal: () => void
+  onLoad: () => void
+  /** `true` when the reader leaves the newest (hold the top still), `false` back there (follow the tail). */
+  onPinStart: (pinned: boolean) => void
+}) {
+  const { scrollRef, isAtBottom } = useStickToBottomContext()
+  const before = useRef<{ height: number; top: number } | null>(null)
+
+  useEffect(() => {
+    onPinStart(!isAtBottom)
+    // Only on leaving / coming back, not every time the callback changes with the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAtBottom])
+
+  // Same commit as the new batch: the browser has laid it out but not painted it.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const prev = before.current
+    before.current = null
+    if (!el || !prev) return
+    const added = el.scrollHeight - prev.height
+    if (added > 0) el.scrollTop = prev.top + added
+  }, [start, scrollRef])
+
+  const check = useRef<() => void>(() => {})
+  check.current = () => {
+    const el = scrollRef.current
+    if (!el || before.current || el.scrollTop > el.clientHeight * REVEAL_AHEAD_VIEWPORTS) return
+    if (canReveal) {
+      before.current = { height: el.scrollHeight, top: el.scrollTop }
+      onReveal()
+    } else if (canLoad && !loadingOlder) {
+      onLoad()
+    }
+  }
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onScroll = () => check.current()
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [scrollRef])
+
+  // A server page just came in (hidden above the rendered part): the reader may be sitting at the
+  // top with nothing scrolling to ask for it, so look once more. Not on mount: the thread hasn't
+  // been scrolled to the newest yet, and scrollTop 0 would read as "at the top".
+  const wasLoading = useRef(loadingOlder)
+  useEffect(() => {
+    if (wasLoading.current && !loadingOlder) check.current()
+    wasLoading.current = loadingOlder
+  }, [loadingOlder])
+
   return null
 }
 

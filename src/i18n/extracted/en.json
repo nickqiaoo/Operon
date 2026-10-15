@@ -45,7 +45,6 @@
   "assistant.cadence.weekendsWord": "weekends",
   "assistant.cadence.window": "{every}, {start}–{end}",
   "assistant.chat.attach": "Attach files",
-  "assistant.chat.loadEarlier": "Load earlier messages",
   "assistant.chat.loading": "Loading…",
   "assistant.chat.openMemory": "Open memory.md",
   "assistant.chat.placeholder": "Message…",

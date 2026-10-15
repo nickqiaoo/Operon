@@ -1840,7 +1840,6 @@
   "assistant.cadence.weekendsWord": "周末",
   "assistant.cadence.window": "{every}，{start}–{end}",
   "assistant.chat.attach": "添加附件",
-  "assistant.chat.loadEarlier": "加载更早的消息",
   "assistant.chat.loading": "加载中…",
   "assistant.chat.openMemory": "打开 memory.md",
   "assistant.chat.placeholder": "发消息…",
