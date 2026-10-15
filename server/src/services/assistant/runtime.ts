@@ -16,7 +16,7 @@ import type {
   ProfileFileName,
 } from '../../../../shared/assistant.js'
 import type { ApprovalIcon, AssistantSchedule, AuditRecord, ScheduleRunOutcome } from '../../../../shared/assistant.js'
-import { INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX } from '../../../../shared/assistant.js'
+import { heartbeatTold, INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX, withHeartbeatTold } from '../../../../shared/assistant.js'
 import type { AssistantBlockerReason } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobTask } from '../../types/cronjob.js'
@@ -101,15 +101,12 @@ const WORKER_SESSIONS_KEY = 'assistant:worker_sessions'
 const WORKER_RUNS_KEY = 'assistant:worker_runs'
 const WORKER_SESSIONS_KEPT = 300
 const LOCALE_KEY = 'assistant:ui_locale'
-/** What the heartbeat has told the user lately, so it does not say it twice. */
-const HEARTBEAT_TOLD_KEY = 'assistant:heartbeat_told'
-/** Findings held back during quiet hours, said at the first check after. */
-const HEARTBEAT_HELD_KEY = 'assistant:heartbeat_held'
-/** Left by builds where the heartbeat explored services and marked some "can't check"; now heartbeat.md says what to check. */
-const OLD_HEARTBEAT_LIMITS_KEY = 'assistant:heartbeat_limits'
-
-const TOLD_KEPT = 12
-const TOLD_TTL_MS = 3 * 24 * 60 * 60_000
+/**
+ * Left by older builds: what the heartbeat had told the user and what it held for quiet hours (now
+ * its own "Already told" section of heartbeat.md), and the services it had marked "can't check"
+ * (now heartbeat.md says what to check).
+ */
+const OLD_HEARTBEAT_KEYS = ['assistant:heartbeat_told', 'assistant:heartbeat_held', 'assistant:heartbeat_limits']
 const QUIET_DEFAULT = { quietStart: '23:00', quietEnd: '08:00' }
 const PAGE_SIZE = 200
 const NO_MODEL = 'No model is set up for the assistant yet. Add a provider in Settings → AI Providers, then pick models in Settings → Assistant.'
@@ -391,7 +388,7 @@ export class AssistantRuntime {
       () => (this.main?.channel.busy || this.workers.anyRunning || this.wrapUps > 0 ? 'assistant' : 'user'),
     )
 
-    storage.delete(OLD_HEARTBEAT_LIMITS_KEY)
+    for (const key of OLD_HEARTBEAT_KEYS) storage.delete(key)
     this.schedules = new AssistantSchedules(storage, (schedules) => this.emit({ type: 'schedules', schedules: this.withSignInState(schedules) }))
     // The heartbeat starts with the assistant's first use, and is always on from then on.
     this.schedules.ensureHeartbeat()
@@ -736,8 +733,7 @@ export class AssistantRuntime {
    * The main agent edits memory.md with its own file tools. What it added this turn shows on its
    * reply ("Remembered: …"), and the change isn't echoed back to it as someone else's.
    */
-  private onMainTurnMemory(before: { memory: string; heartbeat: string }, reminder: ContextReminder): void {
-    if (peekProfileFile('heartbeat') !== before.heartbeat) reminder.mark('heartbeat')
+  private onMainTurnMemory(before: { memory: string }, reminder: ContextReminder): void {
     const after = peekProfileFile('memory')
     if (after === before.memory) return
     reminder.mark('memory')
@@ -835,7 +831,7 @@ export class AssistantRuntime {
     }
     // Not taken as seen: the main agent edits these files itself, and the watcher still has to see that.
     const reminder = new ContextReminder(() => listProfileFiles(false))
-    const filesBefore = () => ({ memory: peekProfileFile('memory'), heartbeat: peekProfileFile('heartbeat') })
+    const filesBefore = () => ({ memory: peekProfileFile('memory') })
     let memoryBefore = filesBefore()
     const session = await openRuntimeSession({
       providerId: agent.providerId as WorkerAgent['providerId'],
@@ -994,21 +990,18 @@ export class AssistantRuntime {
     return this.schedules.isHeartbeat(job.id) ? this.runHeartbeat(job) : this.runScheduled(job)
   }
 
-  private told(): Array<{ at: number; text: string }> {
-    const cutoff = Date.now() - TOLD_TTL_MS
-    return (this.storage.get<Array<{ at: number; text: string }>>(HEARTBEAT_TOLD_KEY) ?? []).filter((t) => t.at >= cutoff)
+  /**
+   * When the last heartbeat that actually finished started. A run that broke off (or never
+   * reported) doesn't count: what came up while it was down is still news to the next one.
+   */
+  private lastCompletedCheck(job: CronjobTask): number | undefined {
+    return this.storage.assistantRunList(job.id, 100).find((r) => r.outcome !== 'failed')?.at
   }
 
-  /**
-   * Look around for what the user would want to hear about, in a session of its own so 48 checks
-   * a day never reach the main agent's context. Silent runs leave only a line in the run log.
-   */
   private async runHeartbeat(job: CronjobTask): Promise<Awaited<ReturnType<AssistantCronRunner>>> {
-    type Held = { at: number; text: string; urgent: boolean; activityId: string }
     const config = this.getConfig()
     const now = Date.now()
     const quiet = inQuietHours(new Date(now), config.quietStart, config.quietEnd)
-    const held = this.storage.get<Held[]>(HEARTBEAT_HELD_KEY) ?? []
     const files = filesRecord()
     // The agent it will run on decides the services' names; with none, the start below fails anyway.
     const agent = await this.agentFor('heartbeat').catch(() => undefined)
@@ -1020,67 +1013,78 @@ export class AssistantRuntime {
     const logRun = (outcome: ScheduleRunOutcome, note?: string, activityId?: string) =>
       this.schedules.recordRun({ id: randomUUID(), scheduleId: job.id, at: now, outcome, ...(note ? { note } : {}), ...(activityId ? { activityId } : {}) })
 
-    let found: Held[] = []
-    if (!heartbeatHasWork(files.memory.content, files.heartbeat.content)) {
+    // Nothing under the checklist's own headings and nothing in progress — but what waits under
+    // "Later" still has to go out once quiet hours end, so that alone is work too.
+    const told = heartbeatTold(files.heartbeat.content)
+    if (!heartbeatHasWork(files.memory.content, files.heartbeat.content) && !(told.includes('### Later') && !quiet)) {
       logRun('silent', NOTHING_TO_CHECK_NOTE)
-    } else {
-      this.heartbeatConnectors = connectors
-      const { id, done } = await this.workers.start({
-        kind: 'heartbeat',
-        title: 'Heartbeat',
-        prompt: buildHeartbeatPrompt(job.lastRunAt, this.told(), held),
-        unattended: true,
-        visible: false,
-      })
-      const outcome = await done
-      const args = outcome.finish?.tool === 'heartbeat_done' ? outcome.finish.args : undefined
-      if (outcome.end !== 'completed' || outcome.error) {
-        logRun('failed', outcome.error ?? outcome.activity.summary)
-        return { status: 'error', error: outcome.error ?? outcome.activity.summary }
-      }
-      const findings = (Array.isArray(args?.findings) ? args.findings : [])
-        .filter((f) => typeof f.text === 'string' && f.text.trim())
-        .map((f) => ({ text: f.text.trim(), urgent: f.urgent === true }))
-      // Reported under the checklist section's heading, which is already what the user reads.
-      const unchecked = (Array.isArray(args?.unchecked) ? args.unchecked : [])
-        .filter((u) => typeof u.check === 'string' && u.check.trim())
-        .map((u) => (typeof u.reason === 'string' && u.reason.trim() ? `${u.check.trim()} (${u.reason.trim()})` : u.check.trim()))
-      const uncheckedNote = unchecked.length ? unchecked.join(', ') : undefined
-      if (!findings.length) {
-        // A check that didn't happen must not read as "nothing new".
-        if (uncheckedNote) logRun('partial', uncheckedNote)
-        else logRun('silent')
-        // Nothing worth continuing: the run log line is the whole record.
-        this.forgetWorkerSession(id)
-      } else {
-        const activity = outcome.activity
-        activity.title = summaryLine(findings[0]!.text).slice(0, 80) || 'Heartbeat'
-        activity.summary = findings.map((f) => f.text).join(' · ')
-        activity.report = findings.map((f) => `- ${f.urgent ? '(urgent) ' : ''}${f.text}`).join('\n')
-        this.saveActivity(activity)
-        found = findings.map((f) => ({ ...f, at: now, activityId: id }))
-        logRun('found', uncheckedNote ? `${findings[0]!.text} · couldn't check ${uncheckedNote}` : findings[0]!.text, id)
+      return { status: 'success', output: 'Nothing new' }
+    }
+
+    this.heartbeatConnectors = connectors
+    const { id, done } = await this.workers.start({
+      kind: 'heartbeat',
+      title: 'Heartbeat',
+      prompt: buildHeartbeatPrompt(
+        this.lastCompletedCheck(job),
+        quiet ? { start: config.quietStart, end: config.quietEnd } : undefined,
+      ),
+      unattended: true,
+      visible: false,
+    })
+    const outcome = await done
+    const args = outcome.finish?.tool === 'heartbeat_done' ? outcome.finish.args : undefined
+    // Ending without heartbeat_done means the check wasn't done: it must not read as "nothing new",
+    // and must not move "the last check" past what it never looked at.
+    if (outcome.end !== 'completed' || outcome.error || !args) {
+      const reason = outcome.error ?? (args ? outcome.activity.summary : 'Ended without reporting what it checked (no heartbeat_done).')
+      logRun('failed', reason)
+      return { status: 'error', error: reason }
+    }
+
+    // Its record of what the user has been told, as it says it is now. Read the file again first:
+    // the checklist above may have been edited while it ran, and only its own section is replaced.
+    if (typeof args.told === 'string') {
+      const current = readProfileFile('heartbeat').content
+      const next = withHeartbeatTold(current, args.told)
+      if (next !== current) {
+        writeProfileFile('heartbeat', next, 'assistant')
+        this.emit({ type: 'file', file: readProfileFile('heartbeat') })
       }
     }
 
-    // Quiet hours: only the urgent goes out now; the rest waits for the first check after. The
-    // check is shown what is held so it does not find it again, and a repeat is dropped anyway.
-    const heldTexts = new Set(held.map((f) => f.text))
-    const fresh = found.filter((f) => !heldTexts.has(f.text))
-    const sayNow = quiet ? fresh.filter((f) => f.urgent) : [...held, ...fresh]
-    const keep = quiet ? [...held, ...fresh.filter((f) => !f.urgent)] : []
-    this.storage.set(HEARTBEAT_HELD_KEY, keep)
-    if (sayNow.length) {
-      this.storage.set(HEARTBEAT_TOLD_KEY, [...this.told(), ...sayNow.map((f) => ({ at: f.at, text: f.text }))].slice(-TOLD_KEPT))
-      this.tellMain(
-        [
-          '[Heartbeat] Noticed in the background, worth telling the user now:',
-          ...sayNow.map((f) => `- ${f.urgent ? '(urgent) ' : ''}${f.text}`),
-        ].join('\n'),
-        { kind: 'heartbeat', activityId: sayNow.at(-1)!.activityId },
-      )
+    const findings = (Array.isArray(args.findings) ? args.findings : [])
+      .filter((f) => typeof f.text === 'string' && f.text.trim())
+      .map((f) => ({ text: f.text.trim(), urgent: f.urgent === true }))
+    // Reported under the checklist section's heading, which is already what the user reads.
+    const unchecked = (Array.isArray(args.unchecked) ? args.unchecked : [])
+      .filter((u) => typeof u.check === 'string' && u.check.trim())
+      .map((u) => (typeof u.reason === 'string' && u.reason.trim() ? `${u.check.trim()} (${u.reason.trim()})` : u.check.trim()))
+    const uncheckedNote = unchecked.length ? unchecked.join(', ') : undefined
+    // Quiet hours: the check was told to keep all but the urgent for later; hold it to that.
+    const sayNow = quiet ? findings.filter((f) => f.urgent) : findings
+    if (!sayNow.length) {
+      // A check that didn't happen must not read as "nothing new".
+      if (uncheckedNote) logRun('partial', uncheckedNote)
+      else logRun('silent')
+      // Nothing worth continuing: the run log line is the whole record.
+      this.forgetWorkerSession(id)
+      return { status: 'success', output: 'Nothing new' }
     }
-    return { status: 'success', output: found.length ? found.map((f) => f.text).join('\n') : 'Nothing new' }
+    const activity = outcome.activity
+    activity.title = summaryLine(sayNow[0]!.text).slice(0, 80) || 'Heartbeat'
+    activity.summary = sayNow.map((f) => f.text).join(' · ')
+    activity.report = sayNow.map((f) => `- ${f.urgent ? '(urgent) ' : ''}${f.text}`).join('\n')
+    this.saveActivity(activity)
+    logRun('found', uncheckedNote ? `${sayNow[0]!.text} · couldn't check ${uncheckedNote}` : sayNow[0]!.text, id)
+    this.tellMain(
+      [
+        '[Heartbeat] Noticed in the background, worth telling the user now:',
+        ...sayNow.map((f) => `- ${f.urgent ? '(urgent) ' : ''}${f.text}`),
+      ].join('\n'),
+      { kind: 'heartbeat', activityId: id },
+    )
+    return { status: 'success', output: sayNow.map((f) => f.text).join('\n') }
   }
 
   /** A task the user set up to run at set times: a visible activity, its result relayed by the main agent. */

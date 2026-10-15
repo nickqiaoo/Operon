@@ -35,6 +35,8 @@ export interface HeartbeatArgs {
   findings: Array<{ text: string; urgent: boolean }>
   /** Checklist sections (by heading) that could not be done this time, and why. */
   unchecked?: Array<{ check: string; reason: string }>
+  /** The "Already told" section of heartbeat.md as it should be after this check, without its heading. Absent: left as it is. */
+  told?: string
 }
 
 /** The schedule tools' view of the assistant (schedule.ts does the work). */
@@ -645,6 +647,9 @@ const heartbeatDone = defineTool({
       )
       .optional()
       .describe('Checklist sections you could not do this time. Never leave one out: an empty findings list alone reads as "nothing new"'),
+    told: z
+      .string()
+      .describe('The "Already told" section as it should be now, without its heading — the whole of it, every time, even unchanged. Empty only when nothing told is still so and nothing waits for quiet hours'),
   }),
   roles: ['worker'],
   run: (args, caller, host) => (host.heartbeatDone(caller.id ?? '', args) ? 'Recorded. Stop now.' : failure('This is not a background check; finish with finish_task.')),

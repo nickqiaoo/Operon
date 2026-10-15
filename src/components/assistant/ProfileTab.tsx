@@ -60,7 +60,7 @@ export const PROFILE_FILE_META: Record<ProfileFileName, { title: MessageDescript
     about: {
       id: "assistant.profile.checklist.about",
       defaultMessage:
-        "What the background check looks at every 30 minutes: one section per service, with the tool to call and what is worth telling you. Nothing else is checked. {name} adds a section when you ask it to watch for something; you can add or change them here too.",
+        "What the background check looks at every 30 minutes: one section per service, with the tool to call and what is worth telling you. Nothing else is checked. {name} adds a section when you ask it to watch for something; you can add or change them here too. The last section, Already told, is the check's own record of what you have heard and is still going on, so it doesn't tell you twice: delete a line there and you may hear about it again.",
     },
   }),
 }

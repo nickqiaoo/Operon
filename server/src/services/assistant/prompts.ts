@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import type { ProfileFile, ProfileFileName } from '../../../../shared/assistant.js'
+import { HEARTBEAT_TOLD_HEADING, type ProfileFile, type ProfileFileName } from '../../../../shared/assistant.js'
 import { MEMORY_SOFT_LIMIT } from './defaults.js'
 import { parseIdentity } from './files.js'
 import { ASSISTANT_DIR, ASSISTANT_WORKSPACE, DAYS_DIR } from './paths.js'
@@ -86,7 +86,6 @@ export function buildMainInstructions(files: Files, uiLocale?: string, seed?: st
     fileBlock('identity', files.identity.content),
     fileBlock('soul', files.soul.content),
     fileBlock('memory', files.memory.content),
-    fileBlock('heartbeat', files.heartbeat.content),
     '',
     `## How you work
 You are the one the user talks to. You never do tool work yourself — you hand it to a helper that works in the background, so you can keep talking while it runs. The one exception is your own memory files (below), which you read and edit yourself.
@@ -148,7 +147,7 @@ ${memoryRules(language)}
 
 ## Keeping an eye on things
 - Something to do at set times and report on (a morning brief, a weekly digest): schedule_create, with a complete, self-contained prompt. Change, pause or delete it with schedule_update / schedule_delete; schedule_list shows what is set up.
-- Something to watch, speaking up only if it happens ("tell me when a Grafana alert fires", "tell me if the bank emails", "watch for tickets until Oct 3"): a section in heartbeat.md (above, in your directory; edit it with your file tools). Every ${HEARTBEAT_MINUTES} minutes a check in the background works through it to the letter and looks at nothing else — no section, no check.
+- Something to watch, speaking up only if it happens ("tell me when a Grafana alert fires", "tell me if the bank emails", "watch for tickets until Oct 3"): a section in heartbeat.md, in your directory. It isn't above: read it with your file tools before you add, change or describe what is watched, then edit it in place. Its last section, "## ${HEARTBEAT_TOLD_HEADING}", is the check's own record of what the user has been told: leave it alone, and add new sections above it. Every ${HEARTBEAT_MINUTES} minutes a check in the background works through it to the letter and looks at nothing else — no section, no check.
 - A section: "## <what is checked>" as its heading (the service, plus what when there are several on one service), then bullets — the exact tool and its arguments, what is worth telling the user, what to ignore, and "until YYYY-MM-DD" when it has an end. Never guess a tool name or argument: unless a task's result already showed the exact call, first start_task to have a helper find out — which tool of which service shows the newest items, called with what, tried once, and what its result looks like — then write the section from what it reports.
 - The user wants something no longer watched, or a section is past its "until" date: remove the section. They want it watched differently: change it in place.
 - Confirm what you set up in one short line ("I'll send it every weekday at 8:00").
@@ -193,7 +192,6 @@ export function buildWrapUpInstructions(files: Files, uiLocale?: string): string
     '',
     'Kept elsewhere — never copy these into memory.md:',
     fileBlock('identity', files.identity.content),
-    fileBlock('heartbeat', files.heartbeat.content),
     '',
     `## Rules
 ${memoryRules(language)}
@@ -290,8 +288,11 @@ export function buildHeartbeatInstructions(files: Files, connectors: readonly st
 - Do each "##" section of the checklist as it says: the tool and arguments it names (a tool named without a prefix is that service's), judged by what it says is worth telling. Skip a section whose "until" date has passed. The commented-out example is not a check.
 - Look at nothing the checklist doesn't name — no other services, no exploring a service for something else to check. Don't open a browser or control apps unless a section says to.
 - "In progress": follow up on items whose date has come (how the interview went, whether the parcel arrived), worded as something to ask about. If an item asks to watch for something, check it the way it says. Only the user's own matters: never report on the assistant's own tasks, schedules or setup, even if a line about them is there.
-- Be quick: the calls each section needs, newest items only — since the last check. Never send, post, buy, change or delete anything.
-- Report only what is new since the last check and not in the "already told" list you are given. Most checks find nothing; that is the right answer.
+- Be quick: the calls each section needs, newest items only — since the last completed check. Never send, post, buy, change or delete anything.
+- The last section of the checklist, "## ${HEARTBEAT_TOLD_HEADING}", is not a check: it is your own record of what the user has already been told and is still so, one line each. Report only what isn't there. Most checks find nothing; that is the right answer.
+- Each line there has to name its thing well enough to know it again, with when it started: for an alert the rule, the machine, the severity and since when ("Saturation critical on broker-host, firing since Oct 13 16:22"); for anything else what it is and the date. The same alert with a different start time is a new firing — report it, even if one like it is there.
+- At the end, pass that whole section as it should be now in heartbeat_done's told: add a line for each finding you report (with the time), drop the lines that are no longer so (the alert stopped firing, the matter is settled — report that as a finding when the checklist asks to hear it), and keep the rest as they are. Lines about a section you could not do this time stay untouched.
+- Quiet hours (you are told when it is): only urgent findings go out. Write the others under "### Later" at the end of that section instead of reporting them; the first check after quiet hours reports what is under Later and moves those lines up with the rest.
 - A section you could not do — its service isn't in the list above, a tool it names is missing, a call failed — goes in unchecked under the section's heading, with the reason. Don't work around it with other tools or another way in: the checklist gets fixed instead. A check that ran and found nothing is not unchecked.
 - A step that needs the user's approval is skipped automatically; move on. Never start sub-agents or background tasks.
 - Always end with heartbeat_done (from the "assistant_worker" MCP server) — with an empty findings list when there is nothing.
@@ -303,18 +304,19 @@ function shortTime(at: number): string {
   return new Date(at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-/** The heartbeat's task for one run: when it last looked, and what the user has already heard. */
-/** @param held found during quiet hours and not said yet — as good as told, for not repeating. */
-export function buildHeartbeatPrompt(
-  lastRunAt: number | undefined,
-  told: ReadonlyArray<{ at: number; text: string }>,
-  held: ReadonlyArray<{ at: number; text: string }> = [],
-): string {
-  const list = (items: ReadonlyArray<{ at: number; text: string }>) => items.map((t) => `- ${shortTime(t.at)} · ${t.text}`).join('\n')
+/**
+ * The heartbeat's task for one run. What the user has already heard is in heartbeat.md itself
+ * ("Already told"), which its instructions carry.
+ * @param lastCompletedAt the last check that finished (one that broke off doesn't count: what came
+ *   up while it was down is still news).
+ * @param quiet the quiet hours, when it is in them now.
+ */
+export function buildHeartbeatPrompt(lastCompletedAt: number | undefined, quiet?: { start: string; end: string }): string {
   return [
-    `Check now. Last check: ${lastRunAt ? shortTime(lastRunAt) : 'none — this is the first one'}.`,
-    told.length ? `Already told the user (don't repeat):\n${list(told)}` : 'Nothing has been reported to the user yet.',
-    ...(held.length ? [`Already noted, to be told when quiet hours end (don't repeat):\n${list(held)}`] : []),
+    `Check now. Last completed check: ${lastCompletedAt ? shortTime(lastCompletedAt) : 'none — this is the first one'}.`,
+    quiet
+      ? `It is quiet hours (${quiet.start}–${quiet.end}): only urgent findings go out now; the rest goes under "### Later".`
+      : 'It is not quiet hours: anything under "### Later" goes out now.',
   ].join('\n\n')
 }
 

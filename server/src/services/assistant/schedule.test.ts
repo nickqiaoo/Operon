@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROFILE_FILES } from './defaults.js'
-import { heartbeatChecks } from '../../../../shared/assistant.js'
+import { heartbeatChecks, heartbeatTold, withHeartbeatTold } from '../../../../shared/assistant.js'
 import { cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
 import { buildHeartbeatPrompt } from './prompts.js'
 
@@ -54,11 +54,39 @@ describe('heartbeatChecks', () => {
   })
 })
 
+describe('the heartbeat\'s "Already told" section', () => {
+  const checklist = '# Heartbeat\n\n## Grafana\n- list alerts\n'
+
+  it('is not a check', () => {
+    expect(heartbeatChecks(`${checklist}\n## Already told\n\n- Saturation critical on broker-host, since Oct 13 16:22\n`)).toEqual(['Grafana'])
+  })
+
+  it('is added at the end, and replaced in place without touching the checklist', () => {
+    const once = withHeartbeatTold(checklist, '- Saturation critical on broker-host, since Oct 13 16:22')
+    expect(once).toBe('# Heartbeat\n\n## Grafana\n- list alerts\n\n## Already told\n\n- Saturation critical on broker-host, since Oct 13 16:22\n')
+    expect(heartbeatTold(once)).toBe('- Saturation critical on broker-host, since Oct 13 16:22')
+
+    // A section the user (or the assistant) added below it meanwhile stays, and so does its own text.
+    const edited = `${once}\n## PostHog\n- errors\n`
+    const twice = withHeartbeatTold(edited, '- PostHog: TypeError in checkout, first seen Oct 15 09:10\n\n### Later\n- Invoice due Friday')
+    expect(heartbeatChecks(twice)).toEqual(['Grafana', 'PostHog'])
+    expect(twice).toContain('## PostHog\n- errors')
+    expect(heartbeatTold(twice)).toBe('- PostHog: TypeError in checkout, first seen Oct 15 09:10\n\n### Later\n- Invoice due Friday')
+    expect(twice).not.toContain('Saturation')
+  })
+
+  it('goes away when nothing told is still so', () => {
+    expect(withHeartbeatTold(withHeartbeatTold(checklist, '- x'), '')).toBe(checklist)
+    expect(heartbeatTold(checklist)).toBe('')
+  })
+})
+
 describe('buildHeartbeatPrompt', () => {
-  it('lists what is held for after quiet hours, so the check does not find it again', () => {
-    const prompt = buildHeartbeatPrompt(undefined, [{ at: 1, text: 'PR merged' }], [{ at: 2, text: 'Invoice due Friday' }])
-    expect(prompt).toContain('PR merged')
-    expect(prompt).toMatch(/quiet hours end \(don't repeat\):\n.*Invoice due Friday/)
-    expect(buildHeartbeatPrompt(undefined, [])).not.toContain('quiet hours')
+  it('says when the last finished check was and whether it is quiet hours', () => {
+    const quiet = buildHeartbeatPrompt(new Date(2026, 9, 15, 2, 0).getTime(), { start: '23:00', end: '08:00' })
+    expect(quiet).toMatch(/Last completed check: Oct 15, 02:00/)
+    expect(quiet).toContain('quiet hours (23:00–08:00)')
+    expect(buildHeartbeatPrompt(undefined)).toContain('none — this is the first one')
+    expect(buildHeartbeatPrompt(undefined)).toContain('not quiet hours')
   })
 })

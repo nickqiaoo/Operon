@@ -150,13 +150,49 @@ export const MAIN_ACTIVITY_TASK_PREFIX = 'am-'
 
 export type ProfileFileName = 'identity' | 'soul' | 'memory' | 'heartbeat'
 
-/** The checks in heartbeat.md: its "## …" sections, by heading. The commented-out example doesn't count. */
+/**
+ * The heartbeat's own section of heartbeat.md, kept at its end: what the user has been told and is
+ * still so, in its own words, plus what waits for quiet hours to end. Not a check. Only the heading
+ * is read here; what is under it is the heartbeat's to write and to read.
+ */
+export const HEARTBEAT_TOLD_HEADING = 'Already told'
+
+const TOLD_HEADING_RE = /^##\s+already told\b/i
+
+/** The checks in heartbeat.md: its "## …" sections, by heading. The commented-out example and the heartbeat's own "Already told" don't count. */
 export function heartbeatChecks(heartbeat: string): string[] {
   return heartbeat
     .replace(/<!--[\s\S]*?(-->|$)/g, '')
     .split('\n')
     .map((l) => /^##\s+(\S.*)$/.exec(l.trim())?.[1]?.trim())
-    .filter((h): h is string => Boolean(h))
+    .filter((h): h is string => Boolean(h) && !TOLD_HEADING_RE.test(`## ${h}`))
+}
+
+/** Where the "Already told" section sits in heartbeat.md's lines: from its heading up to the next "## " or the end. */
+function toldRange(lines: string[]): [number, number] | null {
+  const start = lines.findIndex((l) => TOLD_HEADING_RE.test(l.trim()))
+  if (start < 0) return null
+  let end = start + 1
+  while (end < lines.length && !/^##\s/.test(lines[end]!.trim())) end++
+  return [start, end]
+}
+
+/** What is under "## Already told" now, without the heading; empty when there is no such section. */
+export function heartbeatTold(heartbeat: string): string {
+  const lines = heartbeat.split('\n')
+  const range = toldRange(lines)
+  return range ? lines.slice(range[0] + 1, range[1]).join('\n').trim() : ''
+}
+
+/** heartbeat.md with its "Already told" section replaced by `told` (added at the end when missing; dropped when `told` is empty). The checklist above is left as it is. */
+export function withHeartbeatTold(heartbeat: string, told: string): string {
+  const lines = heartbeat.split('\n')
+  const range = toldRange(lines)
+  const body = told.trim()
+  const section = body ? [`## ${HEARTBEAT_TOLD_HEADING}`, '', body, ''] : []
+  if (range) lines.splice(range[0], range[1] - range[0], ...section)
+  else if (body) lines.push(...(lines.at(-1)?.trim() ? [''] : []), ...section)
+  return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
 }
 
 export interface ProfileFile {
