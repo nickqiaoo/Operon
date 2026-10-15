@@ -95,7 +95,7 @@ function ProjectItem({
           size="icon"
           className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onOpenChannel?.(project)}
-          title={intl.formatMessage({ id: "sidebar.openChannels", defaultMessage: "Open channels" })}
+          title={intl.formatMessage({ id: "sidebar.openBoard", defaultMessage: "Open board" })}
         >
           <LayoutDashboard className="h-3.5 w-3.5" />
         </Button>

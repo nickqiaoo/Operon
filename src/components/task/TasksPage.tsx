@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Plus, List as ListIcon, LayoutGrid, Loader2, Users, Archive } from 'lucide-react'
 import { useIntl } from 'react-intl'
 import { Button } from '@/components/ui/button'
@@ -35,12 +35,16 @@ interface TasksPageProps {
    *  once, after the initial load. Cleared via {@link onInitialTaskConsumed}. */
   initialTaskId?: number | null
   onInitialTaskConsumed?: () => void
+  /** Pinned at the toolbar's end, outside the part that scrolls on phones (the channels button). */
+  toolbarEnd?: ReactNode
+  /** What it opens on. The board by default; the phone opens on the list, a column at a time being too narrow a view. */
+  initialView?: ViewMode
 }
 
 type GroupBy = 'status' | 'priority' | 'assignee' | 'team'
 type ViewMode = 'list' | 'board' | 'teams'
 
-export function TasksPage({ projectId, onOpenWorkspace, initialTaskId, onInitialTaskConsumed }: TasksPageProps) {
+export function TasksPage({ projectId, onOpenWorkspace, initialTaskId, onInitialTaskConsumed, toolbarEnd, initialView = 'board' }: TasksPageProps) {
   const intl = useIntl()
   const tasks = useTaskStore((s) => s.tasks)
   const teams = useTaskStore((s) => s.teams)
@@ -56,7 +60,8 @@ export function TasksPage({ projectId, onOpenWorkspace, initialTaskId, onInitial
   const deleteTeam = useTaskStore((s) => s.deleteTeam)
   const agents = useChannelStore((s) => s.agents)
   const sessions = useChannelStore((s) => s.sessions)
-  const [view, setView] = useState<ViewMode>('list')
+  // The board first (on a desktop): where everything stands at a glance is what the page is opened for.
+  const [view, setView] = useState<ViewMode>(initialView)
   const [groupBy, setGroupBy] = useState<GroupBy>('status')
   const [showNew, setShowNew] = useState(false)
   const [fStatus, setFStatus] = useState<string>('all')
@@ -233,94 +238,97 @@ export function TasksPage({ projectId, onOpenWorkspace, initialTaskId, onInitial
     <div className="flex flex-col h-full bg-background">
       {/* Toolbar — scrolls horizontally on phones so controls keep their size
           instead of getting crushed into vertical text. */}
-      <div className="h-12 flex items-center gap-2 px-4 border-b border-border/40 shrink-0 bg-background overflow-x-auto [&>*]:shrink-0">
-        <div className="flex items-center rounded-lg bg-muted/25 border border-border/40 p-0.5">
-          <ToolbarToggle
-            active={view === 'list'}
-            onClick={() => setView('list')}
-            icon={<ListIcon className="w-3.5 h-3.5" />}
-            label={intl.formatMessage({ id: 'task.toolbar.list', defaultMessage: 'List' })}
+      <div className="h-12 flex items-center border-b border-border/40 shrink-0 bg-background">
+        <div className="h-full min-w-0 flex-1 flex items-center gap-2 px-4 overflow-x-auto [&>*]:shrink-0">
+          <div className="flex items-center rounded-lg bg-muted/25 border border-border/40 p-0.5">
+            <ToolbarToggle
+              active={view === 'list'}
+              onClick={() => setView('list')}
+              icon={<ListIcon className="w-3.5 h-3.5" />}
+              label={intl.formatMessage({ id: 'task.toolbar.list', defaultMessage: 'List' })}
+            />
+            <ToolbarToggle
+              active={view === 'board'}
+              onClick={() => setView('board')}
+              icon={<LayoutGrid className="w-3.5 h-3.5" />}
+              label={intl.formatMessage({ id: 'task.toolbar.board', defaultMessage: 'Board' })}
+            />
+            <ToolbarToggle
+              active={view === 'teams'}
+              onClick={() => setView('teams')}
+              icon={<Users className="w-3.5 h-3.5" />}
+              label={intl.formatMessage({ id: 'task.toolbar.teams', defaultMessage: 'Teams' })}
+            />
+          </div>
+
+          {view !== 'teams' && <GroupBySelect value={groupBy} onChange={setGroupBy} />}
+
+          {/* On phones the row scrolls, so drop the spacer that would push New Task
+              off-screen; at md+ it right-aligns the filters as before. */}
+          <div className="hidden md:block md:flex-1" />
+
+          <FilterSelect
+            value={fStatus}
+            onChange={setFStatus}
+            allLabel={intl.formatMessage({ id: 'task.toolbar.allStatus', defaultMessage: 'All status' })}
+            options={TASK_STATUSES.map((s) => ({ value: s, label: intl.formatMessage(STATUS_MESSAGES[s]) }))}
           />
-          <ToolbarToggle
-            active={view === 'board'}
-            onClick={() => setView('board')}
-            icon={<LayoutGrid className="w-3.5 h-3.5" />}
-            label={intl.formatMessage({ id: 'task.toolbar.board', defaultMessage: 'Board' })}
+          <FilterSelect
+            value={fPriority}
+            onChange={setFPriority}
+            allLabel={intl.formatMessage({ id: 'task.toolbar.allPriority', defaultMessage: 'All priority' })}
+            options={TASK_PRIORITIES.map((p) => ({ value: String(p), label: intl.formatMessage(priorityMessage(p)) }))}
           />
-          <ToolbarToggle
-            active={view === 'teams'}
-            onClick={() => setView('teams')}
-            icon={<Users className="w-3.5 h-3.5" />}
-            label={intl.formatMessage({ id: 'task.toolbar.teams', defaultMessage: 'Teams' })}
+          <FilterSelect
+            value={fTeam}
+            onChange={setFTeam}
+            allLabel={intl.formatMessage({ id: 'task.toolbar.allTeams', defaultMessage: 'All teams' })}
+            options={[
+              { value: 'none', label: 'No team' },
+              ...teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
+            ]}
           />
-        </div>
+          <FilterSelect
+            value={fAssignee}
+            onChange={setFAssignee}
+            allLabel={intl.formatMessage({ id: 'task.toolbar.allAssignees', defaultMessage: 'All assignees' })}
+            options={[
+              { value: 'unassigned', label: 'Unassigned' },
+              ...agents.map((a) => ({ value: String(a.id), label: a.name })),
+            ]}
+          />
 
-        {view !== 'teams' && <GroupBySelect value={groupBy} onChange={setGroupBy} />}
+          {archivedCount > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cn(
+                'h-8 gap-1.5 text-xs',
+                showArchived
+                  ? 'bg-muted/50 text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => setShowArchived((v) => !v)}
+              title={showArchived ? 'Hide archived tasks' : 'Show archived tasks'}
+            >
+              <Archive className="w-3.5 h-3.5" />
+              {showArchived
+                ? intl.formatMessage({ id: 'task.toolbar.hideArchived', defaultMessage: 'Hide archived' })
+                : intl.formatMessage({ id: 'task.toolbar.showArchived', defaultMessage: 'Archived · {count}' }, { count: archivedCount })}
+            </Button>
+          )}
 
-        {/* On phones the row scrolls, so drop the spacer that would push New Task
-            off-screen; at md+ it right-aligns the filters as before. */}
-        <div className="hidden md:block md:flex-1" />
-
-        <FilterSelect
-          value={fStatus}
-          onChange={setFStatus}
-          allLabel={intl.formatMessage({ id: 'task.toolbar.allStatus', defaultMessage: 'All status' })}
-          options={TASK_STATUSES.map((s) => ({ value: s, label: intl.formatMessage(STATUS_MESSAGES[s]) }))}
-        />
-        <FilterSelect
-          value={fPriority}
-          onChange={setFPriority}
-          allLabel={intl.formatMessage({ id: 'task.toolbar.allPriority', defaultMessage: 'All priority' })}
-          options={TASK_PRIORITIES.map((p) => ({ value: String(p), label: intl.formatMessage(priorityMessage(p)) }))}
-        />
-        <FilterSelect
-          value={fTeam}
-          onChange={setFTeam}
-          allLabel={intl.formatMessage({ id: 'task.toolbar.allTeams', defaultMessage: 'All teams' })}
-          options={[
-            { value: 'none', label: 'No team' },
-            ...teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
-          ]}
-        />
-        <FilterSelect
-          value={fAssignee}
-          onChange={setFAssignee}
-          allLabel={intl.formatMessage({ id: 'task.toolbar.allAssignees', defaultMessage: 'All assignees' })}
-          options={[
-            { value: 'unassigned', label: 'Unassigned' },
-            ...agents.map((a) => ({ value: String(a.id), label: a.name })),
-          ]}
-        />
-
-        {archivedCount > 0 && (
           <Button
             size="sm"
-            variant="ghost"
-            className={cn(
-              'h-8 gap-1.5 text-xs',
-              showArchived
-                ? 'bg-muted/50 text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-            onClick={() => setShowArchived((v) => !v)}
-            title={showArchived ? 'Hide archived tasks' : 'Show archived tasks'}
+            variant="secondary"
+            className="h-8 gap-1.5"
+            onClick={() => setShowNew(true)}
           >
-            <Archive className="w-3.5 h-3.5" />
-            {showArchived
-              ? intl.formatMessage({ id: 'task.toolbar.hideArchived', defaultMessage: 'Hide archived' })
-              : intl.formatMessage({ id: 'task.toolbar.showArchived', defaultMessage: 'Archived · {count}' }, { count: archivedCount })}
+            <Plus className="w-3.5 h-3.5" />
+            {intl.formatMessage({ id: 'task.toolbar.newTask', defaultMessage: 'New Task' })}
           </Button>
-        )}
-
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-8 gap-1.5"
-          onClick={() => setShowNew(true)}
-        >
-          <Plus className="w-3.5 h-3.5" />
-          {intl.formatMessage({ id: 'task.toolbar.newTask', defaultMessage: 'New Task' })}
-        </Button>
+        </div>
+        {toolbarEnd && <div className="flex h-full shrink-0 items-center gap-1 border-l border-border/40 px-2">{toolbarEnd}</div>}
       </div>
 
       {/* Body */}

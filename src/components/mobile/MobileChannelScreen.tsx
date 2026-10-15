@@ -1,24 +1,25 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { ArrowLeft, Hash, ListTodo, MessageSquare, Plus } from "lucide-react"
+import { ArrowLeft, Bot, Hash, Plus, Settings2 } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { cn } from "@/lib/utils"
 import { useChannelStore } from "@/stores/channel-store"
 import { useProjectStore } from "@/stores/project-store"
 import { ChannelChat } from "@/components/channel/ChannelChat"
+import { ProjectAgentDialog } from "@/components/channel/AgentMenu"
+import { AgentManageDialog } from "@/components/channel/AgentManageDialog"
+import { AgentAvatar } from "@/components/icons/AgentAvatar"
+import type { Agent } from "@/types/channel"
 import { TasksPage } from "@/components/task/TasksPage"
 import { MobileSheet } from "./MobileSheet"
 import { hasNativeTabBar, NativeShell } from "@/lib/native"
-
-type HubView = "channels" | "tasks"
+import { useBackHandler } from "@/hooks/useAndroidBackButton"
 
 /**
- * The per-project collaboration hub — a single-column adaptation of the desktop
- * {@link ChannelPage}. Its `Channels ⇄ Tasks` segmented switch mirrors that
- * page's own `view` state, and it reuses {@link ChannelChat}, {@link TasksPage}
- * (and therefore the task create/dispatch dialogs) unchanged. Faithful to the
- * desktop design where Tasks has no entry of its own — it lives beside Channels
- * inside this hub.
+ * A project's tasks on a phone — the single-column {@link ChannelPage}. The tasks
+ * fill the tab, as a list (a board column at a time is too narrow a view);
+ * channels sit behind a button at the end of its toolbar and open as pages
+ * pushed over it (the list, then a conversation), each with a back.
+ * Reuses {@link TasksPage} and {@link ChannelChat} unchanged.
  */
 export function MobileChannelScreen({
   keyboardOpen = false,
@@ -27,7 +28,7 @@ export function MobileChannelScreen({
 }: {
   /** Soft keyboard is up — the channel/thread composers lift above it. */
   keyboardOpen?: boolean
-  /** Inbox deep-link: jump to Tasks and open this task's detail. */
+  /** Inbox deep-link: open this task's detail on the board. */
   openTaskId?: number | null
   onDeepLinkConsumed?: () => void
 } = {}) {
@@ -43,28 +44,37 @@ export function MobileChannelScreen({
   const loadSessions = useChannelStore((s) => s.loadSessions)
   const createChannel = useChannelStore((s) => s.createChannel)
 
-  const [view, setView] = useState<HubView>("channels")
+  // A list pushed over the tasks — the channels (a conversation then goes over that), or the
+  // agents the tasks are assigned to.
+  const [page, setPage] = useState<"channels" | "agents" | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState("")
-  // Deep-link target forwarded to TasksPage once the Tasks view is active.
+  // Deep-link target forwarded to TasksPage.
   const [pendingTaskId, setPendingTaskId] = useState<number | null>(null)
 
   useEffect(() => {
     if (activeProjectId == null) return
     setActiveChannel(null)
-    setView("channels")
+    setPage(null)
     void Promise.all([loadAgents(), loadChannels(activeProjectId), loadSessions(activeProjectId)])
   }, [activeProjectId, loadAgents, loadChannels, loadSessions, setActiveChannel])
 
-  // Deep-link: a task notification lands on Tasks (not the default Channels view)
-  // and hands the target down to TasksPage. Declared after the reset effect so it
-  // wins when both fire on entry.
+  // Deep-link: a task notification lands on the board, out from under any open
+  // channel, and hands the target down to TasksPage. Declared after the reset
+  // effect so it wins when both fire on entry.
   useEffect(() => {
     if (openTaskId == null) return
-    setView("tasks")
+    setActiveChannel(null)
+    setPage(null)
     setPendingTaskId(openTaskId)
     onDeepLinkConsumed?.()
-  }, [openTaskId, onDeepLinkConsumed])
+  }, [openTaskId, onDeepLinkConsumed, setActiveChannel])
+
+  // Android back / the iOS top bar's back pops one page at a time.
+  useBackHandler(activeChannelId != null || page != null, () => {
+    if (activeChannelId != null) setActiveChannel(null)
+    else setPage(null)
+  })
 
   if (activeProjectId == null) {
     return (
@@ -82,8 +92,8 @@ export function MobileChannelScreen({
 
   const openWorkspace = (workspaceId: number) => setActiveWorkspace(workspaceId, activeProjectId)
 
-  // A channel is open → full-screen conversation with a back affordance.
-  if (view === "channels" && activeChannelId != null) {
+  // A channel is open → full-screen conversation, back to the list.
+  if (activeChannelId != null) {
     return (
       <div className="flex h-full flex-col">
         <div className="flex h-11 shrink-0 items-center border-b border-border/50 px-2">
@@ -136,117 +146,213 @@ export function MobileChannelScreen({
     }
   }
 
-  return (
-    <div className="flex h-full flex-col">
-      {/* Channels ⇄ Tasks segmented switch — mirrors ChannelPage's `view`. */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-2">
-        <div className="flex flex-1 rounded-lg bg-muted/40 p-0.5">
-          <SegButton active={view === "channels"} onClick={() => setView("channels")} Icon={MessageSquare}>
+  const createSheet = (
+    <MobileSheet
+      open={creating}
+      onClose={() => setCreating(false)}
+      title={intl.formatMessage({ id: "mobile.channel.newChannel", defaultMessage: "New channel" })}
+    >
+      <div className="min-w-0 space-y-3 px-2 py-1">
+        <input
+          autoFocus
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void createNew()
+          }}
+          placeholder={intl.formatMessage({ id: "mobile.channel.namePlaceholder", defaultMessage: "channel-name" })}
+          className="w-full min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-base outline-none focus:border-border"
+        />
+        <button
+          type="button"
+          onClick={() => void createNew()}
+          disabled={!newName.trim()}
+          className="w-full min-w-0 rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-base font-medium text-foreground/85 hover:bg-muted/50 disabled:opacity-40"
+        >
+          <FormattedMessage id="common.create" defaultMessage="Create" />
+        </button>
+      </div>
+    </MobileSheet>
+  )
+
+  // The channel list, pushed over the board.
+  if (page === "agents") {
+    return <AgentsPage projectId={activeProjectId} onBack={() => setPage(null)} onOpenWorkspace={openWorkspace} />
+  }
+
+  if (page === "channels") {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 px-2">
+          <button
+            type="button"
+            onClick={() => setPage(null)}
+            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-base text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+            <FormattedMessage id="mobile.tab.channel" defaultMessage="Board" />
+          </button>
+          <span className="min-w-0 flex-1 truncate text-center text-base font-semibold text-foreground/90">
             <FormattedMessage id="mobile.channel.channels" defaultMessage="Channels" />
-          </SegButton>
-          <SegButton active={view === "tasks"} onClick={() => setView("tasks")} Icon={ListTodo}>
-            <FormattedMessage id="mobile.channel.tasks" defaultMessage="Tasks" />
-          </SegButton>
-        </div>
-        {view === "channels" && (
+          </span>
           <button
             type="button"
             onClick={() => void startCreating()}
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
             aria-label={intl.formatMessage({ id: "mobile.channel.newChannel", defaultMessage: "New channel" })}
           >
             <Plus className="size-4" />
           </button>
-        )}
+        </div>
+
+        <div className="min-h-0 flex-1">
+          {channels.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+              <Hash className="size-6 text-muted-foreground/60" />
+              <p className="text-base font-medium text-foreground/85">
+                <FormattedMessage id="mobile.channel.emptyTitle" defaultMessage="No channels yet" />
+              </p>
+              <p className="text-[13px] text-muted-foreground/70">
+                <FormattedMessage id="mobile.channel.emptyDesc" defaultMessage="Create one to start collaborating." />
+              </p>
+            </div>
+          ) : (
+            <div className="h-full overflow-y-auto p-2">
+              {channels.map((channel) => (
+                <button
+                  key={channel.id}
+                  type="button"
+                  onClick={() => setActiveChannel(channel.id)}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-secondary-hover"
+                >
+                  <Hash className="size-4 shrink-0 text-muted-foreground/60" />
+                  <span className="truncate text-base text-foreground/85">{channel.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {createSheet}
+      </div>
+    )
+  }
+
+  return (
+    <TasksPage
+      projectId={activeProjectId}
+      onOpenWorkspace={openWorkspace}
+      initialTaskId={pendingTaskId}
+      onInitialTaskConsumed={() => setPendingTaskId(null)}
+      initialView="list"
+      toolbarEnd={
+        <>
+          <button
+            type="button"
+            onClick={() => setPage("agents")}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
+            aria-label={intl.formatMessage({ id: "channel.section.agents", defaultMessage: "Agents" })}
+          >
+            <Bot className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPage("channels")}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
+            aria-label={intl.formatMessage({ id: "mobile.channel.channels", defaultMessage: "Channels" })}
+          >
+            <Hash className="size-4" />
+          </button>
+        </>
+      }
+    />
+  )
+}
+
+/**
+ * The agents tasks are assigned to, pushed over the tasks: one opens its sessions here (stop /
+ * reset); the button in the bar creates and edits them.
+ */
+function AgentsPage({
+  projectId,
+  onBack,
+  onOpenWorkspace,
+}: {
+  projectId: number
+  onBack: () => void
+  onOpenWorkspace: (workspaceId: number) => void
+}) {
+  const intl = useIntl()
+  const agents = useChannelStore((s) => s.agents)
+  const [detail, setDetail] = useState<Agent | null>(null)
+  const [manage, setManage] = useState(false)
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 px-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-base text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          <FormattedMessage id="mobile.tab.channel" defaultMessage="Board" />
+        </button>
+        <span className="min-w-0 flex-1 truncate text-center text-base font-semibold text-foreground/90">
+          <FormattedMessage id="channel.section.agents" defaultMessage="Agents" />
+        </span>
+        <button
+          type="button"
+          onClick={() => setManage(true)}
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary-hover hover:text-foreground"
+          aria-label={intl.formatMessage({ id: "channel.manageAgents", defaultMessage: "Manage Agents" })}
+        >
+          <Settings2 className="size-4" />
+        </button>
       </div>
 
       <div className="min-h-0 flex-1">
-        {view === "tasks" ? (
-          <TasksPage
-            projectId={activeProjectId}
-            onOpenWorkspace={openWorkspace}
-            initialTaskId={pendingTaskId}
-            onInitialTaskConsumed={() => setPendingTaskId(null)}
-          />
-        ) : channels.length === 0 ? (
+        {agents.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
-            <Hash className="size-6 text-muted-foreground/60" />
+            <Bot className="size-6 text-muted-foreground/60" />
             <p className="text-base font-medium text-foreground/85">
-              <FormattedMessage id="mobile.channel.emptyTitle" defaultMessage="No channels yet" />
-            </p>
-            <p className="text-[13px] text-muted-foreground/70">
-              <FormattedMessage id="mobile.channel.emptyDesc" defaultMessage="Create one to start collaborating." />
+              <FormattedMessage id="channel.noAgents" defaultMessage="No agents yet" />
             </p>
           </div>
         ) : (
           <div className="h-full overflow-y-auto p-2">
-            {channels.map((channel) => (
+            {agents.map((agent) => (
               <button
-                key={channel.id}
+                key={agent.id}
                 type="button"
-                onClick={() => setActiveChannel(channel.id)}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
+                onClick={() => setDetail(agent)}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-secondary-hover"
               >
-                <Hash className="size-4 shrink-0 text-muted-foreground/60" />
-                <span className="truncate text-base text-foreground/85">{channel.name}</span>
+                <AgentAvatar provider={agent.provider} size="md" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-base text-foreground/85">{agent.name}</span>
+                  <span className="block truncate text-[13px] text-muted-foreground/70">
+                    {agent.provider}
+                    {agent.model ? ` · ${agent.model}` : ""}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
         )}
       </div>
 
-      <MobileSheet
-        open={creating}
-        onClose={() => setCreating(false)}
-        title={intl.formatMessage({ id: "mobile.channel.newChannel", defaultMessage: "New channel" })}
-      >
-        <div className="min-w-0 space-y-3 px-2 py-1">
-          <input
-            autoFocus
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void createNew()
-            }}
-            placeholder={intl.formatMessage({ id: "mobile.channel.namePlaceholder", defaultMessage: "channel-name" })}
-            className="w-full min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-base outline-none focus:border-border"
-          />
-          <button
-            type="button"
-            onClick={() => void createNew()}
-            disabled={!newName.trim()}
-            className="w-full min-w-0 rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-base font-medium text-foreground/85 hover:bg-muted/50 disabled:opacity-40"
-          >
-            <FormattedMessage id="common.create" defaultMessage="Create" />
-          </button>
-        </div>
-      </MobileSheet>
-    </div>
-  )
-}
-
-function SegButton({
-  active,
-  onClick,
-  Icon,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  Icon: typeof MessageSquare
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-[13px] font-medium transition-colors",
-        active ? "bg-background text-foreground shadow-card" : "text-muted-foreground/70 hover:text-muted-foreground"
+      {detail && (
+        <ProjectAgentDialog
+          agent={detail}
+          projectId={projectId}
+          onClose={() => setDetail(null)}
+          onOpenWorkspace={(id) => {
+            setDetail(null)
+            onOpenWorkspace(id)
+          }}
+        />
       )}
-    >
-      <Icon className="size-3.5" />
-      {children}
-    </button>
+      {manage && <AgentManageDialog open onClose={() => setManage(false)} />}
+    </div>
   )
 }

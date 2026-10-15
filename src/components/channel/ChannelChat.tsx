@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Users, ChevronDown, Hash } from 'lucide-react'
+import { Users, ChevronDown, Hash, X } from 'lucide-react'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { MentionPicker, detectMentionToken, useMentionMatches, useMentionState } from './MentionPicker'
 import type { Agent } from '@/types/channel'
@@ -22,6 +22,8 @@ interface ChannelChatProps {
    * message, since it just lost the keyboard's worth of height.
    */
   mobileKeyboardOpen?: boolean
+  /** Shown in a drawer over the board: a close button ends the header row. */
+  onClose?: () => void
 }
 
 // Thread side-panel width (desktop only; on phones it's a full-screen overlay).
@@ -33,7 +35,7 @@ const THREAD_PANEL_WIDTH_KEY = 'operon.channelThreadWidth'
 const clampThreadWidth = (v: number) =>
   Math.max(THREAD_PANEL_MIN_WIDTH, Math.min(THREAD_PANEL_MAX_WIDTH, v))
 
-export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = false }: ChannelChatProps) {
+export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = false, onClose }: ChannelChatProps) {
   const intl = useIntl()
   const [input, setInput] = useState('')
   const [atBottom, setAtBottom] = useState(true)
@@ -291,6 +293,16 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
             {memberAgents.length === 0 && <Users className="w-3.5 h-3.5" />}
             <span className="font-medium tabular-nums">{memberAgents.length}</span>
           </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="-mr-1.5 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+              title={intl.formatMessage({ id: 'common.close', defaultMessage: 'Close' })}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* Messages */}

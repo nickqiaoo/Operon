@@ -17,6 +17,7 @@ import {
   UserRound,
   CircleDot,
   Sparkles,
+  Settings2,
 } from 'lucide-react'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { GithubIcon } from '@/components/icons/GithubIcon'
@@ -28,6 +29,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -46,6 +48,7 @@ import type { TaskActivity, TaskDetail, TaskPriority, TaskStatus, PreparedSubtas
 import type { Agent, AgentSession } from '@/types/channel'
 import type { LinearPublishOptions } from '@/types/integrations'
 import { DispatchDialog } from './DispatchDialog'
+import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
 import { VerifyDialog } from './VerifyDialog'
 import { cn } from '@/lib/utils'
 import { toastTaskError } from './task-error-toast'
@@ -67,6 +70,9 @@ interface TaskDetailViewProps {
 const INLINE_INPUT =
   'h-7 text-sm bg-muted/30 rounded-md px-2.5 outline-none border border-transparent ' +
   'focus:border-border/60 focus:bg-muted/40 placeholder:text-muted-foreground/40 transition-colors'
+
+/** The assignee picker's last item: opens the agents instead of picking one. */
+const MANAGE_AGENTS = '__manage_agents'
 
 export function TaskDetailView({
   detail,
@@ -95,6 +101,7 @@ export function TaskDetailView({
   const [dispatching, setDispatching] = useState(false)
   const [dispatchSubtasks, setDispatchSubtasks] = useState<PreparedSubtask[] | null>(null)
   const [verifyOpen, setVerifyOpen] = useState(false)
+  const [manageAgents, setManageAgents] = useState(false)
   const isArchived = detail.archivedAt != null
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(displayedTitle)
@@ -351,11 +358,13 @@ export function TaskDetailView({
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.assigneeLabel', defaultMessage: 'Assignee' })}>
             <Select
               value={detail.assignedAgentId ? String(detail.assignedAgentId) : 'unassigned'}
-              onValueChange={(v) =>
+              onValueChange={(v) => {
+                // The last item is a way to the agents, not one of them.
+                if (v === MANAGE_AGENTS) return setManageAgents(true)
                 updateDetail({
                   assignedAgentId: v === 'unassigned' ? null : Number(v),
                 })
-              }
+              }}
             >
               <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-muted/50">
                 <span className="flex items-center gap-2">
@@ -378,8 +387,14 @@ export function TaskDetailView({
                     {a.name}
                   </SelectItem>
                 ))}
+                <SelectSeparator />
+                <SelectItem value={MANAGE_AGENTS} className="text-muted-foreground">
+                  <Settings2 className="h-3.5 w-3.5" />
+                  <FormattedMessage id="task.detail.manageAgents" defaultMessage="Manage agents…" />
+                </SelectItem>
               </SelectContent>
             </Select>
+            {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
           </PropertyRow>
 
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.teamLabel', defaultMessage: 'Team' })}>

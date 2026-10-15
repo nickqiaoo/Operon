@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useIntl, FormattedMessage } from 'react-intl'
-import { Loader2, Zap } from 'lucide-react'
+import { Loader2, Settings2, Zap } from 'lucide-react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { useTaskStore } from '@/stores/task-store'
 import { toastTaskError } from './task-error-toast'
+import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
 import type { Agent } from '@/types/channel'
 import type { PreparedSubtask } from '@/types/task'
 import { splitPlanTaskText } from '@shared/taskboard/plan-task'
@@ -49,6 +50,7 @@ export function DispatchDialog({
     Object.fromEntries(subtasks.map((s) => [s.id, String(s.assignedAgentId ?? fallback)])),
   )
   const [dispatching, setDispatching] = useState(false)
+  const [manageAgents, setManageAgents] = useState(false)
 
   // Changing the default applies it to every row (rows can then be overridden).
   const setAllTo = (agentId: string) => {
@@ -149,6 +151,13 @@ export function DispatchDialog({
                 ))}
               </SelectContent>
             </Select>
+            {/* The right agent isn't there yet: make it without losing this dispatch. Rendered
+                inside this dialog, so working in it doesn't count as a click outside this one. */}
+            <Button size="sm" variant="ghost" className="ml-auto h-7 gap-1.5 text-xs" onClick={() => setManageAgents(true)}>
+              <Settings2 className="h-3.5 w-3.5" />
+              <FormattedMessage id="task.detail.manageAgents" defaultMessage="Manage agents…" />
+            </Button>
+            {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
           </div>
         </div>
 

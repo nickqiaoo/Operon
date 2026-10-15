@@ -36,7 +36,8 @@ import type { Agent, AgentBinding, AgentEnvVar } from '@/types/channel'
 interface AgentManageDialogProps {
   open: boolean
   onClose: () => void
-  providers: { id: string; label: string }[]
+  /** The agents a persona can run on. Left out, the dialog asks the server itself when it opens. */
+  providers?: { id: string; label: string }[]
 }
 
 interface AgentFormState {
@@ -60,8 +61,25 @@ const CleanInput = (props: React.ComponentProps<typeof Input>) => (
 )
 
 
-export function AgentManageDialog({ open, onClose, providers }: AgentManageDialogProps) {
+export function AgentManageDialog({ open, onClose, providers: givenProviders }: AgentManageDialogProps) {
   const intl = useIntl()
+  // Opened from wherever an agent is picked (the board, a dispatch, a task), not just the channel
+  // page that used to hand the list in.
+  const [loadedProviders, setLoadedProviders] = useState<{ id: string; label: string }[]>([])
+  useEffect(() => {
+    if (!open || givenProviders) return
+    let cancelled = false
+    void api
+      .getProviders()
+      .then((list) => {
+        if (!cancelled) setLoadedProviders(list.map((p) => ({ id: p.id, label: p.label })))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, givenProviders])
+  const providers = givenProviders ?? loadedProviders
   const agents = useChannelStore((s) => s.agents)
   const createAgent = useChannelStore((s) => s.createAgent)
   const updateAgent = useChannelStore((s) => s.updateAgent)

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDraggable,
@@ -38,7 +39,12 @@ export function TaskBoardView({
   onDrop,
 }: TaskBoardViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  // Touch drags only after a press-and-hold: a plain swipe has to scroll the columns
+  // (and the cards), which a pointer sensor would grab as a drag after 5px.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  )
   const activeTask = activeId != null ? tasks.find((t) => t.id === activeId) ?? null : null
 
   const handleDragEnd = (e: DragEndEvent) => {
@@ -58,7 +64,8 @@ export function TaskBoardView({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className="h-full flex gap-3 overflow-x-auto p-4 bg-background">
+      {/* Phone: a column nearly fills the screen and a swipe settles on the next one. */}
+      <div className="h-full flex gap-3 overflow-x-auto p-4 bg-background snap-x snap-mandatory scroll-px-4 md:snap-none">
         {groups.map((group) => (
           <Column
             key={group.key}
@@ -88,7 +95,7 @@ interface ColumnProps {
 function Column({ group, tasks, agents, sessions, onOpen }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: group.key })
   return (
-    <div className="flex flex-col w-72 shrink-0 rounded-xl border border-border/50 bg-muted/20 p-2 dark:border-border/35 dark:bg-muted/15">
+    <div className="flex flex-col w-[85vw] md:w-72 snap-start shrink-0 rounded-xl border border-border/50 bg-muted/20 p-2 dark:border-border/35 dark:bg-muted/15">
       <div className="flex items-center gap-2 px-1.5 pb-2 text-xs">
         {group.accent}
         <span className="font-semibold text-foreground/80">{group.label}</span>
@@ -136,7 +143,8 @@ function DraggableCard({ task, agents, sessions, onOpen }: DraggableCardProps) {
       {...listeners}
       {...attributes}
       onClick={() => onOpen(task.id)}
-      className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-30')}
+      // The press-and-hold that starts a touch drag must not select text or open the callout.
+      className={cn('cursor-grab touch-manipulation select-none [-webkit-touch-callout:none] active:cursor-grabbing', isDragging && 'opacity-30')}
     >
       <CardBody task={task} agents={agents} sessions={sessions} />
     </div>
