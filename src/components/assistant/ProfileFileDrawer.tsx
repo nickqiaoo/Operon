@@ -74,8 +74,16 @@ export function ProfileFileEditor({ file, assistantName, onClose, onSave, compac
               />
             )}
           </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            <FormattedMessage {...meta.hint} />
+          {/* What the file is and who changes it — a note above the file, not part of it. */}
+          <div className="mt-3 border-l-2 border-border/60 pl-3 text-xs leading-relaxed text-muted-foreground dark:border-border/35">
+            <FormattedMessage
+              id="assistant.profile.aboutLead"
+              defaultMessage="<b>About this file.</b> {about}"
+              values={{
+                b: (chunks) => <span className="font-medium text-foreground/80">{chunks}</span>,
+                about: <FormattedMessage {...meta.about} values={{ name: assistantName }} />,
+              }}
+            />
           </div>
         </div>
         {onClose && (

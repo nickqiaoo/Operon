@@ -25,27 +25,42 @@ const GRAIN =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"
 
 /** Title and one-line purpose of each definition file, for its card and its editor. */
-export const PROFILE_FILE_META: Record<ProfileFileName, { title: MessageDescriptor; hint: MessageDescriptor }> = {
+/**
+ * `about`: what the file is, when the assistant reads it, who changes it and when — shown above
+ * the editor as a note that is not part of the file. Keep each one true to the prompts
+ * (server/src/services/assistant/prompts.ts) when those change.
+ */
+export const PROFILE_FILE_META: Record<ProfileFileName, { title: MessageDescriptor; about: MessageDescriptor }> = {
   identity: defineMessages({
     title: { id: "assistant.profile.identity.title", defaultMessage: "Identity" },
-    hint: { id: "assistant.profile.identity.hint", defaultMessage: "Its name, avatar, and what it calls you." },
+    about: {
+      id: "assistant.profile.identity.about",
+      defaultMessage:
+        "How {name} introduces itself: its name, what it calls you, and a line on what it is for. {name} always keeps it in mind. It fills in the names when you first meet and changes them when you ask. You can edit it at any time; edits take effect from your next message.",
+    },
   }),
   soul: defineMessages({
     title: { id: "assistant.profile.soul.title", defaultMessage: "Soul" },
-    hint: { id: "assistant.profile.soul.hint", defaultMessage: "Personality and tone. Only the assistant reads this." },
+    about: {
+      id: "assistant.profile.soul.about",
+      defaultMessage:
+        "{name}'s character: the habits and tone it always keeps to. It starts from a template that ships with operon, and {name} changes it only when you ask. You can edit it at any time; edits take effect from your next message. Preferences you mention along the way (\"keep it short\") go to Memory instead.",
+    },
   }),
   memory: defineMessages({
     title: { id: "assistant.profile.memory.title", defaultMessage: "Memory" },
-    hint: {
-      id: "assistant.profile.memory.hint",
-      defaultMessage: "What it always knows about you, and your own matters it follows up on (In progress). The assistant keeps it up to date.",
+    about: {
+      id: "assistant.profile.memory.about",
+      defaultMessage:
+        "What {name} knows about you for the long run: facts, the people in your life, your preferences, and your own matters it follows up on (In progress). {name} always keeps it in mind and updates it as things come up; the day's details go to its daily notes, and once a day it tidies this file. It reflects {name}'s understanding and can be out of date. Edit anything here (it sees your edits with your next message), or ask {name} to forget something.",
     },
   }),
   heartbeat: defineMessages({
     title: { id: "assistant.profile.checklist.title", defaultMessage: "Checklist" },
-    hint: {
-      id: "assistant.profile.checklist.hint",
-      defaultMessage: "What the background check looks at every 30 minutes: one section per check, with the tool to call and what is worth telling you. Nothing else is checked.",
+    about: {
+      id: "assistant.profile.checklist.about",
+      defaultMessage:
+        "What the background check looks at every 30 minutes: one section per service, with the tool to call and what is worth telling you. Nothing else is checked. {name} adds a section when you ask it to watch for something; you can add or change them here too.",
     },
   }),
 }
