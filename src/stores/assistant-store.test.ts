@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AssistantMessage } from '@shared/assistant'
 
 vi.mock('@/lib/assistant-api', () => ({
-  assistantApi: { olderMessages: vi.fn(async () => ({ messages: [msg(-1)], hasMore: true })) },
+  assistantApi: { olderMessages: vi.fn(async () => ({ messages: [msg(-1)], hasMore: true, activities: [] })) },
   subscribeAssistant: vi.fn(),
 }))
 
-import { MESSAGE_WINDOW, useAssistantStore, windowed } from './assistant-store'
+import { MESSAGE_WINDOW, mergeById, useAssistantStore, windowed } from './assistant-store'
 
 function msg(i: number): AssistantMessage {
   return { id: `m${i}`, role: 'assistant', text: `#${i}`, createdAt: 1_000 + i }
@@ -38,5 +38,26 @@ describe('the message window', () => {
     expect(after.messages).toHaveLength(MESSAGE_WINDOW)
     expect(after.messages.at(-1)!.id).toBe(`m${MESSAGE_WINDOW - 1}`)
     expect(after.hasMore).toBe(true)
+  })
+})
+
+describe('laying a fetched list over the one in memory', () => {
+  type Row = { id: string; at: number; v: string }
+  const row = (id: string, at: number, v = 'old'): Row => ({ id, at, v })
+  const byAt = (r: Row) => r.at
+
+  it('takes the fetched rows, keeps rows it does not have, newest first', () => {
+    const current = [row('b', 2), row('z', 0)]
+    expect(mergeById([row('a', 1, 'new'), row('b', 2, 'new')], current, current, byAt)).toEqual([
+      row('b', 2, 'new'),
+      row('a', 1, 'new'),
+      row('z', 0),
+    ])
+  })
+
+  it('lets what the stream changed while the fetch was out win over the fetch', () => {
+    const before = [row('a', 1)]
+    const current = [row('a', 1, 'from the stream')]
+    expect(mergeById([row('a', 1, 'fetched')], current, before, byAt)).toEqual([row('a', 1, 'from the stream')])
   })
 })

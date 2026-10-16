@@ -108,6 +108,18 @@ export interface Activity {
   coding?: ActivityCoding
 }
 
+/**
+ * An activity without its run: what lists, the thread's cards and the live stream carry. The
+ * steps (every call's arguments and result) and the write-up can run to megabytes, so they come
+ * only with the activity itself, when it is opened (`GET /api/assistant/activities/:id`).
+ */
+export type ActivitySummary = Omit<Activity, 'steps' | 'report'>
+
+export function activitySummaryOf(activity: Activity): ActivitySummary {
+  const { steps: _steps, report: _report, ...summary } = activity
+  return summary
+}
+
 /** A coding agent's conversation the assistant started in one of the user's workspaces. */
 export interface ActivityCoding {
   chatId: number
@@ -300,17 +312,18 @@ export interface AssistantSchedule {
   runs: AssistantScheduleRun[]
 }
 
+/**
+ * What opening the assistant loads: the thread and what it shows. The side panel's lists
+ * (activities, audit, schedules) each come from their own endpoint when that tab is opened.
+ */
 export interface AssistantState {
   messages: AssistantMessage[]
   /** Whether older messages exist before `messages[0]`. */
   hasMore: boolean
-  activities: Activity[]
-  /** Newest first. */
-  audit: AuditRecord[]
+  /** Not the Activity list: the ones still at work (the header's status) and the ones `messages` point at (coding agents' cards). */
+  activities: ActivitySummary[]
   files: ProfileFile[]
   config: AssistantConfig
-  /** Heartbeat first. */
-  schedules: AssistantSchedule[]
   /** The main agent is producing a reply right now. */
   typing: boolean
   /** Why the assistant cannot run, e.g. no model configured. */
@@ -321,7 +334,8 @@ export interface AssistantState {
 /** Live updates on `/api/assistant/stream`. */
 export type AssistantEvent =
   | { type: 'message'; message: AssistantMessage }
-  | { type: 'activity'; activity: Activity }
+  /** Its steps are not in it: an open activity fetches them again. */
+  | { type: 'activity'; activity: ActivitySummary }
   | { type: 'file'; file: ProfileFile }
   | { type: 'typing'; typing: boolean }
   | { type: 'config'; config: AssistantConfig }

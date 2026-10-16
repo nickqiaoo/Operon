@@ -65,6 +65,18 @@ describe.skipIf(!opened)('assistant storage', () => {
     expect(storage.assistantActivityGet('nope')).toBeNull()
   })
 
+  it('lists activities without their steps: the newest, or the asked-for ones plus those at work', () => {
+    // a1 (done, with steps) and a2 (running) from the test above.
+    expect(storage.assistantActivitySummaries({ limit: 10 })).toEqual([
+      { id: 'a2', taskId: 'agent-1', title: 'T', summary: 'Working…', status: 'running', startedAt: 7 },
+      { id: 'a1', taskId: 'agent-1', title: 'T', summary: 'ok', status: 'done', startedAt: 5, finishedAt: 9 },
+    ])
+    expect(storage.assistantActivitySummaries({ ids: [], live: true }).map((a) => a.id)).toEqual(['a2'])
+    expect(storage.assistantActivitySummaries({ ids: ['a1', 'a1'], live: false }).map((a) => a.id)).toEqual(['a1'])
+    expect(storage.assistantActivitySummaries({ ids: ['a1'], live: true }).map((a) => a.id)).toEqual(['a2', 'a1'])
+    expect(storage.assistantActivitySummaries({ ids: [], live: false })).toEqual([])
+  })
+
   it('keeps an approval card on its message and lists the audit log newest first', () => {
     const approval = { id: 'ap1', title: 'Browser Use · Access https://x.com', detail: 'Allow?', icon: 'globe' as const, activityId: 'a1' }
     storage.assistantMessageUpsert({ id: 'card', role: 'assistant', text: '', createdAt: 100, approval })

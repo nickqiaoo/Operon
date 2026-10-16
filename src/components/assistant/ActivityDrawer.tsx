@@ -4,37 +4,78 @@ import { FormattedMessage, useIntl } from "react-intl"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { Activity, ActivityStep } from "./types"
+import { useActivity } from "@/stores/assistant-store"
+import type { Activity, ActivityStep, ActivitySummary } from "./types"
 import { ActivityStatusBadge, formatClock } from "./shared"
 import { ACTIVITY_STATUS_MESSAGES, AGENT_MESSAGES, activitySummary } from "./assistant-i18n"
 import { DrawerShell, useDrawer } from "./Drawer"
 import { CodingOverview } from "./CodingAgentCard"
 
 interface ActivityDrawerProps {
-  activity: Activity | null
+  activityId: string | null
   onClose: () => void
   onStop: (id: string) => void
   onFollowUp: (id: string, text: string) => void
   /** A coding agent's activity: into its conversation. */
-  onOpenCoding: (activity: Activity) => void
+  onOpenCoding: (activity: ActivitySummary) => void
 }
 
 /**
  * One worker's run, slid in over the right rail. Non-modal: the thread stays
  * usable underneath, so you can keep talking while you watch it work.
  */
-export function ActivityDrawer({ activity, onClose, onStop, onFollowUp, onOpenCoding }: ActivityDrawerProps) {
-  const { shown, active } = useDrawer(activity, onClose)
+export function ActivityDrawer({ activityId, onClose, onStop, onFollowUp, onOpenCoding }: ActivityDrawerProps) {
+  const { shown, active } = useDrawer(activityId, onClose)
   if (!shown) return null
   return (
     <DrawerShell active={active}>
-      <ActivityDetail activity={shown} onClose={onClose} onStop={onStop} onFollowUp={onFollowUp} onOpenCoding={onOpenCoding} />
+      <ActivityDetailById
+        id={shown}
+        onClose={onClose}
+        onStop={onStop}
+        onFollowUp={onFollowUp}
+        onOpenCoding={onOpenCoding}
+        missing={<ActivityMissing />}
+      />
     </DrawerShell>
   )
 }
 
+/** The activity went away underneath an open drawer. */
+function ActivityMissing() {
+  return (
+    <div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-muted-foreground">
+      <FormattedMessage id="mobile.assistant.gone" defaultMessage="This is no longer available." />
+    </div>
+  )
+}
+
+/**
+ * {@link ActivityDetail} for the activity with this id. Lists only carry its summary: the steps
+ * and write-up are fetched here, on open, and again as it goes on.
+ */
+export function ActivityDetailById({
+  id,
+  missing,
+  ...props
+}: Omit<ActivityDetailProps, "activity" | "loading"> & { id: string; missing: React.ReactNode }) {
+  const { activity, loading, missing: gone } = useActivity(id)
+  if (gone) return <>{missing}</>
+  if (!activity) {
+    return (
+      <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
+      </div>
+    )
+  }
+  return <ActivityDetail activity={activity} loading={loading} {...props} />
+}
+
 interface ActivityDetailProps {
   activity: Activity
+  /** Its steps and write-up are still on their way. */
+  loading?: boolean
   /**
    * `split` (drawer): the steps on the left; on the right the overall summary, or —
    * once a step is picked — that step's tool call and what came back.
@@ -45,11 +86,11 @@ interface ActivityDetailProps {
   onClose?: () => void
   onStop: (id: string) => void
   onFollowUp: (id: string, text: string) => void
-  onOpenCoding: (activity: Activity) => void
+  onOpenCoding: (activity: ActivitySummary) => void
 }
 
 /** The run itself: header, steps and summary, and a box to steer or follow up on it. */
-export function ActivityDetail({ activity, layout = "split", onClose, onStop, onFollowUp, onOpenCoding }: ActivityDetailProps) {
+export function ActivityDetail({ activity, loading = false, layout = "split", onClose, onStop, onFollowUp, onOpenCoding }: ActivityDetailProps) {
   const intl = useIntl()
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
@@ -76,6 +117,7 @@ export function ActivityDetail({ activity, layout = "split", onClose, onStop, on
   const timeline = (
     <Timeline
       steps={activity.steps}
+      loading={loading}
       running={activity.status === "running"}
       selectedId={selectedStepId}
       large={stacked}
@@ -267,6 +309,7 @@ export function ActivityDetail({ activity, layout = "split", onClose, onStop, on
 
 interface TimelineProps {
   steps: ActivityStep[]
+  loading: boolean
   running: boolean
   selectedId: string | null
   /** The phone's sheet: reading-size rows. */
@@ -274,7 +317,15 @@ interface TimelineProps {
   onSelect: (id: string) => void
 }
 
-function Timeline({ steps, running, selectedId, large, onSelect }: TimelineProps) {
+function Timeline({ steps, loading, running, selectedId, large, onSelect }: TimelineProps) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
+      </div>
+    )
+  }
   return (
     <ol>
       {!large && (

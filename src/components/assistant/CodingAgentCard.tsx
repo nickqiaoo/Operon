@@ -5,7 +5,7 @@ import { ProviderIcon } from "@/components/editor/components/ModelSelectorPanel"
 import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import { cn } from "@/lib/utils"
 import type { ActivityCoding } from "@shared/assistant"
-import type { Activity } from "./types"
+import type { ActivitySummary } from "./types"
 import { ActivityStatusBadge } from "./shared"
 import { activitySummary } from "./assistant-i18n"
 import { CodingPendingInputs } from "./CodingPendingInputs"
@@ -27,14 +27,14 @@ export function codingAgentName(providerId: string): string {
 }
 
 /** `project / workspace`. */
-function whereLabel(activity: Activity): string {
+function whereLabel(activity: ActivitySummary): string {
   const c = activity.coding!
   return c.projectName ? `${c.projectName} / ${c.workspaceName}` : c.workspaceName
 }
 
 interface CodingAgentCardProps {
-  activity: Activity
-  onOpen: (activity: Activity) => void
+  activity: ActivitySummary
+  onOpen: (activity: ActivitySummary) => void
   compact?: boolean
 }
 
@@ -50,7 +50,7 @@ function ModelLabel({ coding }: { coding: ActivityCoding }) {
 }
 
 /** `project / workspace`, and the branch when it says something the workspace name doesn't. */
-function WhereLabel({ activity }: { activity: Activity }) {
+function WhereLabel({ activity }: { activity: ActivitySummary }) {
   const c = activity.coding!
   return (
     <>
@@ -85,7 +85,7 @@ function DiffStatLabel({ coding }: { coding: ActivityCoding }) {
 }
 
 /** What the conversation waits on: answered right here when the requests came with them; otherwise in the conversation. */
-function CodingWaiting({ activity }: { activity: Activity }) {
+function CodingWaiting({ activity }: { activity: ActivitySummary }) {
   const c = activity.coding!
   if (activity.status !== "waiting") return null
   if (c.pending?.length) return <CodingPendingInputs chatId={c.chatId} pending={c.pending} />
@@ -97,7 +97,7 @@ function CodingWaiting({ activity }: { activity: Activity }) {
   )
 }
 
-function useOpenLabel(activity: Activity): string {
+function useOpenLabel(activity: ActivitySummary): string {
   const intl = useIntl()
   return activity.status === "waiting" && !activity.coding?.pending?.length
     ? intl.formatMessage({ id: "assistant.coding.goAnswer", defaultMessage: "Go to answer" })
@@ -166,7 +166,7 @@ export function CodingAgentCard({ activity, onOpen, compact }: CodingAgentCardPr
  * changed, the way into its conversation, and what it is waiting on. The title and state are
  * already in the detail's header.
  */
-export function CodingOverview({ activity, onOpen, large }: { activity: Activity; onOpen: (activity: Activity) => void; large?: boolean }) {
+export function CodingOverview({ activity, onOpen, large }: { activity: ActivitySummary; onOpen: (activity: ActivitySummary) => void; large?: boolean }) {
   const openLabel = useOpenLabel(activity)
   const c = activity.coding
   if (!c) return null
@@ -202,7 +202,7 @@ export function CodingOverview({ activity, onOpen, large }: { activity: Activity
 }
 
 /** Under a reply about one of those conversations: a quiet way into it. */
-export function CodingChip({ activity, onOpen }: { activity: Activity; onOpen: (activity: Activity) => void }) {
+export function CodingChip({ activity, onOpen }: { activity: ActivitySummary; onOpen: (activity: ActivitySummary) => void }) {
   const intl = useIntl()
   const c = activity.coding
   if (!c) return null

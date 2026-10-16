@@ -26,7 +26,7 @@ import type {
   NotificationStorageAdapter,
   AssistantStorageAdapter,
 } from './interface.js'
-import type { Activity, ActivityCoding, ActivityStep, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
+import type { Activity, ActivityCoding, ActivityStep, ActivitySummary, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
 import { MAIN_ACTIVITY_TASK_PREFIX } from '../../../shared/assistant.js'
 import type {
   AgentBinding,
@@ -2839,6 +2839,28 @@ export class SqliteStorage
     return rows.map((row) => this.rowToAssistantActivity(row))
   }
 
+  assistantActivitySummaries(query: { limit: number } | { ids: readonly string[]; live: boolean }): ActivitySummary[] {
+    // Everything but `steps` and `report`, which are the bulk of a row.
+    const columns = 'id, task_id, title, summary, status, source, started_at, finished_at, coding_json'
+    let rows: Array<Record<string, unknown>>
+    if ('limit' in query) {
+      rows = this.db
+        .prepare(`SELECT ${columns} FROM assistant_activities ORDER BY started_at DESC LIMIT ?`)
+        .all(query.limit) as Array<Record<string, unknown>>
+    } else {
+      const ids = [...new Set(query.ids)]
+      const where = [
+        ...(ids.length ? [`id IN (${ids.map(() => '?').join(', ')})`] : []),
+        ...(query.live ? ["status IN ('running', 'waiting')"] : []),
+      ]
+      if (where.length === 0) return []
+      rows = this.db
+        .prepare(`SELECT ${columns} FROM assistant_activities WHERE ${where.join(' OR ')} ORDER BY started_at DESC`)
+        .all(...ids) as Array<Record<string, unknown>>
+    }
+    return rows.map((row) => this.rowToAssistantActivitySummary(row))
+  }
+
   assistantAuditInsert(record: AuditRecord): void {
     this.db
       .prepare(
@@ -2899,6 +2921,14 @@ export class SqliteStorage
 
   private rowToAssistantActivity(row: Record<string, unknown>): Activity {
     return {
+      ...this.rowToAssistantActivitySummary(row),
+      ...(row.report ? { report: row.report as string } : {}),
+      steps: JSON.parse((row.steps as string) || '[]') as ActivityStep[],
+    }
+  }
+
+  private rowToAssistantActivitySummary(row: Record<string, unknown>): ActivitySummary {
+    return {
       id: row.id as string,
       taskId: row.task_id as string,
       title: row.title as string,
@@ -2907,8 +2937,6 @@ export class SqliteStorage
       ...(row.source ? { source: row.source as Activity['source'] } : {}),
       ...(String(row.task_id).startsWith(MAIN_ACTIVITY_TASK_PREFIX) ? { agent: 'main' as const } : {}),
       ...(row.coding_json ? { agent: 'coding' as const, coding: JSON.parse(row.coding_json as string) as ActivityCoding } : {}),
-      ...(row.report ? { report: row.report as string } : {}),
-      steps: JSON.parse((row.steps as string) || '[]') as ActivityStep[],
       startedAt: row.started_at as number,
       ...(row.finished_at != null ? { finishedAt: row.finished_at as number } : {}),
     }

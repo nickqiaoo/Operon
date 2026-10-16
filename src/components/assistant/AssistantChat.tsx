@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { InputGroupAddon } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
-import type { Activity, AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
+import type { ActivitySummary, AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
 import { CodingAgentCard, CodingChip } from "./CodingAgentCard"
 import { AuditIconTile, formatClock, isSameDay } from "./shared"
 import { auditDetail, dayLabel, messageText } from "./assistant-i18n"
@@ -71,9 +71,9 @@ interface AssistantChatProps {
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
   /** Activities by id: a message about a coding agent's conversation shows its card. */
-  activities: Activity[]
+  activities: ActivitySummary[]
   /** Open a coding agent's conversation in its workspace. */
-  onOpenChat: (activity: Activity) => void
+  onOpenChat: (activity: ActivitySummary) => void
   /** The reader came back to the newest message (the store trims what was loaded above). */
   onAtBottom?: () => void
   /** Phone layout: narrower gutters, and the composer rests as a one-line bar. */
@@ -516,10 +516,10 @@ function Separator({ label }: { label: string }) {
 interface AssistantBubbleProps {
   message: AssistantMessage
   /** The coding agent's activity this message is about: its card (no text) or a chip (a reply). */
-  coding?: Activity
+  coding?: ActivitySummary
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
-  onOpenChat: (activity: Activity) => void
+  onOpenChat: (activity: ActivitySummary) => void
   compact: boolean
 }
 

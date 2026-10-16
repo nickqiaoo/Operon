@@ -1,9 +1,46 @@
-import { Clock, Fingerprint, Folder, List, Pencil, ShieldCheck, X } from "lucide-react"
-import { defineMessages, useIntl, type MessageDescriptor } from "react-intl"
+import { useEffect } from "react"
+import { Clock, Fingerprint, Folder, List, Loader2, Pencil, ShieldCheck, X } from "lucide-react"
+import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "react-intl"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { useAssistantStore, type AssistantSection } from "@/stores/assistant-store"
 import { busyLabel } from "./assistant-i18n"
 
 export type SidePanelTab = "activity" | "files" | "audit" | "schedule" | "profile"
+
+/** The tabs whose list the assistant store fetches when the tab is first opened. */
+const TAB_SECTIONS: Partial<Record<SidePanelTab, AssistantSection>> = {
+  activity: "activities",
+  audit: "audit",
+  schedule: "schedules",
+}
+
+/**
+ * Whether `tab` (shown now; null: the panel isn't) has its list. Opening it fetches the list the
+ * first time — nothing in the panel is loaded with the thread.
+ */
+export function usePanelTabReady(tab: SidePanelTab | null): boolean {
+  const section = tab ? TAB_SECTIONS[tab] : undefined
+  const state = useAssistantStore((s) => (section ? s.sections[section] : "loaded"))
+  useEffect(() => {
+    if (!section) return
+    useAssistantStore
+      .getState()
+      .loadSection(section)
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)))
+  }, [section])
+  return state === "loaded"
+}
+
+/** A panel tab whose list is on its way. */
+export function PanelTabLoading() {
+  return (
+    <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
+    </div>
+  )
+}
 
 const TAB_LABELS = defineMessages({
   activity: { id: "assistant.tab.activity", defaultMessage: "Activity" },

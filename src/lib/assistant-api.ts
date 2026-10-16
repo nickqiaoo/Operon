@@ -1,9 +1,13 @@
 import type {
+  Activity,
+  ActivitySummary,
   AssistantAttachment,
   AssistantConfig,
   AssistantEvent,
   AssistantMessage,
+  AssistantSchedule,
   AssistantState,
+  AuditRecord,
   AssistantWorkspaceFile,
   ProfileFile,
   ProfileFileName,
@@ -14,9 +18,17 @@ import { subscribeSse, type SseSubscription } from './sse.js'
 /** Client for `/api/assistant` (server/src/routes/assistant.ts). */
 export const assistantApi = {
   /** `locale` is the UI language, so the assistant's first words match it. */
-  state: (locale?: string) => request<AssistantState>(`/assistant/state${locale ? `?locale=${encodeURIComponent(locale)}` : ''}`),
+  /** The thread only: the panel's lists and the activities' steps are fetched on their own. */
+  state: (locale?: string) => request<AssistantState>(`/assistant/v2/state${locale ? `?locale=${encodeURIComponent(locale)}` : ''}`),
+  /** `activities`: the ones these messages point at (coding agents' cards). */
   olderMessages: (before: number) =>
-    request<{ messages: AssistantMessage[]; hasMore: boolean }>(`/assistant/messages?before=${before}`),
+    request<{ messages: AssistantMessage[]; hasMore: boolean; activities: ActivitySummary[] }>(`/assistant/messages?before=${before}`),
+  /** The Activity tab, newest first. */
+  activities: () => request<{ activities: ActivitySummary[] }>('/assistant/activities'),
+  /** One activity whole, steps and write-up included. */
+  activity: (id: string) => request<{ activity: Activity }>(`/assistant/activities/${encodeURIComponent(id)}`),
+  audit: () => request<{ audit: AuditRecord[] }>('/assistant/audit'),
+  schedules: () => request<{ schedules: AssistantSchedule[] }>('/assistant/schedules'),
   /** `id`: the client's own id for the message, which the server keeps. */
   send: (text: string, attachments: AssistantAttachment[] = [], id?: string) =>
     request<{ message: AssistantMessage }>('/assistant/messages', { method: 'POST', body: JSON.stringify({ text, attachments, id }) }),
@@ -58,7 +70,7 @@ export function subscribeAssistant(onEvent: (event: AssistantEvent) => void, onR
       // Anything that happened while the stream was down is only in /state: refetch on reconnect.
       if (connectedOnce) onReconnect()
       connectedOnce = true
-      return `${await getBaseUrl()}/assistant/stream`
+      return `${await getBaseUrl()}/assistant/v2/stream`
     },
     onEvent,
     onParseError: (e) => console.warn('[assistant] bad stream frame:', e),

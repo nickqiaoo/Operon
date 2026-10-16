@@ -1,13 +1,13 @@
 import { HeartPulse, CalendarClock } from "lucide-react"
 import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
-import type { Activity } from "./types"
+import type { ActivitySummary } from "./types"
 import { codingAgentName } from "./CodingAgentCard"
 import { ActivityStatusTile, formatClock, isSameDay } from "./shared"
 import { AGENT_MESSAGES, activitySummary, dayLabel } from "./assistant-i18n"
 
 interface ActivityTabProps {
-  activities: Activity[]
+  activities: ActivitySummary[]
   selectedId: string | null
   onSelect: (id: string) => void
   /** The phone's page: bigger rows and day headings. */

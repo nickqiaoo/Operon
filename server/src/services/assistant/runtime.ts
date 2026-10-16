@@ -6,6 +6,7 @@ import { loadMcpServers } from 'operon-agents/mcp'
 import type { PermissionDecision } from '@operon/agent-runtime'
 import type {
   Activity,
+  ActivitySummary,
   AssistantAgentChoice,
   AssistantAttachment,
   AssistantConfig,
@@ -16,7 +17,7 @@ import type {
   ProfileFileName,
 } from '../../../../shared/assistant.js'
 import type { ApprovalIcon, AssistantSchedule, AuditRecord, ScheduleRunOutcome } from '../../../../shared/assistant.js'
-import { heartbeatTold, INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX, withHeartbeatTold } from '../../../../shared/assistant.js'
+import { activitySummaryOf, heartbeatTold, INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX, withHeartbeatTold } from '../../../../shared/assistant.js'
 import type { AssistantBlockerReason } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobTask } from '../../types/cronjob.js'
@@ -109,6 +110,9 @@ const LOCALE_KEY = 'assistant:ui_locale'
 const OLD_HEARTBEAT_KEYS = ['assistant:heartbeat_told', 'assistant:heartbeat_held', 'assistant:heartbeat_limits']
 const QUIET_DEFAULT = { quietStart: '23:00', quietEnd: '08:00' }
 const PAGE_SIZE = 200
+
+/** What the runtime announces: an activity whole. Subscribers get {@link AssistantEvent}s. */
+type RuntimeEvent = Exclude<AssistantEvent, { type: 'activity' }> | { type: 'activity'; activity: Activity }
 const NO_MODEL = 'No model is set up for the assistant yet. Add a provider in Settings → AI Providers, then pick models in Settings → Assistant.'
 const ONBOARDING_KICK = '(The user just opened the assistant for the first time. Start the first meeting.)'
 const MAIN_DENIED = 'You do not do tool work yourself. Hand it to a helper with start_task.'
@@ -480,12 +484,18 @@ export class AssistantRuntime {
   // Events
   // ---------------------------------------------------------------------------
 
-  subscribe(listener: (event: AssistantEvent) => void): () => void {
-    this.bus.on('event', listener)
-    return () => this.bus.off('event', listener)
+  /**
+   * `lean`: an activity's event carries no steps — it goes out on every step, and whoever has it
+   * open fetches them. Apps from before that (the iOS app ships its own UI) still get them whole.
+   */
+  subscribe(listener: (event: AssistantEvent) => void, lean: boolean): () => void {
+    const send = (event: RuntimeEvent) =>
+      listener(lean && event.type === 'activity' ? { type: 'activity', activity: activitySummaryOf(event.activity) } : event)
+    this.bus.on('event', send)
+    return () => this.bus.off('event', send)
   }
 
-  private emit(event: AssistantEvent): void {
+  private emit(event: RuntimeEvent): void {
     this.bus.emit('event', event)
   }
 
@@ -1157,19 +1167,51 @@ export class AssistantRuntime {
     return {
       messages,
       hasMore: messages.length === PAGE_SIZE,
-      activities: this.storage.assistantActivityList(PAGE_SIZE),
-      audit: this.storage.assistantAuditList(PAGE_SIZE),
+      activities: this.threadActivities(messages, true),
       files: listProfileFiles(),
       config: this.getConfig(),
-      schedules: this.withSignInState(this.schedules.list()),
       typing: this.typing,
       ...(blocker ? { blocker: blocker.blocker, blockerReason: blocker.reason } : {}),
     }
   }
 
-  olderMessages(before: number): { messages: AssistantMessage[]; hasMore: boolean } {
+  olderMessages(before: number): { messages: AssistantMessage[]; hasMore: boolean; activities: ActivitySummary[] } {
     const messages = this.storage.assistantMessageList({ limit: PAGE_SIZE, before })
-    return { messages, hasMore: messages.length === PAGE_SIZE }
+    return { messages, hasMore: messages.length === PAGE_SIZE, activities: this.threadActivities(messages, false) }
+  }
+
+  /** The activities `messages` point at (coding agents' cards), and with `live` every one still at work. */
+  private threadActivities(messages: AssistantMessage[], live: boolean): ActivitySummary[] {
+    const ids = messages.flatMap((m) => (m.activityId ? [m.activityId] : []))
+    return this.storage.assistantActivitySummaries({ ids, live })
+  }
+
+  /**
+   * What `/state` held before the panel's lists were fetched on their own, for apps from before
+   * that (the iOS app ships its own UI): every list, activities with their steps.
+   */
+  legacyState(): { activities: Activity[]; audit: AuditRecord[]; schedules: AssistantSchedule[] } {
+    return { activities: this.storage.assistantActivityList(PAGE_SIZE), audit: this.auditRecords(), schedules: this.scheduleList() }
+  }
+
+  /** The Activity tab. */
+  activities(): ActivitySummary[] {
+    return this.storage.assistantActivitySummaries({ limit: PAGE_SIZE })
+  }
+
+  /** One activity whole: its steps and write-up, for when it is opened. */
+  activity(id: string): Activity | null {
+    return this.storage.assistantActivityGet(id)
+  }
+
+  /** The Audit tab, newest first. */
+  auditRecords(): AuditRecord[] {
+    return this.storage.assistantAuditList(PAGE_SIZE)
+  }
+
+  /** The Schedule tab, heartbeat first. */
+  scheduleList(): AssistantSchedule[] {
+    return this.withSignInState(this.schedules.list())
   }
 
   /** First open, nobody named yet: the assistant speaks first. Once per process. */

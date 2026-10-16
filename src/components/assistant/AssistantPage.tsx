@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { AlertCircle, Loader2, PanelLeft, Settings } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
@@ -9,7 +9,7 @@ import { FileOpenProvider } from "@/lib/file-open-context"
 import { openPluginsPage, openSettingsTab } from "@/lib/open-settings"
 import { useAssistantStore } from "@/stores/assistant-store"
 import { AssistantChat } from "./AssistantChat"
-import { AssistantSidePanel, type SidePanelTab } from "./AssistantSidePanel"
+import { AssistantSidePanel, PanelTabLoading, usePanelTabReady, type SidePanelTab } from "./AssistantSidePanel"
 import { ActivityDrawer } from "./ActivityDrawer"
 import { ActivityTab } from "./ActivityTab"
 import { AssistantFileDrawer, assistantFile, useAssistantFileOpener, type OpenAssistantFile } from "./AssistantFileDrawer"
@@ -20,7 +20,7 @@ import { ProfileFileDrawer } from "./ProfileFileDrawer"
 import { ScheduleTab } from "./ScheduleTab"
 import { parseIdentity } from "./shared"
 import { blockerText } from "./assistant-i18n"
-import type { Activity, ProfileFileName } from "./types"
+import type { ActivitySummary, ProfileFileName } from "./types"
 
 /** A conversation in one of the user's workspaces, to open in its tab. */
 export interface ChatTarget {
@@ -32,7 +32,7 @@ export interface ChatTarget {
 }
 
 /** Where a coding agent's activity leads: its conversation. */
-export function chatTargetOf(activity: Activity): ChatTarget | undefined {
+export function chatTargetOf(activity: ActivitySummary): ChatTarget | undefined {
   const c = activity.coding
   return c ? { chatId: c.chatId, workspaceId: c.workspaceId, title: activity.title, subAgent: true } : undefined
 }
@@ -85,10 +85,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
   const identity = parseIdentity(files.find((f) => f.name === "identity")?.content ?? "")
   const assistantName = identity.name ?? intl.formatMessage({ id: "assistant.defaultName", defaultMessage: "Assistant" })
   const busyCount = activities.filter((a) => a.status === "running" || a.status === "waiting").length
-  const selectedActivity = useMemo(
-    () => activities.find((a) => a.id === selectedActivityId) ?? null,
-    [activities, selectedActivityId],
-  )
+  const tabReady = usePanelTabReady(tab)
 
   const openActivity = (id: string) => {
     setOpenFile(null)
@@ -118,7 +115,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
     [decide],
   )
   const openCoding = useCallback(
-    (activity: Activity) => {
+    (activity: ActivitySummary) => {
       const target = chatTargetOf(activity)
       if (target) onOpenChat(target)
     },
@@ -211,7 +208,8 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
               onEditIdentity={() => openProfileFile("identity")}
               headerAction={tab === "files" && filesDir ? <RevealFolderButton dir={filesDir} /> : undefined}
             >
-              {tab === "activity" && (
+              {!tabReady && <PanelTabLoading />}
+              {tab === "activity" && tabReady && (
                 <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
               )}
               {tab === "files" && (
@@ -222,10 +220,10 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
                   onDir={setFilesDir}
                 />
               )}
-              {tab === "audit" && (
+              {tab === "audit" && tabReady && (
                 <AuditTab records={audit} />
               )}
-              {tab === "schedule" && (
+              {tab === "schedule" && tabReady && (
                 <ScheduleTab
                   schedules={schedules}
                   quietStart={config.quietStart}
@@ -250,7 +248,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
           </aside>
 
           <ActivityDrawer
-            activity={selectedActivity}
+            activityId={selectedActivityId}
             onClose={() => setSelectedActivityId(null)}
             onStop={(id) => void stopActivity(id).catch(reportError)}
             onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}

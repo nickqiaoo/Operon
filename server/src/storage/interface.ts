@@ -1,4 +1,4 @@
-import type { Activity, AssistantMessage, AssistantScheduleRun, AuditRecord } from '../../../shared/assistant.js'
+import type { Activity, ActivitySummary, AssistantMessage, AssistantScheduleRun, AuditRecord } from '../../../shared/assistant.js'
 import type { ChatHistoryEntry, ChatHistoryListItem, ChatHistoryPatchInput, ChatHistoryPatchResult, ChatMeta } from '../types/chat.js'
 import type { CronjobExecutionHistoryItem, CronjobTask } from '../types/cronjob.js'
 import type {
@@ -407,6 +407,11 @@ export interface AssistantStorageAdapter {
   assistantActivityGet(id: string): Activity | null
   /** Newest first. */
   assistantActivityList(limit: number): Activity[]
+  /**
+   * Without steps or report, newest first: the newest `limit`, or those with these ids plus
+   * (`live`) every one still running or waiting.
+   */
+  assistantActivitySummaries(query: { limit: number } | { ids: readonly string[]; live: boolean }): ActivitySummary[]
   assistantAuditInsert(record: AuditRecord): void
   /** Newest first. */
   assistantAuditList(limit: number): AuditRecord[]

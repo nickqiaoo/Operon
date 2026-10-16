@@ -12,8 +12,8 @@ import { useNativeShellOverlay } from "@/hooks/useNativeShellOverlay"
 import { NativeShell } from "@/lib/native"
 import { SettingsPage } from "@/components/settings/SettingsPage"
 import { AssistantChat } from "@/components/assistant/AssistantChat"
-import { AssistantSidePanel, type SidePanelTab } from "@/components/assistant/AssistantSidePanel"
-import { ActivityDetail } from "@/components/assistant/ActivityDrawer"
+import { AssistantSidePanel, PanelTabLoading, usePanelTabReady, type SidePanelTab } from "@/components/assistant/AssistantSidePanel"
+import { ActivityDetailById } from "@/components/assistant/ActivityDrawer"
 import { ActivityTab } from "@/components/assistant/ActivityTab"
 import { AssistantFileView, assistantFile, useAssistantFileOpener, type OpenAssistantFile } from "@/components/assistant/AssistantFileDrawer"
 import { FilesTab } from "@/components/assistant/FilesTab"
@@ -26,7 +26,7 @@ import { ScheduleTab } from "@/components/assistant/ScheduleTab"
 import { DetentSheet } from "./DetentSheet"
 import { parseIdentity } from "@/components/assistant/shared"
 import { blockerText, busyLabel } from "@/components/assistant/assistant-i18n"
-import type { Activity, ProfileFileName } from "@/components/assistant/types"
+import type { ActivitySummary, ProfileFileName } from "@/components/assistant/types"
 import { chatTargetOf, type ChatTarget } from "@/components/assistant/AssistantPage"
 
 /** A page pushed over the thread (an activity: a sheet). Only the top one is shown. */
@@ -125,7 +125,7 @@ export function MobileAssistantScreen({
   const openFileRef = useAssistantFileOpener(useCallback((file: OpenAssistantFile) => push({ kind: "workspaceFile", file }), [push]))
   const filesRefreshKey = `${messages.length}|${typing}|${activities.map((a) => a.status).join(",")}`
   const openCoding = useCallback(
-    (activity: Activity) => {
+    (activity: ActivitySummary) => {
       const target = chatTargetOf(activity)
       if (target) onOpenChat(target)
     },
@@ -138,6 +138,9 @@ export function MobileAssistantScreen({
     },
     [push],
   )
+
+  // The panel's lists load when it is opened on their tab, not with the thread.
+  const tabReady = usePanelTabReady(layers.some(({ layer }) => layer.kind === "panel") ? panelTab : null)
 
   // Android back / the iOS top bar's back pops one page at a time.
   useBackHandler(layers.length > 0, pop)
@@ -198,7 +201,8 @@ export function MobileAssistantScreen({
               onEditIdentity={() => push({ kind: "file", name: "identity" })}
               onClose={pop}
             >
-              {panelTab === "activity" && (
+              {!tabReady && <PanelTabLoading />}
+              {panelTab === "activity" && tabReady && (
                 <ActivityTab
                   large
                   activities={activities}
@@ -214,8 +218,8 @@ export function MobileAssistantScreen({
                   refreshKey={filesRefreshKey}
                 />
               )}
-              {panelTab === "audit" && <AuditTab records={audit} />}
-              {panelTab === "schedule" && (
+              {panelTab === "audit" && tabReady && <AuditTab records={audit} />}
+              {panelTab === "schedule" && tabReady && (
                 <ScheduleTab
                   schedules={schedules}
                   quietStart={config.quietStart}
@@ -242,21 +246,18 @@ export function MobileAssistantScreen({
             </AssistantSidePanel>
           </div>
         )
-      case "activity": {
-        const activity = activities.find((a) => a.id === layer.id)
-        return activity ? (
-          <ActivityDetail
-            activity={activity}
+      case "activity":
+        return (
+          <ActivityDetailById
+            id={layer.id}
             layout="stacked"
             onClose={pop}
             onStop={(id) => void stopActivity(id).catch(reportError)}
             onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}
             onOpenCoding={openCoding}
+            missing={<LayerMissing />}
           />
-        ) : (
-          <LayerMissing />
         )
-      }
       case "workspaceFile":
         return <AssistantFileView file={layer.file} />
       case "file": {

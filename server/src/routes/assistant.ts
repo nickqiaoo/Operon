@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AssistantConfig } from '../../../shared/assistant.js'
 import type { AssistantStorageAdapter, StorageAdapter } from '../storage/interface.js'
@@ -28,8 +28,12 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     }
   }, 5_000).unref?.()
 
-  // Registered first so 'stream' is never read as a path argument.
-  router.get('/stream', (c) =>
+  /**
+   * `lean` (v2): an activity's event carries no steps — whoever has it open fetches them. The
+   * unversioned route is for apps from before that (the iOS app ships its own copy of the UI and
+   * updates on its own schedule): whole activities, as they expect.
+   */
+  const streamEvents = (lean: boolean) => (c: Context) =>
     streamSSE(c, async (stream) => {
       let closed = false
       stream.onAbort(() => {
@@ -37,13 +41,20 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
       })
       const unsubscribe = runtime().subscribe((event) => {
         if (!closed) stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {})
-      })
+      }, lean)
       while (!closed) await new Promise<void>((resolve) => setTimeout(resolve, 1000))
       unsubscribe()
-    }),
-  )
+    })
 
-  router.get('/state', async (c) => c.json(await runtime().state(c.req.query('locale'))))
+  // Registered first so 'stream' is never read as a path argument.
+  router.get('/v2/stream', streamEvents(true))
+  router.get('/stream', streamEvents(false))
+
+  /** v2: the thread only. The side panel's lists and an activity's steps have endpoints of their own. */
+  router.get('/v2/state', async (c) => c.json(await runtime().state(c.req.query('locale'))))
+
+  /** Apps from before v2: every list in here too, activities with their steps. */
+  router.get('/state', async (c) => c.json({ ...(await runtime().state(c.req.query('locale'))), ...runtime().legacyState() }))
 
   router.get('/messages', (c) => {
     const before = Number(c.req.query('before'))
@@ -62,6 +73,17 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     const id = typeof body.id === 'string' && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : undefined
     return c.json({ message: await runtime().send(text, attachments, id) })
   })
+
+  router.get('/activities', (c) => c.json({ activities: runtime().activities() }))
+
+  router.get('/activities/:id', (c) => {
+    const activity = runtime().activity(c.req.param('id'))
+    return activity ? c.json({ activity }) : c.json({ error: 'not found' }, 404)
+  })
+
+  router.get('/audit', (c) => c.json({ audit: runtime().auditRecords() }))
+
+  router.get('/schedules', (c) => c.json({ schedules: runtime().scheduleList() }))
 
   router.post('/activities/:id/stop', async (c) => c.json({ stopped: await runtime().stopActivity(c.req.param('id')) }))
 

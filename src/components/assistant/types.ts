@@ -2,6 +2,7 @@
 export type {
   Activity,
   ActivityStatus,
+  ActivitySummary,
   ActivityStep,
   ApprovalDecision,
   ApprovalIcon,
