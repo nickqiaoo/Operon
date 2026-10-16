@@ -4,7 +4,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
 import { Layers } from 'lucide-react';
-import { AgentPanel } from './agent/AgentPanel';
+import { AgentPanel, SESSION_PANEL_PAD_CLASS } from './agent/AgentPanel';
 import { skillsList } from './agent/agentControl';
 import {
   Queue,
@@ -103,6 +103,7 @@ import { ClaudeRateLimitsButton, MobileClaudeRateLimits } from './components/Cla
 import { useChatNotifications } from '@/hooks/useNotification';
 import { useVisibleChatInboxRead } from '@/hooks/useVisibleChatInboxRead';
 import { cn } from '@/lib/utils';
+import { useSessionPanelStore } from '@/stores/session-panel-store';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import {
   getRecentChatOptions,
@@ -526,7 +527,6 @@ function ChatPanelContent({
   const [compactLoading, setCompactLoading] = useState(false);
   const contextCompaction = extractContextCompaction(messages[messages.length - 1]);
   const isCompacting = compactLoading || contextCompaction?.status === 'in_progress';
-  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
   // Operon skills surfaced into the composer's `/` menu (same slash-command flow
   // as built-ins). Lazily fetched the first time a slash command is started.
   const [operonSkillCommands, setOperonSkillCommands] = useState<SlashCommandItem[]>([]);
@@ -544,9 +544,17 @@ function ChatPanelContent({
           ? 'opencode'
           : undefined;
 
+  // The Session cards are toggled from the window's top bar (TopBarControls), which
+  // only offers the button while the visible chat has claimed it.
+  const sessionPanelOpen = useSessionPanelStore((s) => s.open);
+  const setSessionPanelOpen = useSessionPanelStore((s) => s.setOpen);
+  const agentPanelOpen = sessionPanelOpen && visible && sessionPanelProviderId != null;
   useEffect(() => {
-    if (!sessionPanelProviderId) setAgentPanelOpen(false);
-  }, [sessionPanelProviderId]);
+    if (!visible || !sessionPanelProviderId) return;
+    const { claim, release } = useSessionPanelStore.getState();
+    claim(chatId);
+    return () => release(chatId);
+  }, [visible, sessionPanelProviderId, chatId]);
 
   // Reset the skill cache when switching chats or away from operon.
   useEffect(() => {
@@ -671,7 +679,10 @@ function ChatPanelContent({
     messagesLength: messages.length,
     sendMessage,
     setInput,
-    firstUserTitle,
+    // A sub-agent tab opens as "Agent: <task>"; its first message is the
+    // parent's long dispatch prompt ("Work in /path… You are the PLANNER…"),
+    // which made every child tab read the same.
+    firstUserTitle: tab?.isSubAgent ? null : firstUserTitle,
     updateTabTitle,
   });
 
@@ -924,7 +935,16 @@ function ChatPanelContent({
   }, [chatId]);
 
   return (
-    <div ref={transcriptRef} className="h-full flex flex-col relative">
+    <div
+      ref={transcriptRef}
+      className={cn(
+        "h-full flex flex-col relative",
+        // Desktop: the session cards get a column of their own and the chat (composer
+        // included) slides over to make room, in step with the cards sliding in.
+        !isMobile && "transition-[padding-right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        !isMobile && agentPanelOpen && SESSION_PANEL_PAD_CLASS,
+      )}
+    >
       <RewindConfirmDialog
         open={rewindDialogOpen}
         mode={rewindMode}
@@ -1118,12 +1138,13 @@ function ChatPanelContent({
               : "@container mb-2 min-w-0 flex-nowrap items-center justify-end"
           )}
         >
-          {sessionPanelProviderId ? (
+          {/* Phones keep the pill above the composer; desktop opens it from the window's top bar. */}
+          {isMobile && sessionPanelProviderId ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setAgentPanelOpen(true)}
+              onClick={() => setSessionPanelOpen(true)}
               className="h-8 shrink-0 gap-1.5 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-muted/40 @max-[560px]:size-8 @max-[560px]:gap-0 @max-[560px]:px-0"
               aria-label={intl.formatMessage({ id: 'editor.agentPanel.open', defaultMessage: 'Session panel' })}
             >
@@ -1274,12 +1295,13 @@ function ChatPanelContent({
         open={agentPanelOpen}
         chatId={tab?.chatId ?? dbChatIdRef.current}
         providerId={sessionPanelProviderId}
-        onClose={() => setAgentPanelOpen(false)}
+        variant={isMobile ? 'overlay' : 'inline'}
+        onClose={() => setSessionPanelOpen(false)}
         // A skill picked in the panel arrives as a chip in the composer — the same state a
         // `/` pick produces — rather than as text or as a message sent on your behalf.
         onUseSkill={(skill) => {
           setPendingSkill({ type: 'skill', name: skill.name, description: skill.description })
-          setAgentPanelOpen(false)
+          setSessionPanelOpen(false)
         }}
       />
       {isMobile && dbChatId !== undefined && reviewCwd && mobileReviewMessageUid ? (

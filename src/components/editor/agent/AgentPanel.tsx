@@ -4,10 +4,10 @@ import {
   ChevronRight,
   Clock,
   ExternalLink,
-  Layers,
   Loader2,
   MessageSquare,
   Plug,
+  Plus,
   Power,
   PowerOff,
   Puzzle,
@@ -51,7 +51,19 @@ interface AgentPanelProps {
   onClose: () => void
   /** Add a skill to the composer as a chip — how a skill row hands itself over. */
   onUseSkill?: (skill: OperonSkillDTO) => void
+  /**
+   * `inline` (desktop): a column of cards the chat makes room for, toggled from the
+   * chat's top-right button. `overlay` (phone): slides over the chat with its own close.
+   */
+  variant?: 'inline' | 'overlay'
 }
+
+/** The inline column's width — ChatPanel pads the chat by the same amount to make room. */
+export const SESSION_PANEL_WIDTH_CLASS = 'w-[344px]'
+export const SESSION_PANEL_PAD_CLASS = 'pr-[344px]'
+
+// Every card in the column: the resting-card tier (border /60 + shadow-card).
+const CARD = 'rounded-xl border border-border/60 bg-popover shadow-card dark:border-border/35'
 
 // Keep this in sync with the panel `duration-300` below — it's how long we wait
 // after close before unmounting, so the slide-out can finish.
@@ -76,7 +88,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
 }
 
 /**
- * Right-side slide-over reading out what this operon session currently has
+ * Right-side column of cards reading out what this operon session currently has
  * loaded and how it's doing — MCP servers and their connection state, available
  * skills, background tasks, subagents, schedules, plugins.
  *
@@ -86,7 +98,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
  * meant to keep it up while the agent works. Everything goes through
  * `POST /api/ai/agent-control` via `agentControl.ts`.
  */
-export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill }: AgentPanelProps) {
+export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline' }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -188,31 +200,76 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill }: Ag
 
   if (!render) return null
 
-  return (
-    // Non-modal: no scrim, and the wrapper lets clicks through so the chat
-    // underneath stays usable while you watch the session.
-    <div className="pointer-events-none absolute inset-0 z-30">
-      <div
-        className={cn(
-          'pointer-events-auto absolute right-0 top-0 flex h-full w-[400px] max-w-[88vw] flex-col border-l border-border/50 bg-sidebar shadow-drawer',
-          'transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform',
-          active ? 'translate-x-0' : 'translate-x-full',
+  const overview = (
+    // The overview card replaces the old title bar + summary strip: what the session
+    // is and whether anything is wrong, readable without expanding a thing.
+    <section className={cn(CARD, 'shrink-0 px-3 py-2.5')}>
+      {/* No icon: the top-bar button that opened it already says what this is. */}
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-[13px] font-semibold tracking-tight"><FormattedMessage id="editor.session.title" defaultMessage="Session" /></span>
+        {!noSession && !skillDetail && (
+          <IconButton onClick={reloadAll} disabled={refreshing} label={intl.formatMessage({ id: 'editor.session.refresh', defaultMessage: 'Refresh session state' })}>
+            {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          </IconButton>
         )}
-      >
-        <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
-          <Layers className="h-3.5 w-3.5 text-muted-foreground/70" />
-          <span className="flex-1 text-[13px] font-semibold tracking-tight"><FormattedMessage id="editor.session.title" defaultMessage="Session" /></span>
-          {!noSession && (
-            <IconButton onClick={reloadAll} disabled={refreshing} label={intl.formatMessage({ id: 'editor.session.refresh', defaultMessage: 'Refresh session state' })}>
-              {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            </IconButton>
-          )}
+        {/* Inline, the top-bar button closes it; the phone's overlay has no top bar. */}
+        {variant === 'overlay' && (
           <IconButton onClick={onClose} label={intl.formatMessage({ id: 'editor.session.close', defaultMessage: 'Close session panel' })}>
             <X className="h-4 w-4" />
           </IconButton>
+        )}
+      </div>
+      {noSession ? (
+        <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          <div className="font-medium text-foreground/80"><FormattedMessage id="editor.session.none" defaultMessage="No active session" /></div>
+          <FormattedMessage
+            id="editor.session.noneHint"
+            defaultMessage="Send a message to start one — its MCP servers, skills and running work show up here."
+          />
         </div>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          {!anySettled ? (
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> <FormattedMessage id="editor.session.loading" defaultMessage="Loading session…" />
+            </span>
+          ) : (
+            <>
+              <Stat dot={servers.length === 0 ? 'bg-muted-foreground/40' : mcpProblems > 0 ? 'bg-status-warn' : 'bg-status-ok/70'}>
+                {mcpConnected}/{servers.length} MCP
+              </Stat>
+              {fullSessionInspector ? (
+                <>
+                  <Stat><FormattedMessage id="editor.session.stat.skills" defaultMessage="{count, plural, one {# skill} other {# skills}}" values={{ count: skillList.length }} /></Stat>
+                  {runningTasks > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.running" defaultMessage="{count} running" values={{ count: runningTasks }} /></Stat>}
+                  {runningAgents > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.subagents" defaultMessage="{count, plural, one {# subagent} other {# subagents}}" values={{ count: runningAgents }} /></Stat>}
+                  {runningMembers > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.teammates" defaultMessage="{count, plural, one {# teammate} other {# teammates}} working" values={{ count: runningMembers }} /></Stat>}
+                  {teamPaused && <Stat dot="bg-status-warn"><FormattedMessage id="editor.session.stat.teamPaused" defaultMessage="team paused" /></Stat>}
+                  {cronList.length > 0 && <Stat dot="bg-muted-foreground/40"><FormattedMessage id="editor.session.stat.scheduled" defaultMessage="{count} scheduled" values={{ count: cronList.length }} /></Stat>}
+                  {mcpProblems + brokenPlugins + blockedMembers > 0 && (
+                    <Stat tone="danger" dot="bg-destructive">
+                      <FormattedMessage id="editor.session.stat.attention" defaultMessage="{count} need attention" values={{ count: mcpProblems + brokenPlugins + blockedMembers }} />
+                    </Stat>
+                  )}
+                </>
+              ) : mcpProblems > 0 ? (
+                <Stat tone="danger" dot="bg-destructive">
+                  <FormattedMessage id="editor.session.stat.attention" defaultMessage="{count} need attention" values={{ count: mcpProblems }} />
+                </Stat>
+              ) : null}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  )
 
-        {skillDetail ? (
+  const cards = (
+    <>
+      {overview}
+      {skillDetail ? (
+        // The skill's file gets the rest of the column as one card of its own.
+        <section className={cn(CARD, 'flex min-h-0 flex-1 flex-col overflow-hidden')}>
           <SkillDetail
             skill={skillDetail}
             onBack={() => setSkillDetail(null)}
@@ -221,90 +278,76 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill }: Ag
               setSkillDetail(null)
             }}
           />
-        ) : noSession ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-8 text-center">
-            <Layers className="h-5 w-5 text-muted-foreground/50" />
-            <div className="text-xs font-medium"><FormattedMessage id="editor.session.none" defaultMessage="No active session" /></div>
-            <div className="text-[11px] text-muted-foreground">
-              <FormattedMessage
-                id="editor.session.noneHint"
-                defaultMessage="Send a message to start one — its MCP servers, skills and running work show up here."
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Summary strip — the whole point of the panel, readable without expanding anything. */}
-            {/* Stays on `background` with the title bar above it — the muted surface
-                is reserved for section headers, so it reads as one level, not two. */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/40 px-3 py-2 text-xs">
-              {!anySettled ? (
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading session…
-                </span>
-              ) : (
-                <>
-                  <Stat dot={servers.length === 0 ? 'bg-muted-foreground/40' : mcpProblems > 0 ? 'bg-status-warn' : 'bg-status-ok/70'}>
-                    {mcpConnected}/{servers.length} MCP
-                  </Stat>
-                  {fullSessionInspector ? (
-                    <>
-                      <Stat><FormattedMessage id="editor.session.stat.skills" defaultMessage="{count, plural, one {# skill} other {# skills}}" values={{ count: skillList.length }} /></Stat>
-                      {runningTasks > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.running" defaultMessage="{count} running" values={{ count: runningTasks }} /></Stat>}
-                      {runningAgents > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.subagents" defaultMessage="{count, plural, one {# subagent} other {# subagents}}" values={{ count: runningAgents }} /></Stat>}
-                      {runningMembers > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.teammates" defaultMessage="{count, plural, one {# teammate} other {# teammates}} working" values={{ count: runningMembers }} /></Stat>}
-                      {teamPaused && <Stat dot="bg-status-warn"><FormattedMessage id="editor.session.stat.teamPaused" defaultMessage="team paused" /></Stat>}
-                      {cronList.length > 0 && <Stat dot="bg-muted-foreground/40"><FormattedMessage id="editor.session.stat.scheduled" defaultMessage="{count} scheduled" values={{ count: cronList.length }} /></Stat>}
-                      {mcpProblems + brokenPlugins + blockedMembers > 0 && (
-                        <Stat tone="danger" dot="bg-destructive">
-                          <FormattedMessage id="editor.session.stat.attention" defaultMessage="{count} need attention" values={{ count: mcpProblems + brokenPlugins + blockedMembers }} />
-                        </Stat>
-                      )}
-                    </>
-                  ) : mcpProblems > 0 ? (
-                    <Stat tone="danger" dot="bg-destructive">
-                      <FormattedMessage id="editor.session.stat.attention" defaultMessage="{count} need attention" values={{ count: mcpProblems }} />
-                    </Stat>
-                  ) : null}
-                </>
-              )}
-            </div>
+        </section>
+      ) : noSession ? null : (
+        <>
+          {/* NOW — what this session is doing. Sections with nothing in them are not
+              rendered at all: a card plus "nothing running" is a whole card spent
+              saying there is nothing to see, and three of those in a row (tasks,
+              subagents, schedules) is most of a screen. MCP is the exception — a
+              session's servers are worth a glance even when all is well. */}
+          {fullSessionInspector && <GroupHeader label={<FormattedMessage id="editor.session.now" defaultMessage="Now" />} />}
+          <McpSection
+            key={sessionKey}
+            chatId={id}
+            res={mcp}
+            canReconnect={providerId !== 'codex'}
+            canToggle={providerId === 'claude-code' || providerId === 'opencode'}
+          />
+          {fullSessionInspector ? (
+            <>
+              {/* Hide only once we KNOW it is empty — a card that vanishes the
+                  moment its first poll returns would flicker on every open. A team
+                  with no teammates yet still shows: the team itself is the news. */}
+              {(!peers.settled || (peers.data?.teams.length ?? 0) > 0) && <TeamSection res={peers} />}
+              {(!tasks.settled || taskList.length > 0) && <TasksSection chatId={id} res={tasks} />}
+              {(!subagents.settled || subagentList.length > 0) && <SubagentsSection res={subagents} />}
+              <CronSection chatId={id} res={cron} />
+              {/* CAPABILITIES — what it CAN do. Static, global, and mostly managed
+                  elsewhere, so it sits below the live half and starts collapsed. */}
+              <GroupHeader label={<FormattedMessage id="editor.session.capabilities" defaultMessage="Capabilities" />} />
+              <SkillsSection res={skills} onSelect={setSkillDetail} />
+              <PluginsSection res={plugins} />
+              <ExtensionsSection res={extensions} />
+            </>
+          ) : null}
+        </>
+      )}
+    </>
+  )
 
-            <div className="flex-1 overflow-y-auto">
-              {/* NOW — what this session is doing. Sections with nothing in them are not
-                  rendered at all: a header plus "nothing running" is a whole row spent
-                  saying there is nothing to see, and three of those in a row (tasks,
-                  subagents, schedules) is most of a screen. MCP is the exception — a
-                  session's servers are worth a glance even when all is well. */}
-              {fullSessionInspector && <GroupHeader label={<FormattedMessage id="editor.session.now" defaultMessage="Now" />} />}
-              <McpSection
-                key={sessionKey}
-                chatId={id}
-                res={mcp}
-                canReconnect={providerId !== 'codex'}
-                canToggle={providerId === 'claude-code' || providerId === 'opencode'}
-              />
-              {fullSessionInspector ? (
-                <>
-                  {/* Hide only once we KNOW it is empty — a section that vanishes the
-                      moment its first poll returns would flicker on every open. A team
-                      with no teammates yet still shows: the team itself is the news. */}
-                  {(!peers.settled || (peers.data?.teams.length ?? 0) > 0) && <TeamSection res={peers} />}
-                  {(!tasks.settled || taskList.length > 0) && <TasksSection chatId={id} res={tasks} />}
-                  {(!subagents.settled || subagentList.length > 0) && <SubagentsSection res={subagents} />}
-                  <CronSection chatId={id} res={cron} />
-                  {/* CAPABILITIES — what it CAN do. Static, global, and mostly managed
-                      elsewhere, so it sits below the live half and starts collapsed. */}
-                  <GroupHeader label={<FormattedMessage id="editor.session.capabilities" defaultMessage="Capabilities" />} />
-                  <SkillsSection res={skills} onSelect={setSkillDetail} />
-                  <PluginsSection res={plugins} />
-                  <ExtensionsSection res={extensions} />
-                </>
-              ) : null}
-            </div>
-          </>
-        )}
+  if (variant === 'overlay') {
+    return (
+      // Non-modal: no scrim, and the wrapper lets clicks through so the chat
+      // underneath stays usable while you watch the session.
+      <div className="pointer-events-none absolute inset-0 z-30">
+        <div
+          className={cn(
+            'pointer-events-auto absolute right-0 top-0 flex h-full w-[400px] max-w-[88vw] flex-col border-l border-border/50 bg-sidebar shadow-drawer',
+            'transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform',
+            active ? 'translate-x-0' : 'translate-x-full',
+          )}
+        >
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">{cards}</div>
+        </div>
       </div>
+    )
+  }
+
+  return (
+    // A column of separate cards on the chat's own background, not a drawer: no
+    // surface, no edge line. The chat makes room for it (`SESSION_PANEL_WIDTH`
+    // padding in ChatPanel), so nothing sits underneath and clicks never need to
+    // pass through. Opened and closed from the window's top bar (TopBarControls).
+    <div
+      className={cn(
+        'absolute inset-y-0 right-0 z-30 flex flex-col',
+        SESSION_PANEL_WIDTH_CLASS,
+        'transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform',
+        active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
+      )}
+    >
+      <div className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-3 pl-1 pr-3">{cards}</div>
     </div>
   )
 }
@@ -406,12 +449,13 @@ function Dot({ className }: { className: string }) {
 
 /**
  * A status dot parked in the row's left indent, so rows with one line up with rows
- * without. `w-0` keeps it out of the flex flow entirely; the dot itself is drawn to
- * the left of where the text starts.
+ * without. `w-0` takes no width, but it is still a flex item, so the row's `gap-2`
+ * would follow it and push the text 8px right of every dot-less row — `-mr-2` gives
+ * that gap back. The dot itself is drawn to the left of where the text starts.
  */
 function RowDot({ className }: { className: string | null }) {
   return (
-    <span className="relative w-0 shrink-0" aria-hidden>
+    <span className="relative -mr-2 w-0 shrink-0" aria-hidden>
       {className && <span className={cn('absolute -left-3.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full', className)} />}
     </span>
   )
@@ -464,7 +508,9 @@ function GroupHeader({ label }: { label: React.ReactNode }) {
     // Uppercase + letterspacing is what separates this tier from the section labels
     // below it, which are sentence-case and darker. Two tiers of grey uppercase text
     // would read as one.
-    <div className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/45">
+    // `px-3` is the cards' own padding, so the label, the overview title and every
+    // section icon start on one line.
+    <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/45">
       {label}
     </div>
   )
@@ -486,7 +532,8 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="pb-2">
+    // Each section is its own card; collapsed, the card is just its header.
+    <section className={cn(CARD, 'shrink-0')}>
       <div
         role="button"
         tabIndex={0}
@@ -499,21 +546,23 @@ function Section({
           }
         }}
         className={cn(
-          // No fill. A grey bar per section made the labels weigh as much as the
-          // content under them — eight identical bars down the column, each one
-          // competing with the rows it was supposed to introduce. The header earns
-          // its place by being SMALLER and quieter than the content instead, which
-          // is also why it can stay sticky without dominating: it reads as a margin
-          // note, not as a lid on a box. Fill is reserved for hover.
-          'sticky top-0 z-10 flex cursor-pointer select-none items-center gap-2 bg-sidebar px-3 py-1.5 transition-colors hover:bg-secondary-hover',
+          // No fill, not even on hover: the card's edge already frames the header,
+          // so a grey bar would be a second lid on the same box. The chevron is
+          // what answers the pointer.
+          'group/section flex h-9 cursor-pointer select-none items-center gap-1.5 rounded-xl px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
         )}
       >
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform', expanded && 'rotate-90')} />
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-        <span className="flex-1 truncate text-[13px] font-medium text-foreground/75">{title}</span>
+        <span className="flex-1 truncate text-[13px] font-semibold text-foreground/85">{title}</span>
         {badge}
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-[transform,color] group-hover/section:text-foreground',
+            expanded && 'rotate-90',
+          )}
+        />
       </div>
-      {expanded && children}
+      {expanded && <div className="pb-2">{children}</div>}
     </section>
   )
 }
@@ -523,7 +572,7 @@ function StateRow({ res, empty, emptyText }: { res: Resource<unknown>; empty: bo
   if (!res.settled)
     return (
       <div className={cn(INDENT, 'flex items-center gap-2 py-1.5 text-xs text-muted-foreground/70')}>
-        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> <FormattedMessage id="common.loading" defaultMessage="Loading…" />
       </div>
     )
   if (res.error)
@@ -537,7 +586,8 @@ function StateRow({ res, empty, emptyText }: { res: Resource<unknown>; empty: bo
   return null
 }
 
-// Rows indent to their header's icon, so nesting is visible before you read a word.
+// Rows indent to their header's title, so nesting is visible before you read a word:
+// 32px is the header's padding (12) + icon (14) + gap (6), so the two start on one line.
 //
 // No rule between rows. A divider per row plus a bordered header per section put a
 // line every ~28px down a 400px column, which reads as a table of contents for a
@@ -1031,7 +1081,8 @@ function CronSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: O
       expanded={expanded}
       onToggle={() => setExpanded((v) => !v)}
     >
-      <StateRow res={res} empty={tasks.length === 0} emptyText={<FormattedMessage id="editor.session.cronEmpty" defaultMessage="No scheduled runs." />} />
+      {/* No empty line: the 0 in the header and "New schedule" below already say it. */}
+      <StateRow res={res} empty={false} emptyText="" />
       <div className={ROWS}>
         {tasks.map((t) => (
           <div key={t.id} className={ROW}>
@@ -1046,8 +1097,8 @@ function CronSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: O
           </div>
         ))}
       </div>
-      <div className={cn(INDENT, 'pb-2 pt-1.5')}>
-        {adding ? (
+      {adding ? (
+        <div className={cn(INDENT, 'pb-1 pt-1.5')}>
           <div className="space-y-2">
             <Input
               value={cron}
@@ -1064,19 +1115,26 @@ function CronSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: O
             <div className="flex items-center gap-2">
               <Button size="sm" variant="secondary" className="h-7 gap-1.5 text-xs" onClick={create} disabled={busy || !cron.trim() || !prompt.trim()}>
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                Create
+                <FormattedMessage id="common.create" defaultMessage="Create" />
               </Button>
               <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => setAdding(false)}>
-                Cancel
+                <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
               </Button>
             </div>
           </div>
-        ) : (
-          <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => setAdding(true)}>
-            + New schedule
-          </Button>
-        )}
-      </div>
+        </div>
+      ) : (
+        // A text action on the row grid, like the sections' footer links: a filled
+        // button's own padding pushed its label off the column the rows read down.
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className={cn(INDENT, 'flex w-full items-center gap-1 py-1.5 text-left text-xs text-muted-foreground/70 hover:text-foreground')}
+        >
+          <Plus className="h-3 w-3" />
+          <FormattedMessage id="editor.session.newSchedule" defaultMessage="New schedule" />
+        </button>
+      )}
     </Section>
   )
 }
