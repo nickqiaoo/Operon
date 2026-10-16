@@ -6,6 +6,7 @@ import grokLogo from "@/assets/logos/grok.svg";
 import kimiLogo from "@/assets/logos/kimi.svg";
 import vercelLogo from "@/assets/logos/vercel.svg";
 import customLogo from "@/assets/logos/custom.svg";
+import endpointLogo from "@/assets/logos/endpoint.svg";
 
 import {
   Command,
@@ -196,6 +197,7 @@ const localLogos: Record<string, string> = {
   xai: grokLogo,
   vercel: vercelLogo,
   custom: customLogo,
+  endpoint: endpointLogo,
 };
 
 export const ModelSelectorLogo = ({

@@ -19,6 +19,7 @@ object ProviderLogos {
         "cursor" to R.drawable.ic_provider_cursor,
         "custom" to R.drawable.ic_provider_custom,
         "deepseek" to R.drawable.ic_provider_deepseek,
+        "endpoint" to R.drawable.ic_provider_endpoint,
         "google" to R.drawable.ic_provider_google,
         "grok" to R.drawable.ic_provider_grok,
         "kimi" to R.drawable.ic_provider_kimi,

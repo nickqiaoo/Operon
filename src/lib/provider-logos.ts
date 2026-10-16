@@ -10,6 +10,7 @@ import opencodeLogo from '@/assets/logos/opencode.svg';
 import vercelLogo from '@/assets/logos/vercel.svg';
 import openrouterLogo from '@/assets/logos/openrouter.svg';
 import customLogo from '@/assets/logos/custom.svg';
+import endpointLogo from '@/assets/logos/endpoint.svg';
 import copilotLogo from '@/assets/logos/copilot.svg';
 import cursorLogo from '@/assets/logos/cursor.svg';
 import antigravityLogo from '@/assets/logos/antigravity.svg';
@@ -33,6 +34,8 @@ const PROVIDER_LOGO_NAMES: Record<string, string> = {
   vercel: 'vercel',
   openrouter: 'openrouter',
   custom: 'custom',
+  // A user-added model provider (Settings → Providers → Custom).
+  endpoint: 'endpoint',
   // Agent/adapter ID aliases
   'claude-code': 'claude',
   gemini: 'google',
@@ -55,6 +58,7 @@ const LOGO_FILES: Record<string, string> = {
   vercel: vercelLogo,
   openrouter: openrouterLogo,
   custom: customLogo,
+  endpoint: endpointLogo,
   copilot: copilotLogo,
   cursor: cursorLogo,
   antigravity: antigravityLogo,

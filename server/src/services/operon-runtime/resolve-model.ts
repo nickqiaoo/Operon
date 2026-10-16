@@ -1,6 +1,7 @@
 import { ProviderManager, tryGetPiModel, type ChatModel, type ProviderType } from 'operon-agents-core'
 import type { EffortLevel } from '@operon/agent-runtime'
-import { getProviderConfig } from '../provider-config.js'
+import { getProviderConfig, type ProviderConfig } from '../provider-config.js'
+import { customProviderBaseUrl, type CustomProviderApi } from '../../../../shared/provider-config.js'
 
 // Thinking effort levels operon offers in the picker. Subset of pi's
 // ThinkingLevel ("minimal"|"low"|"medium"|"high"|"xhigh") that overlaps operon's
@@ -47,7 +48,15 @@ const PROVIDER_SHAPES: Record<string, ProviderShape> = {
   minimax: { type: 'openai', defaultBaseUrl: 'https://api.minimax.chat/v1' },
   grok: { type: 'openai', defaultBaseUrl: 'https://api.x.ai/v1' },
   openrouter: { type: 'openai', defaultBaseUrl: 'https://openrouter.ai/api/v1' },
+  vercel: { type: 'openai', defaultBaseUrl: 'https://ai-gateway.vercel.sh/v1' },
   ollama: { type: 'openai', defaultBaseUrl: 'http://localhost:11434/v1' },
+}
+
+/** A user-added provider's wire API → the framework family that speaks it. */
+const CUSTOM_PROVIDER_TYPES: Record<CustomProviderApi, ProviderType> = {
+  'anthropic-messages': 'anthropic',
+  'openai-completions': 'openai',
+  'openai-responses': 'openai_responses',
 }
 
 // operon provider id → pi KnownProvider for capability lookup. Providers that pi
@@ -62,6 +71,7 @@ const PI_PROVIDER_ALIAS: Record<string, string> = {
   minimax: 'minimax',
   grok: 'xai',
   openrouter: 'openrouter',
+  vercel: 'vercel-ai-gateway',
 }
 
 function splitModelId(modelId: string): { providerId: string; model: string } {
@@ -92,19 +102,26 @@ export function getModelCapabilities(modelId: string): ModelCapabilities {
   return { effortLevels: [], vision: true }
 }
 
-function isOpenRouterHost(baseUrl: string): boolean {
+/** Multi-vendor gateways whose `vendor/model` ids include Claude: operon provider id → host + pi catalog. */
+const GATEWAYS: Record<string, { host: string; piProvider: string }> = {
+  openrouter: { host: 'openrouter.ai', piProvider: 'openrouter' },
+  vercel: { host: 'ai-gateway.vercel.sh', piProvider: 'vercel-ai-gateway' },
+}
+
+function isOnHost(baseUrl: string, host: string): boolean {
   try {
-    const host = new URL(baseUrl).hostname
-    return host === 'openrouter.ai' || host.endsWith('.openrouter.ai')
+    const hostname = new URL(baseUrl).hostname
+    return hostname === host || hostname.endsWith(`.${host}`)
   } catch {
     return false
   }
 }
 
 /**
- * Claude models on OpenRouter go through its Anthropic Messages endpoint (`/api`), where
- * the framework's SearchTool defers MCP tools with native `tool_addition` blocks (Opus 4.8+,
- * Sonnet 5.5, …); the loaded set lives in our own transcript, so it survives every request.
+ * Claude models on a gateway go through its Anthropic Messages endpoint (OpenRouter `/api`,
+ * Vercel's root), where the framework's SearchTool defers MCP tools with native
+ * `tool_addition` blocks (Opus 4.8+, Sonnet 5.5, …); the loaded set lives in our own
+ * transcript, so it survives every request.
  *
  * Every other model stays on Chat Completions and gets every tool up front. OpenRouter's
  * Responses `openrouter:tool_search` is deliberately NOT used: what a search reveals lasts
@@ -114,10 +131,12 @@ function isOpenRouterHost(baseUrl: string): boolean {
  * `additional_tools` all leave the next request unchanged. GLM, DeepSeek and Grok have no
  * native mid-conversation tool additions to fall back on.
  *
- * The framework provider key must NOT be `openrouter`: ProviderManager would then base it
- * on pi's built-in openrouter catalog, whose known models keep their catalog dialect
- * (Chat Completions) whatever `type` says. A fresh key builds the model from `type`, so
- * the catalog's limits and reasoning flag are carried over by hand instead.
+ * The framework provider key of the Claude path must NOT be pi's catalog id: ProviderManager
+ * would then base it on pi's built-in catalog, whose known models keep their catalog dialect
+ * whatever `type` says. A fresh key builds the model from `type`, so the catalog's limits and
+ * reasoning flag are carried over by hand instead. The same goes the other way for Vercel:
+ * pi catalogs every Vercel model on Anthropic Messages, so its Chat Completions path uses the
+ * fresh key `vercel` and carries the limits over too.
  */
 function isClaude(model: string): boolean {
   return /^anthropic\/claude-/.test(model)
@@ -133,7 +152,33 @@ interface ResolvedProvider {
   capabilities: string[]
 }
 
-function resolveProvider(providerId: string, model: string, configuredBaseUrl: string | undefined): ResolvedProvider {
+type ModelLimits = Pick<ResolvedProvider, 'maxContextSize' | 'maxOutputSize' | 'capabilities'>
+
+function catalogLimits(piProvider: string, model: string, fallback: ModelLimits): ModelLimits {
+  const known = tryGetPiModel(piProvider, model)
+  if (!known) return fallback
+  return {
+    maxContextSize: known.contextWindow || fallback.maxContextSize,
+    maxOutputSize: known.maxTokens || fallback.maxOutputSize,
+    capabilities: [...(known.input?.includes('image') ? ['vision'] : []), ...(known.reasoning ? ['thinking'] : [])],
+  }
+}
+
+function resolveProvider(providerId: string, model: string, cfg: ProviderConfig): ResolvedProvider {
+  const configuredBaseUrl = cfg.baseUrl
+  // A user-added endpoint: its own key (nothing in pi's catalogs) and the conservative
+  // defaults below. Claude-named models on an Anthropic one still get native tool changes
+  // from the framework, which goes by the model id.
+  if (cfg.custom) {
+    return {
+      key: providerId,
+      type: CUSTOM_PROVIDER_TYPES[cfg.custom.api],
+      baseUrl: configuredBaseUrl ? customProviderBaseUrl(cfg.custom.api, configuredBaseUrl) : '',
+      maxContextSize: 200_000,
+      maxOutputSize: 16_384,
+      capabilities: ['vision'],
+    }
+  }
   const shape = PROVIDER_SHAPES[providerId] ?? {
     type: 'openai' as const,
     defaultBaseUrl: configuredBaseUrl ?? '',
@@ -147,31 +192,34 @@ function resolveProvider(providerId: string, model: string, configuredBaseUrl: s
     maxOutputSize: 16_384,
     capabilities: ['vision'],
   }
-  if (providerId !== 'openrouter' || !isOpenRouterHost(baseUrl) || !isClaude(model)) return fallback
+  const gateway = GATEWAYS[providerId]
+  if (!gateway || !isOnHost(baseUrl, gateway.host)) return fallback
 
-  const known = tryGetPiModel('openrouter', model)
-  return {
-    key: 'openrouter-anthropic',
-    type: 'anthropic',
-    baseUrl: baseUrl.replace(/\/+$/, '').replace(/\/v1$/, ''),
-    maxContextSize: known?.contextWindow || fallback.maxContextSize,
-    maxOutputSize: known?.maxTokens || fallback.maxOutputSize,
-    capabilities: known
-      ? [...(known.input?.includes('image') ? ['vision'] : []), ...(known.reasoning ? ['thinking'] : [])]
-      : fallback.capabilities,
+  if (isClaude(model)) {
+    return {
+      ...catalogLimits(gateway.piProvider, model, fallback),
+      key: `${providerId}-anthropic`,
+      type: 'anthropic',
+      baseUrl: baseUrl.replace(/\/+$/, '').replace(/\/v1$/, ''),
+    }
   }
+  // Registered under pi's own catalog id (OpenRouter), known models already carry their limits.
+  if (providerId === gateway.piProvider) return fallback
+  return { ...fallback, ...catalogLimits(gateway.piProvider, model, fallback) }
 }
 
 export async function resolveModel(modelId: string): Promise<ChatModel> {
   const { providerId, model } = splitModelId(modelId)
   const cfg = getProviderConfig(providerId)
-  const provider = resolveProvider(providerId, model, cfg.baseUrl)
+  const provider = resolveProvider(providerId, model, cfg)
+  // A self-hosted custom endpoint may take no key; pi's clients still want one to send.
+  const apiKey = cfg.apiKey || (cfg.custom ? 'unused' : undefined)
   const manager = new ProviderManager({
     config: {
       providers: {
         [provider.key]: {
           type: provider.type,
-          ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
+          ...(apiKey ? { apiKey } : {}),
           ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
         },
       },

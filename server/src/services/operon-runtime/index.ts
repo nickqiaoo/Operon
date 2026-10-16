@@ -3,7 +3,7 @@ import { mkdir, stat } from 'fs/promises'
 import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
-import { fetchProviderModels, getProviderConfigs, PROVIDER_META } from '../provider-config.js'
+import { fetchProviderModels, getProviderConfigs, getProviderMeta, isProviderUsable } from '../provider-config.js'
 import { defineProvider } from '@operon/agent-runtime'
 import type {
   Model,
@@ -142,8 +142,8 @@ function isProviderConfigured(modelId: string): boolean {
   if (!providerId) return false
   const config = getProviderConfigs()[providerId]
   if (!config) return false
-  // ollama is local — it needs no key, just an endpoint.
-  return providerId === 'ollama' || Boolean(config.apiKey)
+  // ollama and custom endpoints may need no key, just an address.
+  return isProviderUsable(providerId, config)
 }
 
 async function availableModels(): Promise<Model[]> {
@@ -152,8 +152,8 @@ async function availableModels(): Promise<Model[]> {
   await Promise.all(
     Object.entries(all).map(async ([providerId, config]) => {
       if (!config.enabled) return
-      if (!config.apiKey && providerId !== 'ollama') return
-      const meta = PROVIDER_META[providerId]
+      if (!isProviderUsable(providerId, config)) return
+      const meta = getProviderMeta(providerId)
       const seen = new Set<string>()
       const push = (model: { id: string; name: string; description?: string }) => {
         const id = `${providerId}/${model.id}`
@@ -163,8 +163,9 @@ async function availableModels(): Promise<Model[]> {
           ...model,
           id,
           providerId,
-          providerLabel: meta?.label ?? providerId,
-          providerLogo: providerId,
+          providerLabel: meta.label,
+          // `custom` is Operon's own agent; a user-added provider draws a generic endpoint.
+          providerLogo: config.custom ? 'endpoint' : providerId,
           supportedEffortLevels: getModelCapabilities(id).effortLevels,
         })
       }

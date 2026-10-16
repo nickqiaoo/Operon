@@ -1,4 +1,5 @@
 import type { StorageAdapter } from '../storage/interface.js'
+import { customProviderBaseUrl, type CustomProviderInfo } from '../../../shared/provider-config.js'
 
 const KV_KEY = 'ai:provider_configs'
 
@@ -12,6 +13,8 @@ export interface ProviderConfig {
    * select a model without a successful live fetch.
    */
   manualModels?: string[]
+  /** Set on user-added providers only (`custom-*`): their name and wire API. */
+  custom?: CustomProviderInfo
 }
 
 /** Trim, drop blanks, and dedupe a hand-entered model-id list (order preserved). */
@@ -53,6 +56,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   minimax:   { label: 'MiniMax',  defaultBaseUrl: 'https://api.minimax.chat/v1', logo: 'minimax' },
   grok:      { label: 'Grok',     defaultBaseUrl: 'https://api.x.ai',            logo: 'xai' },
   openrouter:{ label: 'OpenRouter', defaultBaseUrl: 'https://openrouter.ai/api', logo: 'openrouter' },
+  vercel:    { label: 'Vercel AI Gateway', defaultBaseUrl: 'https://ai-gateway.vercel.sh', logo: 'vercel' },
   ollama:    { label: 'Ollama',     defaultBaseUrl: 'http://localhost:11434',      logo: 'ollama' },
 }
 
@@ -86,7 +90,15 @@ export function deleteProviderConfig(providerId: string): void {
 }
 
 export function getProviderMeta(providerId: string): ProviderMeta {
+  const custom = getProviderConfig(providerId).custom
+  if (custom) return { label: custom.name, defaultBaseUrl: '', logo: 'endpoint' }
   return PROVIDER_META[providerId] ?? { label: providerId, defaultBaseUrl: '', logo: '' }
+}
+
+/** A provider is usable once it has its credential: a key, or for local and custom endpoints, an address. */
+export function isProviderUsable(providerId: string, config: ProviderConfig): boolean {
+  if (config.custom) return Boolean(config.baseUrl)
+  return providerId === 'ollama' || Boolean(config.apiKey)
 }
 
 function normalizeProviderConfig(config: ProviderConfig): ProviderConfig {
@@ -94,6 +106,7 @@ function normalizeProviderConfig(config: ProviderConfig): ProviderConfig {
     apiKey: config.apiKey?.trim() || undefined,
     baseUrl: config.baseUrl?.trim() || undefined,
     enabled: config.enabled,
+    custom: config.custom,
   }
 }
 
@@ -113,6 +126,15 @@ export async function fetchProviderModels(
     return fetchOllamaModels(config.baseUrl)
   }
 
+  if (config.custom) {
+    // A key is optional here: a self-hosted endpoint often has none.
+    if (!config.baseUrl) throw new Error(`No base URL configured for ${config.custom.name}`)
+    const base = customProviderBaseUrl(config.custom.api, config.baseUrl)
+    return config.custom.api === 'anthropic-messages'
+      ? fetchAnthropicModels(apiKey ?? '', base)
+      : listOpenAiCompatibleModels(`${base}/models`, apiKey ?? '', config.custom.name)
+  }
+
   if (!apiKey) {
     throw new Error(`No API key configured for provider: ${providerId}`)
   }
@@ -127,6 +149,7 @@ export async function fetchProviderModels(
     case 'minimax':   return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.minimax.chat/v1', 'minimax')
     case 'grok':      return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.x.ai', 'grok')
     case 'openrouter': return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://openrouter.ai/api', 'openrouter')
+    case 'vercel':    return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://ai-gateway.vercel.sh', 'vercel')
     default:
       throw new Error(`Unknown provider: ${providerId}`)
   }
@@ -140,7 +163,7 @@ async function fetchAnthropicModels(apiKey: string, baseUrl?: string): Promise<P
   const base = (baseUrl || 'https://api.anthropic.com').replace(/\/$/, '')
   const res = await fetch(`${base}/v1/models`, {
     headers: {
-      'x-api-key': apiKey,
+      ...(apiKey ? { 'x-api-key': apiKey } : {}),
       'anthropic-version': '2023-06-01',
     },
   })
@@ -211,15 +234,26 @@ async function fetchOpenAiCompatibleModels(
   const base = baseUrl.replace(/\/$/, '')
   // Some providers include /v1 in their base, others don't
   const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`
+  return listOpenAiCompatibleModels(modelsUrl, apiKey, providerLabel)
+}
+
+/** `GET /models` in the OpenAI shape, sorted by id. No key, no `Authorization` header. */
+async function listOpenAiCompatibleModels(
+  modelsUrl: string,
+  apiKey: string,
+  providerLabel: string,
+): Promise<ProviderModel[]> {
   const res = await fetch(modelsUrl, {
-    headers: { 'Authorization': `Bearer ${apiKey}` },
+    headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
   })
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`${providerLabel} API error ${res.status}: ${body}`)
   }
-  const data = await res.json() as { data: Array<{ id: string }> }
+  // Vercel AI Gateway also lists embedding, image, video, speech… models; others send no `type`.
+  const data = await res.json() as { data: Array<{ id: string; type?: string }> }
   return (data.data ?? [])
+    .filter((m) => m.type === undefined || m.type === 'language')
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((m) => ({ id: m.id, name: m.id }))
 }

@@ -1,4 +1,5 @@
 import type { SubagentTranscript } from '@shared/background-tasks'
+import type { CustomProviderInfo } from '@shared/provider-config'
 import * as httpClient from './api-client.js'
 import { apiAuthHeaders, asRecord, getBaseUrl, request, withApiTokenQuery } from './api-client.js'
 import * as terminalWs from './terminal-ws.js'
@@ -564,10 +565,13 @@ export const api = {
 
   // --- Provider Configs (HTTP) ---
   providerConfigGetAll: () =>
-    get<{ configs: Record<string, { hasApiKey: boolean; apiKey?: string; baseUrl?: string; enabled: boolean; manualModels?: string[] }> }>('/provider-configs'),
-  providerConfigSave: (providerId: string, config: { apiKey?: string; baseUrl?: string; enabled?: boolean; manualModels?: string[] }) =>
+    get<{ configs: Record<string, { hasApiKey: boolean; apiKey?: string; baseUrl?: string; enabled: boolean; manualModels?: string[]; custom?: CustomProviderInfo }> }>('/provider-configs'),
+  providerConfigSave: (providerId: string, config: { apiKey?: string; baseUrl?: string; enabled?: boolean; manualModels?: string[]; custom?: CustomProviderInfo }) =>
     put<{ success: boolean }>(`/provider-configs/${encodeURIComponent(providerId)}`, config),
-  providerConfigFetchModels: (providerId: string, config?: { apiKey?: string; baseUrl?: string }) =>
+  /** Only `custom-*` providers can be removed. */
+  providerConfigDelete: (providerId: string) =>
+    del<{ success: boolean }>(`/provider-configs/${encodeURIComponent(providerId)}`),
+  providerConfigFetchModels: (providerId: string, config?: { apiKey?: string; baseUrl?: string; custom?: CustomProviderInfo }) =>
     softPost<{ models?: Array<{ id: string; name: string; description?: string }>; error?: string }>(
       `/provider-configs/${encodeURIComponent(providerId)}/models`,
       config ?? {}
