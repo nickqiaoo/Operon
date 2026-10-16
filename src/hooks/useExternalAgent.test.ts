@@ -18,3 +18,16 @@ describe('ExternalAgent chat links', () => {
       .toMatchObject({ agentId: 'ext-17', dbChatId: 17, status: 'cancelled' })
   })
 })
+
+describe('parseExternalAgentRun with a Codex MCP wrapper', () => {
+  it('reads the run inside { server, tool, status, result }', () => {
+    const inner = { task_id: 't1', agent_id: 'ext-20', chat_id: 20, agent_type: 'opencode', description: 'Plan', model: 'default', status: 'running' }
+    const part = {
+      type: 'dynamic-tool',
+      toolName: 'mcp__external_agent__external_agent_run',
+      state: 'output-available',
+      output: { server: 'external_agent', tool: 'external_agent_run', status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify(inner) }] } },
+    } as unknown as Parameters<typeof parseExternalAgentRun>[0]
+    expect(parseExternalAgentRun(part)).toMatchObject({ taskId: 't1', agentId: 'ext-20', childChatId: 20, agentType: 'opencode' })
+  })
+})

@@ -24,7 +24,6 @@ import { WorkflowResultMessage, isWorkflowResultMessage } from './WorkflowResult
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import {
   ExternalAgentToolRenderer,
-  ExternalAgentResultRenderer,
   extractExternalAgentTaskId,
   type ExternalAgentResultMetadata,
   isExternalAgentTool,
@@ -458,9 +457,12 @@ export function MessagePartRenderer({
     );
   }
 
-  // Compact rendering for external agent result notifications
+  // An external agent's result is how its answer reaches the model; the agent's
+  // own card already shows it finished (and links to it), so a second
+  // "completed" strip under it only repeats that. chat-derived still reads the
+  // message to link the card to the child conversation.
   if (message.role === 'user' && isExternalAgentResultMessage(displayText)) {
-    return <ExternalAgentResultRenderer key={`${message.id}-${partIndex}`} text={displayText} />;
+    return null;
   }
 
   // A workflow result the node delivered. It is a user-role message because that

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CircleAlert, ExternalLinkIcon, Loader2 } from 'lucide-react'
+import { ArrowUpRight, CircleAlert, ExternalLinkIcon, Loader2 } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { needsConversationToAnswer, type PendingInputSummary } from '@shared/pending-input'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,10 @@ import { useEditorStore } from '@/stores/editor-store'
 import { useExternalAgentsStore } from '@/stores/external-agents-store'
 import { parseExternalAgentRun } from '@/hooks/useExternalAgent'
 import type { UIMessage } from 'ai'
+import type { ActivityStatus } from '@shared/assistant'
+import { codingAgentName } from '@/components/assistant/CodingAgentCard'
+import { ActivityStatusBadge } from '@/components/assistant/shared'
+import { AgentAvatar } from '@/components/icons/AgentAvatar'
 
 /**
  * Check if a tool part is an external agent run tool.
@@ -169,29 +173,61 @@ export function ExternalAgentToolRenderer({
     }
   }
 
+  const waiting = childId != null && !!pending?.length
+  const status = waiting ? 'waiting' : activityStatusOf(live?.status)
+  const chosenModel = live?.modelId ?? parsed?.model ?? (typeof args.model === 'string' ? args.model : undefined)
+  const model = chosenModel && chosenModel !== 'default' ? chosenModel : undefined
+  const error = live?.status === 'failed' ? live.error : undefined
+  const openLabel = intl.formatMessage({ id: 'assistant.coding.openConversation', defaultMessage: 'Open conversation' })
+
   return (
-    <div
-      className={`rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm ${canClick ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}`}
-      onClick={canClick ? handleClick : undefined}
-    >
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        <ExternalLinkIcon className="size-3.5" />
-        <span className="font-medium text-foreground">{agentType}</span>
-        <span className="text-muted-foreground/70">-</span>
-        <span>{description}</span>
-        {childId != null && pending?.length ? (
-          <span className="text-xs text-status-warn">
-            <FormattedMessage id="editor.external.waitingForYou" defaultMessage="waiting for you" />
+    <div className="w-full space-y-2.5 rounded-xl border border-border/60 bg-popover p-3 shadow-card dark:border-border/35">
+      {/* Same row as the assistant's coding card: who, what and on which model; state and the way in. */}
+      <div className="flex items-center gap-3">
+        <AgentAvatar provider={agentType} size="md" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold">{description || codingAgentName(agentType)}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+            <span className="shrink-0">{codingAgentName(agentType)}</span>
+            {model && <span className="truncate text-muted-foreground/70">{model}</span>}
+          </div>
+        </div>
+        {status && (
+          <span className="flex shrink-0">
+            <ActivityStatusBadge status={status} />
           </span>
-        ) : live ? (
-          <span className="text-xs text-muted-foreground">{live.status}</span>
-        ) : null}
+        )}
+        {canClick && (
+          <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" onClick={handleClick}>
+            <ArrowUpRight className="h-3.5 w-3.5" />
+            {openLabel}
+          </Button>
+        )}
       </div>
-      {childId != null && pending?.length ? (
+      {error && <div className="line-clamp-2 pl-11 text-xs text-status-error">{error}</div>}
+      {waiting ? (
         <ExternalAgentPendingInput childChatId={childId} pending={pending} onOpen={handleClick} />
       ) : null}
     </div>
   )
+}
+
+/** The child's turn state in the assistant's vocabulary, so both cards read the same. */
+function activityStatusOf(status: string | undefined): ActivityStatus | null {
+  switch (status) {
+    case 'queued':
+    case 'running':
+      return 'running'
+    case 'completed':
+      return 'done'
+    case 'failed':
+      return 'failed'
+    case 'cancelled':
+    case 'interrupted':
+      return 'stopped'
+    default:
+      return null
+  }
 }
 
 /**
@@ -288,61 +324,6 @@ function ExternalAgentPendingInput({
           </div>
         </div>
       ))}
-    </div>
-  )
-}
-
-/**
- * Compact renderer for external agent result user messages.
- * Same card style as ExternalAgentToolRenderer, with a "completed" badge.
- */
-export function ExternalAgentResultRenderer({ text }: { text: string }) {
-  const intl = useIntl()
-  const setActiveTab = useEditorStore((s) => s.setActiveTab)
-  const openChatTab = useEditorStore((s) => s.openChatTab)
-  const setTabChatId = useEditorStore((s) => s.setTabChatId)
-  const tabs = useEditorStore((s) => s.tabs)
-  const parsed = parseExternalAgentResult(text)
-
-  if (!parsed) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm">
-        <ExternalLinkIcon className="size-3.5 text-green-600 dark:text-green-400" />
-        <span className="text-muted-foreground"><FormattedMessage id="editor.external.completed" defaultMessage="Agent completed" /></span>
-      </div>
-    )
-  }
-
-  const tabExists = parsed.childChatId ? tabs.some((t) => t.id === parsed.childChatId) : false
-
-  const handleClick = () => {
-    if (!parsed.childChatId) return
-    if (tabExists) {
-      if (parsed.dbChatId !== undefined) {
-        setTabChatId(parsed.childChatId, parsed.dbChatId)
-      }
-      setActiveTab(parsed.childChatId)
-    } else {
-      // Reopen tab and attach dbChatId so history loads
-      openChatTab(parsed.childChatId, intl.formatMessage({ id: 'editor.external.tabTitle', defaultMessage: 'Agent: {desc}' }, { desc: parsed.description }), undefined, parsed.agentType, true)
-      if (parsed.dbChatId !== undefined) {
-        setTabChatId(parsed.childChatId, parsed.dbChatId)
-      }
-    }
-  }
-
-  return (
-    <div
-      className={`flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm ${parsed.childChatId ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}`}
-      onClick={parsed.childChatId ? handleClick : undefined}
-    >
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        <ExternalLinkIcon className="size-3.5 text-green-600 dark:text-green-400" />
-        <span className="font-medium text-foreground">{parsed.agentType}</span>
-        <span className="text-muted-foreground/70">-</span>
-        <span>{parsed.description}</span>
-      </div>
-      <span className="text-xs text-muted-foreground">{parsed.status ?? 'completed'}</span>
     </div>
   )
 }

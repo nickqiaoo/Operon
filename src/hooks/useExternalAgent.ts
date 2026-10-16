@@ -58,7 +58,10 @@ export function parseExternalAgentRun(part: UIMessage['parts'][number]): Externa
 
   const dig = (obj: Record<string, unknown>, depth: number): Record<string, unknown> | null => {
     if (depth > 5) return null
-    if (obj.status !== undefined || obj.task_id !== undefined) return obj
+    if (obj.task_id !== undefined) return obj
+    // Codex wraps MCP results as { server, tool, status: 'completed', result }: that
+    // status is the MCP call's, not the run's, so keep digging when it is a wrapper.
+    if (obj.status !== undefined && obj.result === undefined) return obj
 
     for (const key of ['result', 'output', 'response', 'content', 'text'] as const) {
       const value = obj[key]

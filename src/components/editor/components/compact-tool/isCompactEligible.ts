@@ -1,4 +1,5 @@
 import { isAskUserQuestionTool } from '../AskUserQuestionRenderer';
+import { isExternalAgentTool } from '../ExternalAgentRenderer';
 import { createdTaskNumber } from '../TaskCreatedRenderer';
 import { isScheduleTaskResult } from '../ScheduleTaskRenderer';
 import { getSubagentProgress } from '../gemini-subagent-utils';
@@ -22,10 +23,16 @@ const EXIT_PLAN_NAMES = new Set([
  * - ExitPlanMode (has plan review UI)
  * - A task-creating call that succeeded (renders as a card linking to the task)
  * - A schedule create/update that succeeded (card linking to the Schedule page)
+ * - An external agent run/send that returned (agent card with status and approvals)
  * - AskUserQuestion when awaiting approval (needs interactive question UI)
  * - Any tool surfacing live sub-agent progress (Workflow fan-out, Gemini subagents) →
  *   SubAgentRenderer; the generic compact row would just dump the progress JSON.
  */
+const hasToolResult = (part: ToolPartLike) => {
+  const record = part as { output?: unknown; result?: unknown };
+  return record.output !== undefined || record.result !== undefined;
+};
+
 export function isCompactEligible(part: ToolPartLike & { state?: string }): boolean {
   const toolName = getToolDisplayName(part);
   if (EXIT_PLAN_NAMES.has(toolName)) return false;
@@ -39,5 +46,9 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   // pulled out of the group with nothing to render would vanish entirely.
   if (createdTaskNumber(part) !== null) return false;
   if (isScheduleTaskResult(part)) return false;
+  // Same condition MessagePartRenderer uses to draw the agent card. Without it
+  // the card only showed while the call was the streaming tail; once the parent
+  // said anything after it, the run folded into "Ran N commands" as a raw row.
+  if (isExternalAgentTool(part) && hasToolResult(part)) return false;
   return true;
 }
