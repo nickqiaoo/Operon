@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { useStickToBottomContext } from "use-stick-to-bottom"
+import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom"
 import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
@@ -147,6 +147,7 @@ export function AssistantChat({
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
+  const scroller = useRef<StickToBottomContext>(null)
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     // PromptInput has already reset the textarea, which fires no change event.
@@ -157,12 +158,16 @@ export function AssistantChat({
       .filter((f) => !f.url.startsWith("blob:"))
       .map((f): AssistantAttachment => ({ url: f.url, mediaType: f.mediaType, ...(f.filename ? { filename: f.filename } : {}) }))
     if (!trimmed && attachments.length === 0) return
-    return onSend(trimmed, attachments)
+    const sent = onSend(trimmed, attachments)
+    // What the user just said goes to the bottom of the thread, and so do they — even from up
+    // the thread, where the scroller has let go of the bottom and would leave it out of sight.
+    void scroller.current?.scrollToBottom("smooth")
+    return sent
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Conversation initial="instant">
+      <Conversation initial="instant" contextRef={scroller}>
         {/* Phone: the content's own p-4 would stack on the gutter (24px a side); drop it so
             the bubbles get the width. */}
         <ConversationContent scrollClassName="scroll-fade-y" className={cn(compact && "p-0")}>
@@ -557,11 +562,15 @@ const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecid
               key={fact}
               type="button"
               onClick={onOpenMemory}
-              className="flex items-center gap-1 transition-colors hover:text-foreground"
-              title={intl.formatMessage({ id: "assistant.chat.openMemory", defaultMessage: "Open memory.md" })}
+              // One line: the fact in full is a hover (or a tap into memory.md) away.
+              className="flex min-w-0 max-w-full items-center gap-1.5 transition-colors hover:text-foreground"
+              title={fact}
+              aria-label={intl.formatMessage({ id: "assistant.chat.openMemory", defaultMessage: "Open memory.md" })}
             >
-              <BookmarkCheck className="h-3 w-3" />
-              <FormattedMessage id="assistant.chat.remembered" defaultMessage="Remembered: {fact}" values={{ fact }} />
+              <BookmarkCheck className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                <FormattedMessage id="assistant.chat.remembered" defaultMessage="Remembered: {fact}" values={{ fact }} />
+              </span>
             </button>
           ))}
         </div>

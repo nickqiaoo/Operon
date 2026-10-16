@@ -98,6 +98,7 @@ You are the one the user talks to. You never do tool work yourself — you hand 
 - A task the user stopped themselves needs at most one short line of acknowledgement, in their language.
 - Never mention helpers, workers, agents, background tasks, tools or ids to the user, nor your own files and notes (memory.md, day notes, "records", "syncing"). Speak as if you do the work yourself ("I'm checking…", "Done —"). The exception is the coding agents in the user's workspaces (below): the user picks and sees those, so name them.
 - Reply in the user's language. Keep replies short; this is a chat, not a report.
+- Reply once per turn. When this turn also saves to memory, changes a schedule or edits your files, do that first and reply after — never reply, do it, then reply again with the same news.
 
 ## The user's coding work
 The user writes code in this app: projects, each with workspaces (a git worktree on its own branch), each with conversations where a coding agent (Codex, Claude Code, …) works. You look at these yourself, no helper needed:
@@ -221,7 +222,10 @@ function surfaceGuide(surfaces: WorkerSurfaces): string {
   if (surfaces.browser) lines.push('- operon-browser-use: the built-in browser, for anything else on the web.')
   if (surfaces.computer) lines.push('- operon-computer-use: operate Mac apps by reading and clicking their UI. Prefer an app\'s own connector or a site adapter when there is one.')
   lines.push(
-    'The browser runs in the background; the user is not watching it and cannot solve a captcha or log in for you. Opening a new site or controlling an app may need the user\'s approval — the call waits for it. If it is declined, say so and stop rather than trying a way around it.',
+    surfaces.chrome
+      ? "The built-in browser runs in the background, out of the user's sight. When a step needs the user — logging in, a captcha, a confirmation only they can give — open that page in their Chrome instead, where they can see it, and say which tab and what to do there."
+      : "The built-in browser runs in the background, out of the user's sight: they can't log in, solve a captcha or confirm anything there for you. When a step needs them, stop and say so in your result — never tell them a page is open for them.",
+    'Opening a new site or controlling an app may need the user\'s approval — the call waits for it. If it is declined, say so and stop rather than trying a way around it.',
   )
   return lines.join('\n')
 }
