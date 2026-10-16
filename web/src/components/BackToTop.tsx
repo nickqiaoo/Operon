@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
+import { cn } from '../lib/styles'
 
-/**
- * A long page needs a way back. Appears once the reader is well past the hero.
- */
+/** A long page needs a way back. Appears once the reader is well past the hero. */
 export function BackToTop() {
   const [visible, setVisible] = useState(false)
 
@@ -37,38 +36,12 @@ export function BackToTop() {
           behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
         })
       }}
-      style={{
-        position: 'fixed',
-        right: 'max(16px, env(safe-area-inset-right))',
-        bottom: 'calc(20px + env(safe-area-inset-bottom))',
-        zIndex: 90,
-        width: 40,
-        height: 40,
-        borderRadius: '50%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(14,14,20,0.72)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        backdropFilter: 'blur(18px)',
-        WebkitBackdropFilter: 'blur(18px)',
-        color: 'rgba(255,255,255,0.6)',
-        cursor: 'pointer',
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(10px)',
-        pointerEvents: visible ? 'auto' : 'none',
-        transition: 'opacity 0.3s ease, transform 0.3s ease, color 0.25s ease, border-color 0.25s ease',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.color = 'rgba(255,255,255,0.95)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.color = 'rgba(255,255,255,0.6)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
-      }}
+      className={cn(
+        'fixed right-[max(16px,env(safe-area-inset-right))] bottom-[calc(20px+env(safe-area-inset-bottom))] z-[90] flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-popover text-muted-foreground shadow-float transition-all hover:bg-secondary-hover hover:text-foreground',
+        visible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0',
+      )}
     >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <line x1="12" y1="19" x2="12" y2="5" />
         <polyline points="5 12 12 5 19 12" />
       </svg>

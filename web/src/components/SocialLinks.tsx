@@ -1,91 +1,35 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import { DISCORD_URL, GITHUB_URL, X_URL } from '../lib/links'
+import { cn } from '../lib/styles'
 
 type SocialLinksVariant = 'navbar' | 'cta'
 
-type SocialLink = {
-  href: string
-  label: string
-  icon: (size: number) => ReactNode
-}
-
-const links: SocialLink[] = [
-  {
-    href: 'https://discord.gg/2BuvC6v3B',
-    label: 'Discord',
-    icon: (size) => <DiscordIcon size={size} />,
-  },
-  {
-    href: 'https://github.com/Nickqiaoo/Operon',
-    label: 'GitHub',
-    icon: (size) => <GitHubIcon size={size} />,
-  },
-  {
-    href: 'https://x.com/operon_ai',
-    label: 'X',
-    icon: (size) => <XIcon size={size} />,
-  },
+const links: { href: string; label: string; icon: (size: number) => ReactNode }[] = [
+  { href: DISCORD_URL, label: 'Discord', icon: (size) => <DiscordIcon size={size} /> },
+  { href: GITHUB_URL, label: 'GitHub', icon: (size) => <GitHubIcon size={size} /> },
+  { href: X_URL, label: 'X', icon: (size) => <XIcon size={size} /> },
 ]
 
 export function SocialLinks({ variant = 'navbar' }: { variant?: SocialLinksVariant }) {
   const cta = variant === 'cta'
-  const iconSize = cta ? 18 : 18
-  const containerStyle: CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: cta ? 10 : 32,
-  }
-
-  const linkStyle: CSSProperties = cta
-    ? {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        color: 'rgba(255,255,255,0.46)',
-        background: 'rgba(255,255,255,0.055)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        cursor: 'pointer',
-        transition: 'color 0.3s, background 0.3s, border-color 0.3s, transform 0.3s',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }
-    : {
-        color: 'rgba(255,255,255,0.4)',
-        cursor: 'pointer',
-        transition: 'color 0.3s',
-        display: 'flex',
-        alignItems: 'center',
-      }
 
   return (
-    <div style={containerStyle} aria-label="Social links">
+    <div className={cn('flex items-center', cta ? 'justify-center gap-2' : 'gap-1')} aria-label="Social links">
       {links.map((link) => (
         <a
           key={link.label}
           href={link.href}
           target="_blank"
           rel="noopener noreferrer"
-          style={linkStyle}
-          onMouseEnter={(event) => {
-            event.currentTarget.style.color = 'rgba(255,255,255,0.86)'
-            if (cta) {
-              event.currentTarget.style.background = 'rgba(255,255,255,0.09)'
-              event.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)'
-              event.currentTarget.style.transform = 'translateY(-1px)'
-            }
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = cta ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.4)'
-            if (cta) {
-              event.currentTarget.style.background = 'rgba(255,255,255,0.055)'
-              event.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
-              event.currentTarget.style.transform = 'translateY(0)'
-            }
-          }}
           aria-label={link.label}
+          className={cn(
+            'inline-flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground',
+            cta
+              ? 'h-9 w-9 rounded-lg border border-border/60 bg-background hover:bg-secondary-hover'
+              : 'h-8 w-8 rounded-lg hover:bg-secondary-hover',
+          )}
         >
-          {link.icon(iconSize)}
+          {link.icon(16)}
         </a>
       ))}
     </div>

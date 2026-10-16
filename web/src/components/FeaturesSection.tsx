@@ -1,208 +1,80 @@
-import { SectionShell } from './SectionShell'
+import type { ReactNode } from 'react'
 import { Reveal } from './Reveal'
-import { SectionTitle } from './SectionType'
-import { useIsMobile } from '../hooks/useIsMobile'
+import { Lead, Muted, Section, Title } from './ui'
 
-const FEATURES = [
+const FEATURES: { title: string; desc: string; icon: ReactNode }[] = [
   {
-    icon: <ClockIcon />,
-    title: 'Scheduled Tasks',
-    description:
-      'Set up cron jobs to run AI prompts or entire workflows on a schedule. Daily, weekly, or interval-based, fully automated.',
-    color: '#f59e0b',
+    title: 'Inbox',
+    desc: 'Finished chats, approvals and questions from every project in one place — answer them right in the row.',
+    icon: <path d="M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z" />,
   },
   {
-    icon: <SendIcon />,
-    title: 'Send to Agent',
-    description:
-      'Forward any message to a different model or chat tab with one click. Compare answers or delegate follow-ups instantly.',
-    color: '#3b82f6',
+    title: 'Usage limits',
+    desc: 'How much of your Claude Code and Codex quota is left, in the title bar, coloured as a window fills.',
+    icon: <path d="M12 21a9 9 0 1 1 9-9M12 12l4-4" />,
   },
   {
-    icon: <CodeSendIcon />,
-    title: 'Code to Chat',
-    description:
-      'Select code in the file preview and send it directly to any open agent tab. Includes file path and line numbers as context.',
-    color: '#10b981',
+    title: 'Auto permission mode',
+    desc: 'A model reviews each risky action, so safe ones run on their own and the rest come to you.',
+    icon: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4" />,
   },
   {
-    icon: <SkillIcon />,
-    title: 'Skills',
-    description:
-      'Pluggable instruction packs that extend agent capabilities. Install from GitHub or create your own. They load on demand.',
-    color: '#8b5cf6',
+    title: 'Side chats',
+    desc: 'Ask a quick question beside the main thread, or about a passage you selected, without derailing it.',
+    icon: <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />,
   },
   {
-    icon: <ServerIcon />,
-    title: 'Context Window',
-    description:
-      'Visualize context window usage in real time. Track token consumption and remaining capacity during conversations.',
-    color: '#ec4899',
+    title: 'Rewind',
+    desc: 'Undo the latest turn’s file changes, or rewind the code to any earlier message.',
+    icon: <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />,
   },
   {
-    icon: <ShieldIcon />,
-    title: 'Permission Control',
-    description:
-      'Fine-grained approval gates for file writes, command execution, and destructive actions. You stay in control.',
-    color: '#06b6d4',
+    title: 'Pull requests',
+    desc: 'Titles and descriptions drafted from the diff, opened with your own gh login from the review toolbar.',
+    icon: <path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />,
+  },
+  {
+    title: 'Context window',
+    desc: 'See where your tokens go, broken down and colour-coded by what is using them.',
+    icon: <path d="M3 3h18v18H3zM3 9h18M9 21V9" />,
+  },
+  {
+    title: 'Scheduled tasks',
+    desc: 'Any agent can set up a recurring job from the conversation — daily, weekly or on an interval.',
+    icon: <path d="M12 6v6l4 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z" />,
+  },
+  {
+    title: 'Keyboard first',
+    desc: 'Open files, review, browser, terminal and side chats from the keyboard, and rebind any shortcut.',
+    icon: <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />,
   },
 ]
 
-const FEATURE_SPANS = [5, 3, 4, 4, 5, 3] as const
-
 export function FeaturesSection() {
-  const mobile = useIsMobile()
-
   return (
-    <SectionShell id="more" accent="#6366f1" glow="center" maxWidth={1280}>
+    <Section id="more">
       <Reveal>
-        <div style={{ textAlign: 'center', marginBottom: mobile ? 34 : 54 }}>
-          <SectionTitle align="center">
-            Small things.
-            <br />
-            <span style={{ color: 'rgba(255,255,255,0.38)' }}>Big difference.</span>
-          </SectionTitle>
+        <div className="max-w-2xl">
+          <Title>
+            Small things. <Muted>Big difference.</Muted>
+          </Title>
+          <Lead>The details that make a long day of running agents less tiring.</Lead>
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: mobile ? '1fr' : 'repeat(12, minmax(0, 1fr))',
-            gap: mobile ? 12 : 18,
-          }}
-        >
-          {FEATURES.map((feature, i) => (
-            <div
-              key={feature.title}
-              style={{
-                height: '100%',
-                gridColumn: mobile ? undefined : `span ${FEATURE_SPANS[i]}`,
-                padding: mobile ? '20px 18px' : '30px 28px',
-                borderRadius: 18,
-                background: `linear-gradient(135deg, ${feature.color}0d, rgba(13,17,23,0.78) 48%)`,
-                border: `1px solid ${feature.color}18`,
-                position: 'relative',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  top: -40,
-                  right: -40,
-                  width: 120,
-                  height: 120,
-                  borderRadius: '50%',
-                  background: feature.color,
-                  opacity: 0.05,
-                  filter: 'blur(40px)',
-                  pointerEvents: 'none',
-                }}
-              />
-
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 13,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: `${feature.color}12`,
-                  border: `1px solid ${feature.color}20`,
-                  marginBottom: mobile ? 16 : 22,
-                  color: feature.color,
-                }}
-              >
-                {feature.icon}
-              </div>
-
-              <h3
-                style={{
-                  fontSize: mobile ? 17 : 19,
-                  fontWeight: 600,
-                  color: 'rgba(255,255,255,0.88)',
-                  marginBottom: 10,
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                {feature.title}
-              </h3>
-
-              <p
-                style={{
-                  fontSize: mobile ? 13.5 : 14.5,
-                  lineHeight: 1.68,
-                  color: 'rgba(255,255,255,0.38)',
-                  fontWeight: 300,
-                }}
-              >
-                {feature.description}
-              </p>
+        <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map((feature) => (
+            <div key={feature.title} className="rounded-xl border border-border/60 bg-background p-5 shadow-card">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-sidebar text-muted-foreground">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {feature.icon}
+                </svg>
+              </span>
+              <h3 className="mt-4 text-[15px] font-medium text-foreground">{feature.title}</h3>
+              <p className="mt-1.5 text-[13.5px] leading-[1.6] text-muted-foreground">{feature.desc}</p>
             </div>
           ))}
         </div>
       </Reveal>
-    </SectionShell>
-  )
-}
-
-/* ===== Icons ===== */
-
-function ClockIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  )
-}
-
-function SendIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 14l-4-4 4-4" />
-      <path d="M5 10h11a4 4 0 0 1 0 8h-1" />
-    </svg>
-  )
-}
-
-function CodeSendIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
-    </svg>
-  )
-}
-
-function SkillIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2L2 7l10 5 10-5-10-5z" />
-      <path d="M2 17l10 5 10-5" />
-      <path d="M2 12l10 5 10-5" />
-    </svg>
-  )
-}
-
-function ServerIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="20" height="8" rx="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" />
-      <circle cx="6" cy="6" r="1" fill="currentColor" />
-      <circle cx="6" cy="18" r="1" fill="currentColor" />
-    </svg>
-  )
-}
-
-function ShieldIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
+    </Section>
   )
 }

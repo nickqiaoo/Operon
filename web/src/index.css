@@ -8,19 +8,96 @@
   font-display: swap;
 }
 
+/*
+ * Surface tokens mirrored from the desktop app (src/styles/globals.css), so the
+ * site reads as the same product you download: white reading surface, a
+ * neutral grey chrome one step off it, hairline borders, short shadows and a
+ * single brand colour. Light is the default; dark follows the system and uses
+ * the app's dark values. Keep the two in step with the app when its tokens move.
+ */
 @theme {
-  --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+  --font-display: "General Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Menlo, Monaco, ui-monospace, monospace;
+
+  --color-background: #ffffff;
+  --color-foreground: #1a1b23;
+  --color-sidebar: #fafafa;
+  --color-muted: #edf0f5;
+  --color-muted-foreground: #687084;
+  --color-border: #dfe3eb;
+  --color-popover: #ffffff;
+  --color-secondary: #eef1f7;
+  --color-secondary-hover: color-mix(in srgb, var(--color-secondary) 92%, var(--color-foreground));
+  --color-secondary-active: color-mix(in srgb, var(--color-secondary) 84%, var(--color-foreground));
+  --color-primary-hover: color-mix(in srgb, var(--color-foreground) 84%, var(--color-background));
+
+  --color-brand: #6358dc;
+  --color-brand-muted: rgba(99, 88, 220, 0.08);
+  --color-brand-fill: var(--color-brand);
+
+  --color-accent-green: #3db87a;
+  --color-accent-warm: #e5845c;
+  --color-accent-red: #d1453c;
+  --color-status-ok: #047857;
+  --color-status-warn: #b45309;
+  --color-status-error: #b91c1c;
+  --color-status-info: #0369a1;
+
+  --color-scrim: rgba(2, 6, 23, 0.55);
+  --color-link: #0357a6;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-input: 0 2px 8px rgba(15, 23, 42, 0.07);
+  --shadow-float: 0 12px 28px -18px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.02);
+  --shadow-modal: 0 24px 80px -24px rgba(15, 23, 42, 0.32), 0 8px 28px -12px rgba(15, 23, 42, 0.22);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0b0b0d;
+    --color-foreground: #f0f0f2;
+    --color-sidebar: #141417;
+    --color-muted: #1b1b1f;
+    --color-muted-foreground: #aaaab2;
+    --color-border: #2b2b31;
+    --color-popover: #1a1a1e;
+    --color-secondary: #202024;
+    /* Redeclared on purpose: these mix other tokens, and declaring them here
+       pins the dark result instead of relying on source order. */
+    --color-secondary-hover: color-mix(in srgb, var(--color-secondary) 92%, var(--color-foreground));
+    --color-secondary-active: color-mix(in srgb, var(--color-secondary) 84%, var(--color-foreground));
+    --color-primary-hover: color-mix(in srgb, var(--color-foreground) 84%, var(--color-background));
+
+    --color-brand: #8b7df0;
+    --color-brand-muted: rgba(139, 125, 240, 0.1);
+    --color-brand-fill: color-mix(in srgb, #8b7df0 80%, #000);
+
+    --color-accent-green: #4fcc8e;
+    --color-accent-warm: #f09570;
+    --color-accent-red: #e5534b;
+    --color-status-ok: #6ee7b7;
+    --color-status-warn: #fcd34d;
+    --color-status-error: #fca5a5;
+    --color-status-info: #7dd3fc;
+
+    --color-scrim: rgba(0, 0, 0, 0.75);
+    --color-link: #8cadd4;
+
+    --shadow-card: 0 12px 30px -24px rgba(0, 0, 0, 0.9);
+    --shadow-input: 0 2px 8px rgba(0, 0, 0, 0.6);
+    --shadow-float: 0 24px 48px -16px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --shadow-modal: 0 28px 90px -24px rgba(0, 0, 0, 0.82), 0 10px 32px -16px rgba(0, 0, 0, 0.68);
+  }
+}
+
+:root {
+  color-scheme: light dark;
 }
 
 html {
   /* Anchor jumps land below the fixed navbar instead of under it. */
-  scroll-padding-top: 88px;
+  scroll-padding-top: 72px;
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
 }
@@ -28,42 +105,54 @@ html {
 body {
   min-height: 100%;
   font-family: var(--font-sans);
-  background: #000;
-  color: #fff;
+  background: var(--color-background);
+  color: var(--color-foreground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* Section glows are wider than the viewport on purpose; without this they
-     would create a horizontal scrollbar on narrow screens. */
   overflow-x: hidden;
 }
 
-::-webkit-scrollbar {
-  display: none;
-}
-
-body {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+::selection {
+  background: color-mix(in srgb, var(--color-brand) 22%, transparent);
 }
 
 /*
- * Scroll-in reveal. The page is one continuous scroll, so sections need their
- * own entrance rhythm — this replaces the page-flip animation that used to
- * provide it. `Reveal` toggles data-visible from an IntersectionObserver.
+ * Scroll-in reveal. `Reveal` toggles data-visible from an IntersectionObserver.
+ * Kept short and small: the page should feel settled, not choreographed.
  */
 .reveal {
   opacity: 0;
-  transform: translateY(14px);
+  transform: translateY(10px);
   transition:
-    opacity 0.56s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.56s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform;
+    opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .reveal[data-visible='true'] {
   opacity: 1;
   transform: none;
-  will-change: auto;
+}
+
+/* Scroll strips (agent tabs, mobile chips) scroll sideways without a bar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -76,5 +165,9 @@ body {
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  .pulse-dot {
+    animation: none;
   }
 }

@@ -3,8 +3,8 @@ export function Privacy() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#000',
-        color: '#fff',
+        background: 'var(--color-background)',
+        color: 'var(--color-foreground)',
         padding: '120px 40px 80px',
       }}
     >
@@ -13,14 +13,14 @@ export function Privacy() {
           style={{
             fontSize: 40,
             fontWeight: 600,
-            color: 'rgba(255,255,255,0.92)',
+            color: 'var(--color-foreground)',
             letterSpacing: '-0.025em',
             marginBottom: 12,
           }}
         >
           Privacy Policy
         </h1>
-        <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.25)', marginBottom: 48 }}>
+        <p style={{ fontSize: 14, color: 'var(--color-muted-foreground)', marginBottom: 48 }}>
           Last updated: August 10, 2026
         </p>
 
@@ -33,12 +33,12 @@ export function Privacy() {
         </Section>
 
         <Section title="2. Information We Collect">
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Local Data First.</strong> Operon runs
+          <strong style={{ color: 'var(--color-foreground)' }}>Local Data First.</strong> Operon runs
           on your local machine. Conversations, files, memories, workflow configurations, and
           browser-automation state remain on your device unless you explicitly send content to a
           third-party service you configure (for example an AI provider). We do not store any of it.
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>
+          <strong style={{ color: 'var(--color-foreground)' }}>
             Account and Devices (mobile and web clients only).
           </strong>{' '}
           If you use the Operon mobile app or the browser client to reach your own machine, we
@@ -59,17 +59,17 @@ export function Privacy() {
           service, and those are not linked to your content. Deleting your account removes
           everything listed above.
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Desktop-only use.</strong> If you never
+          <strong style={{ color: 'var(--color-foreground)' }}>Desktop-only use.</strong> If you never
           sign in to the mobile or web client, none of the above applies — nothing is sent to us at
           all.
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Third-Party API Calls.</strong> When
+          <strong style={{ color: 'var(--color-foreground)' }}>Third-Party API Calls.</strong> When
           you use AI adapters (Claude Code, Codex, Gemini CLI, OpenCode, or Custom providers), your
           prompts and code are sent directly from your machine to the respective API providers. We
           do not intercept, proxy, or store these communications. Each provider's own privacy policy
           governs how they handle your data.
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Analytics.</strong> We use PostHog to
+          <strong style={{ color: 'var(--color-foreground)' }}>Analytics.</strong> We use PostHog to
           collect anonymous usage analytics — in the desktop app and in the mobile and browser
           clients alike. This covers which screens were opened and which actions were taken (for
           example that a conversation was started, or which provider was selected), masked
@@ -92,12 +92,12 @@ export function Privacy() {
           can perform browser tasks you request (for example open tabs, navigate pages, inspect
           page content, search history when asked, or handle downloads related to a task).
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>How it works.</strong> The extension
+          <strong style={{ color: 'var(--color-foreground)' }}>How it works.</strong> The extension
           communicates with a native messaging host installed by the Operon desktop application on
           your computer. Traffic stays on your machine between Chrome and Operon. The extension is
           a bridge; it is not useful without the desktop app.
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>What it may access.</strong> Only in
+          <strong style={{ color: 'var(--color-foreground)' }}>What it may access.</strong> Only in
           service of tasks you start in Operon, the extension may use browser capabilities such as
           tabs and navigation, page content (including via the Chrome debugger), scripting for a
           visual cursor overlay, browsing history when a task needs it, downloads, tab groups, and
@@ -105,7 +105,7 @@ export function Privacy() {
           agents may need to visit URLs you ask them to work with—not to inject ads or track you
           across the web for marketing.
           <br /><br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>What we do not do.</strong> The
+          <strong style={{ color: 'var(--color-foreground)' }}>What we do not do.</strong> The
           extension does not sell your browsing data, show third-party ads, or send your browsing
           history or page content to Operon-operated servers as part of the bridge. Page content
           and task context that leave your machine only do so if you run an AI or other provider
@@ -192,13 +192,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         style={{
           fontSize: 20,
           fontWeight: 600,
-          color: 'rgba(255,255,255,0.85)',
+          color: 'var(--color-foreground)',
           marginBottom: 16,
         }}
       >
         {title}
       </h2>
-      <div style={{ fontSize: 15, lineHeight: 1.8, color: 'rgba(255,255,255,0.4)', fontWeight: 300 }}>
+      <div style={{ fontSize: 15, lineHeight: 1.8, color: 'var(--color-muted-foreground)', fontWeight: 400 }}>
         {children}
       </div>
     </div>

@@ -15,8 +15,8 @@ export function Support() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#000',
-        color: '#fff',
+        background: 'var(--color-background)',
+        color: 'var(--color-foreground)',
         padding: '120px 40px 80px',
       }}
     >
@@ -25,14 +25,14 @@ export function Support() {
           style={{
             fontSize: 40,
             fontWeight: 600,
-            color: 'rgba(255,255,255,0.92)',
+            color: 'var(--color-foreground)',
             letterSpacing: '-0.025em',
             marginBottom: 12,
           }}
         >
           Support
         </h1>
-        <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.25)', marginBottom: 48 }}>
+        <p style={{ fontSize: 14, color: 'var(--color-muted-foreground)', marginBottom: 48 }}>
           Operon — help, common questions, and how to reach us
         </p>
 
@@ -61,25 +61,25 @@ export function Support() {
         </Section>
 
         <Section title="Common questions">
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>The machine list is empty.</strong>{' '}
+          <strong style={{ color: 'var(--color-foreground)' }}>The machine list is empty.</strong>{' '}
           Nothing has been paired to this account yet. Open the desktop app on your computer and
           sign in there with the same provider. Signing in with GitHub and signing in with Apple
           create two separate accounts by design, so a machine paired under one will not show up
           under the other.
           <br />
           <br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>A machine shows as offline.</strong>{' '}
+          <strong style={{ color: 'var(--color-foreground)' }}>A machine shows as offline.</strong>{' '}
           The desktop app is closed, the computer is asleep, or it has no network. It reconnects on
           its own once it is running again.
           <br />
           <br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Notifications never arrive.</strong>{' '}
+          <strong style={{ color: 'var(--color-foreground)' }}>Notifications never arrive.</strong>{' '}
           Only things actually waiting on you are pushed — a question you need to answer, or work
           that wants your review. Ordinary replies are not, by design, so that notifications stay
           worth reading.
           <br />
           <br />
-          <strong style={{ color: 'rgba(255,255,255,0.7)' }}>
+          <strong style={{ color: 'var(--color-foreground)' }}>
             Sending a message fails on the phone but works on the desktop.
           </strong>{' '}
           The tunnel reaches your machine but the agent there cannot run — usually a provider that
@@ -114,7 +114,7 @@ function Link({ href, children }: { href: string; children: React.ReactNode }) {
       {...(external && href.startsWith('http')
         ? { target: '_blank', rel: 'noopener noreferrer' }
         : {})}
-      style={{ color: 'rgba(255,255,255,0.75)', textDecoration: 'underline' }}
+      style={{ color: 'var(--color-foreground)', textDecoration: 'underline' }}
     >
       {children}
     </a>
@@ -128,13 +128,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         style={{
           fontSize: 20,
           fontWeight: 600,
-          color: 'rgba(255,255,255,0.85)',
+          color: 'var(--color-foreground)',
           marginBottom: 16,
         }}
       >
         {title}
       </h2>
-      <div style={{ fontSize: 15, lineHeight: 1.8, color: 'rgba(255,255,255,0.4)', fontWeight: 300 }}>
+      <div style={{ fontSize: 15, lineHeight: 1.8, color: 'var(--color-muted-foreground)', fontWeight: 400 }}>
         {children}
       </div>
     </div>

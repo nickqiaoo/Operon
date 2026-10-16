@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 
 // English docs
 import gettingStartedEn from '@doc/getting-started.md?raw'
+import assistantEn from '@doc/assistant.md?raw'
 import chatEn from '@doc/chat.md?raw'
 import browserEn from '@doc/browser.md?raw'
 import chromeEn from '@doc/chrome.md?raw'
@@ -33,6 +34,7 @@ import appearanceEn from '@doc/appearance.md?raw'
 
 // Chinese docs
 import gettingStartedZh from '@doc/zh/getting-started.md?raw'
+import assistantZh from '@doc/zh/assistant.md?raw'
 import chatZh from '@doc/zh/chat.md?raw'
 import browserZh from '@doc/zh/browser.md?raw'
 import chromeZh from '@doc/zh/chrome.md?raw'
@@ -69,6 +71,7 @@ interface DocSection {
 
 const docs: DocSection[] = [
   { slug: 'getting-started', title: { en: 'Getting Started', zh: '快速上手' }, content: { en: gettingStartedEn, zh: gettingStartedZh } },
+  { slug: 'assistant', title: { en: 'Assistant', zh: '助理' }, content: { en: assistantEn, zh: assistantZh } },
   { slug: 'chat', title: { en: 'Chat', zh: '聊天' }, content: { en: chatEn, zh: chatZh } },
   { slug: 'browser', title: { en: 'Browser', zh: '浏览器' }, content: { en: browserEn, zh: browserZh } },
   { slug: 'chrome', title: { en: 'Chrome', zh: 'Chrome' }, content: { en: chromeEn, zh: chromeZh } },
@@ -175,7 +178,7 @@ export function Docs() {
     // With minHeight the tall chapter list stretches the row past the viewport,
     // the document itself starts scrolling, and the content pane's bottom edge
     // exposes empty background below it.
-    <div style={{ height: '100dvh', overflow: 'hidden', background: '#000', color: '#fff', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100dvh', overflow: 'hidden', background: 'var(--color-background)', color: 'var(--color-foreground)', display: 'flex', flexDirection: 'column' }}>
       {/* Navbar */}
       <nav
         style={{
@@ -186,9 +189,9 @@ export function Docs() {
           justifyContent: 'space-between',
           padding: '0 24px',
           height: 56,
-          background: 'rgba(0,0,0,0.8)',
+          background: 'color-mix(in srgb, var(--color-background) 85%, transparent)',
           backdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -198,16 +201,15 @@ export function Docs() {
               fontSize: 15,
               fontWeight: 600,
               letterSpacing: '0.06em',
-              color: 'rgba(255,255,255,0.9)',
+              color: 'var(--color-foreground)',
               fontFamily: "'General Sans', sans-serif",
-              textTransform: 'uppercase',
               textDecoration: 'none',
             }}
           >
-            OPERON
+            Operon
           </Link>
-          <span style={{ color: 'rgba(255,255,255,0.15)' }}>/</span>
-          <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>Docs</span>
+          <span style={{ color: 'var(--color-muted-foreground)' }}>/</span>
+          <span style={{ fontSize: 14, color: 'var(--color-muted-foreground)', fontWeight: 400 }}>Docs</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -220,21 +222,21 @@ export function Docs() {
               gap: 6,
               padding: '5px 12px',
               borderRadius: 8,
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.6)',
+              background: 'var(--color-muted)',
+              border: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)',
+              color: 'var(--color-foreground)',
               fontSize: 13,
               fontWeight: 400,
               cursor: 'pointer',
               transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-              e.currentTarget.style.color = 'rgba(255,255,255,0.8)'
+              e.currentTarget.style.background = 'var(--color-secondary-hover)'
+              e.currentTarget.style.color = 'var(--color-foreground)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
-              e.currentTarget.style.color = 'rgba(255,255,255,0.6)'
+              e.currentTarget.style.background = 'var(--color-muted)'
+              e.currentTarget.style.color = 'var(--color-foreground)'
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -252,7 +254,7 @@ export function Docs() {
               display: 'none',
               background: 'none',
               border: 'none',
-              color: 'rgba(255,255,255,0.5)',
+              color: 'var(--color-muted-foreground)',
               cursor: 'pointer',
               padding: 4,
             }}
@@ -272,13 +274,13 @@ export function Docs() {
           style={{
             width: 200,
             minWidth: 200,
-            borderRight: '1px solid rgba(255,255,255,0.06)',
+            borderRight: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)',
             padding: '24px 0',
             overflowY: 'auto',
             minHeight: 0,
           }}
         >
-          <div style={{ padding: '0 16px 12px', fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          <div style={{ padding: '0 16px 12px', fontSize: 11, fontWeight: 500, color: 'var(--color-muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Documentation
           </div>
           {docs.map((doc) => (
@@ -295,12 +297,12 @@ export function Docs() {
                 padding: '8px 16px',
                 fontSize: 15,
                 fontWeight: activeSlug === doc.slug ? 500 : 400,
-                color: activeSlug === doc.slug ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)',
-                background: activeSlug === doc.slug ? 'rgba(255,255,255,0.05)' : 'transparent',
+                color: activeSlug === doc.slug ? 'var(--color-foreground)' : 'var(--color-muted-foreground)',
+                background: activeSlug === doc.slug ? 'var(--color-muted)' : 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 transition: 'all 0.15s',
-                borderLeft: activeSlug === doc.slug ? '2px solid rgba(255,255,255,0.3)' : '2px solid transparent',
+                borderLeft: activeSlug === doc.slug ? '2px solid var(--color-brand)' : '2px solid transparent',
               }}
             >
               {doc.title[lang]}
@@ -328,20 +330,20 @@ export function Docs() {
                   h1: ({ children }) => {
                     const text = String(children)
                     const id = slugify(text)
-                    return <h1 id={id} style={{ fontSize: 36, fontWeight: 600, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em', marginBottom: 8, marginTop: 0, lineHeight: 1.3 }}>{children}</h1>
+                    return <h1 id={id} style={{ fontSize: 36, fontWeight: 600, color: 'var(--color-foreground)', letterSpacing: '-0.02em', marginBottom: 8, marginTop: 0, lineHeight: 1.3 }}>{children}</h1>
                   },
                   h2: ({ children }) => {
                     const text = String(children)
                     const id = slugify(text)
-                    return <h2 id={id} style={{ fontSize: 22, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginTop: 48, marginBottom: 16, paddingTop: 24, borderTop: '1px solid rgba(255,255,255,0.06)', lineHeight: 1.4 }}>{children}</h2>
+                    return <h2 id={id} style={{ fontSize: 22, fontWeight: 600, color: 'var(--color-foreground)', marginTop: 48, marginBottom: 16, paddingTop: 24, borderTop: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)', lineHeight: 1.4 }}>{children}</h2>
                   },
                   h3: ({ children }) => {
                     const text = String(children)
                     const id = slugify(text)
-                    return <h3 id={id} style={{ fontSize: 17, fontWeight: 600, color: 'rgba(255,255,255,0.88)', marginTop: 32, marginBottom: 12, lineHeight: 1.4 }}>{children}</h3>
+                    return <h3 id={id} style={{ fontSize: 17, fontWeight: 600, color: 'var(--color-foreground)', marginTop: 32, marginBottom: 12, lineHeight: 1.4 }}>{children}</h3>
                   },
                   p: ({ children }) => (
-                    <p style={{ fontSize: 16, lineHeight: 1.8, color: 'rgba(255,255,255,0.7)', marginBottom: 16, fontWeight: 400 }}>{children}</p>
+                    <p style={{ fontSize: 16, lineHeight: 1.8, color: 'var(--color-foreground)', marginBottom: 16, fontWeight: 400 }}>{children}</p>
                   ),
                   // listStyleType is set explicitly: the global reset strips markers,
                   // which silently turns numbered steps into indented prose.
@@ -352,10 +354,10 @@ export function Docs() {
                     <ol style={{ paddingLeft: 22, marginBottom: 16, listStyleType: 'decimal' }}>{children}</ol>
                   ),
                   li: ({ children }) => (
-                    <li style={{ fontSize: 16, lineHeight: 1.8, color: 'rgba(255,255,255,0.7)', marginBottom: 4, fontWeight: 400 }}>{children}</li>
+                    <li style={{ fontSize: 16, lineHeight: 1.8, color: 'var(--color-foreground)', marginBottom: 4, fontWeight: 400 }}>{children}</li>
                   ),
                   strong: ({ children }) => (
-                    <strong style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>{children}</strong>
+                    <strong style={{ color: 'var(--color-foreground)', fontWeight: 600 }}>{children}</strong>
                   ),
                   code: ({ children, className }) => {
                     const isBlock = className?.startsWith('language-')
@@ -366,12 +368,12 @@ export function Docs() {
                           style={{
                             display: 'block',
                             padding: '16px 20px',
-                            background: 'rgba(255,255,255,0.03)',
+                            background: 'var(--color-sidebar)',
                             borderRadius: 8,
-                            border: '1px solid rgba(255,255,255,0.06)',
+                            border: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)',
                             fontSize: 14,
                             lineHeight: 1.7,
-                            color: 'rgba(255,255,255,0.75)',
+                            color: 'var(--color-foreground)',
                             overflowX: 'auto',
                             fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', monospace",
                           }}
@@ -384,10 +386,10 @@ export function Docs() {
                       <code
                         style={{
                           padding: '2px 6px',
-                          background: 'rgba(255,255,255,0.06)',
+                          background: 'var(--color-muted)',
                           borderRadius: 4,
                           fontSize: 14,
-                          color: 'rgba(255,255,255,0.8)',
+                          color: 'var(--color-foreground)',
                           fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', monospace",
                         }}
                       >
@@ -412,7 +414,7 @@ export function Docs() {
                     </div>
                   ),
                   thead: ({ children }) => (
-                    <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>{children}</thead>
+                    <thead style={{ borderBottom: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)' }}>{children}</thead>
                   ),
                   th: ({ children }) => (
                     <th
@@ -420,7 +422,7 @@ export function Docs() {
                         padding: '10px 12px',
                         textAlign: 'left',
                         fontWeight: 500,
-                        color: 'rgba(255,255,255,0.75)',
+                        color: 'var(--color-foreground)',
                         fontSize: 13,
                         whiteSpace: 'nowrap',
                       }}
@@ -432,8 +434,8 @@ export function Docs() {
                     <td
                       style={{
                         padding: '10px 12px',
-                        color: 'rgba(255,255,255,0.65)',
-                        borderTop: '1px solid rgba(255,255,255,0.04)',
+                        color: 'var(--color-foreground)',
+                        borderTop: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)',
                         fontSize: 14,
                       }}
                     >
@@ -445,7 +447,7 @@ export function Docs() {
                     // ("channels") and in-page anchors ("#agent-automation"). Both
                     // have to be handled here — following them as real URLs would
                     // navigate to routes that don't exist.
-                    const linkStyle = { color: 'rgba(140,180,255,0.85)', textDecoration: 'underline', textUnderlineOffset: 3 }
+                    const linkStyle = { color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: 3 }
                     const target = href ?? ''
                     const isAnchor = target.startsWith('#')
                     const linkedDoc = docs.find((d) => d.slug === target)
@@ -474,15 +476,15 @@ export function Docs() {
                     )
                   },
                   hr: () => (
-                    <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '32px 0' }} />
+                    <hr style={{ border: 'none', borderTop: '1px solid color-mix(in srgb, var(--color-border) 60%, transparent)', margin: '32px 0' }} />
                   ),
                   blockquote: ({ children }) => (
                     <blockquote
                       style={{
-                        borderLeft: '2px solid rgba(255,255,255,0.1)',
+                        borderLeft: '2px solid color-mix(in srgb, var(--color-border) 60%, transparent)',
                         paddingLeft: 16,
                         margin: '16px 0',
-                        color: 'rgba(255,255,255,0.55)',
+                        color: 'var(--color-muted-foreground)',
                       }}
                     >
                       {children}
@@ -507,7 +509,7 @@ export function Docs() {
             minHeight: 0,
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
             {lang === 'en' ? 'On this page' : 'On this page'}
           </div>
           {headings.map((h) => (
@@ -522,7 +524,7 @@ export function Docs() {
                 paddingLeft: h.level === 1 ? 0 : h.level === 2 ? 8 : 16,
                 fontSize: 13,
                 fontWeight: activeHeading === h.id ? 500 : 400,
-                color: activeHeading === h.id ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)',
+                color: activeHeading === h.id ? 'var(--color-foreground)' : 'var(--color-muted-foreground)',
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -552,7 +554,7 @@ export function Docs() {
             z-index: 40;
             transform: translateX(-100%);
             transition: transform 0.2s ease;
-            background: rgba(0,0,0,0.95) !important;
+            background: var(--color-background) !important;
             backdrop-filter: blur(20px);
           }
           .docs-sidebar.open {

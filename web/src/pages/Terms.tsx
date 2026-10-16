@@ -3,8 +3,8 @@ export function Terms() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#000',
-        color: '#fff',
+        background: 'var(--color-background)',
+        color: 'var(--color-foreground)',
         padding: '120px 40px 80px',
       }}
     >
@@ -13,14 +13,14 @@ export function Terms() {
           style={{
             fontSize: 40,
             fontWeight: 600,
-            color: 'rgba(255,255,255,0.92)',
+            color: 'var(--color-foreground)',
             letterSpacing: '-0.025em',
             marginBottom: 12,
           }}
         >
           Terms of Service
         </h1>
-        <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.25)', marginBottom: 48 }}>
+        <p style={{ fontSize: 14, color: 'var(--color-muted-foreground)', marginBottom: 48 }}>
           Last updated: March 16, 2026
         </p>
 
@@ -118,13 +118,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         style={{
           fontSize: 20,
           fontWeight: 600,
-          color: 'rgba(255,255,255,0.85)',
+          color: 'var(--color-foreground)',
           marginBottom: 16,
         }}
       >
         {title}
       </h2>
-      <div style={{ fontSize: 15, lineHeight: 1.8, color: 'rgba(255,255,255,0.4)', fontWeight: 300 }}>
+      <div style={{ fontSize: 15, lineHeight: 1.8, color: 'var(--color-muted-foreground)', fontWeight: 400 }}>
         {children}
       </div>
     </div>
