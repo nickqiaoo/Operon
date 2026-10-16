@@ -301,16 +301,24 @@ final class ShellChromeController: UINavigationController {
             item.rightBarButtonItem = bell
         case .assistant:
             var config = assistantButton.configuration ?? .plain()
-            // Avatar and status only; the name is on the page the capsule opens.
-            // The status dot is a coloured glyph in the title rather than a
-            // view, so the capsule stays a single system button.
-            var dot = AttributedString("● ")
-            dot.font = .systemFont(ofSize: 9)
-            dot.foregroundColor = busy ? .systemOrange : .systemGreen
-            var status = AttributedString(subtitle ?? "")
-            status.font = .systemFont(ofSize: 14, weight: .medium)
-            status.foregroundColor = .secondaryLabel
-            config.attributedTitle = dot + status
+            // Idle is the usual state and says nothing worth a label: the name
+            // then. Only while it works does the capsule show a status, its dot
+            // a coloured glyph in the title rather than a view, so the capsule
+            // stays a single system button.
+            if busy {
+                var dot = AttributedString("● ")
+                dot.font = .systemFont(ofSize: 9)
+                dot.foregroundColor = .systemOrange
+                var status = AttributedString(subtitle ?? "")
+                status.font = .systemFont(ofSize: 14, weight: .medium)
+                status.foregroundColor = .secondaryLabel
+                config.attributedTitle = dot + status
+            } else {
+                var name = AttributedString(title)
+                name.font = .systemFont(ofSize: 15, weight: .semibold)
+                name.foregroundColor = .label
+                config.attributedTitle = name
+            }
             config.attributedSubtitle = nil
             config.image = avatarImage(letter: String(title.prefix(1)).uppercased())
             assistantButton.configuration = config
@@ -337,15 +345,8 @@ final class ShellChromeController: UINavigationController {
 /// The tab bar. One empty transparent controller per tab; which tabs show, and
 /// in what order, is the web app's call (`configure`).
 final class ShellTabsController: UITabBarController, UITabBarControllerDelegate {
-    /// Every tab the shell can draw, with an SF Symbol that exists back to the
-    /// iOS 15 deployment target. Ids match `MobileTab` on the JS side.
-    private static let symbols: [String: String] = [
-        "chats": "message",
-        "assistant": "sparkles",
-        "channel": "rectangle.3.group",
-        "changes": "plus.forwardslash.minus",
-        "more": "ellipsis",
-    ]
+    // Every tab the shell can draw is a `TabGlyph`; ids match `MobileTab` on
+    // the JS side.
     /// Shown until `configure` says otherwise (and by a web bundle too old to say).
     private static let defaultTabIds = ["chats", "channel", "changes", "more"]
 
@@ -360,6 +361,12 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
         super.viewDidLoad()
         delegate = self
         view.backgroundColor = .clear
+        // Monochrome, as the web tab bar draws it, instead of the system blue:
+        // the selected tab is the label colour and a filled glyph. iOS 26's
+        // glass bar ignores the unselected tint (those stay label too, and the
+        // glass capsule marks the selection); earlier versions use it.
+        tabBar.tintColor = .label
+        tabBar.unselectedItemTintColor = .secondaryLabel
         rebuildTabs()
 
         if #available(iOS 18.0, *) {
@@ -374,7 +381,9 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
             let tab = UIViewController()
             tab.view.backgroundColor = .clear
             // Placeholder caption; the localized one arrives via `configure`.
-            tab.tabBarItem = UITabBarItem(title: id.capitalized, image: UIImage(systemName: Self.symbols[id] ?? "circle"), tag: index)
+            let glyph = TabGlyph(rawValue: id)
+            tab.tabBarItem = UITabBarItem(title: id.capitalized, image: glyph?.image(filled: false), tag: index)
+            tab.tabBarItem.selectedImage = glyph?.image(filled: true)
             return tab
         }
     }
@@ -382,7 +391,7 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
     /// The tabs to show, in order. Unknown ids are dropped; the selection
     /// follows its id across the rebuild.
     func setTabs(_ ids: [String]) {
-        let next = ids.filter { Self.symbols[$0] != nil }
+        let next = ids.filter { TabGlyph(rawValue: $0) != nil }
         guard !next.isEmpty, next != tabIds else { return }
         let selectedId = tabIds.indices.contains(selectedIndex) ? tabIds[selectedIndex] : nil
         tabIds = next

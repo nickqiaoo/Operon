@@ -166,7 +166,7 @@ export interface NativeShellPlugin {
     unread: boolean
     /** False while a web overlay is up: the bar stays put but stops taking taps. */
     interactive: boolean
-    /** `assistant`: the status dot shows busy rather than idle. */
+    /** `assistant`: working — the capsule shows the status (`subtitle`) instead of the name. */
     busy?: boolean
   }): Promise<void>
   addListener(eventName: 'tabSelected', listener: (event: { tab: string }) => void): Promise<PluginListenerHandle>
