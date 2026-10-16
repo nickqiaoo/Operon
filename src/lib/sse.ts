@@ -38,6 +38,14 @@ const DEFAULT_MAX_RETRY_MS = 30_000
 const HEALTHY_MS = 5_000
 
 /**
+ * Hidden at least this long, the stream is replaced when the page comes back. A phone suspends a
+ * backgrounded app and the system drops its sockets, but WebKit doesn't always say so: the read
+ * can sit there forever on a dead connection while the screen shows what it showed before.
+ * Coming back to the foreground is the moment the user looks, so don't wait to find out.
+ */
+const HIDDEN_RECONNECT_MS = 2_000
+
+/**
  * Whether the browser itself says there is no network. `false` when the answer
  * is unknown (non-browser env), so those callers keep the plain timer path.
  *
@@ -71,8 +79,11 @@ export function subscribeSse<T>({
   onError,
   maxRetryMs = DEFAULT_MAX_RETRY_MS,
 }: SubscribeSseOptions<T>): SseSubscription {
-  const ac = new AbortController()
   let closed = false
+  /** The current attempt's request, aborted when it is replaced or the subscription closes. */
+  let ac = new AbortController()
+  /** Bumped per attempt: one that was replaced (see `reconnectNow`) must not schedule a retry. */
+  let attempt = 0
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let retryDelay = INITIAL_RETRY_MS
   let onlineListener: (() => void) | null = null
@@ -125,13 +136,16 @@ export function subscribeSse<T>({
       waitForOnline()
       return
     }
+    const self = ++attempt
+    ac = new AbortController()
+    const signal = ac.signal
     // Null until the response headers land, so an attempt that never connected
     // can't be mistaken for a healthy stream that dropped. See HEALTHY_MS.
     let connectedAt: number | null = null
     try {
       // Auth headers resolve after `url()` — every producer of these URLs goes
       // through `getBaseUrl()`, which primes the token on its first await.
-      const response = await fetch(await url(), { signal: ac.signal, headers: apiAuthHeaders() })
+      const response = await fetch(await url(), { signal, headers: apiAuthHeaders() })
       if (!response.ok || response.body == null) {
         throw new Error(`SSE request failed: ${response.status} ${response.statusText}`)
       }
@@ -141,7 +155,7 @@ export function subscribeSse<T>({
       const decoder = new TextDecoder()
       let buffer = ''
 
-      while (!closed) {
+      while (!closed && self === attempt) {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
@@ -161,17 +175,43 @@ export function subscribeSse<T>({
     } catch (error) {
       // `close()` aborts the fetch, which surfaces here as an AbortError; the
       // `closed` guard below is what distinguishes that from a real failure.
-      if (!closed) onError?.(error)
+      if (!closed && self === attempt) onError?.(error)
     }
 
     // Reached on `done` as well — a clean close from the server is still a
     // disconnect. This is the fall-through the per-hook copies never handled.
-    if (closed) return
+    // A replaced attempt leaves the retrying to the one that replaced it.
+    if (closed || self !== attempt) return
     if (connectedAt != null && Date.now() - connectedAt >= HEALTHY_MS) {
       retryDelay = INITIAL_RETRY_MS
     }
     scheduleRetry()
   }
+
+  /** Drop whatever attempt is in flight or waiting and connect again, from the bottom of the backoff. */
+  const reconnectNow = () => {
+    if (closed) return
+    if (retryTimer != null) clearTimeout(retryTimer)
+    retryTimer = null
+    detachOnline()
+    retryDelay = INITIAL_RETRY_MS
+    attempt++
+    ac.abort()
+    void run()
+  }
+
+  let hiddenAt: number | null = null
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now()
+      return
+    }
+    const away = hiddenAt == null ? 0 : Date.now() - hiddenAt
+    hiddenAt = null
+    if (away >= HIDDEN_RECONNECT_MS) reconnectNow()
+  }
+  const watchesVisibility = typeof document !== 'undefined'
+  if (watchesVisibility) document.addEventListener('visibilitychange', onVisibility)
 
   void run()
 
@@ -181,6 +221,7 @@ export function subscribeSse<T>({
       if (retryTimer != null) clearTimeout(retryTimer)
       retryTimer = null
       detachOnline()
+      if (watchesVisibility) document.removeEventListener('visibilitychange', onVisibility)
       ac.abort()
     },
   }

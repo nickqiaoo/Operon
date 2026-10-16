@@ -35,13 +35,36 @@ type NotificationTarget = Partial<
 }
 
 /**
+ * The tab the app was on, so it comes back there. iOS kills a backgrounded web view when it needs
+ * the memory and Capacitor reloads it from scratch: without this, leaving the assistant for a while
+ * lands the user back on Chats.
+ */
+const TAB_STORAGE_KEY = "operon.mobile.tab"
+
+function readSavedTab(): MobileTab {
+  try {
+    const saved = localStorage.getItem(TAB_STORAGE_KEY)
+    return saved && isMobileTab(saved) ? saved : "chats"
+  } catch {
+    return "chats"
+  }
+}
+
+/**
  * Phone shell: top context bar + single-column screen + bottom tab bar.
  * Reuses the desktop stores wholesale (project / editor / tabs / theme) and
  * only owns the layout. Mounted by {@link Root} for web on small viewports;
  * the desktop multi-pane app is left completely untouched.
  */
 export function MobileApp() {
-  const [tab, setTab] = useState<MobileTab>("chats")
+  const [tab, setTab] = useState<MobileTab>(readSavedTab)
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, tab)
+    } catch {
+      // Storage blocked: the app opens on Chats next time, as it always did.
+    }
+  }, [tab])
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Packaged apps only: the inbox sheet opened from the native bell.
   const [nativeInboxOpen, setNativeInboxOpen] = useState(false)

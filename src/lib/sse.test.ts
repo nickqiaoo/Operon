@@ -204,6 +204,58 @@ describe('subscribeSse', () => {
     sub.close()
   })
 
+  it('replaces the stream when the page comes back after a while hidden', async () => {
+    const listeners: Array<() => void> = []
+    const doc = {
+      visibilityState: 'visible',
+      addEventListener: (_type: string, cb: () => void) => void listeners.push(cb),
+      removeEventListener: () => {},
+    }
+    vi.stubGlobal('document', doc)
+    const setVisibility = (state: 'visible' | 'hidden') => {
+      doc.visibilityState = state
+      for (const cb of listeners) cb()
+    }
+    // A read that never settles until aborted: the dead connection WebKit doesn't report.
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: () =>
+            new Promise((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
+        }),
+      },
+    }))
+    const onError = vi.fn()
+
+    const sub = subscribeSse({ url: async () => '/stream', onEvent: () => {}, onError })
+    await flush()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // A glance away doesn't count.
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(500)
+    setVisibility('visible')
+    await flush()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(10_000)
+    setVisibility('visible')
+    await flush()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true)
+
+    // The attempt it replaced neither reports an error nor schedules a retry of its own.
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flush()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(onError).not.toHaveBeenCalled()
+
+    sub.close()
+  })
+
   it('close() stops delivery and cancels a pending reconnect', async () => {
     fetchMock.mockResolvedValue(sseResponse(['data: {"n":1}\n']))
     const onEvent = vi.fn()
