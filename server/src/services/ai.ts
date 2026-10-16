@@ -64,7 +64,7 @@ export {
 } from './ai/provider-models-cache.js'
 
 // Chat flow
-export { startChat, handleChat } from './ai/chat-flow.js'
+export { startChat, startServerChat, handleChat } from './ai/chat-flow.js'
 
 // Live turn attach (multi-surface streaming of one in-flight turn)
 export {

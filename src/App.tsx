@@ -28,6 +28,7 @@ import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
 import { AssistantPage } from "@/components/assistant/AssistantPage"
+import { useOpenWorkspaceSessions } from "@/hooks/useOpenWorkspaceSessions"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import type { Notification } from "@/types/notification"
 import { useAppShellStore } from "@/stores/app-shell-store"
@@ -291,6 +292,9 @@ export default function App() {
 
     setWorkspace(activeWorkspaceId, projectId)
   }, [activeWorkspaceId, projects, setWorkspace])
+
+  // Agent sessions the server started in this workspace (a dispatched task) get a tab.
+  useOpenWorkspaceSessions(currentWorkspaceId)
 
   // Handle Chat → Canvas navigation request from editor-store
   useEffect(() => {

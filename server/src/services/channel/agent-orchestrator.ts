@@ -11,7 +11,7 @@ import type {
 import type { ChannelMessage } from '../../types/channel.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
 import { emitChannelEvent, emitProjectEvent } from '../channel-bus.js'
-import { startChat } from '../ai.js'
+import { startChat, startServerChat } from '../ai.js'
 import {
   commit,
   getDefaultBaseBranch,
@@ -388,7 +388,7 @@ async function startBindingChat(
 
   let ctx
   try {
-    ctx = await startChat({
+    ctx = await startServerChat({
       chatId: binding.activeChatId ?? undefined,
       messages,
       providerId: agent.provider,
@@ -448,7 +448,7 @@ async function startBindingChat(
   return ctx.chatId
 }
 
-function drainAgentChat(ctx: Awaited<ReturnType<typeof startChat>>, binding?: AgentBinding): void {
+function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, binding?: AgentBinding): void {
   console.log(`[Orchestrator] drainAgentChat: started for chatId=${ctx.chatId}`)
   // Task sessions mirror their stream to Linear / GitHub when the task has
   // surfaces (design.md §9). The bridge checks per part (memoized), because a

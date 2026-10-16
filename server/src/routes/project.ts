@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
-import type { ProjectStorageAdapter } from '../storage/interface.js'
+import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 import type { CreateProjectInput, CreateWorkspaceInput } from '../types/project.js'
 import { RewindService } from '../services/rewind/index.js'
 
-export function projectRoutes(storage: ProjectStorageAdapter) {
+export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStorageAdapter & ChatStorageAdapter) {
   const router = new Hono()
 
   // List projects. `?include=workspaces` embeds each project's workspaces so a
@@ -72,6 +72,25 @@ export function projectRoutes(storage: ProjectStorageAdapter) {
     const input = await c.req.json<CreateWorkspaceInput>()
     const workspace = storage.createWorkspace(projectId, input)
     return c.json({ workspace })
+  })
+
+  // The agent sessions working in a workspace: a task dispatched from the board
+  // runs its agent in a worktree of its own, started by the server. The client
+  // opens these as tabs when it enters the workspace, since no tab was ever
+  // opened for them there.
+  router.get('/workspaces/:id/sessions', (c) => {
+    const id = parseInt(c.req.param('id'), 10)
+    const workspace = storage.getWorkspace(id)
+    if (!workspace) return c.json({ error: 'Not found' }, 404)
+    const sessions = storage
+      .listBindings({ scopeKind: 'task', projectId: workspace.projectId })
+      .filter((binding) => binding.workspaceId === id && binding.activeChatId != null)
+      .map((binding) => {
+        const chatId = binding.activeChatId!
+        const meta = storage.getChatMeta(chatId)
+        return { chatId, title: meta?.title ?? null, providerId: meta?.providerId ?? null }
+      })
+    return c.json({ sessions })
   })
 
   // Delete workspace

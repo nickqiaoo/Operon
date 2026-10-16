@@ -774,6 +774,11 @@ export const api = {
     post<{ workspace: WorkspaceDTO }>(`/projects/${projectId}/workspaces`, input),
   workspaceDelete: (id: number) =>
     del<{ success: boolean }>(`/projects/workspaces/${id}`),
+  /** Agent sessions the server started in a workspace (a dispatched task's agent). */
+  workspaceSessions: (id: number) =>
+    get<{ sessions: Array<{ chatId: number; title: string | null; providerId: string | null }> }>(
+      `/projects/workspaces/${id}/sessions`,
+    ),
 
   // --- IM Platform (multi-provider, agent-as-bot) ---
   imSourceList: () =>

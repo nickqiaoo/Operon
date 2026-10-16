@@ -36,7 +36,7 @@ import {
   hasPersistableAssistantMessage,
   mergeAssistantMetadata,
 } from './persistence.js'
-import { runAgentTurn, writePreparedPartToUiStream } from './agent-turn.js'
+import { preparedToUIChunks, runAgentTurn, writePreparedPartToUiStream } from './agent-turn.js'
 import { startLiveTurn, pumpToLiveTurn } from './live-turn-hub.js'
 import { recordUsageSample } from '../analytics/cache-monitor.js'
 import {
@@ -307,6 +307,85 @@ export async function startChat(
       error: turnError,
     }),
     finish: () => sessionManager.finishRequest(chatId, requestId),
+  }
+}
+
+/**
+ * A turn the server starts on its own (an agent woken for a channel message, a
+ * task dispatched from the board), shaped like `startChat` so the caller drains
+ * `preparedParts` itself.
+ *
+ * Calling `startChat` directly runs the turn where no surface can see it: it is
+ * never tee'd into the live-turn hub, so an open tab neither renders the reply
+ * nor the approval card the turn is blocked on — the chat just shows "waiting
+ * for your input" with nothing to answer. This runs it through the same
+ * lifecycle as `handleChat` (turn admission, Stop, presence, live tee) while the
+ * caller keeps reading the runtime parts.
+ *
+ * The caller must `await persistDone` and then call `finish()`, as with
+ * `startChat`; `finish()` is what reports the turn as ended.
+ */
+export async function startServerChat(payload: AiChatRequest, options?: StartChatOptions) {
+  payload = { ...payload, requestId: payload.requestId ?? randomUUID() }
+  const requestId = payload.requestId!
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  let unregisterAbort: (() => void) | undefined
+  if (payload.chatId) {
+    beginChatTurn(payload.chatId, requestId)
+    unregisterAbort = registerChatTurnAbort(payload.chatId, abort)
+  }
+  emitChatTurnStarted(payload)
+
+  let ctx: Awaited<ReturnType<typeof startChat>>
+  try {
+    ctx = await startChat(payload, controller.signal, options)
+  } catch (err) {
+    unregisterAbort?.()
+    if (payload.chatId) {
+      emitChatTurnFinished({ chatId: payload.chatId, turnId: requestId, status: controller.signal.aborted ? 'cancelled' : 'failed',
+        prompt: findLatestUserMessage(payload.messages), error: err instanceof Error ? err.message : String(err) })
+    }
+    throw err
+  }
+  // A follow-up the user sends from the tab reuses this turn's MCP context and
+  // instructions (see handleChat).
+  chatContexts.set(ctx.session, { agentContext: payload.agentContext, instructions: payload.instructions, env: payload.env })
+  if (!payload.chatId && ctx.chatId > 0) {
+    beginChatTurn(ctx.chatId, ctx.requestId)
+    unregisterAbort = registerChatTurnAbort(ctx.chatId, abort)
+  }
+
+  let preparedParts = ctx.preparedParts
+  if (ctx.chatId > 0) {
+    const [forCaller, forHub] = ctx.preparedParts.tee()
+    preparedParts = forCaller
+    try {
+      const response = createUIMessageStreamResponse({
+        stream: preparedToUIChunks(forHub, ctx.assistantMessageId, ctx.normalizedMessages, (error) =>
+          isUserFacingRuntimeError(error) ? error.message : 'An error occurred.'),
+      })
+      const turn = startLiveTurn(ctx.chatId, headersToRecord(createChatResponseHeaders(response.headers, ctx.chatId)))
+      if (response.body) void pumpToLiveTurn(response.body, turn)
+      else turn.finish()
+    } catch (error) {
+      console.warn('[AI] live turn tee failed:', error instanceof Error ? error.message : String(error))
+      void forHub.cancel().catch(() => {})
+    }
+  }
+  markChatTurnReady(ctx.chatId, ctx.requestId)
+
+  let finished = false
+  return {
+    ...ctx,
+    preparedParts,
+    finish: () => {
+      if (finished) return
+      finished = true
+      ctx.finish()
+      unregisterAbort?.()
+      emitChatTurnFinished(ctx.completion())
+    },
   }
 }
 
