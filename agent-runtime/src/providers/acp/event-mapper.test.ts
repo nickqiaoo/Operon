@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import { AcpEventMapper } from './event-mapper.js'
 
 function types(parts: { type: string }[]): string[] {

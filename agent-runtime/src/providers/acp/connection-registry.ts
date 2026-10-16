@@ -15,7 +15,7 @@
  * process, which is the win.
  */
 
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import { createRuntimeLogger } from '../../logger.js'
 import { ACP_PROTOCOL_VERSION, AcpConnection } from './connection.js'
 

@@ -1,4 +1,4 @@
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import type { Model } from '../../types.js'
 import type { AcpDiscoveryContext, AcpModelDiscovery, AcpProviderConfig, AcpUsage } from '../acp/index.js'
 

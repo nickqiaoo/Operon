@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import { toSlashCommands } from './commands.js'
 import type { AcpProviderConfig } from './types.js'
 

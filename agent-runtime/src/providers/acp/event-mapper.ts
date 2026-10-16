@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
@@ -81,8 +81,8 @@ const RAW_ERROR_KEYS = ['Error', 'error', 'message'] as const
  * that, putting the whole thing, stack and all, under `output.Error`. Falling straight through
  * to "Tool execution failed" there drops the only copy of the error on the floor.
  */
-function rawOutputToErrorText(rawOutput: Record<string, unknown> | undefined): string {
-  if (!rawOutput) return ''
+function rawOutputToErrorText(rawOutput: unknown): string {
+  if (!isRecord(rawOutput)) return ''
   const output = rawOutput.output
   if (typeof output === 'string' && output.trim() !== '') return output
   for (const candidate of [output, rawOutput]) {
@@ -105,8 +105,8 @@ const RAW_OUTPUT_KEYS = ['OkayOutput', 'Ok', 'output', 'result', 'text'] as cons
  * empty `content` and the real payload under `rawOutput.output.OkayOutput`, which left the
  * UI rendering a bare `{"output": ""}` envelope with the actual result buried inside `raw`.
  */
-function rawOutputToText(rawOutput: Record<string, unknown> | undefined): string {
-  if (!rawOutput) return ''
+function rawOutputToText(rawOutput: unknown): string {
+  if (!isRecord(rawOutput)) return ''
   const output = rawOutput.output
   if (typeof output === 'string' && output.trim() !== '') return output
   for (const candidate of [output, rawOutput]) {
@@ -329,7 +329,7 @@ export class AcpEventMapper {
     toolName: string,
     status: acp.ToolCallStatus | null | undefined,
     content: acp.ToolCallContent[] | null | undefined,
-    rawOutput: Record<string, unknown> | undefined,
+    rawOutput: unknown,
   ): void {
     const state = this.getOrCreateToolState(toolCallId, toolName)
     if (state.resultEmitted) return
@@ -357,7 +357,7 @@ export class AcpEventMapper {
         input: toolCall.input,
         output: {
           output: text || rawOutputToText(rawOutput),
-          ...(rawOutput ? { raw: rawOutput } : {}),
+          ...(rawOutput != null ? { raw: rawOutput } : {}),
         },
         providerExecuted: true,
         dynamic: true,

@@ -1,4 +1,4 @@
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import type { Model, Mode, ProviderFeatures, RuntimeTextStreamPart } from '../../types.js'
 
 /** The AI-SDK `finish-step` usage shape the mapper reports for a turn. */
@@ -11,13 +11,25 @@ export interface AcpModelDiscovery {
 }
 
 /**
+ * The model list on a `session/new` response. ACP 1.x moved model choice to `configOptions`
+ * (category `model`) and dropped this field from its types, but Cursor and Antigravity still
+ * send it, and `ClientSideConnection` hands that response back unparsed, so it arrives intact.
+ */
+export interface AcpSessionModelState {
+  availableModels: Array<{ modelId: string; name: string; description?: string | null }>
+  currentModelId: string
+}
+
+export type AcpNewSessionResponse = acp.NewSessionResponse & { models?: AcpSessionModelState | null }
+
+/**
  * What a one-shot handshake yielded for model discovery. `initialize` is present
  * when `modelProbe` is 'initialize' or 'session'; `session` only when 'session'.
  * Both are null when `modelProbe` is 'none' or the probe failed.
  */
 export interface AcpDiscoveryContext {
   initialize: acp.InitializeResponse | null
-  session: acp.NewSessionResponse | null
+  session: AcpNewSessionResponse | null
   /**
    * Commands the agent pushed during the probe, when `probeCommands` is set.
    * Null when not requested, unsupported, or the push never arrived.

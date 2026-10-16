@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import type { SessionOptions } from '../../types.js'
 import type { AcpProviderConfig } from './types.js'
 import { createRuntimeContext } from '../../context.js'

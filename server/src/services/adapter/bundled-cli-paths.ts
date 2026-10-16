@@ -262,7 +262,9 @@ export interface CliVersionInfo {
  * we no longer bundle a runtime they would have no way back.
  */
 const CLI_MIN_TESTED_VERSIONS: Partial<Record<CliAdapterId, string>> = {
-  // `@github/copilot-sdk` declares `"@github/copilot": "^1.0.73"`.
+  // `@github/copilot-sdk` used to declare `"@github/copilot": "^1.0.73"`. Since 1.0.2x it
+  // carries its own runtime instead and checks the CLI by SDK protocol version (3); a
+  // 1.0.83 CLI handshakes with SDK 1.0.22.
   copilot: '1.0.73',
 }
 

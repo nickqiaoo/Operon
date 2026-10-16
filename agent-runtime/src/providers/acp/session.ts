@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type {
@@ -232,7 +232,7 @@ export class AcpRuntimeSession implements AgentSession {
     try {
       this.logger.info(`Prompting ${this.config.providerId} session ${this.sessionId} (model=${this.currentModelId}, mode=${this.currentModeId})`)
       const result = await connection.agent.prompt({ sessionId: this.sessionId, prompt })
-      for (const part of mapper.finalize(result.stopReason, result._meta)) queue.push(part)
+      for (const part of mapper.finalize(result.stopReason, result._meta ?? undefined)) queue.push(part)
     } catch (error) {
       this.logger.error(`Prompt failed for ${this.config.providerId} session ${this.sessionId}: ${describeError(error)}`)
       queue.push({ type: 'error', error: normalizeAcpError(error) })
@@ -278,7 +278,7 @@ export class AcpRuntimeSession implements AgentSession {
             return
           }
           if (!this.activeMapper || !this.activeQueue) return
-          for (const part of this.activeMapper.handleUpdate(params.update, params._meta)) {
+          for (const part of this.activeMapper.handleUpdate(params.update, params._meta ?? undefined)) {
             this.activeQueue.push(part)
           }
         },
@@ -388,7 +388,9 @@ export class AcpRuntimeSession implements AgentSession {
   private async applyModel(): Promise<void> {
     if (!this.connection || !this.sessionId) return
     try {
-      await this.connection.agent.setSessionModel?.({ sessionId: this.sessionId, modelId: this.currentModelId })
+      // ACP 1.x replaced `session/set_model` with `session/set_config_option` and dropped it from
+      // the SDK; the agents we drive still answer it (see AcpSessionModelState).
+      await this.connection.agent.request('session/set_model', { sessionId: this.sessionId, modelId: this.currentModelId })
     } catch (error) {
       this.logger.warn(`Failed to set ${this.config.label} model ${this.currentModelId}: ${describeError(error)}`)
     }

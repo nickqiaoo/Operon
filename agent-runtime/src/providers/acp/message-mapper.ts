@@ -1,4 +1,4 @@
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import type { ModelMessage } from 'ai'
 
 export interface AcpPromptWarning {

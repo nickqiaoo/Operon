@@ -1,4 +1,4 @@
-import type * as acp from '@zed-industries/agent-client-protocol'
+import type * as acp from '@agentclientprotocol/sdk'
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type { ProviderDescriptor } from '../../types.js'

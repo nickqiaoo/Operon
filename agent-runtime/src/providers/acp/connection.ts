@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { Readable, Transform, Writable } from 'node:stream'
-import * as acp from '@zed-industries/agent-client-protocol'
+import * as acp from '@agentclientprotocol/sdk'
 import { logProviderRaw } from '../../provider-raw-log.js'
 
 /** ACP protocol version negotiated on `initialize` (v1 is current). */
@@ -102,12 +102,12 @@ export interface AcpConnectionOptions {
 
 /**
  * The client half of an ACP connection over a spawned CLI's stdio. Uses the
- * official `@zed-industries/agent-client-protocol` SDK for all JSON-RPC framing
+ * official `@agentclientprotocol/sdk` SDK for all JSON-RPC framing
  * and correlation; we only implement the two required `Client` callbacks
  * (`sessionUpdate`, `requestPermission`) and drive the agent via `this.agent`.
  */
 export class AcpConnection {
-  readonly agent: acp.Agent
+  readonly agent: acp.ClientSideConnection
   private readonly proc: ChildProcessWithoutNullStreams
   private exited = false
   private readonly sessions = new Map<string, AcpSessionCallbacks>()

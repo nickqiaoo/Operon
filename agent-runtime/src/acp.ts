@@ -1,6 +1,6 @@
 /**
  * The agents driven over the Agent Client Protocol: Cursor, Grok, Kimi Code and
- * Antigravity. Needs `@zed-industries/agent-client-protocol` (a peer dependency).
+ * Antigravity. Needs `@agentclientprotocol/sdk` (a peer dependency).
  */
 export { cursor, type CursorMode } from './providers/cursor/index.js'
 export { grok, type GrokMode } from './providers/grok/index.js'

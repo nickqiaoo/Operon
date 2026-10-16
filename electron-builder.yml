@@ -47,6 +47,11 @@ files:
   - "!node_modules/@github/copilot-darwin-*/**"
   - "!node_modules/@github/copilot-linux*/**"
   - "!node_modules/@github/copilot-win32-*/**"
+  # Since 1.0.2x the SDK carries its own runtime the same way, under its own name
+  # (135M per platform), for RuntimeConnection.forInProcess — we connect over stdio.
+  - "!node_modules/@github/copilot-sdk-darwin-*/**"
+  - "!node_modules/@github/copilot-sdk-linux*/**"
+  - "!node_modules/@github/copilot-sdk-win32-*/**"
 
   # ---- Dead weight: shipped by npm, never read at runtime ----
   # Measured against the 1.3.31 arm64 build by reading the asar header directly.
