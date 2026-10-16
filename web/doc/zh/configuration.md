@@ -6,7 +6,7 @@
 
 ## Operon 自己的配置
 
-**Settings > Custom** 编辑的是 `~/.operon/config.toml`。它控制三件事：
+**Settings > Operon** 编辑的是 `~/.operon/config.toml`。它控制三件事：
 
 | 配置项 | 作用 |
 | --- | --- |
@@ -14,7 +14,7 @@
 | 循环控制 | `maxTurns` 与 `maxStepsPerTurn`——Agent 在必须回来找你之前，最多能连续工作多久 |
 | `pluginMarketplaces` | [插件](plugins)从哪些 GitHub 仓库浏览和安装 |
 
-关于这个文件的读取方式，有两点值得知道：
+关于这个文件的读取方式，有三点值得知道：
 
 - **它是分层的，且按 workspace 生效。** user、project、local 三层会被合并，结果按 git 根目录加载——因此某个仓库可以携带自己的规则，而不必改动你的全局配置。
 - **它不配置 MCP。** MCP 服务器有自己的 `mcp.json` 系列文件，见 [MCP 服务器](mcp-servers)。这个拆分是刻意的。
@@ -29,7 +29,7 @@
 | **Claude Code** | `~/.claude` | `settings.json`、`CLAUDE.md`、`keybindings.json` |
 | **Codex** | `~/.codex` | `config.toml`、`instructions.md` |
 | **OpenCode** | `~/.config/opencode` | `opencode.json`、`AGENTS.md` |
-| **Kimi** | `~/.kimi` | `config.toml` |
+| **Kimi Code** | `~/.kimi` | `config.toml` |
 | **Grok** | `~/.grok` | `config.toml` |
 
 其中的 markdown 文件（`CLAUDE.md`、`instructions.md`、`AGENTS.md`）是全局自定义指令——它们对该 CLI 运行的每一个项目都生效，因此不适合放任何项目专属的内容。

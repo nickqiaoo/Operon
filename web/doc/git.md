@@ -14,7 +14,7 @@ Open the **Commit or push** dialog from the git controls. It shows the current b
 
 When the message box is empty, Operon asks a model to write one from the staged diff.
 
-Configure it under **Settings > Commit message generation**: pick the provider and model to use. The model runs headlessly with the diff inlined — no tools, no file access, nothing but the diff and one request. It is deliberately a small, fast job, so it is worth pointing at a cheap model rather than your main coding one.
+Configure it under **Settings > GitHub > Commit message generation**: pick the provider and model to use. The model runs headlessly with the diff inlined — no tools, no file access, nothing but the diff and one request. It is deliberately a small, fast job, so it is worth pointing at a cheap model rather than your main coding one.
 
 If you type a message yourself, no model is called at all.
 

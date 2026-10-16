@@ -17,7 +17,7 @@ Individual agents can override these for themselves — see the environment vari
 
 Operon runs real CLI binaries. It finds them by asking your **login shell**, which is why a CLI that works in your terminal usually just works here too — even when it was installed by a version manager that never touches the system `PATH`.
 
-Each provider tab shows what was resolved:
+Provider settings that offer a CLI path show what was resolved:
 
 - **Available** / **Not found** — whether the binary is actually there.
 - **Resolution** — the path in use.

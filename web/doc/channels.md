@@ -2,7 +2,7 @@
 
 ## What is it
 
-A channel is a project-scoped, Slack-like collaboration space built into Operon. Each project can have multiple channels, and each channel keeps its own member list, message history, threads, and tasks. Agents and human members share the same channel and can collaborate around an ongoing topic, instead of starting a fresh ad-hoc chat each time.
+A channel is a project-scoped, Slack-like collaboration space built into Operon. Each project can have multiple channels, and each channel keeps its own agent member list, message history, and threads. You and the agents share the same conversation and can collaborate around an ongoing topic, instead of starting a fresh ad-hoc chat each time.
 
 Channels and the default Workspace Chat (the Chat tab under each Workspace) are two independent threads of conversation:
 
@@ -11,18 +11,15 @@ Channels and the default Workspace Chat (the Chat tab under each Workspace) are 
 
 ## Opening channels
 
-1. Pick a Workspace from the sidebar.
-2. Click the **Channels** entry in the workspace header (`MessageSquare` icon) to enter that project's channels page.
-3. The **ChannelSidebar** on the left lists all channels; clicking one opens the chat view on the right.
+1. Find the project in the sidebar and click **Open board**.
+2. Open **Channels** in the board toolbar.
+3. Pick a channel to open its conversation in a drawer beside the board.
 
-Channel data is scoped by `projectId` — switching Workspace switches you to the channels under that project.
+Channels belong to the project, so workspaces under the same project share the channel list.
 
 ## Creating a channel
 
-In the channel sidebar click **New channel**:
-
-- **Name** — channel name (unique within the project).
-- **Description** — short description so members know what the channel is for.
+In the **Channels** menu click **New channel**, enter a name unique within the project, and press Enter.
 
 A new channel is empty — you'll need to add members before any conversation happens.
 
@@ -37,7 +34,7 @@ Channel members are agents only. You don't "join" as a human — opening any cha
 
 ### Creating and editing agents
 
-"Add Agent" adds an agent that already exists. Agents themselves are created in the **Manage Agents** dialog, reachable either from the channel or from **Settings > Agents** when you'd rather not open a channel first. Both routes open the same dialog.
+"Add Agent" adds an existing agent. Create or edit agents through **Agents > Manage Agents** in the board toolbar. For bots on external platforms, use the agent controls in **Settings > Gateway**.
 
 An agent is defined by:
 
@@ -54,13 +51,13 @@ The same agents are what IM bots embody in `mate` mode — see [IM Platforms](im
 
 ## Messages and threads
 
-- Top-level messages display newest-first. Click any message to open the **ThreadPanel** — replies inside a thread don't flood the main view, making sub-topics easy to track.
+- Top-level messages run chronologically, with the newest at the bottom. Open a message's thread to see replies in a side panel — replies inside a thread don't flood the main view, making sub-topics easy to track.
 - Each message is tagged with a sender type: `human`, `agent`, or `system` (system notifications like member join / task status changes).
 - `@`-mentioning an agent triggers it to handle that message individually. Without an `@`, agents stay silent by default — this prevents multiple agents from talking over each other.
 
 ## Tasks view
 
-From the channel sidebar you can switch from **Chat** to the project's **Tasks** view — a full task board (List / Board / Teams) scoped to the current project. Channel discussions are where work is decided; tasks are the durable, trackable items that come out of them. A task can be created directly, spun up by an agent that splits its work into steps, or — in SDD-enabled channels — promoted from a converged discussion into a structured change package.
+The project board stays behind the channel drawer, with List / Board / Teams views. Close the drawer to return to it. Channel discussions are where work is decided; tasks are the durable, trackable items that come out of them. A task can be created directly, spun up by an agent that splits its work into steps, or — on request — promoted from a converged discussion into a structured change package.
 
 Tasks carry status, priority, assignee, and an activity feed, and can be dispatched to an agent that runs them on an isolated git branch. See [Tasks](tasks) for the full board, and [Spec-Driven Development](sdd) for the gated spec → plan → acceptance flow.
 
@@ -71,10 +68,10 @@ The same agent can be a member of multiple channels, each with its own session c
 ## How it differs from other chat surfaces
 
 - **Channel vs Workspace Chat** — A channel is shared space; Workspace Chat is solo. Use channels for ongoing topics, Workspace Chat for one-off tasks.
-- **Channel vs IM Platforms** — IM Providers bridge agents to external Slack / Telegram / Discord platforms; the agent responds in those external platforms' channels and never appears in Operon's internal channel list. The two are independent collaboration surfaces and do not share state. See [IM Platforms](im-platforms).
+- **Channel vs IM Platforms** — IM Providers bridge agents to external Slack / Telegram platforms; the agent responds in those external platforms' channels and never appears in Operon's internal channel list. The two are independent collaboration surfaces and do not share state. See [IM Platforms](im-platforms).
 - **Channel vs External Agents** — External Agents are sub-task delegation inside a Workspace Chat — cross-agent, but still a one-on-one conversation. Channels are open multi-party / multi-agent spaces.
 
 ## Troubleshooting
 
 - **Agent doesn't respond in the channel** — Make sure the agent is in the channel's member list, and that you `@`-mentioned it.
-- **Tasks view is empty** — Create a task with the **New** button, or let an agent split its work into steps. See [Tasks](tasks).
+- **Tasks view is empty** — Create a task with the **New Task** button, or let an agent split its work into steps. See [Tasks](tasks).

@@ -4,9 +4,9 @@
 
 ## Language
 
-The interface is available in **English** and **简体中文**. Switching takes effect immediately — no restart.
+Choose **English**, **简体中文**, or **System** to follow your OS or browser language. Switching takes effect immediately — no restart.
 
-This setting changes Operon's own UI only. It does not instruct agents what language to reply in; tell them that in your message, or in an agent's instructions.
+This selects the interface language, and Assistant uses it as its default reply language. For workspace agents, specify the reply language in your message or their instructions.
 
 ## Theme
 

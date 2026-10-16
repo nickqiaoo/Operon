@@ -2,79 +2,78 @@
 
 ## What is it
 
-Chat is the core interaction interface. It provides a streaming conversation experience with multiple AI agents, with support for tool execution, file operations, permission controls, and session management.
+Chat provides a streaming conversation with AI agents, with tool execution, file operations, permission controls, and session history. For a continuous personal conversation across projects, see [Assistant](assistant).
 
 ## How it works
 
-Operon supports nine AI agents, each with a different underlying architecture and capabilities:
+Choose an agent and model above the input. Operon currently integrates nine agents:
 
-- **Operon Agent** (Native · Multi-provider) — Operon's own agent, not a wrapper around an external CLI (configured as a *Custom Agent* in **Settings > Providers**). An AI SDK-powered agent loop that aggregates 8+ model providers — Anthropic, OpenAI, Google, DeepSeek, Kimi, GLM, MiniMax, and Grok — behind a single built-in tool system, with skills, MCP, and memory built in.
-- **Claude Code** (Anthropic) — Deep integration with Claude Code CLI. Multiple permission modes for safe autonomous coding, adjustable thinking levels, and rich UI for subagent, question tools, and slash commands. Switch models and modes mid-conversation for a CLI-like experience.
-- **Codex** (OpenAI) — Built on Codex App Server with full session management. Plan mode for reviewing changes before execution, rich subagent UI rendering, and sandbox isolation for safe coding. Uses the same Codex Desktop integration, giving you 2x API quota. Supports **Goal** mode (see below).
-- **Gemini CLI** (Google) — Built from Gemini Core source code, fully compatible with all Gemini CLI capabilities. OAuth authentication, and rich UI rendering for subagent and all tool invocations.
-- **GitHub Copilot** (GitHub) — Built on the Copilot SDK. Three modes — Interactive (per-action approval), Plan, and Autopilot (autonomous) — with configurable reasoning effort and a live, plan-specific model list.
-- **Grok** (xAI) — Connected over **ACP** (see below). Four modes — Default, Plan, Auto, and Full Access — with a live model list, per-turn token accounting, and skills picked up from the shared `skills` conventions.
-- **Cursor** (Cursor) — Connected over **ACP**. Agent, Plan, and Ask modes, plus a live model list (Composer, Codex, Opus, and more) pulled from your account.
-- **OpenCode** (Open Source) — Built on OpenCode SDK with full feature parity. Multi-provider support for GLM, DeepSeek, and more, with rich UI rendering for all tool invocations.
-- **Kimi Code** (Moonshot) — Connected over **ACP**. Four modes — Default, Plan, Auto, and YOLO (auto-approves everything) — plus slash commands like `/compact`.
+- **Operon** — the built-in agent, with [AI Providers](providers), tools, skills, MCP, and memory. Its permission modes are Manual, Workspace, Auto, and YOLO.
+- **Claude Code** — Default, Auto, Accept Edits, Plan, Bypass, and Don't Ask modes, with model-dependent thinking controls.
+- **Codex** — Request Approval, Approve for Me, Full Access, and Plan modes, plus sandboxed execution and Goal mode.
+- **Antigravity** — Google's agent over ACP, with Default, Auto Edit, and YOLO modes. Install its server and check sign-in in **Settings > Antigravity**.
+- **GitHub Copilot** — Normal, Plan, and Autopilot modes, with account-specific models and reasoning controls.
+- **Grok** — ACP integration with Default, Plan, Auto, and Full Access modes.
+- **Cursor** — ACP integration with Agent, Plan, and Ask modes.
+- **OpenCode** — multi-provider agent with Build, Plan, and Full Access modes.
+- **Kimi Code** — ACP integration with Default, Plan, Auto, and YOLO modes.
 
-When you send a message, it streams to the backend via Server-Sent Events (SSE), which routes it to the selected agent. The agent calls the AI model and streams the response back in real-time. The system maintains sessions per chat — the AI retains context across messages within the same conversation.
+Model lists and available controls depend on the agent, installed version, and account. Each chat keeps its own session context across messages.
 
 ### ACP agents
 
-Grok, Cursor, and Kimi Code all speak the **Agent Client Protocol** (ACP) — the open, agent-agnostic JSON-RPC protocol originally from Zed. Operon runs each CLI in its ACP mode (`grok agent stdio`, `cursor-agent acp`, `kimi acp`) and talks to it over one shared client layer, so all three get the same treatment: streaming output and thinking, tool calls with permission prompts, mode and model switching, session resume, MCP servers, and the `/` command menu.
-
-The practical upshot is that these agents don't need bespoke integration work. Anything that ships an ACP endpoint can be wired up the same way, and each provider only has to describe what makes it different — its modes, how it advertises models, and how it reports token usage.
+Antigravity, Grok, Cursor, and Kimi Code use the **Agent Client Protocol** (ACP). Operon presents their streamed replies, tool calls, permission prompts, model and mode controls, session history, and available commands in the same chat interface. The controls shown depend on what each agent supports.
 
 ## Features
 
 ### Multi-Agent Support
 
-Switch between different AI agents and models within the same interface. Each agent may offer different models, operating modes, and capabilities.
+Choose different agents and models for different conversations. Use [External Agents](external-agents) when you want one agent to delegate work to another.
 
 ### Streaming Responses
 
-AI responses stream in real-time as they are generated, giving immediate feedback.
+AI responses stream in real time as they are generated.
 
 ### Tool Execution & Permissions
 
-AI models can use tools (read files, write files, run commands, etc.). When a tool requires approval, a permission dialog appears. You can approve once, approve always for that tool type, or deny.
+Agents can read files, edit code, and run commands. When approval is required, the chat shows the request; the available choices depend on the agent and tool. Pending requests also appear in the [Inbox](notifications).
 
-Operating modes control the default permission level:
-- Restrictive modes require approval for most actions.
-- Permissive modes auto-approve safe operations.
+Operating modes set the default behavior:
+
+- **Manual / Default / Request Approval / Normal** ask when the agent needs permission.
+- **Workspace / Accept Edits / Auto Edit** allow specified edits while keeping other checks.
+- **Auto / Approve for Me** let the agent review actions and escalate when needed.
+- **Plan / Ask** focus on planning or questions, with restrictions specific to the agent.
+- **Bypass / Full Access / YOLO / Autopilot** remove approval prompts according to that agent's mode. Choose them deliberately.
 
 ### File Attachments
 
-Attach files to your messages using the attachment button. Text files are included as context for the AI.
+Attach files using the attachment button. Text files provide context; supported agents can also receive images.
 
 ### @Mention File References
 
-Type `@` in the input to search and reference files from your workspace. The AI receives the file content as context.
+Type `@` to search and reference workspace files. Their content is provided to the agent.
 
 ### Message Injection
 
-Some agents support injecting messages into an active session, useful for providing additional context mid-conversation.
+Supported agents accept follow-up messages while a turn is running. Other agents queue them until the current turn finishes.
 
 ### Session Resume
 
-Conversations can be resumed across sessions. The system tracks session state so you can continue where you left off.
+Open an existing conversation to continue from its saved session history.
 
 ### Checkpointing & Rewind
 
-For supported agents, the system captures file snapshots before each message. You can rewind to any previous checkpoint to undo changes the AI made to your files.
+Operon captures workspace checkpoints for chat turns. Use rewind to inspect and restore changes from a previous turn; review the affected files before confirming.
 
 ### Commands
 
-Type `/` in the input to access agent-specific commands:
-- `/compact` — compress the conversation to save context space.
-
-Available commands vary by agent.
+Type `/` to see available commands, including `/compact` where supported. The list varies by agent and can include skills.
 
 ### Thinking Levels
 
-Some agents support configurable thinking effort (low, medium, high). This controls how much reasoning the AI applies before responding.
+Supported agents and models offer reasoning-effort controls. Available levels vary by model.
 
 ### Goal Mode
 
-Codex supports **Goal** mode: instead of a single back-and-forth turn, you give the agent an objective and it pursues it autonomously across multiple turns until the goal is reached. A goal banner above the input shows the live status (active, paused, or stopped on a usage/budget limit), the objective, and how much time and how many tokens have been spent. You can pause, resume, or clear a goal at any time.
+Codex supports **Goal** mode: give it an objective to pursue across turns. The goal banner shows its status, objective, elapsed time, and token use. You can pause, resume, or clear a goal; usage or budget limits can stop it.

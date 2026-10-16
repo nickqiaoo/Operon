@@ -2,36 +2,38 @@
 
 ## What is it
 
-The GitHub integration accepts a Personal Access Token used specifically to power the desktop's **Create PR** feature — once you've made changes in the editor, one click lets Operon create a branch and a pull request through the GitHub REST API directly, without you switching to the terminal to run `git` and `gh`.
+Operon has two GitHub connections: the **GitHub App** for task pull requests and review-comment steering, and your local **GitHub CLI** login for pull requests opened from the review toolbar or [Assistant](assistant).
 
-> The token's scope is **limited to the Create PR flow**: verifying your login, fetching repo metadata (default branch, fork status, etc.), and calling `POST /repos/.../pulls` to create the PR. It is **not** injected into any AI agent as `gh` CLI authentication, and it has **nothing to do** with Operon's AI-written commit messages (that capability only reads the local diff and calls your existing AI Provider — it does not depend on the GitHub token).
+Both are shown in **Settings > GitHub**. They are separate connections; an App installation does not sign you in to `gh`.
 
 ## Configuration
 
-1. Generate a [Personal Access Token](https://github.com/settings/tokens) on GitHub. Create PR needs at least `repo` (required for private repos); for public repos `public_repo` is enough.
-2. Open Operon **Settings → GitHub**.
-3. Paste the token into the input and click Save.
-4. On success, the card shows the logged-in GitHub username (from `GET /user`) — that account becomes the author of subsequent PRs.
+### GitHub App
 
-The token is encrypted at rest on the desktop and is never sent to any external server.
+1. Sign in from **Settings > Remote** on the desktop.
+2. In **Settings > GitHub**, click **Install GitHub App** and choose the account or organization and repositories it can access.
+3. Use **Link GitHub account** when offered to identify the account acting through the integration.
+4. Check **Repository coverage** to see which local projects have a covered GitHub remote.
+
+The App supports task PRs and routing review comments back to the responsible agent. Manage repository access with **Manage on GitHub**.
+
+### GitHub CLI
+
+Install `gh` and run `gh auth login` on the desktop. Return to **Settings > GitHub** and click **Refresh** to check that it is installed and signed in.
+
+Manual PRs use this same login. Operon does not ask you to paste a Personal Access Token into Settings.
 
 ## Usage: Create PR
 
-After editing files, saving, and reviewing the diff:
+After reviewing your changes:
 
-1. Click the **Create PR** button in the top-right of the editor (only visible when Operon recognizes the current repo as having a GitHub remote).
-2. In the dialog, fill in:
-   - **Title** — PR title.
-   - **Description** — PR body.
-   - **Branch name** — defaults to a temporary `ai/<slug>-<MMDD>` style name; editable.
-   - **Base branch** — target branch (defaults to the repo's default branch).
-3. Click Create. Operon will:
-   - Create the branch in the current repo and push the changes.
-   - Call the GitHub API to open the PR.
-   - Show the PR URL in the dialog so you can open it with one click.
+1. Open **Create PR** from the review toolbar for a repository with a GitHub remote.
+2. Enter a title, description, branch name, and base branch.
+3. Confirm creation. Operon prepares the branch, commits pending changes when needed, pushes it, and opens the PR using `gh`.
+4. Open the returned PR URL to review it on GitHub.
 
-The whole thing works without `gh` CLI installed locally.
+You can also ask Assistant to check PR status or create a PR in a selected workspace. Creating one can commit and push changes, so request it when the work is ready to share.
 
 ## Removing it
 
-Click **Delete** in **Settings → GitHub** to clear the saved token. With no token, the Create PR button prompts you to configure one in Settings first.
+**Forget** removes an App installation from Operon's saved connections. To change or revoke the installation itself, use **Manage on GitHub**. The CLI's login is managed separately with `gh`.

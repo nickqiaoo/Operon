@@ -2,11 +2,11 @@
 
 ## Operon 是什么
 
-Operon 是一个 macOS 桌面应用，把多个 AI 编码 Agent 收进同一个界面。你不用再在几个 CLI 和终端之间来回切——Claude Code、Codex、Gemini CLI、GitHub Copilot、Grok、Cursor、OpenCode、Kimi Code 和自定义 Agent，都在同一个地方用。
+Operon 是一个 macOS 桌面应用，把 AI Agent 和个人助理放在同一个界面。Claude Code、Codex、Antigravity、GitHub Copilot、Grok、Cursor、OpenCode、Kimi Code 和内置 Operon Agent 都能在这里使用。助理可以处理日常任务，也能协调不同项目的工作。
 
 ## 安装
 
-从网站的[直接下载链接](/download)拿最新版。Operon 目前只有 macOS 版。
+从网站的[直接下载链接](/download)拿最新版。桌面应用运行在 macOS 上；也可以通过[移动端](mobile)或[网页端](remote-access)远程连接。
 
 ## 建第一个工作区
 
@@ -19,9 +19,9 @@ Operon 是一个 macOS 桌面应用，把多个 AI 编码 Agent 收进同一个�
 
 ## 接上一个 Agent
 
-本机装好的 CLI Agent（Claude Code、Codex、Gemini CLI、GitHub Copilot、Grok、Cursor、OpenCode、Kimi Code），Operon 会自己找到。要是没找着，去 **Settings** 手动填一下 CLI 路径。
+本机装好的 CLI Agent（Claude Code、Codex、GitHub Copilot、Grok、Cursor、OpenCode、Kimi Code），Operon 会自己找到。要是没找着，去 **Settings** 手动填一下 CLI 路径。
 
-如果你想用 Custom Agent（也就是直接调模型 API 的那个），得先去 **Settings > Providers** 填上对应的 API key。
+Antigravity 通过 **Settings > Antigravity** 安装 ACP 服务端并检查登录。内置 Operon Agent 的模型访问在 **Settings > AI Providers** 配置。
 
 ## 第一次对话
 
@@ -30,13 +30,13 @@ Operon 是一个 macOS 桌面应用，把多个 AI 编码 Agent 收进同一个�
 3. 输入内容，回车发送。
 4. 回复是一边生成一边显示的。
 
-当 AI 需要读文件、写代码或执行命令时，它会调用工具。视你的权限模式而定，可能会弹出一个确认框——批准一次、以后这类工具都批准，或者拒绝。
+当 AI 需要读文件、写代码或执行命令时，它会调用工具。视你的权限模式而定，可能会显示审批请求。可选操作取决于 Agent 和工具；待处理请求也会出现在 Inbox。
 
 ## 界面速览
 
 窗口分成左侧边栏和中间的工作区，另外还有两个随用随开的面板：
 
-- **左侧边栏** — 工作区列表，外加 Workflow、Skills、Schedule、Settings 的入口。点左上角的面板按钮可以收起来。
+- **左侧边栏** — 工作区列表、Assistant 和 Inbox，以及 Workflow、Plugins、Schedule、Settings 的入口。技能在 Settings 管理。点左上角的面板按钮可以收起来。
 - **中间** — 主标签区，聊天、文件预览和 diff 都在这儿。
 - **右侧面板** — 从中间区域旁边滑出来的标签面板，⌘\ 开关。
 - **底部面板** — 从底下滑上来的标签面板，⌘J 开关。
@@ -54,10 +54,11 @@ Operon 是一个 macOS 桌面应用，把多个 AI 编码 Agent 收进同一个�
 
 Operon 不止是个聊天框。基本对话用顺手之后，可以看看这些：
 
+- **[助理](assistant)** — 一条持续的个人对话，带记忆、后台检查、定时任务和跨工作区的编码 Agent 调度。
 - **[频道](channels)** — 类似 Slack 的共享空间，多个 Agent 和人围绕一个主题一起干活。
 - **[任务](tasks)** — 项目级的任务看板，人和 Agent 一起建任务、派活，活儿在独立的 git 分支上跑。
-- **[规格驱动开发](sdd)** — 可选的带关卡的流程：先过完 规格 → 计划 → 验收，再动代码。
+- **[规格驱动开发](sdd)** — 可选的带关卡的流程：规格和计划批准后再实现，完成后进行验收。
 - **[浏览器](browser)** — 内置浏览器，可以在网页元素上写批注，直接发给 Agent。
-- **[工作流](workflow)** — 可视化画布，把多个 Agent 串成一条流水线。
+- **[工作流](workflow)** — 用画布搭建流水线，也可以在聊天中让 Agent 编排工作流。
 
-文档和界面的语言可以用语言按钮在 English 和中文之间切换。
+文档用语言按钮切换；应用语言在 **Settings > Appearance** 设置。

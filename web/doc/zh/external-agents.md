@@ -2,49 +2,48 @@
 
 ## 这是什么
 
-外部 Agent 就是让当前这个 Agent 把活儿转包给别的 Agent。一件事要是太专门，或者换个模型来做效果更好，主 Agent 可以开一个子任务，让它在另一个标签页里用另一个 Provider 跑。
+外部 Agent 让主 Agent 把工作交给另一个已配置的 Agent，在独立的工作区对话里执行。你可以打开对话、回答问题，以后继续接着做。
 
 ## 工作原理
 
-聊着聊着，主 Agent 判断某件子任务该交给别人做。这时候：
+1. Agent 和模型由你选择；没有指定时，主 Agent 会在启动前询问。
+2. 创建子对话，开始执行委派的提示词。
+3. 结果回传给父对话，供它继续推进。
+4. 主 Agent 可以在同一对话追加指令，或停止当前回合。
 
-1. 后台自动开一个新的聊天标签。
-2. 外部 Agent 收到转过去的提示词，开始干活。
-3. 干完之后，结果回传给原来那个对话。
-4. 主 Agent 收下结果，接着往下走。
-
-这些都发生在同一个工作区里——切一下标签就能实时看到两边各自在做什么。
+从工作区聊天派活时使用该工作区。[助理](assistant)可以在多个工作区之间选择，需要时创建带独立分支的新工作区。同一工作区里的 Agent 共用文件，会互相冲突的改动应使用不同工作区。
 
 ## 可以当外部 Agent 的有哪些
 
-配好的 Agent 都可以：
+可用的已配置 Agent 包括：
 
-- **Claude Code** — 读代码读得深，带文件检查点。
-- **Codex** — OpenAI 模型，代码在沙箱里跑。
-- **Gemini CLI** — Google 的 Gemini，思考预算可调。
-- **GitHub Copilot** — Interactive / Plan / Autopilot 三种模式，推理强度可调。
-- **Grok** — xAI 的 Grok，Default / Plan / Auto / Full Access 四种模式。
-- **Cursor** — Agent / Plan / Ask 三种模式，模型列表按你的账户拉取。
-- **Kimi Code** — Moonshot 的 Kimi，Default / Plan / Auto / YOLO 四种模式。
-- **OpenCode** — 开源模型，Provider 列表动态发现。
-- **Custom** — 你配好的 Provider 里的任何模型。
+- **Operon** — 已配置 AI Providers 中的模型。
+- **Claude Code** — Claude Code CLI。
+- **Codex** — OpenAI 的编码 Agent。
+- **Antigravity** — Google 的 ACP Agent。
+- **GitHub Copilot** — GitHub 的编码 Agent。
+- **Grok** — xAI 的 ACP Agent。
+- **Cursor** — Cursor 的 ACP Agent。
+- **OpenCode** — 多 Provider 编码 Agent。
+- **Kimi Code** — Moonshot 的 ACP Agent。
+
+模型与推理强度以各 Agent 当前目录为准。可用模式见[聊天](chat)；委派会话的默认模式可能与手动打开的聊天不同。
 
 ## 用大白话指挥
 
-多个 Agent 怎么配合，直接在对话里说出来就行，主 Agent 会自己安排怎么转包。比如：
+直接说清楚如何交接，例如：
 
-> 用 Codex 的 GPT-5.4 出一份实现计划，然后照着做，最后让 Gemini 3.1 Pro 审一遍代码
+> 用 Codex 出计划，再让 Claude Code 实现，最后用 OpenCode 审查改动。先让我选模型。
 
-主 Agent 会依次把"出计划"交给 Codex、自己执行、再把"审代码"交给 Gemini，中间不用你插手。
+后续工作可以继续原来的 Agent 对话，保留上下文。Agent 需要决定或审批时，请你自己回答；父 Agent 不会代你批准。
 
 ## 什么时候用得上
 
-- **代码审查**：一个写，另一个审。
-- **前后端分工**：前端交给一个，后端交给另一个。
-- **先调研再实现**：一个查方案，一个照着实现。
-- **交叉验证**：让第二个 Agent 去验第一个的结果。
-- **各取所长**：拿一个模型规划，另一个模型执行。
+- **代码审查** — 一个写，另一个审。
+- **并行工作** — 拆开互不影响的前后端改动。
+- **调研与实现** — 先比较方案，再做改动。
+- **验证** — 让另一个 Agent 测试结果。
 
 ## 怎么盯着
 
-每个外部 Agent 都在自己的标签页里跑，过程全都看得见：提示词、它调了哪些工具、最后给出什么。父标签这边会显示转出去的是什么、回来的是什么。
+委派卡片显示进度与结果，并可打开子对话。助理还会在 **Activity** 中显示编码工作及其工作区、模型。你可以在对应对话中查看工具调用、追加指令或停止运行。

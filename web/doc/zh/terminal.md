@@ -16,7 +16,7 @@ shell 进程并不绑定在显示它的那个标签上。关闭面板、切换�
 
 **New Terminal** 菜单可以直接开一个已经跑起某个编码 CLI 的终端，而不是一个空 shell：
 
-`claude` · `codex` · `copilot` · `cursor-agent` · `gemini` · `opencode` · `kimi` · `grok`
+`claude` · `codex` · `copilot` · `cursor-agent` · `agy` · `opencode` · `kimi` · `grok`
 
 当你想用 CLI 自己的界面时——它的斜杠命令、它的交互提示、它的输出格式——这就是那个出口，同时又把它留在 Operon 内部、留在正确的仓库里。它就是你自己会敲的那个二进制；如果它不在 `PATH` 上，终端会照常报 "command not found"。
 

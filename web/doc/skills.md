@@ -2,34 +2,34 @@
 
 ## What is it
 
-Skills are pluggable instruction packs that give the AI agent specialized knowledge for specific tasks. Think of them as expert guides — when the AI encounters a task that matches a skill (e.g., web design review, code commit formatting), it loads the corresponding skill to get detailed, domain-specific instructions.
+Skills are instruction packs that give agents specialized guidance for a task, such as reviewing a design or preparing a commit. They are separate from [Plugins](plugins), which can bundle skills together with MCP servers.
 
 ## How it works
 
-Each skill is a Markdown file (`SKILL.md`) with a name, description, and detailed instructions. At the start of every chat session, the system injects a list of all available skills into the AI's context. When the AI determines that a user request matches a skill's description, it activates that skill by loading the full instructions on demand.
+A skill is a Markdown file (`SKILL.md`) with a name, description, and instructions. Agents discover relevant skills and load their full instructions when needed; support follows each agent's skill conventions.
 
-Skills are stored globally at `~/.agents/skills/` and managed via an underlying CLI tool. You can install skills from GitHub repositories or create your own.
+Skills can be installed **globally** or for the **current project**. A project skill with the same name takes precedence over a global one. The skill detail shows its location and which agents can see it.
 
 ## Usage
 
 ### Browsing & Installing
 
-1. Open **Settings → Skills**.
-2. The **Installed** section shows skills currently active on your system.
-3. The **Browse** section lets you search skills from a GitHub repository (default: `vercel-labs/agent-skills`).
-4. Click **Install** to add a skill. It will be available in all future chat sessions.
+1. Open **Settings > Skills**.
+2. Choose **Global** or the current project scope.
+3. Browse installed and available skills, search by name, or load a GitHub source (default: `vercel-labs/agent-skills`).
+4. Open a skill to read it, then use **Install** or **Update** where offered. Start a new conversation to use the updated instructions.
 
 ### Uninstalling
 
-Click the delete button on any installed skill to remove it.
+Remove an installed skill from its detail view. Skills marked as provided by a plugin are managed from **Plugins**, rather than deleted here.
 
 ### How the AI uses skills
 
-You don't need to manually activate skills. The AI automatically detects when a skill is relevant to your request and loads it. For example, if you have a "web-design" skill installed and ask the AI to review your UI, it will activate that skill to provide expert-level feedback.
+You can ask for a skill by name, or let the agent choose one that matches your request. Installing a skill supplies guidance; the agent still needs the tools and permissions required to carry it out.
 
 ### Creating your own skills
 
-Create a `SKILL.md` file with YAML frontmatter:
+Create a `SKILL.md` with YAML frontmatter:
 
 ```markdown
 ---
@@ -40,4 +40,4 @@ description: "A brief description of what this skill does"
 Detailed instructions for the AI go here...
 ```
 
-Place it at `~/.agents/skills/my-skill/SKILL.md`. It will be automatically discovered on the next chat session.
+Use `~/.agents/skills/my-skill/SKILL.md` for a shared global skill, or `.agents/skills/my-skill/SKILL.md` in your project. Check the agent badges in Settings to confirm discovery.

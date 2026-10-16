@@ -2,7 +2,7 @@
 
 ## 这是什么
 
-IM 平台集成让 Operon 的 Agent 化身成 Slack / Telegram / Discord 等平台上的 bot，团队继续在自己熟悉的 IM 里协作，但消息会被 Agent 实时看到并按需响应。同一个本地 Agent 可以接到多个 IM 平台，credentials 互相独立。
+IM 平台集成让 Operon 的 Agent 化身成 Slack 或 Telegram 上的 bot，团队继续在自己熟悉的 IM 里协作，但消息会被 Agent 实时看到并按需响应。同一个本地 Agent 可以接到多个 IM 平台，credentials 互相独立。
 
 IM 平台和 Operon 内置的「频道（Channels）」是两个**完全独立**的概念，它们不互通：IM Provider 工作在外部 IM 平台的频道（例如 Slack 频道）上，由 Agent 在 IM 端那边响应消息；Operon 内置的频道是桌面 UI 里的项目级协作空间。两者不会互相同步，配置入口也不一样。
 
@@ -35,11 +35,11 @@ Agent 在私聊（DM）里以一对一向导形式工作：
 
 进入 **Settings → Gateway → IM Platforms**：
 
-1. **Add provider** — 选择平台（Slack / Telegram / Discord，凡是后端注册了 `IMSourceMeta` 的都会出现在列表里）。
+1. **Add provider** — 选择 Slack 或 Telegram。
 2. **Mode** — Mate 或 Interactive。
 3. **Agent** — 选择哪个本地 Agent 作为这个 bot 的「大脑」。同一个 Agent 可以接到多个 Provider；切换 Agent 等于换大脑。
 4. **Display name** — bot 显示名（IM 端看到的名字）。
-5. **Credentials** — 各平台所需的 token / app id / signing secret 等；表单字段会按所选平台动态变化（来自后端 `IMCredentialField` 描述）。
+5. **Credentials** — 各平台所需的 token / app id / signing secret 等；表单字段会按所选平台变化。
 6. **Enabled** — 开关，关闭后 Provider 立即停止订阅事件。
 
 保存后 Operon 启动对应的 Provider 实例，订阅事件流并加入指定的 IM 频道 / 群。
@@ -68,7 +68,7 @@ Config token 是 per-workspace 的凭据，授权 Operon 在你的 workspace 里
 
 1. **Workspace token**（后续再用时会跳过）：
    - 粘贴 **Access Token** 和 **Refresh Token**。
-   - Operon 会先做一次 rotate 验证，再把结果存到 KV 表里。之后会按需自动 refresh。
+   - Operon 验证并保存 token，之后按需自动续期。
 2. **Name your bot**：
    - 选 bot 化身的 **agent**（mate 模式）。
    - 填 **display name**（≤ 35 字符）。
@@ -76,7 +76,7 @@ Config token 是 per-workspace 的凭据，授权 Operon 在你的 workspace 里
 3. **Install & paste tokens** —— 两个子步骤：
    - 点 **Open install page** → 在 Slack 那边点 **Allow** → 到 OAuth & Permissions 页复制 **Bot User OAuth Token**（`xoxb-` 开头），粘回 Operon。
    - 点 **Open Basic Information** → 拉到 **App-Level Tokens** → **Generate Token and Scopes**，scope 只勾 `connections:write` → 复制 token（`xapp-` 开头），粘回 Operon。
-4. 点 **Finish**。Operon 会写入一条普通的 IM Provider 行（`source: slack`，mode `mate`，绑定到选的 agent）并立即启动。bot 在 Slack 端会立刻显示在线。
+4. 点 **Finish**。Operon 保存一个 Mate 模式的 Slack Provider，绑定到所选 Agent 并启动。bot 在 Slack 端会立刻显示在线。
 
 ### 为什么两个 token 还是要手动？
 
@@ -111,11 +111,11 @@ Quick Setup 产物就是一条普通 IM Provider 行 —— 跟手动添加的 P
 
 Provider 和 Operon 内部的频道是两套独立体系——这里说的 **Channel Binding** 是 IM 平台**自身**的频道（例如某个 Slack 频道、某个 Telegram 群、某个 DM）和 Agent 之间的映射，不会出现在 Operon 内部的频道列表里。
 
-绑定**自动产生**，不需要你手工添加：当 bot 被邀请进 IM 频道、或第一次收到 DM 时，系统会创建一条 `IMChannelBinding` 记录，把 `(source, sourceChannel) → agentId` 关联起来。**Settings → Gateway → IM Platforms** 里点 Provider 的 **Bindings** 按钮即可看到当前所有绑定，包含：
+绑定**自动产生**，不需要你手工添加：当 bot 被邀请进 IM 频道、或第一次收到 DM 时，该外部频道会关联到 Provider 的 Agent。**Settings → Gateway → IM Platforms** 里点 Provider 的 **Bindings** 按钮即可看到当前所有绑定，包含：
 
-- `sourceChannel` 和 `sourceChannelName`（IM 平台侧的频道 ID 和名字）
-- `channelKind`：`channel`（群 / 频道）或 `dm`（私聊）
-- 绑定到的 `agentId`
+- 外部频道的 ID 和名称
+- 是群 / 频道，还是私聊
+- 负责的 Agent
 
 如果要把某个 IM 频道交给另一个 Agent 处理，目前需要先让 bot 退出该频道再以新 Provider（绑定到目标 Agent）重新进入。
 
@@ -133,16 +133,16 @@ Interactive 模式下，Agent 跑文件编辑类工具时，工具入参本身�
 - 服务端用 [@pierre/diffs](https://www.npmjs.com/package/@pierre/diffs) 渲染——语法高亮、行号、跟随明暗主题。
 - 写入用 Bearer API Key 鉴权，对外的分享链接用 HMAC + 同一把 Key 签名。
 
-部署在 Cloudflare 免费套餐下大概 5 分钟：克隆仓库 → `npx wrangler kv namespace create DIFFS` → `npx wrangler secret put API_KEY` → `pnpm run deploy`。完整步骤见 [仓库 README](https://github.com/Nickqiaoo/operon-diff-worker#deploy)。
+按服务的 [README](https://github.com/Nickqiaoo/operon-diff-worker#deploy) 部署可选的预览服务，再配置下面的 URL 与 API key。
 
 ### 接入 Operon
 
-进入 **Settings → Diff Preview**，填两个字段：
+进入 **Settings → Gateway → Diff Preview**，填两个字段：
 
 - **Worker URL** — `wrangler deploy` 完成后打印出来的 `https://operon-diff-worker.<your-subdomain>.workers.dev` 地址。
 - **API Key** — 跟 `wrangler secret put API_KEY` 时填的同一个值。
 
-保存。两个字段都非空时，所有 Interactive Provider 立刻生效，不用按 Provider 单独配。任意一个字段为空就视为关闭（`diffPreviewService.isEnabled()` 返回 false），此时 Interactive 会话静默跳过预览步骤。
+保存。两个字段都非空时，所有 Interactive Provider 立刻生效，不用按 Provider 单独配。任意一个字段为空就关闭上传，此时 Interactive 会话静默跳过预览步骤。
 
 ## 多平台并存
 

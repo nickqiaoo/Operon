@@ -2,50 +2,51 @@
 
 ## What is it
 
-Plugins bundle reusable agent capabilities — **skills** and **MCP servers** — into a single installable package. Install one and everything it carries becomes available to your agents at once, without wiring each piece up by hand.
+Plugins bundle reusable agent capabilities — **skills** and **MCP servers** — into one installable package. They are managed globally and supply capabilities to the agents Operon runs.
 
 ## How plugins work
 
 A plugin follows the Codex plugin format and can carry:
 
-- One or more **skills** — instruction packs that extend what an agent can do (see [Skills](skills)).
-- One or more **MCP servers** — external tool servers the agent can call (see [MCP Servers](mcp-servers)).
+- **Skills** — task-specific instructions; see [Skills](skills).
+- **MCP servers** — tools and service connections; see [MCP Servers](mcp-servers).
 
-Plugins are managed globally rather than per session, and changes apply to **new chat sessions**.
+Install or enable a plugin, then start a new conversation to ensure its capabilities are loaded. Individual servers can be enabled or disabled from the plugin detail.
 
 ## Every agent gets them
 
-A plugin is not tied to the Operon agent. Once enabled, its skills and MCP servers are available to **every agent Operon runs** — Operon, Claude Code, Codex, OpenCode, Kimi, Cursor and the others.
+Enabled plugins supply skills and MCP servers to Operon, Claude Code, Codex, OpenCode, and the other supported agents.
 
-- **Skills** are placed in the shared skill folders (`~/.agents/skills`, plus each agent's own folder such as `~/.claude/skills`). They show up in **Settings → Skills** marked *via <plugin>*; add or remove them from the plugin, not from Skills. Because they are real folders, agents you run in a terminal see them too. If you already have a skill with the same name, yours is kept and the plugin's is skipped — the plugin page shows the conflict.
-- **MCP servers** are added to each conversation Operon starts, and listed under **Settings → MCP → From plugins**. Agents you run directly in a terminal don't get them.
-- **Sign in once.** An MCP server that needs you to sign in (Linear, for example) is signed in from the plugin page, once. Other agents reach it through Operon, which keeps the login — they never see the token. Until you sign in, agents see a single `connect_required` tool that tells you where to go. After you sign in, Claude Code and OpenCode conversations pick up the real tools right away; a Codex conversation that was already open needs a new conversation.
+- **Skills** appear in **Settings > Skills** marked as provided by the plugin. Manage them from **Plugins**. They are synced to agent skill folders, so compatible terminal agents can discover them too. Existing skills with the same name are kept; conflicts are shown on the plugin page.
+- **MCP servers** appear under **Settings > MCP > From plugins**. Operon supplies them to its conversations; a CLI launched independently does not receive those connections automatically.
+- **Sign in once.** Open the plugin detail and use **Connect** for a server that requires sign-in. Operon keeps the connection for the agents it runs. An unsigned-in server asks you to connect first; after connecting, start a new conversation if an existing one still shows only the connection prompt.
 
 ## Managing plugins
 
-Click **Plugins** at the bottom of the left sidebar. There are two sections.
+Open **Plugins** from the bottom of the left sidebar. Skills alone are managed in **Settings > Skills**.
 
 ### Marketplace
 
-Browse and install plugins from the registries you configure. Click **Browse** to list everything available across your configured marketplaces — each entry shows its name, version, tier, and description. Click **Install** on any entry to add it.
+Browse or search the gallery of plugins from your configured marketplaces. Open a card to inspect its skills, servers, and connection requirements, then click **Install**.
 
-You can also install directly from a source: paste a **GitHub repo** (`owner/repo`), a **zip URL**, or an **absolute local path** into the install field and click **Install**.
+**Install from a source** also accepts a GitHub repository (`owner/repo`), a zip URL, or an absolute local path.
 
 ### Installed plugins
 
-Each installed plugin is listed with how many skills and MCP servers it provides (e.g. `3 skills · 1/2 MCP`). For each one you can:
+Open an installed plugin to:
 
-- **Enable / disable** it with the toggle.
-- **Remove** it.
+- Enable or disable the plugin, or remove it for future conversations.
+- Connect or disconnect its servers and toggle each server's enabled state.
+- Read its skills and inspect the tools reported by connected servers.
 
-Changes take effect for new chat sessions. A warning icon marks a plugin that failed to load.
+Warnings identify loading problems or skill conflicts. Installation alone does not complete a service's sign-in.
 
 ## Configuring marketplaces
 
-A marketplace is a **GitHub plugin repository** (the same format Codex uses, e.g. `openai/plugins`). Configure the list in the **Custom** agent config (`config.toml`) under `pluginMarketplaces`:
+Configure GitHub marketplace repositories in **Settings > Operon**:
 
 ```toml
 pluginMarketplaces = ["openai/plugins"]
 ```
 
-Open **Settings → Custom** to edit it. The repository is fetched and cached once; browsing and installing then read from the local cache, so browsing stays fast and works offline. If no marketplace is configured, **Browse** shows nothing — add an entry, or install from a direct source instead.
+Marketplace content is cached locally. With no configured marketplace, use **Install from a source** or add a repository first.

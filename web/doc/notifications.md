@@ -6,7 +6,7 @@ Operon tells you about finished and blocked work in two places: an **Inbox** ins
 
 Agents run in the background, across workspaces, often in tabs you are not looking at. The Inbox is the one place that collects what happened while you were elsewhere.
 
-Open it from the **bell** in the top bar. The badge counts items that are waiting on you — completed work is listed but does not turn the badge red.
+Open **Inbox** from the left sidebar, or use the inbox button on mobile. The badge highlights items waiting on you; completion notices are listed separately.
 
 ### What lands there
 
@@ -16,6 +16,9 @@ Open it from the **bell** in the top bar. The badge counts items that are waitin
 | **Ready for review** | A dispatched task moved to `in_review` and needs your sign-off |
 | **Done** | A task finished |
 | **Failed** | A task failed or was cancelled |
+| **Needs input** | A chat is waiting for a tool approval or answer |
+| **Workflow approval** | A workflow pauses for a decision |
+| **Device paired** | A remote device completes pairing |
 
 Filter with **Needs you** to see only the things that are blocked on you, or **Done** for the completion notices.
 
@@ -23,13 +26,13 @@ Filter with **Needs you** to see only the things that are blocked on you, or **D
 
 The Inbox is a status list, not an event log. Each chat or task occupies exactly one row that reflects its current state. If the same conversation finishes again, its existing row updates and goes unread again instead of stacking up a second entry — so a long session does not flood the panel.
 
-Clicking a row marks it read and jumps to the source: a chat opens in its workspace, a task opens its detail view. **Mark all read** clears the badge in one go.
+Clicking a row marks it read and jumps to the source: a chat opens in its workspace, a task opens its detail view. **Mark all read** clears unread counts; it does not approve or dismiss pending requests. Tool approvals and supported questions can be answered inline. Open the conversation for plan review.
 
 When there is nothing outstanding, the panel says you are all caught up.
 
 ### Why it is server-side
 
-Completion is recorded on the server, not in the browser tab. A chat tab that is not streaming gets unmounted, and the app may not even be running when a background task finishes — so the event has to survive without a live tab to catch it. This is also why the Inbox is consistent across the desktop app, the [mobile](mobile) client, and [Remote Web Access](remote-access): they all read the same records.
+Notifications are saved on the desktop server, independently of which chat tab you are viewing. They remain available when a client reconnects; the desktop must stay running for work to continue. This is also why the Inbox is consistent across the desktop app, the [mobile](mobile) client, and [Remote Web Access](remote-access): they all read the same records.
 
 ## System notifications
 
@@ -42,5 +45,7 @@ Go to **Settings > Notifications**:
 - **Notify on Approval Required** — a tool is waiting for your permission.
 
 Approval requests are the case worth leaving on: an agent that needs permission is stopped until you answer, and without a notification it can sit there for a long time.
+
+Paired native mobile clients can also receive push notifications for work that needs attention. Keep the desktop connected and allow notifications on the device.
 
 macOS decides how these are displayed. If nothing appears, check Operon's entry in **System Settings > Notifications**.

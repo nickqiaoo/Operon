@@ -4,7 +4,7 @@
 
 Tasks is a project-scoped task tracker built into Operon. Instead of losing work items inside chat history, each project gets a real board where humans and agents create, assign, dispatch, and track tasks to completion. Agents can pick up a task, run it in an isolated git branch, and report progress back — all without leaving Operon.
 
-Tasks live alongside Channels. From a project's Channels area, switch between the channel **Chat** view and the **Tasks** view from the sidebar.
+Open the project's **Open board** button in the sidebar. The board is the main view; **Channels** in its toolbar opens a channel conversation in a drawer.
 
 ## Views
 
@@ -31,7 +31,7 @@ Each task carries:
 
 ### Creating
 
-Click **New** to open the task dialog. Give it a title, an optional description, priority, and assignee, then save. Agents can also create tasks on their own when they decide to split work into steps.
+Click **New Task** to open the task dialog. Give it a title, an optional description, priority, and assignee, then save. Agents can also create tasks on their own when they decide to split work into steps.
 
 ### Dispatching to an agent
 
@@ -45,13 +45,15 @@ The task detail view has a comment composer. Leaving a comment on a dispatched t
 
 From a task you can jump straight into the workspace/worktree where the agent is doing the work, to inspect files or take over manually.
 
+You can also ask [Assistant](assistant) to inspect the board, create or update tasks, and leave comments. Its coding activities are separate from board dispatch: opening a coding conversation does not automatically attach it to a board task.
+
 ## Live updates
 
 Task changes stream over Server-Sent Events. When an agent updates a status, leaves a comment, or another window edits a task, the board updates instantly — no refresh needed.
 
 ## Spec-Driven Development
 
-Tasks are the execution layer underneath Operon's optional **Spec-Driven Development** workflow. When a task is promoted from an SDD-enabled channel, its detail view gains a **spec / plan / acceptance** panel with human approval gates. See [Spec-Driven Development](sdd) for the full flow.
+Tasks are the execution layer underneath Operon's optional **Spec-Driven Development** workflow. When a discussion in a workspace chat or channel becomes a spec-driven task, its detail view gains a **spec / plan / acceptance** panel with human approval gates. See [Spec-Driven Development](sdd) for the full flow.
 
 ## How it differs from other surfaces
 

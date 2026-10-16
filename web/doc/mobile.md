@@ -23,6 +23,12 @@ The Remote card shows whether the machine is connected and the name that appears
 
 Pairing is required once per browser profile or native installation. Removing browser storage or reinstalling the app requires pairing again.
 
+## Using it on your phone
+
+The phone layout has **Chats**, **Assistant**, **Channel**, **Changes**, and **More** tabs. Switch projects and workspaces to continue chats, follow task activity, and review diffs. **More** includes files, schedules, and settings.
+
+**Assistant** shares the desktop's conversation, Activity, Audit, Schedule, and Profile. Open a coding card to continue in its workspace chat, or answer supported questions and approvals on the card. The Inbox collects work needing attention; native apps can receive push notifications when allowed.
+
 ## End-to-end encryption
 
 Remote API request and response bodies, AI streams, WebSocket messages, and attachment content are encrypted between the paired client and the desktop. Routing metadata needed to deliver traffic remains visible to the Broker. Release clients require encryption; the development-only switch exists for local debugging and is not exposed as a user setting.

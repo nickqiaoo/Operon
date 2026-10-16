@@ -6,11 +6,11 @@ Computer Use lets an agent operate **native Mac apps** — read what is on scree
 
 Clicks are delivered to the target window directly, so an agent can drive an app sitting in the background while you keep working in another window.
 
-It runs on the Mac itself, so it is the one feature that does not follow you to the web build or to mobile — those can watch a conversation that uses it, but cannot start one.
+It runs on the connected Mac. Enable it and grant macOS permissions from the desktop; remote clients do not have this local settings page.
 
 ## Turning it on
 
-1. Go to **Settings > Computer Use**.
+1. Go to **Settings > Computer**.
 2. Flip the switch on.
 
 Turning it on installs the Computer Use skill for your agents and starts the native engine. Turning it off removes the skill and stops the engine — agents can then no longer see or operate your apps.
@@ -61,12 +61,14 @@ While an agent is operating an app, Operon shows a native **live preview** windo
 
 Computer Use is deliberately more cautious than file edits.
 
-- An agent asks before operating an app for the first time in a conversation.
+- Unless saved rules already allow or block it, an agent asks before operating an app for the first time in a conversation.
 - Actions with real consequences require confirmation at the moment they happen, even if you approved the overall task up front.
 - A short list of actions is **hand-off only**: the agent stops and asks you to do it yourself. This covers entering or changing passwords, bypassing browser security warnings, and financial transactions.
 - Some actions are never confirmed because they change nothing — reading, searching, listing, summarizing.
 
-Approvals live in the conversation, not in a settings store. Nothing is remembered between conversations, and there is no allowlist of pre-approved apps to manage — which is why this settings tab has only one switch.
+**Settings > Computer > App access** lists saved app decisions. Choose **Always allow** to remember access, **Block** to refuse it without asking, or remove a rule to ask again. Conversation-only access can be cleared separately. Password managers, terminals, other agents, macOS security prompts, and Operon itself remain off-limits.
+
+**Across all apps** separately controls whole-screen capture and reading or replacing the clipboard. Approving an app does not approve these broader capabilities.
 
 ## When to use something else
 

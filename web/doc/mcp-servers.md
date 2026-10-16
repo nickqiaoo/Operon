@@ -37,7 +37,9 @@ Connects to an MCP server using Server-Sent Events for real-time streaming.
 5. Expand **Advanced** for environment variables or custom headers.
 6. Click **Save**.
 
-All configured MCP servers are available to all AI providers that support MCP (Claude Code, Codex, Gemini CLI).
+Configured servers are supplied to agents that support MCP, including Operon, Claude Code, Codex, OpenCode, and the ACP adapters. Available transports and authentication follow the agent's capabilities.
+
+Servers from enabled [plugins](plugins) appear under **From plugins**. Manage their connection and enabled state from **Plugins**.
 
 ## Managing Servers
 
@@ -45,4 +47,4 @@ All configured MCP servers are available to all AI providers that support MCP (C
 - **Delete** — Remove a server you no longer need.
 - Names must be unique across all servers.
 
-> **Note**: After modifying MCP server configuration, you need to close the current chat tab and reopen it for the new configuration to take effect.
+> **Note**: After modifying MCP server configuration, start a new conversation to ensure the agent receives the new configuration.

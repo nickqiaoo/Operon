@@ -2,36 +2,38 @@
 
 ## 这是什么
 
-GitHub 集成提供一把 Personal Access Token，专门用来支撑桌面里 **Create PR** 这个一键发 PR 的能力——你在文件编辑器里改完代码，点一下 Create PR，Operon 会用这把 Token 通过 GitHub REST API 直接创建分支并发 Pull Request，不需要切到终端跑 `git` 和 `gh`。
+Operon 有两条 GitHub 连接：**GitHub App** 用于任务 PR 和审查评论回传；本机 **GitHub CLI** 登录用于从审阅工具栏或[助理](assistant)创建 PR。
 
-> Token 的作用域**仅限 Create PR 流程**：校验登录身份、查询仓库元信息（默认分支、是否 fork 等）、调用 `POST /repos/.../pulls` 创建 PR。它**不会**被注入给任何 AI Agent 当作 `gh` CLI 的认证凭据，也和 Operon 用 AI 自动生成提交信息的能力无关（那个能力只读本地 diff，调你已有的 AI Provider 写消息，不依赖 GitHub Token）。
+两者都显示在 **Settings > GitHub**。它们是独立连接；安装 App 不会让 `gh` 自动登录。
 
 ## 配置
 
-1. 在 GitHub 上生成 [Personal Access Token](https://github.com/settings/tokens)。Create PR 至少需要 `repo` scope（私有仓库必填）；公开仓库 `public_repo` 即可。
-2. 进入 Operon **Settings → GitHub**。
-3. 把 Token 粘贴进输入框，点击 Save。
-4. 保存成功后会显示已登录的 GitHub 用户名（来自 `GET /user`）。后续 Create PR 时这个身份就是 PR 的作者。
+### GitHub App
 
-Token 在桌面本地以加密形式持久化，不会被发送到任何外部服务器。
+1. 在桌面端的 **Settings > Remote** 登录。
+2. 在 **Settings > GitHub** 点击 **Install GitHub App**，选择允许访问的账户或组织及仓库。
+3. 出现 **Link GitHub account** 时，用它关联执行集成操作的账户。
+4. 在 **Repository coverage** 中检查本地项目的 GitHub remote 是否已覆盖。
 
-## 使用：Create PR
+App 支持任务 PR，以及把审查评论送回负责的 Agent。用 **Manage on GitHub** 管理仓库访问范围。
 
-在文件编辑器里改完文件、保存、确认 diff 后：
+### GitHub CLI
 
-1. 点击右上角的 **Create PR** 按钮（仅在当前仓库识别为 GitHub 远端时显示）。
-2. 弹窗里填写：
-   - **Title** — PR 标题
-   - **Description** — PR 描述
-   - **Branch name** — 默认填一个 `ai/<slug>-<MMDD>` 格式的临时分支名，可改
-   - **Base branch** — 目标分支（默认是仓库的默认分支）
-3. 点击 Create，Operon 会：
-   - 在当前仓库创建分支并推送变更
-   - 调用 GitHub API 创建 PR
-   - 弹窗里给出 PR URL，可一键打开
+在桌面端安装 `gh` 并运行 `gh auth login`。回到 **Settings > GitHub** 点 **Refresh**，检查是否已安装并登录。
 
-整个过程不需要本地装 `gh` CLI。
+手动创建 PR 使用同一份登录。Operon 不再要求你把 Personal Access Token 粘贴到设置里。
+
+## 使用：创建 PR
+
+审阅改动后：
+
+1. 在带 GitHub remote 的仓库中，从审阅工具栏打开 **Create PR**。
+2. 填写标题、描述、分支名和目标分支。
+3. 确认创建。Operon 会准备分支、在需要时提交待提交的改动、推送，然后用 `gh` 创建 PR。
+4. 打开返回的 PR 链接，在 GitHub 上审阅。
+
+也可以让助理检查 PR 状态，或在指定工作区创建 PR。创建操作可能包含提交和推送，请在工作可以分享时再提出请求。
 
 ## 移除
 
-**Settings → GitHub** 里点击 **Delete** 即可清除已保存的 Token。Create PR 按钮在 Token 缺失时会提示先去 Settings 配置。
+**Forget** 会从 Operon 保存的连接中移除 App 安装记录。要修改或撤销安装本身，请使用 **Manage on GitHub**。CLI 的登录通过 `gh` 单独管理。

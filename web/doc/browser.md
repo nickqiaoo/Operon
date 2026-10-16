@@ -35,7 +35,7 @@ This is the part built for working with agents.
 3. Write a comment for that element in the editor that pops up.
 4. Repeat for as many elements as you like — each gets its own pin.
 
-When you're done, the address bar shows a **Send N** button. Sending hands all your annotations to the chat as structured context, so the agent knows exactly which elements you mean and what you want changed. A **before/after** toggle lets you preview design changes, and a trash button clears the current tab's annotations.
+When you're done, the address bar shows a **Send annotations** button with the annotation count. Sending hands all your annotations to the chat as structured context, so the agent knows exactly which elements you mean and what you want changed. The **Show original / Show changes** toggle lets you preview design changes, and a trash button clears the current tab's annotations.
 
 Annotations also appear in a tray on the chat side, so you can review and manage them before sending.
 
@@ -43,7 +43,7 @@ Annotations also appear in a tray on the chat side, so you can review and manage
 
 Annotations are how *you* point at a page. Browser Use is how an **agent** works one on its own.
 
-Turn it on at **Settings > Browser Use**. That installs the Browser skill for your agents; turning it off removes it, and agents can no longer see the browser at all.
+Turn it on at **Settings > Browser > Built-in Browser**. That installs the Browser skill for your agents; turning it off removes it, and agents can no longer see the browser at all.
 
 Once on, an agent can:
 
@@ -56,15 +56,14 @@ This is the browser to use for work that does **not** need your identity — ver
 
 ### Site approvals
 
-An agent asks before opening a site for the first time. You can allow it for that conversation only, or for all conversations.
+Manage shared rules for the built-in browser and Chrome under **Settings > Browser > Permissions**:
 
-**Settings > Browser Use** lists what stuck:
+- **Website access**, **Downloads**, and **Uploads** each have an ask/allow default and per-site allow or block rules. Block rules take priority.
+- **Browsing history** controls whether agents ask before reading Chrome history.
+- **Saved conversation permissions** can be cleared together; global site rules can be removed individually.
 
-- **Approved sites** — sites allowed in every conversation. Revoke one and the agent has to ask again next time it goes there.
-- **Approvals remembered from past conversations** — shown as a count, with one button to clear them all. Individual per-conversation approvals are not listed because they die with their conversation.
-
-Approvals survive turning Browser Use off and on again; they are stored on disk at `~/.operon/browser/`.
+When a request needs approval, you can allow access for that conversation or remember it across conversations. Saved rules survive switching Browser Use off and on.
 
 ### Full CDP access
 
-Off by default. It lets agents send raw Chrome DevTools Protocol commands instead of only the high-level browser actions. It is powerful, hard to audit, and rarely needed — leave it off unless something specifically requires it.
+In **Settings > Browser > Permissions**, off by default. It lets agents send raw Chrome DevTools Protocol commands instead of only the high-level browser actions. It is powerful, hard to audit, and rarely needed — leave it off unless something specifically requires it.

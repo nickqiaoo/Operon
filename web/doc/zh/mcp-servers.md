@@ -37,7 +37,9 @@ MCP（Model Context Protocol）是一个开放标准，用来把 AI 模型接到
 5. 展开 **Advanced** 可以设环境变量和自定义头。
 6. 点 **Save**。
 
-配好的服务器会同时提供给所有支持 MCP 的 Agent（Claude Code、Codex、Gemini CLI）。
+配好的服务器会提供给支持 MCP 的 Agent，包括 Operon、Claude Code、Codex、OpenCode 和 ACP 适配器。可用传输方式与认证取决于 Agent 能力。
+
+已启用[插件](plugins)提供的服务器列在 **From plugins** 中，请到 **Plugins** 管理连接与启用状态。
 
 ## 管理
 
@@ -45,4 +47,4 @@ MCP（Model Context Protocol）是一个开放标准，用来把 AI 模型接到
 - **删除** — 不用了就移除。
 - 名字不能重复。
 
-> **注意**：改完 MCP 配置后，要把当前的聊天标签关掉再打开，新配置才会生效。
+> **注意**：改完 MCP 配置后，请新开对话，确保 Agent 收到新配置。

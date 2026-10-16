@@ -8,7 +8,7 @@ The Chrome integration lets an agent drive **your own Google Chrome** — your t
 
 Two pieces have to be in place: the **extension** inside Chrome, and the **native host** that lets Chrome reach Operon.
 
-1. Go to **Settings > Chrome** and flip the switch on. This installs the Chrome skill for your agents and registers the native host.
+1. Go to **Settings > Browser > Chrome** and flip the switch on. This installs the Chrome skill for your agents and registers the native host.
 2. In the **Connection** section, install the Operon extension from the Chrome Web Store if it is not there yet.
 3. Use **Refresh** to re-check after installing.
 
@@ -32,6 +32,8 @@ Anything an agent does here is done **as you**, from your signed-in session. Age
 - uploading files, or transmitting anything sensitive.
 
 A request that already authorizes a specific action does not get asked twice — "reply to this email saying I'll be there" authorizes that reply, but not a different one.
+
+Website access, uploads, downloads, history, and Full CDP rules are shared with the built-in browser in **Settings > Browser > Permissions**. See [Browser](browser) for the available controls.
 
 ## Turning it off
 

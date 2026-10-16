@@ -2,7 +2,7 @@
 
 ## What is it
 
-IM Platform integrations let an Operon agent show up as a bot on Slack / Telegram / Discord and similar platforms. Your team keeps using the IM tool they're familiar with, and the agent sees and answers messages there in real time. The same local agent can be wired into multiple IM platforms with independent credentials.
+IM Platform integrations let an Operon agent show up as a bot on Slack or Telegram. Your team keeps using the IM tool they're familiar with, and the agent sees and answers messages there in real time. The same local agent can be wired into multiple IM platforms with independent credentials.
 
 IM Platforms and Operon's built-in **Channels** are two **completely independent** concepts and do not interconnect: an IM Provider lives on the external IM platform's channels (e.g. a Slack channel) and the agent answers there; Operon's internal channels are project-scoped collaboration spaces inside the desktop UI. The two never sync, and they're configured from different places.
 
@@ -35,11 +35,11 @@ Use this for: single-user DMs, command / form-based interactions.
 
 Open **Settings → Gateway → IM Platforms**:
 
-1. **Add provider** — pick the platform (Slack / Telegram / Discord — anything the backend exposes via `IMSourceMeta` shows up here).
+1. **Add provider** — pick Slack or Telegram.
 2. **Mode** — Mate or Interactive.
 3. **Agent** — pick which local agent acts as this bot's brain. The same agent can power multiple Providers; switching the Agent here is effectively a brain swap.
 4. **Display name** — bot display name (what appears in the IM platform).
-5. **Credentials** — token / app id / signing secret etc. The credential fields are dynamic per platform (driven by the backend's `IMCredentialField` descriptors).
+5. **Credentials** — token / app id / signing secret etc. The credential fields depend on the platform.
 6. **Enabled** — switch. Disabling immediately stops the Provider from subscribing to events.
 
 On save, Operon spins up a Provider instance, subscribes to its event stream, and joins the configured IM channels / groups.
@@ -68,7 +68,7 @@ From **Settings → Gateway → IM Platforms**, click **⚡ Slack Quick Setup**.
 
 1. **Workspace token** (skipped on subsequent runs):
    - Paste **Access Token** and **Refresh Token**.
-   - Operon validates them by performing one rotate call and stores the result in its KV table. Future calls auto-refresh as needed.
+   - Operon validates and saves the tokens, then refreshes them as needed.
 2. **Name your bot**:
    - Pick the **agent** this bot will embody (mate mode).
    - Pick a **display name** (≤ 35 chars).
@@ -76,7 +76,7 @@ From **Settings → Gateway → IM Platforms**, click **⚡ Slack Quick Setup**.
 3. **Install & paste tokens** — two sub-steps:
    - Click **Open install page** → in Slack click **Allow** → on the OAuth & Permissions page copy the **Bot User OAuth Token** (starts with `xoxb-`) and paste it back into Operon.
    - Click **Open Basic Information** → scroll to **App-Level Tokens** → **Generate Token and Scopes** with the `connections:write` scope only → copy the token (starts with `xapp-`) and paste it back.
-4. Click **Finish**. Operon writes a normal IM Provider row (`source: slack`, mode `mate`, bound to the agent you picked) and immediately starts it. The bot will appear online in Slack.
+4. Click **Finish**. Operon saves a Slack provider in Mate mode, bound to the agent you picked, and starts it. The bot will appear online in Slack.
 
 ### Why are two tokens still manual?
 
@@ -96,7 +96,7 @@ The wizard's first step is skipped as long as a workspace config token is stored
 
 ### What you end up with
 
-A Quick Setup result is just an ordinary IM Provider row — you can edit, disable, view bindings, or delete it from the same list as manually-added providers. Quick Setup only shortens creation; nothing about the runtime is different.
+A Quick Setup result is a normal IM connection — you can edit, disable, view bindings, or delete it from the same list as manually-added providers. Quick Setup only shortens creation; nothing about the runtime is different.
 
 ## Telegram Quick Setup
 
@@ -111,11 +111,11 @@ A Quick Setup result is just an ordinary IM Provider row — you can edit, disab
 
 Providers and Operon's internal channels are two separate systems — what's called **Channel Binding** here maps the **IM platform's own channels** (a Slack channel, a Telegram group, a DM) to an agent. These do **not** show up in Operon's internal channel list.
 
-Bindings are **created automatically** — you don't add them by hand. When the bot is invited into an IM channel, or receives its first DM, an `IMChannelBinding` record is created linking `(source, sourceChannel) → agentId`. From **Settings → Gateway → IM Platforms** click the **Bindings** button on a Provider to view all current bindings, including:
+Bindings are **created automatically** — you don't add them by hand. When the bot is invited into an IM channel, or receives its first DM, that external channel is linked to the provider's agent. From **Settings → Gateway → IM Platforms** click the **Bindings** button on a Provider to view all current bindings, including:
 
-- `sourceChannel` and `sourceChannelName` (the IM platform's channel ID and name).
-- `channelKind`: `channel` (group / channel) or `dm` (direct message).
-- The bound `agentId`.
+- The external channel's ID and name.
+- Whether it is a group/channel or a direct message.
+- The assigned agent.
 
 To re-route an IM channel to a different agent, currently the bot must leave that channel and re-enter via a new Provider that's bound to the target agent.
 
@@ -133,16 +133,16 @@ The renderer is a separate open-source service: **[operon-diff-worker](https://g
 - Server-side renders them with [@pierre/diffs](https://www.npmjs.com/package/@pierre/diffs) — syntax highlighting, line numbers, dark/light theme.
 - Gates writes with a Bearer API key, and signs share URLs with HMAC + the same key.
 
-Deploying is a 5-minute job on Cloudflare's free plan — clone the repo, run `npx wrangler kv namespace create DIFFS`, `npx wrangler secret put API_KEY`, then `pnpm run deploy`. Full walkthrough in the [repo README](https://github.com/Nickqiaoo/operon-diff-worker#deploy).
+Deploy the optional renderer using the instructions in its [README](https://github.com/Nickqiaoo/operon-diff-worker#deploy), then configure its URL and API key below.
 
 ### Wiring it into Operon
 
-Open **Settings → Diff Preview** and fill in:
+Open **Settings → Gateway → Diff Preview** and fill in:
 
 - **Worker URL** — the `https://operon-diff-worker.<your-subdomain>.workers.dev` address Wrangler prints after deploy.
 - **API Key** — the same value you passed to `wrangler secret put API_KEY`.
 
-Save. Once both fields are non-empty, every Interactive provider picks the new config up immediately; no per-Provider setting is needed. Leaving either field empty disables the upload path (`diffPreviewService.isEnabled()` returns false), and Interactive sessions silently skip the preview step.
+Save. Once both fields are non-empty, every Interactive provider picks the new config up immediately; no per-Provider setting is needed. Leaving either field empty disables uploads, and Interactive sessions silently skip the preview step.
 
 ## Multi-platform coexistence
 

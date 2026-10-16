@@ -1,4 +1,4 @@
-# Canvas Workflow
+# Workflow
 
 ## What is it
 
@@ -94,7 +94,7 @@ A failed node stops only its own downstream: independent branches keep running, 
 
 ## Usage
 
-1. **Create** — click "New Workflow" in the sidebar.
+1. **Create** — open **Workflow** from the sidebar, then create a workflow.
 2. **Add nodes** — use the node palette or right-click the canvas.
 3. **Connect** — drag from one node's output handle to another's input handle.
 4. **Configure** — click a node to edit its agent, model, and prompt.
@@ -102,3 +102,9 @@ A failed node stops only its own downstream: independent branches keep running, 
 6. **Monitor** — click a running AI node to watch the live conversation. View final results in the result panel.
 
 Changes are auto-saved as you edit. You can also view the execution history of each workflow.
+
+## Workflows from chat
+
+You can also ask an agent to run a JavaScript workflow using Operon's built-in workflow capability. Choose the agent and model for each step; it can arrange parallel work, sequential stages, and structured results without drawing a canvas.
+
+These runs start in the background. Follow live progress and agent conversations in the **Workflows** panel; the result returns to the conversation. Ask the agent to resume an interrupted run from its saved progress. This is separate from canvas workflows and their scheduled runs.

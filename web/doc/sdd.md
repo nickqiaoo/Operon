@@ -2,53 +2,53 @@
 
 ## What is it
 
-Spec-Driven Development (SDD) turns a task from a one-line title into a reviewable **change package**: a written spec, a technical plan, and acceptance criteria — with approval gates between each stage. It pulls agents back from "vibe coding" into a controlled loop: align on the design first, decompose it, execute, verify, then fold the result back into your project's living specification.
+Spec-Driven Development (SDD) turns a discussion into a reviewable **change package**: a spec, a plan when needed, and an acceptance report after implementation. You approve the design before agents start coding, then review the result before marking it done.
 
-SDD is **opt-in per channel**. Channels that don't enable it behave exactly as before — no extra ceremony.
+SDD is opt-in for each change. Ask an agent in a workspace chat or channel to turn the agreed design into a spec-driven task; there is no channel-wide switch.
 
 ## Why use it
 
-- The output of a discussion is a **signed-off design**, not a chat log.
-- Each task becomes a structured, human- and machine-readable change package whose source of truth is **git files**, not a database row — so the spec lands in the same diff as the code.
-- Stages have **gates**: nobody starts coding before the design is approved.
-- When a change is done, its spec **sediments back** into a project-level living specification, so the next change starts from the current truth (brownfield-friendly).
+- The design is written down and reviewed before implementation.
+- Specs and plans live in git alongside the code.
+- Server-enforced gates keep implementation behind design approval and completion behind your review.
+- Finished changes can be folded into the project's living specification.
 
 ## Turning it on
 
-Enable SDD when you create or edit a channel. Once on, the channel's agents get the SDD prompt templates and a set of SDD tools; promoting a discussion into a task produces a managed change package instead of a plain task.
+Discuss the change, settle open questions, and ask the agent to create a spec-driven task. It appears on the project board with its own branch and workspace. The author writes the spec and plan, then hands it back to you.
 
-> SDD requires the project to be a git repository — the workflow models a "change" as a branch and writes spec/plan/acceptance as files under `.operon/` on that branch.
+> SDD requires a git repository. Read the artifacts in task details before using **Dispatch** to sign off the design and start work.
 
 ## The change package
 
-A change has two levels, both shown on the task board:
+Both levels appear on the task board:
 
-- **Parent task (the change)** — holds `spec.md` (what & why + acceptance criteria), `plan.md` (technical approach + the list of sub-tasks), and `acceptance.md` (criteria expanded into a checklist). Written by the **lead author** — the agent that has the best context from the discussion.
-- **Child tasks (plan items)** — each is one executable slice of the plan, carrying code on its own branch plus references to which plan item and which acceptance criteria it owns. Executors can be fresh agents — they inherit context by reading the spec and plan.
+- **Parent task** — holds the spec and plan. The spec includes acceptance scenarios; the acceptance artifact is a verifier's report written later, after implementation.
+- **Child tasks** — slices of the approved plan, each with a branch and the acceptance criteria it owns. They inherit context from the spec and plan.
 
-A small change is just a parent with no children. A large feature is one parent plus many children.
+A tiny change can omit the plan and children and run as one task.
 
 ## The flow
 
-1. **Discuss** — agents brainstorm in the channel and converge on what to build, then a lead author is chosen.
-2. **Promote** — the discussion is promoted into a parent task. Operon cuts a change branch and opens a worktree.
-3. **Spec** — the lead author writes `spec.md` from the live context. Unknowns are marked `[NEEDS CLARIFICATION]`. **Gate: a human approves the spec.**
-4. **Plan & decompose** — the author writes `plan.md` and the plan items become child tasks. **Gate: plan approved.**
-5. **Execute** — each child task runs on its own branch; siblings coordinate through the team inbox without touching each other's files.
-6. **Verify** — an independent, read-only verifier runs the acceptance criteria and a consistency check. **Gate: a human signs off on acceptance.**
-7. **Done & sediment** — the change merges to `main` and its spec deltas are applied into the project's living specification.
+1. **Discuss** — align on requirements in a workspace chat or channel.
+2. **Create** — the agent creates a spec-driven parent task with its own change workspace.
+3. **Spec and plan** — the author documents the design, resolves clarification markers, and writes the execution plan. It does not write the acceptance report up front.
+4. **Dispatch** — you approve the design by pressing **Dispatch**, choose executors, and start work. Plan items become child tasks.
+5. **Execute** — ordered plan items run in waves; independent items can run together. Completed child work merges into the change branch before dependent work starts. Explicit coordination groups can use a team inbox.
+6. **Verify and review** — at review time, choose an independent verifier or explicitly sign off without one. A verifier writes the acceptance report; you decide whether the change is ready.
+7. **Done and sediment** — marking Done signs off acceptance, applies a specification delta when one exists, and merges the change into the project's default branch. Conflicts block completion; signing off without a verifier is recorded explicitly.
 
 ## Approval gates
 
-Gates are enforced in the database, not just suggested in a prompt — an agent literally cannot move a task forward until the required artifact is approved. By default two gates require a human: approving the **spec** (the direction is the easiest thing to get wrong) and approving **acceptance** (whether something is truly done is a human call). The stages in between can be configured to auto-approve.
+**Dispatch** signs off the spec and plan and prepares their tasks together. Unresolved clarification markers block spec approval. Agents hand completed work back for human review rather than marking their own task Done.
 
-Gates are reversible: if execution reveals the spec was wrong, the task can step back, the author rewrites the spec, and it gets re-signed.
+Approved artifacts are checked for later edits. A changed artifact returns to draft and needs sign-off again; child tasks must finish before their parent can complete.
 
 ## In the task detail view
 
-When a task is SDD-managed, its detail view shows a **spec / plan / acceptance** panel. From there you read each artifact (served straight from the change branch), see its draft/approved status, and approve it at the gate. If an approved artifact is later edited, drift detection flips it back to draft so it gets re-signed.
+The **spec / plan / acceptance** panel shows the artifacts and their status. Dispatch is the design approval action. At review time you can run a verifier and inspect its report; **Preview sediment** and **Apply sediment** let you inspect and apply living-spec updates. Conflicts need resolution before applying.
 
 ## Related
 
-- [Tasks](tasks) — the board and execution layer SDD builds on.
-- [Channels](channels) — where SDD discussions happen.
+- [Tasks](tasks) — the board and execution layer.
+- [Channels](channels) — shared discussions that can produce a change.

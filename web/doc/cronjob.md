@@ -6,7 +6,7 @@ Cronjob lets you schedule AI tasks to run automatically on a recurring basis. Yo
 
 ## How it works
 
-A background scheduler checks for due jobs every 10 seconds. When a job's next run time is reached, it fires off the execution asynchronously. Each execution creates a chat history entry so you can review what the AI said. The system prevents duplicate concurrent executions of the same job.
+A background scheduler checks for due jobs every 10 seconds. When a job's next run time is reached, it fires off the execution asynchronously. Each execution is recorded so you can review its result. Keep Operon running on the desktop for jobs to execute. The system prevents duplicate concurrent executions of the same job.
 
 ## Task Types
 
@@ -26,28 +26,30 @@ Run at a specific time on selected days of the week. For example, every weekday 
 
 ### Interval
 
-Run every N minutes. For example, every 30 minutes.
+Repeat every N minutes within a daily start/end window on selected days, for example every 30 minutes during working hours.
 
 ## Usage
 
-1. Go to the **Cronjob** page from the sidebar.
-2. Click **New** to create a job.
+1. Go to the **Schedule** page from the sidebar.
+2. Click **New Schedule** to create a job.
 3. Configure:
    - **Name** — a descriptive label.
    - **Task Type** — Chat or Canvas Workflow.
+   - **Project & Workspace** — where a chat task runs.
    - **Provider & Model** — which AI to use (for chat tasks).
    - **Prompt** — what to ask the AI (for chat tasks).
    - **Workflow** — which workflow to run (for workflow tasks).
    - **Schedule** — daily with time/day selection, or interval in minutes.
    - **Enabled** — toggle the job on/off.
-4. Click **Save**.
+4. Click **Create Job**, or **Save Changes** when editing.
 
 ### Monitoring
 
+- [Assistant](assistant) manages its own heartbeat and scheduled tasks in its **Schedule** panel; those jobs do not appear here.
 - The job list shows each job's next run time and last run status.
 - Click a job to view its execution history with timestamps, status, and duration.
 - Click "Open Chat" on any execution to see the full AI conversation.
 
 ### Manual Execution
 
-Click the **Run** button on any job to execute it immediately, regardless of its schedule.
+Click the **Run now** button on any job to execute it immediately, regardless of its schedule.

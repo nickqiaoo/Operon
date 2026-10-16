@@ -35,7 +35,7 @@ Operon 内置了一个网页浏览器作为面板标签，让你能在聊天旁�
 3. 在弹出的编辑器里为该元素写下批注。
 4. 想标多少元素就标多少，每个都有自己的 pin。
 
-标注完成后，地址栏会出现一个 **Send N** 按钮。发送会把你所有的注释作为结构化上下文交给聊天，Agent 便能确切知道你指的是哪些元素、想改什么。一个 **before/after** 开关可让你预览设计改动，垃圾桶按钮可清空当前标签的注释。
+标注完成后，地址栏会出现带批注数量的 **Send annotations** 按钮。发送会把你所有的注释作为结构化上下文交给聊天，Agent 便能确切知道你指的是哪些元素、想改什么。**Show original / Show changes** 开关可让你预览设计改动，垃圾桶按钮可清空当前标签的注释。
 
 注释也会出现在聊天侧的一个托盘里，方便你在发送前查看和管理。
 
@@ -43,7 +43,7 @@ Operon 内置了一个网页浏览器作为面板标签，让你能在聊天旁�
 
 注释是**你**指向页面的方式；Browser Use 则是 **Agent** 自己操作页面的方式。
 
-在 **Settings > Browser Use** 打开它。这会为你的 Agent 安装 Browser 技能；关闭则移除该技能，Agent 将完全看不到浏览器。
+在 **Settings > Browser > Built-in Browser** 打开它。这会为你的 Agent 安装 Browser 技能；关闭则移除该技能，Agent 将完全看不到浏览器。
 
 打开后，Agent 可以：
 
@@ -56,15 +56,14 @@ Operon 内置了一个网页浏览器作为面板标签，让你能在聊天旁�
 
 ### 站点审批
 
-Agent 首次打开某个站点前会询问。你可以只对当次会话放行，也可以对所有会话放行。
+在 **Settings > Browser > Permissions** 管理内置浏览器和 Chrome 共用的规则：
 
-**Settings > Browser Use** 会列出那些被保留下来的授权：
+- **Website access**、**Downloads**、**Uploads** 各有询问或直接允许的默认设置，以及按站点配置的允许、阻止规则。阻止规则优先。
+- **Browsing history** 控制 Agent 读取 Chrome 历史前是否询问。
+- **Saved conversation permissions** 可以一起清除；全局站点规则可以逐条移除。
 
-- **Approved sites** — 在所有会话中都放行的站点。撤销之后，Agent 下次再去就得重新询问。
-- **来自过往会话的授权** — 只显示一个数量，配一个"全部清除"按钮。单条的会话级授权不会逐条列出，因为它们随会话一起消失。
-
-授权在你关闭再打开 Browser Use 之后依然有效；它们存储在磁盘的 `~/.operon/browser/`。
+请求需要审批时，可以只对当前会话放行，也可以跨会话记住。关闭再打开 Browser Use 不会清掉已保存的规则。
 
 ### Full CDP access
 
-默认关闭。它允许 Agent 发送原始的 Chrome DevTools Protocol 命令，而不只是高层的浏览器动作。这个能力很强、难以审计，而且很少用得上——除非确有需要，否则保持关闭。
+位于 **Settings > Browser > Permissions**，默认关闭。它允许 Agent 发送原始的 Chrome DevTools Protocol 命令，而不只是高层的浏览器动作。这个能力很强、难以审计，而且很少用得上——除非确有需要，否则保持关闭。

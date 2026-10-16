@@ -16,7 +16,7 @@ Each workspace keeps its own set of panel tabs. Leaving a project parks its term
 
 The **New Terminal** menu can start a terminal with a coding CLI already launched in it, rather than an empty shell:
 
-`claude` · `codex` · `copilot` · `cursor-agent` · `gemini` · `opencode` · `kimi` · `grok`
+`claude` · `codex` · `copilot` · `cursor-agent` · `agy` · `opencode` · `kimi` · `grok`
 
 This is the escape hatch for when you want the CLI's own interface — its slash commands, its interactive prompts, its output format — while keeping it inside Operon and inside the right repository. It is the same binary you would run yourself; if it is not on your `PATH`, the terminal reports the usual "command not found".
 

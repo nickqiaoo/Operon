@@ -8,7 +8,7 @@ Chrome 集成让 Agent 驱动**你自己的 Google Chrome**——你的标签页
 
 需要两块东西同时就位：Chrome 里的**扩展**，以及让 Chrome 能连回 Operon 的 **native host**。
 
-1. 进入 **Settings > Chrome** 打开开关。这会为 Agent 安装 Chrome 技能，并注册 native host。
+1. 进入 **Settings > Browser > Chrome** 打开开关。这会为 Agent 安装 Chrome 技能，并注册 native host。
 2. 在 **Connection** 区域，如果扩展还没装，从 Chrome 应用商店安装 Operon 扩展。
 3. 装完后点 **Refresh** 重新检查。
 
@@ -32,6 +32,8 @@ Agent 在这里做的任何事，都是**以你的身份**、从你已登录的�
 - 上传文件，或传输任何敏感信息。
 
 如果你的请求本身已经授权了某个具体动作，就不会重复询问——"回复这封邮件说我会到"授权的是这条回复，而不是另一条。
+
+站点访问、上传、下载、历史与 Full CDP 的规则在 **Settings > Browser > Permissions** 中与内置浏览器共用。可用控制见[浏览器](browser)。
 
 ## 关闭
 

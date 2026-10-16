@@ -17,7 +17,7 @@ For pairing instructions, including how to paste a code when you cannot scan the
 
 ## What works remotely
 
-Chat, tasks, channels, files, terminal sessions, and git review work through the Broker, including streaming responses and stopping a running turn.
+Chat, [Assistant](assistant), the Inbox, tasks, channels, files, terminal sessions, and git review work through the Broker, including streaming responses and stopping a running turn. They share the connected desktop's data; work still runs on that machine.
 
 Some settings that control local desktop hardware are hidden in remote builds, including the in-app Browser, Computer Use, Chrome control, desktop logs, and the Remote settings page itself.
 
