@@ -1,12 +1,13 @@
-import { Clock, Fingerprint, List, Pencil, ShieldCheck, X } from "lucide-react"
+import { Clock, Fingerprint, Folder, List, Pencil, ShieldCheck, X } from "lucide-react"
 import { defineMessages, useIntl, type MessageDescriptor } from "react-intl"
 import { cn } from "@/lib/utils"
 import { busyLabel } from "./assistant-i18n"
 
-export type SidePanelTab = "activity" | "audit" | "schedule" | "profile"
+export type SidePanelTab = "activity" | "files" | "audit" | "schedule" | "profile"
 
 const TAB_LABELS = defineMessages({
   activity: { id: "assistant.tab.activity", defaultMessage: "Activity" },
+  files: { id: "assistant.tab.files", defaultMessage: "Files" },
   audit: { id: "assistant.tab.audit", defaultMessage: "Audit" },
   schedule: { id: "assistant.tab.schedule", defaultMessage: "Schedule" },
   profile: { id: "assistant.tab.profile", defaultMessage: "Profile" },
@@ -14,6 +15,7 @@ const TAB_LABELS = defineMessages({
 
 const TABS: { id: SidePanelTab; icon: typeof List }[] = [
   { id: "activity", icon: List },
+  { id: "files", icon: Folder },
   { id: "audit", icon: ShieldCheck },
   { id: "schedule", icon: Clock },
   { id: "profile", icon: Fingerprint },
@@ -32,11 +34,13 @@ interface AssistantSidePanelProps {
    */
   large?: boolean
   onClose?: () => void
+  /** Sits at the end of the tab's heading row (desktop only), e.g. Files' "Show in Finder". */
+  headerAction?: React.ReactNode
   children: React.ReactNode
 }
 
-/** Right rail: who the assistant is, then Activity / Audit / Schedule / Profile. */
-export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditIdentity, large, onClose, children }: AssistantSidePanelProps) {
+/** Right rail: who the assistant is, then Activity / Files / Audit / Schedule / Profile. */
+export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditIdentity, large, onClose, headerAction, children }: AssistantSidePanelProps) {
   const intl = useIntl()
   if (large) {
     return (
@@ -84,7 +88,12 @@ export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditId
           </button>
         ))}
       </div>
-      <div className="px-5 pt-3 text-sm font-semibold">{intl.formatMessage(TAB_LABELS[tab])}</div>
+      {/* h-6 on every tab, so the action's button doesn't shift the list when switching to Files.
+          Left 16px: the tabs' rows sit at px-2 inside px-2. Right: the button's own px-1.5 makes up the rest. */}
+      <div className="mt-3 flex h-6 items-center justify-between gap-2 pl-4 pr-2.5">
+        <div className="text-sm font-semibold">{intl.formatMessage(TAB_LABELS[tab])}</div>
+        {headerAction}
+      </div>
 
       <div className="scroll-fade-y min-h-0 flex-1 overflow-y-auto">
         {children}
@@ -94,7 +103,7 @@ export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditId
 }
 
 /** The phone's version: the same parts at the size of a page of its own. */
-function LargePanel({ name, busyCount, tab, onTabChange, onEditIdentity, onClose, children }: Omit<AssistantSidePanelProps, "large">) {
+function LargePanel({ name, busyCount, tab, onTabChange, onEditIdentity, onClose, children }: Omit<AssistantSidePanelProps, "large" | "headerAction">) {
   const intl = useIntl()
   return (
     <div className="relative flex h-full min-h-0 flex-col">

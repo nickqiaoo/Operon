@@ -11,6 +11,7 @@ export type {
   AssistantSchedule,
   AssistantScheduleRun,
   AssistantTrigger,
+  AssistantWorkspaceFile,
   AuditRecord,
   ProfileFile,
   ProfileFileName,

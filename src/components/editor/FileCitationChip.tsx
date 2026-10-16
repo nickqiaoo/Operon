@@ -1,7 +1,7 @@
 import { useCallback, type HTMLAttributes, type MouseEvent } from "react"
 import { getFileIcon } from "@/components/FileIcon"
 import { formatLineLabel, decodeCitation, type FileReference } from "@/lib/file-citation"
-import { openWorkspaceFilePreview } from "@/lib/workspace-file-preview"
+import { useFileOpenHandler } from "@/lib/file-open-context"
 import { cn } from "@/lib/utils"
 
 function getBasename(path: string): string {
@@ -20,22 +20,23 @@ type FileCitationChipProps = FileReference & {
 
 /**
  * Renders an inline, clickable file reference (file-type icon + name + line).
- * Clicking resolves the path against the active workspace and opens it in the
- * side file viewer, scrolling to the referenced line.
+ * Clicking opens the file where the surrounding surface opens files (see
+ * {@link useFileOpenHandler}) — by default the active workspace's side file
+ * viewer — scrolled to the referenced line.
  */
 export function FileCitationChip({ path, line, endLine, className }: FileCitationChipProps) {
+  const openFile = useFileOpenHandler()
   const basename = getBasename(cleanPath(path))
-  const lineLabel = formatLineLabel(line, endLine)
+  // The prompt has the model cite a whole file as L1: that is "this file", not a place in it.
+  const wholeFile = line === 1 && (endLine == null || endLine === 1)
+  const lineLabel = wholeFile ? null : formatLineLabel(line, endLine)
 
   const handleClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault()
-      openWorkspaceFilePreview(
-        cleanPath(path),
-        line != null ? { line } : undefined
-      )
+      openFile(cleanPath(path), line != null && !wholeFile ? { line } : undefined)
     },
-    [path, line]
+    [openFile, path, line, wholeFile]
   )
 
   return (
@@ -44,7 +45,7 @@ export function FileCitationChip({ path, line, endLine, className }: FileCitatio
       onClick={handleClick}
       title={path}
       className={cn(
-        "inline-flex max-w-full appearance-none items-baseline gap-1 border-0 bg-transparent p-0 align-baseline text-[1em] text-link no-underline transition-colors [font:inherit] [line-height:inherit] hover:text-link/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "inline-flex max-w-full appearance-none items-baseline gap-1 border-0 bg-transparent p-0 align-baseline text-[1em] text-link no-underline transition-colors [font:inherit] [line-height:inherit] hover:text-link/75 active:text-link/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         className
       )}
     >

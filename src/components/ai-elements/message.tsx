@@ -18,7 +18,7 @@ import { cjk } from "@streamdown/cjk";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
-import { openWorkspaceFilePreview } from "@/lib/workspace-file-preview";
+import { useFileOpenHandler } from "@/lib/file-open-context";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { AnchorHTMLAttributes, ComponentProps, HTMLAttributes, ReactElement } from "react";
 import { createContext, memo, useCallback, useContext, useEffect, useState } from "react";
@@ -36,6 +36,7 @@ const messageUrlTransform: typeof defaultUrlTransform = (url, key, node) => {
 };
 
 function MessageLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  const openFile = useFileOpenHandler();
   const handleClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
     if (!href) return;
     e.preventDefault();
@@ -51,12 +52,12 @@ function MessageLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnch
     // Local file path
     if (href.startsWith("/")) {
       const hash = href.match(/#L(\d+)/);
-      openWorkspaceFilePreview(
+      openFile(
         href.split("#")[0],
         hash ? { line: Number.parseInt(hash[1], 10) } : undefined
       );
     }
-  }, [href]);
+  }, [href, openFile]);
 
   return (
     <a href={href} onClick={handleClick} {...props}>

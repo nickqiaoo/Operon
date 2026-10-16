@@ -51,7 +51,7 @@ import { buildUserInput } from './attachments.js'
 import { addedFacts, ensureProfileFiles, listProfileFiles, parseIdentity, peekProfileFile, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
 import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import { setAssistantElicitationHandler, type AssistantRole } from './node-repl-bridge.js'
-import { ASSISTANT_DIR, ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR } from './paths.js'
+import { ASSISTANT_DIR, ASSISTANT_OUTPUTS, ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR } from './paths.js'
 import { AssistantProjector, record, summaryLine, type Cause } from './projector.js'
 import {
   buildHeartbeatInstructions,
@@ -233,7 +233,7 @@ export class AssistantRuntime {
   constructor(private readonly storage: Storage) {
     this.bus.setMaxListeners(50)
     ensureProfileFiles()
-    for (const dir of [ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR]) mkdirSync(dir, { recursive: true })
+    for (const dir of [ASSISTANT_OUTPUTS, ASSISTANT_WRAPUP_DIR, DAYS_DIR]) mkdirSync(dir, { recursive: true })
 
     // Workers live inside this process; whatever was running when it last stopped is gone. The
     // tasks the user asked for are carried on (resumeInterrupted); a heartbeat or scheduled run

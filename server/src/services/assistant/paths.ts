@@ -15,6 +15,13 @@ export const DAYS_DIR = path.join(ASSISTANT_DIR, 'days')
 export const ASSISTANT_WORKSPACE = path.join(ASSISTANT_DIR, 'workspace')
 
 /**
+ * What the assistant made for the user — the plan, report or document a task was for. The Files tab
+ * shows this folder and nothing else: the code, downloads and scratch files of getting there stay in
+ * the rest of the workspace, out of sight.
+ */
+export const ASSISTANT_OUTPUTS = path.join(ASSISTANT_WORKSPACE, 'outputs')
+
+/**
  * Where the wrap-up of a finished stretch of conversation runs (see runtime.ts). Every kind of
  * session has a directory of its own on purpose: OpenCode registers MCP servers per directory, and
  * one session must not be offered another's tools. It edits ASSISTANT_DIR as a writable dir.

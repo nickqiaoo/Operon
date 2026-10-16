@@ -4,6 +4,7 @@ import type {
   AssistantEvent,
   AssistantMessage,
   AssistantState,
+  AssistantWorkspaceFile,
   ProfileFile,
   ProfileFileName,
 } from '@shared/assistant'
@@ -33,6 +34,13 @@ export const assistantApi = {
     }),
   writeFile: (name: ProfileFileName, content: string) =>
     request<{ file: ProfileFile }>(`/assistant/files/${name}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  /** What it made for the user (its outputs folder), newest first. `dir`: that folder. */
+  workspaceFiles: () => request<{ dir: string; files: AssistantWorkspaceFile[] }>('/assistant/workspace'),
+  /**
+   * The absolute path a file reference in its reply points at; 404 when there is no such file.
+   * `root`: its folder of the assistant's it is in, to show the path from.
+   */
+  resolveFile: (path: string) => request<{ path: string; root: string | null }>(`/assistant/resolve?path=${encodeURIComponent(path)}`),
   setScheduleEnabled: (id: number, enabled: boolean) =>
     request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   deleteSchedule: (id: number) => request<{ ok: boolean }>(`/assistant/schedules/${id}`, { method: 'DELETE' }),

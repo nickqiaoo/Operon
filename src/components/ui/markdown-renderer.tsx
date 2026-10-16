@@ -11,7 +11,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 import { cn } from "@/lib/utils";
-import { openWorkspaceFilePreview } from "@/lib/workspace-file-preview";
+import { useFileOpenHandler } from "@/lib/file-open-context";
 import { useCodeBlockCopy } from "@/hooks/useCodeBlockCopy";
 import { useResolvedMode } from "@/hooks/useResolvedMode";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
@@ -35,6 +35,7 @@ const urlTransform: typeof defaultUrlTransform = (url, key, node) => {
 };
 
 function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const openFile = useFileOpenHandler();
     const handleClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
         if (!href) return;
 
@@ -54,12 +55,12 @@ function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnc
         // Local file path (absolute path like /Users/...)
         if (href.startsWith("/")) {
             const hash = href.match(/#L(\d+)/);
-            openWorkspaceFilePreview(
+            openFile(
                 href.split("#")[0],
                 hash ? { line: Number.parseInt(hash[1], 10) } : undefined
             );
         }
-    }, [href]);
+    }, [href, openFile]);
 
     return (
         <a href={href} onClick={handleClick} {...props}>

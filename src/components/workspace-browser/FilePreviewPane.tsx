@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { FormattedMessage } from "react-intl"
 import { useSelectedTextStore } from "@/stores/selected-text-store"
-import { ChevronRight, Code, Eye, FileIcon } from "lucide-react"
+import { ChevronRight, Code, Eye, FileIcon, Loader2 } from "lucide-react"
 import { File as PierreFile } from "@pierre/diffs/react"
 import type { LineAnnotation } from "@pierre/diffs"
 import { Button } from "@/components/ui/button"
@@ -41,6 +41,11 @@ interface FilePreviewPaneProps {
    * the active pane answers ⌘F and paints find highlights.
    */
   active?: boolean
+  /**
+   * Line comments and "Add to chat" — both feed the active workspace's chat.
+   * Off where the file isn't a workspace's (the assistant's files).
+   */
+  workspaceTools?: boolean
   className?: string
 }
 
@@ -60,6 +65,7 @@ export function FilePreviewPane({
   leftAccessory,
   reloadNonce,
   active = true,
+  workspaceTools = true,
   className,
 }: FilePreviewPaneProps) {
   const [content, setContent] = useState<string | null>(null)
@@ -105,7 +111,7 @@ export function FilePreviewPane({
     mode: "file",
   })
   const selectionActions = useMemo<SelectionAction[]>(
-    () => [
+    () => !workspaceTools ? [] : [
       {
         key: "add-to-chat",
         label: <FormattedMessage id="selection.addToChat" defaultMessage="Add to chat" />,
@@ -121,23 +127,23 @@ export function FilePreviewPane({
         },
       },
     ],
-    [commentPath, workspaceId]
+    [commentPath, workspaceId, workspaceTools]
   )
   const lineAnnotations = useMemo<LineAnnotation<CommentMeta>[]>(
-    () => entries.map((entry) => ({ lineNumber: entry.line, metadata: entry.meta })),
-    [entries]
+    () => !workspaceTools ? [] : entries.map((entry) => ({ lineNumber: entry.line, metadata: entry.meta })),
+    [entries, workspaceTools]
   )
   const fileOptions = useMemo(
     () => ({
       ...createPierreFileOptions(themeType),
-      enableGutterUtility: true,
+      enableGutterUtility: workspaceTools,
       lineHoverHighlight: "line" as const,
       onGutterUtilityClick,
       // The source view lives in a shadow root, out of reach of the document's
       // `::highlight()` rules.
       unsafeCSS: FIND_HIGHLIGHT_CSS,
     }),
-    [themeType, onGutterUtilityClick]
+    [themeType, onGutterUtilityClick, workspaceTools]
   )
   const previewFile = useMemo(
     () => ({
@@ -376,13 +382,13 @@ export function FilePreviewPane({
               />
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              Loading image…
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading image…
             </div>
           )
         ) : content == null ? (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            Loading…
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
           </div>
         ) : showingMarkdownPreview ? (
           <div className="h-full w-full overflow-auto code-scrollbar">
@@ -396,7 +402,7 @@ export function FilePreviewPane({
               file={previewFile}
               options={fileOptions}
               lineAnnotations={lineAnnotations}
-              selectedLines={selectedLines}
+              selectedLines={workspaceTools ? selectedLines : null}
               renderAnnotation={(annotation) => renderCard(annotation.metadata)}
               className="pierre-diff-file-view pierre-file-preview-view"
             />

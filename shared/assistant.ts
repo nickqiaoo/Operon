@@ -202,6 +202,16 @@ export interface ProfileFile {
   updatedBy: 'assistant' | 'user'
 }
 
+/** A file the assistant made for the user, in its outputs folder (`~/.operon/assistant/workspace/outputs`). */
+export interface AssistantWorkspaceFile {
+  /** Absolute. */
+  path: string
+  /** From the outputs folder, `/`-separated. */
+  relativePath: string
+  size: number
+  updatedAt: number
+}
+
 /**
  * Which agent runs a part of the assistant: `custom` (operon), `claude-code`, `codex` or
  * `opencode`, and a model of that agent's. Empty `modelId`: the agent's own default (for operon,

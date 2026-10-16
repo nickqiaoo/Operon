@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { HEARTBEAT_TOLD_HEADING, type ProfileFile, type ProfileFileName } from '../../../../shared/assistant.js'
 import { MEMORY_SOFT_LIMIT } from './defaults.js'
 import { parseIdentity } from './files.js'
-import { ASSISTANT_DIR, ASSISTANT_WORKSPACE, DAYS_DIR } from './paths.js'
+import { ASSISTANT_DIR, ASSISTANT_OUTPUTS, ASSISTANT_WORKSPACE, DAYS_DIR } from './paths.js'
 import { HEARTBEAT_MINUTES } from './schedule.js'
 
 type Files = Record<ProfileFileName, ProfileFile>
@@ -254,6 +254,7 @@ ${info.unattended
 - You cannot ask the user anything. If you are blocked (missing access, needs a decision), stop and say exactly what is needed.
 - If you receive a new instruction while working, fold it into the same task.
 - Your last action is always finish_task — even for a one-step task — with a short title, a one-line summary of the outcome (the answer itself, not "here is the content:") and a status (done / partial / failed). The user sees this summary in their activity list. Put the full result in your reply before it.
+- What the task was for — the document, plan, report or spreadsheet the user wants — goes in ${ASSISTANT_OUTPUTS}: the user sees that folder and nothing else of your directory. Everything you make along the way (scripts, code, downloads, scratch notes, test output) stays out of it.
 - ${languageRule(info.locale)}
 
 ## Today's note

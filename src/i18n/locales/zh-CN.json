@@ -1968,5 +1968,9 @@
   "editor.steerNotice.automated": "自动事件——不是你发送的消息。",
   "settings.browser.surface.builtIn": "内置浏览器",
   "settings.browser.surface.chrome": "Chrome",
-  "settings.browser.surface.permissions": "权限"
+  "settings.browser.surface.permissions": "权限",
+  "assistant.files.empty": "还没有文件。助理为你做的计划、报告、文档会出现在这里。",
+  "assistant.files.notFound": "找不到文件：{path}",
+  "assistant.files.reveal": "在 Finder 中显示",
+  "assistant.tab.files": "文件"
 }

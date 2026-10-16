@@ -5,12 +5,15 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
+import { FileOpenProvider } from "@/lib/file-open-context"
 import { openPluginsPage, openSettingsTab } from "@/lib/open-settings"
 import { useAssistantStore } from "@/stores/assistant-store"
 import { AssistantChat } from "./AssistantChat"
 import { AssistantSidePanel, type SidePanelTab } from "./AssistantSidePanel"
 import { ActivityDrawer } from "./ActivityDrawer"
 import { ActivityTab } from "./ActivityTab"
+import { AssistantFileDrawer, assistantFile, useAssistantFileOpener, type OpenAssistantFile } from "./AssistantFileDrawer"
+import { FilesTab, RevealFolderButton } from "./FilesTab"
 import { AuditTab } from "./AuditTab"
 import { ProfileTab } from "./ProfileTab"
 import { ProfileFileDrawer } from "./ProfileFileDrawer"
@@ -72,6 +75,10 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
   /** The definition file open in the drawer. Only one drawer shows at a time. */
   const [openFile, setOpenFile] = useState<ProfileFileName | null>(null)
+  /** A file it wrote, open in the preview drawer. */
+  const [openedFile, setOpenedFile] = useState<OpenAssistantFile | null>(null)
+  /** The assistant's workspace folder, learned from the Files listing. */
+  const [filesDir, setFilesDir] = useState<string | null>(null)
 
   useEffect(() => open(), [open])
 
@@ -85,14 +92,25 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
 
   const openActivity = (id: string) => {
     setOpenFile(null)
+    setOpenedFile(null)
     setTab("activity")
     setSelectedActivityId(id)
   }
 
   const openProfileFile = useCallback((file: ProfileFileName) => {
     setSelectedActivityId(null)
+    setOpenedFile(null)
     setOpenFile(file)
   }, [])
+  const showFile = useCallback((file: OpenAssistantFile) => {
+    setSelectedActivityId(null)
+    setOpenFile(null)
+    setOpenedFile(file)
+  }, [])
+  // File references in its replies (and links inside the files) are its own, not the active workspace's.
+  const openFileRef = useAssistantFileOpener(showFile)
+  // Whatever it writes lands while it replies or a worker runs: list again when either moves.
+  const filesRefreshKey = `${messages.length}|${typing}|${activities.map((a) => a.status).join(",")}`
   // Stable, so the thread's memoized bubbles don't all re-render on every event.
   const openMemory = useCallback(() => openProfileFile("memory"), [openProfileFile])
   const onDecide = useCallback(
@@ -134,107 +152,119 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
         <AccountUsageBar className="shrink-0" />
       </div>
 
-      <div className="relative flex min-h-0 flex-1">
-        <main className="flex min-w-0 flex-1 flex-col">
-          {!loaded ? (
-            <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
-            </div>
-          ) : loadError && messages.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center gap-2 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" /> {loadError}
-            </div>
-          ) : (
-            <>
-              {blocker && (
-                <div className="mx-auto mt-4 w-full max-w-3xl px-6">
-                  <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-3 dark:border-border/35">
-                    <AlertCircle className="h-4 w-4 shrink-0 text-status-warn" />
-                    <span className="flex-1 text-xs text-muted-foreground">{blockerText(intl, blocker, blockerReason)}</span>
-                    <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => openSettingsTab("assistant")}>
-                      <Settings className="h-3.5 w-3.5" />
-                      <FormattedMessage id="mobile.more.settings" defaultMessage="Settings" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-              <div className="min-h-0 flex-1">
-                <AssistantChat
-                  messages={messages}
-                  typing={typing}
-                  assistantName={identity.name}
-                  hasMore={hasMore}
-                  loadingOlder={loadingOlder}
-                  onLoadOlder={() => void loadOlder().catch(reportError)}
-                  onSend={(text, attachments) =>
-                    send(text, attachments).catch((error: unknown) => {
-                      reportError(error)
-                      throw error
-                    })
-                  }
-                  onDecide={onDecide}
-                  onOpenMemory={openMemory}
-                  activities={activities}
-                  onOpenChat={openCoding}
-                  onAtBottom={settleAtBottom}
-                />
+      <FileOpenProvider value={openFileRef}>
+        <div className="relative flex min-h-0 flex-1">
+          <main className="flex min-w-0 flex-1 flex-col">
+            {!loaded ? (
+              <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
               </div>
-            </>
-          )}
-        </main>
+            ) : loadError && messages.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center gap-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5" /> {loadError}
+              </div>
+            ) : (
+              <>
+                {blocker && (
+                  <div className="mx-auto mt-4 w-full max-w-3xl px-6">
+                    <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-3 dark:border-border/35">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-status-warn" />
+                      <span className="flex-1 text-xs text-muted-foreground">{blockerText(intl, blocker, blockerReason)}</span>
+                      <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => openSettingsTab("assistant")}>
+                        <Settings className="h-3.5 w-3.5" />
+                        <FormattedMessage id="mobile.more.settings" defaultMessage="Settings" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <div className="min-h-0 flex-1">
+                  <AssistantChat
+                    messages={messages}
+                    typing={typing}
+                    assistantName={identity.name}
+                    hasMore={hasMore}
+                    loadingOlder={loadingOlder}
+                    onLoadOlder={() => void loadOlder().catch(reportError)}
+                    onSend={(text, attachments) =>
+                      send(text, attachments).catch((error: unknown) => {
+                        reportError(error)
+                        throw error
+                      })
+                    }
+                    onDecide={onDecide}
+                    onOpenMemory={openMemory}
+                    activities={activities}
+                    onOpenChat={openCoding}
+                    onAtBottom={settleAtBottom}
+                  />
+                </div>
+              </>
+            )}
+          </main>
 
-        <aside className="w-[340px] shrink-0 border-l border-border/50 bg-sidebar">
-          <AssistantSidePanel
-            name={assistantName}
-            busyCount={busyCount}
-            tab={tab}
-            onTabChange={setTab}
-            onEditIdentity={() => openProfileFile("identity")}
-          >
-            {tab === "activity" && (
-              <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
-            )}
-            {tab === "audit" && (
-              <AuditTab records={audit} />
-            )}
-            {tab === "schedule" && (
-              <ScheduleTab
-                schedules={schedules}
-                quietStart={config.quietStart}
-                quietEnd={config.quietEnd}
-                onToggle={(id, enabled) => void setScheduleEnabled(id, enabled).catch(reportError)}
-                onDelete={(id) => void deleteSchedule(id).catch(reportError)}
-                onRun={(id) => {
-                  void runSchedule(id)
-                    .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runningNow", defaultMessage: "Running now" })))
-                    .catch(reportError)
-                }}
-                onOpenActivity={openActivity}
-                onConnectPlugin={openPluginsPage}
-                checklist={files.find((f) => f.name === "heartbeat")?.content ?? ""}
-                onOpenChecklist={() => openProfileFile("heartbeat")}
-              />
-            )}
-            {tab === "profile" && (
-              <ProfileTab files={files} assistantName={assistantName} onOpenFile={openProfileFile} />
-            )}
-          </AssistantSidePanel>
-        </aside>
+          <aside className="w-[340px] shrink-0 border-l border-border/50 bg-sidebar">
+            <AssistantSidePanel
+              name={assistantName}
+              busyCount={busyCount}
+              tab={tab}
+              onTabChange={setTab}
+              onEditIdentity={() => openProfileFile("identity")}
+              headerAction={tab === "files" && filesDir ? <RevealFolderButton dir={filesDir} /> : undefined}
+            >
+              {tab === "activity" && (
+                <ActivityTab activities={activities} selectedId={selectedActivityId} onSelect={openActivity} />
+              )}
+              {tab === "files" && (
+                <FilesTab
+                  selectedPath={openedFile?.resolved?.path ?? null}
+                  onOpen={(path, root) => showFile(assistantFile(path, { resolved: { path, root } }))}
+                  refreshKey={filesRefreshKey}
+                  onDir={setFilesDir}
+                />
+              )}
+              {tab === "audit" && (
+                <AuditTab records={audit} />
+              )}
+              {tab === "schedule" && (
+                <ScheduleTab
+                  schedules={schedules}
+                  quietStart={config.quietStart}
+                  quietEnd={config.quietEnd}
+                  onToggle={(id, enabled) => void setScheduleEnabled(id, enabled).catch(reportError)}
+                  onDelete={(id) => void deleteSchedule(id).catch(reportError)}
+                  onRun={(id) => {
+                    void runSchedule(id)
+                      .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runningNow", defaultMessage: "Running now" })))
+                      .catch(reportError)
+                  }}
+                  onOpenActivity={openActivity}
+                  onConnectPlugin={openPluginsPage}
+                  checklist={files.find((f) => f.name === "heartbeat")?.content ?? ""}
+                  onOpenChecklist={() => openProfileFile("heartbeat")}
+                />
+              )}
+              {tab === "profile" && (
+                <ProfileTab files={files} assistantName={assistantName} onOpenFile={openProfileFile} />
+              )}
+            </AssistantSidePanel>
+          </aside>
 
-        <ActivityDrawer
-          activity={selectedActivity}
-          onClose={() => setSelectedActivityId(null)}
-          onStop={(id) => void stopActivity(id).catch(reportError)}
-          onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}
-          onOpenCoding={openCoding}
-        />
-        <ProfileFileDrawer
-          file={files.find((f) => f.name === openFile) ?? null}
-          assistantName={assistantName}
-          onClose={() => setOpenFile(null)}
-          onSave={(name, content) => void saveFile(name, content).catch(reportError)}
-        />
-      </div>
+          <ActivityDrawer
+            activity={selectedActivity}
+            onClose={() => setSelectedActivityId(null)}
+            onStop={(id) => void stopActivity(id).catch(reportError)}
+            onFollowUp={(id, text) => void followUp(id, text).catch(reportError)}
+            onOpenCoding={openCoding}
+          />
+          <ProfileFileDrawer
+            file={files.find((f) => f.name === openFile) ?? null}
+            assistantName={assistantName}
+            onClose={() => setOpenFile(null)}
+            onSave={(name, content) => void saveFile(name, content).catch(reportError)}
+          />
+          <AssistantFileDrawer file={openedFile} onClose={() => setOpenedFile(null)} />
+        </div>
+      </FileOpenProvider>
     </div>
   )
 }

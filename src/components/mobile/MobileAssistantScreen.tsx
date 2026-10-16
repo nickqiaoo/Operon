@@ -15,6 +15,10 @@ import { AssistantChat } from "@/components/assistant/AssistantChat"
 import { AssistantSidePanel, type SidePanelTab } from "@/components/assistant/AssistantSidePanel"
 import { ActivityDetail } from "@/components/assistant/ActivityDrawer"
 import { ActivityTab } from "@/components/assistant/ActivityTab"
+import { AssistantFileView, assistantFile, useAssistantFileOpener, type OpenAssistantFile } from "@/components/assistant/AssistantFileDrawer"
+import { FilesTab } from "@/components/assistant/FilesTab"
+import { FileOpenProvider } from "@/lib/file-open-context"
+import { basename } from "@/lib/workspace-files"
 import { AuditTab } from "@/components/assistant/AuditTab"
 import { ProfileTab, PROFILE_FILE_META } from "@/components/assistant/ProfileTab"
 import { ProfileFileEditor } from "@/components/assistant/ProfileFileDrawer"
@@ -27,7 +31,11 @@ import { chatTargetOf, type ChatTarget } from "@/components/assistant/AssistantP
 
 /** A page pushed over the thread (an activity: a sheet). Only the top one is shown. */
 type Layer =
-  { kind: "panel" } | { kind: "activity"; id: string } | { kind: "file"; name: ProfileFileName } | { kind: "settings" }
+  | { kind: "panel" }
+  | { kind: "activity"; id: string }
+  | { kind: "file"; name: ProfileFileName }
+  | { kind: "workspaceFile"; file: OpenAssistantFile }
+  | { kind: "settings" }
 
 /** What the header shows, for the shell to mirror in the native bar (iOS). */
 export interface AssistantHeader {
@@ -113,6 +121,9 @@ export function MobileAssistantScreen({
     [decide],
   )
   const openMemory = useCallback(() => push({ kind: "file", name: "memory" }), [push])
+  // File references in its replies are its own, not the active workspace's.
+  const openFileRef = useAssistantFileOpener(useCallback((file: OpenAssistantFile) => push({ kind: "workspaceFile", file }), [push]))
+  const filesRefreshKey = `${messages.length}|${typing}|${activities.map((a) => a.status).join(",")}`
   const openCoding = useCallback(
     (activity: Activity) => {
       const target = chatTargetOf(activity)
@@ -195,6 +206,14 @@ export function MobileAssistantScreen({
                   onSelect={(id) => push({ kind: "activity", id })}
                 />
               )}
+              {panelTab === "files" && (
+                <FilesTab
+                  large
+                  selectedPath={null}
+                  onOpen={(path, root) => push({ kind: "workspaceFile", file: assistantFile(path, { resolved: { path, root } }) })}
+                  refreshKey={filesRefreshKey}
+                />
+              )}
               {panelTab === "audit" && <AuditTab records={audit} />}
               {panelTab === "schedule" && (
                 <ScheduleTab
@@ -238,6 +257,8 @@ export function MobileAssistantScreen({
           <LayerMissing />
         )
       }
+      case "workspaceFile":
+        return <AssistantFileView file={layer.file} />
       case "file": {
         const file = files.find((f) => f.name === layer.name)
         return file ? (
@@ -259,122 +280,133 @@ export function MobileAssistantScreen({
   }
 
   const layerVariant = (layer: Layer): "page" | "bare" | "sheet" =>
-    layer.kind === "activity" ? "sheet" : layer.kind === "file" ? "page" : "bare"
+    layer.kind === "activity" ? "sheet" : layer.kind === "file" || layer.kind === "workspaceFile" ? "page" : "bare"
   const layerTitle = (layer: Layer): string | undefined =>
-    layer.kind === "file" ? intl.formatMessage(PROFILE_FILE_META[layer.name].title) : undefined
+    layer.kind === "file"
+      ? intl.formatMessage(PROFILE_FILE_META[layer.name].title)
+      : layer.kind === "workspaceFile"
+        ? basename(layer.file.path)
+        : undefined
 
   return (
-    <div className="relative flex h-full flex-col" style={{ paddingBottom: "var(--keyboard-height, 0px)" }}>
-      <div className="min-h-0 flex-1">
-        {!loaded ? (
-          <div
-            className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
-            style={{ paddingTop: headerHeight }}
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
-          </div>
-        ) : loadError && messages.length === 0 ? (
-          <div
-            className="flex h-full items-center justify-center gap-2 px-6 text-center text-xs text-destructive"
-            style={{ paddingTop: headerHeight }}
-          >
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {loadError}
-          </div>
-        ) : (
-          <AssistantChat
-            compact
-            keyboardOpen={keyboardOpen}
-            insetTop={headerHeight}
-            messages={messages}
-            typing={typing}
-            assistantName={identity.name}
-            hasMore={hasMore}
-            loadingOlder={loadingOlder}
-            onLoadOlder={() => void loadOlder().catch(reportError)}
-            onSend={(text, attachments) =>
-              send(text, attachments).catch((error: unknown) => {
-                reportError(error)
-                throw error
-              })
-            }
-            onDecide={onDecide}
-            onOpenMemory={openMemory}
-            activities={activities}
-            onOpenChat={openCoding}
-            onAtBottom={settleAtBottom}
-          />
-        )}
-      </div>
-
-      {/* The header floats over the thread, which scrolls up under it and the
-          status bar — more of the conversation fits, and the glass shows it
-          frosted. On iOS the header itself is the native bar (real Liquid
-          Glass) and this only holds its place; elsewhere the page draws it.
-          Only the controls take touches; the gaps let a drag through. */}
-      <div
-        ref={headerRef}
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col gap-2 px-3 pb-2"
-        style={{
-          paddingTop: `calc(${topInset} + ${native ? nativeBarHeight : 0}px + 0.5rem)`,
-        }}
-      >
-        {/* Keeps the status bar and the header legible over what scrolls behind. */}
-        <div
-          aria-hidden
-          className="absolute inset-x-0 top-0 bg-gradient-to-b from-background via-background/70 to-transparent"
-          style={{
-            height: `calc(${topInset} + ${native ? nativeBarHeight : 24}px)`,
-          }}
-        />
-        {!native && (
-          /* The capsule is the only way into the assistant's page, which opens
-             on its Activity list. */
-          <div className="relative flex justify-center">
-            <button
-              type="button"
-              onClick={() => openPanel("activity")}
-              aria-label={`${assistantName}, ${status}`}
-              // Held invisible (not removed) until the first load, so it comes in with the real
-              // name and the thread below doesn't shift when it does.
-              className={cn(
-                "liquid-glass pointer-events-auto flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-full py-1.5 pl-1.5 pr-4 text-left transition-transform active:scale-[0.97]",
-                loaded ? "animate-in fade-in-0 duration-200" : "invisible",
-              )}
+    <FileOpenProvider value={openFileRef}>
+      <div className="relative flex h-full flex-col" style={{ paddingBottom: "var(--keyboard-height, 0px)" }}>
+        <div className="min-h-0 flex-1">
+          {!loaded ? (
+            <div
+              className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
+              style={{ paddingTop: headerHeight }}
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-muted to-secondary text-[13px] font-semibold text-foreground/80">
-                {assistantName.slice(0, 1).toUpperCase()}
-              </span>
-              {/* Avatar and status only; the name is on the page this opens. */}
-              <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                <span className={cn("size-2 shrink-0 rounded-full", busyCount > 0 ? "bg-accent-warm" : "bg-accent-green")} />
-                <span className="truncate">{status}</span>
-              </span>
-            </button>
-          </div>
-        )}
-        {loaded && blocker && (
-          <div className="liquid-glass pointer-events-auto relative flex items-center gap-3 rounded-xl px-3 py-2.5">
-            <AlertCircle className="h-4 w-4 shrink-0 text-status-warn" />
-            <span className="flex-1 text-xs text-muted-foreground">{blockerText(intl, blocker, blockerReason)}</span>
-            <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => push({ kind: "settings" })}>
-              <Settings className="h-3.5 w-3.5" />
-              <FormattedMessage id="mobile.more.settings" defaultMessage="Settings" />
-            </Button>
-          </div>
-        )}
-      </div>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <FormattedMessage id="mobile.assistant.loading" defaultMessage="Loading…" />
+            </div>
+          ) : loadError && messages.length === 0 ? (
+            <div
+              className="flex h-full items-center justify-center gap-2 px-6 text-center text-xs text-destructive"
+              style={{ paddingTop: headerHeight }}
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {loadError}
+            </div>
+          ) : (
+            <AssistantChat
+              compact
+              keyboardOpen={keyboardOpen}
+              insetTop={headerHeight}
+              messages={messages}
+              typing={typing}
+              assistantName={identity.name}
+              hasMore={hasMore}
+              loadingOlder={loadingOlder}
+              onLoadOlder={() => void loadOlder().catch(reportError)}
+              onSend={(text, attachments) =>
+                send(text, attachments).catch((error: unknown) => {
+                  reportError(error)
+                  throw error
+                })
+              }
+              onDecide={onDecide}
+              onOpenMemory={openMemory}
+              activities={activities}
+              onOpenChat={openCoding}
+              onAtBottom={settleAtBottom}
+            />
+          )}
+        </div>
 
-      {/* Every pushed page stays mounted under the one above it, so popping
-          slides the top one away and uncovers the last, as a navigation stack does. */}
-      <AnimatePresence>
-        {layers.map(({ id, layer }) => (
-          <MobileLayer key={id} variant={layerVariant(layer)} title={layerTitle(layer)} onBack={pop}>
-            {renderLayer(layer)}
-          </MobileLayer>
-        ))}
-      </AnimatePresence>
-    </div>
+        {/* The header floats over the thread, which scrolls up under it and the
+            status bar — more of the conversation fits, and the glass shows it
+            frosted. On iOS the header itself is the native bar (real Liquid
+            Glass) and this only holds its place; elsewhere the page draws it.
+            Only the controls take touches; the gaps let a drag through. */}
+        <div
+          ref={headerRef}
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col gap-2 px-3 pb-2"
+          style={{
+            paddingTop: `calc(${topInset} + ${native ? nativeBarHeight : 0}px + 0.5rem)`,
+          }}
+        >
+          {/* Keeps the status bar and the header legible over what scrolls behind. */}
+          <div
+            aria-hidden
+            className="absolute inset-x-0 top-0 bg-gradient-to-b from-background via-background/70 to-transparent"
+            style={{
+              height: `calc(${topInset} + ${native ? nativeBarHeight : 24}px)`,
+            }}
+          />
+          {!native && (
+            /* The capsule is the only way into the assistant's page, which opens
+               on its Activity list. */
+            <div className="relative flex justify-center">
+              <button
+                type="button"
+                onClick={() => openPanel("activity")}
+                aria-label={`${assistantName}, ${status}`}
+                // Held invisible (not removed) until the first load, so it comes in with the real
+                // name and the thread below doesn't shift when it does.
+                className={cn(
+                  "liquid-glass pointer-events-auto flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-full py-1.5 pl-1.5 pr-4 text-left transition-transform active:scale-[0.97]",
+                  loaded ? "animate-in fade-in-0 duration-200" : "invisible",
+                )}
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-muted to-secondary text-[13px] font-semibold text-foreground/80">
+                  {assistantName.slice(0, 1).toUpperCase()}
+                </span>
+                {/* Idle is the usual state and says nothing worth a label: the name then.
+                    Only while it works does the capsule show a status. */}
+                {busyCount > 0 ? (
+                  <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                    <span className="size-2 shrink-0 rounded-full bg-accent-warm" />
+                    <span className="truncate">{status}</span>
+                  </span>
+                ) : (
+                  <span className="truncate text-sm font-semibold text-foreground/85">{assistantName}</span>
+                )}
+              </button>
+            </div>
+          )}
+          {loaded && blocker && (
+            <div className="liquid-glass pointer-events-auto relative flex items-center gap-3 rounded-xl px-3 py-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 text-status-warn" />
+              <span className="flex-1 text-xs text-muted-foreground">{blockerText(intl, blocker, blockerReason)}</span>
+              <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => push({ kind: "settings" })}>
+                <Settings className="h-3.5 w-3.5" />
+                <FormattedMessage id="mobile.more.settings" defaultMessage="Settings" />
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Every pushed page stays mounted under the one above it, so popping
+            slides the top one away and uncovers the last, as a navigation stack does. */}
+        <AnimatePresence>
+          {layers.map(({ id, layer }) => (
+            <MobileLayer key={id} variant={layerVariant(layer)} title={layerTitle(layer)} onBack={pop}>
+              {renderLayer(layer)}
+            </MobileLayer>
+          ))}
+        </AnimatePresence>
+      </div>
+    </FileOpenProvider>
   )
 }
 

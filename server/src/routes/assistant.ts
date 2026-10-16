@@ -6,6 +6,8 @@ import type { OperonStateStorage } from '../services/assistant/operon-state.js'
 import type { OperonActionsStorage } from '../services/assistant/operon-actions.js'
 import { normalizeAttachments } from '../services/assistant/attachments.js'
 import { isProfileFileName } from '../services/assistant/files.js'
+import { ASSISTANT_OUTPUTS } from '../services/assistant/paths.js'
+import { assistantRootOf, listOutputFiles, resolveAssistantPath } from '../services/assistant/workspace-files.js'
 import { getAssistantRuntime, resumeInterruptedAssistantWork } from '../services/assistant/runtime.js'
 import { executeCronjob, setAssistantCronRunner, type CronjobStorage } from '../services/cronjob.js'
 
@@ -87,6 +89,15 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     const body = await c.req.json<{ content?: unknown }>().catch(() => ({}) as { content?: unknown })
     if (typeof body.content !== 'string') return c.json({ error: 'content required' }, 400)
     return c.json({ file: runtime().writeFile(name, body.content) })
+  })
+
+  /** What it made for the user (its outputs folder, not the whole workspace); read through /api/fs. */
+  router.get('/workspace', async (c) => c.json({ dir: ASSISTANT_OUTPUTS, files: await listOutputFiles() }))
+
+  /** The absolute path a file reference in its reply points at (relative ones are its own). */
+  router.get('/resolve', async (c) => {
+    const resolved = await resolveAssistantPath(c.req.query('path') ?? '')
+    return resolved ? c.json({ path: resolved, root: assistantRootOf(resolved) }) : c.json({ error: 'File not found' }, 404)
   })
 
   router.patch('/schedules/:id', async (c) => {
