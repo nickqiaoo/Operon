@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-16
+
+### Added
+
+- Vercel AI Gateway as a model provider.
+- Add your own model provider: any endpoint that speaks OpenAI Chat Completions, OpenAI Responses or Anthropic Messages.
+- Assistant: a Files tab with the plans, reports and documents it made for you; files open in a preview beside the chat.
+
+### Changed
+
+- The chat's session panel opens from the top bar, in a column beside the conversation.
+- iOS: new tab bar icons, and the assistant's top bar shows its name.
+
+### Fixed
+
+- A task dispatched from the board shows its replies and approvals in its chat, and opens as a tab when you enter its workspace.
+- Picking a model in a Cursor or Antigravity chat now takes effect.
+- An external agent's card no longer folds into "Ran N commands".
+- Assistant: no longer replies twice in one turn.
+- Assistant: steps that need you, like logging in, open in your own Chrome.
+- Assistant: sending a message scrolls to it, and the conversation stays at the bottom when the phone keyboard opens.
+- Phone: live updates resume as soon as you come back to the app, and it reopens on the tab you left.
+- Assistant: opens much faster, especially on the phone.
+
 ## [1.4.1] - 2026-10-15
 
 ### Added
