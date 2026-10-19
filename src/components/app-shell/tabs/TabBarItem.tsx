@@ -16,6 +16,24 @@ import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import type { Tab, TabPayload } from "./types"
 
+/**
+ * A panel tab's look, shared with the file browser's strip of open files so
+ * the two rows of tabs read as one family (same size, type, selected and hover
+ * states) rather than two near-misses.
+ */
+export function panelTabClass(isActive: boolean) {
+  return cn(
+    "group inline-flex h-7 max-w-50 shrink-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1.5 text-[13px] transition-colors",
+    isActive
+      ? "bg-foreground/4 text-foreground shadow-tab dark:bg-white/6"
+      : "text-muted-foreground hover:bg-foreground/3 hover:text-foreground dark:hover:bg-white/4"
+  )
+}
+
+/** The close button inside a {@link panelTabClass} tab. */
+export const PANEL_TAB_CLOSE_CLASS =
+  "flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-foreground/8 hover:text-foreground dark:hover:bg-white/10"
+
 interface TabBarItemProps {
   tab: Tab
   isActive: boolean
@@ -106,13 +124,7 @@ export function TabBarItem({ tab, isActive, onActivate, onClose }: TabBarItemPro
       data-testid="panel-tab"
       data-active={isActive}
       data-dragging={isDragging}
-      className={cn(
-        "group inline-flex h-7 max-w-50 shrink-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1.5 text-[13px] transition-colors",
-        isActive
-          ? "bg-foreground/4 text-foreground shadow-tab dark:bg-white/6"
-          : "text-muted-foreground hover:bg-foreground/3 hover:text-foreground dark:hover:bg-white/4",
-        isDragging && "opacity-50"
-      )}
+      className={cn(panelTabClass(isActive), isDragging && "opacity-50")}
     >
       <TabIcon iconUrl={tab.iconUrl} fallback={Icon} />
       {/* Ellipsis, not a fade: a gradient that eats the last 14px of every title
@@ -129,7 +141,7 @@ export function TabBarItem({ tab, isActive, onActivate, onClose }: TabBarItemPro
           onClick={handleCloseClick}
           onPointerDown={handleClosePointerDown}
           aria-label={intl.formatMessage({ id: "appShell.closeTab", defaultMessage: "Close tab" })}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-foreground/8 hover:text-foreground dark:hover:bg-white/10"
+          className={PANEL_TAB_CLOSE_CLASS}
         >
           <X className="h-3.5 w-3.5" />
         </button>

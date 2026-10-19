@@ -17,6 +17,8 @@ interface MarkdownTocProps {
   /** Re-scan trigger — pass the markdown source so a new file rebuilds the list. */
   content: string
   className?: string
+  /** Replaces the trigger's default ghost-button look. */
+  buttonClassName?: string
 }
 
 const HEADING_SELECTOR = "h1, h2, h3, h4"
@@ -44,7 +46,12 @@ const CLOSE_DELAY_MS = 120
  * its de-duplication suffixes — and so text inside fenced code blocks is never
  * mistaken for a heading.
  */
-export function MarkdownToc({ contentRef, content, className }: MarkdownTocProps) {
+export function MarkdownToc({
+  contentRef,
+  content,
+  className,
+  buttonClassName,
+}: MarkdownTocProps) {
   const [headings, setHeadings] = useState<TocHeading[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -189,7 +196,7 @@ export function MarkdownToc({ contentRef, content, className }: MarkdownTocProps
         title="Outline"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="h-7 w-7 px-0"
+        className={buttonClassName ?? "h-7 w-7 px-0"}
       >
         <TableOfContents className="h-3.5 w-3.5" />
       </Button>

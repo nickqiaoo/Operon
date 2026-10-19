@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { FormattedMessage } from "react-intl"
+import { createPortal } from "react-dom"
+import { FormattedMessage, useIntl } from "react-intl"
 import { useSelectedTextStore } from "@/stores/selected-text-store"
-import { ChevronRight, Code, Eye, FileIcon, Loader2 } from "lucide-react"
-import { File as PierreFile } from "@pierre/diffs/react"
-import type { LineAnnotation } from "@pierre/diffs"
+import { ChevronRight, Code, Eye, FileIcon, FileSearch, Loader2 } from "lucide-react"
+import { FileDiff, File as PierreFile } from "@pierre/diffs/react"
+import type { DiffLineAnnotation, FileDiffOptions, LineAnnotation } from "@pierre/diffs"
 import { Button } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { MarkdownToc } from "@/components/ui/markdown-toc"
@@ -13,11 +14,16 @@ import { getImageMediaType, readFileForPreview } from "@/lib/file-preview"
 import { basename } from "@/lib/workspace-files"
 import { useEditorStore } from "@/stores/editor-store"
 import { useThemeStore } from "@/stores/theme-store"
-import { createPierreFileOptions } from "@shared/tool-rendering/diff"
+import { createPierreDiffOptions, createPierreFileOptions } from "@shared/tool-rendering/diff"
 import { useLineComments, type CommentMeta } from "@/components/editor/comments/useLineComments"
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl"
 import { isMacPlatform } from "@/lib/shortcuts/accelerator"
+import { cn } from "@/lib/utils"
+import { useFilePreviewDiffStore } from "@/stores/file-preview-diff-store"
+import { ChangeNavigator, DiffBasePill } from "./DiffControls"
 import { FindBar } from "./FindBar"
+import { TOOLBAR_ICON_BUTTON, TOOLBAR_PILL } from "@/components/ui/toolbar-styles"
+import { useFileBaseDiff } from "./useFileBaseDiff"
 import { FIND_HIGHLIGHT_CSS, useTextFind, type FindOptions, type TextFindTarget } from "./useTextFind"
 
 interface FilePreviewPaneProps {
@@ -34,6 +40,17 @@ interface FilePreviewPaneProps {
   /** Optional control rendered at the far-left of the header (e.g. a mobile
    * "back" button). */
   leftAccessory?: ReactNode
+  /**
+   * Where the desktop file browser wants this file's controls: a toolbar row
+   * spanning the preview and the tree. Given, the controls render there as
+   * capsules (only while `active`) instead of in the pane's own header bar.
+   * Null while that row is mounting.
+   */
+  toolbarSlot?: HTMLElement | null
+  /** The toolbar's right-hand slot (find, outline), next to the tab's own buttons. */
+  toolbarEndSlot?: HTMLElement | null
+  /** Mark lines changed against the git comparison base (desktop browser). */
+  gitChanges?: boolean
   /** Changing this re-reads the file from disk (manual refresh). */
   reloadNonce?: number
   /**
@@ -63,11 +80,15 @@ export function FilePreviewPane({
   gotoNonce,
   rightAccessory,
   leftAccessory,
+  toolbarSlot,
+  toolbarEndSlot,
+  gitChanges = false,
   reloadNonce,
   active = true,
   workspaceTools = true,
   className,
 }: FilePreviewPaneProps) {
+  const intl = useIntl()
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
@@ -105,10 +126,27 @@ export function FilePreviewPane({
   const theme = useThemeStore((s) => s.theme)
   const themeType = theme === "system" ? "system" : theme === "dark" ? "dark" : "light"
   const workspaceId = useEditorStore((s) => s.currentWorkspaceId)
+
+  const diffEnabled = useFilePreviewDiffStore((s) => s.enabled)
+  const setDiffBase = useFilePreviewDiffStore((s) => s.setBase)
+  const { base: diffBase, diff } = useFileBaseDiff({
+    rootPath,
+    // getDisplayPath hands the absolute path back for a file outside the root.
+    relativePath: displayPath != null && displayPath !== selectedPath ? displayPath : null,
+    contents: content,
+    enabled: gitChanges && diffEnabled && !isRasterImage,
+  })
+  const diffChanges = diff.status === "ready" ? diff.changes : null
+  // Rendered markdown has no lines to mark; the comparison is a source-view thing.
+  const diffApplies = diff.status !== "off" && viewMode === "source"
+  const showingDiff = diffApplies && diff.status === "ready" && diff.changes.length > 0
+  const [activeChange, setActiveChange] = useState(-1)
+  useEffect(() => setActiveChange(-1), [diff])
+
   const { entries, renderCard, selectedLines, onGutterUtilityClick } = useLineComments({
     workspaceId,
     path: commentPath,
-    mode: "file",
+    mode: showingDiff ? "diff" : "file",
   })
   const selectionActions = useMemo<SelectionAction[]>(
     () => !workspaceTools ? [] : [
@@ -132,6 +170,27 @@ export function FilePreviewPane({
   const lineAnnotations = useMemo<LineAnnotation<CommentMeta>[]>(
     () => !workspaceTools ? [] : entries.map((entry) => ({ lineNumber: entry.line, metadata: entry.meta })),
     [entries, workspaceTools]
+  )
+  const diffLineAnnotations = useMemo<DiffLineAnnotation<CommentMeta>[]>(
+    () => !workspaceTools ? [] : entries.map((entry) => ({
+      side: entry.side === "left" ? "deletions" : "additions",
+      lineNumber: entry.line,
+      metadata: entry.meta,
+    })),
+    [entries, workspaceTools]
+  )
+  const diffOptions = useMemo<FileDiffOptions<CommentMeta>>(
+    () => ({
+      ...createPierreDiffOptions(themeType, "unified"),
+      disableFileHeader: true,
+      // The whole file, changed lines marked in place — not hunks of context.
+      expandUnchanged: true,
+      enableGutterUtility: workspaceTools,
+      lineHoverHighlight: "line" as const,
+      onGutterUtilityClick,
+      unsafeCSS: FIND_HIGHLIGHT_CSS,
+    }),
+    [themeType, onGutterUtilityClick, workspaceTools]
   )
   const fileOptions = useMemo(
     () => ({
@@ -231,7 +290,7 @@ export function FilePreviewPane({
     // Only the code column — not the line-number gutter.
     return { root, accept: (text) => text.parentElement?.closest("[data-content]") != null }
   }, [showingMarkdownPreview])
-  const findContentKey = useMemo(() => ({}), [content, viewMode, reloadNonce])
+  const findContentKey = useMemo(() => ({}), [content, viewMode, reloadNonce, showingDiff])
   const find = useTextFind({
     getTarget: getFindTarget,
     enabled: active && findOpen,
@@ -301,7 +360,10 @@ export function FilePreviewPane({
     const tryScroll = () => {
       const host = contentRef.current?.querySelector(".pierre-diff-file-view")
       const root: ParentNode | null | undefined = host?.shadowRoot ?? contentRef.current
-      const el = root?.querySelector<HTMLElement>(`[data-line="${gotoLine}"]`)
+      // In the comparison, a removed row can carry the same (old) number.
+      const el = root?.querySelector<HTMLElement>(
+        `[data-line="${gotoLine}"]:not([data-line-type="change-deletion"])`
+      )
       if (el) {
         el.scrollIntoView({ block: "center" })
         el.style.transition = "background-color 200ms ease"
@@ -315,7 +377,82 @@ export function FilePreviewPane({
     }
     raf = requestAnimationFrame(tryScroll)
     return () => cancelAnimationFrame(raf)
-  }, [content, gotoLine, gotoNonce, isRasterImage, viewMode])
+  }, [content, gotoLine, gotoNonce, isRasterImage, viewMode, showingDiff])
+
+  const goToChange = (index: number) => {
+    const change = diffChanges?.[index]
+    if (change == null) return
+    setActiveChange(index)
+    const root = contentRef.current?.querySelector(".pierre-diff-file-view")?.shadowRoot
+    // Unified view lists a block's removed rows first, so that's where it starts.
+    const selector =
+      change.deletionLine != null
+        ? `[data-line-type="change-deletion"][data-line="${change.deletionLine}"]`
+        : `[data-line-type="change-addition"][data-line="${change.additionLine}"]`
+    root?.querySelector<HTMLElement>(selector)?.scrollIntoView({ block: "center" })
+  }
+
+  const showToc = showMarkdownToggle && viewMode === "preview" && content != null
+  const markdownControls = showMarkdownToggle ? (
+    <>
+      {showToc && <MarkdownToc contentRef={markdownRef} content={content} />}
+      <MarkdownViewToggle value={viewMode} onChange={setViewMode} />
+    </>
+  ) : null
+
+  // The desktop browser's toolbar row, portaled there while this pane is the
+  // one on screen. Left: what the content shows (rendered / source, the
+  // comparison). No breadcrumb: the panel tab and the open-files strip already
+  // name the file, and a third copy was just noise.
+  const onToolbar = active && selectedPath != null
+  const toolbarControls =
+    toolbarSlot != null && onToolbar
+      ? createPortal(
+          <>
+            {diffApplies && diffChanges != null && diffChanges.length > 0 && (
+              <ChangeNavigator
+                count={diffChanges.length}
+                activeIndex={activeChange}
+                onNavigate={goToChange}
+              />
+            )}
+            {diffApplies && diffBase.base != null && rootPath != null && (
+              <DiffBasePill
+                rootPath={rootPath}
+                base={diffBase.base}
+                onBaseChange={(base) => setDiffBase(rootPath, base)}
+              />
+            )}
+            {showMarkdownToggle && (
+              <MarkdownViewToggle value={viewMode} onChange={setViewMode} capsule />
+            )}
+          </>,
+          toolbarSlot
+        )
+      : null
+  // Right: tools that act on the file — find, outline.
+  const toolbarEndControls =
+    toolbarEndSlot != null && onToolbar
+      ? createPortal(
+          <>
+            {!isRasterImage && content != null && (
+              <button
+                type="button"
+                onClick={openFind}
+                aria-label={intl.formatMessage({ id: "filePreview.find", defaultMessage: "Find in file" })}
+                title={intl.formatMessage({ id: "filePreview.find", defaultMessage: "Find in file" })}
+                className={TOOLBAR_ICON_BUTTON}
+              >
+                <FileSearch className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {showToc && (
+              <MarkdownToc contentRef={markdownRef} content={content} buttonClassName={TOOLBAR_ICON_BUTTON} />
+            )}
+          </>,
+          toolbarEndSlot
+        )
+      : null
 
   if (selectedPath == null) {
     return (
@@ -337,24 +474,23 @@ export function FilePreviewPane({
 
   return (
     <div className={`flex flex-col ${className ?? ""}`}>
-      <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border/50 pl-3 pr-2 text-xs text-muted-foreground">
-        {leftAccessory}
-        <FileIcon className="h-3.5 w-3.5 shrink-0" />
-        {displayPath != null && (
-          <PathBreadcrumb path={displayPath} title={selectedPath} />
-        )}
-        {(showMarkdownToggle || rightAccessory != null) && (
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {showMarkdownToggle && viewMode === "preview" && content != null && (
-              <MarkdownToc contentRef={markdownRef} content={content} />
-            )}
-            {showMarkdownToggle && (
-              <MarkdownViewToggle value={viewMode} onChange={setViewMode} />
-            )}
-            {rightAccessory}
-          </div>
-        )}
-      </div>
+      {toolbarControls}
+      {toolbarEndControls}
+      {toolbarSlot === undefined && (
+        <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border/50 pl-3 pr-2 text-xs text-muted-foreground">
+          {leftAccessory}
+          <FileIcon className="h-3.5 w-3.5 shrink-0" />
+          {displayPath != null && (
+            <PathBreadcrumb path={displayPath} title={selectedPath} />
+          )}
+          {(showMarkdownToggle || rightAccessory != null) && (
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              {markdownControls}
+              {rightAccessory}
+            </div>
+          )}
+        </div>
+      )}
       <div ref={previewRef} tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
         <SelectionToolbar containerRef={previewRef} actions={selectionActions} />
         {findOpen && !isRasterImage && content != null && (
@@ -398,14 +534,25 @@ export function FilePreviewPane({
           </div>
         ) : (
           <div ref={contentRef} className="h-full w-full overflow-auto code-scrollbar">
-            <PierreFile<CommentMeta>
-              file={previewFile}
-              options={fileOptions}
-              lineAnnotations={lineAnnotations}
-              selectedLines={workspaceTools ? selectedLines : null}
-              renderAnnotation={(annotation) => renderCard(annotation.metadata)}
-              className="pierre-diff-file-view pierre-file-preview-view"
-            />
+            {showingDiff && diff.status === "ready" ? (
+              <FileDiff<CommentMeta>
+                fileDiff={diff.fileDiff}
+                options={diffOptions}
+                lineAnnotations={diffLineAnnotations}
+                selectedLines={workspaceTools ? selectedLines : null}
+                renderAnnotation={(annotation) => renderCard(annotation.metadata)}
+                className="pierre-diff-file-view pierre-file-preview-view"
+              />
+            ) : (
+              <PierreFile<CommentMeta>
+                file={previewFile}
+                options={fileOptions}
+                lineAnnotations={lineAnnotations}
+                selectedLines={workspaceTools ? selectedLines : null}
+                renderAnnotation={(annotation) => renderCard(annotation.metadata)}
+                className="pierre-diff-file-view pierre-file-preview-view"
+              />
+            )}
           </div>
         )}
       </div>
@@ -433,12 +580,20 @@ function isMarkdownPath(path: string): boolean {
 function MarkdownViewToggle({
   value,
   onChange,
+  capsule = false,
 }: {
   value: PreviewMode
   onChange: (value: PreviewMode) => void
+  /** Sit in the desktop toolbar's capsule row. */
+  capsule?: boolean
 }) {
   return (
-    <div className="flex h-7 items-center overflow-hidden rounded-md border border-border/50 bg-muted/20">
+    <div
+      className={cn(
+        "flex items-center overflow-hidden [&>button]:h-full",
+        capsule ? TOOLBAR_PILL : "h-7 rounded-md border border-border/50 bg-muted/20"
+      )}
+    >
       <Button
         type="button"
         variant={value === "preview" ? "secondary" : "ghost"}
@@ -472,16 +627,18 @@ function PathBreadcrumb({ path, title }: { path: string; title: string }) {
   const parts = path.split("/").filter(Boolean)
   if (parts.length === 0) return <span className="min-w-0 truncate" title={title}>{path}</span>
   return (
-    <div className="flex min-w-0 items-center gap-1 overflow-hidden" title={title}>
+    // Pinned to the end: when it doesn't fit, the leading folders slide off the
+    // left edge (as in Codex) and the file name stays whole.
+    <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden" title={title}>
       {parts.map((part, index) => {
         const isLast = index === parts.length - 1
         return (
-          <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
+          <span key={`${part}-${index}`} className="flex shrink-0 items-center gap-1">
             <span
               className={
                 isLast
-                  ? "min-w-0 truncate font-medium text-foreground"
-                  : "min-w-0 truncate text-muted-foreground"
+                  ? "whitespace-nowrap font-medium text-foreground"
+                  : "whitespace-nowrap text-muted-foreground"
               }
             >
               {part}

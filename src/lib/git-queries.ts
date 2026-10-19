@@ -28,8 +28,24 @@ export const gitKeys = {
     ['git', root, 'review', scope, variant] as const,
   fullFile: (root: string, scope: GitScope, path: string, variant = '') =>
     ['git', root, 'full-file', scope, path, variant] as const,
+  defaultBase: (root: string) => ['git', root, 'default-base'] as const,
+  mergeBase: (root: string, ref: string) => ['git', root, 'merge-base', ref] as const,
+  blob: (root: string, ref: string, path: string) => ['git', root, 'blob', ref, path] as const,
+  changedFiles: (root: string, ref: string) => ['git', root, 'changed-files', ref] as const,
   prRepoStatus: (root: string) => ['git', root, 'pr-repo-status'] as const,
   prForBranch: (root: string, branch: string) => ['git', root, 'pr-for-branch', branch] as const,
+}
+
+/**
+ * What to compare the working tree against by default: the repo's default base
+ * branch (`origin/main`), unless it shares no history with HEAD — an archive
+ * remote, a fork's unrelated upstream — or there is no remote at all; then
+ * `HEAD`, i.e. the uncommitted changes.
+ */
+export async function resolveDefaultBase(root: string): Promise<string> {
+  const candidate = await api.gitDefaultBaseBranch(root)
+  if (candidate != null && (await api.gitMergeBase(root, candidate)) != null) return candidate
+  return 'HEAD'
 }
 
 export type GitStatus = Awaited<ReturnType<typeof api.gitStatus>>

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useIntl } from "react-intl"
-import { ArrowLeft, ArrowRight, ExternalLink, Folders, RefreshCw, X } from "lucide-react"
+import { ArrowLeft, ArrowRight, FileDiff, Folders, RefreshCw, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   SIDE_FILE_TREE_DEFAULT_WIDTH,
   clampSideFileTreeWidth,
 } from "../constants"
+import { OpenWithMenu } from "../OpenWithMenu"
 import { ResizeHandle } from "../ResizeHandle"
-import { useOpenWith } from "../useOpenWith"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { basename } from "@/lib/workspace-files"
@@ -22,6 +22,14 @@ import {
   WorkspaceFileTree,
   type WorkspaceFileTreeHandle,
 } from "@/components/workspace-browser/WorkspaceFileTree"
+import { useGitRepoInvalidation } from "@/lib/git-queries"
+import { useChangedFiles, useDiffBase } from "@/components/workspace-browser/useFileBaseDiff"
+import { useFilePreviewDiffStore } from "@/stores/file-preview-diff-store"
+import {
+  TOOLBAR_ICON_BUTTON,
+  TOOLBAR_ICON_BUTTON_ON,
+} from "@/components/ui/toolbar-styles"
+import { PANEL_TAB_CLOSE_CLASS, panelTabClass } from "../tabs/TabBarItem"
 import type { PanelId } from "../tabs/types"
 
 interface WorkspaceBrowserTabProps {
@@ -37,7 +45,10 @@ interface WorkspaceBrowserTabProps {
 
 /**
  * Single tab combining file tree (right) and file preview (left), matching
- * Codex's design. Selecting a file in the tree opens it in the preview strip
+ * Codex's design: one row of capsules across the top (left: the shown file's
+ * view — preview / source, change navigation, comparison base; right: find,
+ * outline, back/forward, refresh, the diff and tree toggles and "Open"), the preview and
+ * tree side by side below it. Selecting a file in the tree opens it in the preview strip
  * next to the files already open (evicting the least recently viewed past
  * `MAX_PREVIEW_FILES`) and makes it `payload.selectedPath`. The tree and
  * preview are shared with the mobile Files screen via {@link WorkspaceFileTree}
@@ -67,6 +78,17 @@ export function WorkspaceBrowserTab({
   const [fileTreeWidth, setFileTreeWidth] = useState(
     SIDE_FILE_TREE_DEFAULT_WIDTH
   )
+  // The toolbar's left part, filled by whichever preview pane is on screen.
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null)
+  // Its right part's head: the shown file's find / outline buttons.
+  const [toolbarEndSlot, setToolbarEndSlot] = useState<HTMLDivElement | null>(null)
+  // Git badges in the tree, against the same base as the preview's diff. The
+  // repo watcher keeps them (and the diffs) current as files change on disk.
+  useGitRepoInvalidation(rootPath)
+  const changedFiles = useChangedFiles(rootPath, true)
+  const diffAvailable = useDiffBase(rootPath, true).available
+  const diffEnabled = useFilePreviewDiffStore((s) => s.enabled)
+  const setDiffEnabled = useFilePreviewDiffStore((s) => s.setEnabled)
 
   const historyIndex = previewHistory?.index ?? -1
   const historyLength = previewHistory?.entries.length ?? 0
@@ -145,11 +167,28 @@ export function WorkspaceBrowserTab({
       }}
       aria-label={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
       title={intl.formatMessage({ id: "workspaceBrowser.refreshTitle", defaultMessage: "Refresh file tree and preview" })}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+      className={TOOLBAR_ICON_BUTTON}
     >
       <RefreshCw className="h-3.5 w-3.5" />
     </button>
   )
+
+  // Shows / hides the changed lines in the preview; the tree's badges stay.
+  const diffLabel = diffEnabled
+    ? intl.formatMessage({ id: "filePreview.diff.hide", defaultMessage: "Hide changes" })
+    : intl.formatMessage({ id: "filePreview.diff.show", defaultMessage: "Show changes" })
+  const diffToggle = diffAvailable ? (
+    <button
+      type="button"
+      onClick={() => setDiffEnabled(!diffEnabled)}
+      aria-label={diffLabel}
+      aria-pressed={diffEnabled}
+      title={diffLabel}
+      className={cn(TOOLBAR_ICON_BUTTON, diffEnabled && TOOLBAR_ICON_BUTTON_ON)}
+    >
+      <FileDiff className="h-3.5 w-3.5" />
+    </button>
+  ) : null
 
   const toggleButton = (
     <button
@@ -158,54 +197,51 @@ export function WorkspaceBrowserTab({
       aria-label={isTreeVisible ? "Hide file tree" : "Show file tree"}
       aria-pressed={isTreeVisible}
       title={isTreeVisible ? "Hide file tree" : "Show file tree"}
-      className={cn(
-        "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
-        // Match Codex: same `Folders` glyph in both states; the *button*
-        // toggles between secondary (filled) when the pane is open and
-        // ghost (hover-only) when closed.
-        isTreeVisible
-          ? "bg-muted/60 text-foreground hover:bg-muted/80"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-      )}
+      // Match Codex: same `Folders` glyph in both states; the button is filled
+      // while the pane is open and ghost (hover-only) while closed.
+      className={cn(TOOLBAR_ICON_BUTTON, isTreeVisible && TOOLBAR_ICON_BUTTON_ON)}
     >
       <Folders className="h-3.5 w-3.5" />
     </button>
   )
 
-  // Sits in the right-side toolbar next to refresh/toggle; only when a file is
-  // selected. Opens the previewed file in the preferred "Open with…" app.
-  const openInEditorButton =
-    selectedPath != null ? <OpenInEditorButton filePath={selectedPath} /> : null
-
-  const previewAccessory = isTreeVisible ? null : (
-    <>
-      {backButton}
-      {forwardButton}
-      {openInEditorButton}
-      {refreshButton}
-      {toggleButton}
-    </>
-  )
-
   return (
     // data-find-scope: ⌘F in the tree searches the file on screen too.
-    <div data-find-scope className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col">
-        {files.openPaths.length > 1 && (
-          <PreviewFileStrip
-            openPaths={files.openPaths}
-            selectedPath={selectedPath}
-            onSelect={showFile}
-            onClose={closeFile}
-          />
-        )}
+    // @container: the toolbar drops labels / history arrows when the panel is narrow.
+    <div data-find-scope className="@container flex h-full min-h-0 flex-col">
+      {files.openPaths.length > 1 && (
+        <PreviewFileStrip
+          openPaths={files.openPaths}
+          selectedPath={selectedPath}
+          onSelect={showFile}
+          onClose={closeFile}
+        />
+      )}
+      <div className="flex h-12 shrink-0 items-center gap-1.5 px-2">
+        <div ref={setToolbarSlot} className="flex min-w-0 flex-1 items-center gap-1.5" />
+        <div className="flex shrink-0 items-center gap-0.5">
+          <div ref={setToolbarEndSlot} className="flex items-center gap-0.5 empty:hidden" />
+          <div className="flex items-center gap-0.5 @max-[640px]:hidden">
+            {backButton}
+            {forwardButton}
+          </div>
+          {refreshButton}
+          {diffToggle}
+          {toggleButton}
+          <div className="ml-1">
+            <OpenWithMenu targetPath={selectedPath ?? rootPath} />
+          </div>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1">
         {/* Every open file stays mounted so switching back keeps its scroll
             position, view mode and find state; only the selected one shows. */}
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           {files.openPaths.length === 0 || selectedPath == null ? (
             <FilePreviewPane
               selectedPath={null}
-              rightAccessory={previewAccessory}
+              toolbarSlot={toolbarSlot}
+              toolbarEndSlot={toolbarEndSlot}
               className="absolute inset-0"
             />
           ) : (
@@ -220,52 +256,48 @@ export function WorkspaceBrowserTab({
                   gotoLine={isSelected ? gotoLine : undefined}
                   gotoNonce={isSelected ? gotoNonce : undefined}
                   reloadNonce={previewReloadNonce}
-                  rightAccessory={previewAccessory}
+                  toolbarSlot={toolbarSlot}
+                  toolbarEndSlot={toolbarEndSlot}
+                  gitChanges
                   className={cn("absolute inset-0 bg-background", !isSelected && "invisible")}
                 />
               )
             })
           )}
         </div>
-      </div>
-      {isTreeVisible && (
-        <>
-          <div className="w-px shrink-0 bg-border/50" />
-          <div
-            ref={fileTreeRef}
-            className="relative flex shrink-0 flex-col"
-            style={{ width: fileTreeWidth }}
-          >
-            <ResizeHandle
-              edge="left"
-              defaultSize={SIDE_FILE_TREE_DEFAULT_WIDTH}
-              getSizeFromPointer={({ x }) => {
-                const right =
-                  fileTreeRef.current?.getBoundingClientRect().right ??
-                  window.innerWidth
-                return right - x
-              }}
-              setSize={(next) =>
-                setFileTreeWidth(clampSideFileTreeWidth(next))
-              }
-            />
-            <div className="flex h-10 shrink-0 items-center justify-end gap-0.5 border-b border-border/50 px-2">
-              {backButton}
-              {forwardButton}
-              {openInEditorButton}
-              {refreshButton}
-              {toggleButton}
+        {isTreeVisible && (
+          <>
+            <div className="w-px shrink-0 bg-border/50" />
+            <div
+              ref={fileTreeRef}
+              className="relative flex shrink-0 flex-col"
+              style={{ width: fileTreeWidth }}
+            >
+              <ResizeHandle
+                edge="left"
+                defaultSize={SIDE_FILE_TREE_DEFAULT_WIDTH}
+                getSizeFromPointer={({ x }) => {
+                  const right =
+                    fileTreeRef.current?.getBoundingClientRect().right ??
+                    window.innerWidth
+                  return right - x
+                }}
+                setSize={(next) =>
+                  setFileTreeWidth(clampSideFileTreeWidth(next))
+                }
+              />
+              <WorkspaceFileTree
+                rootPath={rootPath}
+                selectedPath={selectedPath}
+                onSelectFile={showFile}
+                apiRef={treeApiRef}
+                gitStatus={changedFiles}
+                className="min-h-0 flex-1"
+              />
             </div>
-            <WorkspaceFileTree
-              rootPath={rootPath}
-              selectedPath={selectedPath}
-              onSelectFile={showFile}
-              apiRef={treeApiRef}
-              className="min-h-0 flex-1"
-            />
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -310,7 +342,7 @@ function PreviewFileStrip({
       onWheel={(e) => {
         if (scrollRef.current != null && e.deltaX === 0) scrollRef.current.scrollLeft += e.deltaY
       }}
-      className="relative flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/50 px-2"
+      className="relative flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 px-2"
       style={{ scrollbarWidth: "none" }}
     >
       {openPaths.map((path, index) => {
@@ -333,20 +365,11 @@ function PreviewFileStrip({
                 onClose(path)
               }
             }}
-            className={cn(
-              "group flex h-7 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pl-2 pr-1 text-xs transition-colors",
-              // The selected tab sits on the base secondary surface — the pressed
-              // `secondary-active` read as a dark block against the white pane.
-              // Hover matches it so an unselected tab never looks heavier than
-              // the selected one; text color still tells them apart.
-              isSelected
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-            )}
+            className={panelTabClass(isSelected)}
             onClick={() => onSelect(path)}
           >
-            <FileIcon name={name} className="size-3.5 shrink-0" />
-            <span className="truncate">{name}</span>
+            <FileIcon name={name} className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{name}</span>
             {parent != null && (
               <span className="shrink-0 truncate text-muted-foreground/70">{parent}</span>
             )}
@@ -360,12 +383,9 @@ function PreviewFileStrip({
                 e.stopPropagation()
                 onClose(path)
               }}
-              className={cn(
-                "flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary-active hover:text-foreground",
-                isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              )}
+              className={PANEL_TAB_CLOSE_CLASS}
             >
-              <X className="h-3 w-3" />
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         )
@@ -397,31 +417,9 @@ function HistoryNavButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+      className={TOOLBAR_ICON_BUTTON}
     >
       {children}
-    </button>
-  )
-}
-
-/**
- * Header button that opens the previewed file in the user's preferred external
- * app — the same app the top-bar "Open with…" dropdown points at (shared via
- * useOpenWith), so changing it in one place updates both. Hidden when no app is
- * available (non-macOS / nothing resolved).
- */
-function OpenInEditorButton({ filePath }: { filePath: string }) {
-  const { available, preferredApp, open } = useOpenWith()
-  if (!available || preferredApp == null) return null
-  return (
-    <button
-      type="button"
-      onClick={() => void open(filePath)}
-      aria-label={`Open in ${preferredApp.label}`}
-      title={`Open in ${preferredApp.label}`}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-    >
-      <ExternalLink className="h-3.5 w-3.5" />
     </button>
   )
 }

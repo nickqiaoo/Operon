@@ -2041,5 +2041,17 @@
   "mobile.board.menu.view": "视图",
   "mobile.board.menu.groupBy": "分组",
   "mobile.board.menu.noTeam": "无团队",
-  "mobile.board.menu.showArchived": "显示已归档"
+  "mobile.board.menu.showArchived": "显示已归档",
+  "appShell.open": "打开",
+  "appShell.openIn": "在 {app} 中打开",
+  "filePreview.diff.changeCount": "{count} 项更改",
+  "filePreview.diff.changePosition": "第 {position} / {count} 项",
+  "filePreview.diff.compareWith": "对比基准",
+  "filePreview.diff.hide": "隐藏更改",
+  "filePreview.diff.show": "显示更改",
+  "filePreview.diff.navigateChanges": "浏览更改",
+  "filePreview.diff.nextChange": "下一项更改",
+  "filePreview.diff.previousChange": "上一项更改",
+  "filePreview.diff.uncommitted": "未提交",
+  "filePreview.find": "在文件中查找"
 }

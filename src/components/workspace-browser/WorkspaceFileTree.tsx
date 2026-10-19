@@ -4,7 +4,7 @@ import {
   useFileTree,
   useFileTreeSelection,
 } from "@pierre/trees/react"
-import type { FileTreeBatchOperation } from "@pierre/trees"
+import type { FileTreeBatchOperation, GitStatusEntry } from "@pierre/trees"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   isDirectoryPath,
@@ -81,6 +81,11 @@ interface WorkspaceFileTreeProps {
   onSelectFile: (absolutePath: string) => void
   /** Lets a parent's refresh button drive the tree's in-place reload. */
   apiRef?: React.MutableRefObject<WorkspaceFileTreeHandle | null>
+  /**
+   * Git badges: M / A / U on changed files and a dot on every folder above
+   * one, including folders not loaded yet. Absent = no badges (mobile).
+   */
+  gitStatus?: readonly GitStatusEntry[] | null
   className?: string
 }
 
@@ -96,6 +101,7 @@ export function WorkspaceFileTree({
   selectedPath,
   onSelectFile,
   apiRef,
+  gitStatus,
   className,
 }: WorkspaceFileTreeProps) {
   const [initialPaths, setInitialPaths] = useState<string[] | null>(null)
@@ -159,6 +165,7 @@ export function WorkspaceFileTree({
       selectedPath={selectedPath}
       onSelectFile={onSelectFile}
       apiRef={apiRef}
+      gitStatus={gitStatus}
       className={className}
     />
   )
@@ -171,6 +178,7 @@ interface TreeInnerProps {
   selectedPath: string | null
   onSelectFile: (absolutePath: string) => void
   apiRef?: React.MutableRefObject<WorkspaceFileTreeHandle | null>
+  gitStatus?: readonly GitStatusEntry[] | null
   className?: string
 }
 
@@ -185,6 +193,7 @@ function TreeInner({
   selectedPath,
   onSelectFile,
   apiRef,
+  gitStatus,
   className,
 }: TreeInnerProps) {
   const queryClient = useQueryClient()
@@ -225,6 +234,11 @@ function TreeInner({
 
   const mode = useResolvedMode()
   const { model } = useFileTree(fileTreeOptions)
+
+  // Badges update in place: the tree, its expansion and scroll stay put.
+  useEffect(() => {
+    model.setGitStatus(gitStatus ?? undefined)
+  }, [model, gitStatus])
 
   /** In-flight loads per directory; a count because reveal and expand can overlap. */
   const loadingDirsRef = useRef<Map<string, number>>(new Map())

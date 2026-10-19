@@ -1,16 +1,14 @@
-import { useMemo } from "react"
 import { useIntl } from "react-intl"
 import { Activity, PanelBottom, PanelRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAppShellStore } from "@/stores/app-shell-store"
-import { useProjectStore } from "@/stores/project-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
-import { OpenWithMenu } from "./OpenWithMenu"
 import { toggleBottomPanelWithTerminal } from "./tabs/tab-entries"
 
 /**
- * The window's top-right controls: "Open with…", the chat's Session cards, and
- * the bottom/right panel toggles.
+ * The window's top-right controls: the chat's Session cards and the
+ * bottom/right panel toggles. ("Open with…" lives in the file browser's
+ * toolbar, next to the file it opens.)
  *
  * Rendered INLINE inside whichever bar is pinned to the window's top-right
  * (the right panel's tab strip when it's open, else the center header). Those
@@ -28,19 +26,8 @@ export function TopBarControls() {
   const sessionPanelOpen = useSessionPanelStore((s) => s.open)
   const toggleSessionPanel = useSessionPanelStore((s) => s.toggle)
 
-  const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
-  const projects = useProjectStore((s) => s.projects)
-  const targetPath = useMemo(() => {
-    for (const project of projects) {
-      const workspace = project.workspaces.find((w) => w.id === activeWorkspaceId)
-      if (workspace != null) return workspace.worktreePath
-    }
-    return null
-  }, [projects, activeWorkspaceId])
-
   return (
     <div className="no-drag flex items-center gap-0.5">
-      <OpenWithMenu targetPath={targetPath} />
       {sessionAvailable && (
         <button
           type="button"
@@ -50,7 +37,7 @@ export function TopBarControls() {
             "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
             sessionPanelOpen
               ? "bg-muted/70 text-foreground"
-              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
           )}
           title={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
           aria-pressed={sessionPanelOpen}
@@ -58,7 +45,7 @@ export function TopBarControls() {
           <Activity className="h-4 w-4" />
         </button>
       )}
-      <div className="mx-0.5 h-4 w-px bg-border/50" />
+      {sessionAvailable && <div className="mx-0.5 h-4 w-px bg-border/50" />}
       <button
         type="button"
         data-testid="toggle-bottom-panel"
@@ -67,7 +54,7 @@ export function TopBarControls() {
           "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
           bottomPanelOpen
             ? "bg-muted/70 text-foreground"
-            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
         )}
         title={intl.formatMessage({ id: "appShell.toggleBottomPanel", defaultMessage: "Toggle bottom panel (⌘J)" })}
         aria-pressed={bottomPanelOpen}
@@ -82,7 +69,7 @@ export function TopBarControls() {
           "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
           rightPanelOpen
             ? "bg-muted/70 text-foreground"
-            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
         )}
         title={intl.formatMessage({ id: "appShell.toggleRightPanel", defaultMessage: "Toggle right panel (⌘\\)" })}
         aria-pressed={rightPanelOpen}
