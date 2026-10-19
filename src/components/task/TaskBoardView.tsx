@@ -14,7 +14,7 @@ import {
 import { Archive } from 'lucide-react'
 import { FormattedMessage } from 'react-intl'
 import { cn } from '@/lib/utils'
-import { PriorityIcon, LabelChip, AssigneeAvatar, type TaskGroup } from './task-meta'
+import { PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, type TaskGroup } from './task-meta'
 import type { TaskListItem } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
 
@@ -171,7 +171,7 @@ function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
     >
       <div className="flex items-center gap-2">
         <PriorityIcon priority={task.priority} />
-        <span className="text-[11px] text-muted-foreground/50 tabular-nums">#{task.number}</span>
+        <TaskRef projectId={task.projectId} number={task.number} className="text-[11px] text-muted-foreground/50" />
         {archived && <Archive className="w-3 h-3 text-muted-foreground/50" />}
       </div>
       {/* anywhere: a path or file name in the title has no spaces to break at, and would run out of the card. */}
@@ -182,7 +182,7 @@ function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
             <LabelChip key={l.id} label={l} />
           ))}
         </div>
-        <AssigneeAvatar agentId={task.assignedAgentId} agents={agents} sessions={sessions} />
+        <AssigneeAvatar agentId={task.assignedAgentId} agents={agents} sessions={sessions} projectId={task.projectId} />
       </div>
     </div>
   )

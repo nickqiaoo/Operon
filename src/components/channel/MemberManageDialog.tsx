@@ -100,7 +100,7 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
       >
         <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
           <div>
-            <DialogTitle className="text-lg font-semibold tracking-tight">
+            <DialogTitle>
               <FormattedMessage id="channel.members.title" defaultMessage="Members of #{name}" values={{ name: channel.name }} />
             </DialogTitle>
             <p className="text-xs text-muted-foreground/60 mt-0.5">
@@ -111,7 +111,7 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
               />
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50 transition-colors" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
             <XIcon className="h-4 w-4" />
           </Button>
         </DialogHeader>
@@ -130,7 +130,7 @@ export function MemberManageDialog({ channel, onClose }: MemberManageDialogProps
                   key={agent.id}
                   onClick={() => toggle(agent.id)}
                   disabled={saving}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/40 transition-colors text-left disabled:opacity-60"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-row-hover transition-colors text-left disabled:opacity-60"
                 >
                   <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border transition-colors ${
                     isSelected ? 'bg-tint border-tint' : 'border-border/60'

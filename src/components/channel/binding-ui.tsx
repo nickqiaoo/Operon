@@ -42,8 +42,8 @@ export function StatusDot({
       title={agentStatusLabel(intl, status)}
       className={cn(
         'w-2 h-2 rounded-full shrink-0',
-        status === 'active' && 'bg-blue-500 animate-pulse',
-        status === 'idle' && 'bg-green-500',
+        status === 'active' && 'bg-status-info animate-pulse',
+        status === 'idle' && 'bg-accent-green',
         (status === 'offline' || status === 'completed') && 'bg-muted-foreground/30',
         className,
       )}
@@ -99,7 +99,7 @@ export function BindingRow({
     binding.status === 'active' ? 'active' : binding.status === 'idle' ? 'idle' : 'offline'
   const displayName = binding.scopeDisplayName || binding.scopeKey
   return (
-    <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/30 transition-colors group">
+    <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-row-hover transition-colors group">
       <Icon className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground/50 shrink-0">

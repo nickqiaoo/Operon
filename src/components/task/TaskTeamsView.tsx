@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
-import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, relativeTime } from './task-meta'
+import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime } from './task-meta'
 import { TASK_STATUSES } from '@/types/task'
 import type { TaskListItem, Team } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
@@ -24,7 +24,8 @@ interface TaskTeamsViewProps {
   agents: Agent[]
   sessions: AgentSession[]
   onOpen: (taskId: number) => void
-  onCreateTeam: (name: string, color: string) => Promise<unknown>
+  /** Absent on the board over every project: a team is created in one project. */
+  onCreateTeam?: (name: string, color: string) => Promise<unknown>
   onUpdateTeam: (teamId: number, name: string, color: string) => Promise<unknown>
   onDeleteTeam: (teamId: number) => Promise<unknown>
 }
@@ -83,7 +84,7 @@ export function TaskTeamsView({
             <FormattedMessage id="task.teams.title" defaultMessage="Teams" />
             <span className="text-muted-foreground/50 tabular-nums font-normal">{teams.length}</span>
           </h2>
-          <NewTeamInline onCreate={onCreateTeam} />
+          {onCreateTeam && <NewTeamInline onCreate={onCreateTeam} />}
         </div>
 
         {buckets.length === 0 ? (
@@ -159,10 +160,10 @@ function TeamCard({
 
   return (
     <div className="rounded-xl border border-border/60 bg-popover/90 overflow-hidden shadow-input dark:border-border/35 dark:bg-popover/70">
-      <div className="flex items-center gap-1 px-2 py-2 hover:bg-muted/15 transition-colors">
+      <div className="flex items-center gap-1 px-2 py-2 hover:bg-row-hover transition-colors">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="min-w-0 flex-1 flex items-center gap-2 sm:gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-muted/25 transition-colors"
+          className="min-w-0 flex-1 flex items-center gap-2 sm:gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-row-hover transition-colors"
         >
           <ChevronRight
             className={cn(
@@ -193,7 +194,7 @@ function TeamCard({
           <div className="flex items-center gap-2 w-28 sm:w-40 shrink-0">
             <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
               <div
-                className="h-full rounded-full bg-green-500/70 transition-all"
+                className="h-full rounded-full bg-accent-green/70 transition-all"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -312,7 +313,7 @@ function TeamManagePopover({
           type="button"
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-muted/35 hover:text-foreground"
+          className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-accent-hover hover:text-foreground"
           aria-label={intl.formatMessage({ id: 'task.teams.manage', defaultMessage: 'Manage team' })}
           title={intl.formatMessage({ id: 'task.teams.manage', defaultMessage: 'Manage team' })}
         >
@@ -447,13 +448,11 @@ function TeamTaskRow({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-5 py-2 text-left border-b border-border/40 last:border-b-0 hover:bg-muted/20 transition-colors"
+      className="w-full flex items-center gap-3 px-5 py-2 text-left border-b border-border/40 last:border-b-0 hover:bg-row-hover transition-colors"
     >
       <StatusIcon status={task.status} />
       <PriorityIcon priority={task.priority} />
-      <span className="text-xs text-muted-foreground/50 tabular-nums w-12 shrink-0">
-        #{task.number}
-      </span>
+      <TaskRef projectId={task.projectId} number={task.number} className="text-xs text-muted-foreground/50 min-w-12 max-w-32 shrink-0" />
       <span className="flex-1 truncate text-sm text-foreground/90">{task.title}</span>
       <div className="flex items-center gap-1.5 shrink-0">
         {task.labels.slice(0, 2).map((l) => (
@@ -463,7 +462,7 @@ function TeamTaskRow({
       <span className="text-[11px] text-muted-foreground/40 tabular-nums w-9 text-right shrink-0">
         {relativeTime(task.updatedAt)}
       </span>
-      <AssigneeAvatar agentId={task.assignedAgentId} agents={agents} sessions={sessions} />
+      <AssigneeAvatar agentId={task.assignedAgentId} agents={agents} sessions={sessions} projectId={task.projectId} />
     </button>
   )
 }

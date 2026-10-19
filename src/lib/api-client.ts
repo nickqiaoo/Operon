@@ -590,8 +590,14 @@ export function agentDelete(id: number) {
   return request<{ success: boolean }>(`/agents/${id}`, { method: 'DELETE' })
 }
 
-export function channelList(projectId: number) {
-  return request<{ channels: Channel[] }>(`/channels?projectId=${projectId}`)
+/** The board and channel lists read one project's rows, or every project's when there is none. */
+function projectQuery(projectId: number | null): string {
+  return projectId == null ? '' : `?projectId=${projectId}`
+}
+
+/** `projectId: null` → every project's channels. */
+export function channelList(projectId: number | null) {
+  return request<{ channels: Channel[] }>(`/channels${projectQuery(projectId)}`)
 }
 
 export function channelCreate(input: CreateChannelInput) {
@@ -643,8 +649,8 @@ export function channelThreadReply(channelId: number, messageId: number, body: O
   })
 }
 
-export function channelAgentSessions(projectId: number) {
-  return request<{ sessions: AgentSession[] }>(`/channels/agents/sessions?projectId=${projectId}`)
+export function channelAgentSessions(projectId: number | null) {
+  return request<{ sessions: AgentSession[] }>(`/channels/agents/sessions${projectQuery(projectId)}`)
 }
 
 export async function channelStreamUrl(channelId: number): Promise<string> {
@@ -663,8 +669,10 @@ export interface TaskListFilter {
   includeArchived?: boolean
 }
 
-export function taskList(projectId: number, filter: TaskListFilter = {}) {
-  const params = new URLSearchParams({ projectId: String(projectId) })
+/** `projectId: null` → every project's tasks (the global board). */
+export function taskList(projectId: number | null, filter: TaskListFilter = {}) {
+  const params = new URLSearchParams()
+  if (projectId != null) params.set('projectId', String(projectId))
   if (filter.status) params.set('status', filter.status)
   if (filter.assignedAgentId != null) params.set('assignee', String(filter.assignedAgentId))
   if (filter.labelId != null) params.set('label', String(filter.labelId))
@@ -710,9 +718,9 @@ export function taskComment(taskId: number, body: string, actorName?: string) {
   })
 }
 
-export async function taskStreamUrl(projectId: number): Promise<string> {
+export async function taskStreamUrl(projectId: number | null): Promise<string> {
   const baseUrl = await getBaseUrl()
-  return `${baseUrl}/tasks/stream?projectId=${projectId}`
+  return `${baseUrl}/tasks/stream${projectQuery(projectId)}`
 }
 
 // ---- Notification inbox ----
@@ -805,12 +813,12 @@ export function taskVerify(taskId: number, agentId: number) {
   })
 }
 
-export function taskLabelList(projectId: number) {
-  return request<{ labels: TaskLabel[] }>(`/tasks/labels?projectId=${projectId}`)
+export function taskLabelList(projectId: number | null) {
+  return request<{ labels: TaskLabel[] }>(`/tasks/labels${projectQuery(projectId)}`)
 }
 
-export function taskTeamList(projectId: number) {
-  return request<{ teams: Team[] }>(`/tasks/teams?projectId=${projectId}`)
+export function taskTeamList(projectId: number | null) {
+  return request<{ teams: Team[] }>(`/tasks/teams${projectQuery(projectId)}`)
 }
 
 export function taskTeamCreate(input: CreateTeamInput) {
@@ -838,12 +846,12 @@ export function taskLabelCreate(input: CreateTaskLabelInput) {
   })
 }
 
-export function agentStop(agentId: number, projectId: number) {
-  return request<{ success: boolean }>(`/agents/${agentId}/stop?projectId=${projectId}`, { method: 'POST', body: '{}' })
+export function agentStop(agentId: number, projectId: number | null) {
+  return request<{ success: boolean }>(`/agents/${agentId}/stop${projectQuery(projectId)}`, { method: 'POST', body: '{}' })
 }
 
-export function agentReset(agentId: number, projectId: number) {
-  return request<{ success: boolean }>(`/agents/${agentId}/reset?projectId=${projectId}`, { method: 'POST', body: '{}' })
+export function agentReset(agentId: number, projectId: number | null) {
+  return request<{ success: boolean }>(`/agents/${agentId}/reset${projectQuery(projectId)}`, { method: 'POST', body: '{}' })
 }
 
 export function agentListSessions(agentId: number) {

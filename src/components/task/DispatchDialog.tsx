@@ -77,7 +77,7 @@ export function DispatchDialog({
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden sm:max-w-2xl">
         <DialogHeader className="min-w-0">
-          <DialogTitle className="text-base">
+          <DialogTitle>
             <FormattedMessage id="task.dispatch.title" defaultMessage="Dispatch subtasks" />
           </DialogTitle>
         </DialogHeader>

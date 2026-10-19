@@ -67,7 +67,7 @@ export function VerifyDialog({
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden sm:max-w-lg">
         <DialogHeader className="min-w-0">
-          <DialogTitle className="text-base">
+          <DialogTitle>
             <FormattedMessage id="task.verify.title" defaultMessage="Verify this change" />
           </DialogTitle>
         </DialogHeader>

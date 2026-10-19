@@ -3,6 +3,8 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { Check, Copy, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChannelMessage, Agent } from '@/types/channel'
+import type { TaskListItem } from '@/types/task'
+import { StatusIcon, TaskRef } from '@/components/task/task-meta'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { AgentAvatar, UserAvatar } from '@/components/icons/AgentAvatar'
 
@@ -23,6 +25,11 @@ interface ChannelMessageItemProps {
   /** true when the previous message has the same sender — hides avatar/name, tightens spacing */
   grouped?: boolean
   onReply: (messageId: number) => void
+  /** Tasks captured from this message; each opens on the board. */
+  tasks?: TaskListItem[]
+  onOpenTask?: (taskId: number) => void
+  /** Flashed after a jump here from a task. */
+  highlighted?: boolean
 }
 
 export const ChannelMessageItem = memo(function ChannelMessageItem({
@@ -30,6 +37,9 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   agents,
   grouped,
   onReply,
+  tasks,
+  onOpenTask,
+  highlighted,
 }: ChannelMessageItemProps) {
   const intl = useIntl()
   const isAgent = message.senderType === 'agent'
@@ -75,9 +85,11 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   return (
     <div
+      data-message-id={message.id}
       className={cn(
-        'relative group px-2 md:px-4 transition-colors hover:bg-muted/10',
+        'relative group px-2 md:px-4 transition-colors duration-500 hover:bg-muted/10',
         grouped ? 'py-0.5' : 'pt-2 pb-0.5',
+        highlighted && 'bg-row-selected hover:bg-row-selected',
       )}
     >
       <div className={cn(
@@ -118,7 +130,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
               <ActionButton icon={<MessageSquare className="w-3.5 h-3.5" />} label={intl.formatMessage({ id: 'channel.message.reply', defaultMessage: 'Reply' })} onClick={() => onReply(message.id)} />
               <ActionButton
                 icon={copied
-                  ? <Check className="w-3.5 h-3.5 text-green-500" />
+                  ? <Check className="w-3.5 h-3.5 text-status-ok" />
                   : <Copy className="w-3.5 h-3.5" />}
                 label={copied
                   ? intl.formatMessage({ id: 'common.copied', defaultMessage: 'Copied' })
@@ -170,6 +182,24 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
               )}
             </button>
           )}
+
+          {tasks && tasks.length > 0 && (
+            <div className={cn('mt-1 flex flex-wrap gap-1', isUser && 'justify-end')}>
+              {tasks.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => onOpenTask?.(task.id)}
+                  disabled={!onOpenTask}
+                  className="flex max-w-72 items-center gap-1.5 rounded-lg border border-border/50 bg-popover/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground disabled:pointer-events-none dark:border-border/35"
+                >
+                  <StatusIcon status={task.status} />
+                  <TaskRef projectId={task.projectId} number={task.number} className="shrink-0 text-muted-foreground/70" />
+                  <span className="truncate text-foreground/85">{task.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -183,7 +213,7 @@ function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+      className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
     >
       {icon}
     </button>

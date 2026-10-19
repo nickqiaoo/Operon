@@ -7,10 +7,10 @@ import type { TaskListItem } from '@/types/task'
 type TaskStreamEvent = { type: 'task_upsert'; task: TaskListItem }
 
 /**
- * Subscribe to the project's task SSE stream so the board + open detail update
- * live when an agent (or another window) changes a task.
+ * Subscribe to the project's task SSE stream (every project's, for null) so the
+ * board + open detail update live when an agent (or another window) changes a task.
  */
-export function useTaskStream(projectId: number) {
+export function useTaskStream(projectId: number | null) {
   const applyUpsert = useTaskStore((s) => s.applyUpsert)
 
   useEffect(() => {

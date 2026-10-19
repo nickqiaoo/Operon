@@ -84,7 +84,7 @@ export function MentionPicker({
             }}
             className={cn(
               'w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors',
-              idx === selectedIndex ? 'bg-tint/10 text-tint' : 'text-foreground hover:bg-muted/40',
+              idx === selectedIndex ? 'bg-tint/10 text-tint' : 'text-foreground hover:bg-row-hover',
             )}
           >
             <AgentAvatar provider={agent.provider} size="sm" />

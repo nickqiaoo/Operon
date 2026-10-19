@@ -228,7 +228,8 @@ export interface UpdateTaskInput {
 }
 
 export interface ListTasksQuery {
-  projectId: number
+  /** Omit for every project's tasks (the global board). */
+  projectId?: number
   status?: TaskStatus
   assignedAgentId?: number
   labelId?: number

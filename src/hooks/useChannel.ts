@@ -145,7 +145,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
       setThreadMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)))
     } else if (event.type === 'agent_status') {
       // Update session status in store in real time
-      useChannelStore.getState().updateSessionStatus(event.agentId, event.status)
+      useChannelStore.getState().updateSessionStatus(event.agentId, event.projectId, event.status)
     } else if (event.type === 'typing_start') {
       const { agentId } = event
       // Clear first so a repeated typing_start replaces its predecessor's timer

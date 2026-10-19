@@ -23,7 +23,7 @@ import { useGlobalShortcuts } from "@/lib/shortcuts/useGlobalShortcuts"
 import { SettingsPage } from "@/components/settings/SettingsPage"
 import { CronjobPage } from "@/components/cronjob/CronjobPage"
 import { PluginsPage } from "@/components/plugins/PluginsPage"
-import { ChannelPage } from "@/components/channel/ChannelPage"
+import { BoardPage, type BoardPageView } from "@/components/channel/BoardPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
@@ -49,14 +49,15 @@ export default function App() {
   const [cronjobOpen, setCronjobOpen] = useState(false)
   const [pluginsOpen, setPluginsOpen] = useState(false)
   const [canvasOpen, setCanvasOpen] = useState(false)
-  const [channelProject, setChannelProject] = useState<{ id: number; name: string } | null>(null)
-  // Deep-link target when a task notification opens the channel page: forwarded
-  // to ChannelPage → TasksPage to open that task's detail. Cleared once consumed.
-  const [channelInitialTaskId, setChannelInitialTaskId] = useState<number | null>(null)
-  // The Assistant and the Inbox take over center + right, next to the sidebar; null = the editor.
-  const [mainView, setMainView] = useState<'assistant' | 'inbox' | null>(null)
+  // Deep-link target when a task notification opens the board: forwarded to
+  // BoardPage → TasksPage to open that task's detail. Cleared once consumed.
+  const [boardInitialTaskId, setBoardInitialTaskId] = useState<number | null>(null)
+  // The Assistant, the Inbox, and every project's Board / Channels take over center + right,
+  // next to the sidebar; null = the editor.
+  const [mainView, setMainView] = useState<'assistant' | 'inbox' | BoardPageView | null>(null)
   const assistantOpen = mainView === 'assistant'
   const inboxOpen = mainView === 'inbox'
+  const boardView = mainView === 'board' || mainView === 'channels' ? mainView : null
   const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const theme = useThemeStore((state) => state.theme)
   const lightUITheme = useThemeStore((state) => state.lightUITheme)
@@ -128,19 +129,21 @@ export default function App() {
   // Deep-link from an inbox notification to its source (task board / workspace chat).
   const handleOpenNotification = useCallback(
     (n: Notification) => {
+      // The assistant's rows have no chat or task to land on: they open its page.
+      if (n.kind === 'assistant_message' || n.kind === 'assistant_approval') {
+        setMainView('assistant')
+        return
+      }
       // Also when the source is the tab already active: no tab change would bring the editor back.
       setMainView(null)
-      if (n.taskId != null && n.projectId != null) {
-        const project = projects.find((p) => p.id === n.projectId)
-        if (project) {
-          setChannelInitialTaskId(n.taskId)
-          setChannelProject({ id: project.id, name: project.name })
-        }
+      if (n.taskId != null) {
+        setBoardInitialTaskId(n.taskId)
+        setMainView('board')
         return
       }
       if (n.chatId != null) openChat({ chatId: n.chatId, workspaceId: n.workspaceId ?? undefined, title: n.title })
     },
-    [projects, openChat],
+    [openChat],
   )
 
   // Browser Use: let the main-process IAB backend open/close browser tabs.
@@ -305,16 +308,13 @@ export default function App() {
   }, [canvasNavRequest, clearCanvasNavRequest])
 
   // A task card in a chat transcript asked to open that task — same landing as an
-  // inbox task notification: the project's channel page, Tasks view, detail open.
+  // inbox task notification: the board, detail open.
   useEffect(() => {
     if (!taskNavRequest) return
-    const project = projects.find((p) => p.id === taskNavRequest.projectId)
-    if (project) {
-      setChannelInitialTaskId(taskNavRequest.taskId)
-      setChannelProject({ id: project.id, name: project.name })
-    }
+    setBoardInitialTaskId(taskNavRequest.taskId)
+    setMainView('board')
     clearTaskNavRequest()
-  }, [taskNavRequest, clearTaskNavRequest, projects])
+  }, [taskNavRequest, clearTaskNavRequest])
 
   // Bind analytics to the broker account this desktop client is signed into, so
   // its events reconcile with the same person's web and phone sessions. The web
@@ -329,7 +329,7 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  const isPageOpen = settingsOpen || pluginsOpen || canvasOpen || cronjobOpen || !!channelProject
+  const isPageOpen = settingsOpen || pluginsOpen || canvasOpen || cronjobOpen
 
   // The app navigates by state, not by URL, so analytics has no way to know
   // which screen the user is on unless it is told. Full-screen pages win over
@@ -339,8 +339,8 @@ export default function App() {
     : canvasOpen ? 'canvas'
     : cronjobOpen ? 'cronjob'
     : inboxOpen ? 'inbox'
-    : channelProject ? 'channel'
     : assistantOpen ? 'assistant'
+    : boardView ? boardView
     : activeTab?.type ?? 'home'
   useEffect(() => { setAnalyticsScreen(analyticsScreen) }, [analyticsScreen])
 
@@ -379,14 +379,6 @@ export default function App() {
                   openChatTab(tabId, title, undefined, providerId)
                   setTabChatId(tabId, chatId)
                 }}
-                workspaceId={activeWorkspaceId ?? undefined}
-                // The page covers the rail that would otherwise show which
-                // workspace is active, and its list is filtered by that id.
-                workspaceLabel={
-                  activeWorkspaceInfo
-                    ? `${activeWorkspaceInfo.project.name} / ${activeWorkspaceInfo.workspace.name}`
-                    : null
-                }
               />
             </div>
           )}
@@ -400,37 +392,6 @@ export default function App() {
                   const tabId = `chat:${chatId}`
                   openChatTab(tabId, title, undefined, providerId)
                   setTabChatId(tabId, chatId)
-                }}
-              />
-            </div>
-          )}
-
-          {channelProject && (
-            <div className="fixed inset-0 z-50">
-              <ChannelPage
-                projectId={channelProject.id}
-                projectName={channelProject.name}
-                initialTaskId={channelInitialTaskId}
-                onInitialTaskConsumed={() => setChannelInitialTaskId(null)}
-                onBack={() => {
-                  setChannelProject(null)
-                  setChannelInitialTaskId(null)
-                  // A task dispatch may have provisioned a new workspace while we
-                  // were in the channel view; re-sync so the home sidebar lists it.
-                  void loadProjects()
-                }}
-                onOpenWorkspace={(workspaceId) => {
-                  setChannelProject(null)
-                  // The workspace was likely just provisioned by a task dispatch
-                  // and isn't in the store yet — reload, then read the *fresh*
-                  // state to locate and activate it.
-                  void (async () => {
-                    await loadProjects()
-                    const found = useProjectStore
-                      .getState()
-                      .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
-                    if (found) setActiveWorkspace(workspaceId, found.id)
-                  })()
                 }}
               />
             </div>
@@ -464,11 +425,14 @@ export default function App() {
               onOpenCronjobs={() => { setCronjobOpen(true); trackEvent('page_opened', { page: 'cronjob' }) }}
               onOpenPlugins={() => { setPluginsOpen(true); trackEvent('page_opened', { page: 'plugins' }) }}
               onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
-              onOpenChannel={(project) => setChannelProject({ id: project.id, name: project.name })}
+              onOpenBoard={() => { setMainView('board'); trackEvent('page_opened', { page: 'board' }) }}
+              onOpenChannels={() => { setMainView('channels'); trackEvent('page_opened', { page: 'channels' }) }}
               onOpenInbox={() => { setMainView('inbox'); trackEvent('page_opened', { page: 'inbox' }) }}
               onOpenAssistant={() => setMainView('assistant')}
               assistantActive={assistantOpen}
               inboxActive={inboxOpen}
+              boardActive={mainView === 'board'}
+              channelsActive={mainView === 'channels'}
               onLeaveMainView={leaveMainView}
               onCollapse={handleToggleSidebar}
               collapsed={sidebarCollapsed}
@@ -490,6 +454,30 @@ export default function App() {
                 onOpenSource={handleOpenNotification}
               />
             )}
+            {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
+            {boardView && (
+              <BoardPage
+                view={boardView}
+                onViewChange={setMainView}
+                sidebarCollapsed={sidebarCollapsed}
+                onExpandSidebar={handleToggleSidebar}
+                initialTaskId={boardInitialTaskId}
+                onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
+                onOpenWorkspace={(workspaceId) => {
+                  setMainView(null)
+                  // The workspace was likely just provisioned by a task dispatch
+                  // and isn't in the store yet — reload, then read the *fresh*
+                  // state to locate and activate it.
+                  void (async () => {
+                    await loadProjects()
+                    const found = useProjectStore
+                      .getState()
+                      .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
+                    if (found) setActiveWorkspace(workspaceId, found.id)
+                  })()
+                }}
+              />
+            )}
             <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && "hidden")}>
             <AppShell>
               <div className="flex h-full min-h-0 flex-col">
@@ -499,11 +487,11 @@ export default function App() {
                     real children of a drag bar). When the right panel is open
                     the controls move into its tab strip (window top-right), so
                     we only render them here when it's closed. */}
-                <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/60 bg-background shrink-0">
+                <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/50 bg-background shrink-0">
                   <div className={cn("flex flex-1 min-w-0 items-center gap-2 text-xs text-muted-foreground font-normal", sidebarCollapsed ? (__APP_TARGET__ === 'web' ? "px-4" : "pl-20 pr-4") : "px-4")}>
                     {sidebarCollapsed && (
                       <button
-                        className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                        className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors"
                         style={{ viewTransitionName: "sidebar-trigger" }}
                         onClick={handleToggleSidebar}
                         title={intl.formatMessage({ id: "app.expandSidebar", defaultMessage: "Expand sidebar" })}

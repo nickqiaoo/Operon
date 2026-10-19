@@ -15,6 +15,7 @@ import type {
 } from '@/types/task'
 
 interface TaskStore {
+  /** The board's scope: one project, or null for every project's tasks. */
   projectId: number | null
   tasks: TaskListItem[]
   labels: TaskLabel[]
@@ -22,11 +23,12 @@ interface TaskStore {
   detail: TaskDetail | null
   loading: boolean
 
-  load: (projectId: number) => Promise<void>
+  load: (projectId: number | null) => Promise<void>
   reload: () => Promise<void>
   openDetail: (taskId: number) => Promise<void>
   closeDetail: () => void
-  create: (input: Omit<CreateTaskInput, 'projectId'>) => Promise<TaskDetail>
+  /** projectId defaults to the board's scope; a board over every project must name one. */
+  create: (input: Omit<CreateTaskInput, 'projectId'> & { projectId?: number }) => Promise<TaskDetail>
   update: (taskId: number, updates: UpdateTaskInput) => Promise<void>
   setArchived: (taskId: number, archived: boolean) => Promise<void>
   dispatch: (
@@ -39,8 +41,8 @@ interface TaskStore {
   comment: (taskId: number, body: string) => Promise<void>
   /** Apply a live task_upsert from the SSE stream (agent or other-window change). */
   applyUpsert: (task: TaskListItem) => void
-  createLabel: (input: Omit<CreateTaskLabelInput, 'projectId'>) => Promise<TaskLabel>
-  createTeam: (input: Omit<CreateTeamInput, 'projectId'>) => Promise<Team>
+  createLabel: (input: CreateTaskLabelInput) => Promise<TaskLabel>
+  createTeam: (input: CreateTeamInput) => Promise<Team>
   updateTeam: (teamId: number, input: UpdateTeamInput) => Promise<Team>
   deleteTeam: (teamId: number) => Promise<void>
   /** Create a sub-task under a parent (epic path) and refresh the parent's detail. */
@@ -77,7 +79,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   loading: false,
 
   load: async (projectId) => {
-    set({ projectId, loading: true, detail: null })
+    // Re-entering the same scope keeps what's on screen (and a deep-linked detail
+    // that opened first) and refreshes underneath; a new scope starts clean.
+    const same = get().projectId === projectId && get().tasks.length > 0
+    set((s) => ({ projectId, loading: !same, detail: same ? s.detail : null }))
     try {
       const [{ tasks }, { labels }, { teams }] = await Promise.all([
         // Fetch archived too — the board filters them client-side via the
@@ -93,9 +98,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   reload: async () => {
-    const pid = get().projectId
-    if (pid == null) return
-    const { tasks } = await api.taskList(pid, { includeArchived: true })
+    const { tasks } = await api.taskList(get().projectId, { includeArchived: true })
     set({ tasks })
   },
 
@@ -107,8 +110,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   closeDetail: () => set({ detail: null }),
 
   create: async (input) => {
-    const pid = get().projectId
-    if (pid == null) throw new Error('No active project')
+    const pid = input.projectId ?? get().projectId
+    if (pid == null) throw new Error('Pick a project for the task')
     const { task } = await api.taskCreate({ ...input, projectId: pid })
     set((s) => ({ tasks: upsertTask(s.tasks, toListItem(task)) }))
     return task
@@ -177,6 +180,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   applyUpsert: (task) => {
+    const scope = get().projectId
+    if (scope != null && task.projectId !== scope) return
     set((s) => ({ tasks: upsertTask(s.tasks, task) }))
     // If this task's detail is open, refetch it to pull fresh activity-feed rows
     // (status/dispatch/comment events the agent just produced).
@@ -195,17 +200,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   createLabel: async (input) => {
-    const pid = get().projectId
-    if (pid == null) throw new Error('No active project')
-    const { label } = await api.taskLabelCreate({ ...input, projectId: pid })
+    const { label } = await api.taskLabelCreate(input)
     set((s) => ({ labels: [...s.labels, label] }))
     return label
   },
 
   createTeam: async (input) => {
-    const pid = get().projectId
-    if (pid == null) throw new Error('No active project')
-    const { team } = await api.taskTeamCreate({ ...input, projectId: pid })
+    const { team } = await api.taskTeamCreate(input)
     set((s) => ({ teams: sortTeams([...s.teams, team]) }))
     return team
   },
@@ -257,13 +258,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   createSubtask: async (parentId, title) => {
-    const pid = get().projectId
-    if (pid == null) return
+    // A sub-task lives in its parent's project, whatever the board's scope.
+    const open = get().detail
+    const pid = open?.id === parentId ? open.projectId : (await api.taskGet(parentId)).task.projectId
     await api.taskCreate({ projectId: pid, title, parentTaskId: parentId })
     // Refresh the parent detail (children + possibly a freshly-formed team) and
     // the team list (the epic path may have created one).
     await get().openDetail(parentId)
-    const { teams } = await api.taskTeamList(pid)
+    const { teams } = await api.taskTeamList(get().projectId)
     set({ teams })
   },
 }))

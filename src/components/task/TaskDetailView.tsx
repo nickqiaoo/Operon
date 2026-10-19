@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowLeft,
   Bot,
@@ -18,6 +18,7 @@ import {
   CircleDot,
   Sparkles,
   Settings2,
+  Hash,
 } from 'lucide-react'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { GithubIcon } from '@/components/icons/GithubIcon'
@@ -36,7 +37,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { useIntl, FormattedMessage, type IntlShape } from 'react-intl'
 import { useTaskStore } from '@/stores/task-store'
-import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, relativeTime } from './task-meta'
+import { useChannelStore } from '@/stores/channel-store'
+import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime } from './task-meta'
 import { SddArtifactsPanel } from './SddArtifactsPanel'
 import { STATUS_MESSAGES, ACTOR_MESSAGES, priorityMessage, activityEventMessage } from './task-i18n'
 import {
@@ -60,6 +62,8 @@ interface TaskDetailViewProps {
   sessions: AgentSession[]
   onClose: () => void
   onOpenWorkspace?: (workspaceId: number) => void
+  /** Jump to the channel (and message) the task was captured from. */
+  onOpenChannel?: (channelId: number, messageId: number | null) => void
 }
 
 /**
@@ -80,8 +84,12 @@ export function TaskDetailView({
   sessions,
   onClose,
   onOpenWorkspace,
+  onOpenChannel,
 }: TaskDetailViewProps) {
   const intl = useIntl()
+  const sourceChannel = useChannelStore((s) =>
+    detail.sourceChannelId != null ? s.channels.find((c) => c.id === detail.sourceChannelId) ?? null : null,
+  )
   const update = useTaskStore((s) => s.update)
   const comment = useTaskStore((s) => s.comment)
   const dispatch = useTaskStore((s) => s.dispatch)
@@ -169,7 +177,18 @@ export function TaskDetailView({
             <ArrowLeft className="h-4 w-4" />
             <FormattedMessage id="task.detail.back" defaultMessage="Tasks" />
           </Button>
-          <span className="text-xs text-muted-foreground/50 tabular-nums">#{detail.number}</span>
+          <TaskRef projectId={detail.projectId} number={detail.number} className="text-xs text-muted-foreground/50" />
+          {sourceChannel && onOpenChannel && (
+            <button
+              type="button"
+              onClick={() => onOpenChannel(sourceChannel.id, detail.sourceMessageId)}
+              className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
+              title={intl.formatMessage({ id: 'task.detail.openSourceChannel', defaultMessage: 'Open the message this task came from' })}
+            >
+              <Hash className="h-3 w-3 shrink-0" />
+              <span className="truncate">{sourceChannel.name}</span>
+            </button>
+          )}
           {isArchived && (
             <span className="flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <Archive className="h-3 w-3" />
@@ -312,7 +331,7 @@ export function TaskDetailView({
               value={detail.status}
               onValueChange={(v) => updateDetail({ status: v as TaskStatus })}
             >
-              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-muted/50">
+              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-row-hover">
                 <span className="flex items-center gap-2">
                   <StatusIcon status={detail.status} />
                   <span className="text-sm">{intl.formatMessage(STATUS_MESSAGES[detail.status])}</span>
@@ -336,7 +355,7 @@ export function TaskDetailView({
               value={String(detail.priority)}
               onValueChange={(v) => updateDetail({ priority: Number(v) as TaskPriority })}
             >
-              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-muted/50">
+              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-row-hover">
                 <span className="flex items-center gap-2">
                   <PriorityIcon priority={detail.priority} />
                   <span className="text-sm">{intl.formatMessage(priorityMessage(detail.priority))}</span>
@@ -366,12 +385,13 @@ export function TaskDetailView({
                 })
               }}
             >
-              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-muted/50">
+              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-row-hover">
                 <span className="flex items-center gap-2">
                   <AssigneeAvatar
                     agentId={detail.assignedAgentId}
                     agents={agents}
                     sessions={sessions}
+                    projectId={detail.projectId}
                   />
                   <span className="text-sm truncate">
                     {detail.assignedAgentId
@@ -434,7 +454,7 @@ export function TaskDetailView({
             <Button
               size="sm"
               variant="ghost"
-              className="w-full gap-2 h-8 hover:bg-muted/50"
+              className="w-full gap-2 h-8 hover:bg-row-hover"
               onClick={() => onOpenWorkspace(detail.workspaceId!)}
             >
               <ExternalLink className="w-3.5 h-3.5" />
@@ -533,15 +553,15 @@ export function TaskDetailView({
               <span
                 className={cn(
                   'inline-flex items-center gap-1',
-                  detail.executionStatus === 'active' && 'text-blue-500',
-                  detail.executionStatus === 'idle' && 'text-green-500',
+                  detail.executionStatus === 'active' && 'text-status-info',
+                  detail.executionStatus === 'idle' && 'text-status-ok',
                 )}
               >
                 <span
                   className={cn(
                     'w-1.5 h-1.5 rounded-full',
-                    detail.executionStatus === 'active' && 'bg-blue-500 animate-pulse',
-                    detail.executionStatus === 'idle' && 'bg-green-500',
+                    detail.executionStatus === 'active' && 'bg-status-info animate-pulse',
+                    detail.executionStatus === 'idle' && 'bg-accent-green',
                     detail.executionStatus === 'offline' && 'bg-muted-foreground/40',
                   )}
                 />
@@ -555,7 +575,7 @@ export function TaskDetailView({
             <Button
               size="sm"
               variant="ghost"
-              className="w-full gap-2 h-8 text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              className="w-full gap-2 h-8 text-muted-foreground hover:text-foreground hover:bg-row-hover"
               onClick={() => {
                 void setArchived(detail.id, !isArchived).catch((error) =>
                   toastTaskError(error, isArchived ? 'Unarchive failed' : 'Archive failed'),
@@ -594,7 +614,9 @@ function PropertyRow({ label, children }: { label: string; children: React.React
 
 function LabelPicker({ detail }: { detail: TaskDetail }) {
   const intl = useIntl()
-  const labels = useTaskStore((s) => s.labels)
+  // The store holds every project's labels on the global board; a task takes its own project's.
+  const allLabels = useTaskStore((s) => s.labels)
+  const labels = useMemo(() => allLabels.filter((l) => l.projectId === detail.projectId), [allLabels, detail.projectId])
   const update = useTaskStore((s) => s.update)
   const createLabel = useTaskStore((s) => s.createLabel)
   const selected = new Set(detail.labels.map((l) => l.id))
@@ -613,7 +635,7 @@ function LabelPicker({ detail }: { detail: TaskDetail }) {
     const name = newName.trim()
     if (!name) return
     try {
-      const label = await createLabel({ name })
+      const label = await createLabel({ projectId: detail.projectId, name })
       setNewName('')
       // Auto-apply the freshly created label to this task.
       await update(detail.id, { labelIds: [...Array.from(selected), label.id] })
@@ -625,7 +647,7 @@ function LabelPicker({ detail }: { detail: TaskDetail }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="w-full flex flex-wrap items-center gap-1 min-h-8 rounded-md bg-muted/30 hover:bg-muted/50 px-2 py-1.5 transition-colors">
+        <button className="w-full flex flex-wrap items-center gap-1 min-h-8 rounded-md bg-muted/30 hover:bg-row-hover px-2 py-1.5 transition-colors">
           {detail.labels.length > 0 ? (
             detail.labels.map((l) => <LabelChip key={l.id} label={l} />)
           ) : (
@@ -649,7 +671,7 @@ function LabelPicker({ detail }: { detail: TaskDetail }) {
               <button
                 key={l.id}
                 onClick={() => toggle(l.id)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 text-sm transition-colors"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-row-hover text-sm transition-colors"
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
                 <span className="flex-1 text-left truncate">{l.name}</span>
@@ -687,7 +709,8 @@ function LabelPicker({ detail }: { detail: TaskDetail }) {
 
 function TeamPicker({ detail }: { detail: TaskDetail }) {
   const intl = useIntl()
-  const teams = useTaskStore((s) => s.teams)
+  const allTeams = useTaskStore((s) => s.teams)
+  const teams = useMemo(() => allTeams.filter((t) => t.projectId === detail.projectId), [allTeams, detail.projectId])
   const update = useTaskStore((s) => s.update)
   const createTeam = useTaskStore((s) => s.createTeam)
   const [newName, setNewName] = useState('')
@@ -702,7 +725,7 @@ function TeamPicker({ detail }: { detail: TaskDetail }) {
     const name = newName.trim()
     if (!name) return
     try {
-      const team = await createTeam({ name })
+      const team = await createTeam({ projectId: detail.projectId, name })
       setNewName('')
       await update(detail.id, { teamId: team.id })
     } catch (error) {
@@ -713,7 +736,7 @@ function TeamPicker({ detail }: { detail: TaskDetail }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="w-full flex items-center gap-2 min-h-8 rounded-md bg-muted/30 hover:bg-muted/50 px-2 py-1.5 transition-colors">
+        <button className="w-full flex items-center gap-2 min-h-8 rounded-md bg-muted/30 hover:bg-row-hover px-2 py-1.5 transition-colors">
           {detail.team ? (
             <>
               <span
@@ -738,7 +761,7 @@ function TeamPicker({ detail }: { detail: TaskDetail }) {
         <div className="max-h-52 overflow-y-auto p-1">
           <button
             onClick={() => setTeam(null)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 text-sm transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-row-hover text-sm transition-colors"
           >
             <span className="w-2 h-2 rounded-full border border-muted-foreground/40 shrink-0" />
             <span className="flex-1 text-left"><FormattedMessage id="task.noTeam" defaultMessage="No team" /></span>
@@ -748,7 +771,7 @@ function TeamPicker({ detail }: { detail: TaskDetail }) {
             <button
               key={t.id}
               onClick={() => setTeam(t.id)}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 text-sm transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-row-hover text-sm transition-colors"
             >
               <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
               <span className="flex-1 text-left truncate">{t.name}</span>
@@ -828,7 +851,7 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
           <button
             key={c.id}
             onClick={() => void openDetail(c.id)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/30 text-left transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-row-hover text-left transition-colors"
           >
             <StatusIcon status={c.status} />
             <span className="text-xs text-muted-foreground/50 tabular-nums">#{c.number}</span>

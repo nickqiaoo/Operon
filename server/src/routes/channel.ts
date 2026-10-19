@@ -64,15 +64,14 @@ export function agentRoutes(storage: ChannelStorage) {
     return c.json({ success: true })
   })
 
-  // Stop all active app bindings for the agent in a project
+  // Stop all active app bindings for the agent in a project (every project without ?projectId=)
   router.post('/:id/stop', async (c) => {
     const agentId = parseInt(c.req.param('id'), 10)
     const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
     const bindings = storage.listBindings({
       scopeKind: 'app',
       agentId,
-      projectId,
+      projectId: projectId > 0 ? projectId : undefined,
       status: 'active',
     })
     let stoppedAny = false
@@ -86,12 +85,12 @@ export function agentRoutes(storage: ChannelStorage) {
     return c.json({ success: stoppedAny })
   })
 
-  // Reset all of the agent's app bindings in a project (mark offline, clear chats, dispose runtime)
+  // Reset all of the agent's app bindings in a project, or every project without ?projectId=
+  // (mark offline, clear chats, dispose runtime)
   router.post('/:id/reset', async (c) => {
     const agentId = parseInt(c.req.param('id'), 10)
     const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
-    const bindings = storage.listBindings({ scopeKind: 'app', agentId, projectId })
+    const bindings = storage.listBindings({ scopeKind: 'app', agentId, projectId: projectId > 0 ? projectId : undefined })
     for (const b of bindings) {
       await resetBinding(storage, b)
     }
@@ -132,18 +131,17 @@ export function channelRoutes(storage: ChannelStorage) {
 
   // ---- Agent sessions (before /:id/* to avoid wildcard conflict) ----
 
+  // No projectId → every project's (the global board and Channels view).
   router.get('/agents/sessions', (c) => {
     const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
-    return c.json({ sessions: storage.listBindings({ scopeKind: 'app', projectId }) })
+    return c.json({ sessions: storage.listBindings({ scopeKind: 'app', projectId: projectId > 0 ? projectId : undefined }) })
   })
 
   // ---- Channels CRUD ----
 
   router.get('/', (c) => {
     const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
-    return c.json({ channels: storage.listChannels(projectId) })
+    return c.json({ channels: storage.listChannels(projectId > 0 ? projectId : undefined) })
   })
 
   router.post('/', async (c) => {

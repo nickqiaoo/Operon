@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIntl } from "react-intl"
 import { ReactFlowProvider, type Node } from "@xyflow/react"
-import { ArrowLeft, ChevronRight, Play, RefreshCw, ListChecks, X, Loader2, Pencil, Check, AlertCircle } from "lucide-react"
+import { ArrowLeft, ChevronRight, Play, RefreshCw, ListChecks, X, Loader2, Pencil, Check, AlertCircle, FolderGit2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
@@ -15,14 +15,21 @@ import { ChatPreview } from "./ChatPreview"
 import { useCanvasWorkflow } from "./hooks/useCanvasWorkflow"
 import { useCanvasExecution } from "./hooks/useCanvasExecution"
 import { cn } from "@/lib/utils"
+import { useProjectStore, type Project } from "@/stores/project-store"
+import { ProjectFilterSelect, useProjectFilter } from "@/components/project/ProjectFilterSelect"
 import { parseCanvasChatId } from "@/lib/canvas-utils"
 
 interface CanvasPageProps {
   onBack: () => void
   onOpenChat?: (chatId: number, title?: string, providerId?: string) => void
-  workspaceId?: number
-  /** "project / workspace", shown in the breadcrumb so the list's filter is visible. */
-  workspaceLabel?: string | null
+}
+
+/**
+ * The workspace a new workflow in this project runs in: the repository checkout
+ * itself when it's registered, else the project's first workspace.
+ */
+function homeWorkspaceId(project: Project): number | undefined {
+  return (project.workspaces.find((w) => w.worktreePath === project.rootPath) ?? project.workspaces[0])?.id
 }
 
 interface ProviderInfo {
@@ -33,9 +40,11 @@ interface ProviderInfo {
 
 type RightPanel = "none" | "config" | "results" | "preview"
 
-export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: CanvasPageProps) {
+export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
   const intl = useIntl()
-  const [workflows, setWorkflows] = useState<CanvasWorkflowListItem[]>([])
+  const projects = useProjectStore((s) => s.projects)
+  const [projectFilter, setProjectFilter] = useProjectFilter("operon.workflowProjectFilter")
+  const [allWorkflows, setWorkflows] = useState<CanvasWorkflowListItem[]>([])
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | undefined>()
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -57,7 +66,8 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
     setLoading(true)
     try {
       const [wfRes, provRes] = await Promise.all([
-        api.canvasWorkflowList(workspaceId),
+        // Every workspace's: the page is one place for all of them, filtered by project here.
+        api.canvasWorkflowList(),
         api.getProviders(),
       ])
       setWorkflows(wfRes.workflows)
@@ -65,7 +75,23 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
     } finally {
       setLoading(false)
     }
-  }, [workspaceId])
+  }, [])
+
+  // Each workflow runs in a workspace; which project and workspace that is, by id.
+  const workspaceOwners = useMemo(() => {
+    const map = new Map<number, { project: Project; label: string }>()
+    for (const project of projects) {
+      for (const ws of project.workspaces) map.set(ws.id, { project, label: `${project.name} / ${ws.name}` })
+    }
+    return map
+  }, [projects])
+  const workflows = useMemo(
+    () =>
+      projectFilter == null
+        ? allWorkflows
+        : allWorkflows.filter((wf) => wf.workspaceId != null && workspaceOwners.get(wf.workspaceId)?.project.id === projectFilter),
+    [allWorkflows, projectFilter, workspaceOwners],
+  )
 
   useEffect(() => {
     void loadData()
@@ -95,7 +121,7 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
     const cachedId = canvasChatIdCacheRef.current.get(cacheKey)
     if (cachedId !== undefined) return cachedId
 
-    const items = await api.chatHistoryList(workspaceId, "canvas")
+    const items = await api.chatHistoryList(canvasState.workflow?.workspaceId ?? undefined, "canvas")
     const matched = items.find((item) =>
       item.metadata?.runId === runId && item.metadata?.nodeId === nodeId
     )
@@ -103,7 +129,7 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
     if (!matched) return null
     canvasChatIdCacheRef.current.set(cacheKey, matched.id)
     return matched.id
-  }, [workspaceId])
+  }, [canvasState.workflow?.workspaceId])
 
   const handleOpenCanvasChat = useCallback(async (chatRef: string, title?: string, providerId?: string) => {
     const parsed = parseCanvasChatId(chatRef)
@@ -132,16 +158,19 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
   )
 
   // Handlers
-  const handleNewWorkflow = useCallback(async () => {
+  // A workflow's agent steps run in its workspace's directory, so it is made in a project.
+  const handleNewWorkflow = useCallback(async (projectId: number) => {
+    const project = projects.find((p) => p.id === projectId)
+    if (!project) return
     const { workflow } = await api.canvasWorkflowCreate({
       name: intl.formatMessage({ id: "canvas.untitledWorkflow", defaultMessage: "Untitled Workflow" }),
-      workspaceId,
+      workspaceId: homeWorkspaceId(project),
       nodes: [],
       edges: [],
     })
     setWorkflows((prev) => [workflow, ...prev])
     setSelectedWorkflowId(workflow.id)
-  }, [workspaceId])
+  }, [projects, intl])
 
   const handleDeleteWorkflow = useCallback(async (id: number) => {
     await api.canvasWorkflowDelete(id)
@@ -282,29 +311,23 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
 
       {/* Top bar: a breadcrumb, so the workspace the list is filtered to, the
           current position, and the way back are all readable at once. */}
-      <div className="h-14 border-b border-border/50 flex items-center justify-between px-6 bg-background sticky top-0 z-10 no-drag">
+      <div className="h-14 border-b border-border/40 flex items-center justify-between px-6 bg-background sticky top-0 z-10 no-drag">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"
             size="sm"
-            className="gap-2 text-muted-foreground hover:text-foreground -ml-2 rounded-full px-3 transition-colors"
+            className="-ml-2 h-8 gap-1.5 rounded-lg px-2.5 text-muted-foreground hover:text-foreground"
             onClick={onBack}
           >
             <ArrowLeft className="h-4 w-4" />
-            <span className="font-medium">{intl.formatMessage({ id: "common.back", defaultMessage: "Back" })}</span>
+            <span className="text-sm font-medium">{intl.formatMessage({ id: "common.back", defaultMessage: "Back" })}</span>
           </Button>
-          <div className="h-4 w-px bg-border/50" />
-          {workspaceLabel && (
-            <>
-              <span className="truncate text-sm text-muted-foreground">{workspaceLabel}</span>
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-            </>
-          )}
+          <div className="h-4 w-px bg-border/60" />
           {editing ? (
             <button
               type="button"
               onClick={handleBackToLibrary}
-              className="shrink-0 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+              className="shrink-0 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
             >
               {intl.formatMessage({ id: "canvas.workflows", defaultMessage: "Workflows" })}
             </button>
@@ -331,7 +354,7 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
                       cancelRenameWorkflow()
                     }
                   }}
-                  className="h-8 w-[220px] bg-muted/25 border border-transparent hover:bg-muted/40 hover:border-border/40 focus-visible:bg-background focus-visible:border-border/50 focus-visible:ring-2 focus-visible:ring-border/30 shadow-none text-sm"
+                  className="h-8 w-[220px] bg-muted/25 border border-transparent hover:bg-row-hover hover:border-border/40 focus-visible:bg-background focus-visible:border-border/50 focus-visible:ring-2 focus-visible:ring-border/30 shadow-none text-sm"
                   maxLength={80}
                   disabled={savingWorkflowName}
                 />
@@ -339,7 +362,7 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
                 <button
                   type="button"
                   onClick={startRenameWorkflow}
-                  className="group inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-semibold text-foreground hover:bg-muted/45 transition-colors"
+                  className="group inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-semibold text-foreground hover:bg-row-hover transition-colors"
                   title={intl.formatMessage({ id: "canvas.renameWorkflow", defaultMessage: "Rename workflow" })}
                 >
                   <span className="max-w-[260px] truncate">{canvasState.workflow.name}</span>
@@ -352,14 +375,22 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
         {/* Editing acts on one workflow; the library acts on the set. Only the
             actions that apply to the current view are shown. */}
         <div className="flex items-center gap-2 no-drag">
+          {!editing && <ProjectFilterSelect value={projectFilter} onChange={setProjectFilter} className="h-8" />}
+          {/* An open workflow says where it runs: its agent steps work in that checkout. */}
+          {editing && canvasState.workflow?.workspaceId != null && workspaceOwners.get(canvasState.workflow.workspaceId) && (
+            <span className="flex max-w-56 items-center gap-1.5 truncate text-xs text-muted-foreground">
+              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{workspaceOwners.get(canvasState.workflow.workspaceId)?.label}</span>
+            </span>
+          )}
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-full"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
             onClick={() => void loadData()}
             title={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
           >
-            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+            <RefreshCw className="h-4 w-4" />
           </Button>
 
           {/* Results button */}
@@ -443,7 +474,8 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
         <div className="flex-1 min-h-0">
           <WorkflowLibrary
             workflows={workflows}
-            workspaceLabel={workspaceLabel ?? null}
+            projectFilter={projectFilter}
+            workspaceLabelOf={(id) => workspaceOwners.get(id)?.label ?? null}
             onOpen={setSelectedWorkflowId}
             onNew={handleNewWorkflow}
             onDelete={handleDeleteWorkflow}
@@ -496,7 +528,7 @@ export function CanvasPage({ onBack, onOpenChat, workspaceId, workspaceLabel }: 
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute -left-9 top-2 h-7 w-7 rounded-full bg-background border border-border/50 shadow-card z-10 hover:bg-muted/50"
+                className="absolute -left-9 top-2 h-7 w-7 rounded-full bg-background border border-border/50 shadow-card z-10 hover:bg-accent-hover"
                 onClick={handleClosePanel}
               >
                 <X className="h-3.5 w-3.5" />

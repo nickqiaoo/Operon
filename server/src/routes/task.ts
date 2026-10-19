@@ -36,7 +36,8 @@ const STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done', 'can
 /**
  * Project-level task routes (the "local Linear" board). Mounted at /api/tasks.
  * Project scope is passed via ?projectId= (query) or the request body, matching
- * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=).
+ * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
+ * list reads (tasks, labels, teams, stream) take no projectId for every project.
  *
  * Dispatch (assign → run an agent in a worktree) is NOT here — it arrives in P3.
  */
@@ -72,15 +73,19 @@ async function prepareSddParent(
   }
 }
 
+/** `?projectId=` → that project; absent (or not a positive id) → every project, for the global board. */
+function projectScope(raw: string | undefined): number | undefined {
+  const id = parseInt(raw ?? '', 10)
+  return Number.isFinite(id) && id > 0 ? id : undefined
+}
+
 export function taskRoutes(storage: TaskStorageAdapter & SddStorage & NotificationStorageAdapter) {
   const router = new Hono()
 
   // ---- Labels (registered before /:id so 'labels' is never parsed as an id) ----
 
   router.get('/labels', (c) => {
-    const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
-    return c.json({ labels: storage.taskListLabelDefs(projectId) })
+    return c.json({ labels: storage.taskListLabelDefs(projectScope(c.req.query('projectId'))) })
   })
 
   router.post('/labels', async (c) => {
@@ -94,9 +99,7 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
   // ---- Teams (registered before /:id) ----
 
   router.get('/teams', (c) => {
-    const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
-    return c.json({ teams: storage.teamList(projectId) })
+    return c.json({ teams: storage.teamList(projectScope(c.req.query('projectId'))) })
   })
 
   router.post('/teams', async (c) => {
@@ -141,7 +144,7 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
   // ---- Live board / activity feed stream (SSE) ----
   // Registered before /:id so 'stream' is never parsed as an id.
   router.get('/stream', (c) => {
-    const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
+    const projectId = projectScope(c.req.query('projectId')) ?? null
     return streamSSE(c, async (stream) => {
       let closed = false
       stream.onAbort(() => {
@@ -161,9 +164,7 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
   // ---- Tasks ----
 
   router.get('/', (c) => {
-    const projectId = parseInt(c.req.query('projectId') ?? '0', 10)
-    if (!projectId) return c.json({ error: 'projectId required' }, 400)
-    const query: ListTasksQuery = { projectId }
+    const query: ListTasksQuery = { projectId: projectScope(c.req.query('projectId')) }
     const status = c.req.query('status')
     if (status && STATUSES.includes(status as TaskStatus)) query.status = status as TaskStatus
     const assignee = c.req.query('assignee')

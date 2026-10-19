@@ -300,7 +300,8 @@ export interface ChannelStorageAdapter {
   // Channel CRUD
   createChannel(input: CreateChannelInput): Channel
   getChannel(id: number): Channel | null
-  listChannels(projectId: number): Channel[]
+  /** Omit projectId for every project's channels (the global Channels view). */
+  listChannels(projectId?: number): Channel[]
   deleteChannel(id: number): void
   /** Toggle the per-channel SDD master switch (§9). Returns the updated channel, or null if absent. */
 
@@ -354,7 +355,7 @@ export interface TaskStorageAdapter {
   surfaceDeliveryMark(deliveryId: string): boolean
 
   // Labels
-  taskListLabelDefs(projectId: number): TaskLabel[]
+  taskListLabelDefs(projectId?: number): TaskLabel[]
   taskCreateLabelDef(input: CreateTaskLabelInput): TaskLabel
   taskGetLabels(taskId: number): TaskLabel[]
 
@@ -362,7 +363,7 @@ export interface TaskStorageAdapter {
   teamCreate(input: CreateTeamInput): Team
   teamUpdate(id: number, updates: UpdateTeamInput): Team | null
   teamDelete(id: number): boolean
-  teamList(projectId: number): Team[]
+  teamList(projectId?: number): Team[]
   teamGet(id: number): Team | null
   taskListByTeam(teamId: number): Task[]
   taskListChildren(parentTaskId: number): Task[]

@@ -3,7 +3,6 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { Settings2, Square, RotateCcw, ExternalLink, XIcon, Loader2 } from 'lucide-react'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { BindingRow } from './binding-ui'
-import { ROW } from './ChannelMenu'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +13,9 @@ import { Button } from '@/components/ui/button'
 import { useChannelStore } from '@/stores/channel-store'
 import { api } from '@/lib/api'
 import type { Agent, AgentBinding } from '@/types/channel'
+
+const ROW =
+  'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground'
 
 interface AgentMenuProps {
   onOpenAgent: (agent: Agent) => void
@@ -78,7 +80,7 @@ export function AgentMenu({ onOpenAgent, onManageAgents }: AgentMenuProps) {
   )
 }
 
-/** One agent's sessions in this project, with stop / reset. */
+/** One agent's sessions in this project (every project for null), with stop / reset. */
 export function ProjectAgentDialog({
   agent,
   projectId,
@@ -86,22 +88,23 @@ export function ProjectAgentDialog({
   onOpenWorkspace,
 }: {
   agent: Agent
-  projectId: number
+  projectId: number | null
   onClose: () => void
   onOpenWorkspace?: (workspaceId: number) => void
 }) {
   const intl = useIntl()
+  // The store holds every project's sessions (the board shows them all), so refresh all of them.
   const loadSessions = useChannelStore((s) => s.loadSessions)
 
   const handleStop = async () => {
     await api.agentStop(agent.id, projectId)
-    await loadSessions(projectId)
+    await loadSessions(null)
   }
 
   const handleReset = async () => {
     if (!window.confirm(intl.formatMessage({ id: 'channel.agent.resetConfirm', defaultMessage: 'Reset this agent? Session will be cleared.' }))) return
     await api.agentReset(agent.id, projectId)
-    await loadSessions(projectId)
+    await loadSessions(null)
     onClose()
   }
 
@@ -113,7 +116,7 @@ export function ProjectAgentDialog({
       onStop={() => void handleStop()}
       onReset={() => void handleReset()}
       onOpenWorkspace={onOpenWorkspace}
-      onBindingsChanged={() => void loadSessions(projectId)}
+      onBindingsChanged={() => void loadSessions(null)}
     />
   )
 }
@@ -130,7 +133,7 @@ function AgentDetailDialog({
   onBindingsChanged,
 }: {
   agent: Agent
-  projectId: number
+  projectId: number | null
   onClose: () => void
   onStop: () => void
   onReset: () => void
@@ -163,7 +166,7 @@ function AgentDetailDialog({
   // Settings. Scope to keep the card focused (and from dumping the agent's whole
   // history into the sidebar).
   const projectBindings = bindings.filter(
-    (b) => b.projectId === projectId && (b.scopeKind === 'app' || b.scopeKind === 'task'),
+    (b) => (projectId == null || b.projectId === projectId) && (b.scopeKind === 'app' || b.scopeKind === 'task'),
   )
   // Offline bindings are reset/never-started residue with no lifecycle that ever
   // clears them — hide them so the Sessions list shows only live (active/idle) rows.
@@ -174,7 +177,9 @@ function AgentDetailDialog({
   // Workspace persists even after a binding goes offline (reset), so derive the
   // workspace link from the full project set — not just the live rows — to keep
   // "Open Workspace" available.
-  const workspaceId = projectBindings.find((b) => b.workspaceId != null)?.workspaceId ?? null
+  // Across projects the agent has a workspace in each, and one button can't say which.
+  const workspaceIds = new Set(projectBindings.flatMap((b) => (b.workspaceId != null ? [b.workspaceId] : [])))
+  const workspaceId = workspaceIds.size === 1 ? [...workspaceIds][0] : null
 
   const handleBindingReset = async (b: AgentBinding) => {
     setResettingBinding(b.id)
@@ -199,13 +204,13 @@ function AgentDetailDialog({
             <div className="flex items-center gap-3 min-w-0">
               <AgentAvatar provider={agent.provider} size="lg" ring />
               <div className="min-w-0">
-                <DialogTitle className="text-base font-semibold tracking-tight truncate">
+                <DialogTitle className="truncate">
                   {agent.name}
                 </DialogTitle>
                 <p className="text-xs text-muted-foreground/60 mt-0.5">{agent.provider} · {agent.model}</p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-muted-foreground/50 hover:bg-muted/50 shrink-0 -mt-1 -mr-1" onClick={onClose}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground shrink-0 -mt-1 -mr-1" onClick={onClose}>
               <XIcon className="h-3.5 w-3.5" />
             </Button>
           </DialogHeader>
@@ -250,7 +255,7 @@ function AgentDetailDialog({
           {workspaceId != null && onOpenWorkspace && (
             <button
               onClick={() => { onOpenWorkspace(workspaceId); onClose() }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted/45 rounded-lg transition-colors"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-row-hover rounded-lg transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5 text-tint" />
               <FormattedMessage id="channel.agent.openWorkspace" defaultMessage="Open Workspace" />
@@ -259,7 +264,7 @@ function AgentDetailDialog({
           {hasActive && (
             <button
               onClick={onStop}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted/45 rounded-lg transition-colors"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-row-hover rounded-lg transition-colors"
             >
               <Square className="w-3.5 h-3.5" />
               <FormattedMessage id="channel.agent.stop" defaultMessage="Stop" />

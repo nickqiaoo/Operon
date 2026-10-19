@@ -11,11 +11,16 @@ import { cn } from '@/lib/utils'
  * `relative` stays on the frame so an absolutely positioned MentionPicker can
  * anchor to it.
  */
-export function ComposerFrame({ className, children }: { className?: string; children: ReactNode }) {
+export function ComposerFrame({ className, floating = false, children }: { className?: string; floating?: boolean; children: ReactNode }) {
   return (
     <div
       className={cn(
-        'relative flex items-end gap-2 rounded-xl border border-border/60 bg-popover/90 px-3 py-2.5 shadow-input dark:border-border/35 dark:bg-popover/85',
+        'relative flex items-end gap-2 rounded-xl px-3 py-2.5',
+        // Floating (phone): frosted over the transcript scrolling under it; the
+        // glass brings its own tint, rim and lift.
+        floating
+          ? 'liquid-glass'
+          : 'border border-border/60 bg-popover/90 shadow-input dark:border-border/35 dark:bg-popover/85',
         className,
       )}
     >

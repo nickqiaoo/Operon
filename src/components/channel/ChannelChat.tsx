@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Users, ChevronDown, Hash, X } from 'lucide-react'
+import { ArrowLeft, Users, ChevronDown, Hash, X } from 'lucide-react'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { MentionPicker, detectMentionToken, useMentionMatches, useMentionState } from './MentionPicker'
 import type { Agent } from '@/types/channel'
 import { useChannelStore } from '@/stores/channel-store'
+import { useTaskStore } from '@/stores/task-store'
+import type { TaskListItem } from '@/types/task'
 import { useChannel } from '@/hooks/useChannel'
 import { ChannelMessageItem } from './ChannelMessageItem'
 import { ThreadPanel } from './ThreadPanel'
@@ -12,6 +14,7 @@ import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './Co
 import { useScrollActivity } from '@/hooks/useScrollActivity'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
 import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 interface ChannelChatProps {
   channelId: number
@@ -24,7 +27,18 @@ interface ChannelChatProps {
   mobileKeyboardOpen?: boolean
   /** Shown in a drawer over the board: a close button ends the header row. */
   onClose?: () => void
+  /** Phone, full screen: a back button starts the header row, so it is the only row above the transcript. */
+  onBack?: () => void
+  /** A task chip under a message was clicked. */
+  onOpenTask?: (taskId: number) => void
+  /** Scroll to this message (paging back for it if needed) and flash it, then report back. */
+  focusMessageId?: number | null
+  onFocusConsumed?: () => void
 }
+
+/** How many older pages a jump to a message will load looking for it. */
+const FOCUS_MAX_PAGES = 10
+const FOCUS_FLASH_MS = 2000
 
 // Thread side-panel width (desktop only; on phones it's a full-screen overlay).
 // Drag the left edge to resize; the choice persists across reloads.
@@ -35,7 +49,7 @@ const THREAD_PANEL_WIDTH_KEY = 'operon.channelThreadWidth'
 const clampThreadWidth = (v: number) =>
   Math.max(THREAD_PANEL_MIN_WIDTH, Math.min(THREAD_PANEL_MAX_WIDTH, v))
 
-export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = false, onClose }: ChannelChatProps) {
+export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = false, onClose, onBack, onOpenTask, focusMessageId = null, onFocusConsumed }: ChannelChatProps) {
   const intl = useIntl()
   const [input, setInput] = useState('')
   const [atBottom, setAtBottom] = useState(true)
@@ -46,6 +60,21 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   const [mention, setMention] = useMentionState()
   // Scrollbar shows only while scrolling; see .transcript-scrollbar.
   useScrollActivity(scrollRef)
+
+  // Phone: the composer floats over the transcript's bottom, which pads its
+  // end by the composer's live height and scrolls on under its glass.
+  const isMobile = useIsMobile()
+  const composerRef = useRef<HTMLDivElement>(null)
+  const [composerHeight, setComposerHeight] = useState(0)
+  useLayoutEffect(() => {
+    const el = composerRef.current
+    if (!isMobile || !el) return
+    const measure = () => setComposerHeight(el.offsetHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isMobile])
 
   // Resizable thread panel width, restored from localStorage on first render.
   const threadWrapperRef = useRef<HTMLDivElement | null>(null)
@@ -80,6 +109,20 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   useEffect(() => {
     void loadMembers(channelId)
   }, [channelId, loadMembers])
+
+  // Tasks captured from this channel's messages, keyed by message. The store holds
+  // the board's tasks, which the page around this keeps loaded for every project.
+  const tasks = useTaskStore((s) => s.tasks)
+  const tasksByMessage = useMemo(() => {
+    const map = new Map<number, TaskListItem[]>()
+    for (const t of tasks) {
+      if (t.sourceChannelId !== channelId || t.sourceMessageId == null || t.archivedAt != null) continue
+      const list = map.get(t.sourceMessageId) ?? []
+      list.push(t)
+      map.set(t.sourceMessageId, list)
+    }
+    return map
+  }, [tasks, channelId])
 
   // Auto-scroll: initial load goes to bottom; new tail messages only auto-scroll
   // when the user is near the bottom; prepended history must not be counted as
@@ -137,6 +180,34 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     const frame = requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' }))
     return () => cancelAnimationFrame(frame)
   }, [mobileKeyboardOpen])
+
+  // Jump to a message: once it's rendered, center and flash it; until then page
+  // back for it. A reply inside a thread never shows up here, so give up after
+  // a while rather than loading the whole history.
+  const [flashId, setFlashId] = useState<number | null>(null)
+  const focusPagesRef = useRef(0)
+  useEffect(() => {
+    focusPagesRef.current = 0
+  }, [focusMessageId])
+  useEffect(() => {
+    if (focusMessageId == null || loading || loadingMore) return
+    const el = scrollRef.current?.querySelector(`[data-message-id="${focusMessageId}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'center' })
+      setFlashId(focusMessageId)
+      onFocusConsumed?.()
+    } else if (hasMore && focusPagesRef.current < FOCUS_MAX_PAGES) {
+      focusPagesRef.current += 1
+      void loadMore()
+    } else {
+      onFocusConsumed?.()
+    }
+  }, [focusMessageId, messages, loading, loadingMore, hasMore, loadMore, onFocusConsumed])
+  useEffect(() => {
+    if (flashId == null) return
+    const timer = setTimeout(() => setFlashId(null), FOCUS_FLASH_MS)
+    return () => clearTimeout(timer)
+  }, [flashId])
 
   // Track whether scroll viewport is at the bottom, and load more at top
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -268,12 +339,22 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   return (
     <div className="flex h-full min-h-0">
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      <div className="relative flex-1 flex flex-col min-h-0 min-w-0">
         {/* Channel meta row */}
         {/* h-10 is fixed, not padding-derived: this row carries a 24px MemberStack
             that used to push it to 52px while the thread header stayed at 40, so
             the two bottom borders sat 12px apart. Keep both headers on h-10. */}
         <div className="flex h-10 items-center gap-3 border-b border-border/40 px-3 md:px-5 shrink-0 bg-background">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label={intl.formatMessage({ id: 'common.back', defaultMessage: 'Back' })}
+              className="-ml-1.5 -mr-1.5 flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+            >
+              <ArrowLeft className="h-[18px] w-[18px]" />
+            </button>
+          )}
           <Hash className="w-4 h-4 text-muted-foreground/70 shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
@@ -286,7 +367,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           <button
             type="button"
             onClick={onManageMembers}
-            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-full px-1.5 py-1 hover:bg-muted/45"
+            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-full px-1.5 py-1 hover:bg-row-hover"
             title={intl.formatMessage({ id: 'channel.manageMembers', defaultMessage: 'Manage members' })}
           >
             <MemberStack agents={memberAgents} />
@@ -322,7 +403,10 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                     <p className="text-xs"><FormattedMessage id="channel.empty.startConversation" defaultMessage="Start a conversation" /></p>
                   </div>
                 ) : (
-                  <div className="py-4 max-w-4xl mx-auto px-2 md:px-4">
+                  <div
+                    className="py-4 max-w-4xl mx-auto px-2 md:px-4"
+                    style={isMobile ? { paddingBottom: `${composerHeight + 16}px` } : undefined}
+                  >
                     {loadingMore && (
                       <div className="flex items-center justify-center h-10 text-xs text-muted-foreground/50">
                         <FormattedMessage id="channel.loadingOlder" defaultMessage="Loading older messages..." />
@@ -342,6 +426,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                           agents={agents}
                           grouped={grouped}
                           onReply={handleReply}
+                          tasks={tasksByMessage.get(msg.id)}
+                          onOpenTask={onOpenTask}
+                          highlighted={flashId === msg.id}
                         />
                       )
                     })}
@@ -372,6 +459,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                 <button
                   onClick={scrollToBottom}
                   className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-tint text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-float hover:opacity-90 transition-opacity"
+                  style={isMobile ? { bottom: `${composerHeight + 12}px` } : undefined}
                 >
                   <ChevronDown className="w-3.5 h-3.5" />
                   <FormattedMessage
@@ -387,6 +475,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                 <button
                   onClick={scrollToBottom}
                   className="absolute bottom-3 right-4 flex items-center justify-center w-8 h-8 bg-popover/90 border border-border/40 rounded-full shadow-card text-muted-foreground hover:text-foreground transition-colors"
+                  style={isMobile ? { bottom: `${composerHeight + 12}px` } : undefined}
                 >
                   <ChevronDown className="w-4 h-4" />
                 </button>
@@ -399,8 +488,13 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                 else): the shell keeps its full height with the keyboard as an
                 overlay, so the composer has to make room for it itself. The
                 transcript above is `flex-1`, so it gives up exactly that much. */}
-            <div className="shrink-0 p-3 pb-[calc(0.75rem+var(--keyboard-height))]">
-              <ComposerFrame className="max-w-4xl mx-auto">
+            <div
+              ref={composerRef}
+              // With the keyboard down the home indicator, with it up the keyboard:
+              // it covers that strip, so the two never stack (0 on desktop).
+              className="shrink-0 p-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--keyboard-height)))] max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:z-20"
+            >
+              <ComposerFrame className="max-w-4xl mx-auto" floating={isMobile}>
                 {mention.open && (
                   <MentionPicker
                     agents={mentionMatches}

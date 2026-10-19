@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { X } from 'lucide-react'
+import { ArrowLeft, X } from 'lucide-react'
 import { AgentAvatar, UserAvatar } from '@/components/icons/AgentAvatar'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -61,11 +61,22 @@ export function ThreadPanel({
   if (!rootMessage) return null
 
   return (
-    <div className="flex flex-col h-full border-l border-border/40 bg-sidebar">
+    // On a phone the thread is a full-screen page whose wrapper paints the safe
+    // areas in the page color; a sidebar-colored panel inside it read as three bands.
+    <div className="flex flex-col h-full bg-background md:border-l md:border-border/40 md:bg-sidebar">
       {/* Header — fixed h-10, matching the channel header on the left so both
           bottom borders land on the same line regardless of their contents. */}
-      <div className="flex h-10 items-center justify-between px-4 border-b border-border/40 shrink-0 bg-sidebar">
-        <div className="flex min-w-0 items-baseline gap-1.5">
+      <div className="flex h-10 items-center justify-between gap-2 px-3 md:px-4 border-b border-border/40 shrink-0 bg-background md:bg-sidebar">
+        {/* Phone: a page you go back from, like every other one pushed over a list. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={intl.formatMessage({ id: 'common.back', defaultMessage: 'Back' })}
+          className="-ml-1.5 flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground md:hidden"
+        >
+          <ArrowLeft className="h-[18px] w-[18px]" />
+        </button>
+        <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
           <span className="text-sm font-semibold text-foreground shrink-0">
             <FormattedMessage id="channel.thread.title" defaultMessage="Thread" />
           </span>
@@ -75,7 +86,7 @@ export function ThreadPanel({
             </span>
           )}
         </div>
-        <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full text-muted-foreground hover:bg-muted/50" onClick={onClose}>
+        <Button variant="ghost" size="icon" className="hidden h-5 w-5 rounded-md text-muted-foreground hover:text-foreground md:inline-flex" onClick={onClose}>
           <X className="w-3.5 h-3.5" />
         </Button>
       </div>

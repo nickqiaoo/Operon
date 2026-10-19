@@ -1732,10 +1732,12 @@ export class SqliteStorage
     }
   }
 
-  listChannels(projectId: number): Channel[] {
-    const rows = this.db
-      .prepare('SELECT * FROM channels WHERE project_id = ? ORDER BY created_at ASC')
-      .all(projectId) as Array<Record<string, unknown>>
+  listChannels(projectId?: number): Channel[] {
+    const rows = (
+      projectId === undefined
+        ? this.db.prepare('SELECT * FROM channels ORDER BY created_at ASC').all()
+        : this.db.prepare('SELECT * FROM channels WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
+    ) as Array<Record<string, unknown>>
     return rows.map(row => ({
       id: row.id as number,
       projectId: row.project_id as number,
@@ -1978,8 +1980,12 @@ export class SqliteStorage
   }
 
   taskList(query: ListTasksQuery): TaskListItem[] {
-    const where: string[] = ['t.project_id = ?']
-    const args: unknown[] = [query.projectId]
+    const where: string[] = ['1 = 1']
+    const args: unknown[] = []
+    if (query.projectId !== undefined) {
+      where.push('t.project_id = ?')
+      args.push(query.projectId)
+    }
     // Archived tasks are hidden unless explicitly requested (keeps the board —
     // and list_project_tasks — focused on live work).
     if (!query.includeArchived) {
@@ -2004,7 +2010,7 @@ export class SqliteStorage
     }
     const rows = this.db
       .prepare(
-        `SELECT t.* FROM tasks t ${join} WHERE ${where.join(' AND ')} ORDER BY t.priority DESC, t.number ASC`,
+        `SELECT t.* FROM tasks t ${join} WHERE ${where.join(' AND ')} ORDER BY t.priority DESC, t.project_id ASC, t.number ASC`,
       )
       .all(...args) as Array<Record<string, unknown>>
     const tasks = rows.map((r) => this.rowToTask(r))
@@ -2265,10 +2271,12 @@ export class SqliteStorage
     return res.changes > 0
   }
 
-  taskListLabelDefs(projectId: number): TaskLabel[] {
-    const rows = this.db
-      .prepare('SELECT * FROM task_label_defs WHERE project_id = ? ORDER BY name ASC')
-      .all(projectId) as Array<Record<string, unknown>>
+  taskListLabelDefs(projectId?: number): TaskLabel[] {
+    const rows = (
+      projectId === undefined
+        ? this.db.prepare('SELECT * FROM task_label_defs ORDER BY name ASC').all()
+        : this.db.prepare('SELECT * FROM task_label_defs WHERE project_id = ? ORDER BY name ASC').all(projectId)
+    ) as Array<Record<string, unknown>>
     return rows.map((r) => this.rowToLabel(r))
   }
 
@@ -2331,10 +2339,12 @@ export class SqliteStorage
     return tx(id) as boolean
   }
 
-  teamList(projectId: number): Team[] {
-    const rows = this.db
-      .prepare('SELECT * FROM teams WHERE project_id = ? ORDER BY name ASC')
-      .all(projectId) as Array<Record<string, unknown>>
+  teamList(projectId?: number): Team[] {
+    const rows = (
+      projectId === undefined
+        ? this.db.prepare('SELECT * FROM teams ORDER BY name ASC').all()
+        : this.db.prepare('SELECT * FROM teams WHERE project_id = ? ORDER BY name ASC').all(projectId)
+    ) as Array<Record<string, unknown>>
     return rows.map((r) => this.rowToTeam(r))
   }
 

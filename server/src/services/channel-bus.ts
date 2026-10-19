@@ -52,13 +52,16 @@ export type TaskEvent = { type: 'task_upsert'; task: TaskListItem }
 
 export function emitTaskEvent(projectId: number, event: TaskEvent): void {
   bus.emit(`tasks:${projectId}`, event)
+  // The global board watches every project at once.
+  bus.emit('tasks:*', event)
 }
 
+/** `projectId: null` subscribes to every project's tasks. */
 export function onTaskEvent(
-  projectId: number,
+  projectId: number | null,
   handler: (event: TaskEvent) => void
 ): () => void {
-  const key = `tasks:${projectId}`
+  const key = projectId == null ? 'tasks:*' : `tasks:${projectId}`
   bus.on(key, handler)
   return () => bus.off(key, handler)
 }

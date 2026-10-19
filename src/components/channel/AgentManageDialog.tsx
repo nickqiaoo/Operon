@@ -56,7 +56,7 @@ const EMPTY_FORM: AgentFormState = {
 const CleanInput = (props: React.ComponentProps<typeof Input>) => (
   <Input
     {...props}
-    className={`bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background focus:border-tint/20 shadow-none transition-all ${props.className ?? ''}`}
+    className={`bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background focus:border-tint/20 shadow-none transition-all ${props.className ?? ''}`}
   />
 )
 
@@ -223,7 +223,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
         >
           <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
             <div>
-              <DialogTitle className="text-lg font-semibold tracking-tight">
+              <DialogTitle>
                 <FormattedMessage id="channel.manageAgents" defaultMessage="Manage Agents" />
               </DialogTitle>
               <p className="text-xs text-muted-foreground/60 mt-0.5">
@@ -239,7 +239,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                 <Plus className="h-3.5 w-3.5" />
                 <FormattedMessage id="common.new" defaultMessage="New" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50 transition-colors" onClick={onClose}>
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
                 <XIcon className="h-4 w-4" />
               </Button>
             </div>
@@ -273,7 +273,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                             setExpandedAgentId(expanded ? null : agent.id)
                           }
                         }}
-                        className="flex items-center gap-3 hover:bg-muted/40 rounded-lg px-3 py-2.5 transition-colors group cursor-pointer"
+                        className="flex items-center gap-3 hover:bg-row-hover rounded-lg px-3 py-2.5 transition-colors group cursor-pointer"
                       >
                         <ChevronRight
                           className={cn(
@@ -297,7 +297,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={(e) => { e.stopPropagation(); openEdit(agent) }}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
                             title={intl.formatMessage({ id: 'common.edit', defaultMessage: 'Edit' })}
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -348,12 +348,12 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
           showCloseButton={false}
         >
           <DialogHeader className="px-1 pt-1 pb-4 flex flex-row items-center justify-between shrink-0">
-            <DialogTitle className="text-xl font-semibold tracking-tight">
+            <DialogTitle>
               {editing
                 ? <FormattedMessage id="channel.form.editTitle" defaultMessage="Edit Agent" />
                 : <FormattedMessage id="channel.form.newTitle" defaultMessage="New Agent" />}
             </DialogTitle>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50 transition-colors" onClick={handleFormClose}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={handleFormClose}>
               <XIcon className="h-4 w-4" />
             </Button>
           </DialogHeader>
@@ -374,7 +374,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
               <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1"><FormattedMessage id="channel.form.adapter" defaultMessage="Adapter" /></label>
                 <Select value={form.provider} onValueChange={(v) => setForm((f) => ({ ...f, provider: v }))}>
-                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                     <SelectValue placeholder={intl.formatMessage({ id: 'channel.form.selectAdapter', defaultMessage: 'Select adapter' })} />
                   </SelectTrigger>
                   <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -391,7 +391,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                 {availableModels.length > 0 ? (
                   <ModelSelector>
                     <ModelSelectorTrigger asChild>
-                      <Button variant="outline" className="w-full justify-between text-muted-foreground bg-muted/30 border-transparent hover:bg-muted/50 shadow-none font-normal h-10 px-3">
+                      <Button variant="outline" className="w-full justify-between text-muted-foreground bg-muted/30 border-transparent hover:bg-row-hover shadow-none font-normal h-10 px-3">
                         <span className="flex items-center gap-2">
                           <ModelSelectorLogo provider={selectedModel?.provider ?? ""} className="size-4" />
                           <span className="truncate">{selectedModel?.label ?? intl.formatMessage({ id: 'channel.form.selectModel', defaultMessage: 'Select model' })}</span>
@@ -440,7 +440,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                   onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
                   placeholder={intl.formatMessage({ id: 'channel.form.instructionsPlaceholder', defaultMessage: "Injected into the agent's system prompt at startup. Describe its role, knowledge, tone, do's and don'ts." })}
                   rows={5}
-                  className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background focus-visible:border-tint/20 focus-visible:ring-0 shadow-none transition-all resize-y"
+                  className="bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background focus-visible:border-tint/20 focus-visible:ring-0 shadow-none transition-all resize-y"
                 />
               </div>
 
@@ -452,7 +452,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                   onValueChange={(v) => setForm((f) => ({ ...f, permissionMode: v }))}
                   disabled={permissionOptions.length === 0}
                 >
-                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                     <SelectValue>
                       {permissionOptions.find((o) => o.value === (form.permissionMode || currentMode || modeOptions[0]?.value))?.label
                         ?? intl.formatMessage({ id: 'channel.form.selectPermissionMode', defaultMessage: 'Select mode' })}

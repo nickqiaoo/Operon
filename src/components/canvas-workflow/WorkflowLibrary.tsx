@@ -1,6 +1,13 @@
 import { useIntl } from "react-intl"
-import { AlertCircle, Check, Loader2, Network, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Check, ChevronDown, FolderGit2, Loader2, Network, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { useProjectStore } from "@/stores/project-store"
 import { cn } from "@/lib/utils"
 import { relativeTime } from "@/components/task/task-meta"
 import type { CanvasWorkflowLastRun, CanvasWorkflowListItem } from "@/types/canvas-workflow"
@@ -10,18 +17,56 @@ import type { CanvasWorkflowLastRun, CanvasWorkflowListItem } from "@/types/canv
  * each one last did.
  *
  * This is the page's entry point rather than the canvas. Dropping straight into
- * an editor picked an arbitrary workflow for the user and hid both the rest of
- * the library and which workspace it was filtered to — the list has to come
- * first for either to be visible.
+ * an editor picked an arbitrary workflow for the user and hid the rest of the
+ * library — the list has to come first. It lists every project's workflows,
+ * each labelled with the workspace it runs in; the page header narrows it to
+ * one project.
  */
 
 interface WorkflowLibraryProps {
   workflows: CanvasWorkflowListItem[]
-  /** "project / workspace" for the current workspace; null when none is active. */
-  workspaceLabel: string | null
+  /** The project the list is narrowed to; null = all. A new workflow goes there. */
+  projectFilter: number | null
+  /** "project / workspace" a workflow runs in; null when that workspace is gone. */
+  workspaceLabelOf: (workspaceId: number) => string | null
   onOpen: (id: number) => void
-  onNew: () => void
+  onNew: (projectId: number) => void
   onDelete: (id: number) => void
+}
+
+/**
+ * A workflow's agent steps run in its project's checkout, so creating one names a
+ * project: the filtered one, or a pick from the menu when the list shows them all.
+ */
+function NewWorkflowButton({ projectFilter, onNew, label }: { projectFilter: number | null; onNew: (projectId: number) => void; label: string }) {
+  const projects = useProjectStore((s) => s.projects)
+  if (projectFilter != null) {
+    return (
+      <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" onClick={() => onNew(projectFilter)}>
+        <Plus className="h-3.5 w-3.5" />
+        {label}
+      </Button>
+    )
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" disabled={projects.length === 0}>
+          <Plus className="h-3.5 w-3.5" />
+          {label}
+          <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[180px]">
+        {projects.map((p) => (
+          <DropdownMenuItem key={p.id} onClick={() => onNew(p.id)} className="gap-2 text-xs">
+            <FolderGit2 className="h-3.5 w-3.5" />
+            <span className="truncate">{p.name}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 /** Run state as a label, sharing one row's worth of vertical space. */
@@ -66,7 +111,8 @@ function LastRunChip({ lastRun }: { lastRun?: CanvasWorkflowLastRun }) {
 
 export function WorkflowLibrary({
   workflows,
-  workspaceLabel,
+  projectFilter,
+  workspaceLabelOf,
   onOpen,
   onNew,
   onDelete,
@@ -83,24 +129,18 @@ export function WorkflowLibrary({
             <h2 className="text-base font-semibold text-foreground">
               {intl.formatMessage({ id: "canvas.library.title", defaultMessage: "Workflows" })}
             </h2>
-            {/* The list is workspace-filtered server-side; saying so is what
-                keeps a short list from reading as "my workflows are gone". */}
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {workspaceLabel
-                ? intl.formatMessage(
-                    { id: "canvas.library.scope", defaultMessage: "In {workspace} · {count, plural, one {# workflow} other {# workflows}}" },
-                    { workspace: workspaceLabel, count: workflows.length }
-                  )
-                : intl.formatMessage(
-                    { id: "canvas.library.scopeAll", defaultMessage: "All workspaces · {count, plural, one {# workflow} other {# workflows}}" },
-                    { count: workflows.length }
-                  )}
+              {intl.formatMessage(
+                { id: "canvas.library.count", defaultMessage: "{count, plural, one {# workflow} other {# workflows}}" },
+                { count: workflows.length }
+              )}
             </p>
           </div>
-          <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" onClick={onNew}>
-            <Plus className="h-3.5 w-3.5" />
-            {intl.formatMessage({ id: "canvas.library.new", defaultMessage: "New workflow" })}
-          </Button>
+          <NewWorkflowButton
+            projectFilter={projectFilter}
+            onNew={onNew}
+            label={intl.formatMessage({ id: "canvas.library.new", defaultMessage: "New workflow" })}
+          />
         </div>
 
         {workflows.length === 0 ? (
@@ -117,10 +157,13 @@ export function WorkflowLibrary({
                 })}
               </p>
             </div>
-            <Button size="sm" variant="secondary" className="mt-1 h-8 gap-1.5" onClick={onNew}>
-              <Plus className="h-3.5 w-3.5" />
-              {intl.formatMessage({ id: "canvas.library.empty.new", defaultMessage: "New workflow" })}
-            </Button>
+            <div className="mt-1">
+              <NewWorkflowButton
+                projectFilter={projectFilter}
+                onNew={onNew}
+                label={intl.formatMessage({ id: "canvas.library.empty.new", defaultMessage: "New workflow" })}
+              />
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
@@ -137,16 +180,18 @@ export function WorkflowLibrary({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-foreground">{wf.name}</span>
-                    {/* Legacy rows with no workspace show up in every workspace's
-                        list — label them so the odd one out is explainable. */}
-                    {wf.workspaceId == null && (
-                      <span className="shrink-0 rounded-full border border-border/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {intl.formatMessage({ id: "canvas.library.global", defaultMessage: "All workspaces" })}
-                      </span>
-                    )}
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>
+                    {/* Where it runs. Legacy rows have no workspace and run in the app's own directory. */}
+                    <span className="flex min-w-0 items-center gap-1">
+                      <FolderGit2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate">
+                        {(wf.workspaceId != null && workspaceLabelOf(wf.workspaceId))
+                          || intl.formatMessage({ id: "canvas.library.noWorkspace", defaultMessage: "No workspace" })}
+                      </span>
+                    </span>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span className="shrink-0">
                       {intl.formatMessage(
                         { id: "canvas.library.nodeCount", defaultMessage: "{count, plural, one {# node} other {# nodes}}" },
                         { count: wf.nodes.length }

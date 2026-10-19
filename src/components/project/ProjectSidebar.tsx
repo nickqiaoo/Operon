@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, Folder, GitBranch, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, CircleHelp, Folder, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useProjectStore, Project, Workspace, WorkspaceDiffStat } from "@/stores/project-store"
 import { useEditorStore } from "@/stores/editor-store"
 import type { EditorTab } from "@/types/editor"
@@ -28,7 +29,6 @@ interface ProjectItemProps {
   onSelectWorkspace: (workspaceId: number, projectId: number) => void
   activeWorkspaceId?: number | null
   onAddWorkspace: (project: Project) => void
-  onOpenChannel?: (project: Project) => void
   onTogglePin: (project: Project) => void
   error?: string | null
   workspaceDiffStats?: Record<string, WorkspaceDiffStat>
@@ -80,7 +80,6 @@ function ProjectItem({
   onSelectWorkspace,
   activeWorkspaceId,
   onAddWorkspace,
-  onOpenChannel,
   onTogglePin,
   error,
   workspaceDiffStats,
@@ -99,7 +98,7 @@ function ProjectItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onTogglePin(project)}
           title={
             pinned
@@ -112,16 +111,7 @@ function ProjectItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
-          onClick={() => onOpenChannel?.(project)}
-          title={intl.formatMessage({ id: "sidebar.openBoard", defaultMessage: "Open board" })}
-        >
-          <LayoutDashboard className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-muted/70 hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           onClick={() => onAddWorkspace(project)}
           title={intl.formatMessage({ id: "sidebar.newWorkspace", defaultMessage: "New workspace on a new branch" })}
         >
@@ -159,13 +149,13 @@ function ProjectItem({
                   // NAME above it (both at 40px from the rail edge), so the workspaces
                   // read as hanging off their project instead of sitting beside it. The
                   // fill stays full-bleed — only the content is indented.
-                  "w-full rounded-lg py-2 pl-6 pr-3 text-left transition-colors duration-150 bg-transparent hover:bg-muted/60 hover:text-foreground relative overflow-hidden",
+                  "w-full rounded-lg py-2 pl-6 pr-3 text-left transition-colors duration-150 bg-transparent hover:bg-row-hover hover:text-foreground relative overflow-hidden",
                   // Selection is a plain fill — no border, no tint. `tint-muted`
                   // only cleared the sidebar by ~9 levels and skewed blue, so the
                   // block read as a smudge; a neutral 7% of the foreground lands
                   // ~15 levels down and stays right in dark mode and under every
                   // UI theme, since it composites against whatever the surface is.
-                  isActive && "bg-foreground/[0.07] text-foreground shadow-none hover:bg-foreground/[0.07]",
+                  isActive && "bg-row-selected text-foreground shadow-none hover:bg-row-selected",
                   wsStreaming > 0 && "animate-shimmer-sweep"
                 )}
               >
@@ -178,17 +168,17 @@ function ProjectItem({
                   {workspaceStats && (workspaceStats.additions > 0 || workspaceStats.deletions > 0) && (
                     <span className="shrink-0 text-[11px] font-mono tabular-nums font-normal opacity-80">
                       {workspaceStats.additions > 0 && (
-                        <span className="text-green-600">+{workspaceStats.additions}</span>
+                        <span className="text-diff-add">+{workspaceStats.additions}</span>
                       )}
                       {workspaceStats.deletions > 0 && (
-                        <span className="text-red-600 ml-0.5">-{workspaceStats.deletions}</span>
+                        <span className="text-diff-remove ml-0.5">-{workspaceStats.deletions}</span>
                       )}
                     </span>
                   )}
                   {wsBadge > 0 && (
                     <span className={cn(
                       "shrink-0 text-[11px] font-medium tabular-nums leading-none",
-                      wsStreaming > 0 ? "text-blue-500" : "text-amber-500"
+                      wsStreaming > 0 ? "text-status-info" : "text-status-warn"
                     )}>
                       {wsBadge}
                     </span>
@@ -230,20 +220,25 @@ interface ProjectSidebarProps {
   onOpenCronjobs: () => void
   onOpenPlugins: () => void
   onOpenCanvas: () => void
-  onOpenChannel?: (project: Project) => void
+  /** The board and channels across every project (one page, two views). */
+  onOpenBoard?: () => void
+  onOpenChannels?: () => void
   onOpenInbox?: () => void
   onOpenAssistant?: () => void
   /** The Assistant view is showing in place of the editor. */
   assistantActive?: boolean
   /** The Inbox is showing in place of the editor. */
   inboxActive?: boolean
+  /** The Board / Channels is showing in place of the editor. */
+  boardActive?: boolean
+  channelsActive?: boolean
   /** Picking a workspace leaves the Assistant / Inbox view. */
   onLeaveMainView?: () => void
   onCollapse?: () => void
   collapsed?: boolean
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenChannel, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, onLeaveMainView, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
@@ -390,7 +385,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       <div className={`h-10 px-4 ${__APP_TARGET__ !== 'web' ? 'pl-20 ' : ''}border-b border-border/40 bg-sidebar flex items-center justify-start drag-region shrink-0`}>
         {onCollapse && !collapsed && (
           <button
-            className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+            className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors"
             style={{ viewTransitionName: "sidebar-trigger" }}
             onClick={onCollapse}
             title={intl.formatMessage({ id: "sidebar.collapse", defaultMessage: "Collapse sidebar" })}
@@ -401,7 +396,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       </div>
 
       {/* Global destinations */}
-      {(onOpenAssistant || onOpenInbox) && (
+      {(onOpenAssistant || onOpenInbox || onOpenBoard || onOpenChannels) && (
         <div className="px-2 pt-2 shrink-0">
           {onOpenAssistant && (
             <button
@@ -411,8 +406,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                 "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
                 // Same selection fill as a workspace row, so the two read as one kind of "you are here".
                 assistantActive
-                  ? "bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.07]"
-                  : "text-foreground/85 hover:bg-muted/60 hover:text-foreground",
+                  ? "bg-row-selected text-foreground hover:bg-row-selected"
+                  : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
               )}
             >
               <MessageCircle className="h-4 w-4" />
@@ -426,14 +421,14 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
             className={cn(
               "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
               inboxActive
-                ? "bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.07]"
-                : "text-foreground/85 hover:bg-muted/60 hover:text-foreground",
+                ? "bg-row-selected text-foreground hover:bg-row-selected"
+                : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
             )}
           >
             <Inbox className="h-4 w-4" />
             <span className="flex-1"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
             {inboxAction > 0 ? (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium leading-none text-white">
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
                 {inboxAction > 99 ? "99+" : inboxAction}
               </span>
             ) : inboxTotal > 0 ? (
@@ -442,6 +437,36 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
               </span>
             ) : null}
           </button>
+          )}
+          {onOpenBoard && (
+            <button
+              type="button"
+              onClick={onOpenBoard}
+              className={cn(
+                "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+                boardActive
+                  ? "bg-row-selected text-foreground hover:bg-row-selected"
+                  : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
+              )}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              <span className="flex-1"><FormattedMessage id="sidebar.board" defaultMessage="Board" /></span>
+            </button>
+          )}
+          {onOpenChannels && (
+            <button
+              type="button"
+              onClick={onOpenChannels}
+              className={cn(
+                "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+                channelsActive
+                  ? "bg-row-selected text-foreground hover:bg-row-selected"
+                  : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
+              )}
+            >
+              <Hash className="h-4 w-4" />
+              <span className="flex-1"><FormattedMessage id="sidebar.channels" defaultMessage="Channels" /></span>
+            </button>
           )}
         </div>
       )}
@@ -453,13 +478,14 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
         </div>
         {canAddProject && (
           <Button
-            variant="secondary"
-            size="sm"
-            className="h-6 px-2 text-xs shadow-none border border-border/50 transition-colors hover:bg-tint-muted hover:text-tint hover:border-tint/20"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
             onClick={handleAddProject}
             title={intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })}
+            aria-label={intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })}
           >
-            New
+            <Plus className="h-4 w-4" />
           </Button>
         )}
       </div>
@@ -485,9 +511,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                   project={project}
                   onSelectWorkspace={handleSelectWorkspace}
                   // Only one place is "current": while the Assistant is showing, no workspace is.
-                  activeWorkspaceId={assistantActive || inboxActive ? null : activeWorkspaceId}
+                  activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive ? null : activeWorkspaceId}
                   onAddWorkspace={handleOpenAddWorkspace}
-                  onOpenChannel={onOpenChannel}
                   onTogglePin={handleTogglePin}
                   error={projectErrors[String(project.id)] ?? null}
                   workspaceDiffStats={workspaceDiffStats}
@@ -503,26 +528,26 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       {/* Bottom Actions */}
       <div
         className={cn(
-          "px-3 pt-3 border-t border-border/60 space-y-0.5 shrink-0",
+          "px-3 pt-3 border-t border-border/40 dark:border-border/35 space-y-0.5 shrink-0",
           __APP_TARGET__ === "web" ? "pb-12" : "pb-3"
         )}
       >
         <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
+          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
           onClick={onOpenCanvas}
         >
           <Network className="h-4 w-4" />
           <FormattedMessage id="sidebar.workflow" defaultMessage="Workflow" />
         </button>
         <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
+          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
           onClick={onOpenPlugins}
         >
           <Package className="h-4 w-4" />
           <FormattedMessage id="sidebar.plugins" defaultMessage="Plugins" />
         </button>
         <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
+          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
           onClick={onOpenCronjobs}
         >
           <CalendarClock className="h-4 w-4" />
@@ -532,20 +557,28 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
         <div className="flex items-center gap-1 mt-1">
           <button
             data-testid="settings-button"
-            className="flex-1 flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-muted/60 hover:text-foreground"
+            className="flex-1 flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
             onClick={onOpenSettings}
           >
             <Settings className="h-4 w-4" />
             <FormattedMessage id="sidebar.settings" defaultMessage="Settings" />
           </button>
           <UpdateReadyPill />
-          <button
-            type="button"
-            className="flex items-center justify-center h-9 w-9 rounded-lg transition-colors text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")}
-          >
-            <span className="text-xs font-bold">?</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}
+                className="flex items-center justify-center h-9 w-9 shrink-0 rounded-lg transition-colors text-muted-foreground hover:bg-accent-hover hover:text-foreground active:bg-accent-active"
+                onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")}
+              >
+                <CircleHelp className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <FormattedMessage id="sidebar.help" defaultMessage="Help" />
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

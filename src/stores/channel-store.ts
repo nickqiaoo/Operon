@@ -9,12 +9,13 @@ interface ChannelStore {
   threadRootId: number | null
   threadRoots: ChannelMessage[]               // messages with replyCount > 0
   members: Record<number, ChannelMember[]>   // channelId -> members
-  sessions: AgentSession[]                    // for current project
+  sessions: AgentSession[]                    // every project's (agent, project) sessions
 
   loadAgents: () => Promise<void>
-  loadChannels: (projectId: number) => Promise<void>
+  /** null → every project's channels. */
+  loadChannels: (projectId: number | null) => Promise<void>
   loadMembers: (channelId: number) => Promise<void>
-  loadSessions: (projectId: number) => Promise<void>
+  loadSessions: (projectId: number | null) => Promise<void>
 
   createChannel: (projectId: number, name: string, description?: string) => Promise<Channel>
   deleteChannel: (id: number) => Promise<void>
@@ -25,7 +26,7 @@ interface ChannelStore {
   removeMember: (channelId: number, agentId: number) => Promise<void>
   setThreadRoots: (threads: ChannelMessage[]) => void
 
-  updateSessionStatus: (agentId: number, status: AgentSessionStatus) => void
+  updateSessionStatus: (agentId: number, projectId: number, status: AgentSessionStatus) => void
 
   setActiveChannel: (id: number | null) => void
   setThreadRootId: (id: number | null) => void
@@ -115,10 +116,10 @@ export const useChannelStore = create<ChannelStore>((set, get) => ({
     set({ threadRoots: threads })
   },
 
-  updateSessionStatus: (agentId, status) => {
+  updateSessionStatus: (agentId, projectId, status) => {
     set((s) => ({
       sessions: s.sessions.map((session) =>
-        session.agentId === agentId ? { ...session, status } : session
+        session.agentId === agentId && session.projectId === projectId ? { ...session, status } : session
       ),
     }))
   },
