@@ -65,7 +65,7 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
               {intl.formatMessage({ id: "editor.toolInput.editFile", defaultMessage: "Edit File" })}
             </h4>
             {editInput.replace_all && (
-              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+              <span className="text-xs text-status-warn font-medium">
                 {intl.formatMessage({ id: "editor.toolInput.replaceAll", defaultMessage: "Replace All" })}
               </span>
             )}

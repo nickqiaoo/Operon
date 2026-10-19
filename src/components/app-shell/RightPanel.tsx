@@ -177,7 +177,7 @@ export function RightPanel({ className }: RightPanelProps) {
                   onClick={toggleExpanded}
                   aria-label={expanded ? "Restore right panel" : "Expand right panel"}
                   aria-pressed={expanded}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground"
                 >
                   {expanded ? (
                     <Minimize2 className="h-3.5 w-3.5" />

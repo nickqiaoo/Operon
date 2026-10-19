@@ -194,7 +194,7 @@ export function EditorTabs({
             ) : tab.type === "diff" ? (
               <FileIcon name={tab.title.replace(" (diff)", "")} className="absolute left-2 size-3.5 shrink-0" />
             ) : tab.isSubAgent ? (
-              <Bot className="absolute left-2 size-3.5 shrink-0 text-blue-500" />
+              <Bot className="absolute left-2 size-3.5 shrink-0 text-status-info" />
             ) : (
               <img src={providerLogos[tab.providerId ?? tab.provider ?? 'google'] ?? googleLogo} alt="model" className="absolute left-2 size-3.5 shrink-0 dark:invert" />
             )}
@@ -384,11 +384,11 @@ export function EditorTabs({
                         }}
                       >
                         {isSubAgent ? (
-                          <Bot className="size-4 shrink-0 text-blue-500" />
+                          <Bot className="size-4 shrink-0 text-status-info" />
                         ) : isTeammate ? (
                           <Users className="size-4 shrink-0 text-status-info" />
                         ) : isCanvas ? (
-                          <LayoutDashboard className="size-4 shrink-0 text-purple-500" />
+                          <LayoutDashboard className="size-4 shrink-0 text-brand" />
                         ) : logo ? (
                           <img
                             src={logo}
@@ -402,12 +402,12 @@ export function EditorTabs({
                           {item.title}
                         </span>
                         {isSubAgent && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 shrink-0">
-                            Subagent
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info/10 text-status-info shrink-0">
+                            <FormattedMessage id="editor.history.subagent" defaultMessage="Subagent" />
                           </span>
                         )}
                         {isCanvas && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 shrink-0">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-muted text-brand shrink-0">
                             <FormattedMessage id="editor.history.workflow" defaultMessage="Workflow" />
                           </span>
                         )}

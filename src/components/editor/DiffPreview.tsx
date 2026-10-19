@@ -76,15 +76,15 @@ export function DiffPreview({ path, content }: DiffPreviewProps) {
 
   return (
     <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-border/60 bg-muted/35">
+      <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-border/40 bg-muted/35">
         <div className="flex flex-col min-w-0">
           <div className="text-sm font-semibold truncate flex items-center gap-2">
             <FileDiff className="h-4 w-4 text-muted-foreground" />
             {basename}
             {(diffStats.additions > 0 || diffStats.deletions > 0) && (
               <span className="text-xs font-mono font-normal">
-                {diffStats.additions > 0 && <span className="text-green-600">+{diffStats.additions}</span>}
-                {diffStats.deletions > 0 && <span className="text-red-600 ml-1">-{diffStats.deletions}</span>}
+                {diffStats.additions > 0 && <span className="text-diff-add">+{diffStats.additions}</span>}
+                {diffStats.deletions > 0 && <span className="text-diff-remove ml-1">-{diffStats.deletions}</span>}
               </span>
             )}
           </div>

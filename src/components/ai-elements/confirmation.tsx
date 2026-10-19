@@ -196,7 +196,7 @@ export const ConfirmationAction = ({
 }: ConfirmationActionProps) => {
   const toneClassName =
     tone === "allow"
-      ? "bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-700 focus-visible:ring-emerald-500/40 dark:bg-emerald-500 dark:hover:bg-emerald-400 dark:active:bg-emerald-600"
+      ? "bg-accent-green text-white hover:brightness-110 active:brightness-95 focus-visible:ring-accent-green/40"
       : tone === "reject"
         ? "border-destructive/40 text-destructive hover:bg-destructive/10 active:bg-destructive/20 focus-visible:ring-destructive/30 dark:border-destructive/60 dark:text-destructive dark:hover:bg-destructive/20 dark:active:bg-destructive/30"
         : "";

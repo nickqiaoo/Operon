@@ -208,7 +208,7 @@ export function SaasSettings() {
                     <FormattedMessage id="settings.saas.connecting" defaultMessage="Connecting…" />
                   </>
                 ) : connected ? (
-                  <span className="text-emerald-500">
+                  <span className="text-status-ok">
                     <FormattedMessage id="settings.saas.connected" defaultMessage="Connected" />
                   </span>
                 ) : (
@@ -266,7 +266,7 @@ export function SaasSettings() {
                 <button
                   type="button"
                   onClick={() => void connect('apple')}
-                  className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-black px-3 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
+                  className="flex h-8 items-center justify-center gap-1.5 rounded-lg bg-black px-3 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
                 >
                   <AppleMark className="h-3.5 w-3.5" />
                   <FormattedMessage id="settings.saas.continueApple" defaultMessage="Sign in with Apple" />

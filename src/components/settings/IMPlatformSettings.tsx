@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Pencil, Trash2, Loader2, AlertCircle, Eye, EyeOff, XIcon, Hash, Send, MessageCircle, Zap } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, AlertCircle, Eye, EyeOff, XIcon, Hash, Send, MessageCircle, MessagesSquare, Zap } from "lucide-react"
 import { SlackQuickSetupDialog } from "./SlackQuickSetupDialog"
 import { TelegramQuickSetupDialog } from "./TelegramQuickSetupDialog"
 import type { LucideIcon } from "lucide-react"
@@ -31,6 +31,7 @@ import type {
   IMSourceMeta,
 } from "@/types/im"
 import type { Agent } from "@/types/channel"
+import { SettingsSection } from "./SettingsSection"
 
 type FormState = {
   source: IMSource
@@ -259,22 +260,20 @@ export function IMPlatformSettings() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-sm font-semibold mb-1">
-          <FormattedMessage id="settings.im.title" defaultMessage="IM Platform" />
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          <FormattedMessage
-            id="settings.im.desc"
-            defaultMessage="Register IM bots as first-class providers. In {mate} mode a bot embodies an agent and joins channels; in {interactive} mode it runs the wizard flow. Source and mode are locked after creation — delete and recreate to switch."
-            values={{
-              mate: <span className="font-mono">mate</span>,
-              interactive: <span className="font-mono">interactive</span>,
-            }}
-          />
-        </p>
-      </div>
+    <SettingsSection
+      icon={MessagesSquare}
+      title={<FormattedMessage id="settings.im.title" defaultMessage="IM Platform" />}
+      description={
+        <FormattedMessage
+          id="settings.im.desc"
+          defaultMessage="Register IM bots as first-class providers. In {mate} mode a bot embodies an agent and joins channels; in {interactive} mode it runs the wizard flow. Source and mode are locked after creation — delete and recreate to switch."
+          values={{
+            mate: <span className="font-mono">mate</span>,
+            interactive: <span className="font-mono">interactive</span>,
+          }}
+        />
+      }
+    >
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground/60">
@@ -333,18 +332,18 @@ export function IMPlatformSettings() {
           <FormattedMessage id="settings.im.loading" defaultMessage="Loading..." />
         </div>
       ) : providers.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/50 bg-muted/10 p-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border/40 p-8 text-center text-sm text-muted-foreground">
           <FormattedMessage id="settings.im.empty" defaultMessage="No IM providers yet. Create one to connect a bot." />
         </div>
       ) : (
-        <div className="rounded-xl border border-border/40 divide-y divide-border/30 overflow-hidden">
+        <div className="rounded-lg border border-border/40 bg-background/40 divide-y divide-border/40 overflow-hidden">
           {providers.map((p) => {
             const meta = sourceMetaByKey.get(p.source)
             const Icon = iconFor(meta?.icon ?? "")
             const label = meta?.label ?? p.source
             const agent = p.agentId != null ? agentsById.get(p.agentId) : null
             return (
-              <div key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors group">
+              <div key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-row-hover transition-colors group">
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-tint/15 shrink-0">
                   <Icon className="w-4 h-4 text-tint" />
                 </div>
@@ -377,7 +376,7 @@ export function IMPlatformSettings() {
                 <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => setBindingsOpen(p)}
-                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
                     title={intl.formatMessage({ id: "settings.im.viewBindings", defaultMessage: "View channel bindings" })}
                   >
                     <FormattedMessage id="settings.im.bindings" defaultMessage="Bindings" />
@@ -393,7 +392,7 @@ export function IMPlatformSettings() {
                   />
                   <button
                     onClick={() => openEdit(p)}
-                    className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+                    className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
                     title={intl.formatMessage({ id: "settings.im.editTitle", defaultMessage: "Edit" })}
                   >
                     <Pencil className="w-3.5 h-3.5" />
@@ -418,13 +417,13 @@ export function IMPlatformSettings() {
           showCloseButton={false}
         >
           <DialogHeader className="px-1 pt-1 pb-4 flex flex-row items-center justify-between shrink-0">
-            <DialogTitle className="text-xl font-semibold tracking-tight">
+            <DialogTitle>
               {editing
                 ? <FormattedMessage id="settings.im.editDialog.title" defaultMessage="Edit IM Provider" />
                 : <FormattedMessage id="settings.im.newDialog.title" defaultMessage="New IM Provider" />
               }
             </DialogTitle>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50" onClick={closeForm}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={closeForm}>
               <XIcon className="h-4 w-4" />
             </Button>
           </DialogHeader>
@@ -440,7 +439,7 @@ export function IMPlatformSettings() {
                   onValueChange={(v) => setSource(v as IMSource)}
                   disabled={!!editing}
                 >
-                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 shadow-none">
+                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="z-[80]">
@@ -474,7 +473,7 @@ export function IMPlatformSettings() {
                   }
                   disabled={!!editing}
                 >
-                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 shadow-none">
+                  <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="z-[80]">
@@ -497,7 +496,7 @@ export function IMPlatformSettings() {
                     value={form.agentId != null ? String(form.agentId) : ""}
                     onValueChange={(v) => setForm((f) => ({ ...f, agentId: v ? Number(v) : null }))}
                   >
-                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 shadow-none">
+                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
                       <SelectValue placeholder={agents.length === 0
                         ? intl.formatMessage({ id: "settings.im.noAgents", defaultMessage: "No agents available" })
                         : intl.formatMessage({ id: "settings.im.selectAgent", defaultMessage: "Select an agent" })
@@ -588,7 +587,7 @@ export function IMPlatformSettings() {
         onCreated={() => void refresh()}
         agents={agents}
       />
-    </div>
+    </SettingsSection>
   )
 }
 
@@ -675,7 +674,7 @@ function BindingsDialog({
       >
         <DialogHeader className="px-1 pt-1 pb-2 flex flex-row items-center justify-between shrink-0">
           <div>
-            <DialogTitle className="text-lg font-semibold tracking-tight">
+            <DialogTitle>
               <FormattedMessage id="settings.im.bindingsDialog.title" defaultMessage="Channel Bindings" />
             </DialogTitle>
             <p className="text-xs text-muted-foreground/60 mt-0.5">
@@ -683,7 +682,7 @@ function BindingsDialog({
               <FormattedMessage id="settings.im.bindingsDialog.readOnly" defaultMessage="read-only" />
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
             <XIcon className="h-4 w-4" />
           </Button>
         </DialogHeader>

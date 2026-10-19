@@ -37,7 +37,7 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
                             "flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 ease-out",
                             activeFile === id
                                 ? "bg-background text-foreground shadow-premium"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                : "text-muted-foreground hover:text-foreground hover:bg-row-hover"
                         )}
                     >
                         <Icon className="h-3.5 w-3.5" />
@@ -102,13 +102,13 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
                         <span className="text-xs text-destructive"><FormattedMessage id="settings.config.invalid" defaultMessage="Invalid {type}" values={{ type: validationLabel }} /></span>
                     )}
                     {!currentFile.validationError && validationLabel && currentFile.content.trim() && (
-                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                        <span className="flex items-center gap-1 text-xs text-status-ok">
                             <Check className="h-3.5 w-3.5" />
                             <FormattedMessage id="settings.config.valid" defaultMessage="Valid {type}" values={{ type: validationLabel }} />
                         </span>
                     )}
                     {currentFile.saved && (
-                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                        <span className="flex items-center gap-1 text-xs text-status-ok">
                             <Check className="h-3.5 w-3.5" />
                             <FormattedMessage id="common.saved" defaultMessage="Saved" />
                         </span>

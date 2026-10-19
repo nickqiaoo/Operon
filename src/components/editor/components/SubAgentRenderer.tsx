@@ -167,7 +167,7 @@ function ChildStateIcon({ state }: { state: string }) {
     return <LoaderIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />;
   }
   if (normalized === 'output-available') {
-    return <CheckIcon className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />;
+    return <CheckIcon className="size-3.5 shrink-0 text-status-ok" />;
   }
   if (normalized === 'output-error' || normalized === 'output-denied') {
     return <XIcon className="size-3.5 shrink-0 text-destructive" />;
@@ -201,7 +201,7 @@ function ChildApproval({
       <ConfirmationTitle>
         <ConfirmationRequest><FormattedMessage id="editor.confirm.requested" defaultMessage="Permission requested" /></ConfirmationRequest>
         <ConfirmationAccepted>
-          <CheckIcon className="size-3.5 text-green-600 dark:text-green-400" />
+          <CheckIcon className="size-3.5 text-status-ok" />
           <span><FormattedMessage id="editor.confirm.accepted" defaultMessage="Accepted" /></span>
         </ConfirmationAccepted>
         <ConfirmationRejected>
@@ -353,8 +353,8 @@ export function SubAgentRenderer({
         <div className="flex w-full cursor-pointer items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground">
           <BotIcon className={cn(
             'size-4 shrink-0',
-            isStreaming && !isDone && 'text-blue-500 animate-pulse',
-            isDone && 'text-green-600 dark:text-green-400',
+            isStreaming && !isDone && 'text-status-info animate-pulse',
+            isDone && 'text-status-ok',
             isError && 'text-destructive',
           )} />
           <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-xs"><FormattedMessage id="editor.subagent.agentBadge" defaultMessage="Agent" /></span>
@@ -373,8 +373,8 @@ export function SubAgentRenderer({
             <span className="min-w-0 truncate text-xs text-muted-foreground/60">{progress}</span>
           )}
           {hasPendingApproval && (
-            <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 text-xs dark:bg-amber-500/15 dark:text-amber-400">
-              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="inline-flex items-center gap-1 rounded bg-status-warn/10 px-1.5 py-0.5 font-medium text-status-warn text-xs">
+              <span className="size-1.5 rounded-full bg-accent-warm animate-pulse" />
               <FormattedMessage id="editor.subagent.needsApproval" defaultMessage="Needs approval" />
             </span>
           )}

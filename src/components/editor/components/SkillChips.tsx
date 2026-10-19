@@ -20,7 +20,7 @@ export function SkillChips({ skills, onRemove }: SkillChipsProps) {
           <button
             type="button"
             onClick={() => onRemove(skill.name)}
-            className="rounded-sm p-0.5 hover:bg-tint/20 transition-colors"
+            className="rounded p-0.5 hover:bg-tint/20 transition-colors"
           >
             <X className="size-2.5" />
           </button>

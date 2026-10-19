@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, Download, Check, Cpu, HardDrive } from "lucide-react"
+import { Loader2, Download, Check, Cpu, Database, HardDrive } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { SettingsSection } from "./SettingsSection"
 import { cn } from "@/lib/utils"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
@@ -124,32 +126,12 @@ export function EmbeddingSettings() {
     const enableLabel = intl.formatMessage({ id: "settings.embedding.title", defaultMessage: "Enable Memory Embedding" })
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between pb-6 border-b border-border/60">
-                <div>
-                    <div className="text-sm font-medium mb-1">{enableLabel}</div>
-                    <div className="text-sm text-muted-foreground">
-                        <FormattedMessage id="settings.embedding.desc" defaultMessage="Local vector search for memory extraction and retrieval" />
-                    </div>
-                </div>
-                <button
-                    type="button"
-                    role="switch"
-                    aria-label={enableLabel}
-                    aria-checked={config.enabled}
-                    onClick={handleToggle}
-                    className={cn(
-                        "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none cursor-pointer",
-                        config.enabled ? "bg-green-500" : "bg-muted-foreground/30"
-                    )}
-                >
-                    <span className={cn(
-                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200",
-                        config.enabled ? "translate-x-4" : "translate-x-0"
-                    )} />
-                </button>
-            </div>
-
+        <SettingsSection
+            icon={Database}
+            title={enableLabel}
+            description={<FormattedMessage id="settings.embedding.desc" defaultMessage="Local vector search for memory extraction and retrieval" />}
+            action={<Switch aria-label={enableLabel} checked={config.enabled} onCheckedChange={() => void handleToggle()} />}
+        >
             {statusLoading ? (
                 <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -230,7 +212,7 @@ export function EmbeddingSettings() {
                         )}
 
                         {modelsReady && !downloading && (
-                            <div className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <div className="flex items-center gap-1 text-xs text-status-ok">
                                 <Check className="h-3.5 w-3.5" />
                                 <FormattedMessage id="settings.embedding.allReady" defaultMessage="All models ready" />
                             </div>
@@ -239,13 +221,13 @@ export function EmbeddingSettings() {
                 </>
             ) : null}
 
-            <div className="flex items-center gap-2 pt-2 border-t border-border/60">
-                <Button size="sm" variant="secondary" onClick={handleTest} disabled={testing || !config.enabled} className="gap-1.5">
+            <div className="flex items-center gap-2 border-t border-border/40 pt-4 dark:border-border/35">
+                <Button size="sm" variant="secondary" onClick={handleTest} disabled={testing || !config.enabled} className="h-8 gap-1.5">
                     {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                     <FormattedMessage id="settings.embedding.testButton" defaultMessage="Test Embedding" />
                 </Button>
                 {testResult && (
-                    <span className={cn("text-xs", testResult.success ? "text-green-600 dark:text-green-400" : "text-destructive")}>
+                    <span className={cn("text-xs", testResult.success ? "text-status-ok" : "text-status-error")}>
                         {testResult.success
                             ? <FormattedMessage id="settings.embedding.testOk" defaultMessage="OK ({dims}d)" values={{ dims: testResult.dimensions }} />
                             : <FormattedMessage id="settings.embedding.testFailed" defaultMessage="Failed" />
@@ -253,13 +235,13 @@ export function EmbeddingSettings() {
                     </span>
                 )}
             </div>
-        </div>
+        </SettingsSection>
     )
 }
 
 function ModelRow({ model, label, notDownloadedLabel }: { model: ModelStatus; label: string; notDownloadedLabel: string }) {
     return (
-        <div className="flex items-center justify-between py-2 px-3 bg-muted/20 rounded-lg">
+        <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/40 px-3 py-2">
             <div>
                 <div className="text-sm font-medium">{label}</div>
                 <div className="text-xs text-muted-foreground">{model.name}</div>
@@ -268,7 +250,7 @@ function ModelRow({ model, label, notDownloadedLabel }: { model: ModelStatus; la
                 {model.downloaded ? (
                     <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">{formatBytes(model.sizeBytes)}</span>
-                        <Check className="h-3.5 w-3.5 text-green-500" />
+                        <Check className="h-3.5 w-3.5 text-status-ok" />
                     </div>
                 ) : (
                     <span className="text-xs text-muted-foreground">{notDownloadedLabel}</span>

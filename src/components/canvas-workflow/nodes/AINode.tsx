@@ -34,7 +34,7 @@ export function AINodeComponent({ data, id, selected }: NodeProps) {
         <NodeTitle className="text-xs font-medium truncate flex-1">{name}</NodeTitle>
         {canOpenChat && onOpenChat && (
           <button
-            className="h-5 w-5 rounded flex items-center justify-center hover:bg-muted/60 transition-colors"
+            className="h-5 w-5 rounded flex items-center justify-center hover:bg-accent-hover transition-colors"
             onClick={(e) => {
               e.stopPropagation()
               onOpenChat(chatId, `Workflow: ${name}`, nodeData?.providerId || '')

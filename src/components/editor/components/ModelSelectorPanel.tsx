@@ -13,7 +13,7 @@ import { useFloatingPanel, panelCn, panelInnerCn } from './floating-panel-utils'
 
 export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
   const src = providerLogoSrc(id);
-  if (!src) return <span className="inline-block rounded-sm bg-muted/60 flex-shrink-0" style={{ width: size, height: size }} />;
+  if (!src) return <span className="inline-block rounded bg-muted/60 flex-shrink-0" style={{ width: size, height: size }} />;
   return (
     <img src={src} alt="" width={size} height={size}
       className="dark:invert flex-shrink-0"
@@ -145,7 +145,7 @@ export function ModelSelectorPanel({
                   'flex w-full items-center gap-2 rounded-lg py-2 pl-8 pr-3 text-left text-sm transition-colors md:py-1.5',
                   model === item.id
                     ? 'bg-muted/70 text-foreground'
-                    : 'text-foreground/80 hover:bg-muted/40 hover:text-foreground'
+                    : 'text-foreground/80 hover:bg-row-hover hover:text-foreground'
                 )}
               >
                 <span className="flex-1 truncate">{item.label}</span>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { useChannelStore } from "@/stores/channel-store"
 import { AgentManageDialog } from "@/components/channel/AgentManageDialog"
 import { api } from "@/lib/api"
+import { SettingsSection } from "./SettingsSection"
 
 export function AgentSettings() {
   const agents = useChannelStore((s) => s.agents)
@@ -24,19 +25,18 @@ export function AgentSettings() {
   const hasMore = agents.length > 3
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold mb-1"><FormattedMessage id="settings.agents.title" defaultMessage="Agents" /></h2>
-        <p className="text-xs text-muted-foreground">
-          <FormattedMessage
-            id="settings.agents.desc"
-            defaultMessage="Agents are the AI personas IM bots embody in <code>mate</code> mode. Create and edit them here without having to open a channel."
-            values={{ code: (chunks) => <span className="font-mono">{chunks}</span> }}
-          />
-        </p>
-      </div>
-
-      <div className="flex items-center justify-between rounded-xl border border-border/40 px-4 py-3 hover:bg-muted/20 transition-colors">
+    <SettingsSection
+      icon={Bot}
+      title={<FormattedMessage id="settings.agents.title" defaultMessage="Agents" />}
+      description={
+        <FormattedMessage
+          id="settings.agents.desc"
+          defaultMessage="Agents are the AI personas IM bots embody in <code>mate</code> mode. Create and edit them here without having to open a channel."
+          values={{ code: (chunks) => <span className="font-mono">{chunks}</span> }}
+        />
+      }
+    >
+      <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/40 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center justify-center w-8 h-8 rounded-full bg-tint/15 shrink-0">
             <Bot className="w-4 h-4 text-tint" />
@@ -70,6 +70,6 @@ export function AgentSettings() {
           providers={providers}
         />
       )}
-    </div>
+    </SettingsSection>
   )
 }

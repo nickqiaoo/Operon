@@ -96,7 +96,7 @@ export function MentionPopup({
                   'grid w-full grid-cols-[1rem_minmax(0,0.9fr)_minmax(0,1.1fr)] items-center gap-1.5 rounded-lg px-3 py-1.5 text-left text-sm transition-colors',
                   index === selectedIndex
                     ? 'bg-muted/80 text-foreground'
-                    : 'hover:bg-muted/40 text-foreground/80'
+                    : 'hover:bg-row-hover text-foreground/80'
                 )}
               >
                 <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">

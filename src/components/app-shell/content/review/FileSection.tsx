@@ -246,7 +246,7 @@ export function FileActionButtons({
     onAction(action)
   }
   const buttonClass =
-    "flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+    "flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
 
   return (
     <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/file-diff:opacity-100">

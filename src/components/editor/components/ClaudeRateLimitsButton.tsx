@@ -156,7 +156,7 @@ function TriggerContent({ windows }: { windows: DisplayWindow[] }) {
 }
 
 const triggerClassName =
-  'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-muted/40';
+  'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-accent-hover';
 
 /** Desktop: quota summary on hover, like the context usage chip beside it. */
 export function ClaudeRateLimitsButton({ rateLimits, className }: ClaudeRateLimitsButtonProps) {

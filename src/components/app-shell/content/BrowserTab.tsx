@@ -160,7 +160,7 @@ export function BrowserTab({
             <button
               type="button"
               onClick={() => instance.navigate(loadError.url)}
-              className="mt-1 rounded-md border border-border/50 px-3 py-1 text-xs hover:bg-muted/60"
+              className="mt-1 rounded-md border border-border/50 px-3 py-1 text-xs hover:bg-row-hover"
             >
               Retry
             </button>

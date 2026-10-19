@@ -126,7 +126,7 @@ function ToolRow({ tc }: { tc: TrackedToolCall }) {
   return (
     <div className="flex items-center gap-2 text-xs">
       {tc.status === 'done' ? (
-        <CheckIcon className="size-3 shrink-0 text-green-600 dark:text-green-400" />
+        <CheckIcon className="size-3 shrink-0 text-status-ok" />
       ) : tc.status === 'error' ? (
         <XIcon className="size-3 shrink-0 text-destructive" />
       ) : (

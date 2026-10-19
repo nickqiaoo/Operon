@@ -50,6 +50,13 @@
   --color-secondary-active: color-mix(in srgb, var(--color-secondary) 84%, var(--color-foreground));
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 92%, var(--color-foreground));
   --color-accent-active: color-mix(in srgb, var(--color-accent) 84%, var(--color-foreground));
+  /* List rows (rail entries, list items, pickers): a foreground tint over a
+     transparent base, so the ladder rest 0 -> hover 4% -> selected 7% reads on
+     every surface — rail, canvas, dialog — in both themes. `bg-accent` can't do
+     this: in dark it sits within 4 of the selected tint and vanishes on dialogs.
+     Buttons keep `accent-hover`; rows use these. */
+  --color-row-hover: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  --color-row-selected: color-mix(in srgb, var(--color-foreground) 7%, transparent);
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
   --color-popover: #ffffff;
@@ -112,6 +119,10 @@
   --color-status-warn: #b45309;
   --color-status-error: #b91c1c;
   --color-status-info: #0369a1;
+  /* Line counts (+N / -N) wherever a diff is summarised: review, commit, sidebar,
+     turn cards. One pair so the same number reads the same green everywhere. */
+  --color-diff-add: #3f9348;
+  --color-diff-remove: #c84d4d;
 
   /* Categorical palette for the context-window breakdown — the one place we paint
      data rather than UI. Slots are assigned in fixed order and NEVER cycled: a run
@@ -189,7 +200,10 @@
   --color-border: #2b2b31;
   --color-primary: #fafafa;
   --color-primary-foreground: #09090b;
-  --color-secondary: #202024;
+  /* Lifted off `accent` (#202024) on purpose: the dialog surface mixes to ~#1d1d1f,
+     so a #202024 button sat 3 away from it and the primary action read as ghost.
+     #2a2a2f clears dialog/popover by ~13-16 while staying quiet on the canvas. */
+  --color-secondary: #2a2a2f;
   --color-secondary-foreground: #f0f0f2;
   --color-destructive: #991b1b;
   --color-destructive-foreground: #fecaca;
@@ -203,6 +217,8 @@
   --color-secondary-active: color-mix(in srgb, var(--color-secondary) 84%, var(--color-foreground));
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 92%, var(--color-foreground));
   --color-accent-active: color-mix(in srgb, var(--color-accent) 84%, var(--color-foreground));
+  --color-row-hover: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  --color-row-selected: color-mix(in srgb, var(--color-foreground) 7%, transparent);
   --color-dialog: color-mix(in srgb, var(--color-background) 92%, var(--color-foreground) 8%);
   --color-dialog-foreground: var(--color-popover-foreground);
   --color-dialog-field: color-mix(in srgb, var(--color-background) 97%, var(--color-foreground) 3%);
@@ -236,6 +252,8 @@
   --color-status-warn: #fcd34d;
   --color-status-error: #fca5a5;
   --color-status-info: #7dd3fc;
+  --color-diff-add: #4cae4f;
+  --color-diff-remove: #d1493f;
   /* Same six hues re-stepped for the dark surface (#1a1a1e popover), not an
      automatic flip — validated as its own set: all six clear 3:1 there, worst
      adjacent CVD ΔE 8.4, normal-vision ΔE 19.3. */
@@ -255,7 +273,9 @@
   --gradient-glow: radial-gradient(ellipse at center, rgba(139, 125, 240, 0.04) 0%, transparent 70%);
 }
 
-/* Dialog hierarchy: recessed form controls, raised dialog, then floating menus. */
+/* Dialog hierarchy: recessed form controls, raised dialog, then floating menus.
+   `data-bare` opts a field out: a title typed straight onto the dialog (New Task)
+   is page text, not a form field, and a field ground under it reads as a stray band. */
 [data-slot="dialog-content"] :is(
   [data-slot="input"],
   [data-slot="textarea"],
@@ -270,7 +290,7 @@
   input[type="number"],
   input[type="time"],
   textarea
-) {
+):not([data-bare]) {
   background-color: var(--color-dialog-field);
   border-color: color-mix(in srgb, var(--color-border) 60%, transparent);
 }
@@ -289,7 +309,7 @@
   input[type="number"],
   input[type="time"],
   textarea
-):hover {
+):not([data-bare]):hover {
   background-color: color-mix(in srgb, var(--color-dialog-field) 98%, var(--color-foreground) 2%);
 }
 

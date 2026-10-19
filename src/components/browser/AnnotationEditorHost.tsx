@@ -187,7 +187,7 @@ export function AnnotationEditorHost() {
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
           panelOpen
             ? "bg-secondary text-secondary-foreground"
-            : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
         )}
       >
         <SlidersHorizontal className="h-4 w-4" />
@@ -253,7 +253,7 @@ export function AnnotationEditorHost() {
             <button
               type="button"
               onClick={cancel}
-              className="h-8 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              className="h-8 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
             >
               Cancel
             </button>

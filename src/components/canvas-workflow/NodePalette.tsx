@@ -26,7 +26,7 @@ export function NodePalette({ onAddNode }: NodePaletteProps) {
           return (
             <button
               key={type}
-              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
               onClick={() => onAddNode(type)}
             >
               <Icon className="h-4 w-4" />

@@ -25,7 +25,7 @@ export function NewTabMenu({ panelId }: NewTabMenuProps) {
           type="button"
           aria-label={intl.formatMessage({ id: "tab.newTab", defaultMessage: "New tab" })}
           data-testid={`new-tab-trigger-${panelId}`}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Switch } from "@/components/ui/switch"
 import { api } from '@/lib/api'
 import { invalidateModelsCache } from '@/components/editor/hooks/useModelManagement'
 import { Button } from '@/components/ui/button'
@@ -83,25 +84,7 @@ function customProviderMeta(id: string, custom: CustomProviderInfo): ProviderMet
 // Toggle
 // ---------------------------------------------------------------------------
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none',
-        checked ? 'bg-green-500' : 'bg-muted-foreground/30',
-        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-      )}
-    >
-      <span className={cn(
-        'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200',
-        checked ? 'translate-x-4' : 'translate-x-0'
-      )} />
-    </button>
-  )
+  return <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +261,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
                 ? name.trim() || <FormattedMessage id="settings.providers.newCustom" defaultMessage="New provider" />
                 : provider.label}
               {isConfigured && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-normal text-green-600 dark:text-green-400">
+                <span className="inline-flex items-center gap-1 text-[11px] font-normal text-status-ok">
                   <Check className="h-3 w-3" /> <FormattedMessage id="settings.providers.configured" defaultMessage="Configured" />
                 </span>
               )}
@@ -307,7 +290,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
         )}
       </div>
 
-      <div className="border-t border-border/60" />
+      <div className="border-t border-border/40" />
 
       {/* ── Name + API (custom providers) ── */}
       {isCustom && (
@@ -471,7 +454,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
           )}
         </div>
         <div className="flex items-center gap-2 lg:justify-end">
-          {savedOk && <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" /></span>}
+          {savedOk && <span className="flex items-center gap-1 text-xs text-status-ok"><Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" /></span>}
           {saveErr && <span className="flex items-center gap-1 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" /> <FormattedMessage id="settings.providers.failed" defaultMessage="Failed" /></span>}
           <Button size="sm" variant="secondary" onClick={handleSave} disabled={saving || !canSave} className="h-8 gap-1.5">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -517,7 +500,7 @@ function ProviderItem({ provider, state, selected, onClick }: {
         'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all',
         selected
           ? 'bg-background text-foreground shadow-card ring-1 ring-border/40'
-          : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+          : 'text-muted-foreground hover:bg-row-hover hover:text-foreground'
       )}
     >
       <div className={cn(
@@ -531,7 +514,7 @@ function ProviderItem({ provider, state, selected, onClick }: {
       </span>
       <span className={cn(
         'h-1.5 w-1.5 rounded-full flex-shrink-0',
-        state?.enabled ? 'bg-green-500' : state?.hasApiKey ? 'bg-amber-400' : 'bg-muted-foreground/20'
+        state?.enabled ? 'bg-accent-green' : state?.hasApiKey ? 'bg-accent-warm' : 'bg-muted-foreground/20'
       )} />
     </button>
   )
@@ -628,10 +611,10 @@ export function ProvidersTab() {
         </div>
 
         {/* Legend */}
-        <div className="mt-4 pt-3 px-2 space-y-1.5 border-t border-border/60">
+        <div className="mt-4 pt-3 px-2 space-y-1.5 border-t border-border/40">
           {[
-            { dot: 'bg-green-500', key: 'enabled', label: <FormattedMessage id="settings.providers.legendEnabled" defaultMessage="Enabled" /> },
-            { dot: 'bg-amber-400', key: 'keySaved', label: <FormattedMessage id="settings.providers.legendKeySaved" defaultMessage="Key saved" /> },
+            { dot: 'bg-accent-green', key: 'enabled', label: <FormattedMessage id="settings.providers.legendEnabled" defaultMessage="Enabled" /> },
+            { dot: 'bg-accent-warm', key: 'keySaved', label: <FormattedMessage id="settings.providers.legendKeySaved" defaultMessage="Key saved" /> },
             { dot: 'bg-muted-foreground/20', key: 'notConfigured', label: <FormattedMessage id="settings.providers.legendNotConfigured" defaultMessage="Not configured" /> },
           ].map(({ dot, key, label }) => (
             <div key={key} className="flex items-center gap-2 text-[10px] text-muted-foreground">

@@ -4,6 +4,7 @@ import { Loader2, Save, Check, AlertCircle, Eye, EyeOff, FileDiff } from "lucide
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
+import { SettingsSection } from "./SettingsSection"
 
 export function DiffPreviewSettings() {
     const intl = useIntl()
@@ -45,31 +46,27 @@ export function DiffPreviewSettings() {
     const inputCn = "w-full px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/50 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40"
 
     return (
-        <section className="space-y-5 rounded-xl border border-border/40 bg-muted/10 p-5">
-            <div className="flex items-start gap-3">
-                <FileDiff className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                <div className="flex-1">
-                    <h2 className="text-sm font-semibold mb-1"><FormattedMessage id="settings.diffPreview.title" defaultMessage="Diff Preview" /></h2>
-                    <p className="text-xs text-muted-foreground">
-                        <FormattedMessage
-                            id="settings.diffPreview.desc"
-                            defaultMessage="Shared across all IM providers. Deploy the Cloudflare Worker from <link>operon-diff-worker</link>. Telegram will render the link as a mini app; Slack and others receive a plain link button."
-                            values={{
-                                link: (chunks) => (
-                                    <button
-                                        type="button"
-                                        onClick={() => openExternalUrl("https://github.com/Nickqiaoo/operon-diff-worker")}
-                                        className="text-primary hover:underline cursor-pointer"
-                                    >
-                                        {chunks}
-                                    </button>
-                                ),
-                            }}
-                        />
-                    </p>
-                </div>
-            </div>
-
+        <SettingsSection
+            icon={FileDiff}
+            title={<FormattedMessage id="settings.diffPreview.title" defaultMessage="Diff Preview" />}
+            description={
+                <FormattedMessage
+                        id="settings.diffPreview.desc"
+                        defaultMessage="Shared across all IM providers. Deploy the Cloudflare Worker from <link>operon-diff-worker</link>. Telegram will render the link as a mini app; Slack and others receive a plain link button."
+                        values={{
+                            link: (chunks) => (
+                                <button
+                                    type="button"
+                                    onClick={() => openExternalUrl("https://github.com/Nickqiaoo/operon-diff-worker")}
+                                    className="text-primary hover:underline cursor-pointer"
+                                >
+                                    {chunks}
+                                </button>
+                            ),
+                        }}
+                    />
+            }
+        >
             {loading ? (
                 <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="h-4 w-4 animate-spin" /> <FormattedMessage id="common.loading" defaultMessage="Loading…" />
@@ -115,11 +112,11 @@ export function DiffPreviewSettings() {
                             <Save className="h-3.5 w-3.5" />
                             <FormattedMessage id="common.save" defaultMessage="Save" />
                         </Button>
-                        {savedOk && <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" /></span>}
+                        {savedOk && <span className="flex items-center gap-1 text-xs text-status-ok"><Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" /></span>}
                         {saveErr && <span className="flex items-center gap-1 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" /> <FormattedMessage id="common.saveFailed" defaultMessage="Failed to save" /></span>}
                     </div>
                 </div>
             )}
-        </section>
+        </SettingsSection>
     )
 }

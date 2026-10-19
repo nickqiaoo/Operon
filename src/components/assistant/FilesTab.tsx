@@ -117,7 +117,7 @@ export function FilesTab({ selectedPath, onOpen, refreshKey, large, onDir }: Fil
                   className={cn(
                     "flex w-full items-start text-left transition-colors",
                     large ? "gap-3.5 rounded-xl px-3 py-2.5 active:bg-secondary-active" : "gap-3 rounded-lg px-2 py-2",
-                    selectedPath === file.path ? "bg-foreground/[0.07]" : "hover:bg-secondary-hover",
+                    selectedPath === file.path ? "bg-row-selected" : "hover:bg-secondary-hover",
                   )}
                 >
                   <span className={cn("flex shrink-0 items-center justify-center", large ? "mt-0.5 size-6" : "mt-0.5 h-4 w-4")}>

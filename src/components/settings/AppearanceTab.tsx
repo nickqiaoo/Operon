@@ -9,7 +9,8 @@ import {
     type TerminalTheme,
 } from "@/lib/terminal-themes"
 import { cn } from "@/lib/utils"
-import { Check, ChevronDown } from "lucide-react"
+import { Check, ChevronDown, Palette, SquareTerminal } from "lucide-react"
+import { SettingsRow, SettingsSection } from "./SettingsSection"
 import { useState, useRef, useEffect } from "react"
 
 // Literal-id labels keyed by enum value — kept as discrete <FormattedMessage>
@@ -50,116 +51,121 @@ export function AppearanceTab() {
     const darkPreset = getThemeById(darkUITheme)
 
     return (
-        <div className="space-y-8">
-            {/* Language Section */}
-            <div className="flex items-center justify-between pb-8 border-b border-border/60">
+        <div className="space-y-4">
+            <SettingsSection
+                icon={Palette}
+                title={<FormattedMessage id="settings.appearance.section.interface" defaultMessage="Interface" />}
+                description={<FormattedMessage id="settings.appearance.section.interfaceDesc" defaultMessage="Language, color mode and the theme used in each mode." />}
+            >
                 <div>
-                    <div className="text-sm font-medium mb-1"><FormattedMessage id="settings.appearance.language.title" defaultMessage="Language" /></div>
-                    <div className="text-sm text-muted-foreground"><FormattedMessage id="settings.appearance.language.desc" defaultMessage="Choose your interface language" /></div>
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.language.title" defaultMessage="Language" />}
+                        description={<FormattedMessage id="settings.appearance.language.desc" defaultMessage="Choose your interface language" />}
+                        control={
+                            <SegmentedControl>
+                                {LOCALE_OPTIONS.map((opt) => (
+                                    <SegmentedButton
+                                        key={opt.id}
+                                        testId={`settings-appearance-locale-${opt.id}`}
+                                        active={localeOverride === opt.id}
+                                        onClick={() => setLocale(opt.id as LocalePref)}
+                                    >
+                                        {opt.id === "system" ? THEME_LABEL.system : opt.label}
+                                    </SegmentedButton>
+                                ))}
+                            </SegmentedControl>
+                        }
+                    />
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.theme.title" defaultMessage="Theme" />}
+                        description={<FormattedMessage id="settings.appearance.theme.desc" defaultMessage="Select your interface color theme" />}
+                        control={
+                            <SegmentedControl>
+                                {(["system", "light", "dark"] as const).map((mode) => (
+                                    <SegmentedButton
+                                        key={mode}
+                                        testId={`settings-appearance-theme-${mode}`}
+                                        active={theme === mode}
+                                        onClick={() => setTheme(mode)}
+                                    >
+                                        {THEME_LABEL[mode]}
+                                    </SegmentedButton>
+                                ))}
+                            </SegmentedControl>
+                        }
+                    />
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.lightPreset.title" defaultMessage="Light Theme Preset" />}
+                        description={<FormattedMessage id="settings.appearance.lightPreset.desc" defaultMessage="Color scheme for light mode" />}
+                        control={
+                            <ThemeDropdown
+                                themes={lightThemes}
+                                value={lightUITheme}
+                                onChange={handleLightUITheme}
+                                selectedName={lightPreset?.name ?? 'Default'}
+                                selectedPreview={lightPreset?.preview ?? '#6358DC'}
+                            />
+                        }
+                    />
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.darkPreset.title" defaultMessage="Dark Theme Preset" />}
+                        description={<FormattedMessage id="settings.appearance.darkPreset.desc" defaultMessage="Color scheme for dark mode" />}
+                        control={
+                            <ThemeDropdown
+                                themes={darkThemes}
+                                value={darkUITheme}
+                                onChange={handleDarkUITheme}
+                                selectedName={darkPreset?.name ?? 'Default'}
+                                selectedPreview={darkPreset?.preview ?? '#8B7DF0'}
+                            />
+                        }
+                    />
                 </div>
-                <div className="flex items-center p-1 bg-muted/30 rounded-lg border border-border/60">
-                    {LOCALE_OPTIONS.map((opt) => (
-                        <button
-                            key={opt.id}
-                            data-testid={`settings-appearance-locale-${opt.id}`}
-                            data-active={localeOverride === opt.id ? 'true' : undefined}
-                            onClick={() => setLocale(opt.id as LocalePref)}
-                            className={cn(
-                                "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
-                                localeOverride === opt.id
-                                    ? "bg-background text-foreground shadow-card ring-1 ring-border/50"
-                                    : "text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            {opt.id === "system" ? THEME_LABEL.system : opt.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
+            </SettingsSection>
 
-            {/* Theme Section */}
-            <div className="flex items-center justify-between pb-8 border-b border-border/60">
+            <SettingsSection
+                icon={SquareTerminal}
+                title={<FormattedMessage id="settings.appearance.section.terminal" defaultMessage="Terminal" />}
+                description={<FormattedMessage id="settings.appearance.section.terminalDesc" defaultMessage="Colors for the embedded terminal." />}
+            >
                 <div>
-                    <div className="text-sm font-medium mb-1"><FormattedMessage id="settings.appearance.theme.title" defaultMessage="Theme" /></div>
-                    <div className="text-sm text-muted-foreground"><FormattedMessage id="settings.appearance.theme.desc" defaultMessage="Select your interface color theme" /></div>
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.lightTerminal.title" defaultMessage="Light Mode Terminal Theme" />}
+                        description={<FormattedMessage id="settings.appearance.lightTerminal.desc" defaultMessage="Color scheme for the embedded terminal in light mode" />}
+                        control={<TerminalThemeDropdown themes={lightTerminalThemes} value={lightTerminalTheme} onChange={setLightTerminalTheme} />}
+                    />
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.darkTerminal.title" defaultMessage="Dark Mode Terminal Theme" />}
+                        description={<FormattedMessage id="settings.appearance.darkTerminal.desc" defaultMessage="Color scheme for the embedded terminal in dark mode" />}
+                        control={<TerminalThemeDropdown themes={darkTerminalThemes} value={darkTerminalTheme} onChange={setDarkTerminalTheme} />}
+                    />
                 </div>
-                <div className="flex items-center p-1 bg-muted/30 rounded-lg border border-border/60">
-                    {(["light", "dark", "system"] as const).map((mode) => (
-                        <button
-                            key={mode}
-                            data-testid={`settings-appearance-theme-${mode}`}
-                            data-active={theme === mode ? 'true' : undefined}
-                            onClick={() => setTheme(mode)}
-                            className={cn(
-                                "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
-                                theme === mode
-                                    ? "bg-background text-foreground shadow-card ring-1 ring-border/50"
-                                    : "text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            {THEME_LABEL[mode]}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Light UI Theme */}
-            <div className="flex items-center justify-between pb-8 border-b border-border/60">
-                <div>
-                    <div className="text-sm font-medium mb-1"><FormattedMessage id="settings.appearance.lightPreset.title" defaultMessage="Light Theme Preset" /></div>
-                    <div className="text-sm text-muted-foreground"><FormattedMessage id="settings.appearance.lightPreset.desc" defaultMessage="Color scheme for light mode" /></div>
-                </div>
-                <ThemeDropdown
-                    themes={lightThemes}
-                    value={lightUITheme}
-                    onChange={handleLightUITheme}
-                    selectedName={lightPreset?.name ?? 'Default'}
-                    selectedPreview={lightPreset?.preview ?? '#6358DC'}
-                />
-            </div>
-
-            {/* Dark UI Theme */}
-            <div className="flex items-center justify-between pb-8 border-b border-border/60">
-                <div>
-                    <div className="text-sm font-medium mb-1"><FormattedMessage id="settings.appearance.darkPreset.title" defaultMessage="Dark Theme Preset" /></div>
-                    <div className="text-sm text-muted-foreground"><FormattedMessage id="settings.appearance.darkPreset.desc" defaultMessage="Color scheme for dark mode" /></div>
-                </div>
-                <ThemeDropdown
-                    themes={darkThemes}
-                    value={darkUITheme}
-                    onChange={handleDarkUITheme}
-                    selectedName={darkPreset?.name ?? 'Default'}
-                    selectedPreview={darkPreset?.preview ?? '#8B7DF0'}
-                />
-            </div>
-
-            {/* Light Mode Terminal Theme */}
-            <div className="flex items-center justify-between pb-8 border-b border-border/60">
-                <div>
-                    <div className="text-sm font-medium mb-1"><FormattedMessage id="settings.appearance.lightTerminal.title" defaultMessage="Light Mode Terminal Theme" /></div>
-                    <div className="text-sm text-muted-foreground"><FormattedMessage id="settings.appearance.lightTerminal.desc" defaultMessage="Color scheme for the embedded terminal in light mode" /></div>
-                </div>
-                <TerminalThemeDropdown
-                    themes={lightTerminalThemes}
-                    value={lightTerminalTheme}
-                    onChange={setLightTerminalTheme}
-                />
-            </div>
-
-            {/* Dark Mode Terminal Theme */}
-            <div className="flex items-center justify-between pb-8 border-b border-border/60">
-                <div>
-                    <div className="text-sm font-medium mb-1"><FormattedMessage id="settings.appearance.darkTerminal.title" defaultMessage="Dark Mode Terminal Theme" /></div>
-                    <div className="text-sm text-muted-foreground"><FormattedMessage id="settings.appearance.darkTerminal.desc" defaultMessage="Color scheme for the embedded terminal in dark mode" /></div>
-                </div>
-                <TerminalThemeDropdown
-                    themes={darkTerminalThemes}
-                    value={darkTerminalTheme}
-                    onChange={setDarkTerminalTheme}
-                />
-            </div>
-
+            </SettingsSection>
         </div>
+    )
+}
+
+// ── Segmented control (language / theme) ──
+
+function SegmentedControl({ children }: { children: React.ReactNode }) {
+    return <div className="flex items-center rounded-lg border border-border/50 bg-muted/30 p-1">{children}</div>
+}
+
+function SegmentedButton({ testId, active, onClick, children }: { testId: string; active: boolean; onClick: () => void; children: React.ReactNode }) {
+    return (
+        <button
+            data-testid={testId}
+            data-active={active ? 'true' : undefined}
+            onClick={onClick}
+            className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                active
+                    ? "bg-background text-foreground shadow-card ring-1 ring-border/50"
+                    : "text-muted-foreground hover:text-foreground"
+            )}
+        >
+            {children}
+        </button>
     )
 }
 
@@ -192,7 +198,7 @@ function ThemeDropdown({ themes, value, onChange, selectedName, selectedPreview 
         <div ref={ref} className="relative">
             <button
                 onClick={() => setOpen(!open)}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-muted/30 rounded-lg border border-border/60 hover:bg-muted/50 transition-colors min-w-[160px]"
+                className="flex items-center gap-2.5 px-3 py-1.5 bg-muted/30 rounded-lg border border-border/50 hover:bg-row-hover transition-colors min-w-[200px]"
             >
                 <span
                     className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
@@ -211,8 +217,8 @@ function ThemeDropdown({ themes, value, onChange, selectedName, selectedPreview 
                             key={t.id}
                             onClick={() => { onChange(t.id); setOpen(false) }}
                             className={cn(
-                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left",
-                                value === t.id && "bg-muted/30"
+                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-row-hover transition-colors text-left",
+                                value === t.id && "bg-row-selected"
                             )}
                         >
                             <span
@@ -277,7 +283,7 @@ function TerminalThemeDropdown({ themes, value, onChange }: TerminalThemeDropdow
         <div ref={ref} className="relative">
             <button
                 onClick={() => setOpen(!open)}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-muted/30 rounded-lg border border-border/60 hover:bg-muted/50 transition-colors min-w-[200px]"
+                className="flex items-center gap-2.5 px-3 py-1.5 bg-muted/30 rounded-lg border border-border/50 hover:bg-row-hover transition-colors min-w-[200px]"
             >
                 {selected && <TerminalSwatch theme={selected} />}
                 <span className="text-sm font-medium flex-1 text-left">{selected?.name ?? 'Default'}</span>
@@ -291,8 +297,8 @@ function TerminalThemeDropdown({ themes, value, onChange }: TerminalThemeDropdow
                             key={t.id}
                             onClick={() => { onChange(t.id); setOpen(false) }}
                             className={cn(
-                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted/50 transition-colors text-left",
-                                value === t.id && "bg-muted/30"
+                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-row-hover transition-colors text-left",
+                                value === t.id && "bg-row-selected"
                             )}
                         >
                             <TerminalSwatch theme={t} />

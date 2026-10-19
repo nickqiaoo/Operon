@@ -103,7 +103,7 @@ export function AnnotationTray({ workspaceId }: { workspaceId: number | null }) 
               type="button"
               onClick={() => remove(a.id)}
               title={intl.formatMessage({ id: "editor.annotation.remove", defaultMessage: "Remove annotation" })}
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
             >
               <X className="h-3 w-3" />
             </button>

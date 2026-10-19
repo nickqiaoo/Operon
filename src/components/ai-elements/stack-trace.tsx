@@ -209,7 +209,7 @@ export const StackTraceHeader = memo(
         <CollapsibleTrigger asChild {...props}>
           <div
             className={cn(
-              "flex w-full cursor-pointer items-center gap-3 p-3 text-left transition-colors hover:bg-muted/50",
+              "flex w-full cursor-pointer items-center gap-3 p-3 text-left transition-colors hover:bg-row-hover",
               className
             )}
           >

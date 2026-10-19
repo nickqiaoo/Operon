@@ -59,7 +59,7 @@ export function SelectedTextTray({
               id: "editor.selectedText.remove",
               defaultMessage: "Remove selection",
             })}
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
           >
             <X className="h-3 w-3" />
           </button>

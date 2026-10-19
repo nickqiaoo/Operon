@@ -1,15 +1,17 @@
+import { FormattedMessage } from "react-intl"
+
 
 export function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
   if (additions === 0 && deletions === 0) {
-    return <span className="text-muted-foreground">no changes</span>
+    return <span className="text-muted-foreground"><FormattedMessage id="review.diffStats.noChanges" defaultMessage="no changes" /></span>
   }
   return (
     <span className="inline-flex items-center gap-1 font-mono tabular-nums">
       {additions > 0 && (
-        <span className="text-[#3f9348] dark:text-[#4cae4f]">+{additions.toLocaleString()}</span>
+        <span className="text-diff-add">+{additions.toLocaleString()}</span>
       )}
       {deletions > 0 && (
-        <span className="text-[#c84d4d] dark:text-[#d1493f]">-{deletions.toLocaleString()}</span>
+        <span className="text-diff-remove">-{deletions.toLocaleString()}</span>
       )}
     </span>
   )

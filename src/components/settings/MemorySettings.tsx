@@ -124,7 +124,7 @@ export function MemorySettings() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg border border-border/60 w-fit">
+            <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg border border-border/50 w-fit">
                 {memoryTabs.map(({ id, label, icon: Icon }) => (
                     <button
                         key={id}
@@ -162,7 +162,7 @@ export function MemorySettings() {
                                 placeholder={intl.formatMessage({ id: "settings.memory.search.placeholder", defaultMessage: "Hybrid search memory pages..." })}
                             />
                         </div>
-                        <Button size="sm" variant="secondary" onClick={handleSearch} disabled={searching} className="gap-1.5">
+                        <Button size="sm" variant="secondary" onClick={handleSearch} disabled={searching} className="h-9 gap-1.5">
                             {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
                             <FormattedMessage id="settings.memory.search.button" defaultMessage="Search" />
                         </Button>
@@ -172,10 +172,10 @@ export function MemorySettings() {
                         <button
                             onClick={() => { setFilterType(""); setSearchResults(null) }}
                             className={cn(
-                                "px-2.5 py-1 text-xs rounded-md transition-all",
+                                "px-2.5 py-1 text-xs rounded-lg transition-all",
                                 !filterType
-                                    ? "bg-foreground/10 text-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground"
+                                    ? "bg-row-selected text-foreground font-medium"
+                                    : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
                             )}
                         >
                             <FormattedMessage id="settings.memory.filter.all" defaultMessage="All" />
@@ -185,10 +185,10 @@ export function MemorySettings() {
                                 key={key}
                                 onClick={() => { setFilterType(key); setSearchResults(null) }}
                                 className={cn(
-                                    "px-2.5 py-1 text-xs rounded-md transition-all",
+                                    "px-2.5 py-1 text-xs rounded-lg transition-all",
                                     filterType === key
-                                        ? "bg-foreground/10 text-foreground font-medium"
-                                        : "text-muted-foreground hover:text-foreground"
+                                        ? "bg-row-selected text-foreground font-medium"
+                                        : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
                                 )}
                             >
                                 {typeLabels[key]}
@@ -202,7 +202,7 @@ export function MemorySettings() {
                         </div>
                     ) : searchResults !== null ? (
                         searchResults.length === 0 ? (
-                            <div className="text-sm text-muted-foreground py-12 text-center bg-muted/10 rounded-lg">
+                            <div className="rounded-lg border border-dashed border-border/40 py-12 text-center text-sm text-muted-foreground">
                                 <FormattedMessage id="settings.memory.noResults" defaultMessage="No matching pages found." />
                             </div>
                         ) : (
@@ -261,7 +261,7 @@ export function MemorySettings() {
                             </div>
                         )
                     ) : pages.length === 0 ? (
-                        <div className="text-sm text-muted-foreground py-12 text-center bg-muted/10 rounded-lg">
+                        <div className="rounded-lg border border-dashed border-border/40 py-12 text-center text-sm text-muted-foreground">
                             <FormattedMessage id="settings.memory.noPages" defaultMessage="No memory pages yet. Pages are created via the memory MCP / tools." />
                         </div>
                     ) : (

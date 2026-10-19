@@ -106,7 +106,7 @@ export function RemoteEncryptionSettings() {
   return (
     <section className="space-y-3 border-t border-border/40 pt-4">
       <div className="flex items-start gap-3">
-        <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-500" />
+        <ShieldCheck className="mt-0.5 h-4 w-4 text-status-ok" />
         <div className="flex-1">
           <div className="text-sm font-medium">End-to-end encryption</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -170,7 +170,7 @@ export function RemoteEncryptionSettings() {
         <div className="space-y-1.5">
           {devices.map((device) => (
             <div key={device.id} className="flex items-center gap-3 rounded-lg bg-background/40 px-3 py-2.5">
-              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-500" />
+              <ShieldCheck className="h-4 w-4 shrink-0 text-status-ok" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium">{device.mobileLabel || 'Approved device'}</div>
                 <div className="truncate font-mono text-[10px] text-muted-foreground">{device.mobileFingerprint}</div>

@@ -1,3 +1,4 @@
+import { FormattedMessage } from "react-intl"
 import { useEffect, useState } from "react"
 import { CheckCircle2, AlertCircle, Loader2, Clock, ChevronDown, ChevronRight, MinusCircle, Layers, XCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -28,7 +29,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
         <div className="border-b border-border/50 px-4 py-2.5 flex items-center justify-between">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 text-sm hover:bg-muted/50 rounded-md px-2 py-1 -ml-2 transition-colors">
+              <button className="flex items-center gap-2 text-sm hover:bg-row-hover rounded-md px-2 py-1 -ml-2 transition-colors">
                 {run && <RunStatusIcon status={run.status} size="sm" />}
                 <span className="text-foreground/80">
                   {run ? formatRelativeTime(run.startedAt) : "Select a run"}
@@ -85,7 +86,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
                       <span className="text-[10px] text-muted-foreground/60">Skipped</span>
                     )}
                     {result.status === "waiting" && (
-                      <span className="text-[10px] text-status-warn">Waiting for approval</span>
+                      <span className="text-[10px] text-status-warn"><FormattedMessage id="canvas.run.waitingApproval" defaultMessage="Waiting for approval" /></span>
                     )}
                     {result.startedAt && result.finishedAt && (
                       <span className="text-[10px] text-muted-foreground/50 ml-auto">
@@ -102,7 +103,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
                     <ApprovalActions runId={run.id} nodeId={result.nodeId} />
                   )}
                   {result.error && (
-                    <div className="px-3 py-2 text-xs text-red-500">
+                    <div className="px-3 py-2 text-xs text-status-error">
                       {result.error}
                     </div>
                   )}
@@ -221,7 +222,7 @@ function ChildRuns({ run }: { run: CanvasWorkflowRun }) {
           {children?.map((child) => (
             <div key={child.id} className="rounded-lg border border-border/40 bg-muted/10 overflow-hidden">
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/20 transition-colors"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-row-hover transition-colors"
                 onClick={() => setExpanded((e) => (e === child.id ? null : child.id))}
               >
                 <RunStatusIcon status={child.status} size="sm" />
@@ -263,11 +264,11 @@ function RunStatusIcon({ status, size = "md" }: { status: string; size?: "sm" | 
   const cls = size === "sm" ? "h-3 w-3" : "h-4 w-4"
   switch (status) {
     case "success":
-      return <CheckCircle2 className={`${cls} text-green-500`} />
+      return <CheckCircle2 className={`${cls} text-status-ok`} />
     case "running":
-      return <Loader2 className={`${cls} text-blue-500 animate-spin`} />
+      return <Loader2 className={`${cls} text-status-info animate-spin`} />
     case "error":
-      return <AlertCircle className={`${cls} text-red-500`} />
+      return <AlertCircle className={`${cls} text-status-error`} />
     default:
       return null
   }

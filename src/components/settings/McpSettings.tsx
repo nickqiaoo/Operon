@@ -11,7 +11,8 @@ import { openPluginsPage } from "@/lib/open-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2, ChevronRight, ShieldCheck } from "lucide-react"
+import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2, ChevronRight, ShieldCheck, Plug, Package } from "lucide-react"
+import { SettingsSection } from "./SettingsSection"
 import { FormattedMessage, useIntl } from "react-intl"
 
 type McpType = 'stdio' | 'http' | 'sse'
@@ -105,7 +106,7 @@ function ServerRow({ name, entry, editLabel, onEdit, onDelete }: ServerRowProps)
     : (entry as McpHttpEntry | McpSseEntry).url
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border/50 bg-muted/10 hover:bg-muted/20 transition-colors">
+    <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border/40 bg-background/40 hover:bg-row-hover transition-colors">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{name}</span>
@@ -148,7 +149,7 @@ function PluginServerRow({ server }: { server: PluginMcpServerView }) {
     <button
       type="button"
       onClick={() => openPluginsPage(server.pluginId)}
-      className="group flex w-full items-center gap-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-3 text-left transition-colors hover:bg-muted/20"
+      className="group flex w-full items-center gap-3 rounded-lg border border-border/40 bg-background/40 px-4 py-3 text-left transition-colors hover:bg-row-hover"
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -205,7 +206,7 @@ function ServerFormPanel({ initial, existingNames, editingName, onSave, onCancel
   const valid = isFormValid(form) && !nameConflict
 
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3">
+    <div className="rounded-lg border border-border/40 bg-background/40 p-4 space-y-3">
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">
           <FormattedMessage id="settings.mcp.serverName.label" defaultMessage="Server name" />
@@ -397,94 +398,90 @@ export function McpSettings() {
   const editLabel = intl.formatMessage({ id: "settings.mcp.edit", defaultMessage: "Edit" })
 
   return (
-    <div className="space-y-6">
-      <div className="pb-4 border-b border-border/60">
-        <div className="text-sm font-medium mb-1">
-          <FormattedMessage id="settings.mcp.title" defaultMessage="MCP Servers" />
-        </div>
-        <div className="text-sm text-muted-foreground">
-          <FormattedMessage id="settings.mcp.desc" defaultMessage="Configure Model Context Protocol servers available to all providers." />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        {names.length === 0 && editing !== 'new' && (
-          <div className="text-sm text-muted-foreground py-6 text-center">
-            <FormattedMessage id="settings.mcp.empty" defaultMessage="No MCP servers configured yet." />
-          </div>
+    <div className="space-y-4">
+      <SettingsSection
+        icon={Plug}
+        title={<FormattedMessage id="settings.mcp.title" defaultMessage="MCP Servers" />}
+        description={<FormattedMessage id="settings.mcp.desc" defaultMessage="Configure Model Context Protocol servers available to all providers." />}
+        action={editing !== 'new' && (
+          <Button
+            data-testid="settings-mcp-add-server"
+            variant="secondary"
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setEditing('new')}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <FormattedMessage id="settings.mcp.addServer" defaultMessage="Add server" />
+          </Button>
         )}
+      >
+        <div className="space-y-2">
+          {names.length === 0 && editing !== 'new' && (
+            <div className="rounded-xl border border-dashed border-border/40 py-6 text-center text-sm text-muted-foreground">
+              <FormattedMessage id="settings.mcp.empty" defaultMessage="No MCP servers configured yet." />
+            </div>
+          )}
 
-        {names.map(name => (
-          editing === name ? (
+          {names.map(name => (
+            editing === name ? (
+              <ServerFormPanel
+                key={name}
+                initial={entryToForm(name, servers[name])}
+                existingNames={names}
+                editingName={name}
+                onSave={form => handleSaveForm(form, name)}
+                onCancel={() => setEditing(null)}
+              />
+            ) : (
+              <ServerRow
+                key={name}
+                name={name}
+                entry={servers[name]}
+                editLabel={editLabel}
+                onEdit={() => setEditing(name)}
+                onDelete={() => handleDelete(name)}
+              />
+            )
+          ))}
+
+          {editing === 'new' && (
             <ServerFormPanel
-              key={name}
-              initial={entryToForm(name, servers[name])}
+              initial={emptyForm()}
               existingNames={names}
-              editingName={name}
-              onSave={form => handleSaveForm(form, name)}
+              onSave={form => handleSaveForm(form)}
               onCancel={() => setEditing(null)}
             />
-          ) : (
-            <ServerRow
-              key={name}
-              name={name}
-              entry={servers[name]}
-              editLabel={editLabel}
-              onEdit={() => setEditing(name)}
-              onDelete={() => handleDelete(name)}
-            />
-          )
-        ))}
+          )}
+        </div>
 
-        {editing === 'new' && (
-          <ServerFormPanel
-            initial={emptyForm()}
-            existingNames={names}
-            onSave={form => handleSaveForm(form)}
-            onCancel={() => setEditing(null)}
-          />
+        {(saving || saved) && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {saving
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> <FormattedMessage id="settings.mcp.saving" defaultMessage="Saving…" /></>
+              : <><Save className="h-3.5 w-3.5 text-status-ok" /> <FormattedMessage id="settings.mcp.saved" defaultMessage="Saved" /></>
+            }
+          </div>
         )}
-      </div>
-
-      {editing !== 'new' && (
-        <Button
-          data-testid="settings-mcp-add-server"
-          variant="secondary"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => setEditing('new')}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          <FormattedMessage id="settings.mcp.addServer" defaultMessage="Add server" />
-        </Button>
-      )}
+      </SettingsSection>
 
       {pluginServers.length > 0 && (
-        <div className="space-y-2">
-          <div>
-            <div className="heading-section">
-              <FormattedMessage id="settings.mcp.plugin.title" defaultMessage="From plugins" />
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              <FormattedMessage
-                id="settings.mcp.plugin.desc"
-                defaultMessage="Added to every agent by your enabled plugins. Turn them on or off on the Plugins page."
-              />
-            </div>
-          </div>
-          {pluginServers.map(server => (
-            <PluginServerRow key={server.name} server={server} />
-          ))}
-        </div>
-      )}
-
-      {(saving || saved) && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {saving
-            ? <><Loader2 className="h-3 w-3 animate-spin" /> <FormattedMessage id="settings.mcp.saving" defaultMessage="Saving…" /></>
-            : <><Save className="h-3 w-3 text-green-500" /> <FormattedMessage id="settings.mcp.saved" defaultMessage="Saved" /></>
+        <SettingsSection
+          icon={Package}
+          title={<FormattedMessage id="settings.mcp.plugin.title" defaultMessage="From plugins" />}
+          description={
+            <FormattedMessage
+              id="settings.mcp.plugin.desc"
+              defaultMessage="Added to every agent by your enabled plugins. Turn them on or off on the Plugins page."
+            />
           }
-        </div>
+        >
+          <div className="space-y-2">
+            {pluginServers.map(server => (
+              <PluginServerRow key={server.name} server={server} />
+            ))}
+          </div>
+        </SettingsSection>
       )}
     </div>
   )

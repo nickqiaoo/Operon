@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { Loader2, Save, Check, AlertCircle } from "lucide-react"
+import { Loader2, Save, Check, AlertCircle, Plus, Variable, X } from "lucide-react"
+import { SettingsSection } from "./SettingsSection"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
 
@@ -54,14 +55,11 @@ export function EnvSettings() {
     const inputCn = 'flex-1 px-3 py-2 text-sm font-mono bg-background/80 rounded-xl border border-border/60 focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40'
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h2 className="text-sm font-semibold mb-1"><FormattedMessage id="channel.form.envVars" defaultMessage="Environment Variables" /></h2>
-                <p className="text-xs text-muted-foreground">
-                    <FormattedMessage id="settings.env.desc" defaultMessage="These variables are applied to the server process and inherited by all AI adapters (Claude Code, Codex, OpenCode, etc.). Useful for proxy settings, custom API endpoints, TLS overrides, or any environment-level configuration." />
-                </p>
-            </div>
-
+        <SettingsSection
+            icon={Variable}
+            title={<FormattedMessage id="channel.form.envVars" defaultMessage="Environment Variables" />}
+            description={<FormattedMessage id="settings.env.desc" defaultMessage="These variables are applied to the server process and inherited by all AI adapters (Claude Code, Codex, OpenCode, etc.). Useful for proxy settings, custom API endpoints, TLS overrides, or any environment-level configuration." />}
+        >
             {loading ? (
                 <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="h-4 w-4 animate-spin" /> <FormattedMessage id="common.loading" defaultMessage="Loading…" />
@@ -93,7 +91,7 @@ export function EnvSettings() {
                                 className="text-muted-foreground hover:text-destructive transition-colors p-1"
                                 title={intl.formatMessage({ id: 'common.remove', defaultMessage: 'Remove' })}
                             >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                <X className="h-3.5 w-3.5" />
                             </button>
                         </div>
                     ))}
@@ -103,21 +101,20 @@ export function EnvSettings() {
                         onClick={addRow}
                         className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 mt-1 transition-colors"
                     >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <Plus className="h-3.5 w-3.5" />
                         <FormattedMessage id="channel.form.addVariable" defaultMessage="Add variable" />
                     </button>
                 </div>
             )}
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3">
                 <Button data-testid="settings-env-save" size="sm" variant="secondary" onClick={handleSave} disabled={saving || loading} className="h-8 gap-1.5">
-                    {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    <Save className="h-3.5 w-3.5" />
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                     <FormattedMessage id="common.save" defaultMessage="Save" />
                 </Button>
-                {savedOk && <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" /></span>}
+                {savedOk && <span className="flex items-center gap-1 text-xs text-status-ok"><Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" /></span>}
                 {saveErr && <span className="flex items-center gap-1 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" /> <FormattedMessage id="common.saveFailed" defaultMessage="Failed to save" /></span>}
             </div>
-        </div>
+        </SettingsSection>
     )
 }

@@ -397,7 +397,7 @@ function MarketplaceCard({ entry, busy, onInstall }: { entry: ExtensionMarketpla
   const name = extensionName(intl, entry.id, entry.name)
   const description = extensionDescription(intl, entry.id, entry.description)
   return (
-    <article className="flex min-h-44 flex-col rounded-xl border border-border/40 bg-gradient-to-br from-background/90 to-muted/20 p-4 shadow-sm">
+    <article className="flex min-h-44 flex-col rounded-xl border border-border/40 bg-muted/10 p-4">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-purple/10 text-accent-purple"><Puzzle className="h-5 w-5" /></div>
         <div className="min-w-0 flex-1">
@@ -575,7 +575,7 @@ function InlineMessage({ tone, message }: { tone: "error" | "success"; message: 
 }
 
 function LoadingBlock() {
-  return <div className="flex min-h-24 items-center justify-center gap-2 rounded-xl border border-border/30 bg-muted/5 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><FormattedMessage id="settings.extensions.loading" defaultMessage="Loading…" /></div>
+  return <div className="flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-border/40 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><FormattedMessage id="settings.extensions.loading" defaultMessage="Loading…" /></div>
 }
 
 function EmptyBlock({ message }: { message: ReactNode }) {

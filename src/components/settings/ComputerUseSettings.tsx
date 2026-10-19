@@ -231,7 +231,7 @@ export function ComputerUseSettings() {
                                         className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/40 p-3"
                                     >
                                         {granted ? (
-                                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                                            <CheckCircle2 className="h-4 w-4 shrink-0 text-status-ok" />
                                         ) : (
                                             <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
                                         )}

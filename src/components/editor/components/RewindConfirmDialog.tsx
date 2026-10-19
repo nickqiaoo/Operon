@@ -112,7 +112,7 @@ export function RewindConflictDialog({
         </DialogHeader>
         <ul className="max-h-56 overflow-y-auto rounded-md border border-border/40 text-sm">
           {files?.map((file) => (
-            <li key={file.path} className="border-b border-border/20 px-3 py-2 last:border-b-0">
+            <li key={file.path} className="border-b border-border/40 px-3 py-2 last:border-b-0">
               <div className="font-mono text-xs break-all">{file.path}</div>
               <div className="text-muted-foreground text-xs">
                 <FormattedMessage {...REASON_MESSAGES[file.reason]} />

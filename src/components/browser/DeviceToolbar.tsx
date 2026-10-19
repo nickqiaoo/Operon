@@ -98,7 +98,7 @@ export function DeviceToolbar({
         title={intl.formatMessage({ id: "browser.device.rotate", defaultMessage: "Rotate" })}
         disabled={size == null}
         onClick={() => instance.rotateDevice()}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
       >
         <RotateCw className="h-3.5 w-3.5" />
       </button>
@@ -123,7 +123,7 @@ export function DeviceToolbar({
         aria-label={intl.formatMessage({ id: "browser.device.close", defaultMessage: "Close device toolbar" })}
         title={intl.formatMessage({ id: "browser.device.close", defaultMessage: "Close device toolbar" })}
         onClick={() => instance.setDeviceToolbar(false)}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
       >
         <X className="h-3.5 w-3.5" />
       </button>

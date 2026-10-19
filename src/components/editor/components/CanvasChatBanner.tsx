@@ -16,15 +16,15 @@ export function CanvasChatBanner({ chatId }: CanvasChatBannerProps) {
 
   return (
     <div className="mx-4 mt-2 space-y-1">
-      <div className="px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/10 flex items-center justify-between">
+      <div className="px-3 py-2 rounded-lg bg-brand-muted border border-brand/10 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LayoutDashboard className="h-3.5 w-3.5 text-purple-500" />
+          <LayoutDashboard className="h-3.5 w-3.5 text-brand" />
           <span><FormattedMessage id="editor.canvas.fromNode" defaultMessage="This conversation is from a workflow node." /></span>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="text-purple-600 hover:text-purple-700 hover:bg-purple-500/10"
+          className="text-brand hover:text-brand hover:bg-brand-muted"
           onClick={() => requestOpenCanvas({
             workflowId: 0,
             runId: canvasInfo.runId,

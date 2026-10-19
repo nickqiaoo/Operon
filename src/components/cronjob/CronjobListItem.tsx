@@ -35,7 +35,7 @@ export function CronjobListItem({
         "group mx-2 my-1 rounded-xl border px-4 py-3 transition-all duration-200 ease-out cursor-pointer",
         selected
           ? "bg-muted/50 border-border/50"
-          : "bg-transparent border-transparent hover:bg-muted/30"
+          : "bg-transparent border-transparent hover:bg-row-hover"
       )}
       onClick={onSelect}
     >
@@ -54,7 +54,7 @@ export function CronjobListItem({
               <span
                 className={cn(
                   "flex h-2 w-2 rounded-full ring-1 ring-background/50",
-                  job.lastResult.status === "success" ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]"
+                  job.lastResult.status === "success" ? "bg-accent-green shadow-[0_0_8px_rgba(34,197,94,0.4)]" : "bg-accent-red shadow-[0_0_8px_rgba(239,68,68,0.4)]"
                 )}
                 title={`Last run: ${job.lastResult.status}`}
               />

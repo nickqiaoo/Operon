@@ -188,7 +188,7 @@ function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] 
 }
 
 const triggerClassName =
-  'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs text-muted-foreground shadow-none hover:bg-muted/40 hover:text-foreground';
+  'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs text-muted-foreground shadow-none hover:bg-accent-hover hover:text-foreground';
 
 function TriggerContent({ usedPercent }: { usedPercent: number | null }) {
   return (

@@ -92,7 +92,7 @@ export function LocalServersLanding({ onOpen }: LocalServersLandingProps) {
               <button
                 type="button"
                 onClick={() => setFilter((f) => (f === "online" ? "all" : "online"))}
-                className="rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                className="rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
               >
                 {filter === "online" ? "Online" : "All"}
               </button>
@@ -101,7 +101,7 @@ export function LocalServersLanding({ onOpen }: LocalServersLandingProps) {
                 onClick={refresh}
                 aria-label="Refresh local servers"
                 title="Refresh"
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
               >
                 <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               </button>
@@ -121,7 +121,7 @@ export function LocalServersLanding({ onOpen }: LocalServersLandingProps) {
               {visible.map((server) => (
                 <div
                   key={`${server.host}:${server.port}`}
-                  className="group flex items-center gap-3 rounded-xl border border-border/40 bg-muted/10 p-2.5 transition-colors hover:border-border/60 hover:bg-muted/40"
+                  className="group flex items-center gap-3 rounded-xl border border-border/40 bg-muted/10 p-2.5 transition-colors hover:border-border/60 hover:bg-row-hover"
                 >
                   <button
                     type="button"
@@ -151,7 +151,7 @@ export function LocalServersLanding({ onOpen }: LocalServersLandingProps) {
                   <span
                     className={cn(
                       "h-2 w-2 shrink-0 rounded-full",
-                      server.online ? "bg-green-500" : "bg-muted-foreground/40"
+                      server.online ? "bg-accent-green" : "bg-muted-foreground/40"
                     )}
                     title={server.online ? "Online" : "Offline"}
                   />
@@ -160,7 +160,7 @@ export function LocalServersLanding({ onOpen }: LocalServersLandingProps) {
                     onClick={() => handleRemove(server.url)}
                     aria-label={`Remove ${server.host}:${server.port}`}
                     title="Remove"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>

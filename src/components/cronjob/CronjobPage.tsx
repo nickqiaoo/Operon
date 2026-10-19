@@ -101,19 +101,19 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
     <div className="h-screen w-screen flex flex-col bg-background text-foreground">
       <div className="h-10 drag-region shrink-0 bg-background" />
       <div className="h-14 border-b border-border/40 flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-10 no-drag">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground -ml-2 rounded-full px-3" onClick={onBack}>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" className="-ml-2 h-8 gap-1.5 rounded-lg px-2.5 text-muted-foreground hover:text-foreground" onClick={onBack}>
             <ArrowLeft className="h-4 w-4" />
-            <span className="font-medium">{intl.formatMessage({ id: "common.back", defaultMessage: "Back" })}</span>
+            <span className="text-sm font-medium">{intl.formatMessage({ id: "common.back", defaultMessage: "Back" })}</span>
           </Button>
-          <div className="h-4 w-[1px] bg-border/60" />
-          <h1 className="text-lg font-semibold tracking-tight">{intl.formatMessage({ id: "cronjob.page.title", defaultMessage: "Schedules" })}</h1>
+          <div className="h-4 w-px bg-border/60" />
+          <h1 className="text-sm font-semibold tracking-tight">{intl.formatMessage({ id: "cronjob.page.title", defaultMessage: "Schedules" })}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted" onClick={() => void loadData()} title={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}>
-            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => void loadData()} title={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}>
+            <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button variant="secondary" onClick={() => { setEditing(null); setEditorOpen(true) }} className="gap-2 h-9 px-4">
+          <Button variant="secondary" onClick={() => { setEditing(null); setEditorOpen(true) }} size="sm" className="h-8 gap-1.5">
             <Plus className="h-4 w-4" />
             {intl.formatMessage({ id: "cronjob.page.newSchedule", defaultMessage: "New Schedule" })}
           </Button>
@@ -146,7 +146,7 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
               <div className="h-full flex flex-col">
                 <div className="px-4 py-3 pb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   <CalendarClock className="h-3.5 w-3.5" />
-                  <span>{intl.formatMessage({ id: "cronjob.page.activeSchedules", defaultMessage: "{count} Active Schedules" }, { count: sortedCronjobs.length })}</span>
+                  <span>{intl.formatMessage({ id: "cronjob.page.activeSchedules", defaultMessage: "{count} Active Schedules" }, { count: sortedCronjobs.filter((job) => job.enabled).length })}</span>
                 </div>
                 <ScrollArea className="flex-1 px-2 pb-2">
                   <div className="space-y-1">

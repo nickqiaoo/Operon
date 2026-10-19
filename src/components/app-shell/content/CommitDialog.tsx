@@ -186,7 +186,7 @@ export function CommitDialog({
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
         <div className="space-y-4 p-5 pb-4">
           <DialogHeader>
-            <DialogTitle className="text-base">
+            <DialogTitle>
               <FormattedMessage id="commit.title" defaultMessage="Commit or push" />
             </DialogTitle>
           </DialogHeader>
@@ -217,10 +217,10 @@ export function CommitDialog({
                     />
                   </span>
                   {uncommittedCount > 0 && additions > 0 && (
-                    <span className="text-[#3f9348] dark:text-[#77b985]">+{additions}</span>
+                    <span className="text-diff-add">+{additions}</span>
                   )}
                   {uncommittedCount > 0 && deletions > 0 && (
-                    <span className="text-[#c84d4d] dark:text-[#d17979]">-{deletions}</span>
+                    <span className="text-diff-remove">-{deletions}</span>
                   )}
                 </span>
               </div>
@@ -384,7 +384,7 @@ function StepRow({
         "flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-50",
         selected
           ? "bg-muted/50 text-foreground"
-          : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+          : "text-muted-foreground hover:bg-accent-hover hover:text-foreground"
       )}
     >
       <span className="text-muted-foreground">{icon}</span>

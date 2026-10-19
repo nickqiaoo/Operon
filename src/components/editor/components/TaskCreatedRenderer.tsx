@@ -194,7 +194,7 @@ export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
         disabled={projectId == null || busy}
         className={cn(
           'group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-background/60 px-3 py-2.5 text-left',
-          'shadow-card transition-colors hover:bg-muted/40 hover:border-border',
+          'shadow-card transition-colors hover:bg-row-hover hover:border-border',
           'disabled:cursor-not-allowed disabled:opacity-60',
         )}
       >

@@ -21,13 +21,13 @@ import { api } from "@/lib/api"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 
 const inputCn =
-  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 transition-colors"
+  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-row-hover focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 transition-colors"
 
 const textareaCn =
-  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-muted/50 focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 font-mono resize-none transition-colors"
+  "w-full px-3 py-2 text-sm bg-muted/30 rounded-xl border border-transparent hover:bg-row-hover focus:bg-background focus:outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 placeholder:text-muted-foreground/40 font-mono resize-none transition-colors"
 
 const cleanTriggerCn =
-  "w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors"
+  "w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors"
 
 const cleanContentProps = {
   align: "start" as const,
@@ -213,7 +213,7 @@ export function LinearShareDialog({ open, onOpenChange, messageText }: LinearSha
             <FormattedMessage id="editor.linear.loadingTeams" defaultMessage="Loading teams…" />
           </div>
         ) : loadError ? (
-          <div className="py-6 text-sm text-red-500">{loadError}</div>
+          <div className="py-6 text-sm text-status-error">{loadError}</div>
         ) : (
           <div className="space-y-4">
             <Field label={intl.formatMessage({ id: "editor.field.title", defaultMessage: "Title" })}>

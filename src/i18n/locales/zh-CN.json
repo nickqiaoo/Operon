@@ -1381,6 +1381,11 @@
   "settings.tab.assistant": "助理",
   "sidebar.assistant": "助理",
   "sidebar.inbox": "收件箱",
+  "settings.appearance.section.interface": "界面",
+  "settings.appearance.section.interfaceDesc": "界面语言、明暗模式，以及每种模式使用的主题。",
+  "settings.appearance.section.terminal": "终端",
+  "settings.appearance.section.terminalDesc": "内嵌终端的配色。",
+  "editor.history.subagent": "子 Agent",
   "skill.filter.placeholder": "筛选已安装和技能库中的技能…",
   "skill.noDescription": "暂无描述。",
   "skill.detail.loading": "正在加载 SKILL.md…",
@@ -1972,5 +1977,10 @@
   "assistant.files.empty": "还没有文件。助理为你做的计划、报告、文档会出现在这里。",
   "assistant.files.notFound": "找不到文件：{path}",
   "assistant.files.reveal": "在 Finder 中显示",
-  "assistant.tab.files": "文件"
+  "assistant.tab.files": "文件",
+  "canvas.run.waitingApproval": "等待审批",
+  "review.diffStats.noChanges": "无改动",
+  "task.detail.openSourceChannel": "打开这个任务来源的消息",
+  "channel.newChannelIn": "在 {project} 中新建频道",
+  "skill.installIntoProject": "安装到 {project}"
 }

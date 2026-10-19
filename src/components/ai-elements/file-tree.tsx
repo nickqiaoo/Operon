@@ -133,7 +133,7 @@ export const FileTreeFolder = ({
           <CollapsibleTrigger asChild>
             <button
               className={cn(
-                "flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
+                "flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-row-hover",
                 isSelected && "bg-muted"
               )}
               onClick={() => onSelect?.(path)}
@@ -190,7 +190,7 @@ export const FileTreeFile = ({
     <FileTreeFileContext.Provider value={{ path, name }}>
       <div
         className={cn(
-          "flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-muted/50",
+          "flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-row-hover",
           isSelected && "bg-muted",
           className
         )}

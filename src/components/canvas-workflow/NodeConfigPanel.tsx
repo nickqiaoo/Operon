@@ -124,7 +124,7 @@ export function NodeConfigPanel({ node, providers, workflowId, nodes, edges, las
           <Input
             value={(data.name as string) || ""}
             onChange={(e) => onUpdate(node.id, { name: e.target.value })}
-            className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none h-8 text-sm"
+            className="bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none h-8 text-sm"
           />
         </div>
 
@@ -185,7 +185,7 @@ function InputNodeConfig({
           onUpdate({ prompt: e.target.value })
         }}
         placeholder="Enter the initial prompt for this workflow..."
-        className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
+        className="bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
       />
     </div>
   )
@@ -294,11 +294,11 @@ function AISessionNodeConfig({
   return (
     <div className="space-y-4">
       {/* Session chain info */}
-      <div className="rounded-lg bg-blue-500/5 border border-blue-500/10 px-3 py-2.5 space-y-1.5">
-        <div className="text-[10px] uppercase font-bold tracking-wider text-blue-500/60">
+      <div className="rounded-lg bg-status-info/5 border border-status-info/10 px-3 py-2.5 space-y-1.5">
+        <div className="text-[10px] uppercase font-bold tracking-wider text-status-info/60">
           Continues Session
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-blue-500/80">
+        <div className="flex items-center gap-1.5 text-xs text-status-info/80">
           <Link2 className="h-3 w-3" />
           <span className="font-medium">{parentName || nodeData.parentNodeId}</span>
         </div>
@@ -321,7 +321,7 @@ function AISessionNodeConfig({
             onUpdate({ prompt: e.target.value })
           }}
           placeholder='Enter the next message for this session... Use {{summary}} to reference output from node name "summary".'
-          className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
+          className="bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
         />
         <p className="text-[10px] text-muted-foreground/50">
           {'Variables: {{ summary }} = output of the node named "summary" (any node that ran before this one). JSON outputs are objects: {{ review.passed }}.'}
@@ -377,7 +377,7 @@ function AINodeConfig({
     onUpdate({ providerId, modelId: undefined, modeId: undefined })
   }
 
-  const selectTriggerClassName = "h-8 text-sm bg-muted/25 border border-transparent hover:bg-muted/45 hover:border-border/40 shadow-none transition-colors focus-visible:border-border/50 focus-visible:ring-2 focus-visible:ring-border/30"
+  const selectTriggerClassName = "h-8 text-sm bg-muted/25 border border-transparent hover:bg-row-hover hover:border-border/40 shadow-none transition-colors focus-visible:border-border/50 focus-visible:ring-2 focus-visible:ring-border/30"
   const selectContentClassName = "border border-border/40 bg-background/95 shadow-float backdrop-blur-sm"
 
   return (
@@ -466,7 +466,7 @@ function AINodeConfig({
             onUpdate({ userPrompt: e.target.value })
           }}
           placeholder='Enter the prompt template... Use {{summary}} to reference output from node name "summary".'
-          className="bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
+          className="bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none resize-none min-h-[120px] text-sm code-scrollbar"
         />
         <p className="text-[10px] text-muted-foreground/50">
           {'Variables: {{ summary }} = output of the node named "summary" (any node that ran before this one). JSON outputs are objects: {{ review.passed }}.'}

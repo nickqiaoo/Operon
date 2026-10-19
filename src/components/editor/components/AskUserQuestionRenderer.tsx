@@ -255,7 +255,7 @@ export function AskUserQuestionRenderer({
                           'w-full text-left px-3 py-2.5 rounded-lg transition-all',
                           isSelected
                             ? 'bg-tint-muted ring-1 ring-tint/40'
-                            : 'hover:bg-muted/50'
+                            : 'hover:bg-row-hover'
                         )}
                       >
                         <div className="flex items-start gap-2.5">
@@ -289,7 +289,7 @@ export function AskUserQuestionRenderer({
                       'w-full text-left px-3 py-2.5 rounded-lg transition-all',
                       showOther[qKey(question)]
                         ? 'bg-tint-muted ring-1 ring-tint/40'
-                        : 'hover:bg-muted/50'
+                        : 'hover:bg-row-hover'
                     )}
                   >
                     <div className="flex items-start gap-2.5">
@@ -388,7 +388,7 @@ export function AskUserQuestionRenderer({
               </div>
             ))}
             {rawInput.answers && Object.keys(rawInput.answers).length > 0 && (
-              <div className="pt-2 border-t border-border/60">
+              <div className="pt-2 border-t border-border/40">
                 <p className="text-xs font-medium text-muted-foreground mb-2"><FormattedMessage id="editor.ask.answersProvided" defaultMessage="Answers provided:" /></p>
                 {Object.entries(rawInput.answers).map(([q, a]) => (
                   <div key={q} className="text-sm">
@@ -401,7 +401,7 @@ export function AskUserQuestionRenderer({
             <Confirmation approval={approval} state={state}>
               <ConfirmationTitle>
                 <ConfirmationAccepted>
-                  <CheckIcon className="size-4 text-green-600 dark:text-green-400" />
+                  <CheckIcon className="size-4 text-status-ok" />
                   <span><FormattedMessage id="editor.ask.answered" defaultMessage="Answered" /></span>
                 </ConfirmationAccepted>
                 <ConfirmationRejected>

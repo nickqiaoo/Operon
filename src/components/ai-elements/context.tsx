@@ -20,7 +20,7 @@ const ICON_VIEWBOX = 24;
 const ICON_CENTER = 12;
 const ICON_STROKE_WIDTH = 2;
 const metricTriggerClassName =
-  "h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-muted/40";
+  "h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-accent-hover";
 
 interface ContextSchema {
   usedTokens?: number;

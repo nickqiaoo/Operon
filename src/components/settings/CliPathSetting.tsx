@@ -118,12 +118,12 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
           // badge until its label wraps a character per line.
           "inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full",
           available
-            ? "bg-green-500/10 text-green-600 dark:text-green-400"
+            ? "bg-status-ok/10 text-status-ok"
             : "bg-muted text-muted-foreground"
         )}>
           <span className={cn(
             "h-1.5 w-1.5 rounded-full",
-            available ? "bg-green-500" : "bg-muted-foreground/40"
+            available ? "bg-accent-green" : "bg-muted-foreground/40"
           )} />
           {available
             ? <FormattedMessage id="settings.cli.available" defaultMessage="Available" />
@@ -192,7 +192,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
         </p>
         <div className="flex items-center gap-2">
           {savedOk && (
-            <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+            <span className="flex items-center gap-1 text-xs text-status-ok">
               <Check className="h-3.5 w-3.5" /> <FormattedMessage id="common.saved" defaultMessage="Saved" />
             </span>
           )}

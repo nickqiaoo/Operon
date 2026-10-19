@@ -101,7 +101,7 @@ export function BottomPanel({ className }: BottomPanelProps) {
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label={intl.formatMessage({ id: "appShell.closeBottomPanel", defaultMessage: "Close bottom panel" })}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" />
               </button>

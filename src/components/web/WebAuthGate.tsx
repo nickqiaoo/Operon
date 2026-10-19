@@ -357,11 +357,11 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
                     key={n.nodeId}
                     disabled={!n.online}
                     onClick={() => void pick(n)}
-                    className="flex w-full items-center gap-2.5 rounded-lg border border-border/50 bg-background/40 p-3 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-center gap-2.5 rounded-lg border border-border/50 bg-background/40 p-3 text-left transition-colors hover:bg-row-hover disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Monitor className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="flex-1 truncate text-sm">{n.label || n.nodeId.slice(0, 8)}</span>
-                    <span className={`text-xs ${n.online ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                    <span className={`text-xs ${n.online ? 'text-status-ok' : 'text-muted-foreground'}`}>
                       {n.online
                         ? intl.formatMessage({ id: 'web.auth.status.online', defaultMessage: 'online' })
                         : intl.formatMessage({ id: 'web.auth.status.offline', defaultMessage: 'offline' })}
@@ -778,7 +778,7 @@ function MachineBadge({
               setOpen(false)
               onSwitch()
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-row-hover"
           >
             <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
             {intl.formatMessage({ id: 'web.auth.switchMachine', defaultMessage: 'Switch machine' })}
@@ -788,7 +788,7 @@ function MachineBadge({
               setOpen(false)
               onSignOut()
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-row-hover"
           >
             <LogOut className="h-3.5 w-3.5 text-muted-foreground" />
             {intl.formatMessage({ id: 'web.auth.signOut', defaultMessage: 'Sign out' })}
@@ -797,7 +797,7 @@ function MachineBadge({
       )}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-full border border-border/50 bg-popover/90 px-2.5 py-1.5 text-muted-foreground shadow-card backdrop-blur transition-colors hover:bg-muted/50"
+        className="flex items-center gap-1.5 rounded-full border border-border/50 bg-popover/90 px-2.5 py-1.5 text-muted-foreground shadow-card backdrop-blur transition-colors hover:bg-accent-hover"
       >
         <Monitor className="h-3.5 w-3.5" />
         <span className="max-w-[140px] truncate text-foreground">{label}</span>

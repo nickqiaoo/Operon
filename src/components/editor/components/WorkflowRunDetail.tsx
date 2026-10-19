@@ -304,7 +304,7 @@ function AgentRow({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted/50"
+        className="flex w-full cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-row-hover"
       >
         {open ? (
           <ChevronDownIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
@@ -477,7 +477,7 @@ export function WorkflowRunDetail({
         <button
           type="button"
           aria-expanded={open}
-          className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <span className="flex flex-wrap items-center gap-2">
             <span className="truncate text-sm font-semibold">{name}</span>

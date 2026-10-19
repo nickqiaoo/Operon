@@ -109,7 +109,7 @@ export function CronjobHistoryPanel({ job, onOpenChat }: CronjobHistoryPanelProp
                   <div className="flex items-center gap-4">
                     <div className={cn(
                       "size-2.5 rounded-full shadow-card ring-2 ring-background",
-                      item.status === "success" ? "bg-green-500" : item.status === "error" ? "bg-red-500" : "bg-yellow-500"
+                      item.status === "success" ? "bg-accent-green" : item.status === "error" ? "bg-accent-red" : "bg-accent-warm"
                     )} />
                     <div>
                       <div className="font-medium text-sm text-foreground">

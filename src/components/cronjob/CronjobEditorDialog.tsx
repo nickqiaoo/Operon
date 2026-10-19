@@ -55,7 +55,7 @@ const CleanInput = (props: React.ComponentProps<typeof Input>) => (
   <Input
     {...props}
     className={cn(
-      "bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background focus:border-tint/20 shadow-none transition-all",
+      "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background focus:border-tint/20 shadow-none transition-all",
       props.className
     )}
   />
@@ -65,7 +65,7 @@ const CleanTextarea = (props: React.ComponentProps<typeof Textarea>) => (
   <Textarea
     {...props}
     className={cn(
-      "bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background focus:border-tint/20 shadow-none transition-all resize-none min-h-[120px]",
+      "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background focus:border-tint/20 shadow-none transition-all resize-none min-h-[120px]",
       props.className
     )}
   />
@@ -192,12 +192,12 @@ export function CronjobEditorDialog({
         showCloseButton={false}
       >
         <DialogHeader className="px-1 pt-1 pb-4 flex flex-row items-center justify-between shrink-0">
-          <DialogTitle className="text-xl font-semibold tracking-tight">
+          <DialogTitle>
             {initial
               ? intl.formatMessage({ id: "cronjob.editor.editTitle", defaultMessage: "Edit Schedule" })
               : intl.formatMessage({ id: "cronjob.editor.newTitle", defaultMessage: "New Schedule" })}
           </DialogTitle>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50 transition-colors" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={() => onOpenChange(false)}>
             <XIcon className="h-4 w-4" />
           </Button>
         </DialogHeader>
@@ -227,7 +227,7 @@ export function CronjobEditorDialog({
                 <div className="space-y-1.5">
                   <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.adapter", defaultMessage: "Adapter" })}</label>
                   <Select value={providerId} onValueChange={setProviderId}>
-                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.adapterPlaceholder", defaultMessage: "Select adapter" })} />
                     </SelectTrigger>
                     <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -241,7 +241,7 @@ export function CronjobEditorDialog({
                 <div className="space-y-1.5">
                   <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.workflowLabel", defaultMessage: "Workflow" })}</label>
                   <Select value={canvasWorkflowId != null ? String(canvasWorkflowId) : ""} onValueChange={(v) => setCanvasWorkflowId(Number(v))}>
-                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={canvasWorkflows.length ? intl.formatMessage({ id: "cronjob.editor.workflowPlaceholder", defaultMessage: "Select workflow" }) : intl.formatMessage({ id: "cronjob.editor.workflowEmpty", defaultMessage: "No workflows" })} />
                     </SelectTrigger>
                     <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -260,7 +260,7 @@ export function CronjobEditorDialog({
                 <div className="space-y-1.5">
                   <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.project", defaultMessage: "Project" })}</label>
                   <Select value={projectId != null ? String(projectId) : ""} onValueChange={(v) => setProjectId(Number(v))}>
-                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.projectPlaceholder", defaultMessage: "Select project" })} />
                     </SelectTrigger>
                     <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -273,7 +273,7 @@ export function CronjobEditorDialog({
                 <div className="space-y-1.5">
                   <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.workspace", defaultMessage: "Workspace" })}</label>
                   <Select value={workspaceId != null ? String(workspaceId) : ""} onValueChange={(v) => setWorkspaceId(Number(v))}>
-                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                    <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={workspaces.length ? intl.formatMessage({ id: "cronjob.editor.workspacePlaceholder", defaultMessage: "Select workspace" }) : intl.formatMessage({ id: "cronjob.editor.workspaceEmpty", defaultMessage: "No workspaces" })} />
                     </SelectTrigger>
                     <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -302,7 +302,7 @@ export function CronjobEditorDialog({
                     <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.model", defaultMessage: "Model" })}</label>
                     <ModelSelector>
                       <ModelSelectorTrigger asChild>
-                        <Button variant="outline" className="w-full justify-between text-muted-foreground bg-muted/30 border-transparent hover:bg-muted/50 shadow-none font-normal h-10 px-3">
+                        <Button variant="outline" className="w-full justify-between text-muted-foreground bg-muted/30 border-transparent hover:bg-row-hover shadow-none font-normal h-9 px-3">
                           <span className="flex items-center gap-2">
                             <ModelSelectorLogo provider={selectedModel?.provider ?? ""} className="size-4" />
                             <span className="truncate">{selectedModel?.label ?? intl.formatMessage({ id: "cronjob.editor.modelSelect", defaultMessage: "Select model" })}</span>
@@ -337,7 +337,7 @@ export function CronjobEditorDialog({
                   <div className="space-y-1.5">
                     <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.mode", defaultMessage: "Mode" })}</label>
                     <Select value={currentMode} onValueChange={setMode}>
-                      <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                      <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                         <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.modeSelect", defaultMessage: "Select mode" })} />
                       </SelectTrigger>
                       <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -353,7 +353,7 @@ export function CronjobEditorDialog({
                   <div className="space-y-1.5">
                     <label className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.editor.thinkingLevel", defaultMessage: "Thinking Level" })}</label>
                     <Select value={thinkingLevel} onValueChange={setThinkingLevel}>
-                      <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors">
+                      <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                         <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.thinkingLevelSelect", defaultMessage: "Select thinking level" })} />
                       </SelectTrigger>
                       <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
@@ -394,7 +394,7 @@ export function CronjobEditorDialog({
                           type="button"
                           className={cn(
                             "h-8 w-8 rounded-full text-xs font-medium transition-all flex items-center justify-center",
-                            active ? "bg-tint text-tint-fg shadow-card" : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                            active ? "bg-tint text-tint-fg shadow-card" : "bg-muted/30 text-muted-foreground hover:bg-row-hover hover:text-foreground"
                           )}
                           onClick={() => handleToggleDay(day.value)}
                         >

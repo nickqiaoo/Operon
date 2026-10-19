@@ -165,15 +165,15 @@ export function TelegramQuickSetupDialog({
       >
         <DialogHeader className="px-1 pt-1 pb-3 flex flex-row items-center justify-between shrink-0">
           <div>
-            <DialogTitle className="text-xl font-semibold tracking-tight flex items-center gap-2">
-              <Zap className="h-5 w-5 text-tint" />
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-tint" />
               <FormattedMessage id="settings.telegram.title" defaultMessage="Telegram Quick Setup" />
             </DialogTitle>
             <p className="text-xs text-muted-foreground/70 mt-1">
               <FormattedMessage id="settings.telegram.subtitle" defaultMessage="Create a bot in BotFather, paste the token — we configure the rest." />
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
             <XIcon className="h-4 w-4" />
           </Button>
         </DialogHeader>
@@ -377,7 +377,7 @@ function ConfigureStep({
     <div className="space-y-4 pb-2">
       <div className="rounded-xl border border-border/40 bg-muted/10 p-4">
         <div className="flex items-center gap-2 text-xs">
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+          <CheckCircle2 className="h-3.5 w-3.5 text-status-ok" />
           <span className="text-muted-foreground">
             <FormattedMessage id="settings.telegram.configure.verified" defaultMessage="Token verified." />
           </span>
@@ -419,7 +419,7 @@ function ConfigureStep({
           value={agentId != null ? String(agentId) : ""}
           onValueChange={(v) => onAgentChange(v ? Number(v) : null)}
         >
-          <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 shadow-none">
+          <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
             <SelectValue placeholder={agents.length === 0
               ? intl.formatMessage({ id: "settings.telegram.configure.noAgents", defaultMessage: "No agents available" })
               : intl.formatMessage({ id: "settings.telegram.configure.selectAgent", defaultMessage: "Select an agent" })
@@ -436,8 +436,8 @@ function ConfigureStep({
       </Field>
 
       {bot.canReadAllGroupMessages === false && (
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-muted-foreground">
-          <p className="font-medium text-amber-600 dark:text-amber-400 mb-1">
+        <div className="rounded-lg bg-status-warn/10 border border-status-warn/20 p-3 text-xs text-muted-foreground">
+          <p className="font-medium text-status-warn mb-1">
             <FormattedMessage id="settings.telegram.configure.privacyWarning.title" defaultMessage="Heads up: group privacy is on" />
           </p>
           <p>
@@ -503,9 +503,9 @@ function DoneStep({
 
   return (
     <div className="space-y-4 pb-2">
-      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
+      <div className="rounded-xl border border-status-ok/20 bg-status-ok/5 p-4 space-y-2">
         <div className="flex items-center gap-2 text-sm font-medium">
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          <CheckCircle2 className="h-4 w-4 text-status-ok" />
           <span>
             <FormattedMessage id="settings.telegram.done.readyTitle" defaultMessage="{name} is ready" values={{ name: displayName }} />
           </span>
@@ -633,7 +633,7 @@ function DoneStep({
             <Send className="h-3.5 w-3.5" />
             <FormattedMessage id="settings.telegram.done.openBotFather" defaultMessage="Open BotFather" />
             {copied && (
-              <span className="text-[11px] text-emerald-500 ml-1">
+              <span className="text-[11px] text-status-ok ml-1">
                 <FormattedMessage id="settings.telegram.done.copied" defaultMessage="@{username} copied" values={{ username }} />
               </span>
             )}
@@ -686,8 +686,8 @@ function DoneStep({
       )}
 
       {warning && (
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs">
-          <p className="font-medium text-amber-600 dark:text-amber-400 mb-1">
+        <div className="rounded-lg bg-status-warn/10 border border-status-warn/20 p-3 text-xs">
+          <p className="font-medium text-status-warn mb-1">
             <FormattedMessage id="settings.telegram.done.applyWarning.title" defaultMessage="Some default settings didn't apply" />
           </p>
           <p className="text-muted-foreground">{warning}</p>
@@ -713,9 +713,9 @@ function ChecklistRow({
 }) {
   const icon =
     status === "ok" ? (
-      <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+      <CheckCircle2 className="h-4 w-4 text-status-ok mt-0.5 shrink-0" />
     ) : status === "warn" ? (
-      <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+      <AlertCircle className="h-4 w-4 text-status-warn mt-0.5 shrink-0" />
     ) : (
       <HelpCircle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
     )

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Loader2, Play, RefreshCcw, Wand2 } from "lucide-react"
+import { CalendarClock, ChevronDown, ChevronRight, Loader2, Play, RefreshCcw, Wand2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -25,14 +25,15 @@ import {
 import { useModelManagement } from "@/components/editor/hooks/useModelManagement"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api, type MemoryMaintenanceConfig, type MemoryMaintenanceRun } from "@/lib/api"
+import { SettingsRow, SettingsSection } from "./SettingsSection"
 
 type Provider = { id: string; label: string; available: boolean }
 
 const CLEAN_INPUT_CLASS =
-  "bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background focus:border-tint/20 shadow-none transition-all"
+  "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background focus:border-tint/20 shadow-none transition-all"
 
 const CLEAN_SELECT_CLASS =
-  "bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none transition-colors"
+  "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors"
 
 function formatDateTime(ts: number): string {
   return new Date(ts).toLocaleString()
@@ -49,28 +50,20 @@ function formatDuration(start: number, end?: number): string {
 function statusColor(status: MemoryMaintenanceRun["status"]): string {
   switch (status) {
     case "success":
-      return "text-emerald-600 dark:text-emerald-400"
+      return "text-status-ok"
     case "error":
-      return "text-red-600 dark:text-red-400"
+      return "text-status-error"
     case "running":
-      return "text-blue-600 dark:text-blue-400"
+      return "text-status-info"
     case "aborted":
-      return "text-amber-600 dark:text-amber-400"
+      return "text-status-warn"
     default:
       return "text-muted-foreground"
   }
 }
 
 function Row({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-border/40 px-4 py-3 hover:bg-muted/20 transition-colors">
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{title}</div>
-        {hint && <div className="text-xs text-muted-foreground/70 truncate">{hint}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
+  return <SettingsRow title={title} description={hint} control={children} />
 }
 
 export function MemoryMaintenanceSettings() {
@@ -214,25 +207,24 @@ export function MemoryMaintenanceSettings() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold mb-1">
-          <FormattedMessage id="settings.maintenance.title" defaultMessage="Memory Maintenance" />
-        </h2>
-        <p className="text-xs text-muted-foreground">
+      <SettingsSection
+        icon={CalendarClock}
+        title={<FormattedMessage id="settings.maintenance.title" defaultMessage="Memory Maintenance" />}
+        description={
           <FormattedMessage
             id="settings.maintenance.desc"
             defaultMessage="Runs once per day to scan recent conversations and extract memories the agent may have missed. Duplicates are reconciled at write time. All work happens in isolated sessions that never appear in your chat history."
           />
-        </p>
-      </div>
+        }
+      >
 
       {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+        <div className="rounded-xl border border-status-error/20 bg-status-error/10 px-3 py-2 text-xs text-status-error">
           {error}
         </div>
       )}
 
-      <div className="space-y-2">
+      <div>
         <Row
           title={intl.formatMessage({ id: "settings.maintenance.enabled.title", defaultMessage: "Enabled" })}
           hint={intl.formatMessage({ id: "settings.maintenance.enabled.hint", defaultMessage: "Run the daily maintenance job." })}
@@ -294,7 +286,7 @@ export function MemoryMaintenanceSettings() {
               <Button
                 variant="outline"
                 disabled={saving || !config.providerId}
-                className="w-56 justify-between text-muted-foreground bg-muted/30 border-transparent hover:bg-muted/50 shadow-none font-normal h-9 px-3"
+                className="w-56 justify-between text-muted-foreground bg-muted/30 border-transparent hover:bg-row-hover shadow-none font-normal h-9 px-3"
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <ModelSelectorLogo provider={selectedModel?.provider ?? ""} className="size-4 shrink-0" />
@@ -392,7 +384,7 @@ export function MemoryMaintenanceSettings() {
         </Row>
       </div>
 
-      <div className="flex items-center gap-2 pt-2">
+      <div className="flex items-center gap-1.5">
         <Button
           size="sm"
           variant="secondary"
@@ -403,25 +395,24 @@ export function MemoryMaintenanceSettings() {
           {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           <FormattedMessage id="settings.maintenance.runNow" defaultMessage="Run now" />
         </Button>
-        <Button size="sm" variant="secondary" onClick={() => void reloadRuns()} className="gap-1.5">
+        <Button size="sm" variant="ghost" onClick={() => void reloadRuns()} className="h-7 gap-1.5 text-xs">
           <RefreshCcw className="h-3.5 w-3.5" />
           <FormattedMessage id="settings.maintenance.refresh" defaultMessage="Refresh" />
         </Button>
       </div>
 
-      <div className="pt-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Wand2 className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">
-            <FormattedMessage id="settings.maintenance.recentRuns" defaultMessage="Recent runs" />
-          </h3>
-        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={Wand2}
+        title={<FormattedMessage id="settings.maintenance.recentRuns" defaultMessage="Recent runs" />}
+      >
         {runs.length === 0 ? (
-          <div className="text-xs text-muted-foreground px-4 py-6 rounded-xl border border-border/40 text-center">
+          <div className="rounded-lg border border-dashed border-border/40 px-4 py-6 text-center text-xs text-muted-foreground">
             <FormattedMessage id="settings.maintenance.noRuns" defaultMessage='No runs yet. Click "Run now" to trigger one manually.' />
           </div>
         ) : (
-          <div className="rounded-xl border border-border/40 overflow-hidden">
+          <div className="overflow-hidden rounded-lg border border-border/40 bg-background/40">
             <table className="w-full text-xs">
               <thead className="bg-muted/20">
                 <tr className="text-left text-muted-foreground">
@@ -486,7 +477,7 @@ export function MemoryMaintenanceSettings() {
                               <div className="text-[11px] text-muted-foreground">
                                 <FormattedMessage id="settings.maintenance.runLog" defaultMessage="Run #{id} log" values={{ id: r.id }} />
                                 {r.error && (
-                                  <span className="ml-2 text-red-500">
+                                  <span className="ml-2 text-status-error">
                                     <FormattedMessage id="settings.maintenance.runError" defaultMessage="error: {error}" values={{ error: r.error }} />
                                   </span>
                                 )}
@@ -530,7 +521,7 @@ export function MemoryMaintenanceSettings() {
             </table>
           </div>
         )}
-      </div>
+      </SettingsSection>
     </div>
   )
 }

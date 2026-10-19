@@ -154,10 +154,10 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                 data-active={activeTab === tab.id ? 'true' : undefined}
                                 onClick={() => selectTab(tab.id as SettingsTab)}
                                 className={cn(
-                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-left",
+                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left",
                                     activeTab === tab.id
-                                        ? "bg-muted text-foreground"
-                                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                                ? "bg-row-selected text-foreground"
+                                        : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
                                 )}
                             >
                                 <tab.icon className="h-4 w-4" />
@@ -178,10 +178,10 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                         key={project.id}
                                         onClick={() => selectTab(`repo:${project.id}`)}
                                         className={cn(
-                                            "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-left group",
+                                            "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left group",
                                             activeTab === `repo:${project.id}`
-                                                ? "bg-muted text-foreground"
-                                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                                ? "bg-row-selected text-foreground"
+                                                : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
                                         )}
                                     >
                                         <span className="truncate flex-1">{project.name}</span>

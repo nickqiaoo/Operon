@@ -216,7 +216,7 @@ export const WebPreviewConsole = ({
     >
       <CollapsibleTrigger asChild>
         <Button
-          className="flex w-full items-center justify-between p-4 text-left font-medium hover:bg-muted/50"
+          className="flex w-full items-center justify-between p-4 text-left font-medium hover:bg-row-hover"
           variant="ghost"
         >
           Console
@@ -243,7 +243,7 @@ export const WebPreviewConsole = ({
                 className={cn(
                   "text-xs",
                   log.level === "error" && "text-destructive",
-                  log.level === "warn" && "text-yellow-600",
+                  log.level === "warn" && "text-status-warn",
                   log.level === "log" && "text-foreground"
                 )}
                 key={`${log.timestamp.getTime()}-${index}`}

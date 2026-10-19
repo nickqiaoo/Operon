@@ -145,8 +145,8 @@ export function SlackQuickSetupDialog({
       >
         <DialogHeader className="px-1 pt-1 pb-3 flex flex-row items-center justify-between shrink-0">
           <div>
-            <DialogTitle className="text-xl font-semibold tracking-tight flex items-center gap-2">
-              <Zap className="h-5 w-5 text-tint" />
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-tint" />
               <FormattedMessage id="settings.slack.title" defaultMessage="Slack Quick Setup" />
             </DialogTitle>
             <p className="text-xs text-muted-foreground/70 mt-1">
@@ -156,7 +156,7 @@ export function SlackQuickSetupDialog({
               />
             </p>
           </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/50" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" onClick={onClose}>
             <XIcon className="h-4 w-4" />
           </Button>
         </DialogHeader>
@@ -326,7 +326,7 @@ function NameStep({
           value={agentId != null ? String(agentId) : ""}
           onValueChange={(v) => onAgentChange(v ? Number(v) : null)}
         >
-          <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-muted/50 shadow-none">
+          <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
             <SelectValue placeholder={agents.length === 0
               ? intl.formatMessage({ id: "settings.slack.name.noAgents", defaultMessage: "No agents available" })
               : intl.formatMessage({ id: "settings.slack.name.selectAgent", defaultMessage: "Select an agent" })
@@ -378,7 +378,7 @@ function ManifestStep({ manifest }: { manifest: string }) {
           <button
             type="button"
             onClick={() => void handleCopy()}
-            className="absolute right-2 top-2 inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg bg-background/90 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            className="absolute right-2 top-2 inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg bg-background/90 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent-hover transition-colors"
           >
             {copied ? <Check className="h-3 w-3 text-status-ok" /> : <Copy className="h-3 w-3" />}
             {copied

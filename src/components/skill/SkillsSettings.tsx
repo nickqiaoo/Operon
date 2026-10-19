@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { useIntl } from "react-intl"
 import {
   AlertTriangle,
@@ -20,7 +20,7 @@ import {
 import type { InstalledSkill, SkillDetail, SkillInfo, SkillManagedBy, SkillScope } from "@/types/skill"
 import { api } from "@/lib/api"
 import { openPluginsPage } from "@/lib/open-settings"
-import { useProjectStore } from "@/stores/project-store"
+import { useProjectStore, type Project } from "@/stores/project-store"
 import { AgentBadges, AgentChips } from "./AgentBadges"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -32,9 +32,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_SOURCE = "vercel-labs/agent-skills"
+
+/** The project the page's project scope points at, named in "Install into …". */
+const ScopeProjectNameContext = createContext<string | undefined>(undefined)
 
 /** A skill as shown in the list — installed, available, or both. */
 interface SkillListItem {
@@ -59,11 +63,16 @@ export function SkillsSettings() {
   const intl = useIntl()
   // Project scope targets the repository root, not the active worktree: a skill is a
   // property of the project, not of whichever branch happens to be checked out, and
-  // the repo root is what can be committed and shared with the team.
-  const projectPath = useProjectStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.rootPath)
-  const projectName = useProjectStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.name)
-
+  // the repo root is what can be committed and shared with the team. Any project can
+  // be picked here; the active one is only where the choice starts.
+  const projects = useProjectStore((s) => s.projects)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const [scope, setScope] = useState<SkillScope>("global")
+  // Kept while the scope is Global too: it's the target of "install into project" there.
+  const [scopeProjectId, setScopeProjectId] = useState<number | null>(activeProjectId)
+  const scopeProject = projects.find((p) => p.id === scopeProjectId) ?? null
+  const projectPath = scopeProject?.rootPath
+  const projectName = scopeProject?.name
   const [installed, setInstalled] = useState<InstalledSkill[]>([])
   const [available, setAvailable] = useState<SkillInfo[]>([])
   const [source, setSource] = useState(DEFAULT_SOURCE)
@@ -286,6 +295,7 @@ export function SkillsSettings() {
   const canUseOtherScope = otherScope === "global" || Boolean(projectPath)
 
   return (
+    <ScopeProjectNameContext.Provider value={projectName}>
     <div className="space-y-6">
       {/* Toolbar — the scope applies to the list and the detail alike. Back only exists in the
           detail view; leaving Skills altogether is Settings' job. */}
@@ -312,9 +322,13 @@ export function SkillsSettings() {
         <div className="flex items-center gap-2">
           <ScopeSwitcher
             scope={scope}
-            onChange={setScope}
-            projectName={projectName}
-            projectAvailable={Boolean(projectPath)}
+            projectId={scopeProjectId}
+            projects={projects}
+            onChange={(nextScope, projectId) => {
+              setScope(nextScope)
+              if (projectId != null) setScopeProjectId(projectId)
+              setSelected(null)
+            }}
           />
           <Button
             variant="ghost"
@@ -432,69 +446,50 @@ export function SkillsSettings() {
         )}
       </div>
     </div>
+    </ScopeProjectNameContext.Provider>
   )
 }
 
 // ── Scope: which set of directories the whole page is talking about ──────────
+/** Global, or any one project — not just the one whose workspace happens to be open. */
 function ScopeSwitcher({
   scope,
+  projectId,
+  projects,
   onChange,
-  projectName,
-  projectAvailable,
 }: {
   scope: SkillScope
-  onChange: (scope: SkillScope) => void
-  projectName?: string
-  projectAvailable: boolean
+  projectId: number | null
+  projects: Project[]
+  onChange: (scope: SkillScope, projectId?: number) => void
 }) {
   const intl = useIntl()
-  const options: { value: SkillScope; label: string; icon: typeof Globe; disabled?: boolean }[] = [
-    {
-      value: "global",
-      label: intl.formatMessage({ id: "skill.scope.global", defaultMessage: "Global" }),
-      icon: Globe,
-    },
-    {
-      value: "project",
-      label: projectName ?? intl.formatMessage({ id: "skill.scope.project", defaultMessage: "Project" }),
-      icon: FolderGit2,
-      disabled: !projectAvailable,
-    },
-  ]
+  const value = scope === "project" && projectId != null ? `project:${projectId}` : "global"
 
   return (
-    <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/20 p-0.5">
-      {options.map((option) => {
-        const Icon = option.icon
-        const active = scope === option.value
-        return (
-          <button
-            key={option.value}
-            type="button"
-            disabled={option.disabled}
-            onClick={() => onChange(option.value)}
-            title={
-              option.disabled
-                ? intl.formatMessage({
-                    id: "skill.scope.noProject",
-                    defaultMessage: "Open a project to install skills into it",
-                  })
-                : undefined
-            }
-            className={cn(
-              "flex h-7 max-w-[160px] items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
-              active
-                ? "bg-background text-foreground shadow-tab"
-                : "text-muted-foreground hover:text-foreground",
-              option.disabled && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
-            )}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{option.label}</span>
-          </button>
-        )
-      })}
-    </div>
+    <Select
+      value={value}
+      onValueChange={(next) => {
+        if (next === "global") onChange("global")
+        else onChange("project", Number(next.slice("project:".length)))
+      }}
+    >
+      <SelectTrigger className="h-8 w-auto max-w-56 gap-1.5 border-border/50 bg-muted/20 text-xs shadow-none">
+        {scope === "global" ? <Globe className="h-3.5 w-3.5 shrink-0" /> : <FolderGit2 className="h-3.5 w-3.5 shrink-0" />}
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent position="popper" align="end" sideOffset={6}>
+        <SelectItem value="global">
+          {intl.formatMessage({ id: "skill.scope.global", defaultMessage: "Global" })}
+        </SelectItem>
+        {projects.length > 0 && <SelectSeparator />}
+        {projects.map((p) => (
+          <SelectItem key={p.id} value={`project:${p.id}`}>
+            {p.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -704,7 +699,7 @@ function SkillCard({
       }}
       className={cn(
         "group flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-popover/95 p-3 text-left",
-        "shadow-card transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        "shadow-card transition-colors hover:bg-row-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
       )}
     >
       <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-tint-muted text-tint">
@@ -857,6 +852,7 @@ function InstallButton({
   onInstall: (scope?: SkillScope) => void
 }) {
   const intl = useIntl()
+  const projectName = useContext(ScopeProjectNameContext)
   const label = intl.formatMessage({ id: "skill.install", defaultMessage: "Install" })
 
   const primary = (
@@ -901,7 +897,10 @@ function InstallButton({
             )}
             {otherScope === "global"
               ? intl.formatMessage({ id: "skill.installGlobal", defaultMessage: "Install globally" })
-              : intl.formatMessage({ id: "skill.installProject", defaultMessage: "Install into this project" })}
+              : intl.formatMessage(
+                  { id: "skill.installIntoProject", defaultMessage: "Install into {project}" },
+                  { project: projectName ?? "project" },
+                )}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -957,6 +956,7 @@ function SkillDetailView({
   onUpdate: () => void
 }) {
   const intl = useIntl()
+  const scopeProjectName = useContext(ScopeProjectNameContext)
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1050,7 +1050,7 @@ function SkillDetailView({
             {scope === "global" ? <Globe className="h-3 w-3" /> : <FolderGit2 className="h-3 w-3" />}
             {scope === "global"
               ? intl.formatMessage({ id: "skill.scope.global", defaultMessage: "Global" })
-              : intl.formatMessage({ id: "skill.scope.project", defaultMessage: "Project" })}
+              : scopeProjectName ?? intl.formatMessage({ id: "skill.scope.project", defaultMessage: "Project" })}
           </Badge>
           {detail?.path && (
             <Badge

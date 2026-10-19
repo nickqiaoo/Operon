@@ -87,11 +87,11 @@ export const PackageInfoName = ({
 };
 
 const changeTypeStyles: Record<ChangeType, string> = {
-  major: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  major: "bg-status-error/10 text-status-error",
   minor:
-    "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  patch: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  added: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    "bg-status-warn/10 text-status-warn",
+  patch: "bg-status-ok/10 text-status-ok",
+  added: "bg-status-info/10 text-status-info",
   removed: "bg-muted text-muted-foreground",
 };
 

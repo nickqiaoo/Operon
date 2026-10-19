@@ -7,9 +7,9 @@ import { useVariableScope } from "./variable-scope"
 import { VariablePicker } from "./VariablePicker"
 
 export const labelClass = "text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60"
-export const inputClass = "bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none h-8 text-sm"
-export const textareaClass = "bg-muted/30 border-transparent hover:bg-muted/50 focus:bg-background shadow-none resize-none text-sm code-scrollbar"
-export const selectTriggerClass = "h-8 text-sm bg-muted/25 border border-transparent hover:bg-muted/45 hover:border-border/40 shadow-none transition-colors focus-visible:border-border/50 focus-visible:ring-2 focus-visible:ring-border/30"
+export const inputClass = "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none h-8 text-sm"
+export const textareaClass = "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none resize-none text-sm code-scrollbar"
+export const selectTriggerClass = "h-8 text-sm bg-muted/25 border border-transparent hover:bg-row-hover hover:border-border/40 shadow-none transition-colors focus-visible:border-border/50 focus-visible:ring-2 focus-visible:ring-border/30"
 export const selectContentClass = "border border-border/40 bg-background/95 shadow-float backdrop-blur-sm"
 
 export const VARIABLES_HINT = 'Variables: {{ name }} = output of the node named "name" (any node that ran before this one). JSON outputs are objects: {{ review.passed }}.'

@@ -88,7 +88,7 @@ const AxRow = ({
       <div
         className={cn(
           "flex items-start gap-1.5 rounded px-1 py-0.5 text-xs",
-          hasChildren && "cursor-pointer hover:bg-muted/60",
+          hasChildren && "cursor-pointer hover:bg-row-hover",
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={hasChildren ? () => setOpen((v) => !v) : undefined}

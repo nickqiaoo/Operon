@@ -292,7 +292,7 @@ function InstalledStrip({
               type="button"
               onClick={() => onOpen(p.id)}
               title={p.displayName}
-              className="flex w-16 flex-col items-center gap-1.5 rounded-lg p-1.5 transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              className="flex w-16 flex-col items-center gap-1.5 rounded-lg p-1.5 transition-colors hover:bg-row-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
               <div className="relative">
                 <PluginLogo url={logoById.get(p.id)?.logoUrl} name={p.displayName} color={logoById.get(p.id)?.brandColor} size="lg" />
@@ -302,7 +302,7 @@ function InstalledStrip({
                   </span>
                 )}
                 {p.hasErrors && (
-                  <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 ring-2 ring-background">
+                  <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-accent-warm ring-2 ring-background">
                     <AlertTriangle className="h-2 w-2 text-white" />
                   </span>
                 )}
@@ -381,7 +381,7 @@ function MarketplaceGallery({
         </div>
       )}
       {browseErrors.map((e) => (
-        <div key={e.source} className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-500">
+        <div key={e.source} className="flex items-start gap-2 text-xs text-status-warn">
           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {e.source}: {e.message}
         </div>
       ))}
@@ -476,7 +476,7 @@ function PluginCard({
       }}
       className={cn(
         "group flex cursor-pointer items-center gap-3 rounded-xl border border-border/50 bg-popover/95 px-3 py-2.5 text-left",
-        "shadow-card transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        "shadow-card transition-colors hover:bg-row-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
       )}
     >
       <PluginLogo url={view.logoUrl} name={view.name} color={view.brandColor} size="lg" />
@@ -491,7 +491,7 @@ function PluginCard({
         {view.description && <div className="truncate text-xs text-muted-foreground">{view.description}</div>}
       </div>
       {view.installed ? (
-        <span className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-green-600 dark:text-green-400">
+        <span className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-status-ok">
           <Check className="h-3.5 w-3.5" />{" "}
           <FormattedMessage id="settings.plugins.installedBadge" defaultMessage="Installed" />
         </span>
@@ -708,7 +708,7 @@ function PluginDetail({
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h2 className="text-2xl font-semibold tracking-tight">{name}</h2>
             {requiresAuth && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
                 <KeyRound className="h-3 w-3" />{" "}
                 <FormattedMessage id="settings.plugins.requiresSignIn" defaultMessage="Requires sign-in" />
               </span>
@@ -772,8 +772,8 @@ function PluginDetail({
       {description && <p className="text-[15px] leading-relaxed text-muted-foreground">{description}</p>}
 
       {!isInstalled && connectorBlocked && marketView?.entry.connectorReason && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div className="flex items-start gap-3 rounded-xl border border-status-warn/20 bg-status-warn/5 p-4">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-status-warn" />
           <div>
             <div className="text-sm font-medium">
               <FormattedMessage id="settings.plugins.connectorUnavailable" defaultMessage="Connector unavailable" />
@@ -784,8 +784,8 @@ function PluginDetail({
       )}
 
       {isInstalled && blockedInstalledApps.map((app) => (
-        <div key={app.alias} className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div key={app.alias} className="flex items-start gap-3 rounded-xl border border-status-warn/20 bg-status-warn/5 p-4">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-status-warn" />
           <div>
             <div className="text-sm font-medium">
               <FormattedMessage id="settings.plugins.connectorUnavailable" defaultMessage="Connector unavailable" />
@@ -1103,7 +1103,7 @@ function McpServerRow({
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm font-medium">{server.name}</span>
           {server.requiresAuth && server.authenticated && (
-            <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-green-600 dark:text-green-400">
+            <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-status-ok">
               <Check className="h-3 w-3" />{" "}
               <FormattedMessage id="settings.plugins.mcp.connected" defaultMessage="Connected" />
             </span>
@@ -1120,7 +1120,7 @@ function McpServerRow({
         <button
           type="button"
           onClick={openDialog}
-          className="group -mx-2 flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted/50"
+          className="group -mx-2 flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-row-hover"
         >
           {identity}
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
@@ -1157,7 +1157,7 @@ function McpServerRow({
             <div className="flex items-center gap-3">
               <PluginLogo url={logoUrl} name={server.name} color={brand} size="lg" />
               <div className="min-w-0">
-                <DialogTitle className="text-base">
+                <DialogTitle>
                   {server.name}{" "}
                   <span className="font-normal text-muted-foreground">
                     <FormattedMessage id="settings.plugins.mcp.serverLabel" defaultMessage="MCP server" />
@@ -1249,7 +1249,7 @@ function MarketMcpRow({ server, logoUrl, brand }: { server: OperonMarketplaceMcp
         <div className="text-xs text-muted-foreground">{meta}</div>
       </div>
       {server.requiresAuth && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
           <KeyRound className="h-3 w-3" />{" "}
           <FormattedMessage id="settings.plugins.requiresSignIn" defaultMessage="Requires sign-in" />
         </span>
@@ -1298,7 +1298,7 @@ function SkillRow({
 
   return (
     <>
-      <button type="button" onClick={openDialog} className="group -mx-2 flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-muted/50">
+      <button type="button" onClick={openDialog} className="group -mx-2 flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-row-hover">
         <PluginLogo url={logoUrl} name={skill} color={brand} size="md" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{skill}</div>
@@ -1320,7 +1320,7 @@ function SkillRow({
           <DialogHeader className="space-y-0 border-b border-border/40 p-5 text-left">
             <div className="flex items-center gap-3">
               <PluginLogo url={logoUrl} name={skill} color={brand} size="lg" />
-              <DialogTitle className="text-base">
+              <DialogTitle>
                 {skill}{" "}
                 <span className="font-normal text-muted-foreground">
                   <FormattedMessage id="settings.plugins.skillLabel" defaultMessage="Skill" />
@@ -1499,7 +1499,7 @@ interface MarketEntryView {
 function ConnectorSupportBadge({ support }: { support: NonNullable<OperonMarketplaceEntryDTO["connectorSupport"]> }) {
   if (support === "supported") {
     return (
-      <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+      <span className="rounded-full bg-status-ok/10 px-1.5 py-0.5 text-[10px] font-medium text-status-ok">
         <FormattedMessage id="settings.plugins.connectorCompatible" defaultMessage="Compatible" />
       </span>
     )
@@ -1510,7 +1510,7 @@ function ConnectorSupportBadge({ support }: { support: NonNullable<OperonMarketp
       ? <FormattedMessage id="settings.plugins.adapterRequired" defaultMessage="Adapter required" />
       : <FormattedMessage id="settings.plugins.unsupported" defaultMessage="Unsupported" />
   return (
-    <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+    <span className="rounded-full bg-status-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-status-warn">
       {label}
     </span>
   )

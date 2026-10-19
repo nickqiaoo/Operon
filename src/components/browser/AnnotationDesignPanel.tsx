@@ -133,7 +133,7 @@ function Row({
           type="button"
           onClick={onReset}
           title="Reset"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
         >
           <RotateCcw className="h-3 w-3" />
         </button>
@@ -365,7 +365,7 @@ function SegmentField({
               "h-6 rounded border px-1.5 text-[11px] transition-colors",
               value === o.value
                 ? "border-border/60 bg-secondary text-secondary-foreground"
-                : "border-border/50 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                : "border-border/50 text-muted-foreground hover:bg-row-hover hover:text-foreground"
             )}
           >
             {o.label}
@@ -400,7 +400,7 @@ function BoxField({
             type="button"
             onClick={() => sides.forEach((s) => onChange(s.property, previous[s.property]))}
             title="Reset"
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
           >
             <RotateCcw className="h-3 w-3" />
           </button>

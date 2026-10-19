@@ -153,7 +153,7 @@ function ScheduleDialog({
   return (
     <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-md">
       <DialogHeader className="text-left">
-        <DialogTitle className="pr-6 text-base">{scheduleName(intl, s)}</DialogTitle>
+        <DialogTitle className="pr-6">{scheduleName(intl, s)}</DialogTitle>
         <DialogDescription>{subtitle(intl, s)}</DialogDescription>
       </DialogHeader>
 

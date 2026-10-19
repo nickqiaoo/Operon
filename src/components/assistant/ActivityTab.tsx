@@ -45,7 +45,7 @@ export function ActivityTab({ activities, selectedId, onSelect, large }: Activit
             className={cn(
               "flex w-full items-start text-left transition-colors",
               large ? "gap-3.5 rounded-xl px-3 py-2.5 active:bg-secondary-active" : "gap-3 rounded-lg px-2 py-2",
-              selectedId === a.id ? "bg-foreground/[0.07]" : "hover:bg-secondary-hover",
+              selectedId === a.id ? "bg-row-selected" : "hover:bg-secondary-hover",
             )}
           >
             <ActivityStatusTile status={a.status} large={large} />

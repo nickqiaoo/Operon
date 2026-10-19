@@ -88,14 +88,14 @@ export function SlashCommandPopup({
                 'flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors',
                 index === selectedIndex
                   ? 'bg-muted/80 text-foreground'
-                  : 'hover:bg-muted/40 text-foreground/80'
+                  : 'hover:bg-row-hover text-foreground/80'
               )}
             >
               <span className="min-w-0 truncate leading-5">{item.name}</span>
               <span className={cn(
                 'ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
                 item.type === 'skill'
-                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                  ? 'bg-status-info/10 text-status-info'
                   : 'bg-muted text-muted-foreground'
               )}>
                 {item.type === 'skill'

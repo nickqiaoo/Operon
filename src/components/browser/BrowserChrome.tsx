@@ -186,7 +186,7 @@ function BrowserMenu({ instance, state }: { instance: WebviewInstance; state: We
           type="button"
           aria-label={intl.formatMessage({ id: "browser.menu", defaultMessage: "Browser menu" })}
           title={intl.formatMessage({ id: "browser.menu", defaultMessage: "Browser menu" })}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
         >
           <MoreVertical className="h-3.5 w-3.5" />
         </button>
@@ -209,7 +209,7 @@ function BrowserMenu({ instance, state }: { instance: WebviewInstance; state: We
               type="button"
               aria-label={intl.formatMessage({ id: "browser.zoomOut", defaultMessage: "Zoom out" })}
               onClick={() => instance.setZoom(state.zoom - 0.1)}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent-hover hover:text-foreground"
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
@@ -218,7 +218,7 @@ function BrowserMenu({ instance, state }: { instance: WebviewInstance; state: We
               type="button"
               aria-label={intl.formatMessage({ id: "browser.zoomIn", defaultMessage: "Zoom in" })}
               onClick={() => instance.setZoom(state.zoom + 0.1)}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent-hover hover:text-foreground"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
@@ -226,7 +226,7 @@ function BrowserMenu({ instance, state }: { instance: WebviewInstance; state: We
               type="button"
               aria-label={intl.formatMessage({ id: "browser.resetZoom", defaultMessage: "Reset zoom" })}
               onClick={() => instance.setZoom(1)}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent-hover hover:text-foreground"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
@@ -276,7 +276,7 @@ function NavButton({ ariaLabel, disabled, active, onClick, children, className }
         className,
         active
           ? "bg-primary/15 text-primary hover:bg-primary/25"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+          : "text-muted-foreground hover:bg-row-hover hover:text-foreground",
         "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
       )}
     >

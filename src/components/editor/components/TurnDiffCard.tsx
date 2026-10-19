@@ -52,8 +52,8 @@ export function TurnDiffCard({ files, onUndo, onReview, className }: TurnDiffCar
               <FormattedMessage id="editor.turnDiff.edited" defaultMessage="{count, plural, one {Edited # file} other {Edited # files}}" values={{ count: files.length }} />
             </div>
             <div className="text-xs">
-              <span className="text-emerald-600 dark:text-emerald-400">+{totalAdded}</span>{' '}
-              <span className="text-red-500 dark:text-red-400">-{totalRemoved}</span>
+              <span className="text-diff-add">+{totalAdded}</span>{' '}
+              <span className="text-diff-remove">-{totalRemoved}</span>
             </div>
           </div>
         </div>
@@ -83,8 +83,8 @@ export function TurnDiffCard({ files, onUndo, onReview, className }: TurnDiffCar
               {file.path}
             </span>
             <span className="shrink-0 text-xs tabular-nums">
-              <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span>{' '}
-              <span className="text-red-500 dark:text-red-400">-{file.deletions}</span>
+              <span className="text-diff-add">+{file.additions}</span>{' '}
+              <span className="text-diff-remove">-{file.deletions}</span>
             </span>
           </div>
         ))}

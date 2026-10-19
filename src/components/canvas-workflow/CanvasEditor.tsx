@@ -281,7 +281,7 @@ function CanvasEditorInner({
       {/* Floating toolbar */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-1 rounded-lg border border-border/40 bg-background/80 backdrop-blur-sm shadow-card px-1 py-1">
         <button
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
           onClick={() => onAutoLayout?.()}
           title={intl.formatMessage({ id: "canvas.context.autoLayout", defaultMessage: "Auto Layout" })}
         >
@@ -290,7 +290,7 @@ function CanvasEditorInner({
         </button>
         <div className="w-px h-4 bg-border/40" />
         <button
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-row-hover rounded-md transition-colors"
           onClick={() => fitView({ padding: 0.2, duration: 300 })}
           title={intl.formatMessage({ id: "canvas.context.fitView", defaultMessage: "Fit View" })}
         >
@@ -314,7 +314,7 @@ function CanvasEditorInner({
               <>
                 {showContinueSession && (
                   <button
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-row-hover transition-colors text-left"
                     onClick={handleCreateSession}
                   >
                     <Link2 className="h-3.5 w-3.5 text-blue-500" />
@@ -322,7 +322,7 @@ function CanvasEditorInner({
                   </button>
                 )}
                 <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-row-hover transition-colors text-left"
                   onClick={handleDuplicateNode}
                 >
                   <Copy className="h-3.5 w-3.5 text-muted-foreground" />
@@ -330,7 +330,7 @@ function CanvasEditorInner({
                 </button>
                 <div className="my-1 h-px bg-border/30" />
                 <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-status-error/10 text-status-error transition-colors text-left"
                   onClick={handleDeleteNode}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -347,7 +347,7 @@ function CanvasEditorInner({
                   return (
                     <button
                       key={type}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-row-hover transition-colors text-left"
                       onClick={() => handleAddNodeAtPosition(type)}
                     >
                       <Icon className={cn("h-3.5 w-3.5", meta.iconClass)} />
@@ -357,14 +357,14 @@ function CanvasEditorInner({
                 })}
                 <div className="my-1 h-px bg-border/30" />
                 <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-row-hover transition-colors text-left"
                   onClick={handleAutoLayout}
                 >
                   <LayoutGrid className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>{intl.formatMessage({ id: "canvas.context.autoLayout", defaultMessage: "Auto Layout" })}</span>
                 </button>
                 <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-row-hover transition-colors text-left"
                   onClick={handleFitView}
                 >
                   <Maximize className="h-3.5 w-3.5 text-muted-foreground" />

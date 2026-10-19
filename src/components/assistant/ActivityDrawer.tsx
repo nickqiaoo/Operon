@@ -397,7 +397,7 @@ function TimelineRow({ icon, last, selected, large, onClick, children }: Timelin
           className={cn(
             "relative flex w-full text-left transition-colors",
             large ? "gap-3 rounded-xl px-3 py-2.5 active:bg-secondary-active" : "gap-3 rounded-lg px-3 py-2",
-            selected ? "bg-foreground/[0.07]" : "hover:bg-secondary-hover",
+            selected ? "bg-row-selected" : "hover:bg-secondary-hover",
           )}
         >
           {body}
