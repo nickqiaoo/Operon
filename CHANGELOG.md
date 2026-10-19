@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-10-19
+
+### Added
+
+- Models that can't load tools on demand no longer get every MCP tool up front: they reach them through a short program, so plugins no longer fill the context (Operon and OpenCode).
+- A program's tool calls show inside its card; agent, schedule and task cards and approvals stay in sight.
+
+### Fixed
+
+- The context panel counts what is actually sent to the model.
+- Workspace mode no longer asks for approval for commands that discard errors with `2>/dev/null`.
+- OpenCode: the summary written when a conversation is compacted no longer shows up in the reply.
+
 ## [1.4.3] - 2026-10-19
 
 ### Added
