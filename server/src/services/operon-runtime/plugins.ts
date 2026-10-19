@@ -643,24 +643,67 @@ async function configuredMarketplaces(): Promise<string[]> {
 // when older than the TTL so newly-published plugins eventually appear.
 const REPO_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
+// One download per marketplace at a time: openai/plugins is a ~30MB zip, and concurrent browses
+// used to each wipe the directory the other was extracting into.
+const repoRefreshes = new Map<string, Promise<string>>()
+
 async function ensureMarketplaceRepo(gh: { owner: string; repo: string; ref?: string }): Promise<string> {
   const refVal = gh.ref ?? 'HEAD'
   const key = `${gh.owner}-${gh.repo}-${refVal}`.replace(/[^\w.-]/g, '_')
-  const dest = join(MARKETPLACE_CACHE_ROOT, key)
-  const metaPath = join(MARKETPLACE_CACHE_ROOT, `${key}.json`)
+  let cached: { root: string; at: number } | undefined
   try {
-    const meta = JSON.parse(await readFile(metaPath, 'utf8')) as { root: string; at: number }
-    if (Date.now() - meta.at < REPO_CACHE_TTL_MS) {
-      await access(meta.root)
-      return meta.root
-    }
+    const meta = JSON.parse(await readFile(join(MARKETPLACE_CACHE_ROOT, `${key}.json`), 'utf8')) as { root: string; at: number }
+    await access(meta.root)
+    cached = meta
   } catch {
-    // missing / stale / corrupt cache → (re)download below
+    // missing / corrupt cache → download below
   }
-  await rm(dest, { recursive: true, force: true })
+  if (cached && Date.now() - cached.at < REPO_CACHE_TTL_MS) return cached.root
+  const refresh = refreshMarketplaceRepo(key, gh, cached?.root)
+  // Stale: serve the old copy now and refresh in the background — only a missing cache blocks.
+  if (cached) {
+    refresh.catch((error: unknown) => console.warn(`[plugins] marketplace refresh failed for ${key}:`, error))
+    return cached.root
+  }
+  return refresh
+}
+
+function refreshMarketplaceRepo(
+  key: string,
+  gh: { owner: string; repo: string; ref?: string },
+  previousRoot: string | undefined,
+): Promise<string> {
+  let pending = repoRefreshes.get(key)
+  if (pending === undefined) {
+    pending = downloadMarketplaceRepo(key, gh, previousRoot).finally(() => repoRefreshes.delete(key))
+    repoRefreshes.set(key, pending)
+  }
+  return pending
+}
+
+async function downloadMarketplaceRepo(
+  key: string,
+  gh: { owner: string; repo: string; ref?: string },
+  previousRoot: string | undefined,
+): Promise<string> {
+  // Each download lands in its own versioned dir, so the copy being served is never touched mid-read.
+  const keyDir = join(MARKETPLACE_CACHE_ROOT, key)
+  const dest = join(keyDir, String(Date.now()))
   await mkdir(dest, { recursive: true })
-  const root = await materializeGithubRepo({ owner: gh.owner, repo: gh.repo, ref: gh.ref, destDir: dest })
-  await writeFile(metaPath, JSON.stringify({ root, at: Date.now() }))
+  let root: string
+  try {
+    root = await materializeGithubRepo({ owner: gh.owner, repo: gh.repo, ref: gh.ref, destDir: dest })
+  } catch (error) {
+    await rm(dest, { recursive: true, force: true })
+    throw error
+  }
+  await writeFile(join(MARKETPLACE_CACHE_ROOT, `${key}.json`), JSON.stringify({ root, at: Date.now() }))
+  // Keep the previous version too: a gallery browsed from it may still install from its paths.
+  const keep = [root, previousRoot].filter((p): p is string => p !== undefined)
+  for (const name of await readdir(keyDir).catch(() => [] as string[])) {
+    const dir = join(keyDir, name)
+    if (!keep.some((p) => p === dir || p.startsWith(dir + sep))) await rm(dir, { recursive: true, force: true })
+  }
   return root
 }
 
