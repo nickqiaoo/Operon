@@ -13,6 +13,9 @@
  * runs with the real `sessionID` and mutates the args handed to the MCP call).
  * The host looks that id up in the map below and strips the argument before the
  * tool sees it.
+ *
+ * The same plugin records the results of Code Mode's nested calls (see
+ * `code-mode.ts`): `tool.execute.after` sees them, the event stream does not.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,6 +32,9 @@ export const OPENCODE_CALLER_ARG = '__operon_opencode_session'
  */
 // `assistant` covers the personal assistant's own servers (`assistant`, `assistant_worker`, …).
 const CALLER_ROUTED_SERVERS = ['external_agent', 'workflow', 'node_repl', 'schedule', 'assistant']
+
+/** A nested result kept for a card is capped; the program itself still gets all of it. */
+const NESTED_RESULT_MAX_CHARS = 64_000
 
 /** OpenCode root session id -> host conversation id. */
 const conversationBySession = new Map<string, string>()
@@ -56,8 +62,13 @@ export function resolveOpencodeCaller(sessionId: string): string | undefined {
  * releases before the `export default { id, server }` form (2026-03) reject that
  * form, and newer ones still load a module with no default export this way.
  */
-export const OPENCODE_CALLER_PLUGIN_SOURCE = `const ARG = ${JSON.stringify(OPENCODE_CALLER_ARG)}
+export const OPENCODE_CALLER_PLUGIN_SOURCE = `import { appendFile, mkdir } from "node:fs/promises"
+
+const ARG = ${JSON.stringify(OPENCODE_CALLER_ARG)}
 const PREFIXES = ${JSON.stringify(CALLER_ROUTED_SERVERS.map((name) => `${name}_`))}
+// Code Mode results, one JSON line per nested call, in a file per program ("execute" call).
+const NESTED_DIR = new URL("./nested/", import.meta.url)
+const MAX_RESULT = ${String(NESTED_RESULT_MAX_CHARS)}
 
 export const OperonCallerIdentity = async ({ client }) => {
   const roots = new Map()
@@ -91,13 +102,43 @@ export const OperonCallerIdentity = async ({ client }) => {
       // Mutate in place: the same object is what the MCP call sends.
       output.args[ARG] = await rootOf(input.sessionID)
     },
+    // Code Mode runs MCP tools inside its execute tool, under call ids "<execute call>/<n>".
+    // Their results never reach the event stream; leave them where the host can read them.
+    "tool.execute.after": async (input, output) => {
+      const callID = typeof input.callID === "string" ? input.callID : ""
+      const slash = callID.lastIndexOf("/")
+      if (slash <= 0) return
+      const record = { tool: input.tool, args: input.args ?? {}, output: resultText(output) }
+      try {
+        await mkdir(NESTED_DIR, { recursive: true })
+        await appendFile(new URL(encodeURIComponent(callID.slice(0, slash)) + ".jsonl", NESTED_DIR), JSON.stringify(record) + "\\n")
+      } catch {
+        // The card falls back to no output; the program's own result still has it.
+      }
+    },
   }
+}
+
+// An MCP result's text, or its structured content when it has no text.
+function resultText(output) {
+  if (!output || typeof output !== "object") return ""
+  if (typeof output.output === "string") return output.output.slice(0, MAX_RESULT)
+  const texts = Array.isArray(output.content)
+    ? output.content.filter((part) => part && part.type === "text" && typeof part.text === "string").map((part) => part.text)
+    : []
+  const text = texts.length > 0 ? texts.join("\\n") : output.structuredContent !== undefined ? JSON.stringify(output.structuredContent) : ""
+  return text.slice(0, MAX_RESULT)
 }
 `
 
+/** Where the plugin file lives; Code Mode results go in `nested/` beside it. */
+export function opencodePluginDir(): string {
+  return path.join(tmpdir(), 'operon-opencode')
+}
+
 /** Write the plugin where the OpenCode server can load it; returns its file URL. */
 export function writeOpencodeCallerPlugin(): string {
-  const dir = path.join(tmpdir(), 'operon-opencode')
+  const dir = opencodePluginDir()
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, 'operon-caller-identity.mjs')
   writeFileSync(file, OPENCODE_CALLER_PLUGIN_SOURCE, 'utf8')

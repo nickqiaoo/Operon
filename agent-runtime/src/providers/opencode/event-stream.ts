@@ -1,4 +1,15 @@
 import { stripOpencodeCallerArg } from './caller-identity.js'
+import {
+  createCodeModeProgram,
+  fileNestedResults,
+  nestedCallsOf,
+  nestedToolKey,
+  OPENCODE_CODE_MODE_TOOL,
+  takeNestedResult,
+  type CodeModeProgram,
+  type NestedCallState,
+  type NestedResultSource,
+} from './code-mode.js'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type {
@@ -191,6 +202,7 @@ interface ToolStateCompleted {
   input: Record<string, unknown>
   output: string
   title: string
+  metadata?: Record<string, unknown>
   time: { start: number; end: number }
 }
 
@@ -198,6 +210,7 @@ interface ToolStateError {
   status: 'error'
   input: Record<string, unknown>
   error: string
+  metadata?: Record<string, unknown>
   time: { start: number; end: number }
 }
 
@@ -256,6 +269,9 @@ export interface StreamState {
    * where the agent took it in.
    */
   pendingInjections: Map<string, { id: string; text: string }>
+  /** Code Mode programs (`execute` calls) by call id; their nested calls become parts of their own. */
+  codeModePrograms: Map<string, CodeModeProgram>
+  nestedResults: NestedResultSource
 }
 
 export function createStreamState(params?: {
@@ -263,6 +279,7 @@ export function createStreamState(params?: {
   initialStepWarnings?: StartStepWarning[]
   modelId?: string
   pendingInjections?: Map<string, { id: string; text: string }>
+  nestedResults?: NestedResultSource
 }): StreamState {
   return {
     stepStarted: false,
@@ -296,6 +313,8 @@ export function createStreamState(params?: {
     childSessions: new Map(),
     pendingTaskCallIds: [],
     pendingInjections: params?.pendingInjections ?? new Map(),
+    codeModePrograms: new Map(),
+    nestedResults: params?.nestedResults ?? fileNestedResults,
   }
 }
 
@@ -784,6 +803,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
       } else if ((part.tool === 'task' || part.tool === 'Subtask') && !state.pendingTaskCallIds.includes(part.callID)) {
         state.pendingTaskCallIds.push(part.callID)
       }
+      if (part.tool === OPENCODE_CODE_MODE_TOOL) parts.push(...handleCodeModeProgress(part, part.state.metadata, streamState, state))
       break
     }
     case 'completed': {
@@ -804,6 +824,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
         parts.push(createToolCall(part.callID, toolName, input))
         streamState.callEmitted = true
       }
+      if (part.tool === OPENCODE_CODE_MODE_TOOL) parts.push(...finishCodeModeProgram(part, part.state.metadata, streamState, state))
       if (!streamState.resultEmitted) {
         parts.push({
           type: 'tool-result',
@@ -836,6 +857,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
         parts.push(createToolCall(part.callID, toolName, input))
         streamState.callEmitted = true
       }
+      if (part.tool === OPENCODE_CODE_MODE_TOOL) parts.push(...finishCodeModeProgram(part, part.state.metadata, streamState, state))
       if (!streamState.resultEmitted) {
         parts.push({
           type: 'tool-error',
@@ -865,6 +887,9 @@ function handlePermissionAsked(event: EventPermissionAsked, state: StreamState):
   }
   const toolState = state.toolStates.get(callId)
   if (toolState?.resultEmitted) return []
+  if (toolState?.toolName === OPENCODE_CODE_MODE_TOOL) {
+    return handleNestedPermission(callId, approvalId, event.properties.permission, toolState, state)
+  }
   if (toolState?.callEmitted) {
     return [{ type: 'tool-approval-request', approvalId, toolCall: createToolCall(callId, toolState.toolName, toolState.lastInput ?? '{}') }]
   }
@@ -881,6 +906,151 @@ function handlePermissionAsked(event: EventPermissionAsked, state: StreamState):
   }
   state.pendingApprovals.set(callId, { permissionId: approvalId })
   return []
+}
+
+// ── Code Mode: a program's nested calls as tool parts of their own (see code-mode.ts) ──
+
+function programOf(callId: string, state: StreamState): CodeModeProgram {
+  let program = state.codeModePrograms.get(callId)
+  if (!program) {
+    program = createCodeModeProgram()
+    state.codeModePrograms.set(callId, program)
+  }
+  return program
+}
+
+function nestedToolCall(programCallId: string, call: NestedCallState): ToolCallPart {
+  return {
+    ...createToolCall(call.id, call.toolName, call.input),
+    providerMetadata: { opencode: { programToolCallId: programCallId } },
+  }
+}
+
+/**
+ * Bring the nested calls in line with the program's latest `metadata.toolCalls`: a part for each
+ * new call and a result for each finished one. The program's own call goes out first, so its
+ * card exists before the calls it makes.
+ */
+function handleCodeModeProgress(
+  part: ToolPart,
+  metadata: unknown,
+  streamState: ToolStreamState,
+  state: StreamState,
+): RuntimeStreamPart[] {
+  const progress = nestedCallsOf(metadata)
+  // A replayed update of a program that already ended must not bring its calls back.
+  if (!progress || progress.length === 0 || streamState.resultEmitted) return []
+  const parts: RuntimeStreamPart[] = []
+  if (!streamState.inputClosed) {
+    parts.push({ type: 'tool-input-end', id: part.callID })
+    streamState.inputClosed = true
+  }
+  if (!streamState.callEmitted) {
+    parts.push(createToolCall(part.callID, streamState.toolName, streamState.lastInput ?? JSON.stringify(stripOpencodeCallerArg(part.state.input))))
+    streamState.callEmitted = true
+  }
+  const program = programOf(part.callID, state)
+  progress.forEach((entry, index) => {
+    let call = program.calls[index]
+    if (!call) {
+      call = {
+        id: `${part.callID}/${String(index + 1)}`,
+        toolName: nestedToolKey(entry.tool),
+        input: JSON.stringify(stripOpencodeCallerArg(entry.input ?? {})),
+        approvalAsked: false,
+        resultEmitted: false,
+      }
+      program.calls[index] = call
+      parts.push(nestedToolCall(part.callID, call))
+    }
+    if (call.resultEmitted || entry.status === 'running') return
+    call.resultEmitted = true
+    if (entry.status === 'completed') {
+      parts.push({
+        type: 'tool-result',
+        toolCallId: call.id,
+        toolName: call.toolName,
+        input: call.input,
+        output: takeNestedResult(program, part.callID, call, state.nestedResults) ?? '',
+        providerExecuted: true,
+        dynamic: true,
+      })
+    } else {
+      parts.push({
+        type: 'tool-error',
+        toolCallId: call.id,
+        toolName: call.toolName,
+        input: call.input,
+        error: new Error('The call failed; the program output has the details.'),
+        providerExecuted: true,
+        dynamic: true,
+      })
+    }
+  })
+  return parts
+}
+
+/** The program ended: settle its nested calls (a call it left behind did not finish) and drop its results file. */
+function finishCodeModeProgram(
+  part: ToolPart,
+  metadata: unknown,
+  streamState: ToolStreamState,
+  state: StreamState,
+): RuntimeStreamPart[] {
+  if (streamState.resultEmitted) return []
+  const parts = handleCodeModeProgress(part, metadata, streamState, state)
+  const program = state.codeModePrograms.get(part.callID)
+  if (!program) return parts
+  for (const call of program.calls) {
+    if (call.resultEmitted) continue
+    call.resultEmitted = true
+    parts.push({
+      type: 'tool-error',
+      toolCallId: call.id,
+      toolName: call.toolName,
+      input: call.input,
+      error: new Error('The program ended before this call finished.'),
+      providerExecuted: true,
+      dynamic: true,
+    })
+  }
+  state.codeModePrograms.delete(part.callID)
+  state.nestedResults.forget(part.callID)
+  return parts
+}
+
+/**
+ * An approval asked from inside a program names the program's call and the nested tool's key
+ * (`permission`). It goes to the first call of that tool still waiting for one — calls ask in the
+ * order they start, and a call is in the metadata before it can ask. Should none match (a
+ * metadata shape we do not know), the approval stays on the program's own card: shown in the
+ * wrong place beats never shown, which would leave the program waiting forever.
+ */
+function handleNestedPermission(
+  programCallId: string,
+  approvalId: string,
+  permission: string,
+  toolState: ToolStreamState,
+  state: StreamState,
+): RuntimeStreamPart[] {
+  const program = programOf(programCallId, state)
+  const call = program.calls.find((candidate) => candidate.toolName === permission && !candidate.approvalAsked && !candidate.resultEmitted)
+  if (call) {
+    call.approvalAsked = true
+    return [{ type: 'tool-approval-request', approvalId, toolCall: nestedToolCall(programCallId, call) }]
+  }
+  const parts: RuntimeStreamPart[] = []
+  if (!toolState.inputClosed) {
+    parts.push({ type: 'tool-input-end', id: programCallId })
+    toolState.inputClosed = true
+  }
+  const toolCall = createToolCall(programCallId, toolState.toolName, toolState.lastInput ?? '{}')
+  if (!toolState.callEmitted) {
+    parts.push(toolCall)
+    toolState.callEmitted = true
+  }
+  parts.push({ type: 'tool-approval-request', approvalId, toolCall })
+  return parts
 }
 
 function handleQuestionAsked(event: EventQuestionAsked, state: StreamState): RuntimeStreamPart[] {

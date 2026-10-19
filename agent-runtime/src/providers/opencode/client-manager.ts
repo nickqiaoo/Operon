@@ -124,7 +124,9 @@ export class OpencodeClientManager {
     try {
       this.server = await startOpencodeServer({
         binary: this.ctx.resolveBinary('opencode') ?? 'opencode',
-        env: this.ctx.env(),
+        // Keep large MCP catalogs behind OpenCode's execute/search interface.
+        // An explicit host setting can still opt out of this experiment.
+        env: { OPENCODE_EXPERIMENTAL_CODE_MODE: 'true', ...this.ctx.env() },
         hostname: this.options.hostname,
         port: this.options.port,
         timeout: this.options.serverTimeout,
