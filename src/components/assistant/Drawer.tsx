@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { usePageVisible } from "@/lib/page-visibility"
 import { cn } from "@/lib/utils"
 
 const TRANSITION_MS = 300
@@ -24,15 +25,17 @@ export function useDrawer<T>(value: T | null, onClose: () => void): { shown: T |
   }, [value])
 
   const open = value != null
+  // The page stays mounted while another one is shown: an Escape there isn't for this drawer.
+  const pageVisible = usePageVisible()
   useEffect(() => {
-    if (!open) return
+    if (!open || !pageVisible) return
     const onKey = (e: KeyboardEvent) => {
       // Already handled (a mention picker closing, a field cancelling): not ours.
       if (e.key === "Escape" && !e.defaultPrevented) onClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open, pageVisible, onClose])
 
   return { shown, active }
 }

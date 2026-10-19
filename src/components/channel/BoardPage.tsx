@@ -4,6 +4,7 @@ import { Bot, PanelLeft, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { PageVisibleContext, usePageVisible } from '@/lib/page-visibility'
 import { useChannelStore } from '@/stores/channel-store'
 import { ProjectFilterSelect, useProjectFilter } from '@/components/project/ProjectFilterSelect'
 import { useTaskStore } from '@/stores/task-store'
@@ -51,6 +52,11 @@ export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSideba
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null)
   const [showAgentManage, setShowAgentManage] = useState(false)
   const [newChannelOpen, setNewChannelOpen] = useState(false)
+  // Board and Channels each mount on first visit and then stay, so flipping between them
+  // keeps the open channel, the task detail and their scroll.
+  const [mountedViews, setMountedViews] = useState<ReadonlySet<BoardPageView>>(() => new Set([view]))
+  if (!mountedViews.has(view)) setMountedViews(new Set([...mountedViews, view]))
+  const pageVisible = usePageVisible()
 
   // Both views read everything, filtered on the client: switching project or view
   // is instant, and the channel view's task chips need the tasks too.
@@ -145,23 +151,32 @@ export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSideba
       </div>
 
       <div className="relative flex-1 min-h-0">
-        {view === 'board' ? (
-          <TasksPage
-            projectFilter={filter}
-            onOpenWorkspace={onOpenWorkspace}
-            onOpenChannel={openChannel}
-            initialTaskId={initialTaskId}
-            onInitialTaskConsumed={onInitialTaskConsumed}
-          />
-        ) : (
-          <ChannelsView
-            projectFilter={filter}
-            focus={channelFocus}
-            onFocusConsumed={clearChannelFocus}
-            onOpenTask={openTask}
-            newChannelOpen={newChannelOpen}
-            onNewChannelOpenChange={setNewChannelOpen}
-          />
+        {mountedViews.has('board') && (
+          <div className={cn('h-full', view !== 'board' && 'hidden')}>
+            <PageVisibleContext value={pageVisible && view === 'board'}>
+              <TasksPage
+                projectFilter={filter}
+                onOpenWorkspace={onOpenWorkspace}
+                onOpenChannel={openChannel}
+                initialTaskId={initialTaskId}
+                onInitialTaskConsumed={onInitialTaskConsumed}
+              />
+            </PageVisibleContext>
+          </div>
+        )}
+        {mountedViews.has('channels') && (
+          <div className={cn('h-full', view !== 'channels' && 'hidden')}>
+            <PageVisibleContext value={pageVisible && view === 'channels'}>
+              <ChannelsView
+                projectFilter={filter}
+                focus={channelFocus}
+                onFocusConsumed={clearChannelFocus}
+                onOpenTask={openTask}
+                newChannelOpen={newChannelOpen}
+                onNewChannelOpenChange={setNewChannelOpen}
+              />
+            </PageVisibleContext>
+          </div>
         )}
       </div>
 

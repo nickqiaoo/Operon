@@ -3,6 +3,7 @@ import { installBrowserUseBridge } from "@/components/browser/browser-use-bridge
 import { useIntl } from "react-intl"
 import { PanelLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PageVisibleContext } from "@/lib/page-visibility"
 import { Toaster } from "sonner"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
 import { createPortal } from "react-dom"
@@ -58,6 +59,15 @@ export default function App() {
   const assistantOpen = mainView === 'assistant'
   const inboxOpen = mainView === 'inbox'
   const boardView = mainView === 'board' || mainView === 'channels' ? mainView : null
+  // Each of those pages mounts the first time it's opened and then stays mounted, hidden while
+  // another view is up, so coming back finds it as it was left (selected channel, scroll, filters).
+  const [assistantMounted, setAssistantMounted] = useState(false)
+  const [inboxMounted, setInboxMounted] = useState(false)
+  // The Board page shows the view it was last on while hidden, so its inner state survives too.
+  const [lastBoardView, setLastBoardView] = useState<BoardPageView | null>(null)
+  if (assistantOpen && !assistantMounted) setAssistantMounted(true)
+  if (inboxOpen && !inboxMounted) setInboxMounted(true)
+  if (boardView !== null && boardView !== lastBoardView) setLastBoardView(boardView)
   const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const theme = useThemeStore((state) => state.theme)
   const lightUITheme = useThemeStore((state) => state.lightUITheme)
@@ -441,42 +451,55 @@ export default function App() {
 
           {/* Main Content Area (Center + Right) */}
           <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
-            {/* The Assistant and the Inbox take over center + right. The editor stays mounted
-                underneath (display:none) so streams and terminals keep running;
-                the browser webview hides itself once its placeholder has no size. */}
-            {assistantOpen && (
-              <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
+            {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,
+                each stays mounted once opened (display:none while another view is up), so
+                switching back keeps its state; the browser webview hides itself once its
+                placeholder has no size. */}
+            {assistantMounted && (
+              <div className={cn("flex min-h-0 flex-1 flex-col", !assistantOpen && "hidden")}>
+                <PageVisibleContext value={assistantOpen}>
+                  <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
+                </PageVisibleContext>
+              </div>
             )}
-            {inboxOpen && (
-              <InboxPage
-                sidebarCollapsed={sidebarCollapsed}
-                onExpandSidebar={handleToggleSidebar}
-                onOpenSource={handleOpenNotification}
-              />
+            {inboxMounted && (
+              <div className={cn("flex min-h-0 flex-1 flex-col", !inboxOpen && "hidden")}>
+                <PageVisibleContext value={inboxOpen}>
+                  <InboxPage
+                    sidebarCollapsed={sidebarCollapsed}
+                    onExpandSidebar={handleToggleSidebar}
+                    onOpenSource={handleOpenNotification}
+                  />
+                </PageVisibleContext>
+              </div>
             )}
             {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
-            {boardView && (
-              <BoardPage
-                view={boardView}
-                onViewChange={setMainView}
-                sidebarCollapsed={sidebarCollapsed}
-                onExpandSidebar={handleToggleSidebar}
-                initialTaskId={boardInitialTaskId}
-                onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
-                onOpenWorkspace={(workspaceId) => {
-                  setMainView(null)
-                  // The workspace was likely just provisioned by a task dispatch
-                  // and isn't in the store yet — reload, then read the *fresh*
-                  // state to locate and activate it.
-                  void (async () => {
-                    await loadProjects()
-                    const found = useProjectStore
-                      .getState()
-                      .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
-                    if (found) setActiveWorkspace(workspaceId, found.id)
-                  })()
-                }}
-              />
+            {lastBoardView && (
+              <div className={cn("flex min-h-0 flex-1 flex-col", boardView === null && "hidden")}>
+                <PageVisibleContext value={boardView !== null}>
+                  <BoardPage
+                    view={lastBoardView}
+                    onViewChange={setMainView}
+                    sidebarCollapsed={sidebarCollapsed}
+                    onExpandSidebar={handleToggleSidebar}
+                    initialTaskId={boardInitialTaskId}
+                    onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
+                    onOpenWorkspace={(workspaceId) => {
+                      setMainView(null)
+                      // The workspace was likely just provisioned by a task dispatch
+                      // and isn't in the store yet — reload, then read the *fresh*
+                      // state to locate and activate it.
+                      void (async () => {
+                        await loadProjects()
+                        const found = useProjectStore
+                          .getState()
+                          .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
+                        if (found) setActiveWorkspace(workspaceId, found.id)
+                      })()
+                    }}
+                  />
+                </PageVisibleContext>
+              </div>
             )}
             <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && "hidden")}>
             <AppShell>
