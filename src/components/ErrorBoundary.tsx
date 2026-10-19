@@ -1,5 +1,6 @@
 import { Component, type ReactNode, type ErrorInfo } from "react"
 import { trackError } from "@/lib/analytics"
+import { isChunkLoadError, reloadForStaleChunk } from "@/lib/stale-chunk-reload"
 
 interface Props {
   children: ReactNode
@@ -22,6 +23,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    // React.lazy rethrows a failed chunk import here; vite:preloadError doesn't
+    // cover imports made inside dependencies.
+    if (isChunkLoadError(error) && reloadForStaleChunk()) return
     console.error("[ErrorBoundary] Uncaught error:", error, info.componentStack)
     trackError(error, { component_stack: info.componentStack ?? undefined })
   }
@@ -37,7 +41,7 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.error?.message ?? "An unexpected error occurred"}
             </p>
             <button
-              className="text-sm px-4 py-2 rounded-md bg-muted hover:bg-muted/80 transition-colors"
+              className="text-sm px-4 py-2 rounded-lg bg-muted hover:bg-accent-hover transition-colors"
               onClick={() => this.setState({ hasError: false, error: null })}
             >
               Try again

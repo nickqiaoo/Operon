@@ -7,6 +7,7 @@ import { initAnalytics, trackEvent } from './lib/analytics'
 import { installOperonProbe } from './lib/operon-probe'
 import { installFetchAuthInterceptor } from './lib/web-auth'
 import { ensureRandomUUID } from './lib/crypto-polyfill'
+import { installStaleChunkReload } from './lib/stale-chunk-reload'
 import { WebAuthGate } from './components/web/WebAuthGate'
 import { DeleteAccountPage, isDeleteAccountRoute } from './components/web/DeleteAccountPage'
 import { PwaUpdateManager } from './components/web/PwaUpdateManager'
@@ -21,6 +22,10 @@ window.dispatchEvent(new Event('operon:boot-module-loaded'))
 // Insecure origins (web reached by LAN IP over http) lack crypto.randomUUID —
 // polyfill it before anything (chat creation, etc.) calls it. Must run first.
 ensureRandomUUID()
+
+// A new web deploy can delete chunks an open page still references; reload
+// once instead of leaving the feature broken.
+installStaleChunkReload()
 
 // Web target: attach the bearer token to broker requests before anything fetches.
 if (__APP_TARGET__ === 'web') installFetchAuthInterceptor()
