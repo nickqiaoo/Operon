@@ -3,6 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { convertToModelMessages, type UIMessage } from 'ai'
+import { cleanupTempFiles, convertPrompt } from '../../../../agent-runtime/src/providers/codex/message-mapper.js'
+import { convertToAcpPrompt } from '../../../../agent-runtime/src/providers/acp/message-mapper.js'
+import { convertToClaudeMessages } from '../../../../agent-runtime/src/providers/claude/message-mapper.js'
+import { convertToOpencodeMessages } from '../../../../agent-runtime/src/providers/opencode/message-mapper.js'
 
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'operon-msgutils-'))
 process.env.OPERON_DATA_DIR = TMP_DIR
@@ -18,6 +22,42 @@ const userMessage = (parts: UIMessage['parts']): UIMessage =>
   ({ id: 'm1', role: 'user', parts }) as UIMessage
 
 describe('normalizeUiMessagesFileAttachments — stored attachments', () => {
+  it.each(['stored', 'inline'] as const)('forwards %s image bytes through AI SDK conversion to every provider', async (source) => {
+    const pixels = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])
+    const dataUrl = `data:image/png;base64,${pixels.toString('base64')}`
+    const url = source === 'stored'
+      ? putAttachment(pixels, { mediaType: 'image/png', filename: 'shot.png' }).url
+      : dataUrl
+    const messages = await convertToModelMessages(normalizeUiMessagesFileAttachments([
+      userMessage([
+        { type: 'file', mediaType: 'image/png', url, filename: 'shot.png' },
+        { type: 'text', text: 'Describe this image' },
+      ]),
+    ]))
+
+    const codex = convertPrompt(messages, 'persistent')
+    try {
+      expect(codex.warnings).toEqual([])
+      expect(codex.inputs).toContainEqual({ type: 'image', imageUrl: dataUrl })
+      expect(codex.inputs).toContainEqual({ type: 'text', text: 'Describe this image' })
+    } finally {
+      cleanupTempFiles(codex.tempFiles)
+    }
+    const acp = convertToAcpPrompt(messages)
+    expect(acp.warnings).toEqual([])
+    expect(acp.prompt).toContainEqual({ type: 'image', data: pixels.toString('base64'), mimeType: 'image/png' })
+
+    const claude = convertToClaudeMessages(messages)
+    expect(claude.warnings ?? []).toEqual([])
+    expect(claude.streamingContentParts).toContainEqual({
+      type: 'image', source: { type: 'base64', media_type: 'image/png', data: pixels.toString('base64') },
+    })
+
+    const opencode = convertToOpencodeMessages(messages)
+    expect(opencode.warnings).toEqual([])
+    expect(opencode.parts).toContainEqual({ type: 'file', mime: 'image/png', filename: 'shot.png', url: dataUrl })
+  })
+
   it('reads a stored image back as a data URL for the model', () => {
     const pixels = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])
     const stored = putAttachment(pixels, { mediaType: 'image/png', filename: 'shot.png' })

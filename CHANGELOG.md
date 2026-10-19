@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-10-19
+
+### Added
+
+- Copy the full image from its preview with the copy button or ⌘C / Ctrl+C.
+
+### Changed
+
+- Image previews open in a large viewer with zoom, drag to pan, actual size and fit-to-window controls, before and after sending.
+
+### Fixed
+
+- Image attachments now reach Codex, ACP agents (including Grok), Claude Code and OpenCode instead of being skipped during message conversion.
+- Release publishing retries failed updates to the download page's version instead of stopping at the first failure.
+
 ## [1.4.4] - 2026-10-19
 
 ### Added

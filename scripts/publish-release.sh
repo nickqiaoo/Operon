@@ -109,7 +109,21 @@ printf '%s\n' "$CONFIG" > "$CONFIG_FILE"
 # simulator ("Resource location: local") and still exits 0, so without it this
 # step printed "KV updated" while the live key never changed — the download page
 # sat on 1.0.0-beta.3 across several releases before anyone noticed.
-npx wrangler kv key put --namespace-id "$KV_NAMESPACE_ID" "$KV_KEY" --path "$CONFIG_FILE" --remote
+#
+# Retried because wrangler refreshes an expired OAuth token right before the
+# request, and the freshly minted token can get a one-off 401 (code 10000).
+for attempt in 1 2 3; do
+  if npx wrangler kv key put --namespace-id "$KV_NAMESPACE_ID" "$KV_KEY" --path "$CONFIG_FILE" --remote; then
+    break
+  fi
+  if [ "$attempt" -eq 3 ]; then
+    echo "Error: KV put failed after ${attempt} attempts."
+    echo "       The GitHub release IS published; only the download-page pointer failed."
+    exit 1
+  fi
+  echo "KV put failed (attempt ${attempt}), retrying in 5s..."
+  sleep 5
+done
 
 # Read the key back and fail loudly on a mismatch, so a silent no-op can't be
 # mistaken for a successful publish again.

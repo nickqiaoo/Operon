@@ -1,3 +1,4 @@
+import { unwrapFileData } from '../../utils/file-data.js'
 import type { ModelMessage } from 'ai'
 import type { OpencodeLogger, OpencodePartInput } from './types.js'
 
@@ -19,17 +20,18 @@ function convertFilePart(
   warnings: string[],
   logger?: OpencodeLogger | false,
 ): OpencodePartInput | null {
-  if (typeof part.data === 'string') {
-    if (part.data.startsWith('data:')) {
+  const data = unwrapFileData(part.data)
+  if (typeof data === 'string') {
+    if (data.startsWith('data:')) {
       return {
         type: 'file',
         mime: part.mediaType,
         filename: part.filename,
-        url: part.data,
+        url: data,
       }
     }
-    if (part.data.startsWith('http://') || part.data.startsWith('https://')) {
-      const warning = `Remote URLs are not supported for file input: ${part.data.slice(0, 50)}...`
+    if (data.startsWith('http://') || data.startsWith('https://')) {
+      const warning = `Remote URLs are not supported for file input: ${data.slice(0, 50)}...`
       warnings.push(warning)
       logger && logger.warn(warning)
       return null
@@ -38,21 +40,21 @@ function convertFilePart(
       type: 'file',
       mime: part.mediaType,
       filename: part.filename,
-      url: `data:${part.mediaType};base64,${normalizeBase64(part.data)}`,
+      url: `data:${part.mediaType};base64,${normalizeBase64(data)}`,
     }
   }
 
-  if (part.data instanceof Uint8Array) {
+  if (data instanceof Uint8Array) {
     return {
       type: 'file',
       mime: part.mediaType,
       filename: part.filename,
-      url: `data:${part.mediaType};base64,${uint8ArrayToBase64(part.data)}`,
+      url: `data:${part.mediaType};base64,${uint8ArrayToBase64(data)}`,
     }
   }
 
-  if (part.data instanceof URL) {
-    const url = part.data.toString()
+  if (data instanceof URL) {
+    const url = data.toString()
     if (url.startsWith('data:')) {
       return {
         type: 'file',
@@ -67,7 +69,7 @@ function convertFilePart(
     return null
   }
 
-  const warning = `Unsupported file data type: ${typeof part.data}`
+  const warning = `Unsupported file data type: ${typeof data}`
   warnings.push(warning)
   logger && logger.warn(warning)
   return null

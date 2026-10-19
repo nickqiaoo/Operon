@@ -1,3 +1,4 @@
+import { unwrapFileData } from '../../utils/file-data.js'
 import type { ModelMessage } from 'ai'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -111,6 +112,7 @@ function convertUserFilePart(
   tempFiles: string[],
   warnings: CodexPromptWarning[],
 ): ProtocolUserInput | undefined {
+  const data = unwrapFileData(part.data)
   if (!isImageMediaType(part.mediaType)) {
     warnings.push({
       type: 'other',
@@ -118,8 +120,8 @@ function convertUserFilePart(
     })
     return undefined
   }
-  if (typeof part.data === 'string' || part.data instanceof URL || part.data instanceof Uint8Array) {
-    return toLocalOrRemoteImageInput(part.mediaType, part.data, tempFiles, warnings)
+  if (typeof data === 'string' || data instanceof URL || data instanceof Uint8Array) {
+    return toLocalOrRemoteImageInput(part.mediaType, data, tempFiles, warnings)
   }
   warnings.push({ type: 'other', message: 'Unsupported file data type provided in file input.' })
   return undefined

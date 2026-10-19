@@ -1,3 +1,4 @@
+import { unwrapFileData } from '../../utils/file-data.js'
 import type { ModelMessage } from 'ai'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ClaudeMappedPrompt } from './types.js'
@@ -125,16 +126,14 @@ function parseFilePart(part: FileLikePart): { content?: SDKUserContentPart; warn
   const mimeType = extractMimeType(part.mediaType ?? part.mimeType)
   if (!mimeType || !isImageMimeType(mimeType)) return {}
 
-  if (typeof part.data === 'string') {
-    const content = createImageContent(mimeType, part.data)
-    return content ? { content } : { warning: IMAGE_CONVERSION_WARNING }
-  }
+  const data = unwrapFileData(part.data)
+  if (typeof data === 'string') return parseStringImage(data, mimeType)
 
   if (
-    part.data instanceof Uint8Array ||
-    (typeof ArrayBuffer !== 'undefined' && part.data instanceof ArrayBuffer)
+    data instanceof Uint8Array ||
+    (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer)
   ) {
-    const base64 = convertBinaryToBase64(part.data)
+    const base64 = convertBinaryToBase64(data)
     if (!base64) return { warning: IMAGE_CONVERSION_WARNING }
     const content = createImageContent(mimeType, base64)
     return content ? { content } : { warning: IMAGE_CONVERSION_WARNING }

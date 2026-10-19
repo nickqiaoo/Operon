@@ -3,10 +3,9 @@
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
-  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { ImageViewer } from "@/components/ai-elements/image-viewer";
 import {
   HoverCard,
   HoverCardContent,
@@ -240,6 +239,7 @@ export const AttachmentPreview = ({
   className,
 }: AttachmentPreviewProps) => {
   const { data, mediaCategory, variant } = useAttachmentContext();
+  const [imageOpen, setImageOpen] = useState(false);
   const [textPreview, setTextPreview] = useState<string | null>(null);
   // Re-render once the base URL lands, so a stored attachment rendered before
   // the desktop port was known still gets its src.
@@ -352,9 +352,10 @@ export const AttachmentPreview = ({
 
   return (
     mediaCategory === "image" && mediaSrc ? (
-      <Dialog>
+      <Dialog open={imageOpen} onOpenChange={setImageOpen}>
         <DialogTrigger asChild>
           <button
+            aria-label={`Preview ${data.filename || "image"}`}
             className={cn(
               "flex shrink-0 cursor-zoom-in items-center justify-center overflow-hidden transition-transform hover:scale-[1.02]",
               variant === "grid" && "size-full bg-muted",
@@ -367,22 +368,7 @@ export const AttachmentPreview = ({
             {renderContent()}
           </button>
         </DialogTrigger>
-        <DialogContent
-          className="max-w-[min(92vw,1100px)] border-0 bg-transparent p-0 shadow-none"
-          overlayClassName="bg-black/72 backdrop-blur-sm"
-          showCloseButton={false}
-        >
-          <DialogTitle className="sr-only">
-            {data.filename || "Image preview"}
-          </DialogTitle>
-          <div className="flex items-center justify-center p-2 sm:p-4">
-            <img
-              alt={data.filename || "Image preview"}
-              className="max-h-[88vh] w-auto max-w-full rounded-xl object-contain"
-              src={mediaSrc}
-            />
-          </div>
-        </DialogContent>
+        {imageOpen && <ImageViewer src={mediaSrc} filename={data.filename} />}
       </Dialog>
     ) : (
       <div

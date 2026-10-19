@@ -1,3 +1,4 @@
+import { unwrapFileData } from '../../utils/file-data.js'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { ModelMessage } from 'ai'
 
@@ -56,18 +57,19 @@ function convertFilePart(
   part: Extract<UserContentPart, { type: 'file' }>,
   warnings: AcpPromptWarning[],
 ): acp.ContentBlock | null {
+  const data = unwrapFileData(part.data)
   const mediaType = part.mediaType ?? 'application/octet-stream'
   if (mediaType.startsWith('image/')) {
-    if (typeof part.data === 'string' || part.data instanceof Uint8Array) {
-      const { data, mimeType } = toBase64(mediaType, part.data)
-      return { type: 'image', data, mimeType }
+    if (typeof data === 'string' || data instanceof Uint8Array) {
+      const converted = toBase64(mediaType, data)
+      return { type: 'image', ...converted }
     }
-    if (part.data instanceof URL) {
-      return { type: 'resource_link', name: part.filename ?? 'file', uri: part.data.toString(), mimeType: mediaType }
+    if (data instanceof URL) {
+      return { type: 'resource_link', name: part.filename ?? 'file', uri: data.toString(), mimeType: mediaType }
     }
   }
-  if (part.data instanceof URL) {
-    return { type: 'resource_link', name: part.filename ?? 'file', uri: part.data.toString(), mimeType: mediaType }
+  if (data instanceof URL) {
+    return { type: 'resource_link', name: part.filename ?? 'file', uri: data.toString(), mimeType: mediaType }
   }
   warnings.push({ type: 'other', message: `Unsupported file mediaType "${mediaType}" for ACP runtime.` })
   return null
