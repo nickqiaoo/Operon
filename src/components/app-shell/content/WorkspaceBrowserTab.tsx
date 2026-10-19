@@ -271,7 +271,7 @@ export function WorkspaceBrowserTab({
             <div
               ref={fileTreeRef}
               className="relative flex shrink-0 flex-col"
-              style={{ width: fileTreeWidth }}
+              style={{ width: fileTreeWidth, maxWidth: "50%" }}
             >
               <ResizeHandle
                 edge="left"

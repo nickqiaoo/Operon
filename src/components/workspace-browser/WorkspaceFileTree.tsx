@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useIntl } from "react-intl"
+import { Loader2, Search, X } from "lucide-react"
 import {
   FileTree as PierreFileTree,
   useFileTree,
   useFileTreeSelection,
 } from "@pierre/trees/react"
 import type { FileTreeBatchOperation, GitStatusEntry } from "@pierre/trees"
-import { useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
+import { api } from "@/lib/api"
+import { cn } from "@/lib/utils"
+import { useFileTreeSearchStore } from "@/stores/file-tree-search-store"
 import {
   isDirectoryPath,
   readDirAsTreePaths,
@@ -17,6 +22,51 @@ import {
   workspaceDirKeys,
 } from "@/lib/workspace-dir-queries"
 import { useResolvedMode } from "@/hooks/useResolvedMode"
+
+/**
+ * Pierre rings whichever row has focus, so a mouse click leaves a dark frame on
+ * the row. Keep the ring for keyboard navigation (`:focus-visible`) and drop it
+ * when the row was focused by the pointer.
+ */
+const TREE_UNSAFE_CSS = `
+  [data-type='item'][data-item-focused='true']:focus:not(:focus-visible)::before {
+    outline-color: transparent;
+  }
+`
+
+/**
+ * Tighten the default Codex-tree layout and theme it from the app. Shared by
+ * the directory tree and the search results tree so the two read as one.
+ * Pierre's host element exposes these CSS variables; reducing them brings the
+ * chevron up against the file name (default 16px outer inset + 8px level gap
+ * leaves a wide empty band on the left, especially in a narrow side panel).
+ */
+function treeStyle(mode: string): React.CSSProperties {
+  return {
+    height: "100%",
+    // Pierre themes via light-dark() (follows the OS, not our `.dark`
+    // class); pin color-scheme to our resolved mode so colors track the
+    // app theme, then match the app surface instead of Pierre's #f8f8f8.
+    colorScheme: mode,
+    // The ellipsis on a long name fades in over 100ms by default. The list
+    // is virtualized, so scrolling keeps handing rows new names; for those
+    // 100ms the overflowing text shows through, which reads as flicker.
+    "--truncate-marker-fade-in-duration": "0ms",
+    "--trees-bg-override": "var(--color-background)",
+    "--trees-fg-override": "var(--color-foreground)",
+    "--trees-selected-fg-override": "var(--color-foreground)",
+    // Pierre outlines the focused row in its accent blue. The selected row
+    // already reads from its background fill, so drop the ring on it and
+    // let keyboard focus use our theme ring instead of pierre's blue.
+    "--trees-selected-focused-border-color-override": "transparent",
+    "--trees-focus-ring-color-override": "var(--color-ring)",
+    "--trees-fg-muted-override": "var(--color-muted-foreground)",
+    "--trees-padding-inline-override": "6px",
+    "--trees-level-gap-override": "6px",
+    "--trees-item-padding-x-override": "4px",
+    "--trees-item-margin-x-override": "2px",
+  } as React.CSSProperties
+}
 
 /** True when `candidate` is a direct child of tree dir `treeDir` ("" = root). */
 const isImmediateChild = (treeDir: string, candidate: string): boolean => {
@@ -107,6 +157,11 @@ export function WorkspaceFileTree({
   const [initialPaths, setInitialPaths] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  // Kept per workspace outside this component, like Codex: switching apps,
+  // tabs or panes and coming back finds the filter as it was left.
+  const query = useFileTreeSearchStore((s) => s.queryByRoot[rootPath] ?? "")
+  const setQuery = useFileTreeSearchStore((s) => s.setQuery)
+  const searching = query.trim() !== ""
 
   useEffect(() => {
     let cancelled = false
@@ -141,34 +196,225 @@ export function WorkspaceFileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath, queryClient])
 
-  if (error != null) {
-    return (
-      <div className={`flex items-center justify-center px-4 text-xs text-destructive ${className ?? ""}`}>
-        {error}
-      </div>
+  const tree =
+    error != null ? (
+      <div className="flex h-full items-center justify-center px-4 text-xs text-destructive">{error}</div>
+    ) : initialPaths == null ? (
+      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Loading…</div>
+    ) : (
+      <TreeInner
+        key={rootPath}
+        rootPath={rootPath}
+        initialPaths={initialPaths}
+        selectedPath={selectedPath}
+        onSelectFile={onSelectFile}
+        apiRef={apiRef}
+        gitStatus={gitStatus}
+        className="h-full"
+      />
     )
-  }
-
-  if (initialPaths == null) {
-    return (
-      <div className={`flex items-center justify-center text-xs text-muted-foreground ${className ?? ""}`}>
-        Loading…
-      </div>
-    )
-  }
 
   return (
-    <TreeInner
-      key={rootPath}
+    <div className={cn("flex flex-col", className)}>
+      <FileFilterInput value={query} onChange={(value) => setQuery(rootPath, value)} />
+      <div className="relative min-h-0 flex-1">
+        {/* Hidden, not unmounted, while a filter is up: clearing it brings the
+            tree back with the folders that were open. */}
+        <div className={cn("absolute inset-0", searching && "invisible")}>{tree}</div>
+        {searching && (
+          <div className="absolute inset-0">
+            <SearchResults
+              rootPath={rootPath}
+              query={query.trim()}
+              selectedPath={selectedPath}
+              onSelectFile={onSelectFile}
+              gitStatus={gitStatus}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The filter box above a file tree; shared with the review tab's changed-files tree. */
+export function FileFilterInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const intl = useIntl()
+  const label = intl.formatMessage({ id: "workspaceBrowser.filterFiles", defaultMessage: "Filter files…" })
+  return (
+    <div className="shrink-0 px-2 pb-1.5 pt-2">
+      <div className="flex h-8 items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 pl-2 pr-1 focus-within:border-border dark:border-border/35">
+        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && value !== "") {
+              e.stopPropagation()
+              onChange("")
+            }
+          }}
+          placeholder={label}
+          aria-label={label}
+          spellCheck={false}
+          autoComplete="off"
+          // 16px on a phone, or iOS zooms the page in when it takes focus.
+          className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/70 md:text-xs"
+        />
+        {value !== "" && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            aria-label={intl.formatMessage({ id: "workspaceBrowser.clearFilter", defaultMessage: "Clear filter" })}
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Wait this long after the last keystroke before asking the server. */
+const SEARCH_DEBOUNCE_MS = 120
+
+/**
+ * The filter's results: a fuzzy search over every file in the workspace (not
+ * just the folders opened so far), shown as their own tree with every folder
+ * open — Codex's layout. The previous results stay up while the next ones load.
+ */
+function SearchResults({
+  rootPath,
+  query,
+  selectedPath,
+  onSelectFile,
+  gitStatus,
+}: {
+  rootPath: string
+  query: string
+  selectedPath: string | null
+  onSelectFile: (absolutePath: string) => void
+  gitStatus?: readonly GitStatusEntry[] | null
+}) {
+  const [debounced, setDebounced] = useState(query)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(query), SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [query])
+  const results = useQuery({
+    queryKey: ["workspace-file-search", rootPath, debounced],
+    queryFn: () => api.searchFiles(rootPath, debounced),
+    placeholderData: keepPreviousData,
+    staleTime: 5_000,
+    // A search is retyped, not retried: backing off and retrying a failed one
+    // only kept the spinner up for seconds before the same failure.
+    retry: false,
+  })
+  const files = results.data
+  if (results.isError) {
+    return (
+      <SearchStatus>
+        <FormattedSearchStatus kind="failed" />
+      </SearchStatus>
+    )
+  }
+  if (files == null) {
+    return (
+      <SearchStatus>
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <FormattedSearchStatus kind="searching" />
+      </SearchStatus>
+    )
+  }
+  if (files.length === 0) {
+    return (
+      <SearchStatus>
+        <FormattedSearchStatus kind={results.isFetching ? "searching" : "empty"} />
+      </SearchStatus>
+    )
+  }
+  return (
+    <ResultsTree
+      // A new set of results is a new tree: Pierre reads its paths only once.
+      key={files.join("\n")}
       rootPath={rootPath}
-      initialPaths={initialPaths}
+      files={files}
       selectedPath={selectedPath}
       onSelectFile={onSelectFile}
-      apiRef={apiRef}
       gitStatus={gitStatus}
-      className={className}
     />
   )
+}
+
+function SearchStatus({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">{children}</div>
+}
+
+function FormattedSearchStatus({ kind }: { kind: "searching" | "empty" | "failed" }) {
+  const intl = useIntl()
+  return (
+    <span className={kind === "failed" ? "text-destructive" : undefined}>
+      {kind === "searching"
+        ? intl.formatMessage({ id: "workspaceBrowser.searchingFiles", defaultMessage: "Searching files…" })
+        : kind === "empty"
+          ? intl.formatMessage({ id: "workspaceBrowser.noMatchingFiles", defaultMessage: "No matching files" })
+          : intl.formatMessage({ id: "workspaceBrowser.searchFailed", defaultMessage: "Couldn't search files" })}
+    </span>
+  )
+}
+
+function ResultsTree({
+  rootPath,
+  files,
+  selectedPath,
+  onSelectFile,
+  gitStatus,
+}: {
+  rootPath: string
+  files: string[]
+  selectedPath: string | null
+  onSelectFile: (absolutePath: string) => void
+  gitStatus?: readonly GitStatusEntry[] | null
+}) {
+  const selectedTreePath =
+    selectedPath != null && selectedPath.startsWith(`${rootPath}/`) ? toTreePath(rootPath, selectedPath, false) : null
+  const fileTreeOptions = useMemo(
+    () => ({
+      paths: files,
+      initialExpansion: "open" as const,
+      flattenEmptyDirectories: true,
+      search: false,
+      icons: { set: "complete" as const, colored: true },
+      unsafeCSS: TREE_UNSAFE_CSS,
+      initialSelectedPaths: selectedTreePath != null && files.includes(selectedTreePath) ? [selectedTreePath] : undefined,
+    }),
+    // Pierre reads options ONLY at first render; new results remount via `key`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+  const mode = useResolvedMode()
+  const { model } = useFileTree(fileTreeOptions)
+
+  useEffect(() => {
+    model.setGitStatus(gitStatus ?? undefined)
+  }, [model, gitStatus])
+
+  // Only a row picked here opens a file; the initial selection is the file
+  // already on screen.
+  const selectedPaths = useFileTreeSelection(model)
+  const lastPickRef = useRef<string | null>(selectedTreePath)
+  const onSelectFileRef = useRef(onSelectFile)
+  onSelectFileRef.current = onSelectFile
+  useEffect(() => {
+    const treePath = selectedPaths[0]
+    if (treePath == null || isDirectoryPath(treePath) || treePath === lastPickRef.current) return
+    lastPickRef.current = treePath
+    onSelectFileRef.current(toAbsolutePath(rootPath, treePath))
+  }, [selectedPaths, rootPath])
+
+  return <PierreFileTree model={model} style={treeStyle(mode)} className="h-full" />
 }
 
 interface TreeInnerProps {
@@ -207,19 +453,12 @@ function TreeInner({
       paths: initialPaths,
       initialExpansion: "closed" as const,
       flattenEmptyDirectories: true,
-      search: true,
+      // Searching is ours (FileFilterInput): Pierre's only knows the folders
+      // loaded so far, and it clears itself whenever the window loses focus.
+      search: false,
       // Pierre only renders coloured glyphs in the `complete` set.
       icons: { set: "complete" as const, colored: true },
-      // Pierre rings whichever row has focus, so a mouse click leaves a dark
-      // frame on the row. Keep the ring for keyboard navigation (`:focus-visible`)
-      // and drop it when the row was focused by the pointer. Rows only carry
-      // `:focus` when they hold DOM focus themselves, so the ring Pierre draws on
-      // the active match while typing in search stays.
-      unsafeCSS: `
-        [data-type='item'][data-item-focused='true']:focus:not(:focus-visible)::before {
-          outline-color: transparent;
-        }
-      `,
+      unsafeCSS: TREE_UNSAFE_CSS,
       initialSelectedPaths:
         selectedPath != null && selectedPath.startsWith(rootPath)
           ? [toTreePath(rootPath, selectedPath, false)]
@@ -453,36 +692,7 @@ function TreeInner({
   return (
     <PierreFileTree
       model={model}
-      // Tighten the default Codex-tree layout. Pierre's host element exposes
-      // these CSS variables; reducing them brings the chevron up against the
-      // file name (default 16px outer inset + 8px level gap leaves a wide
-      // empty band on the left, especially in a narrow side panel).
-      style={
-        {
-          height: "100%",
-          // Pierre themes via light-dark() (follows the OS, not our `.dark`
-          // class); pin color-scheme to our resolved mode so colors track the
-          // app theme, then match the app surface instead of Pierre's #f8f8f8.
-          colorScheme: mode,
-          // The ellipsis on a long name fades in over 100ms by default. The list
-          // is virtualized, so scrolling keeps handing rows new names; for those
-          // 100ms the overflowing text shows through, which reads as flicker.
-          "--truncate-marker-fade-in-duration": "0ms",
-          "--trees-bg-override": "var(--color-background)",
-          "--trees-fg-override": "var(--color-foreground)",
-          "--trees-selected-fg-override": "var(--color-foreground)",
-          // Pierre outlines the focused row in its accent blue. The selected row
-          // already reads from its background fill, so drop the ring on it and
-          // let keyboard focus use our theme ring instead of pierre's blue.
-          "--trees-selected-focused-border-color-override": "transparent",
-          "--trees-focus-ring-color-override": "var(--color-ring)",
-          "--trees-fg-muted-override": "var(--color-muted-foreground)",
-          "--trees-padding-inline-override": "6px",
-          "--trees-level-gap-override": "6px",
-          "--trees-item-padding-x-override": "4px",
-          "--trees-item-margin-x-override": "2px",
-        } as React.CSSProperties
-      }
+      style={treeStyle(mode)}
       className={className}
     />
   )

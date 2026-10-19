@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { motion } from "motion/react"
 import { Maximize2, Minimize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -23,28 +23,6 @@ interface RightPanelProps {
   className?: string
 }
 
-const getMaxWidthWithCenterReserve = (container: HTMLElement | null) => {
-  const parent = container?.parentElement
-  if (parent == null) return RIGHT_PANEL_MAX_WIDTH
-
-  const parentWidth = parent.getBoundingClientRect().width
-  const availableWidth = Math.floor(parentWidth - CENTER_CONTENT_MIN_WIDTH)
-
-  return Math.max(
-    RIGHT_PANEL_MIN_WIDTH,
-    Math.min(RIGHT_PANEL_MAX_WIDTH, availableWidth)
-  )
-}
-
-const clampWidthWithCenterReserve = (
-  value: number,
-  container: HTMLElement | null
-) =>
-  Math.max(
-    RIGHT_PANEL_MIN_WIDTH,
-    Math.min(getMaxWidthWithCenterReserve(container), value)
-  )
-
 /**
  * Right side panel.
  *
@@ -58,7 +36,9 @@ const clampWidthWithCenterReserve = (
 export function RightPanel({ className }: RightPanelProps) {
   const containerRef = useRef<HTMLElement | null>(null)
   const isOpen = useAppShellStore((s) => s.rightPanelOpen)
-  const width = useAppShellStore((s) => s.rightPanelWidth)
+  const preferredWidth = useAppShellStore((s) => s.rightPanelWidth)
+  const [maxWidth, setMaxWidth] = useState(RIGHT_PANEL_MAX_WIDTH)
+  const width = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidth, preferredWidth))
   const setOpen = useAppShellStore((s) => s.setRightPanelOpen)
   const setWidth = useAppShellStore((s) => s.setRightPanelWidth)
   const expanded = useAppShellStore((s) => s.rightPanelExpanded)
@@ -98,8 +78,8 @@ export function RightPanel({ className }: RightPanelProps) {
       setOpen(false)
       return
     }
-    setWidth(clampWidthWithCenterReserve(next, containerRef.current))
-  }, [setOpen, setWidth])
+    setWidth(Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidth, next)))
+  }, [maxWidth, setOpen, setWidth])
 
   useEffect(() => {
     if (!isOpen || expanded) return
@@ -107,22 +87,28 @@ export function RightPanel({ className }: RightPanelProps) {
     const parent = containerRef.current?.parentElement
     if (parent == null) return
 
-    const clampToAvailableWidth = () => {
-      const next = clampWidthWithCenterReserve(width, containerRef.current)
-      if (next !== width) setWidth(next)
+    const measureAvailableWidth = () => {
+      const parentWidth = parent.getBoundingClientRect().width
+      // Assistant / Inbox / Board hide the mounted editor with display:none.
+      // A hidden layout has no usable measurement, not a new preferred width.
+      if (parentWidth <= 0) return
+      setMaxWidth(Math.max(
+        RIGHT_PANEL_MIN_WIDTH,
+        Math.min(RIGHT_PANEL_MAX_WIDTH, Math.floor(parentWidth - CENTER_CONTENT_MIN_WIDTH))
+      ))
     }
 
-    clampToAvailableWidth()
+    measureAvailableWidth()
 
-    const observer = new ResizeObserver(clampToAvailableWidth)
+    const observer = new ResizeObserver(measureAvailableWidth)
     observer.observe(parent)
-    window.addEventListener("resize", clampToAvailableWidth)
+    window.addEventListener("resize", measureAvailableWidth)
 
     return () => {
       observer.disconnect()
-      window.removeEventListener("resize", clampToAvailableWidth)
+      window.removeEventListener("resize", measureAvailableWidth)
     }
-  }, [expanded, isOpen, setWidth, width])
+  }, [expanded, isOpen])
 
   if (!isMounted && !isOpen) return null
 

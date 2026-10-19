@@ -463,7 +463,6 @@
   "review.selectCommit": "选择提交…",
   "review.searchCommits": "搜索提交",
   "review.noCommitsFound": "未找到提交。",
-  "review.filterFiles": "筛选文件…",
   "review.failedToLoad": "加载变更失败",
   "review.switchToSplit": "切换到分栏 diff 视图",
   "review.switchToUnified": "切换到统一 diff 视图",
@@ -2053,5 +2052,10 @@
   "filePreview.diff.nextChange": "下一项更改",
   "filePreview.diff.previousChange": "上一项更改",
   "filePreview.diff.uncommitted": "未提交",
-  "filePreview.find": "在文件中查找"
+  "filePreview.find": "在文件中查找",
+  "workspaceBrowser.filterFiles": "筛选文件…",
+  "workspaceBrowser.clearFilter": "清除筛选",
+  "workspaceBrowser.searchingFiles": "正在搜索文件…",
+  "workspaceBrowser.noMatchingFiles": "没有匹配的文件",
+  "workspaceBrowser.searchFailed": "搜索文件失败"
 }

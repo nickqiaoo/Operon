@@ -609,11 +609,13 @@ if (process.env.VITE_DEV_SERVER_URL) {
  *     does not ship. `hasSwitch()` returning true means nothing.
  *   - `--ignore-connections-limit` works: 40 of 40 and 120 of 120 opened.
  *
- * The value is matched as a plain host string with no loopback equivalence —
- * listing only `127.0.0.1` leaves requests to `localhost` still capped at 6 — so
- * both are listed. Must be set before `app` is ready.
+ * Match only the API's host, `127.0.0.1`. Keep the default limit for localhost:
+ * Vite serves hundreds of modules there during development, and unbounded
+ * concurrent connections can fail with ERR_CONNECTION_REFUSED or
+ * ERR_SOCKET_NOT_CONNECTED, preventing the renderer's entry module from running.
+ * Must be set before `app` is ready.
  */
-app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost')
+app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1')
 
 function createWindow() {
   mainWindow = new BrowserWindow({

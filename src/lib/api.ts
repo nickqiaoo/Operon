@@ -417,6 +417,7 @@ export const api = {
   // --- File System (HTTP for CRUD, SSE for watch) ---
   readDir: httpClient.readDir,
   findPaths: httpClient.findPaths,
+  searchFiles: httpClient.searchFiles,
   readFile: httpClient.readFile,
   getFileUrl: httpClient.getFileUrl,
   writeFile: httpClient.writeFile,

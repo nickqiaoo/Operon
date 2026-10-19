@@ -36,6 +36,12 @@ export function fsRoutes() {
     return c.json(result)
   })
 
+  router.post('/search-files', async (c) => {
+    const { rootPath, query, limit } = await c.req.json<{ rootPath: string; query: string; limit?: number }>()
+    const files = await fsService.searchFiles(rootPath, query, limit)
+    return c.json({ files })
+  })
+
   router.post('/read-file', async (c) => {
     const { path } = await c.req.json<{ path: string }>()
     try {

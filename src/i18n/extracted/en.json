@@ -887,7 +887,6 @@
   "review.empty.unstaged.title": "No pending changes",
   "review.expandAllDiffs": "Expand all diffs",
   "review.failedToLoad": "Failed to load changes",
-  "review.filterFiles": "Filter files…",
   "review.hideFileTree": "Hide file tree",
   "review.jumpToFile": "Jump to file",
   "review.moreGitActions": "More git actions",
@@ -1907,8 +1906,13 @@
   "workspace.new.title": "New Workspace",
   "workspace.new.worktreeHint": "Created under operon's managed worktrees folder (~/.operon/worktrees), not next to your project.",
   "workspace.new.worktreePath": "Worktree Path:",
+  "workspaceBrowser.clearFilter": "Clear filter",
   "workspaceBrowser.closeFile": "Close {name}",
+  "workspaceBrowser.filterFiles": "Filter files…",
   "workspaceBrowser.nextFile": "Next file",
+  "workspaceBrowser.noMatchingFiles": "No matching files",
   "workspaceBrowser.previousFile": "Previous file",
-  "workspaceBrowser.refreshTitle": "Refresh file tree and preview"
+  "workspaceBrowser.refreshTitle": "Refresh file tree and preview",
+  "workspaceBrowser.searchFailed": "Couldn't search files",
+  "workspaceBrowser.searchingFiles": "Searching files…"
 }

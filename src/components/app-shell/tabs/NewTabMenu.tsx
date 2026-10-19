@@ -33,6 +33,9 @@ export function NewTabMenu({ panelId }: NewTabMenuProps) {
       <DropdownMenuContent
         align="end"
         className="w-52 border-border/40 shadow-float"
+        // Handing focus back to the "+" on close drew the system focus ring
+        // on it after a plain mouse pick (same as the toolbar menus).
+        onCloseAutoFocus={(e) => e.preventDefault()}
       >
         {ordered.map((entry) => {
           const Icon = entry.icon

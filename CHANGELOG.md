@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-10-19
+
+### Added
+
+- The board, channels and workflows show every project at once, with a project filter.
+- The assistant's messages and permission requests show up in the inbox and as phone notifications.
+- The file preview marks what changed against a base you pick, with next / previous change.
+- The file tree flags changed files and the folders that hold them.
+- Search every file in a workspace with fuzzy matching, including folders you haven't opened.
+
+### Changed
+
+- A message sent while the agent is working appears in its reply where the agent read it.
+- "Open with…" moved from the top bar into the file preview's toolbar.
+- The file and review toolbars have a new look.
+- The workspace file filter stays in place when switching tabs, panes or apps.
+- Phone: each screen has its own header, and the message box floats over the conversation.
+- The inbox follows the app's language.
+- Hover, status and line-count colours are consistent across the app, and settings pages share one layout.
+
+### Fixed
+
+- A web tab left open across an update reloads itself instead of breaking.
+- Review: the branch view no longer comes up empty when the remote's default branch shares no history with yours.
+- Review: filtering changed files now narrows the tree.
+- Closing a toolbar menu with the mouse no longer leaves a focus ring on its button.
+- Development: restarting the desktop app no longer intermittently opens a blank window.
+- The file preview no longer stays squeezed after switching pages or resizing the window; previously saved narrow panel widths are repaired.
+
 ## [1.4.2] - 2026-10-16
 
 ### Added

@@ -1,7 +1,10 @@
 import fsPromises from 'fs/promises'
 import path from 'path'
 import os from 'os'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { randomUUID } from 'crypto'
+import fuzzysort from 'fuzzysort'
 import type { FileInfo, FileStat } from '../types/fs.js'
 
 const DEFAULT_PATH_SEARCH_LIMIT = 50
@@ -121,6 +124,84 @@ export async function findPaths(rootPath: string, query: string, limit = DEFAULT
   }
 
   return results
+}
+
+const SEARCH_FILES_LIMIT = 200
+/** Past this many files a workspace is listed only this far (a home folder opened by mistake). */
+const MAX_LISTED_FILES = 200_000
+/** How long a workspace's file list is reused across keystrokes before it's read again. */
+const FILE_LIST_TTL_MS = 5_000
+
+const execFileAsync = promisify(execFile)
+const fileListCache = new Map<string, { at: number; files: Promise<string[]> }>()
+
+/**
+ * Every file under `rootPath`, relative to it. A git repo answers with
+ * `git ls-files` — tracked plus untracked-but-not-ignored, so `.gitignore`
+ * decides what's in (no node_modules, no build output) and it takes ms.
+ * Anything else is walked, skipping the usual dependency and build folders.
+ */
+async function listWorkspaceFiles(rootPath: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
+      cwd: rootPath,
+      maxBuffer: 256 * 1024 * 1024,
+    })
+    return stdout.split('\0').filter(Boolean).slice(0, MAX_LISTED_FILES)
+  } catch {
+    // Not a git repo (or no git): walk it.
+  }
+  const files: string[] = []
+  const queue: string[] = [rootPath]
+  while (queue.length > 0 && files.length < MAX_LISTED_FILES) {
+    const dir = queue.shift()!
+    let entries: import('fs').Dirent[]
+    try {
+      entries = await fsPromises.readdir(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRECTORIES.has(entry.name) && !entry.isSymbolicLink()) queue.push(fullPath)
+      } else {
+        files.push(normalizePathSeparators(path.relative(rootPath, fullPath)))
+      }
+    }
+  }
+  return files
+}
+
+function cachedWorkspaceFiles(rootPath: string): Promise<string[]> {
+  const cached = fileListCache.get(rootPath)
+  if (cached && Date.now() - cached.at < FILE_LIST_TTL_MS) return cached.files
+  const files = listWorkspaceFiles(rootPath)
+  fileListCache.set(rootPath, { at: Date.now(), files })
+  files.catch(() => fileListCache.delete(rootPath))
+  return files
+}
+
+/**
+ * Fuzzy file search over the whole workspace, like an editor's quick open:
+ * `wbt` finds `WorkspaceBrowserTab.tsx`. The name and the full path are both
+ * matched and a name match ranks a little higher; a query with `/` in it
+ * naturally matches along the path. Paths come back relative to `rootPath`,
+ * best first.
+ */
+export async function searchFiles(rootPath: string, query: string, limit = SEARCH_FILES_LIMIT): Promise<string[]> {
+  const trimmed = query.trim()
+  if (!trimmed) return []
+  const files = await cachedWorkspaceFiles(rootPath)
+  const targets = files.map((file) => ({ path: file, name: path.posix.basename(file) }))
+  const results = fuzzysort.go(trimmed, targets, {
+    keys: ['name', 'path'],
+    limit: Math.max(1, Math.min(limit, SEARCH_FILES_LIMIT)),
+    // Among equal matches the shallower file wins: the root README before deploy/README.
+    scoreFn: (r) =>
+      Math.max(r[0]?.score ?? 0, (r[1]?.score ?? 0) * 0.9) - r.obj.path.split('/').length * 0.001,
+  })
+  return results.map((r) => r.obj.path)
 }
 
 export async function readFile(filePath: string): Promise<string> {

@@ -11,6 +11,7 @@ const localStorage = {
   },
 }
 vi.stubGlobal("window", { localStorage })
+vi.stubGlobal("localStorage", localStorage)
 
 const { useAppShellStore } = await import("./app-shell-store")
 
@@ -43,6 +44,33 @@ describe("app shell right panel width", () => {
       rightPanelOpen: true,
       rightPanelWidth: 640,
     })
+  })
+
+  it("repairs a width saved while the editor was hidden", async () => {
+    localStorage.setItem("operon-app-shell", JSON.stringify({
+      state: { rightPanelOpen: true, rightPanelWidth: 280, bottomPanelHeight: 200 },
+      version: 1,
+    }))
+
+    await useAppShellStore.persist.rehydrate()
+
+    expect(useAppShellStore.getState()).toMatchObject({
+      rightPanelOpen: true,
+      rightPanelWidth: 720,
+      bottomPanelHeight: 200,
+    })
+    expect(JSON.parse(localStorage.getItem("operon-app-shell")!).version).toBe(2)
+  })
+
+  it("keeps a valid saved width when upgrading", async () => {
+    localStorage.setItem("operon-app-shell", JSON.stringify({
+      state: { rightPanelWidth: 640 },
+      version: 1,
+    }))
+
+    await useAppShellStore.persist.rehydrate()
+
+    expect(useAppShellStore.getState().rightPanelWidth).toBe(640)
   })
 })
 

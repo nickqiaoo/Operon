@@ -2,6 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import {
   BOTTOM_PANEL_DEFAULT_HEIGHT,
+  RIGHT_PANEL_AUTO_CLOSE_BELOW,
   RIGHT_PANEL_DEFAULT_WIDTH,
   STORAGE_KEY,
 } from "@/components/app-shell/constants"
@@ -149,13 +150,19 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
     }),
     {
       name: STORAGE_KEY,
-      // v1 raised the right-panel maximum width. Drop the older persisted
-      // value once so existing installs start from the current default.
-      version: 1,
+      // v1 raised the maximum width. v2 repairs widths saved while the editor
+      // was hidden: users cannot drag below the auto-close threshold.
+      version: 2,
       migrate: (persisted, version) => {
-        if (version >= 1 || persisted == null) return persisted as never
-        const { rightPanelWidth: _dropped, ...rest } = persisted as Record<string, unknown>
-        return rest as never
+        if (persisted == null) return persisted as never
+        const state = persisted as Record<string, unknown>
+        if (version < 1 || (
+          version < 2 && typeof state.rightPanelWidth === "number" &&
+          state.rightPanelWidth < RIGHT_PANEL_AUTO_CLOSE_BELOW
+        )) {
+          return { ...state, rightPanelWidth: RIGHT_PANEL_DEFAULT_WIDTH } as never
+        }
+        return state as never
       },
       partialize: (s) => ({
         rightPanelOpen: s.rightPanelOpen,

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { useResolvedMode } from "@/hooks/useResolvedMode"
 import type { FileChange } from "./types"
 import { PIERRE_GIT_STATUS } from "./constants"
+import { FileFilterInput } from "@/components/workspace-browser/WorkspaceFileTree"
 
 export interface ChangedFilesTreeProps {
   files: FileChange[]
@@ -24,9 +25,31 @@ export interface ChangedFilesTreeProps {
 /** Our single-letter git status → Pierre's `GitStatus` enum (drives the
  *  A/M/U/R/D badge and the "dir contains changes" dot in the tree). */
 
-export function ChangedFilesTree({ files, activePath, onSelectPath, className }: ChangedFilesTreeProps) {
+/**
+ * The filter's match: the query's characters appear in the path in order,
+ * ignoring case, so `wbt` finds `WorkspaceBrowserTab.tsx` — the same feel as
+ * the file browser's search, over a list that is already all here.
+ */
+function matchesFilter(path: string, query: string): boolean {
+  const target = path.toLowerCase()
+  let at = 0
+  for (const char of query.toLowerCase()) {
+    if (char === " ") continue
+    at = target.indexOf(char, at)
+    if (at === -1) return false
+    at += 1
+  }
+  return true
+}
+
+export function ChangedFilesTree({ files: allFiles, activePath, onSelectPath, className }: ChangedFilesTreeProps) {
   const intl = useIntl()
   const [query, setQuery] = useState("")
+  const trimmedQuery = query.trim()
+  const files = useMemo(
+    () => (trimmedQuery === "" ? allFiles : allFiles.filter((file) => matchesFilter(file.path, trimmedQuery))),
+    [allFiles, trimmedQuery],
+  )
 
   const allPaths = useMemo(() => {
     return [
@@ -54,31 +77,21 @@ export function ChangedFilesTree({ files, activePath, onSelectPath, className }:
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="shrink-0 px-3 pb-1 pt-1">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label={intl.formatMessage({
-            id: "review.filterFiles",
-            defaultMessage: "Filter files…",
-          })}
-          placeholder={intl.formatMessage({
-            id: "review.filterFiles",
-            defaultMessage: "Filter files…",
-          })}
-          className="h-7 w-full rounded-md border border-border/40 bg-muted/30 px-2 text-xs placeholder:text-muted-foreground/70 focus-visible:border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/15"
-        />
-      </div>
+      <FileFilterInput value={query} onChange={setQuery} />
       <div className="min-h-0 flex-1">
-        <ChangedFilesTreeInner
-          key={treeKey}
-          paths={allPaths}
-          gitStatus={gitStatus}
-          activePath={activePath}
-          onSelectPath={onSelectPath}
-          query={query}
-        />
+        {files.length === 0 && trimmedQuery !== "" ? (
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            {intl.formatMessage({ id: "workspaceBrowser.noMatchingFiles", defaultMessage: "No matching files" })}
+          </div>
+        ) : (
+          <ChangedFilesTreeInner
+            key={treeKey}
+            paths={allPaths}
+            gitStatus={gitStatus}
+            activePath={activePath}
+            onSelectPath={onSelectPath}
+          />
+        )}
       </div>
     </div>
   )
@@ -89,7 +102,6 @@ export interface ChangedFilesTreeInnerProps {
   gitStatus: GitStatusEntry[]
   activePath: string | null
   onSelectPath: (path: string | null) => void
-  query: string
 }
 
 export function ChangedFilesTreeInner({
@@ -97,7 +109,6 @@ export function ChangedFilesTreeInner({
   gitStatus,
   activePath,
   onSelectPath,
-  query,
 }: ChangedFilesTreeInnerProps) {
   const fileTreeOptions = useMemo(
     () => ({
@@ -147,11 +158,6 @@ export function ChangedFilesTreeInner({
     lastSelectedRef.current = next
     onSelectPath(next)
   }, [selectedPaths, onSelectPath])
-
-  // Filter via Pierre's search mechanism if available; otherwise hide non-
-  // matching rows via CSS variable overrides. Simplest path: opaque
-  // pass-through and let the user scroll for now.
-  void query
 
   return (
     <PierreFileTree

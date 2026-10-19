@@ -429,6 +429,11 @@ export function readDir(dirPath: string) {
   })
 }
 
+/** Fuzzy search over every file in the workspace; paths relative to `rootPath`, best first. */
+export function searchFiles(rootPath: string, query: string, limit?: number) {
+  return post<{ files: string[] }>('/fs/search-files', { rootPath, query, limit }).then((r) => r.files)
+}
+
 export function findPaths(rootPath: string, query: string, limit = 50) {
   return post<{ name: string; path: string; isDirectory: boolean }[]>('/fs/find-paths', {
     rootPath,
