@@ -170,13 +170,23 @@ final class ShellChromeController: UINavigationController {
         super.viewDidLoad()
         view.backgroundColor = .clear
         setNavigationBarHidden(true, animated: false)
+        // Line the bar's outer items up with the floating tab bar below
+        // instead of the default 16pt, which left the top row wider than the bottom.
+        navigationBar.preservesSuperviewLayoutMargins = false
+        navigationBar.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 0, leading: Self.barSideInset, bottom: 0, trailing: Self.barSideInset)
     }
+
+    /// The floating tab bar's distance from the screen's sides.
+    private static let barSideInset: CGFloat = 21
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // Only the title bar pushes the page down. In `back` mode the bar is a
         // lone floating button and the conversation scrolls under it — an
         // inset there left a blank band above the transcript.
+        // `header` floats too: its glass items sit over the list, which pads its
+        // own first row below them and scrolls underneath (iOS 26's own layout).
         let top = topBarMode == .context ? navigationBar.frame.height : 0
         if top != topBarInset {
             topBarInset = top
@@ -200,7 +210,142 @@ final class ShellChromeController: UINavigationController {
     /// project/workspace title with the inbox bell on list screens, a lone
     /// back button over an open conversation, or nothing.
     enum TopBarMode: String {
-        case hidden, context, back, assistant
+        case hidden, context, back, assistant, header
+    }
+
+    /// `header` mode's contents, as the web page describes its one top row:
+    /// context or a segmented switch on the leading side; a pull-down menu, the
+    /// page's own actions and the bell on the trailing side. Taps come back as
+    /// `context`, `segment:<id>`, `menu:<id>`, `action:<id>` and `inbox`.
+    struct HeaderSpec {
+        enum Leading {
+            case context(title: String, subtitle: String?)
+            case segments(items: [(id: String, title: String)], selected: String)
+        }
+        /// A choice (ticked when selected) or a group of them: a titled section
+        /// in place (`inline`) or a submenu whose row shows its current choice.
+        indirect enum MenuNode {
+            case item(id: String, title: String, selected: Bool)
+            case group(id: String, title: String, inline: Bool, detail: String?, children: [MenuNode])
+        }
+        struct Menu { let symbol: String; let label: String; let nodes: [MenuNode] }
+        struct Action { let id: String; let symbol: String; let label: String }
+        let leading: Leading
+        let menu: Menu?
+        let actions: [Action]
+    }
+
+    /// The leading project › workspace switcher: left-aligned, as wide as its text.
+    /// Plain, not `.glass()`: on iOS 26 the bar already sets every bar item on
+    /// its own glass, and a glass button inside it drew a capsule in a capsule.
+    private lazy var leadingContextButton: UIButton = {
+        var config = UIButton.Configuration.plain()
+        config.baseForegroundColor = .label
+        config.imagePlacement = .trailing
+        config.imagePadding = 4
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        config.image = UIImage(systemName: "chevron.down")
+        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 10)
+        config.titleLineBreakMode = .byTruncatingTail
+        let button = UIButton(configuration: config)
+        button.titleLabel?.numberOfLines = 1
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        button.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
+        button.addAction(UIAction { [weak self] _ in self?.onTopBarAction?("context") }, for: .touchUpInside)
+        return button
+    }()
+
+    private lazy var segmentedControl: UISegmentedControl = {
+        let control = UISegmentedControl()
+        control.addAction(UIAction { [weak self, weak control] _ in
+            guard let self, let control, control.selectedSegmentIndex >= 0,
+                  control.selectedSegmentIndex < self.segmentIds.count else { return }
+            self.onTopBarAction?("segment:\(self.segmentIds[control.selectedSegmentIndex])")
+        }, for: .valueChanged)
+        return control
+    }()
+    private var segmentIds: [String] = []
+
+    /// A bar button for one of the page's actions: an SF Symbol, falling back
+    /// to a plain circle should the web page name one this iOS lacks.
+    private func actionItem(_ action: HeaderSpec.Action) -> UIBarButtonItem {
+        let image = UIImage(systemName: action.symbol) ?? UIImage(systemName: "circle")
+        let item = UIBarButtonItem(
+            image: image,
+            primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("action:\(action.id)") }
+        )
+        item.accessibilityLabel = action.label
+        return item
+    }
+
+    private func menuElement(_ node: HeaderSpec.MenuNode) -> UIMenuElement {
+        switch node {
+        case let .item(id, title, selected):
+            return UIAction(title: title, state: selected ? .on : .off) { [weak self] _ in
+                self?.onTopBarAction?("menu:\(id)")
+            }
+        case let .group(_, title, inline, detail, children):
+            let group = UIMenu(title: title, options: inline ? .displayInline : [], children: children.map(menuElement))
+            if !inline, let detail { group.subtitle = detail }
+            return group
+        }
+    }
+
+    private func applyHeader(_ spec: HeaderSpec, unread: Bool, to item: UINavigationItem) {
+        item.titleView = nil
+        switch spec.leading {
+        case let .context(title, subtitle):
+            var config = leadingContextButton.configuration ?? .plain()
+            var name = AttributedString(title)
+            name.font = .systemFont(ofSize: 15, weight: .semibold)
+            name.foregroundColor = .label
+            if let subtitle {
+                var rest = AttributedString(" › \(subtitle)")
+                rest.font = .systemFont(ofSize: 14, weight: .regular)
+                rest.foregroundColor = .secondaryLabel
+                config.attributedTitle = name + rest
+            } else {
+                config.attributedTitle = name
+            }
+            leadingContextButton.configuration = config
+            item.leftBarButtonItem = UIBarButtonItem(customView: leadingContextButton)
+        case let .segments(items, selected):
+            if segmentIds != items.map(\.id) || segmentedControl.numberOfSegments != items.count {
+                segmentedControl.removeAllSegments()
+                for (index, entry) in items.enumerated() {
+                    segmentedControl.insertSegment(withTitle: entry.title, at: index, animated: false)
+                }
+                segmentIds = items.map(\.id)
+            }
+            segmentedControl.selectedSegmentIndex = segmentIds.firstIndex(of: selected) ?? UISegmentedControl.noSegment
+            let segmentsItem = UIBarButtonItem(customView: segmentedControl)
+            // The control draws its own track; the bar's glass around it would be a second one.
+            if #available(iOS 26.0, *) {
+                segmentsItem.hidesSharedBackground = true
+            }
+            item.leftBarButtonItem = segmentsItem
+        }
+
+        // Right to left: the bell outermost, then the page's actions, then the menu.
+        let bell = UIBarButtonItem(
+            image: UIImage(systemName: unread ? "bell.badge" : "bell"),
+            primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("inbox") }
+        )
+        bell.accessibilityLabel = "Inbox"
+        var trailing: [UIBarButtonItem] = [bell]
+        trailing.append(contentsOf: spec.actions.reversed().map(actionItem))
+        if let menu = spec.menu, !menu.nodes.isEmpty {
+            // A system pull-down: picked in place, the current choices ticked.
+            let menuItem = UIBarButtonItem(
+                title: nil,
+                image: UIImage(systemName: menu.symbol) ?? UIImage(systemName: "line.3.horizontal.decrease.circle"),
+                primaryAction: nil,
+                menu: UIMenu(children: menu.nodes.map(menuElement))
+            )
+            menuItem.accessibilityLabel = menu.label
+            trailing.append(menuItem)
+        }
+        item.rightBarButtonItems = trailing
     }
 
     /// The assistant tab's title: avatar and status in one glass capsule,
@@ -275,15 +420,21 @@ final class ShellChromeController: UINavigationController {
     /// drawn inside the web view, under the bar, so the bar must at least stop
     /// taking taps. Hiding it instead would shrink the safe area and shift the
     /// page under the scrim.
-    func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool, busy: Bool = false) {
+    func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool, busy: Bool = false, header: HeaderSpec? = nil) {
         topBarMode = mode
         setNavigationBarHidden(mode == .hidden, animated: true)
         navigationBar.isUserInteractionEnabled = interactive
 
         let item = tabsController.navigationItem
+        // Only `header` uses more than one right item; the others set their own.
+        if mode != .header { item.rightBarButtonItems = nil }
         switch mode {
         case .hidden:
             break
+        case .header:
+            if let header {
+                applyHeader(header, unread: unread, to: item)
+            }
         case .context:
             var config = titleButton.configuration ?? .plain()
             let text = subtitle.map { "\(title) › \($0)" } ?? title

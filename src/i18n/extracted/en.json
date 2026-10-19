@@ -798,7 +798,6 @@
   "mobile.chats.loading": "Loading…",
   "mobile.chats.loadingAgents": "Loading agents…",
   "mobile.chats.newChat": "New chat",
-  "mobile.chats.title": "Chats",
   "mobile.context.empty": "No projects yet.",
   "mobile.context.title": "Switch project",
   "mobile.cron.deleteConfirm": "Delete schedule \"{name}\"?",

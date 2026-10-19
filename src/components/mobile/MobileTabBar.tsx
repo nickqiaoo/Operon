@@ -67,7 +67,7 @@ export function MobileTabBar({ active, onChange }: MobileTabBarProps) {
             <span
               className={cn(
                 "grid size-9 place-items-center rounded-full transition-[background-color,color,opacity]",
-                isActive ? "bg-muted/80" : "hover:bg-muted/45"
+                isActive ? "bg-muted/80" : "hover:bg-row-hover"
               )}
             >
               <Icon className={cn("size-5", isActive ? "opacity-100" : "opacity-70")} />

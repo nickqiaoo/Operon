@@ -75,6 +75,7 @@ object InboxSheet {
         "xmark.circle" -> R.drawable.ic_circle_x
         "checkmark.shield" -> R.drawable.ic_shield_check
         "clock" -> R.drawable.ic_clock
+        "sparkles" -> R.drawable.ic_sparkles
         else -> R.drawable.ic_message_square
     }
 

@@ -29,6 +29,9 @@ import { openExternalUrl } from '@/lib/open-external'
 import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
 import { api } from '@/lib/api'
 import { useEditorStore } from '@/stores/editor-store'
+import { hasNativeTabBar } from '@/lib/native'
+import { useBackHandler } from '@/hooks/useAndroidBackButton'
+import { useMobileBackBarOffset } from '@/components/mobile/MobileHeader'
 import type { PeerMemberDTO, PeerMemberStatus, PeersRosterDTO, PeersStatsDTO, PeerTeamDTO } from '@/types/peers'
 import * as agent from './agentControl'
 import { SkillDetail } from './SkillDetail'
@@ -53,7 +56,8 @@ interface AgentPanelProps {
   onUseSkill?: (skill: OperonSkillDTO) => void
   /**
    * `inline` (desktop): a column of cards the chat makes room for, toggled from the
-   * chat's top-right button. `overlay` (phone): slides over the chat with its own close.
+   * chat's top-right button. `overlay` (phone): a full-screen page sliding in over
+   * the chat, closed by the shell's back button (or its own close in a browser).
    */
   variant?: 'inline' | 'overlay'
 }
@@ -109,6 +113,11 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
   const [active, setActive] = useState(false)
   /** The panel's second layer: a skill read out in full. `null` = the list. */
   const [skillDetail, setSkillDetail] = useState<OperonSkillDTO | null>(null)
+  const overlay = variant === 'overlay'
+  // On the phone the native back button (iOS bar, Android key) steps out of a
+  // skill, then out of the panel, before it leaves the conversation.
+  useBackHandler(open && overlay, () => (skillDetail ? setSkillDetail(null) : onClose()))
+  const overlayTop = useMobileBackBarOffset()
 
   // Mount immediately on open; on close, defer the unmount until the exit finishes.
   useEffect(() => {
@@ -212,8 +221,9 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
             {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </IconButton>
         )}
-        {/* Inline, the top-bar button closes it; the phone's overlay has no top bar. */}
-        {variant === 'overlay' && (
+        {/* Inline, the top-bar button closes it; in the apps the shell's back does.
+            Only a phone browser has nothing else to close it with. */}
+        {overlay && !hasNativeTabBar() && (
           <IconButton onClick={onClose} label={intl.formatMessage({ id: 'editor.session.close', defaultMessage: 'Close session panel' })}>
             <X className="h-4 w-4" />
           </IconButton>
@@ -316,20 +326,20 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
     </>
   )
 
-  if (variant === 'overlay') {
+  if (overlay) {
     return (
-      // Non-modal: no scrim, and the wrapper lets clicks through so the chat
-      // underneath stays usable while you watch the session.
-      <div className="pointer-events-none absolute inset-0 z-30">
-        <div
-          className={cn(
-            'pointer-events-auto absolute right-0 top-0 flex h-full w-[400px] max-w-[88vw] flex-col border-l border-border/50 bg-sidebar shadow-drawer',
-            'transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform',
-            active ? 'translate-x-0' : 'translate-x-full',
-          )}
-        >
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">{cards}</div>
-        </div>
+      // A page of its own, like any other pushed over a phone screen: an 88%
+      // drawer left a squeezed sliver of the chat beside it and ran under the
+      // status bar. It starts below the native back button, which closes it.
+      <div
+        className={cn(
+          'fixed inset-0 z-40 flex flex-col bg-background',
+          'transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform',
+          active ? 'translate-x-0' : 'translate-x-full',
+        )}
+        style={{ paddingTop: overlayTop, paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">{cards}</div>
       </div>
     )
   }

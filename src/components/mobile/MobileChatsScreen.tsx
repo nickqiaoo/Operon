@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Loader2, MessageSquarePlus, Plus } from "lucide-react"
+import { ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -7,6 +7,7 @@ import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
+import { MobileHeader, useMobileContentBottom, useMobileContentOffset } from "./MobileHeader"
 import { ChatPanel } from "@/components/editor/ChatPanel"
 import { hasNativeTabBar, NativeShell } from "@/lib/native"
 import { ProviderIcon } from "@/components/editor/components/ModelSelectorPanel"
@@ -63,6 +64,8 @@ const formatRelativeTime = (timestamp: number): string => {
  */
 export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
   const intl = useIntl()
+  const contentOffset = useMobileContentOffset()
+  const contentBottom = useMobileContentBottom()
   const tabs = useEditorStore((s) => s.tabs)
   const currentWorkspaceId = useEditorStore((s) => s.currentWorkspaceId)
   const createChatTab = useEditorStore((s) => s.createChatTab)
@@ -220,21 +223,13 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
   // Conversation view is deliberately chrome-less: the shell's context bar and
   // tab bar are hidden (see onImmersiveChange) and there is no header row at all
   // — the back affordance floats over the transcript so it costs zero layout
-  // height, leaving the whole screen to the conversation. Both safe-area insets
-  // move here since the bars that used to carry them are gone; the bottom one is
-  // dropped while the keyboard is up, where the composer is fixed above the
-  // keyboard and the inset no longer applies.
+  // height, leaving the whole screen to the conversation. No safe-area insets
+  // here: the transcript runs from edge to edge, under the status bar and the
+  // floating back button at the top and under the floating composer at the
+  // bottom, which clears the home indicator (or the keyboard) itself (ChatPanel).
   if (openTab) {
     return (
-      <div
-        className="relative flex h-full flex-col"
-        style={{
-          // No top inset here on purpose: the transcript itself pads its first
-          // message below the status bar and the floating back button, so the
-          // conversation scrolls *under* both (ChatPanel's ConversationContent).
-          paddingBottom: keyboardOpen ? undefined : "env(safe-area-inset-bottom)",
-        }}
-      >
+      <div className="relative flex h-full flex-col">
         {/* Dim, don't cover: the transcript stays visible under the status
             bar (as in ChatGPT), just pressed towards the page color so the
             clock and the floating back button read over it. */}
@@ -275,31 +270,27 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/50 px-4">
-        <span className="text-base font-semibold text-foreground/90">
-          <FormattedMessage id="mobile.chats.title" defaultMessage="Chats" />
-        </span>
-        <button
-          type="button"
-          onClick={openPicker}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <Plus className="size-4" />
-          <FormattedMessage id="common.new" defaultMessage="New" />
-        </button>
-      </div>
+      <MobileHeader
+        actions={[{
+          id: "new",
+          label: intl.formatMessage({ id: "common.new", defaultMessage: "New" }),
+          icon: <SquarePen className="size-[18px]" />,
+          symbol: "square.and.pencil",
+          onClick: openPicker,
+        }]}
+      />
 
       {isEmpty ? (
-        <EmptyChats onNew={openPicker} />
+        <EmptyChats onNew={openPicker} topOffset={contentOffset} />
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-2" onScroll={handleScroll}>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }} onScroll={handleScroll}>
           {liveTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => openChat(tab.id)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
+                "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
               )}
             >
               <AgentAvatar provider={tab.providerId} size="sm" />
@@ -313,7 +304,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
               type="button"
               onClick={() => openHistory(item)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
+                "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
               )}
             >
               <AgentAvatar provider={item.providerId} size="sm" />
@@ -360,7 +351,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
                 key={provider.id}
                 type="button"
                 onClick={() => startChat(provider.id)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 hover:bg-muted/40"
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 hover:bg-row-hover"
               >
                 <ProviderIcon id={provider.id} size={18} />
                 {provider.label}
@@ -373,9 +364,9 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
   )
 }
 
-function EmptyChats({ onNew }: { onNew: () => void }) {
+function EmptyChats({ onNew, topOffset }: { onNew: () => void; topOffset: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center" style={{ paddingTop: topOffset }}>
       <div className="flex size-14 items-center justify-center rounded-xl border border-border/50 bg-muted/30">
         <MessageSquarePlus className="size-6 text-muted-foreground/70" />
       </div>
@@ -390,7 +381,7 @@ function EmptyChats({ onNew }: { onNew: () => void }) {
       <button
         type="button"
         onClick={onNew}
-        className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-base font-medium text-foreground/85 hover:bg-muted/50"
+        className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2 text-base font-medium text-foreground/85 hover:bg-row-hover"
       >
         <FormattedMessage id="mobile.chats.newChat" defaultMessage="New chat" />
       </button>

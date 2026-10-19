@@ -67,6 +67,8 @@ interface ChatInputAreaProps {
   steerPending?: boolean;
   onSteer?: (text: string) => Promise<void> | void;
   compactWhenIdle?: boolean;
+  /** Phone: the composer floats over the transcript, which scrolls under its frosted glass. */
+  floating?: boolean;
   mobileKeyboardOpen?: boolean;
   /** Queued review comments or browser annotations sent with the next message. */
   hasPendingContext?: boolean;
@@ -126,6 +128,7 @@ export function ChatInputArea({
   steerPending = false,
   onSteer,
   compactWhenIdle = false,
+  floating = false,
   mobileKeyboardOpen = false,
   hasPendingContext = false,
   pendingSkill = null,
@@ -398,10 +401,14 @@ export function ChatInputArea({
         // 38 — matching weight, just softer. The per-mode palette used to
         // override this with `/40`, which is 26, and read as a border that had
         // gone missing.
-        'rounded-xl bg-popover/90 overflow-hidden border border-border/60 transition-[box-shadow,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
-        composerCompact
-          ? 'shadow-none'
-          : 'shadow-input',
+        // Floating (phone): the frosted `liquid-glass` brings its own tint, rim and
+        // lift, so none of the solid card's ground, border or shadow is stacked on it.
+        floating
+          ? 'rounded-xl overflow-hidden liquid-glass transition-[min-height] duration-300 ease-out'
+          : cn(
+              'rounded-xl bg-popover/90 overflow-hidden border border-border/60 transition-[box-shadow,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
+              composerCompact ? 'shadow-none' : 'shadow-input',
+            ),
         '[&_[data-slot=input-group]]:border-none [&_[data-slot=input-group]]:shadow-none [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:rounded-none',
         '[&_[data-slot=input-group]]:focus-within:ring-0 [&_[data-slot=input-group]]:focus-within:border-none',
         'cursor-text'
@@ -553,7 +560,7 @@ export function ChatInputArea({
               className={cn(
                 btnCn,
                 fastEnabled
-                  ? 'border-amber-200 bg-amber-100/80 text-amber-700 hover:bg-amber-100 hover:text-amber-800'
+                  ? 'border-status-warn/20 bg-status-warn/10 text-status-warn hover:bg-status-warn/15'
                   : ''
               )}
               aria-label={intl.formatMessage({ id: 'editor.input.fast', defaultMessage: 'Fast' })}

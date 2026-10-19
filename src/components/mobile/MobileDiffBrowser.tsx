@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { ArrowLeft, ChevronDown, ChevronRight, FileDiff, ListCollapse, ListRestart, RefreshCw } from "lucide-react"
 import { PatchDiff } from "@pierre/diffs/react"
 import { cn } from "@/lib/utils"
+import type { MobileHeaderAction } from "./MobileHeader"
 import { useThemeStore } from "@/stores/theme-store"
 
 /**
@@ -34,6 +35,18 @@ interface MobileDiffBrowserProps<TFile extends MobileDiffFileBase> {
   onRefresh?: () => void
   autoSelectFirst?: boolean
   className?: string
+  /**
+   * Draw the list's top row yourself, given the browser's own actions (expand
+   * all, refresh) to place in it — the Changes tab puts them in its MobileHeader.
+   * Default: a title row.
+   */
+  renderHeader?: (actions: MobileHeaderAction[]) => ReactNode
+  /** Top padding for the file view's back row, when nothing above it clears the status bar. */
+  topInset?: string
+  /** The list's top padding when a header floats over it (the iOS native bar); sticky file headers stop below it too. */
+  contentOffset?: string
+  /** The list's bottom padding when the tab bar floats over it (iOS); a file's diff stops above the bar. */
+  contentBottom?: string
 }
 
 /**
@@ -56,6 +69,10 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
   onRefresh,
   autoSelectFirst = false,
   className,
+  renderHeader,
+  topInset,
+  contentOffset = "0px",
+  contentBottom = "0px",
 }: MobileDiffBrowserProps<TFile>) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [diff, setDiff] = useState("")
@@ -234,8 +251,9 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
 
   if (viewMode !== "stacked" && selectedFile) {
     return (
-      <div className={cn("flex h-full min-h-0 flex-col", className)}>
-        <div className="flex h-11 shrink-0 items-center border-b border-border/50 px-2">
+      <div className={cn("flex h-full min-h-0 flex-col", className)} style={{ paddingBottom: contentBottom }}>
+        <div className="shrink-0 border-b border-border/50" style={{ paddingTop: topInset }}>
+        <div className="flex h-11 items-center px-2">
           <button
             type="button"
             onClick={() => {
@@ -243,12 +261,13 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
               setDiff("")
               setDiffError(null)
             }}
-            className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-row-hover hover:text-foreground"
           >
             <ArrowLeft className="size-4 shrink-0" />
             <span className="truncate">{title}</span>
           </button>
           <span className="ml-1 min-w-0 truncate font-mono text-[13px] text-foreground/85">{selectedFile.path}</span>
+        </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {diffLoading ? (
@@ -269,50 +288,60 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
     )
   }
 
+  // Expand / collapse all and refresh, as data: the Changes tab hands them to its
+  // MobileHeader (the native bar draws them as SF Symbols); otherwise they are
+  // buttons in this browser's own title row.
+  const headerActionSpecs: MobileHeaderAction[] = []
+  if (viewMode === "stacked" && files.length > 0) {
+    headerActionSpecs.push({
+      id: "toggleAll",
+      label: allStackedFilesCollapsed ? "Expand all diffs" : "Collapse all diffs",
+      icon: allStackedFilesCollapsed ? <ListRestart className="size-3.5" /> : <ListCollapse className="size-3.5" />,
+      symbol: allStackedFilesCollapsed ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left",
+      onClick: toggleAllStackedFiles,
+    })
+  }
+  if (onRefresh) {
+    headerActionSpecs.push({
+      id: "refresh",
+      label: "Refresh",
+      icon: <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />,
+      symbol: "arrow.clockwise",
+      onClick: onRefresh,
+    })
+  }
+  const headerActions = headerActionSpecs.map((action) => (
+    <button
+      key={action.id}
+      type="button"
+      onClick={action.onClick}
+      className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground"
+      aria-label={action.label}
+      title={action.label}
+    >
+      {action.icon}
+    </button>
+  ))
+
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/50 px-4">
-        <span className="min-w-0 truncate text-base font-semibold text-foreground/90">{title}</span>
-        <div className="flex shrink-0 items-center gap-1">
-          {viewMode === "stacked" && files.length > 0 ? (
-            <button
-              type="button"
-              onClick={toggleAllStackedFiles}
-              className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              aria-label={allStackedFilesCollapsed ? "Expand all diffs" : "Collapse all diffs"}
-              title={allStackedFilesCollapsed ? "Expand all" : "Collapse all"}
-            >
-              {allStackedFilesCollapsed ? (
-                <ListRestart className="size-3.5" />
-              ) : (
-                <ListCollapse className="size-3.5" />
-              )}
-            </button>
-          ) : null}
-          {onRefresh ? (
-            <button
-              type="button"
-              onClick={onRefresh}
-              className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              aria-label="Refresh"
-              title="Refresh"
-            >
-              <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
-            </button>
-          ) : null}
+      {renderHeader ? renderHeader(headerActionSpecs) : (
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/50 px-4">
+          <span className="min-w-0 truncate text-base font-semibold text-foreground/90">{title}</span>
+          <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
         </div>
-      </div>
+      )}
 
       {error ? (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-destructive">
+        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-destructive" style={{ paddingTop: contentOffset }}>
           {error}
         </div>
       ) : loading ? (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-muted-foreground/70">
+        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-muted-foreground/70" style={{ paddingTop: contentOffset }}>
           {loadingLabel}
         </div>
       ) : files.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center" style={{ paddingTop: contentOffset }}>
           <FileDiff className="size-6 text-muted-foreground/60" />
           <p className="text-base font-medium text-foreground/85">{emptyTitle}</p>
           {emptyDescription ? (
@@ -320,7 +349,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
           ) : null}
         </div>
       ) : viewMode === "stacked" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }}>
           {stackedIsLarge ? (
             <p className="px-1 pb-2 text-xs leading-snug text-muted-foreground/70">
               Large diff — files are collapsed. Tap a file to view its changes.
@@ -340,6 +369,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
                     type="button"
                     onClick={() => toggleStackedFile(file.path)}
                     className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background/95 px-3 py-2 text-left backdrop-blur hover:bg-muted/35"
+                    style={{ top: contentOffset }}
                     aria-expanded={!collapsed}
                     title={collapsed ? "Expand diff" : "Collapse diff"}
                   >
@@ -354,8 +384,8 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
                     <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-foreground/85">{file.path}</span>
                     {metrics ? (
                       <span className="shrink-0 text-[13px] tabular-nums">
-                        <span className="text-emerald-600 dark:text-emerald-400">+{metrics.additions}</span>{" "}
-                        <span className="text-red-500 dark:text-red-400">-{metrics.deletions}</span>
+                        <span className="text-diff-add">+{metrics.additions}</span>{" "}
+                        <span className="text-diff-remove">-{metrics.deletions}</span>
                       </span>
                     ) : null}
                   </button>
@@ -378,13 +408,13 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
           </div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto p-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }}>
           {files.map((file) => (
             <button
               key={file.path}
               type="button"
               onClick={() => void openFile(file)}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/40"
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
             >
               <span className="w-4 shrink-0 text-center font-mono text-[13px] text-muted-foreground/70">
                 {file.status?.trim()?.[0] ?? "-"}

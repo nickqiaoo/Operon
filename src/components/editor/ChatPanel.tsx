@@ -148,6 +148,35 @@ function ChatPanelContent({
   /** Skill chosen in the session panel, handed to the composer as a chip on the next render. */
   const [pendingSkill, setPendingSkill] = useState<SlashCommandItem | null>(null);
   const isMobile = useIsMobile();
+  // Phone: the composer floats over the transcript, so the transcript pads its
+  // end by the composer's live height (it grows with the text, a queued steer,
+  // an error line) rather than stopping above it.
+  // The metrics pills float just above it (outside its box), so they count too:
+  // the last message and the scroll-down button both have to clear them.
+  // Written straight to a CSS variable on the root, not React state: the composer
+  // animates its height, and a re-render of this whole panel per frame left the
+  // scroll-down button trailing behind it.
+  const composerRef = useRef<HTMLDivElement>(null);
+  const pillsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    const pills = pillsRef.current;
+    const root = transcriptRef.current;
+    if (!isMobile || !el || !root) return;
+    const PILLS_GAP = 4; // the pills row's `mb-1`
+    const measure = () => {
+      const pillsHeight = pills && pills.offsetHeight > 0 ? pills.offsetHeight + PILLS_GAP : 0;
+      root.style.setProperty("--composer-height", `${el.offsetHeight + pillsHeight}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    if (pills) observer.observe(pills);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--composer-height");
+    };
+  }, [isMobile]);
   const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId);
   const pendingAnnotationCount = useAnnotationsStore(
     (state) => annotationsForWorkspace(state.items, currentWorkspaceId).length,
@@ -1015,14 +1044,18 @@ function ChatPanelContent({
           // pushed the centred column ~5px left of the composer below. Reserving
           // the same gutter on both edges keeps the two columns aligned (and
           // stops the column jumping when the transcript starts to overflow).
-          scrollClassName="scroll-fade-y [scrollbar-gutter:stable_both-edges]"
+          // Not on a phone: there the transcript runs on under the floating
+          // composer, and a faded edge would leave its glass nothing to frost.
+          scrollClassName={cn("[scrollbar-gutter:stable_both-edges]", !isMobile && "scroll-fade-y")}
+          // Phone: the last message clears the floating composer (and the
+          // keyboard, while it is up — the shell keeps its full height under it).
+          style={isMobile ? { paddingBottom: "calc(var(--composer-height, 0px) + 16px + var(--keyboard-height, 0px))" } : undefined}
           className={cn(
             "w-full max-w-4xl mx-auto px-4 pt-5 pb-4 gap-1",
             // Phone: the transcript runs under the status bar and the floating
             // back button; start the first message just below them. Not where
             // the native top bar is a real bar above the web view (Android) —
             // there is nothing to run under, so the room is already made.
-            isMobile && "group-data-[keyboard-open=true]/mobile-shell:pb-44",
             isMobile && !nativeTopBarTakesSpace() && "pt-[calc(env(safe-area-inset-top)+3rem)]"
           )}
         >
@@ -1063,31 +1096,41 @@ function ChatPanelContent({
           band, and they sit above this button. Lift it clear of that row so the
           two never overlap.
         */}
-        <ConversationScrollButton className={cn(isMobile && "bottom-14 size-9 shadow-float")} />
+        <ConversationScrollButton
+          glass={isMobile}
+          style={isMobile ? { bottom: "calc(var(--composer-height, 0px) + 12px + var(--keyboard-height, 0px))" } : undefined}
+        />
       </Conversation>
 
       <div
+        ref={composerRef}
         className={cn(
           "w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-4 pt-0",
-          // `relative` anchors the phone's floating metrics row (see below).
-          isMobile && "relative px-3 pb-2",
+          // Phone: floats over the bottom of the transcript, which scrolls on
+          // under its glass (the card itself is frosted; around it, nothing).
+          // `absolute` also anchors the floating metrics row (see below).
+          isMobile && "absolute inset-x-0 bottom-0 z-20 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))]",
           isMobile &&
-            "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:inset-x-0 group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:bg-background/95 group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2 group-data-[keyboard-open=true]/mobile-shell:backdrop-blur"
+            "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2"
         )}
       >
         {chatError && status === 'error' && (
+          <NoticeGlass on={isMobile}>
           <div className="mb-2 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
             <span className="break-all">{chatError.message || intl.formatMessage({ id: 'editor.chat.errorOccurred', defaultMessage: 'An error occurred' })}</span>
           </div>
+          </NoticeGlass>
         )}
+        {(isCompacting || compactResult || showCompactBanner) && (
+        <NoticeGlass on={isMobile}>
         {isCompacting ? (
-          <div className="mb-2 flex items-center gap-2 rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400">
+          <div className="mb-2 flex items-center gap-2 rounded-lg bg-status-info/10 px-3 py-1.5 text-xs text-status-info">
             <svg className="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="32" strokeLinecap="round" /></svg>
             <span><FormattedMessage id="editor.compact.loading" defaultMessage="Compacting conversation history..." /></span>
           </div>
         ) : compactResult ? (
-          <div className="mb-2 flex items-center justify-between rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+          <div className="mb-2 flex items-center justify-between rounded-lg bg-status-ok/10 px-3 py-1.5 text-xs text-status-ok">
             <span>
               {compactResult.originalMessageCount && compactResult.newMessageCount
                 ? intl.formatMessage(
@@ -1096,12 +1139,12 @@ function ChatPanelContent({
                   )
                 : intl.formatMessage({ id: 'editor.compact.done', defaultMessage: 'Context compacted' })}
             </span>
-            <button className="ml-2 rounded px-1.5 py-0.5 hover:bg-emerald-500/10 transition-colors" onClick={() => setCompactResult(null)}>
+            <button className="ml-2 rounded px-1.5 py-0.5 hover:bg-status-ok/10 transition-colors" onClick={() => setCompactResult(null)}>
               &times;
             </button>
           </div>
         ) : showCompactBanner ? (
-          <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <div className="mb-2 flex items-center justify-between rounded-lg bg-status-warn/10 px-3 py-1.5 text-xs text-status-warn">
             <span>
               {compactedInfo.originalTokenCount && compactedInfo.newTokenCount
                 ? intl.formatMessage(
@@ -1110,16 +1153,19 @@ function ChatPanelContent({
                   )
                 : intl.formatMessage({ id: 'editor.compact.done', defaultMessage: 'Context compacted' })}
             </span>
-            <button className="ml-2 rounded px-1.5 py-0.5 hover:bg-amber-500/10 transition-colors" onClick={() => setCompactDismissed(JSON.stringify(compactedInfo))}>
+            <button className="ml-2 rounded px-1.5 py-0.5 hover:bg-status-warn/10 transition-colors" onClick={() => setCompactDismissed(JSON.stringify(compactedInfo))}>
               &times;
             </button>
           </div>
         ) : null}
+        </NoticeGlass>
+        )}
         {showCacheExpiredNotice ? (() => {
           const clearCommand = <code className="rounded bg-status-warn/15 px-1 font-mono">/clear</code>;
           const cachedTokens = displayedContextUsage?.usedTokens;
 
           return (
+            <NoticeGlass on={isMobile}>
             <div className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-status-warn/15 bg-status-warn/10 px-3 py-1.5 text-xs text-status-warn">
               <span>
                 {cachedTokens ? (
@@ -1145,6 +1191,7 @@ function ChatPanelContent({
                 &times;
               </button>
             </div>
+            </NoticeGlass>
           );
         })() : null}
         {/*
@@ -1160,6 +1207,7 @@ function ChatPanelContent({
           keeps them looking the same whether the keyboard is up or not.
         */}
         <div
+          ref={pillsRef}
           className={cn(
             "flex items-start gap-2",
             isMobile
@@ -1176,7 +1224,7 @@ function ChatPanelContent({
               variant="outline"
               size="sm"
               onClick={() => setSessionPanelOpen(true)}
-              className="h-8 shrink-0 gap-1.5 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-muted/40 @max-[560px]:size-8 @max-[560px]:gap-0 @max-[560px]:px-0"
+              className="h-8 shrink-0 gap-1.5 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-accent-hover @max-[560px]:size-8 @max-[560px]:gap-0 @max-[560px]:px-0"
               aria-label={intl.formatMessage({ id: 'editor.agentPanel.open', defaultMessage: 'Session panel' })}
             >
               <Layers aria-hidden="true" className="size-3.5" />
@@ -1316,6 +1364,7 @@ function ChatPanelContent({
           onToggleGoal={handleToggleGoal}
           slashCommands={mergedSlashCommands}
           compactWhenIdle={isMobile}
+          floating={isMobile}
           mobileKeyboardOpen={isMobile && mobileKeyboardOpen}
           hasPendingContext={pendingAnnotationCount > 0 || pendingLineCommentCount > 0}
           pendingSkill={pendingSkill}
@@ -1395,4 +1444,14 @@ function ScrollTopLoader({
   }, [scrollRef, hasMore, loadingMore, onLoadMore]);
 
   return null;
+}
+
+/**
+ * Phone: a notice above the floating composer sits over the transcript, and its
+ * 10% tint alone let the messages behind read through it. The composer's glass
+ * goes underneath, the tint stays on top; elsewhere the notice is unchanged.
+ */
+function NoticeGlass({ on, children }: { on: boolean; children: React.ReactNode }) {
+  if (!on) return <>{children}</>;
+  return <div className="mb-2 overflow-hidden rounded-lg liquid-glass [&>*]:mb-0">{children}</div>;
 }

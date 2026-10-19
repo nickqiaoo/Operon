@@ -14,6 +14,7 @@ import { clearSelectedNode, deleteAccount, fetchNodes, getSelectedNodeId, getSel
 import { resetNodeScopedCaches } from "@/lib/node-cache-reset"
 import { MobileCronjobScreen } from "./MobileCronjobScreen"
 import { MobileFilesScreen } from "./MobileFilesScreen"
+import { useMobileContentBottom, useMobileTopInset } from "./MobileHeader"
 
 type Theme = "light" | "dark" | "system"
 const THEMES: Theme[] = ["light", "dark", "system"]
@@ -30,6 +31,8 @@ const THEME_LABELS = defineMessages({
  */
 export function MobileMoreScreen() {
   const intl = useIntl()
+  const topInset = useMobileTopInset()
+  const contentBottom = useMobileContentBottom()
   const theme = useThemeStore((s) => s.theme)
   const setTheme = useThemeStore((s) => s.setTheme)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -102,7 +105,10 @@ export function MobileMoreScreen() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    // No header: machine, appearance and settings are not about the current
+    // project, and the inbox is a tab away. The page just clears the status bar.
+    <div className="flex h-full flex-col" style={{ paddingTop: topInset }}>
+      <div className="min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: contentBottom }}>
       <div className="space-y-6 p-4">
         {__APP_TARGET__ === "web" && (
           <Section title={<FormattedMessage id="mobile.more.machine" defaultMessage="Machine" />}>
@@ -125,7 +131,7 @@ export function MobileMoreScreen() {
               <button
                 type="button"
                 onClick={switchMachine}
-                className="flex w-full items-center gap-3 border-t border-border/40 px-4 py-3 text-left hover:bg-muted/30"
+                className="flex w-full items-center gap-3 border-t border-border/40 px-4 py-3 text-left hover:bg-row-hover"
               >
                 <RefreshCw className="size-4 text-muted-foreground/70" />
                 <span className="text-base text-foreground/85">
@@ -135,7 +141,7 @@ export function MobileMoreScreen() {
               <button
                 type="button"
                 onClick={() => logout()}
-                className="flex w-full items-center gap-3 border-t border-border/40 px-4 py-3 text-left hover:bg-muted/30"
+                className="flex w-full items-center gap-3 border-t border-border/40 px-4 py-3 text-left hover:bg-row-hover"
               >
                 <LogOut className="size-4 text-muted-foreground/70" />
                 <span className="text-base text-foreground/85">
@@ -170,7 +176,7 @@ export function MobileMoreScreen() {
           <button
             type="button"
             onClick={() => setFilesOpen(true)}
-            className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-muted/30"
+            className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-row-hover"
           >
             <FolderTree className="size-4 text-muted-foreground/70" />
             <span className="text-base text-foreground/85">
@@ -183,7 +189,7 @@ export function MobileMoreScreen() {
           <button
             type="button"
             onClick={() => setCronjobOpen(true)}
-            className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-muted/30"
+            className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-row-hover"
           >
             <CalendarClock className="size-4 text-muted-foreground/70" />
             <span className="text-base text-foreground/85">
@@ -196,7 +202,7 @@ export function MobileMoreScreen() {
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-muted/30"
+            className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-row-hover"
           >
             <Settings className="size-4 text-muted-foreground/70" />
             <span className="text-base text-foreground/85">
@@ -297,6 +303,7 @@ export function MobileMoreScreen() {
           </Section>
         )}
       </div>
+      </div>
 
       {settingsOpen &&
         createPortal(
@@ -334,10 +341,10 @@ function MachineStatusBadge({ loading, node, error }: { loading: boolean; node: 
     : error
       ? { label: 'Unavailable', className: 'bg-muted text-muted-foreground' }
       : node?.revoked
-        ? { label: intl.formatMessage({ id: "mobile.more.status.revoked", defaultMessage: "Revoked" }), className: "bg-red-500/10 text-red-500" }
+        ? { label: intl.formatMessage({ id: "mobile.more.status.revoked", defaultMessage: "Revoked" }), className: "bg-status-error/10 text-status-error" }
         : node?.online
-          ? { label: intl.formatMessage({ id: "mobile.more.status.online", defaultMessage: "Online" }), className: "bg-emerald-500/10 text-emerald-500" }
-          : { label: intl.formatMessage({ id: "mobile.more.status.offline", defaultMessage: "Offline" }), className: "bg-amber-500/10 text-amber-500" }
+          ? { label: intl.formatMessage({ id: "mobile.more.status.online", defaultMessage: "Online" }), className: "bg-status-ok/10 text-status-ok" }
+          : { label: intl.formatMessage({ id: "mobile.more.status.offline", defaultMessage: "Offline" }), className: "bg-status-warn/10 text-status-warn" }
   return (
     <span
       className={cn(

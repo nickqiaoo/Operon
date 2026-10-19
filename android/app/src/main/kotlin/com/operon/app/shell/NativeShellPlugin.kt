@@ -148,18 +148,77 @@ class NativeShellPlugin : Plugin() {
     fun setTopBar(call: PluginCall) {
         val mode = ShellChrome.TopBarMode.from(call.getString("mode").orEmpty())
         if (mode == null) {
-            call.reject("mode must be hidden | context | back")
+            call.reject("mode must be hidden | context | back | header")
             return
         }
         val title = call.getString("title") ?: "operon"
         val subtitle = call.getString("subtitle")
         val unread = call.getBoolean("unread", false) ?: false
         val interactive = call.getBoolean("interactive", true) ?: true
+        val header = call.getObject("header")?.let(::parseHeader)
+        if (mode == ShellChrome.TopBarMode.HEADER && header == null) {
+            call.reject("header mode needs a header")
+            return
+        }
         onMain(call) { chrome ->
-            chrome.setTopBar(mode, title, subtitle, unread, interactive)
+            chrome.setTopBar(mode, title, subtitle, unread, interactive, header)
             call.resolve()
         }
     }
+
+    /**
+     * `{ leading: { kind: 'context', title, subtitle? } | { kind: 'segments', items: [{id, title}], selected },
+     *    menu?: { symbol, label, nodes }, actions: [{id, symbol, label}] }` — see `NativeTopBarHeader`.
+     */
+    private fun parseHeader(raw: JSONObject): ShellChrome.HeaderSpec? {
+        val leadingRaw = raw.optJSONObject("leading") ?: return null
+        val leading = when (leadingRaw.optString("kind")) {
+            "context" -> ShellChrome.HeaderSpec.Leading.Context(
+                leadingRaw.optString("title", "operon"),
+                leadingRaw.optString("subtitle").takeIf { leadingRaw.has("subtitle") && it.isNotEmpty() },
+            )
+            "segments" -> {
+                val items = leadingRaw.optJSONArray("items")
+                ShellChrome.HeaderSpec.Leading.Segments(
+                    (0 until (items?.length() ?: 0)).mapNotNull { i ->
+                        val item = items?.optJSONObject(i) ?: return@mapNotNull null
+                        item.optString("id") to item.optString("title")
+                    },
+                    leadingRaw.optString("selected"),
+                )
+            }
+            else -> return null
+        }
+        val menu = raw.optJSONObject("menu")?.let { m ->
+            ShellChrome.HeaderSpec.Menu(m.optString("symbol"), m.optString("label"), parseMenuNodes(m.optJSONArray("nodes")))
+        }
+        val actionsRaw = raw.optJSONArray("actions")
+        val actions = (0 until (actionsRaw?.length() ?: 0)).mapNotNull { i ->
+            val a = actionsRaw?.optJSONObject(i) ?: return@mapNotNull null
+            ShellChrome.HeaderSpec.Action(a.optString("id"), a.optString("symbol"), a.optString("label"))
+        }
+        return ShellChrome.HeaderSpec(leading, menu, actions)
+    }
+
+    private fun parseMenuNodes(raw: JSONArray?): List<ShellChrome.HeaderSpec.MenuNode> =
+        (0 until (raw?.length() ?: 0)).mapNotNull { i ->
+            val node = raw?.optJSONObject(i) ?: return@mapNotNull null
+            if (node.optString("kind") == "group") {
+                ShellChrome.HeaderSpec.MenuNode.Group(
+                    node.optString("id"),
+                    node.optString("title"),
+                    node.optBoolean("inline", false),
+                    node.optString("detail").takeIf { node.has("detail") && it.isNotEmpty() },
+                    parseMenuNodes(node.optJSONArray("children")),
+                )
+            } else {
+                ShellChrome.HeaderSpec.MenuNode.Item(
+                    node.optString("id"),
+                    node.optString("title"),
+                    if (node.has("selected")) node.optBoolean("selected") else null,
+                )
+            }
+        }
 
     /**
      * Light / dark for every native surface, following the app's own theme

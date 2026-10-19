@@ -162,10 +162,17 @@ export const ConversationEmptyState = ({
   </div>
 );
 
-export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
+export type ConversationScrollButtonProps = ComponentProps<typeof Button> & {
+  /** Phone: frosted `liquid-glass` like the floating composer, so the transcript shows through. */
+  glass?: boolean;
+};
 
 export const ConversationScrollButton = ({
   className,
+  glass,
+  variant: _variant,
+  size: _size,
+  asChild: _asChild,
   ...props
 }: ConversationScrollButtonProps) => {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
@@ -173,6 +180,27 @@ export const ConversationScrollButton = ({
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom();
   }, [scrollToBottom]);
+
+  if (glass) {
+    return (
+      !isAtBottom && (
+        <button
+          aria-label="Scroll to bottom"
+          // Only `transform` animates (the press): a transition on `bottom` would make it
+          // lag behind the composer it sits on as that grows.
+          className={cn(
+            "liquid-glass absolute bottom-4 left-1/2 flex size-9 -translate-x-1/2 items-center justify-center rounded-full text-foreground/80 transition-transform active:scale-[0.94]",
+            className
+          )}
+          onClick={handleScrollToBottom}
+          type="button"
+          {...props}
+        >
+          <ArrowDownIcon className="size-4" />
+        </button>
+      )
+    );
+  }
 
   return (
     !isAtBottom && (

@@ -3,6 +3,7 @@ import { FileDiff } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
 import { MobileDiffBrowser } from "./MobileDiffBrowser"
+import { MobileHeader, useMobileContentBottom, useMobileContentOffset, useMobileTopInset } from "./MobileHeader"
 
 interface ChangedFile {
   path: string
@@ -27,6 +28,9 @@ interface MobileReviewScreenProps {
  */
 export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
   const intl = useIntl()
+  const topInset = useMobileTopInset()
+  const contentOffset = useMobileContentOffset()
+  const contentBottom = useMobileContentBottom()
   const [files, setFiles] = useState<ChangedFile[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,14 +65,17 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
 
   if (!worktreePath) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
-        <FileDiff className="size-6 text-muted-foreground/60" />
-        <p className="text-base font-medium text-foreground/85">
-          <FormattedMessage id="mobile.changes.noWorkspaceTitle" defaultMessage="No workspace selected" />
-        </p>
-        <p className="text-[13px] text-muted-foreground/70">
-          <FormattedMessage id="mobile.changes.noWorkspaceDesc" defaultMessage="Pick a workspace from the bar above." />
-        </p>
+      <div className="flex h-full flex-col">
+        <MobileHeader />
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center" style={{ paddingTop: contentOffset }}>
+          <FileDiff className="size-6 text-muted-foreground/60" />
+          <p className="text-base font-medium text-foreground/85">
+            <FormattedMessage id="mobile.changes.noWorkspaceTitle" defaultMessage="No workspace selected" />
+          </p>
+          <p className="text-[13px] text-muted-foreground/70">
+            <FormattedMessage id="mobile.changes.noWorkspaceDesc" defaultMessage="Pick a workspace from the bar above." />
+          </p>
+        </div>
       </div>
     )
   }
@@ -85,6 +92,10 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
       emptyDescription={<FormattedMessage id="mobile.changes.emptyDesc" defaultMessage="The working tree is clean." />}
       diffErrorMessage={intl.formatMessage({ id: "mobile.changes.diffError", defaultMessage: "Couldn't load diff." })}
       onRefresh={() => void refresh()}
+      renderHeader={(actions) => <MobileHeader actions={actions} />}
+      topInset={topInset}
+      contentOffset={contentOffset}
+      contentBottom={contentBottom}
     />
   )
 }

@@ -157,7 +157,9 @@ export interface NativeShellPlugin {
    * The navigation bar. `context` = project › workspace title + inbox bell
    * (list screens), `back` = a lone back button (open conversation),
    * `assistant` = the assistant's name/status capsule + Activity button (iOS
-   * only, see {@link hasNativeAssistantBar}), `hidden`.
+   * only, see {@link hasNativeAssistantBar}), `header` = a list screen's whole
+   * top row, described by `header` (see {@link hasNativeHeaderBar}),
+   * `hidden`.
    */
   setTopBar(options: {
     mode: NativeTopBarMode
@@ -168,6 +170,8 @@ export interface NativeShellPlugin {
     interactive: boolean
     /** `assistant`: working — the capsule shows the status (`subtitle`) instead of the name. */
     busy?: boolean
+    /** `header`: what the row holds. */
+    header?: NativeTopBarHeader
   }): Promise<void>
   addListener(eventName: 'tabSelected', listener: (event: { tab: string }) => void): Promise<PluginListenerHandle>
   addListener(eventName: 'layout', listener: (event: { tabBarInset: number }) => void): Promise<PluginListenerHandle>
@@ -267,8 +271,38 @@ export interface NativeInboxState {
   unreadCount: number
 }
 
-export type NativeTopBarMode = 'hidden' | 'context' | 'back' | 'assistant'
-export type NativeTopBarAction = 'context' | 'inbox' | 'back' | 'assistantProfile'
+export type NativeTopBarMode = 'hidden' | 'context' | 'back' | 'assistant' | 'header'
+/** `segment:<id>`, `menu:<id>` and `action:<id>` come from a `header` bar's contents. */
+export type NativeTopBarAction =
+  | 'context'
+  | 'inbox'
+  | 'back'
+  | 'assistantProfile'
+  | `segment:${string}`
+  | `menu:${string}`
+  | `action:${string}`
+
+/**
+ * A list screen's one top row (`header` mode — see {@link hasNativeHeaderBar}):
+ * context or a segmented switch leading; a pull-down menu (sections, submenus,
+ * ticks), the page's actions (SF Symbol names) and the bell trailing.
+ */
+export interface NativeTopBarHeader {
+  leading:
+    | { kind: 'context'; title: string; subtitle?: string }
+    | { kind: 'segments'; items: { id: string; title: string }[]; selected: string }
+  /** A pull-down (an SF Symbol button); a pick comes back as `menu:<item id>`. */
+  menu?: { symbol: string; label: string; nodes: NativeMenuNode[] }
+  actions: { id: string; symbol: string; label: string }[]
+}
+
+/**
+ * A menu choice (`selected` set) or command (no `selected`, never ticked), or a
+ * group of them: a titled section (`inline`) or a submenu whose row shows `detail`.
+ */
+export type NativeMenuNode =
+  | { kind: 'item'; id: string; title: string; selected?: boolean }
+  | { kind: 'group'; id: string; title: string; inline: boolean; detail?: string; children: NativeMenuNode[] }
 
 export const NativeShell = registerPlugin<NativeShellPlugin>('NativeShell')
 
@@ -305,4 +339,12 @@ export function nativeTopBarTakesSpace(): boolean {
  */
 export function hasNativeAssistantBar(): boolean {
   return hasNativeTabBar() && nativePlatform() === 'ios'
+}
+
+/**
+ * True when list screens' header row is the native bar (`header` mode) — both
+ * packaged apps. In a browser the page draws the same row itself (MobileHeader).
+ */
+export function hasNativeHeaderBar(): boolean {
+  return hasNativeTabBar()
 }

@@ -108,7 +108,7 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-row-hover hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
           <FormattedMessage id="mobile.tab.more" defaultMessage="More" />
@@ -120,7 +120,7 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
           <button
             type="button"
             onClick={() => void loadData()}
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover"
             aria-label={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
           >
             <RefreshCw className={cn("size-4", loading && "animate-spin")} />
@@ -131,7 +131,7 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
               setEditing(null)
               setEditorOpen(true)
             }}
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover"
             aria-label={intl.formatMessage({ id: "mobile.cron.newSchedule", defaultMessage: "New schedule" })}
           >
             <Plus className="size-4" />

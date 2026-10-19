@@ -103,7 +103,7 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setTopBar(_ call: CAPPluginCall) {
         guard let mode = ShellChromeController.TopBarMode(rawValue: call.getString("mode") ?? "") else {
-            call.reject("mode must be hidden | context | back | assistant")
+            call.reject("mode must be hidden | context | back | assistant | header")
             return
         }
         let title = call.getString("title") ?? "operon"
@@ -111,9 +111,63 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
         let unread = call.getBool("unread") ?? false
         let interactive = call.getBool("interactive") ?? true
         let busy = call.getBool("busy") ?? false
+        let header = call.getObject("header").flatMap(Self.parseHeader)
+        if mode == .header && header == nil {
+            call.reject("header mode needs a header")
+            return
+        }
         onMain(call) { shell in
-            shell.setTopBar(mode: mode, title: title, subtitle: subtitle, unread: unread, interactive: interactive, busy: busy)
+            shell.setTopBar(mode: mode, title: title, subtitle: subtitle, unread: unread, interactive: interactive, busy: busy, header: header)
             call.resolve()
+        }
+    }
+
+    /// `{ leading: { kind: 'context', title, subtitle? } | { kind: 'segments', items: [{id, title}], selected },
+    ///    menu?: { symbol, label, nodes }, actions: [{id, symbol, label}] }`
+    private static func parseHeader(_ raw: JSObject) -> ShellChromeController.HeaderSpec? {
+        guard let leadingRaw = raw["leading"] as? JSObject, let kind = leadingRaw["kind"] as? String else { return nil }
+        let leading: ShellChromeController.HeaderSpec.Leading
+        switch kind {
+        case "context":
+            leading = .context(title: leadingRaw["title"] as? String ?? "operon", subtitle: leadingRaw["subtitle"] as? String)
+        case "segments":
+            let items: [(id: String, title: String)] = (leadingRaw["items"] as? JSArray ?? []).compactMap { entry in
+                guard let entry = entry as? JSObject, let id = entry["id"] as? String, let title = entry["title"] as? String else { return nil }
+                return (id: id, title: title)
+            }
+            leading = .segments(items: items, selected: leadingRaw["selected"] as? String ?? "")
+        default:
+            return nil
+        }
+        var menu: ShellChromeController.HeaderSpec.Menu?
+        if let menuRaw = raw["menu"] as? JSObject, let symbol = menuRaw["symbol"] as? String {
+            menu = .init(
+                symbol: symbol,
+                label: menuRaw["label"] as? String ?? "",
+                nodes: parseMenuNodes(menuRaw["nodes"] as? JSArray ?? [])
+            )
+        }
+        let actions: [ShellChromeController.HeaderSpec.Action] = (raw["actions"] as? JSArray ?? []).compactMap { entry in
+            guard let entry = entry as? JSObject, let id = entry["id"] as? String, let symbol = entry["symbol"] as? String else { return nil }
+            return .init(id: id, symbol: symbol, label: entry["label"] as? String ?? id)
+        }
+        return .init(leading: leading, menu: menu, actions: actions)
+    }
+
+    /// `[{ kind: 'item', id, title, selected } | { kind: 'group', id, title, inline, detail?, children }]`
+    private static func parseMenuNodes(_ raw: JSArray) -> [ShellChromeController.HeaderSpec.MenuNode] {
+        raw.compactMap { entry in
+            guard let entry = entry as? JSObject, let id = entry["id"] as? String, let title = entry["title"] as? String else { return nil }
+            if entry["kind"] as? String == "group" {
+                return .group(
+                    id: id,
+                    title: title,
+                    inline: entry["inline"] as? Bool ?? false,
+                    detail: entry["detail"] as? String,
+                    children: parseMenuNodes(entry["children"] as? JSArray ?? [])
+                )
+            }
+            return .item(id: id, title: title, selected: entry["selected"] as? Bool ?? false)
         }
     }
 

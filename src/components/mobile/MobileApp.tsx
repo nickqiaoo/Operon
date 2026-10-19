@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
 import { useIntl } from "react-intl"
-import { hasNativeAssistantBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace } from "@/lib/native"
+import { hasNativeAssistantBar, hasNativeHeaderBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace, type NativeMenuNode, type NativeTopBarHeader } from "@/lib/native"
 import { useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
 import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
 import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
@@ -16,9 +16,10 @@ import { useProjectStore } from "@/stores/project-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { useThemeStore, applyTheme } from "@/stores/theme-store"
-import { MobileTopBar } from "./MobileTopBar"
+import { MobileHeaderContext, type MobileHeaderShell, type MobileHeaderSpec, type MobileMenuNode } from "./MobileHeader"
 import { MobileTabBar, MOBILE_TABS, MOBILE_TAB_LABELS, isMobileTab, type MobileTab } from "./MobileTabBar"
 import { MobileContextSwitcher } from "./MobileContextSwitcher"
+import { useProjectFilter } from "@/components/project/ProjectFilterSelect"
 import { MobileChatsScreen } from "./MobileChatsScreen"
 import { MobileChannelScreen } from "./MobileChannelScreen"
 import { MobileReviewScreen } from "./MobileReviewScreen"
@@ -30,6 +31,8 @@ import { setAnalyticsScreen } from "@/lib/analytics"
 type NotificationTarget = Partial<
   Pick<Notification, "chatId" | "taskId" | "projectId" | "workspaceId" | "title">
 > & {
+  /** Present on inbox rows and on pushes; the assistant's kinds open its tab. */
+  kind?: string
   /** An agent's conversation (tp 'subagent'), e.g. one the assistant dispatched: it keeps its model. */
   subAgent?: boolean
 }
@@ -66,6 +69,9 @@ export function MobileApp() {
     }
   }, [tab])
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  // The Board tab spans every project; its header menu narrows it to one
+  // instead of switching the workspace. Same filter as the desktop board.
+  const [boardFilter, setBoardFilter] = useProjectFilter("operon.boardProjectFilter")
   // Packaged apps only: the inbox sheet opened from the native bell.
   const [nativeInboxOpen, setNativeInboxOpen] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
@@ -143,6 +149,7 @@ export function MobileApp() {
   }, [intl])
 
 
+
   // JS-initiated switches (deep links, Android back, notification taps) show
   // up in the bar too. Harmless after a native tap: selecting the current tab
   // is a no-op.
@@ -189,7 +196,9 @@ export function MobileApp() {
   // same routing serves two arrivals: an in-app inbox tap (a real Notification)
   // and a tapped APNs push (only the ids survive the payload round-trip).
   const handleOpenNotification = useCallback((n: NotificationTarget) => {
-    if (n.taskId != null) {
+    if (n.kind === "assistant_message" || n.kind === "assistant_approval") {
+      setTab("assistant")
+    } else if (n.taskId != null) {
       if (n.projectId != null) setActiveProject(n.projectId)
       setTab("channel")
       setDeepLink({ taskId: n.taskId })
@@ -212,7 +221,12 @@ export function MobileApp() {
         if (isMobileTab(next)) setTab(next)
       }),
       NativeShell.addListener("topBarAction", ({ action }) => {
-        if (action === "context") void openNativeContextSheet()
+        // A `header` bar's contents act on the page that described them.
+        const spec = headerRef.current?.spec
+        if (action.startsWith("segment:")) spec?.segments?.onSelect(action.slice("segment:".length))
+        else if (action.startsWith("action:")) spec?.actions?.find((a) => a.id === action.slice("action:".length))?.onClick()
+        else if (action.startsWith("menu:")) spec?.menu?.onSelect(action.slice("menu:".length))
+        else if (action === "context") void openNativeContextSheet()
         else if (action === "inbox") void openNativeInbox().then((ok) => { if (!ok) setNativeInboxOpen(true) })
         // Back closes whatever registered most recently (the open conversation,
         // or a sheet over it) — same stack the Android hardware button uses.
@@ -496,10 +510,29 @@ export function MobileApp() {
     return null
   }, [projects, activeWorkspaceId])
 
-  // The native top bar mirrors MobileTopBar: project › workspace + bell on
-  // list screens, a lone back button over an open conversation. The assistant
-  // has no project, so it gets no bar and draws its own header.
+  // List screens draw their own one-row header (MobileHeader: context left,
+  // actions + bell right), so the native bar is hidden there. It stays only as
+  // the lone back button over an open chat, and as the assistant's capsule.
   const hideTopBar = tab === "assistant"
+  // The list screen's header, as its MobileHeader describes it. The spec (with
+  // its callbacks) lives in a ref the bar's taps read; the key, which changes
+  // only when what the bar shows does, is what redraws the bar.
+  const nativeHeader = useMemo(() => hasNativeHeaderBar(), [])
+  const headerRef = useRef<{ owner: object; spec: MobileHeaderSpec } | null>(null)
+  const [headerKey, setHeaderKey] = useState<string | null>(null)
+  const publishHeader = useCallback((owner: object, spec: MobileHeaderSpec) => {
+    headerRef.current = { owner, spec }
+    setHeaderKey(JSON.stringify({
+      segments: spec.segments && { items: spec.segments.items, selected: spec.segments.selected },
+      menu: spec.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: spec.menu.nodes },
+      actions: spec.actions?.map((a) => [a.id, a.symbol, a.label]) ?? [],
+    }))
+  }, [])
+  const clearHeader = useCallback((owner: object) => {
+    if (headerRef.current?.owner !== owner) return
+    headerRef.current = null
+    setHeaderKey(null)
+  }, [])
   const inboxUnread = useInboxStore((s) => s.counts.total > 0)
   const topBarTitle = activeInfo?.project.name ?? "operon"
   const topBarSubtitle = activeInfo?.workspace.name
@@ -523,14 +556,27 @@ export function MobileApp() {
       ).catch(() => {})
       return
     }
+    const spec = nativeHeader && !immersive && headerKey != null ? headerRef.current?.spec ?? null : null
+    let header: NativeTopBarHeader | undefined
+    if (spec) {
+      header = {
+        leading: spec.segments
+          ? { kind: "segments", items: spec.segments.items.map((i) => ({ id: i.id, title: i.label })), selected: spec.segments.selected }
+          : { kind: "context", title: topBarTitle, subtitle: topBarSubtitle },
+        // A system pull-down, picked in place.
+        menu: spec.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: toNativeMenu(spec.menu.nodes) },
+        actions: spec.actions?.map((a) => ({ id: a.id, symbol: a.symbol, label: a.label })) ?? [],
+      }
+    }
     void NativeShell.setTopBar({
-      mode: hideTopBar ? "hidden" : immersive ? "back" : "context",
+      mode: immersive && tab === "chats" ? "back" : header ? "header" : "hidden",
       title: topBarTitle,
       subtitle: topBarSubtitle,
       unread: inboxUnread,
       interactive: overlayCount === 0,
+      header,
     }).catch(() => {})
-  }, [nativeTabBar, nativeAssistantBar, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount])
+  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, headerKey])
 
   // On iOS the top safe-area inset already includes the native navigation
   // bar, so list screens just pad by it; immersive screens carry their own
@@ -542,6 +588,38 @@ export function MobileApp() {
     (nativeTabBar && !immersive && !nativeTopBarTakesSpace()) || (!nativeTabBar && hideTopBar)
       ? "env(safe-area-inset-top)"
       : "0px"
+  // With no bar above it, a page's own top clears the status bar — except on
+  // Android, whose shell already keeps the web view below it (and below its
+  // header bar while that is up).
+  const headerInset = nativeTabBar && nativeTopBarTakesSpace() ? "0px" : "env(safe-area-inset-top)"
+
+  // iOS 26's tab bar is a glass capsule over the page: lists scroll under it.
+  // Android's is an opaque bar, and the page simply stops above it.
+  const tabBarFloats = nativeTabBar && !nativeTopBarTakesSpace() && tabBarVisible
+
+  const openInboxSheet = useCallback(() => {
+    void openNativeInbox().then((ok) => {
+      if (!ok) setNativeInboxOpen(true)
+    })
+  }, [openNativeInbox])
+  const headerShell: MobileHeaderShell = {
+    topInset: headerInset,
+    projectName: activeInfo?.project.name ?? null,
+    workspaceName: activeInfo?.workspace.name ?? null,
+    openContext: () => (nativeTabBar ? void openNativeContextSheet() : setSwitcherOpen(true)),
+    bell: (
+      <InboxButton
+        onNavigate={handleOpenNotification}
+        onOpenSheet={nativeTabBar ? openInboxSheet : undefined}
+        className="size-9 rounded-lg"
+      />
+    ),
+    native: nativeHeader,
+    barHeight: nativeTopBarHeight,
+    tabBarOverlay: tabBarFloats ? nativeTabBarHeight : 0,
+    publishHeader,
+    clearHeader,
+  }
 
   useEffect(() => {
     useTabsStore
@@ -569,22 +647,16 @@ export function MobileApp() {
           left: "1rem",
         }}
       />
-      {!immersive && !hideTopBar && !nativeTabBar && (
-        <MobileTopBar
-          projectName={activeInfo?.project.name ?? null}
-          workspaceName={activeInfo?.workspace.name ?? null}
-          onTapContext={() => setSwitcherOpen(true)}
-          right={<InboxButton onNavigate={handleOpenNotification} />}
-        />
-      )}
-
-      {/* The assistant's header floats over its thread, which scrolls up under
-          the status bar; it is handed the inset instead of being pushed down. */}
+      {/* Every screen draws its own top: list screens a MobileHeader, an open
+          conversation its own row, the assistant a header floating over its
+          thread (handed the inset rather than pushed down). */}
+      <MobileHeaderContext.Provider value={headerShell}>
       <main
         className="min-h-0 flex-1 overflow-hidden"
         style={{
-          paddingTop: tab !== "assistant" && topInset !== "0px" ? topInset : undefined,
-          paddingBottom: nativeTabBar && tabBarVisible ? `${nativeTabBarHeight}px` : undefined,
+          // Where the tab bar floats the list screens pad their own last row
+          // (useMobileContentBottom); the assistant keeps its composer above it.
+          paddingBottom: nativeTabBar && tabBarVisible && (!tabBarFloats || tab === "assistant") ? `${nativeTabBarHeight}px` : undefined,
         }}
       >
         {tab === "chats" && (
@@ -607,6 +679,9 @@ export function MobileApp() {
         {tab === "channel" && (
           <MobileChannelScreen
             keyboardOpen={keyboardOpen}
+            projectFilter={boardFilter}
+            onProjectFilterChange={setBoardFilter}
+            onImmersiveChange={setImmersive}
             openTaskId={deepLink?.taskId ?? null}
             onDeepLinkConsumed={() => setDeepLink(null)}
           />
@@ -614,6 +689,7 @@ export function MobileApp() {
         {tab === "changes" && <MobileReviewScreen worktreePath={activeInfo?.workspace.worktreePath ?? null} />}
         {tab === "more" && <MobileMoreScreen />}
       </main>
+      </MobileHeaderContext.Provider>
 
       {!nativeTabBar && tabBarVisible && <MobileTabBar active={tab} onChange={setTab} />}
 
@@ -627,5 +703,13 @@ export function MobileApp() {
       )}
       <InstallPrompt />
     </div>
+  )
+}
+
+function toNativeMenu(nodes: MobileMenuNode[]): NativeMenuNode[] {
+  return nodes.map((node) =>
+    node.kind === "item"
+      ? { kind: "item", id: node.id, title: node.label, selected: node.selected }
+      : { kind: "group", id: node.id, title: node.label, inline: node.inline ?? false, detail: node.detail, children: toNativeMenu(node.children) },
   )
 }

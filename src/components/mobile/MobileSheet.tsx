@@ -45,7 +45,7 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
             type="button"
             aria-label={intl.formatMessage({ id: "mobile.sheet.close", defaultMessage: "Close" })}
             onClick={onClose}
-            className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
+            className="absolute inset-0 bg-scrim backdrop-blur-[1px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

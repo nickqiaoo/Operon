@@ -50,7 +50,7 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
             <button
               type="button"
               onClick={() => setSelected(null)}
-              className="-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              className="-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-base text-muted-foreground hover:bg-row-hover hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
               <FormattedMessage id="mobile.files.title" defaultMessage="Files" />
@@ -70,7 +70,7 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-row-hover hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
           <FormattedMessage id="mobile.tab.more" defaultMessage="More" />
@@ -82,7 +82,7 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
           <button
             type="button"
             onClick={() => treeApiRef.current?.refresh()}
-            className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50"
+            className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover"
             aria-label={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
           >
             <RefreshCw className="size-4" />

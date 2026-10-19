@@ -57,7 +57,7 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                 <button
                   type="button"
                   onClick={() => pickProject(project.id, project.workspaces[0]?.id ?? null)}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-muted/40"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-row-hover"
                 >
                   <Layers className="size-4 shrink-0 text-muted-foreground/70" />
                   <span
@@ -79,7 +79,7 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                           type="button"
                           onClick={() => pickWorkspace(workspace.id, project.id)}
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-muted/40",
+                            "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-row-hover",
                             isActive && "bg-muted/40"
                           )}
                         >
