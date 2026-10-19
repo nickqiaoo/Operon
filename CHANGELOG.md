@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-10-19
+
+### Changed
+
+- The assistant, inbox, board and channels stay as you left them when you switch away and back.
+
+### Fixed
+
+- The plugin page no longer stalls on its first open of the day.
+- Quitting from the Dock no longer leaves Operon "running in the background".
+
 ## [1.4.5] - 2026-10-19
 
 ### Added
