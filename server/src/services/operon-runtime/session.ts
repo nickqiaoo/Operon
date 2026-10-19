@@ -502,9 +502,10 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   /**
    * Context-window breakdown for the chat's usage panel.
    *
-   * The engine snapshots this at every turn boundary from exactly the `{ system,
-   * tools, messages }` it is about to send, so the buckets sum to the real request
-   * rather than to a separate re-derivation. The numbers are ESTIMATES (the same
+   * The engine snapshots this from each step's `{ system, tools, messages }` as it
+   * is sent — after every `model.request` hook, so the MCP tools Code Mode hides are
+   * not counted — and the buckets sum to the real request rather than to a separate
+   * re-derivation. The numbers are ESTIMATES (the same
    * char/4 heuristic the compaction strategy runs on), not tokenizer output — fine
    * for "where are my tokens going", not for reconciling against billing.
    *

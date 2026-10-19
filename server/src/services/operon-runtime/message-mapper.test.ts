@@ -182,6 +182,20 @@ describe('OperonStreamMapper sub-agent correlation', () => {
   })
 })
 
+describe('OperonStreamMapper Code Mode nested calls', () => {
+  it('surfaces a program\'s nested call as a top-level part tagged with the program, not as a child', () => {
+    const mapper = new OperonStreamMapper()
+    mapper.map(toolCall('main', 'run-1', 'RunCode', { code: 'await tools.Bash({ command: "ls" })' }))
+    const parts = mapper.map(ev('main', {
+      type: 'tool.call.started', toolCallId: 'run-1:code:1', toolName: 'Bash', args: { command: 'ls' }, parentToolCallId: 'run-1',
+    }))
+    const call = parts.find((part) => part.type === 'tool-call') as { toolCallId: string; toolName: string; providerMetadata?: { operon?: Record<string, unknown> } } | undefined
+    expect(call).toMatchObject({ toolCallId: 'run-1:code:1', toolName: 'Bash', providerMetadata: { operon: { programToolCallId: 'run-1' } } })
+    // `parentToolCallId` would fold it into the program's row, where no card or approval renders.
+    expect(parentTag(call)).toBeUndefined()
+  })
+})
+
 describe('OperonStreamMapper goal mapping', () => {
   it('maps goal_updated to the runtime goal message-metadata the banner consumes', () => {
     const m = new OperonStreamMapper()

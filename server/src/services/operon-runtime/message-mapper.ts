@@ -241,7 +241,10 @@ export class OperonStreamMapper {
       case 'tool.call.started':
         // The authoritative tool-call signal (full args). Fires once per call, before its result —
         // and before the interrupt approval, so the approval card sees the real input, not `{}`.
-        this.emitToolCallOnce(push, event.toolCallId, event.toolName, event.args)
+        // A Code Mode program's nested call (`parentToolCallId` at the top level) is an ordinary
+        // part of its own, so its card and approval render as for a direct call; the tag only
+        // records which program made it (the OpenCode provider tags its nested calls the same way).
+        this.emitToolCallOnce(push, event.toolCallId, event.toolName, event.args, programTag(event.parentToolCallId))
         break
 
       case 'tool.progress': {
@@ -459,6 +462,11 @@ function applyWorkflowEvent(acc: WorkflowProgressAcc, ev: WorkflowEvent): void {
 function progressPart(toolCallId: string, toolName: string, acc: WorkflowProgressAcc, state: SubagentProgressOutput['state']): RuntimeStreamPart {
   const output: SubagentProgressOutput = { isSubagentProgress: true, agentName: acc.agentName, state, recentActivity: [...acc.activities.values()] }
   return { type: 'tool-result', toolCallId, toolName, input: undefined, output, dynamic: true } as RuntimeStreamPart
+}
+
+/** `providerMetadata` naming the Code Mode program a nested call belongs to, if any. */
+function programTag(programToolCallId: string | undefined): Record<string, unknown> | undefined {
+  return programToolCallId ? { [PROVIDER_KEY]: { programToolCallId } } : undefined
 }
 
 /** Join a tool result's text content. */

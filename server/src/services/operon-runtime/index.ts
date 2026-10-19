@@ -1,5 +1,6 @@
 import path from 'path'
 import { mkdir, stat } from 'fs/promises'
+import { codeMode } from 'operon-code-mode'
 import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
@@ -366,6 +367,14 @@ async function buildHarness(): Promise<Harness> {
         oauthService: mcpOAuthService,
       })
     },
+    // Code Mode in its default role (`hide: "catalog"`): the fallback for deferred tool loading.
+    // A model that can take tools mid-conversation (Claude on Anthropic Messages, see
+    // resolve-model.ts) keeps SearchTool and never sees RunCode. Every other model would
+    // otherwise get every MCP tool up front, which a few plugins are enough to blow its context
+    // with: those tools leave the request, RunCode declares a budgeted slice of them and the
+    // program finds the rest with `searchTools`. Built-in tools stay direct. Nested calls come
+    // out as ordinary tool parts (message-mapper) and render inside the program's card.
+    extensions: [codeMode()],
     // Operon ships its own workflow orchestration (the `OperonWorkflow` MCP tool):
     // it dispatches to ANY provider rather than the framework's own profiles,
     // runs in the background with SQLite-backed resume, and reports into the

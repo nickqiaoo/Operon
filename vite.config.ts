@@ -156,6 +156,8 @@ export default defineConfig({
                   // bundled; resolve at runtime via the symlinked dist instead.
                   'operon-agents',
                   'operon-agents-core',
+                  // Loads its QuickJS WebAssembly module from its own package directory.
+                  'operon-code-mode',
                 ]
                 return nativeModules.some(m => id === m || id.startsWith(m + '/'))
               },
