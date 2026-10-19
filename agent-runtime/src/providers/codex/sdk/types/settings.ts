@@ -120,7 +120,7 @@ export type McpServerConfigOrSdk = McpServerConfig | SdkMcpServer;
 export interface Session {
   readonly threadId: string;
   readonly turnId: string | null;
-  injectMessage(content: string | UserInput[]): Promise<void>;
+  injectMessage(content: string | UserInput[], options?: { clientUserMessageId?: string }): Promise<void>;
   interrupt(): Promise<void>;
   isActive(): boolean;
 }

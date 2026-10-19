@@ -6,8 +6,8 @@ import { getSessionManager, getProjectStorage } from './state.js'
 
 const DEFAULT_PROVIDER_ID = 'claude-code'
 
-export const createSteerUserMessage = (content: string, turnMessageId?: string): UIMessage => ({
-  id: randomUUID(),
+export const createSteerUserMessage = (content: string, turnMessageId?: string, id?: string): UIMessage => ({
+  id: id ?? randomUUID(),
   role: 'user',
   metadata: {
     steer: true,

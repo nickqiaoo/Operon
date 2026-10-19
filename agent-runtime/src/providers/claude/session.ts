@@ -16,6 +16,7 @@ import type {
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk'
 import { deleteSession, query } from '@anthropic-ai/claude-agent-sdk'
+import { randomUUID } from 'node:crypto'
 import type {
   AgentInput,
   AgentSession,
@@ -35,7 +36,7 @@ import type {
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
 import { toUserMessages } from '../../utils/agent-input.js'
-import { RuntimeInjectionUnavailableError } from '../../types.js'
+import { RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { buildClaudeRuntimeSettings } from './config.js'
 import type { RuntimeContext } from '../../context.js'
@@ -201,6 +202,13 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
 
   // Per-turn state — swapped on each stream() call
   private turn: TurnState | null = null
+  /**
+   * Messages added with `inject` that the CLI has not taken in yet, by the uuid
+   * they were sent with. `replay-user-messages` makes the CLI echo each one back
+   * (`isReplay`) at the moment it enters the conversation — that echo is where
+   * the message goes in the stream.
+   */
+  private pendingInjections = new Map<string, { id: string; text: string }>()
 
   private readonly pendingApprovals = new Map<string, PendingApproval>()
 
@@ -235,6 +243,8 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     if (this.activeQuery && !this.messageLoopDead) return
 
     this.inputQueue = new PersistentInputQueue()
+    // Whatever the last CLI process never took in died with it.
+    this.pendingInjections.clear()
     this.abortController = new AbortController()
 
     // A side chat branches off its parent exactly once: while it has no session
@@ -389,10 +399,13 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
         // The agent is replying without having been asked: Claude Code answers a
         // background agent that just finished. Open a turn for it so the reply is
         // not lost.
+        // An injected message the CLI only took in after the turn ended (nothing to
+        // break into, so it starts the next one) opens that turn too: it is the
+        // first thing in it.
         if (
           !this.turn &&
           this.backgroundListener &&
-          (message.type === 'assistant' || message.type === 'stream_event')
+          (message.type === 'assistant' || message.type === 'stream_event' || this.pendingInjectionOf(message))
         ) {
           this.openBackgroundTurn()
         }
@@ -418,6 +431,12 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
         }
 
         if (message.type === 'user') {
+          const injected = this.pendingInjectionOf(message)
+          if (injected) {
+            this.pendingInjections.delete(injected.uuid)
+            turn.builder.handleInjectedInput(injected.id, injected.text)
+            continue
+          }
           turn.builder.handleUserMessage(message)
           continue
         }
@@ -458,6 +477,13 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     } finally {
       this.messageLoopDead = true
     }
+  }
+
+  /** The `inject` call this message is the CLI's echo of, if any. */
+  private pendingInjectionOf(message: SDKMessage): { uuid: string; id: string; text: string } | undefined {
+    if (message.type !== 'user' || !('isReplay' in message) || !message.isReplay || !message.uuid) return undefined
+    const pending = this.pendingInjections.get(message.uuid)
+    return pending ? { uuid: message.uuid, ...pending } : undefined
   }
 
   onBackground(listener: (event: RuntimeBackgroundEvent) => void): () => void {
@@ -821,7 +847,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
   // Inject — enqueue a follow-up message into the current turn
   // -----------------------------------------------------------------------
 
-  async inject(content: string): Promise<void> {
+  async inject(content: string, options?: InjectOptions): Promise<void> {
     const activeQuery = this.activeQuery
     const inputQueue = this.inputQueue
     await this.mcpReadyPromise
@@ -836,8 +862,14 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
       throw new RuntimeInjectionUnavailableError('No active Claude Code session to inject into')
     }
     this.logger.info('Injecting follow-up into warm session')
+    const uuid = randomUUID()
+    if (options?.id) this.pendingInjections.set(uuid, { id: options.id, text: content })
     inputQueue.enqueue({
       type: 'user',
+      uuid,
+      // Taken in at the next point the agent stops to look (a tool result), or
+      // after the reply it is writing — never cutting that reply off ('now' would).
+      priority: 'next',
       message: { role: 'user', content: [{ type: 'text', text: content }] },
       parent_tool_use_id: null,
       session_id: this.sessionId ?? '',

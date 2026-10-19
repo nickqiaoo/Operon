@@ -501,7 +501,7 @@ export const api = {
     softPost<{ success: boolean; error?: string }>('/ai/cc/dynamic-set', payload),
   aiCompact: (payload: { chatId: number; modelId: string; providerId?: string; workspaceId?: number }) =>
     softPost<{ success: boolean; originalMessageCount?: number; newMessageCount?: number; error?: string }>('/ai/compact', payload),
-  aiInject: (payload: { chatId: number; content: string; turnMessageId?: string }) =>
+  aiInject: (payload: { chatId: number; content: string; turnMessageId?: string; messageId?: string }) =>
     softPost<{ success: boolean; error?: string; message?: UIMessage }>('/ai/inject', payload),
   aiSessionCleanup: (chatId: number) =>
     post<{ success: boolean }>('/ai/session/cleanup', { chatId }),

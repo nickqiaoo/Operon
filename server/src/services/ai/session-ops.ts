@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
 import type { UIMessage } from 'ai'
 import { getRuntime, getSessionManager, getChatStorage } from './state.js'
@@ -69,7 +70,12 @@ export async function injectIntoChat(
   chatId: number,
   content: string,
   turnMessageId?: string,
-  options?: { message?: UIMessage; expectedRequestId?: string },
+  options?: {
+    message?: UIMessage
+    expectedRequestId?: string
+    /** Id for the steer message, chosen by the client so it can match the reply's `data-injected-input` part to it. */
+    messageId?: string
+  },
 ): Promise<ChatInjectionResult> {
   const sessionManager = getSessionManager()
   const trimmed = content.trim()
@@ -99,9 +105,11 @@ export async function injectIntoChat(
 
   let accepted = false
   try {
-    await session.runtime.inject(trimmed)
+    // The reply marks where the agent took it in with a part carrying this id.
+    const steerId = options?.message?.id ?? options?.messageId ?? randomUUID()
+    await session.runtime.inject(trimmed, { id: steerId })
     accepted = true
-    const generated = createSteerUserMessage(trimmed, turnMessageId)
+    const generated = createSteerUserMessage(trimmed, turnMessageId, steerId)
     const steerMessage = options?.message
       ? { ...options.message, metadata: { ...options.message.metadata ?? {}, ...generated.metadata ?? {} } }
       : generated

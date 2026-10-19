@@ -82,15 +82,30 @@ describe('injectIntoChat', () => {
       delivery: 'accepted',
       message: steerMessage,
     });
-    expect(injectMessage).toHaveBeenCalledWith('Focus on edge cases');
+    expect(injectMessage).toHaveBeenCalledWith('Focus on edge cases', { id: expect.any(String) });
+    const [{ id: injectedId }] = injectMessage.mock.calls[0].slice(1) as [{ id: string }];
     expect(helpersMock.createSteerUserMessage).toHaveBeenCalledWith(
       'Focus on edge cases',
       'user-1',
+      injectedId,
     );
     expect(persistenceMock.persistInjectedUserMessageWithRetry).toHaveBeenCalledWith(
       7,
       steerMessage,
     );
+  });
+
+  it('uses the client-chosen id for both the injection and the steer message', async () => {
+    const injectMessage = vi.fn().mockResolvedValue(undefined);
+    stateMock.getSession.mockReturnValue({
+      activeRequest: { requestId: 'request-1' }, runtime: { inject: injectMessage },
+    });
+    helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-abc', role: 'user', parts: [] });
+    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: true });
+    const { injectIntoChat } = await loadSessionOps();
+    await injectIntoChat(7, 'result', undefined, { messageId: 'steer-abc' });
+    expect(injectMessage).toHaveBeenCalledWith('result', { id: 'steer-abc' });
+    expect(helpersMock.createSteerUserMessage).toHaveBeenCalledWith('result', undefined, 'steer-abc');
   });
 
   it('distinguishes accepted injection from a failed transcript save', async () => {

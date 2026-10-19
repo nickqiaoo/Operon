@@ -19,7 +19,7 @@ import type {
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
 import { toUserMessages } from '../../utils/agent-input.js'
-import { UserFacingRuntimeError, RuntimeInjectionUnavailableError } from '../../types.js'
+import { UserFacingRuntimeError, RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { acquireAppServerClient } from './sdk/client-registry.js'
@@ -822,6 +822,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
           onCommandApproval: effectiveSettings.onCommandApproval,
           onFileChangeApproval: effectiveSettings.onFileChangeApproval,
           onToolRequestUserInput: effectiveSettings.onToolRequestUserInput,
+          takeInjection: this.takeInjection,
         })
         this.activeRouter = router
         router.subscribe()
@@ -1124,6 +1125,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
         onCommandApproval: effectiveSettings.onCommandApproval,
         onFileChangeApproval: effectiveSettings.onFileChangeApproval,
         onToolRequestUserInput: effectiveSettings.onToolRequestUserInput,
+        takeInjection: this.takeInjection,
       })
       onRouter(router)
       router.subscribe()
@@ -1208,12 +1210,31 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     return this.threadId
   }
 
-  async inject(content: string): Promise<void> {
+  /**
+   * Messages added with `inject` whose `userMessage` item has not come back yet,
+   * by the `clientUserMessageId` they were sent with.
+   */
+  private pendingInjections = new Map<string, { id: string; text: string }>()
+
+  private readonly takeInjection = (clientId: string): { id: string; text: string } | undefined => {
+    const injected = this.pendingInjections.get(clientId)
+    this.pendingInjections.delete(clientId)
+    return injected
+  }
+
+  async inject(content: string, options?: InjectOptions): Promise<void> {
     if (!this.codexSession) {
       throw new RuntimeInjectionUnavailableError('[CodexRuntime] No active Codex session')
     }
     this.logger.info(`Injecting follow-up into thread ${this.threadId ?? 'unknown'}`)
-    await this.codexSession.injectMessage(content)
+    const clientUserMessageId = randomUUID()
+    if (options?.id) this.pendingInjections.set(clientUserMessageId, { id: options.id, text: content })
+    try {
+      await this.codexSession.injectMessage(content, { clientUserMessageId })
+    } catch (error) {
+      this.pendingInjections.delete(clientUserMessageId)
+      throw error
+    }
   }
 
   readonly goal: GoalControl = {

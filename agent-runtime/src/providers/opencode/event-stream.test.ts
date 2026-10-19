@@ -105,3 +105,24 @@ describe('opencode event stream child session routing', () => {
     })
   })
 })
+
+describe('opencode injected input', () => {
+  const assistant = (id: string, parentID: string): EventMessageUpdated => ({
+    type: 'message.updated',
+    properties: { info: { id, sessionID: 'main-session', role: 'assistant', parentID } },
+  })
+
+  it('marks the first step that answers an injected message, once', () => {
+    const pendingInjections = new Map([['msg_steer', { id: 'steer-1', text: 'Mention BANANA' }]])
+    const state = createStreamState({ pendingInjections })
+
+    // Steps answering the turn's own prompt say nothing about it.
+    expect(convertEventToStreamParts(assistant('msg_a1', 'msg_prompt'), state)).toEqual([])
+    const parts = convertEventToStreamParts(assistant('msg_a2', 'msg_steer'), state)
+    expect(parts).toContainEqual({ type: 'injected-input', id: 'steer-1', text: 'Mention BANANA' })
+    // Later steps of the same answer (and their updates) do not repeat it.
+    expect(convertEventToStreamParts(assistant('msg_a2', 'msg_steer'), state)).toEqual([])
+    expect(convertEventToStreamParts(assistant('msg_a3', 'msg_steer'), state)).toEqual([])
+    expect(pendingInjections.size).toBe(0)
+  })
+})

@@ -286,6 +286,11 @@ export interface SendOptions {
   signal?: AbortSignal
 }
 
+export interface InjectOptions {
+  /** Caller's id for the message, echoed back on its `injected-input` part. */
+  id?: string
+}
+
 export type RuntimeTextStreamPart = TextStreamPart<ToolSet>
 
 export interface RuntimeMessageMetadataPart {
@@ -293,7 +298,18 @@ export interface RuntimeMessageMetadataPart {
   metadata: Record<string, unknown>
 }
 
-export type RuntimeStreamPart = RuntimeTextStreamPart | RuntimeMessageMetadataPart
+/**
+ * A message added with `inject` reached the agent, at this point in the stream:
+ * whatever streamed before it, the agent wrote without having seen it. `id` is the
+ * one passed to `inject`. Providers that cannot tell when that happens never emit it.
+ */
+export interface RuntimeInjectedInputPart {
+  type: 'injected-input'
+  id: string
+  text: string
+}
+
+export type RuntimeStreamPart = RuntimeTextStreamPart | RuntimeMessageMetadataPart | RuntimeInjectedInputPart
 
 /** Settings a live session can be asked to change without being rebuilt. */
 export interface SessionPatch<Mode extends string = string, Effort extends string = string> {
@@ -417,8 +433,10 @@ export interface AgentSession<Native = unknown> {
   /**
    * Add a message to the turn that is running (`features.injection`). Throws
    * `RuntimeInjectionUnavailableError` when there is no turn to add it to.
+   * With an `id`, the stream marks where the agent took the message in with an
+   * `injected-input` part carrying that id (see `RuntimeInjectedInputPart`).
    */
-  inject?(text: string): Promise<void>
+  inject?(text: string, options?: InjectOptions): Promise<void>
   /**
    * Change model / permission mode / effort on a live session (`features.dynamicSwitch`).
    *

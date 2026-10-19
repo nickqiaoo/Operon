@@ -45,6 +45,11 @@ export interface NotificationRouterOptions {
   onCommandApproval?: CommandApprovalHandler
   onFileChangeApproval?: FileChangeApprovalHandler
   onToolRequestUserInput?: ToolRequestUserInputHandler
+  /**
+   * Claim the `inject` call a `userMessage` item came from, by the
+   * `clientUserMessageId` it was sent with. Returns undefined for anything else.
+   */
+  takeInjection?: (clientId: string) => { id: string; text: string } | undefined
 }
 
 interface SubAgentActivity {
@@ -147,6 +152,19 @@ export class NotificationRouter {
   private textItemIdsWithDelta = new Set<string>()
   private reasoningItemIdsWithDelta = new Set<string>()
   private emittedToolCallIds = new Set<string>()
+  /**
+   * Mid-turn messages Codex has recorded but the model has not read yet. Codex
+   * sends the `userMessage` item the moment it accepts the input — while a tool
+   * may still be running — and the model only sees it on its next request. So
+   * the marker waits for that: the next item the model starts, or the turn ending.
+   */
+  private acceptedInjections: { id: string; text: string }[] = []
+
+  private releaseAcceptedInjections(): void {
+    for (const injected of this.acceptedInjections.splice(0)) {
+      this.emitter.emitInjectedInput(injected.id, injected.text)
+    }
+  }
   private subAgentTracker = new Map<string, SubAgentTracking>()
   private threadToCollabCall = new Map<string, string>()
   private activeSubTurns = new Map<string, string>()
@@ -253,6 +271,8 @@ export class NotificationRouter {
       normalizeType(item.type) === 'plan'
     const isContextCompaction = (item: { type: string }): item is { type: 'contextCompaction'; id: string } =>
       item.type === 'contextCompaction'
+    const isUserMessage = (item: { type: string }): item is { type: string; id: string; clientId?: string | null } =>
+      normalizeType(item.type) === 'usermessage'
 
     const emitPlanApprovalIfNeeded = () => {
       if (this.planApprovalEmitted || !this.planTextBuffer) return
@@ -315,6 +335,13 @@ export class NotificationRouter {
           this.emitter.emitContextCompactionStarted(payload.item.id)
           return
         }
+        // A message added mid-turn: held until the model's next step (see `acceptedInjections`).
+        if (isUserMessage(payload.item)) {
+          const injected = payload.item.clientId ? this.options.takeInjection?.(payload.item.clientId) : undefined
+          if (injected) this.acceptedInjections.push(injected)
+          return
+        }
+        this.releaseAcceptedInjections()
         if (!isToolItem(payload.item)) return
 
         const item = payload.item as ToolItem
@@ -556,6 +583,7 @@ export class NotificationRouter {
           return
         }
         if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turn.id, turnId)) return
+        this.releaseAcceptedInjections()
         for (const [collabCallId, tracking] of this.subAgentTracker) {
           if (tracking.activities.length === 0) continue
           for (const activity of tracking.activities) {

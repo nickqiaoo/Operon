@@ -793,6 +793,12 @@ export class ClaudeTextStreamBuilder {
     }
   }
 
+  /** A message added mid-turn reached the agent here (the CLI replayed it back). */
+  handleInjectedInput(id: string, text: string): void {
+    this.closeTextPart()
+    this.emitRuntimePart({ type: 'injected-input', id, text })
+  }
+
   handleUserMessage(message: SDKUserMessage): void {
     const content = message.message?.content
     if (!content) return

@@ -314,6 +314,13 @@ export class CodexTextStreamEmitter {
     this.textId = randomUUID()
   }
 
+  /** A message added mid-turn entered the thread here. */
+  emitInjectedInput(id: string, text: string): void {
+    this.flushText()
+    this.flushReasoning()
+    this.enqueue({ type: 'injected-input', id, text })
+  }
+
   flushReasoning(): void {
     if (!this.reasoningStarted) return
     this.enqueue({ type: 'reasoning-end', id: this.reasoningId })

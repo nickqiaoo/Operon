@@ -141,6 +141,7 @@ describe('OpenCode MCP session control', () => {
     expect(promptAsync).toHaveBeenCalledWith({
       sessionID: 'session-1',
       directory: '/workspace',
+      messageID: expect.stringMatching(/^msg_/),
       parts: [{ type: 'text', text: 'continue' }],
     })
   })

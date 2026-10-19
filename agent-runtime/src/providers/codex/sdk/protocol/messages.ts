@@ -224,6 +224,8 @@ export type ProtocolUserInput = UserInputText | UserInputImage | UserInputLocalI
 export interface TurnStartParams {
   threadId: string;
   input: ProtocolUserInput[];
+  /** Echoed back as `clientId` on this input's `userMessage` item. */
+  clientUserMessageId?: string;
   cwd?: string;
   approvalPolicy?: ProtocolApprovalPolicy;
   approvalsReviewer?: ProtocolApprovalsReviewer;
@@ -270,6 +272,8 @@ export interface Turn {
 export interface UserMessage {
   type: 'userMessage' | 'UserMessage';
   id: string;
+  /** The `clientUserMessageId` the input was sent with. */
+  clientId?: string | null;
   content: Array<
     | { type: 'text'; text: string }
     | { type: 'image'; imageUrl: string }

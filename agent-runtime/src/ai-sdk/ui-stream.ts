@@ -5,7 +5,12 @@ import {
   type UIMessageChunk,
   type UIMessageStreamWriter,
 } from 'ai'
-import { isUserFacingRuntimeError, type RuntimeStreamPart, type RuntimeTextStreamPart } from '../types.js'
+import {
+  isUserFacingRuntimeError,
+  type RuntimeInjectedInputPart,
+  type RuntimeStreamPart,
+  type RuntimeTextStreamPart,
+} from '../types.js'
 import { normalizeToolInput } from './normalize-tool-input.js'
 
 /**
@@ -26,6 +31,24 @@ export function writeMessageMetadata<UI_MESSAGE extends UIMessage>(
     type: 'message-metadata',
     messageMetadata: metadata as never,
   })
+}
+
+/** UI part name for `RuntimeInjectedInputPart`: `{ type: 'data-injected-input', data: { id, text } }`. */
+export const INJECTED_INPUT_PART = 'data-injected-input'
+
+export interface InjectedInputData {
+  id: string
+  text: string
+}
+
+/**
+ * Put an injected message into the assistant message at the point the agent took
+ * it in. It is a data part, so it stays where it was written in `parts` — between
+ * whatever the agent said before reading it and what it said after.
+ */
+export function writeInjectedInput(writer: UIMessageStreamWriter, part: RuntimeInjectedInputPart): void {
+  const data: InjectedInputData = { id: part.id, text: part.text }
+  writer.write({ type: INJECTED_INPUT_PART, id: part.id, data })
 }
 
 export function writeTextStreamPart<UI_MESSAGE extends UIMessage>(
@@ -256,6 +279,8 @@ export function toUIMessageStream<UI_MESSAGE extends UIMessage = UIMessage>(
       for await (const part of parts) {
         if (part.type === 'message-metadata') {
           writeMessageMetadata(writer, part.metadata)
+        } else if (part.type === 'injected-input') {
+          writeInjectedInput(writer, part)
         } else if (part.type === 'error') {
           writer.write({ type: 'error', errorText: onError(part.error) })
         } else {

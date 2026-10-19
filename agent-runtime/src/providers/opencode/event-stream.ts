@@ -207,6 +207,8 @@ export interface Message {
   id: string
   sessionID: string
   role: 'user' | 'assistant'
+  /** Assistant messages: the user message this step answers. */
+  parentID?: string
   error?: { name: string; data?: unknown }
   finish?: string
   cost?: number
@@ -244,12 +246,19 @@ export interface StreamState {
   messageUsage: StreamingUsage | undefined
   childSessions: Map<string, string>
   pendingTaskCallIds: string[]
+  /**
+   * Messages added with `inject` that no step has answered yet, by their OpenCode
+   * message id. The first assistant message whose `parentID` is one of them is
+   * where the agent took it in.
+   */
+  pendingInjections: Map<string, { id: string; text: string }>
 }
 
 export function createStreamState(params?: {
   initialStepRequest?: StartStepRequest
   initialStepWarnings?: StartStepWarning[]
   modelId?: string
+  pendingInjections?: Map<string, { id: string; text: string }>
 }): StreamState {
   return {
     stepStarted: false,
@@ -281,6 +290,7 @@ export function createStreamState(params?: {
     messageUsage: undefined,
     childSessions: new Map(),
     pendingTaskCallIds: [],
+    pendingInjections: params?.pendingInjections ?? new Map(),
   }
 }
 
@@ -468,6 +478,12 @@ export function convertEventToStreamParts(
       const messageEvent = event as EventMessageUpdated
       const info = messageEvent.properties.info
       state.messageRoles.set(info.id, info.role)
+      // The first step that answers an injected message is where the agent took it in.
+      const injected = info.role === 'assistant' && info.parentID ? state.pendingInjections.get(info.parentID) : undefined
+      if (injected && info.parentID) {
+        state.pendingInjections.delete(info.parentID)
+        parts.push(...closeOpenContent(state), { type: 'injected-input', id: injected.id, text: injected.text })
+      }
       if (info.role === 'assistant' && info.tokens) {
         const input = info.tokens.input ?? 0
         const output = info.tokens.output ?? 0

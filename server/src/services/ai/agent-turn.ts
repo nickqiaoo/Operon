@@ -25,7 +25,7 @@ import type { AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-
 import type { PreparedTextStreamPart } from './prepared-stream-parts.js'
 import { buildStreamMessageMetadata } from '@operon/agent-runtime'
 import { toUiMessageMetadata, type UiMessageMetadata } from './ui-metadata.js'
-import { writeMessageMetadata, writeTextStreamPart } from '@operon/agent-runtime/ai-sdk'
+import { writeInjectedInput, writeMessageMetadata, writeTextStreamPart } from '@operon/agent-runtime/ai-sdk'
 import { getSessionIdFromProviderMetadata } from '@operon/agent-runtime'
 import { createTrafficRecorder } from '@operon/agent-runtime'
 import { readStreamAsAsyncIterable } from '@operon/agent-runtime'
@@ -73,6 +73,7 @@ const prepareTextStreamPart = ({
     state.hasExplicitMetadata = true
     return { metadata: toUiMessageMetadata(part.metadata) }
   }
+  if (part.type === 'injected-input') return { injectedInput: part }
   if (part.type === 'finish-step' && !state.hasExplicitMetadata) {
     return {
       part,
@@ -95,6 +96,10 @@ export const writePreparedPartToUiStream = (
 ): void => {
   if (preparedPart.part) {
     writeTextStreamPart(writer, preparedPart.part, assistantMessageId, () => preparedPart.metadata)
+    return
+  }
+  if (preparedPart.injectedInput) {
+    writeInjectedInput(writer, preparedPart.injectedInput)
     return
   }
   if (preparedPart.metadata) {

@@ -22,6 +22,7 @@ import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
 import { WorkflowResultMessage, isWorkflowResultMessage } from './WorkflowResultMessage';
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
+import { getInjectedInput } from './steer-message';
 import {
   ExternalAgentToolRenderer,
   extractExternalAgentTaskId,
@@ -85,7 +86,7 @@ function CopyButton({ text, onCopy }: { text: string; onCopy: (text: string) => 
 
   return (
     <MessageAction onClick={handleClick} label={intl.formatMessage({ id: 'common.copy', defaultMessage: 'Copy' })}>
-      {copied ? <CheckIcon className="size-3 text-green-500" /> : <CopyIcon className="size-3" />}
+      {copied ? <CheckIcon className="size-3 text-status-ok" /> : <CopyIcon className="size-3" />}
     </MessageAction>
   );
 }
@@ -442,6 +443,19 @@ export function MessagePartRenderer({
     );
   }
 
+  // A follow-up the user sent mid-turn, at the point the agent read it: what
+  // the reply says above it was written without it, what follows takes it in.
+  const injected = getInjectedInput(part);
+  if (injected) {
+    return (
+      <Message key={`${message.id}-${partIndex}`} from="user" data-testid="injected-steer">
+        <MessageContent>
+          <UserMessageText text={injected.text} />
+        </MessageContent>
+      </Message>
+    );
+  }
+
   // Handle text
   if (part.type !== 'text') return null;
   const displayText = part.text || '';
@@ -451,7 +465,7 @@ export function MessagePartRenderer({
   if (message.role === 'user' && displayText.includes('<task-notification>')) {
     return (
       <div key={`${message.id}-${partIndex}`} className="flex items-center gap-1.5 text-xs text-muted-foreground py-1">
-        <CheckCircle2Icon className="size-3.5 text-green-600 dark:text-green-400" />
+        <CheckCircle2Icon className="size-3.5 text-status-ok" />
         <span><FormattedMessage id="editor.msg.bgAgentCompleted" defaultMessage="Background agent completed" /></span>
       </div>
     );

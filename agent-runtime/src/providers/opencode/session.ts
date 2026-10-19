@@ -2,6 +2,7 @@ import type { RuntimeContext } from '../../context.js'
 import type {
   AgentInput,
   AgentSession,
+  InjectOptions,
   McpControl,
   McpServerInfo,
   PermissionDecision,
@@ -16,6 +17,7 @@ import type { ModelMessage } from 'ai'
 import { toUserMessages } from '../../utils/agent-input.js'
 import { bindOpencodeCaller, unbindOpencodeCaller } from './caller-identity.js'
 import { OpencodeClientManager } from './client-manager.js'
+import { createAscendingMessageId } from './message-id.js'
 import { extractErrorMessage, isAbortError } from './errors.js'
 import {
   convertChildEventToStreamParts,
@@ -314,6 +316,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       initialStepRequest: { body: requestBody },
       initialStepWarnings: warnings.map((message) => ({ type: 'other', message })),
       modelId: this.currentModelId,
+      pendingInjections: this.pendingInjections,
     })
     let lastMessageInfo: Message | undefined
     const messageErrorEmitted = new Set<string>()
@@ -581,16 +584,31 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     return this.sessionId
   }
 
-  async inject(content: string): Promise<void> {
+  /**
+   * Messages added with `inject` that no step has answered yet, by the OpenCode
+   * message id they were sent with (see `StreamState.pendingInjections`).
+   */
+  private readonly pendingInjections = new Map<string, { id: string; text: string }>()
+
+  async inject(content: string, options?: InjectOptions): Promise<void> {
     await this.mcpReadyPromise
     const sessionId = await this.getOrCreateSession()
     const client = await this.clientManager.getClient()
     this.logger.info(`Injecting follow-up into session ${sessionId}`)
-    await client.session.promptAsync({
-      sessionID: sessionId,
-      directory: this.settings.cwd,
-      parts: [{ type: 'text', text: content }],
-    })
+    // Our own id, so the step that answers it (its `parentID`) can be recognised.
+    const messageID = createAscendingMessageId()
+    if (options?.id) this.pendingInjections.set(messageID, { id: options.id, text: content })
+    try {
+      await client.session.promptAsync({
+        sessionID: sessionId,
+        directory: this.settings.cwd,
+        messageID,
+        parts: [{ type: 'text', text: content }],
+      })
+    } catch (error) {
+      this.pendingInjections.delete(messageID)
+      throw error
+    }
   }
 
   readonly native: OpencodeSessionNative = {

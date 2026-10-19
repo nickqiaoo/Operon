@@ -375,16 +375,21 @@ export function aiRoutes(storage: SddStorage) {
 
   // POST /api/ai/inject
   router.post('/inject', async (c) => {
-    const { chatId, content, turnMessageId } = await c.req.json<{
+    const { chatId, content, turnMessageId, messageId } = await c.req.json<{
       chatId: number
       content: string
       turnMessageId?: string
+      messageId?: string
     }>()
     const normalizedTurnMessageId =
       typeof turnMessageId === 'string' && turnMessageId.length > 0
         ? turnMessageId
         : undefined
-    const result = await aiService.injectIntoChat(chatId, content, normalizedTurnMessageId)
+    const normalizedMessageId =
+      typeof messageId === 'string' && /^[\w-]{1,128}$/.test(messageId) ? messageId : undefined
+    const result = await aiService.injectIntoChat(chatId, content, normalizedTurnMessageId, {
+      messageId: normalizedMessageId,
+    })
     return c.json(result, result.success ? 200 : 400)
   })
 

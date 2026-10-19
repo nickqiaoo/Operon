@@ -82,6 +82,8 @@ import { ChatInputArea } from './components/ChatInputArea';
 import { SteerTray } from './components/SteerTray';
 import {
   findLatestTurnMessageId,
+  getInjectedInput,
+  isSteerUserMessage,
   type LiveSteerItem,
 } from './components/steer-message';
 import { GoalBanner } from './components/GoalBanner';
@@ -820,6 +822,7 @@ function ChatPanelContent({
         chatId: currentChatId,
         content: item.text,
         turnMessageId: item.turnMessageId,
+        messageId: item.messageId,
       });
       if (!result.success) {
         throw new Error(result.error ?? 'Failed to steer');
@@ -849,6 +852,9 @@ function ChatPanelContent({
 
     const item: LiveSteerItem = {
       localId: `live-steer-${crypto.randomUUID()}`,
+      // Chosen here rather than by the server, so the reply's marker for where
+      // the agent read it can be matched to this item even before /inject answers.
+      messageId: crypto.randomUUID(),
       text: trimmed,
       turnMessageId: findLatestTurnMessageId(messagesRef.current),
       status: 'sending',
@@ -863,7 +869,8 @@ function ChatPanelContent({
     const item = liveSteers.find((entry) => entry.localId === localId);
     if (!item || item.status !== 'failed') return;
 
-    const retryItem = { ...item, status: 'sending' as const };
+    // A fresh id: the failed attempt may still have been saved under the old one.
+    const retryItem = { ...item, messageId: crypto.randomUUID(), status: 'sending' as const };
     setLiveSteers((current) =>
       current.map((entry) => (entry.localId === localId ? retryItem : entry)),
     );
@@ -873,6 +880,30 @@ function ChatPanelContent({
   const handleDismissSteer = useCallback((localId: string) => {
     setLiveSteers((current) => current.filter((item) => item.localId !== localId));
   }, []);
+
+  // The moment the agent reads a follow-up, the reply shows it in place
+  // (`data-injected-input`), so it leaves the tray. Only this turn can hold one:
+  // scan back to the user message that started it.
+  const readSteerIds = useMemo(() => {
+    const ids: string[] = [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === 'user' && !isSteerUserMessage(message)) break;
+      for (const part of message.parts) {
+        const injected = getInjectedInput(part);
+        if (injected) ids.push(injected.id);
+      }
+    }
+    return ids.join('\n');
+  }, [messages]);
+  useEffect(() => {
+    if (!readSteerIds) return;
+    const read = new Set(readSteerIds.split('\n'));
+    setLiveSteers((current) => {
+      const next = current.filter((item) => !item.messageId || !read.has(item.messageId));
+      return next.length === current.length ? current : next;
+    });
+  }, [readSteerIds]);
 
   const handleLoadMoreHistory = useCallback(() => {
     chatLoadMore(messages);

@@ -67,8 +67,9 @@ export class SessionImpl implements ISession {
    * If no turn is active, a new turn is started with this message.
    *
    * @param content - String message or array of UserInput objects
+   * @param options.clientUserMessageId - Echoed back as `clientId` on the input's `userMessage` item
    */
-  async injectMessage(content: string | UserInput[]): Promise<void> {
+  async injectMessage(content: string | UserInput[], options?: { clientUserMessageId?: string }): Promise<void> {
     const inputs: UserInput[] =
       typeof content === 'string' ? [{ type: 'text', text: content }] : content;
 
@@ -78,6 +79,7 @@ export class SessionImpl implements ISession {
     const result = await this.client.startTurn({
       threadId: this.threadId,
       input: protocolInputs,
+      ...(options?.clientUserMessageId ? { clientUserMessageId: options.clientUserMessageId } : {}),
     });
 
     // Update turn state if we got a new turn
