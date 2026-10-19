@@ -2057,5 +2057,12 @@
   "workspaceBrowser.clearFilter": "清除筛选",
   "workspaceBrowser.searchingFiles": "正在搜索文件…",
   "workspaceBrowser.noMatchingFiles": "没有匹配的文件",
-  "workspaceBrowser.searchFailed": "搜索文件失败"
+  "workspaceBrowser.searchFailed": "搜索文件失败",
+  "editor.codeProgram.untitled": "运行程序",
+  "editor.codeProgram.badge": "程序",
+  "editor.codeProgram.calls": "{count, plural, other {# 次调用}}",
+  "editor.codeProgram.needsApproval": "需要批准",
+  "editor.codeProgram.viewCode": "查看代码",
+  "editor.codeProgram.hideCode": "收起代码",
+  "editor.codeProgram.lines": "（{count, plural, other {# 行}}）"
 }

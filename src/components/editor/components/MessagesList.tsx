@@ -18,6 +18,8 @@ import {
   type ExternalAgentResultMetadata,
 } from './ExternalAgentRenderer';
 import { getParentToolCallId, getToolCallId, isToolPart } from './toolParentUtils';
+import { isCodeProgramTool, programToolCallIdOf } from './codeProgram';
+import type { ToolPartLike } from './toolName';
 import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
@@ -223,11 +225,21 @@ const MessageItem = memo(function MessageItem({
   const childPartsMap = new Map<string, number[]>();
   const childIndices = new Set<number>();
 
+  // Code Mode programs in this message: the calls they made render inside their card.
+  const programIds = new Set(
+    sortedParts
+      .filter((part) => isToolPart(part) && isCodeProgramTool(part as ToolPartLike))
+      .map((part) => getToolCallId(part))
+      .filter((id): id is string => id !== null),
+  );
+
   for (let index = 0; index < sortedParts.length; index += 1) {
     const part = sortedParts[index];
     if (!isToolPart(part)) continue;
 
-    const parentId = getParentToolCallId(part);
+    // A program's call stays top-level unless its program is here to hold it.
+    const programId = programToolCallIdOf(part);
+    const parentId = getParentToolCallId(part) ?? (programId && programIds.has(programId) ? programId : null);
     if (!parentId) continue;
 
     const existing = childPartsMap.get(parentId);

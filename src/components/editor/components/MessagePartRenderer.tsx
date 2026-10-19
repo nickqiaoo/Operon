@@ -36,6 +36,8 @@ import { getSubagentProgress, convertSubagentToChildParts, mapSubagentState } fr
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
 import { ScheduleTaskRenderer, isScheduleTaskResult } from './ScheduleTaskRenderer';
+import { CodeProgramRenderer } from './CodeProgramRenderer';
+import { isCodeProgramTool } from './codeProgram';
 import { UserMessageText } from './UserMessageText';
 import { PeerMessage } from './PeerMessage';
 import { extractPeerMessage } from '../utils/chatMetadata';
@@ -151,25 +153,26 @@ interface MessagePartRendererProps {
   onRewindToHere?: () => void;
 }
 
-export function MessagePartRenderer({
-  message,
-  part,
-  partIndex,
-  isStreamingMessage,
-  onPermissionDecide,
-  onCopy,
-  onSendTo,
-  availableModels,
-  onSendToOpen,
-  getMessageText,
-  firstAttachmentIndex,
-  attachmentParts,
-  lastTextPartIndex,
-  SendToButton,
-  childParts,
-  externalAgentNotificationsByTaskId,
-  onRewindToHere,
-}: MessagePartRendererProps) {
+export function MessagePartRenderer(props: MessagePartRendererProps) {
+  const {
+    message,
+    part,
+    partIndex,
+    isStreamingMessage,
+    onPermissionDecide,
+    onCopy,
+    onSendTo,
+    availableModels,
+    onSendToOpen,
+    getMessageText,
+    firstAttachmentIndex,
+    attachmentParts,
+    lastTextPartIndex,
+    SendToButton,
+    childParts,
+    externalAgentNotificationsByTaskId,
+    onRewindToHere,
+  } = props;
   const intl = useIntl();
   // Handle tool invocations
   if (part.type === 'dynamic-tool' || (part.type as string).startsWith('tool-')) {
@@ -331,6 +334,25 @@ export function MessagePartRenderer({
           messageId={message.id}
           partIndex={partIndex}
           onPermissionDecide={onPermissionDecide}
+        />
+      );
+    }
+
+    // A Code Mode program holds the calls it made; each renders as it would on its own
+    // (cards, approvals), through this same renderer.
+    if (isCodeProgramTool(toolPart)) {
+      return (
+        <CodeProgramRenderer
+          toolPart={toolPart}
+          childParts={(childParts ?? []) as Array<MessagePart & ToolPartLike>}
+          renderChild={(child) => (
+            <MessagePartRenderer
+              {...props}
+              part={child}
+              partIndex={message.parts.indexOf(child)}
+              childParts={undefined}
+            />
+          )}
         />
       );
     }

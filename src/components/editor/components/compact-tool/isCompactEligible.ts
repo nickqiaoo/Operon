@@ -6,6 +6,7 @@ import { getSubagentProgress } from '../gemini-subagent-utils';
 import { getToolDisplayName, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
 import { isWorkflowToolName } from '../workflowToolName';
+import { isCodeProgramTool } from '../codeProgram';
 
 const EXIT_PLAN_NAMES = new Set([
   'ExitPlanMode',
@@ -27,6 +28,8 @@ const EXIT_PLAN_NAMES = new Set([
  * - AskUserQuestion when awaiting approval (needs interactive question UI)
  * - Any tool surfacing live sub-agent progress (Workflow fan-out, Gemini subagents) →
  *   SubAgentRenderer; the generic compact row would just dump the progress JSON.
+ * - A Code Mode program (RunCode / OpenCode `execute`) → CodeProgramRenderer, which holds
+ *   the calls it made; folded into a group, those calls would have nowhere to render.
  */
 const hasToolResult = (part: ToolPartLike) => {
   const record = part as { output?: unknown; result?: unknown };
@@ -37,6 +40,7 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   const toolName = getToolDisplayName(part);
   if (EXIT_PLAN_NAMES.has(toolName)) return false;
   if (toolName === 'Agent') return false;
+  if (isCodeProgramTool(part)) return false;
   if (isWorkflowToolName(toolName)) return false;
   if (getSubagentProgress(part as ToolPartLike & { result?: unknown; output?: unknown })) return false;
   // AskUserQuestion needs interactive UI when awaiting approval
