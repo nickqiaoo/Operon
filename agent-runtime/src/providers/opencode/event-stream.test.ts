@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   convertChildEventToStreamParts,
   convertEventToStreamParts,
+  createFinishParts,
   createStreamState,
   tryRegisterChildFromSessionEvent,
   type EventMessagePartUpdated,
@@ -103,6 +104,62 @@ describe('opencode event stream child session routing', () => {
     expect(toolResult && 'providerMetadata' in toolResult ? toolResult.providerMetadata : undefined).toEqual({
       opencode: { parentToolCallId: 'parent-call-1' },
     })
+  })
+})
+
+describe('OpenCode internal message filtering', () => {
+  const message = (id: string, extra: Partial<EventMessageUpdated['properties']['info']> = {}): EventMessageUpdated => ({
+    type: 'message.updated',
+    properties: { info: { id, sessionID: 'session-1', role: 'assistant', ...extra } },
+  })
+  const text = (messageID: string, extra: Record<string, unknown> = {}): EventMessagePartUpdated => ({
+    type: 'message.part.updated',
+    properties: { part: { id: `${messageID}-text`, messageID, sessionID: 'session-1', type: 'text', text: '', ...extra } },
+  })
+  const delta = (messageID: string) => ({
+    type: 'message.part.delta',
+    properties: { sessionID: 'session-1', messageID, partID: `${messageID}-text`, field: 'text', delta: 'Hidden content' },
+  })
+
+  it.each([{ summary: true }, { agent: 'compaction' }, { mode: 'compaction' }])(
+    'hides compaction text, reasoning, step events and usage: %j',
+    (internal) => {
+      const state = createStreamState()
+      convertEventToStreamParts(message('answer', { tokens: { input: 100, output: 10 } }), state)
+      convertEventToStreamParts(text('answer', { text: 'Hello!' }), state)
+      convertEventToStreamParts(message('checkpoint', { ...internal, tokens: { input: 900, output: 300 } }), state)
+      expect(convertEventToStreamParts(text('checkpoint', { text: '## Objective' }), state)).toEqual([])
+      expect(convertEventToStreamParts(delta('checkpoint'), state)).toEqual([])
+      for (const type of ['reasoning', 'step-start', 'step-finish']) {
+        expect(convertEventToStreamParts(text('checkpoint', { type }), state)).toEqual([])
+      }
+      expect(state.messageUsage?.inputTokens).toBe(100)
+      expect(convertEventToStreamParts(text('answer', { text: 'Hello! Again.' }), state)).toContainEqual({
+        type: 'text-delta', id: 'answer-text', text: ' Again.',
+      })
+    },
+  )
+
+  it.each([{ role: 'user' as const }, { synthetic: true }, { ignored: true }])(
+    'also filters hidden text from the delta path: %j',
+    (hidden) => {
+      const state = createStreamState()
+      convertEventToStreamParts(message('hidden', 'role' in hidden ? hidden : {}), state)
+      expect(convertEventToStreamParts(text('hidden', hidden), state)).toEqual([])
+      expect(convertEventToStreamParts(delta('hidden'), state)).toEqual([])
+      expect(state.textStarted).toBe(false)
+    },
+  )
+
+  it('reports compaction after the last visible step has closed', () => {
+    const state = createStreamState()
+    convertEventToStreamParts({ type: 'session.compacted', properties: { sessionID: 'session-1' } }, state)
+    const parts = createFinishParts(state, { unified: 'stop', raw: 'stop' }, 'session-1', 'model')
+    expect(parts).toContainEqual(expect.objectContaining({
+      type: 'message-metadata',
+      metadata: expect.objectContaining({ compacted: { compacted: true } }),
+    }))
+    expect(parts.some((part) => part.type === 'text-start' || part.type === 'finish-step')).toBe(false)
   })
 })
 

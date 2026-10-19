@@ -27,6 +27,7 @@ import {
   getEventSessionId,
   isEventForSession,
   isSessionComplete,
+  isOpencodeInternalMessage,
   mapOpencodeFinishReason,
   tryRegisterChildFromSessionEvent,
   type Message,
@@ -380,8 +381,10 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
         if (rawEvent.type === 'message.updated') {
           const messageEvent = rawEvent as Extract<OpencodeEvent, { type: 'message.updated' }>
           const info = messageEvent.properties.info
-          if (info.role === 'assistant') {
-            lastMessageInfo = info
+          if (!parentCallId && info.role === 'assistant') {
+            // Successful checkpoints must not replace the visible reply's finish
+            // reason. Failures still need to reach the user.
+            if (!isOpencodeInternalMessage(info) || info.error) lastMessageInfo = info
             if (info.error && !messageErrorEmitted.has(info.id)) {
               messageErrorEmitted.add(info.id)
               const errorData = info.error.data as { message?: string } | undefined

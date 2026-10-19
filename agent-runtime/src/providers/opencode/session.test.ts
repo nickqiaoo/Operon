@@ -2,8 +2,74 @@ import { describe, expect, it, vi } from 'vitest'
 import type { McpStatus } from '@opencode-ai/sdk/v2'
 import { OpencodeRuntimeSession } from './session.js'
 import { createRuntimeContext } from '../../context.js'
+import type { RuntimeStreamPart } from '../../types.js'
+import type { Message, OpencodeEvent } from './event-stream.js'
 
 const ctx = createRuntimeContext()
+
+describe('OpenCode compaction message routing', () => {
+  const message = (id: string, extra: Partial<Message> = {}): OpencodeEvent => ({
+    type: 'message.updated',
+    properties: { info: { id, sessionID: 'session-1', role: 'assistant', ...extra } },
+  })
+  const part = (messageID: string, type: string, extra: Record<string, unknown> = {}): OpencodeEvent => ({
+    type: 'message.part.updated',
+    properties: { part: { id: `${messageID}-${type}`, messageID, sessionID: 'session-1', type, ...extra } },
+  })
+
+  async function stream(events: OpencodeEvent[]): Promise<RuntimeStreamPart[]> {
+    const session = new OpencodeRuntimeSession({ cwd: '/workspace', resume: 'session-1' }, ctx)
+    Object.assign(session, {
+      mcpRegistered: true,
+      clientManager: {
+        getClient: async () => ({
+          event: { subscribe: async () => ({ stream: (async function* () { yield* events })() }) },
+          session: { prompt: async () => ({}) },
+        }),
+      },
+    })
+    const parts: RuntimeStreamPart[] = []
+    for await (const entry of session.send('hello')) parts.push(entry)
+    return parts
+  }
+
+  it('keeps the reply and its usage while hiding an automatic checkpoint', async () => {
+    const tokens = { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } }
+    const parts = await stream([
+      message('answer', { finish: 'stop', tokens }),
+      part('answer', 'text', { text: 'Hello!' }),
+      part('answer', 'step-finish', { reason: 'stop', cost: 0, tokens }),
+      message('checkpoint', { summary: true, agent: 'compaction', finish: 'length', tokens: { input: 900 } }),
+      part('checkpoint', 'step-start'),
+      part('checkpoint', 'reasoning', { text: 'Summarizing the greeting' }),
+      part('checkpoint', 'text', { text: '## Objective\n- No task yet' }),
+      { type: 'session.compacted', properties: { sessionID: 'session-1' } },
+      { type: 'session.idle', properties: { sessionID: 'session-1' } },
+    ])
+    expect(parts.filter((entry) => entry.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'answer-text', text: 'Hello!' },
+    ])
+    expect(parts.some((entry) => entry.type.startsWith('reasoning-'))).toBe(false)
+    expect(parts.filter((entry) => entry.type === 'start-step')).toHaveLength(1)
+    expect(parts).toContainEqual(expect.objectContaining({
+      type: 'finish', finishReason: 'stop', totalUsage: expect.objectContaining({ inputTokens: 100 }),
+    }))
+    expect(parts).toContainEqual(expect.objectContaining({
+      type: 'message-metadata', metadata: expect.objectContaining({ compacted: { compacted: true } }),
+    }))
+  })
+
+  it('still surfaces checkpoint failures without showing its content', async () => {
+    const parts = await stream([
+      message('checkpoint', { summary: true, error: { name: 'ContextOverflowError', data: { message: 'Context too large' } } }),
+      part('checkpoint', 'text', { text: 'Internal checkpoint' }),
+      { type: 'session.idle', properties: { sessionID: 'session-1' } },
+    ])
+    expect(parts).toContainEqual({ type: 'error', error: new Error('Context too large') })
+    expect(parts).toContainEqual(expect.objectContaining({ type: 'finish', finishReason: 'error' }))
+    expect(parts.some((entry) => entry.type === 'text-delta')).toBe(false)
+  })
+})
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void

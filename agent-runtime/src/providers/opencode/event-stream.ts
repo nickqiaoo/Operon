@@ -207,6 +207,9 @@ export interface Message {
   id: string
   sessionID: string
   role: 'user' | 'assistant'
+  agent?: string
+  mode?: string
+  summary?: boolean
   /** Assistant messages: the user message this step answers. */
   parentID?: string
   error?: { name: string; data?: unknown }
@@ -237,6 +240,7 @@ export interface StreamState {
   lastTextContent: string
   lastReasoningContent: string
   messageRoles: Map<string, 'user' | 'assistant'>
+  hiddenMessageIds: Set<string>
   partsById: Map<string, Part>
   pendingPartDeltas: Map<string, string[]>
   pendingApprovals: Map<string, { permissionId: string }>
@@ -281,6 +285,7 @@ export function createStreamState(params?: {
     lastTextContent: '',
     lastReasoningContent: '',
     messageRoles: new Map(),
+    hiddenMessageIds: new Set(),
     partsById: new Map(),
     pendingPartDeltas: new Map(),
     pendingApprovals: new Map(),
@@ -384,6 +389,12 @@ export function mapOpencodeFinishReason(message: Message | undefined): { unified
   return { unified: 'other', raw: message.finish }
 }
 
+/** Compaction checkpoints belong to OpenCode's history, not the visible reply. */
+export function isOpencodeInternalMessage(message: Message): boolean {
+  return message.role === 'assistant' &&
+    (message.summary === true || message.agent === 'compaction' || message.mode === 'compaction')
+}
+
 function buildUsage(usage: StreamingUsage): FinishStepUsage {
   return {
     inputTokens: usage.inputTokens + usage.cachedInputTokens + usage.cachedWriteTokens,
@@ -478,6 +489,10 @@ export function convertEventToStreamParts(
       const messageEvent = event as EventMessageUpdated
       const info = messageEvent.properties.info
       state.messageRoles.set(info.id, info.role)
+      if (isOpencodeInternalMessage(info)) {
+        state.hiddenMessageIds.add(info.id)
+        break
+      }
       // The first step that answers an injected message is where the agent took it in.
       const injected = info.role === 'assistant' && info.parentID ? state.pendingInjections.get(info.parentID) : undefined
       if (injected && info.parentID) {
@@ -608,7 +623,7 @@ export function tryRegisterChildFromSessionEvent(
 
 function handlePartUpdated(part: Part, state: StreamState, logger?: OpencodeLogger | false): RuntimeStreamPart[] {
   const messageRole = state.messageRoles.get(part.messageID)
-  if (messageRole === 'user') return []
+  if (messageRole === 'user' || state.hiddenMessageIds.has(part.messageID)) return []
 
   switch (part.type) {
     case 'step-start':
@@ -634,6 +649,8 @@ function handlePartDelta(
   logger?: OpencodeLogger | false,
 ): RuntimeStreamPart[] {
   if (event.properties.field !== 'text' || !event.properties.delta) return []
+  if (state.messageRoles.get(event.properties.messageID) === 'user' ||
+      state.hiddenMessageIds.has(event.properties.messageID)) return []
   const part = state.partsById.get(event.properties.partID)
   if (!part) {
     const pending = state.pendingPartDeltas.get(event.properties.partID) ?? []
@@ -643,6 +660,7 @@ function handlePartDelta(
   }
   if (part.type === 'text') {
     const textPart = part as TextPart
+    if (textPart.synthetic || textPart.ignored) return []
     textPart.text += event.properties.delta
     return handleTextPart(textPart, event.properties.delta, state)
   }
@@ -932,14 +950,15 @@ export function createFinishParts(
   const parts: RuntimeStreamPart[] = []
   const usage = buildUsage(state.messageUsage ?? state.usage)
   parts.push(...closeOpenContent(state))
+  // Compaction can finish after the last visible step has already closed.
+  parts.push({
+    type: 'message-metadata',
+    metadata: buildStreamMessageMetadata({
+      providerMetadata: buildStepProviderMetadata(state, sessionId),
+      usage,
+    }),
+  })
   if (state.stepStarted) {
-    parts.push({
-      type: 'message-metadata',
-      metadata: buildStreamMessageMetadata({
-        providerMetadata: buildStepProviderMetadata(state, sessionId),
-        usage,
-      }),
-    })
     parts.push({
       type: 'finish-step',
       response: {
