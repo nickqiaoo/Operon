@@ -1,20 +1,28 @@
 import { useCallback, useEffect, type UIEvent } from "react"
+import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "react-intl"
 import { CheckCheck, Inbox as InboxIcon } from "lucide-react"
 import { useInboxStore, type InboxFilter } from "@/stores/inbox-store"
 import type { Notification } from "@/types/notification"
 import { cn } from "@/lib/utils"
 import { InboxItem } from "./InboxItem"
 
-const FILTERS: { id: InboxFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "action", label: "Needs you" },
-  { id: "info", label: "Done" },
+const filterLabels = defineMessages({
+  all: { id: "inbox.filter.all", defaultMessage: "All" },
+  action: { id: "inbox.filter.action", defaultMessage: "Needs you" },
+  info: { id: "inbox.filter.info", defaultMessage: "Done" },
+})
+
+const FILTERS: { id: InboxFilter; label: MessageDescriptor }[] = [
+  { id: "all", label: filterLabels.all },
+  { id: "action", label: filterLabels.action },
+  { id: "info", label: filterLabels.info },
 ]
 
 /** All / Needs you / Done. Shared by the sheet's header and the inbox page's top bar. */
 export function InboxFilterTabs({ className }: { className?: string }) {
   const filter = useInboxStore((s) => s.filter)
   const setFilter = useInboxStore((s) => s.setFilter)
+  const intl = useIntl()
   return (
     <div className={cn("flex gap-1", className)}>
       {FILTERS.map((f) => (
@@ -29,7 +37,7 @@ export function InboxFilterTabs({ className }: { className?: string }) {
               : "text-muted-foreground hover:bg-secondary-hover hover:text-foreground",
           )}
         >
-          {f.label}
+          {intl.formatMessage(f.label)}
         </button>
       ))}
     </div>
@@ -49,7 +57,8 @@ export function InboxMarkAllRead({ className }: { className?: string }) {
         className,
       )}
     >
-      <CheckCheck className="size-3.5" /> Mark all read
+      <CheckCheck className="size-3.5" />
+      <FormattedMessage id="inbox.markAllRead" defaultMessage="Mark all read" />
     </button>
   )
 }
@@ -94,7 +103,7 @@ export function InboxPanel({ onItemClick, variant = "sheet" }: InboxPanelProps) 
       {isPage ? null : (
         <>
           <div className="flex items-center justify-between px-3 pt-3 pb-2">
-            <span className="text-sm font-semibold text-foreground/90">Inbox</span>
+            <span className="text-sm font-semibold text-foreground/90"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
             <InboxMarkAllRead />
           </div>
           <InboxFilterTabs className="px-3 pb-2" />
@@ -110,11 +119,11 @@ export function InboxPanel({ onItemClick, variant = "sheet" }: InboxPanelProps) 
       >
         <div className={cn(isPage && "mx-auto w-full max-w-3xl")}>
           {loading && items.length === 0 ? (
-            <div className="px-3 py-10 text-center text-sm text-muted-foreground">Loading…</div>
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground"><FormattedMessage id="inbox.loading" defaultMessage="Loading…" /></div>
           ) : visible.length === 0 && !hasMore ? (
             <div className="m-1.5 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border/50 px-4 py-10 text-center">
               <InboxIcon className="size-6 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">You&apos;re all caught up</p>
+              <p className="text-sm text-muted-foreground"><FormattedMessage id="inbox.empty" defaultMessage="You're all caught up" /></p>
             </div>
           ) : (
             visible.map((n) => (
@@ -133,7 +142,9 @@ export function InboxPanel({ onItemClick, variant = "sheet" }: InboxPanelProps) 
                 onClick={() => void loadMore()}
                 className="rounded-full bg-muted/70 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                {loadingMore
+                  ? <FormattedMessage id="inbox.loadingMore" defaultMessage="Loading…" />
+                  : <FormattedMessage id="inbox.loadMore" defaultMessage="Load more" />}
               </button>
             </div>
           ) : null}

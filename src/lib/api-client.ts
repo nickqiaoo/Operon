@@ -744,7 +744,7 @@ export function inboxCounts() {
   return request<UnreadCounts>('/inbox/counts')
 }
 
-export function inboxMarkRead(payload: { ids?: number[]; sourceKeys?: string[]; all?: boolean }) {
+export function inboxMarkRead(payload: { ids?: number[]; sourceKeys?: string[]; sourcePrefix?: string; all?: boolean }) {
   return request<{ ids: number[] }>('/inbox/read', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -758,7 +758,7 @@ export function inboxArchive(payload: { ids?: number[]; all?: boolean }) {
   })
 }
 
-export function inboxSetViewing(payload: { clientId: string; chatIds: number[] }) {
+export function inboxSetViewing(payload: { clientId: string; chatIds: number[]; assistant?: boolean }) {
   return request<{ ok: boolean }>('/inbox/viewing', {
     method: 'POST',
     body: JSON.stringify(payload),

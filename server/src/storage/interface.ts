@@ -390,6 +390,8 @@ export interface NotificationStorageAdapter {
   /** Mark the live row for `sourceKey` read. `kind` optionally protects a
    *  lifecycle-specific transition from consuming a newer row for that source. */
   notificationMarkReadBySource(sourceKey: string, kind?: NotificationKind): number[]
+  /** Mark every live row whose source key starts with `prefix` read (e.g. all of `assistant:*`). */
+  notificationMarkReadBySourcePrefix(prefix: string): number[]
   /** Archive (dismiss); returns the ids that actually transitioned. */
   notificationArchive(ids: number[] | 'all'): number[]
   notificationUnreadCounts(): UnreadCounts

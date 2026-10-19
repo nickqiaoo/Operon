@@ -47,6 +47,16 @@ const PUSH_MIN_INTERVAL_MS = 60_000
 const lastPushBySource = new Map<string, number>()
 
 /**
+ * The one exception to "only 'action' reaches a phone": the assistant speaking up on
+ * its own. Unlike a chat finishing a turn you started, it is not something you were
+ * waiting on — and it is already rationed at the source (it only opens its mouth for
+ * a schedule you set, a task it was given, or a heartbeat finding worth telling, and
+ * holds all but the urgent during quiet hours). It stays 'info' so it doesn't light
+ * the red badge; the caller drops it entirely while the assistant is on screen.
+ */
+const PUSHED_INFO_KINDS: ReadonlySet<string> = new Set(['assistant_message'])
+
+/**
  * While the user is at the desktop, a push is held instead of sent: the
  * approval is already on the screen in front of them. It is re-checked on this
  * cadence and goes out once they step away — or is dropped once they deal with
@@ -80,7 +90,7 @@ const deferredBySource = new Map<string, ReturnType<typeof setTimeout>>()
  * because the user was at the desktop; omitting it means "always still pending".
  */
 export function relayPush(message: PushMessage, stillPending?: () => boolean): void {
-  if (message.severity !== 'action') return
+  if (message.severity !== 'action' && !PUSHED_INFO_KINDS.has(message.kind ?? '')) return
   if (!message.title) return
   if (!getSaasConfig().nodeToken) return
 

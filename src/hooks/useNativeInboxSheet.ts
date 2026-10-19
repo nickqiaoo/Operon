@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef } from "react"
+import { defineMessages, useIntl, type IntlShape } from "react-intl"
 import { hasNativeTabBar, NativeShell, type NativeInboxState } from "@/lib/native"
 import { useInboxStore } from "@/stores/inbox-store"
 import { INBOX_KIND_SYMBOL, inboxRelativeTime } from "@/components/inbox/InboxItem"
+import { localizeNotification } from "@/components/inbox/localize-notification"
 import type { Notification } from "@/types/notification"
 
 // The inbox as a native sheet (InboxSheet.swift / InboxSheet.kt). The store stays the
@@ -9,34 +11,50 @@ import type { Notification } from "@/types/notification"
 // fresh snapshot, and every control in the sheet comes back as an intent that
 // runs the same store action the web InboxPanel would.
 
-// Same strings the web InboxPanel hardcodes.
-const LABELS = {
-  title: "Inbox",
-  filters: [
-    { id: "all", label: "All" },
-    { id: "action", label: "Needs you" },
-    { id: "info", label: "Done" },
-  ],
-  markAllRead: "Mark all read",
-  empty: "You're all caught up",
-  loading: "Loading…",
-  loadMore: "Load more",
+// Same message ids the web InboxPanel uses, so both read the same in every locale.
+const m = defineMessages({
+  title: { id: "sidebar.inbox", defaultMessage: "Inbox" },
+  all: { id: "inbox.filter.all", defaultMessage: "All" },
+  action: { id: "inbox.filter.action", defaultMessage: "Needs you" },
+  info: { id: "inbox.filter.info", defaultMessage: "Done" },
+  markAllRead: { id: "inbox.markAllRead", defaultMessage: "Mark all read" },
+  empty: { id: "inbox.empty", defaultMessage: "You're all caught up" },
+  loading: { id: "inbox.loadingMore", defaultMessage: "Loading…" },
+  loadMore: { id: "inbox.loadMore", defaultMessage: "Load more" },
+})
+
+function labels(intl: IntlShape) {
+  return {
+    title: intl.formatMessage(m.title),
+    filters: [
+      { id: "all", label: intl.formatMessage(m.all) },
+      { id: "action", label: intl.formatMessage(m.action) },
+      { id: "info", label: intl.formatMessage(m.info) },
+    ],
+    markAllRead: intl.formatMessage(m.markAllRead),
+    empty: intl.formatMessage(m.empty),
+    loading: intl.formatMessage(m.loading),
+    loadMore: intl.formatMessage(m.loadMore),
+  }
 }
 
-function snapshot(): NativeInboxState {
+function snapshot(intl: IntlShape): NativeInboxState {
   const s = useInboxStore.getState()
   const visible = s.items.filter((n) => (s.filter === "all" ? true : n.severity === s.filter))
   return {
     filter: s.filter,
-    items: visible.map((n) => ({
+    items: visible.map((n) => {
+      const { title, body } = localizeNotification(n, intl)
+      return {
       id: n.id,
-      title: n.title,
-      body: n.body ?? undefined,
-      time: inboxRelativeTime(n.createdAt),
+      title,
+      body: body ?? undefined,
+      time: inboxRelativeTime(n.createdAt, intl),
       symbol: INBOX_KIND_SYMBOL[n.kind] ?? "message",
       action: n.severity === "action",
       unread: n.readAt == null,
-    })),
+      }
+    }),
     loading: s.loading,
     loadingMore: s.loadingMore,
     hasMore: s.hasMore,
@@ -49,6 +67,9 @@ function snapshot(): NativeInboxState {
  * native sheet is unavailable so the caller can fall back to the web one.
  */
 export function useNativeInboxSheet(onNavigate: (n: Notification) => void): () => Promise<boolean> {
+  const intl = useIntl()
+  const intlRef = useRef(intl)
+  intlRef.current = intl
   const navigate = useRef(onNavigate)
   navigate.current = onNavigate
   const presented = useRef(false)
@@ -80,7 +101,7 @@ export function useNativeInboxSheet(onNavigate: (n: Notification) => void): () =
     ]
     // Mirror the store into the sheet while it is up.
     const unsubscribe = useInboxStore.subscribe(() => {
-      if (presented.current) void NativeShell.updateInboxSheet({ state: snapshot() }).catch(() => {})
+      if (presented.current) void NativeShell.updateInboxSheet({ state: snapshot(intlRef.current) }).catch(() => {})
     })
     return () => {
       unsubscribe()
@@ -91,7 +112,7 @@ export function useNativeInboxSheet(onNavigate: (n: Notification) => void): () =
   return useCallback(async () => {
     if (!hasNativeTabBar()) return false
     try {
-      await NativeShell.presentInboxSheet({ labels: LABELS, state: snapshot() })
+      await NativeShell.presentInboxSheet({ labels: labels(intlRef.current), state: snapshot(intlRef.current) })
       presented.current = true
       // Same as InboxPanel mounting: refetch the first page.
       void useInboxStore.getState().load()

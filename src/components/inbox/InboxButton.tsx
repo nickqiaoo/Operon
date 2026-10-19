@@ -1,5 +1,6 @@
 import { Bell } from "lucide-react"
 import { useState } from "react"
+import { useIntl } from "react-intl"
 import { MobileSheet } from "@/components/mobile/MobileSheet"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { useInboxStore } from "@/stores/inbox-store"
@@ -12,6 +13,8 @@ interface InboxButtonProps {
   onOpenPage?: () => void
   /** Mobile: deep-link on tap (no detail pane on phones). */
   onNavigate?: (n: Notification) => void
+  /** Mobile: open the inbox some other way (the packaged apps' native sheet) instead of the web one. */
+  onOpenSheet?: () => void
   className?: string
 }
 
@@ -47,7 +50,9 @@ export function MobileInboxSheet({
  * The badge is two-tier: an amber count for "needs you" (action) items, and a
  * quiet dot when there are only ordinary unread items (e.g. a finished chat).
  */
-export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonProps) {
+export function InboxButton({ onOpenPage, onNavigate, onOpenSheet, className }: InboxButtonProps) {
+  const intl = useIntl()
+  const inboxLabel = intl.formatMessage({ id: "sidebar.inbox", defaultMessage: "Inbox" })
   const isMobile = useIsMobile()
   const [sheetOpen, setSheetOpen] = useState(false)
   const action = useInboxStore((s) => s.counts.action)
@@ -55,7 +60,7 @@ export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonPr
 
   const badge =
     action > 0 ? (
-      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium leading-none text-white">
+      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
         {action > 99 ? "99+" : action}
       </span>
     ) : total > 0 ? (
@@ -63,7 +68,7 @@ export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonPr
     ) : null
 
   const triggerClass = cn(
-    "no-drag relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
+    "no-drag relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground",
     className,
   )
 
@@ -72,8 +77,8 @@ export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonPr
       <>
         <button
           type="button"
-          aria-label="Inbox"
-          onClick={() => setSheetOpen(true)}
+          aria-label={inboxLabel}
+          onClick={() => (onOpenSheet ? onOpenSheet() : setSheetOpen(true))}
           className={triggerClass}
         >
           <Bell className="h-4 w-4" />
@@ -85,7 +90,7 @@ export function InboxButton({ onOpenPage, onNavigate, className }: InboxButtonPr
   }
 
   return (
-    <button type="button" aria-label="Inbox" onClick={() => onOpenPage?.()} className={triggerClass}>
+    <button type="button" aria-label={inboxLabel} onClick={() => onOpenPage?.()} className={triggerClass}>
       <Bell className="h-4 w-4" />
       {badge}
     </button>

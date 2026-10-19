@@ -18,30 +18,44 @@ const clientId =
     : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 const surfaces = new Map<symbol, number>()
+/** The assistant's thread is not a chat row, so it is reported as a flag beside the ids. */
+const assistantSurfaces = new Set<symbol>()
 let lastSent: number[] = []
+let lastSentAssistant = false
 let heartbeat: ReturnType<typeof setInterval> | null = null
 let listening = false
 
+function onScreen(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus()
+}
+
 function currentChatIds(): number[] {
-  if (document.visibilityState !== "visible" || !document.hasFocus()) return []
+  if (!onScreen()) return []
   return [...new Set(surfaces.values())].sort((a, b) => a - b)
 }
 
-function send(chatIds: number[]): void {
-  api.inboxSetViewing({ clientId, chatIds }).catch(() => {
+function currentAssistant(): boolean {
+  return onScreen() && assistantSurfaces.size > 0
+}
+
+function send(chatIds: number[], assistant: boolean): void {
+  api.inboxSetViewing({ clientId, chatIds, assistant }).catch(() => {
     // Best effort: a missed report only means one extra inbox row.
   })
 }
 
 function sync(): void {
   const chatIds = currentChatIds()
-  if (chatIds.join(",") !== lastSent.join(",")) {
+  const assistant = currentAssistant()
+  if (chatIds.join(",") !== lastSent.join(",") || assistant !== lastSentAssistant) {
     lastSent = chatIds
-    send(chatIds)
+    lastSentAssistant = assistant
+    send(chatIds, assistant)
   }
-  if (chatIds.length > 0 && heartbeat == null) {
-    heartbeat = setInterval(() => send(lastSent), HEARTBEAT_MS)
-  } else if (chatIds.length === 0 && heartbeat != null) {
+  const anything = chatIds.length > 0 || assistant
+  if (anything && heartbeat == null) {
+    heartbeat = setInterval(() => send(lastSent, lastSentAssistant), HEARTBEAT_MS)
+  } else if (!anything && heartbeat != null) {
     clearInterval(heartbeat)
     heartbeat = null
   }
@@ -63,6 +77,21 @@ export function registerViewedChat(chatId: number): () => void {
   sync()
   return () => {
     surfaces.delete(key)
+    sync()
+  }
+}
+
+/**
+ * Register the assistant's thread as shown, so what it says while you read it does not also
+ * land in the inbox or buzz your phone. Returns the unregister.
+ */
+export function registerViewedAssistant(): () => void {
+  listen()
+  const key = Symbol("assistant-surface")
+  assistantSurfaces.add(key)
+  sync()
+  return () => {
+    assistantSurfaces.delete(key)
     sync()
   }
 }

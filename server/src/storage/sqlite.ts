@@ -2621,6 +2621,22 @@ export class SqliteStorage
     return rows.map((r) => r.id)
   }
 
+  notificationMarkReadBySourcePrefix(prefix: string): number[] {
+    if (!prefix) return []
+    const now = Date.now()
+    // substr rather than LIKE: no wildcard escaping to get wrong.
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM notifications
+         WHERE substr(source_key, 1, length(?)) = ? AND read_at IS NULL AND archived_at IS NULL`,
+      )
+      .all(prefix, prefix) as { id: number }[]
+    if (rows.length === 0) return []
+    const stmt = this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ?')
+    for (const row of rows) stmt.run(now, row.id)
+    return rows.map((r) => r.id)
+  }
+
   notificationArchive(ids: number[] | 'all'): number[] {
     const now = Date.now()
     if (ids === 'all') {

@@ -48,6 +48,9 @@ import {
   type TurnInput,
 } from './agents.js'
 import { AssistantApprovals, type ApprovalAnswer } from './approvals.js'
+import { AssistantNotifier } from './notifier.js'
+import { getNotificationStorage } from '../ai/state.js'
+import { isAssistantBeingViewed } from '../chat-viewers.js'
 import { buildUserInput } from './attachments.js'
 import { addedFacts, ensureProfileFiles, listProfileFiles, parseIdentity, peekProfileFile, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
 import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
@@ -216,6 +219,7 @@ export class AssistantRuntime {
   private readonly bus = new EventEmitter()
   private readonly projector: AssistantProjector
   private readonly approvals: AssistantApprovals
+  private readonly notifier: AssistantNotifier
   private readonly workers: WorkerPool
   private readonly schedules: AssistantSchedules
   /** Coding agents it started in the user's workspaces. */
@@ -256,15 +260,27 @@ export class AssistantRuntime {
       })
     }
 
+    this.notifier = new AssistantNotifier({
+      storage: getNotificationStorage,
+      name: () => parseIdentity(readProfileFile('identity').content).name ?? 'Assistant',
+      quiet: () => {
+        const config = this.getConfig()
+        return inQuietHours(new Date(), config.quietStart, config.quietEnd)
+      },
+      viewed: () => isAssistantBeingViewed(),
+    })
+
     this.projector = new AssistantProjector(
       {
         message: (message) => {
           storage.assistantMessageUpsert(message)
           this.emit({ type: 'message', message })
+          this.notifier.message(message)
         },
         typing: (typing) => {
           this.typing = typing
           this.emit({ type: 'typing', typing })
+          if (!typing) this.notifier.turnEnded()
         },
         activity: (activity) => this.saveActivity(activity),
       },
@@ -371,6 +387,7 @@ export class AssistantRuntime {
           }
           storage.assistantMessageUpsert(message)
           this.emit({ type: 'message', message })
+          this.notifier.approval(approval)
         },
         audit: (entry) => this.audit(entry),
         setWaiting: (activityId, waiting) => this.workers.setWaiting(activityId, waiting),

@@ -6,6 +6,7 @@ import {
   AskUserQuestionRenderer,
   type ToolInvocationPart,
 } from "@/components/editor/components/AskUserQuestionRenderer"
+import { FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
 
 interface PendingApproval {
@@ -121,7 +122,11 @@ function ToolApproval({
             sub-agent is blocked, or the request reads as the chat being stuck. */}
         {approval.origin ? (
           <div className="truncate text-[11px] text-muted-foreground">
-            Sub-agent <span className="font-mono">{approval.origin}</span>
+            <FormattedMessage
+              id="inbox.approval.subAgent"
+              defaultMessage="Sub-agent {name}"
+              values={{ name: <span className="font-mono">{approval.origin}</span> }}
+            />
           </div>
         ) : null}
       </div>
@@ -138,7 +143,7 @@ function ToolApproval({
         onClick={() => onDecide(approval.approvalId, "allow")}
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-        Approve
+        <FormattedMessage id="inbox.approval.approve" defaultMessage="Approve" />
       </Button>
       <Button
         size="sm"
@@ -150,7 +155,8 @@ function ToolApproval({
         disabled={busy}
         onClick={() => onDecide(approval.approvalId, "deny")}
       >
-        <X className="h-3.5 w-3.5" /> Deny
+        <X className="h-3.5 w-3.5" />
+        <FormattedMessage id="inbox.approval.deny" defaultMessage="Deny" />
       </Button>
     </div>
   )
@@ -186,15 +192,19 @@ function QuestionApproval({
         <MessageCircleQuestion className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {approval.origin ? (
-            <>
-              Sub-agent <span className="font-mono">{approval.origin}</span> asked a question
-            </>
+            <FormattedMessage
+              id="inbox.approval.subAgentAsked"
+              defaultMessage="Sub-agent {name} asked a question"
+              values={{ name: <span className="font-mono">{approval.origin}</span> }}
+            />
           ) : (
-            "The agent asked a question"
+            <FormattedMessage id="inbox.approval.agentAsked" defaultMessage="The agent asked a question" />
           )}
         </span>
         <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => setOpen((v) => !v)}>
-          {open ? "Hide" : "Answer"}
+          {open
+            ? <FormattedMessage id="inbox.approval.hide" defaultMessage="Hide" />
+            : <FormattedMessage id="inbox.approval.answer" defaultMessage="Answer" />}
         </Button>
       </div>
       {open ? (

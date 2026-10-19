@@ -76,7 +76,7 @@ export function notificationRoutes(storage: NotificationStorageAdapter) {
 
   // ---- Mutations ----
   router.post('/read', async (c) => {
-    type ReadPayload = { ids?: number[]; sourceKeys?: string[]; all?: boolean }
+    type ReadPayload = { ids?: number[]; sourceKeys?: string[]; sourcePrefix?: string; all?: boolean }
     const body = await c.req
       .json<ReadPayload>()
       .catch(() => ({} as ReadPayload))
@@ -92,6 +92,10 @@ export function notificationRoutes(storage: NotificationStorageAdapter) {
       for (const sourceKey of sourceKeys) {
         changed.push(...storage.notificationMarkReadBySource(sourceKey))
       }
+      // A family of rows the client may not have loaded, e.g. everything the assistant raised.
+      if (typeof body.sourcePrefix === 'string' && body.sourcePrefix.trim()) {
+        changed.push(...storage.notificationMarkReadBySourcePrefix(body.sourcePrefix))
+      }
     }
     const changedIds = [...new Set(changed)]
     emitInboxEvent({ type: 'notification_read', ids: changedIds })
@@ -102,14 +106,14 @@ export function notificationRoutes(storage: NotificationStorageAdapter) {
   // What this client has on screen, so a turn finishing there skips the inbox.
   router.post('/viewing', async (c) => {
     const body = await c.req
-      .json<{ clientId?: unknown; chatIds?: unknown }>()
-      .catch(() => ({}) as { clientId?: unknown; chatIds?: unknown })
+      .json<{ clientId?: unknown; chatIds?: unknown; assistant?: unknown }>()
+      .catch(() => ({}) as { clientId?: unknown; chatIds?: unknown; assistant?: unknown })
     const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
     if (!clientId || clientId.length > 128) return c.json({ error: 'clientId required' }, 400)
     const chatIds = Array.isArray(body.chatIds)
       ? body.chatIds.filter((id): id is number => Number.isSafeInteger(id) && id > 0)
       : []
-    setViewedChats(clientId, chatIds)
+    setViewedChats(clientId, chatIds, Date.now(), body.assistant === true)
     return c.json({ ok: true })
   })
 

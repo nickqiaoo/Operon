@@ -6,13 +6,16 @@ import {
   MessageSquare,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   X,
   XCircle,
 } from "lucide-react"
+import { defineMessages, useIntl, type IntlShape } from "react-intl"
 import type { Notification, NotificationKind } from "@/types/notification"
 import { cn } from "@/lib/utils"
 import { useInboxStore } from "@/stores/inbox-store"
 import { InboxApprovals } from "./InboxApprovals"
+import { localizeNotification } from "./localize-notification"
 
 const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   chat_complete: MessageSquare,
@@ -24,6 +27,8 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   cron_done: Clock,
   workflow_approval: ShieldCheck,
   device_paired: Smartphone,
+  assistant_message: Sparkles,
+  assistant_approval: ShieldCheck,
 }
 
 /**
@@ -43,19 +48,29 @@ export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
   cron_done: "clock",
   workflow_approval: "checkmark.shield",
   device_paired: "iphone",
+  assistant_message: "sparkles",
+  assistant_approval: "checkmark.shield",
 }
 
-export function inboxRelativeTime(ms: number): string {
+const timeMessages = defineMessages({
+  justNow: { id: "inbox.time.justNow", defaultMessage: "just now" },
+  minutes: { id: "inbox.time.minutes", defaultMessage: "{n}m" },
+  hours: { id: "inbox.time.hours", defaultMessage: "{n}h" },
+  days: { id: "inbox.time.days", defaultMessage: "{n}d" },
+  weeks: { id: "inbox.time.weeks", defaultMessage: "{n}w" },
+})
+
+export function inboxRelativeTime(ms: number, intl: IntlShape): string {
   const diff = Date.now() - ms
   const s = Math.floor(diff / 1000)
-  if (s < 60) return "just now"
+  if (s < 60) return intl.formatMessage(timeMessages.justNow)
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m`
+  if (m < 60) return intl.formatMessage(timeMessages.minutes, { n: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
+  if (h < 24) return intl.formatMessage(timeMessages.hours, { n: h })
   const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d`
-  return `${Math.floor(d / 7)}w`
+  if (d < 7) return intl.formatMessage(timeMessages.days, { n: d })
+  return intl.formatMessage(timeMessages.weeks, { n: Math.floor(d / 7) })
 }
 
 interface InboxItemProps {
@@ -71,6 +86,8 @@ interface InboxItemProps {
  */
 export function InboxItem({ notification, onClick }: InboxItemProps) {
   const archive = useInboxStore((s) => s.archive)
+  const intl = useIntl()
+  const { title, body } = localizeNotification(notification, intl)
   const Icon = KIND_ICON[notification.kind] ?? MessageSquare
   const unread = notification.readAt == null
   const isAction = notification.severity === "action"
@@ -91,14 +108,14 @@ export function InboxItem({ notification, onClick }: InboxItemProps) {
           }
         }}
         className={cn(
-          "group relative flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
+          "group relative flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-row-hover",
           unread && "bg-muted/20",
         )}
       >
         <span
           className={cn(
             "mt-0.5 shrink-0",
-            isAction ? "text-amber-600 dark:text-amber-500" : "text-muted-foreground",
+            isAction ? "text-status-warn" : "text-muted-foreground",
           )}
         >
           <Icon className="size-4" />
@@ -110,7 +127,7 @@ export function InboxItem({ notification, onClick }: InboxItemProps) {
               <span
                 className={cn(
                   "size-1.5 shrink-0 rounded-full",
-                  isAction ? "bg-amber-500" : "bg-tint",
+                  isAction ? "bg-accent-warm" : "bg-tint",
                 )}
               />
             )}
@@ -120,12 +137,12 @@ export function InboxItem({ notification, onClick }: InboxItemProps) {
                 unread ? "font-medium text-foreground" : "text-muted-foreground",
               )}
             >
-              {notification.title}
+              {title}
             </span>
           </div>
-          {notification.body && (
+          {body && (
             <div className="mt-0.5 truncate text-xs text-muted-foreground/80">
-              {notification.body}
+              {body}
             </div>
           )}
         </div>
@@ -133,16 +150,16 @@ export function InboxItem({ notification, onClick }: InboxItemProps) {
         {/* Time, replaced by a dismiss button on hover. */}
         <div className="relative mt-0.5 w-10 shrink-0 text-right">
           <span className="text-[11px] tabular-nums text-muted-foreground/60 group-hover:invisible">
-            {inboxRelativeTime(notification.createdAt)}
+            {inboxRelativeTime(notification.createdAt, intl)}
           </span>
           <button
             type="button"
-            aria-label="Dismiss"
+            aria-label={intl.formatMessage({ id: "inbox.dismiss", defaultMessage: "Dismiss" })}
             onClick={(e) => {
               e.stopPropagation()
               void archive(notification.id)
             }}
-            className="invisible absolute right-0 top-0 rounded-md p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground group-hover:visible"
+            className="invisible absolute right-0 top-0 rounded-md p-0.5 text-muted-foreground/60 hover:bg-accent-hover hover:text-foreground group-hover:visible"
           >
             <X className="size-3.5" />
           </button>

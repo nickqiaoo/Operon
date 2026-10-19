@@ -14,6 +14,8 @@ export interface PushTarget {
   projectId?: number
   workspaceId?: number
   title?: string
+  /** The notification kind; the assistant's have no chat or task id to land on. */
+  kind?: string
 }
 
 /**
@@ -101,5 +103,6 @@ function targetFromPayload(data: unknown): PushTarget {
     projectId: num(record.projectId),
     workspaceId: num(record.workspaceId),
     title: typeof record.title === "string" ? record.title : undefined,
+    kind: typeof record.kind === "string" ? record.kind : undefined,
   }
 }

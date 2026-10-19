@@ -25,6 +25,8 @@ interface InboxStore {
   loadMore: () => Promise<void>
   markRead: (ids: number[]) => Promise<void>
   markReadBySourceKeys: (sourceKeys: string[]) => Promise<void>
+  /** Every row whose source key starts with `prefix`, including ones not loaded here. */
+  markReadBySourcePrefix: (prefix: string) => Promise<void>
   markAllRead: () => Promise<void>
   archive: (id: number) => Promise<void>
   /** Apply a live event from the SSE stream. */
@@ -144,6 +146,21 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
     }))
     try {
       await api.inboxMarkRead({ sourceKeys: uniqueKeys })
+    } catch {
+      // The next stream 'counts'/reload will correct any drift.
+    }
+  },
+
+  markReadBySourcePrefix: async (prefix) => {
+    if (!prefix) return
+    const now = Date.now()
+    set((s) => ({
+      items: s.items.map((n) =>
+        n.sourceKey.startsWith(prefix) && n.readAt == null ? { ...n, readAt: now } : n,
+      ),
+    }))
+    try {
+      await api.inboxMarkRead({ sourcePrefix: prefix })
     } catch {
       // The next stream 'counts'/reload will correct any drift.
     }

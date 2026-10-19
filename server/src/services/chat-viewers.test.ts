@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { NotificationStorageAdapter } from "../storage/interface.js"
 import {
   CHAT_VIEWER_TTL_MS,
+  isAssistantBeingViewed,
   isChatBeingViewed,
   resetChatViewers,
   setViewedChats,
@@ -69,5 +70,20 @@ describe("notify", () => {
     const s = storage()
     notify(s, { ...finished, kind: "chat_needs_input", severity: "action", push: false })
     expect(s.notificationUpsert).toHaveBeenCalledOnce()
+  })
+})
+
+describe("assistant viewing", () => {
+  it("is reported alongside chats and expires the same way", () => {
+    setViewedChats("phone", [], 0, true)
+    expect(isAssistantBeingViewed(1)).toBe(true)
+    expect(isAssistantBeingViewed(CHAT_VIEWER_TTL_MS + 1)).toBe(false)
+  })
+
+  it("is cleared by a report without it", () => {
+    setViewedChats("phone", [], 0, true)
+    setViewedChats("phone", [3], 1, false)
+    expect(isAssistantBeingViewed(2)).toBe(false)
+    expect(isChatBeingViewed(3, 2)).toBe(true)
   })
 })

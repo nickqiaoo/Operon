@@ -12,6 +12,10 @@ export type NotificationKind =
   | 'cron_done'
   | 'workflow_approval'
   | 'device_paired'
+  /** The personal assistant spoke up on its own (a schedule, a heartbeat finding, a task it ran). */
+  | 'assistant_message'
+  /** One of the assistant's workers is blocked on a permission card. */
+  | 'assistant_approval'
 
 /** 'action' = needs you (blocking). 'info' = done, FYI. Drives the badge. */
 export type NotificationSeverity = 'action' | 'info'

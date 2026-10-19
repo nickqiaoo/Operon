@@ -14,18 +14,20 @@ export const CHAT_VIEWER_TTL_MS = 75_000
 
 interface ViewerReport {
   chatIds: Set<number>
+  /** The assistant's thread is on screen (it is one conversation, but not a chat row). */
+  assistant: boolean
   expiresAt: number
 }
 
 const viewers = new Map<string, ViewerReport>()
 
 /** Replace what `clientId` has on screen. An empty list clears it. */
-export function setViewedChats(clientId: string, chatIds: readonly number[], now = Date.now()): void {
-  if (chatIds.length === 0) {
+export function setViewedChats(clientId: string, chatIds: readonly number[], now = Date.now(), assistant = false): void {
+  if (chatIds.length === 0 && !assistant) {
     viewers.delete(clientId)
     return
   }
-  viewers.set(clientId, { chatIds: new Set(chatIds), expiresAt: now + CHAT_VIEWER_TTL_MS })
+  viewers.set(clientId, { chatIds: new Set(chatIds), assistant, expiresAt: now + CHAT_VIEWER_TTL_MS })
 }
 
 /** True when some live client currently has `chatId` on screen and focused. */
@@ -36,6 +38,18 @@ export function isChatBeingViewed(chatId: number, now = Date.now()): boolean {
       continue
     }
     if (report.chatIds.has(chatId)) return true
+  }
+  return false
+}
+
+/** True when some live client currently has the assistant's thread on screen and focused. */
+export function isAssistantBeingViewed(now = Date.now()): boolean {
+  for (const [clientId, report] of viewers) {
+    if (report.expiresAt <= now) {
+      viewers.delete(clientId)
+      continue
+    }
+    if (report.assistant) return true
   }
   return false
 }

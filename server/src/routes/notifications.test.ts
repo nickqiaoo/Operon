@@ -64,4 +64,23 @@ describe("POST /read", () => {
     expect(notificationMarkRead).toHaveBeenCalledWith([1])
     expect(notificationMarkReadBySource.mock.calls).toEqual([["chat:42"], ["chat:99"]])
   })
+
+  it("marks every row under a source prefix, loaded on the client or not", async () => {
+    const notificationMarkReadBySourcePrefix = vi.fn(() => [7, 8])
+    const storage = {
+      notificationMarkRead: vi.fn(() => []),
+      notificationMarkReadBySource: vi.fn(() => []),
+      notificationMarkReadBySourcePrefix,
+      notificationUnreadCounts: vi.fn(() => ({ total: 0, action: 0 })),
+    } as unknown as NotificationStorageAdapter
+
+    const response = await notificationRoutes(storage).request("/read", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sourcePrefix: "assistant:" }),
+    })
+
+    expect(await response.json()).toEqual({ ids: [7, 8] })
+    expect(notificationMarkReadBySourcePrefix).toHaveBeenCalledWith("assistant:")
+  })
 })

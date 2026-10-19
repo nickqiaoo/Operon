@@ -28,6 +28,7 @@ import { parseIdentity } from "@/components/assistant/shared"
 import { blockerText, busyLabel } from "@/components/assistant/assistant-i18n"
 import type { ActivitySummary, ProfileFileName } from "@/components/assistant/types"
 import { chatTargetOf, type ChatTarget } from "@/components/assistant/AssistantPage"
+import { useVisibleAssistantInboxRead } from "@/hooks/useVisibleAssistantInboxRead"
 
 /** A page pushed over the thread (an activity: a sheet). Only the top one is shown. */
 type Layer =
@@ -78,6 +79,8 @@ export function MobileAssistantScreen({
   onHeaderChange,
   onOpenChat,
 }: MobileAssistantScreenProps) {
+  // Rendered only while its tab is selected (MobileApp), so being here means it is on screen.
+  useVisibleAssistantInboxRead(true)
   const intl = useIntl()
   const open = useAssistantStore((s) => s.open)
   const loaded = useAssistantStore((s) => s.loaded)
