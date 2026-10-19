@@ -16,7 +16,7 @@ const ctx = createRuntimeContext()
  * the choice between load and new, not the stdio transport.
  */
 const acquireAcpConnection = vi.hoisted(() => vi.fn())
-vi.mock('./connection-registry.js', () => ({ acquireAcpConnection }))
+vi.mock('./connection-registry.js', () => ({ acquireAcpConnection, disposeAllAcpConnections: vi.fn() }))
 
 const { AcpRuntimeSession } = await import('./session.js')
 

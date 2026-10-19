@@ -126,6 +126,11 @@ export class AcpConnection {
       cwd: options.cwd,
       env: options.env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // Its own process group, so dispose() can take down what the agent spawns too.
+      // cursor-agent starts a `worker-server` (plus a TypeScript language server)
+      // that outlives it; left in our group, macOS keeps showing the app as
+      // "running in the background" after it quit.
+      detached: process.platform !== 'win32',
     })
 
     // `node:stream/web` streams are structurally the web streams the SDK wants,
@@ -223,6 +228,17 @@ export class AcpConnection {
 
   async dispose(): Promise<void> {
     this.exited = true
+    const pid = this.proc.pid
+    if (pid !== undefined && process.platform !== 'win32') {
+      // The whole group: the agent and anything it left running (see the spawn).
+      // Synchronous on purpose — app shutdown calls this without waiting.
+      try {
+        process.kill(-pid, 'SIGTERM')
+        return
+      } catch {
+        // Group already gone (ESRCH) — fall through for the agent itself.
+      }
+    }
     if (!this.proc.killed) {
       this.proc.kill('SIGTERM')
     }

@@ -19,7 +19,7 @@ import { toUserMessages } from '../../utils/agent-input.js'
 import { AsyncQueue } from './async-queue.js'
 import { toSlashCommands } from './commands.js'
 import type { AcpConnection, AcpSessionCallbacks } from './connection.js'
-import { acquireAcpConnection } from './connection-registry.js'
+import { acquireAcpConnection, disposeAllAcpConnections } from './connection-registry.js'
 import { AcpEventMapper } from './event-mapper.js'
 import { convertToAcpPrompt, prependTextToPrompt } from './message-mapper.js'
 import type { AcpProviderConfig } from './types.js'
@@ -254,6 +254,8 @@ export class AcpRuntimeSession implements AgentSession {
     // One agent process serves every conversation on the same CLI + workspace —
     // see `connection-registry.ts`. The handshake is shared too, so this session
     // only creates its own `session/new` and attaches its callbacks to it.
+    // Those processes go with the runtime (app shutdown), not only with their last lease.
+    this.ctx.shared('acp:connections', () => ({ dispose: disposeAllAcpConnections }))
     const lease = await acquireAcpConnection({
       providerId: this.config.providerId,
       command: cliPath,

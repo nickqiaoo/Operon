@@ -114,7 +114,7 @@ export async function acquireAcpConnection(options: AcquireAcpOptions): Promise<
   }
 }
 
-/** Test seam — drops every connection without waiting for its holders. */
+/** Drops every connection without waiting for its holders: runtime disposal (app shutdown), and tests. */
 export function disposeAllAcpConnections(): void {
   for (const [key, entry] of connections) {
     connections.delete(key)
