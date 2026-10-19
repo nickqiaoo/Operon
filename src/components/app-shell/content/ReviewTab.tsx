@@ -6,7 +6,7 @@ import { Virtualizer, WorkerPoolContextProvider } from "@pierre/diffs/react"
 import type { FileDiffOptions } from "@pierre/diffs"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
-import { gitKeys, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
+import { gitKeys, resolveDefaultBase, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useThemeStore } from "@/stores/theme-store"
 import { useReviewTurnStore } from "@/stores/review-turn-store"
@@ -107,8 +107,8 @@ export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
   useEffect(() => {
     if (scope !== "branch" || baseBranch != null) return
     let cancelled = false
-    void api.gitDefaultBaseBranch(rootPath).then((base) => {
-      if (!cancelled && base) setBaseBranch(base)
+    void resolveDefaultBase(rootPath).then((base) => {
+      if (!cancelled) setBaseBranch(base)
     })
     return () => {
       cancelled = true

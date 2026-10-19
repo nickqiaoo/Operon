@@ -5,6 +5,7 @@ import { Check, ChevronDown, GitBranch, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { TOOLBAR_PILL, TOOLBAR_PILL_BUTTON } from "@/components/ui/toolbar-styles"
 
 export function BranchPicker({
   rootPath,
@@ -26,27 +27,32 @@ export function BranchPicker({
     enabled: open,
     staleTime: 30_000,
   })
-  const branches = branchQuery.data ?? []
+  // `HEAD` first: it's the default when the remote's branch shares no history
+  // with this one, and it means "just the uncommitted changes".
+  const names = useMemo(
+    () => ["HEAD", ...(branchQuery.data ?? []).map((b) => b.name)],
+    [branchQuery.data],
+  )
   const normalizedQuery = query.trim().toLowerCase()
   const visible = useMemo(
     () =>
       normalizedQuery.length === 0
-        ? branches
-        : branches.filter((b) => b.name.toLowerCase().includes(normalizedQuery)),
-    [branches, normalizedQuery],
+        ? names
+        : names.filter((name) => name.toLowerCase().includes(normalizedQuery)),
+    [names, normalizedQuery],
   )
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-      <span className="text-foreground">{head ?? "—"}</span>
+    <span className={cn(TOOLBAR_PILL, "min-w-0 shrink gap-1.5 pl-3 text-muted-foreground")}>
+      <span className="whitespace-nowrap text-foreground">{head ?? "—"}</span>
       <span className="text-muted-foreground/60">→</span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-muted/60 hover:text-foreground"
+            className={cn(TOOLBAR_PILL_BUTTON, "min-w-0 shrink gap-1 pl-1 pr-2.5 data-[state=open]:bg-accent-active")}
           >
-            <span>
+            <span className="min-w-0 truncate">
               {base ??
                 intl.formatMessage({
                   id: "review.selectBase",
@@ -56,7 +62,7 @@ export function BranchPicker({
             <ChevronDown className="h-3 w-3" />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 border-border/40 p-2">
+        <PopoverContent onCloseAutoFocus={(e) => e.preventDefault()} align="start" className="w-72 border-border/40 p-2">
           <div className="flex h-8 items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2">
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <input
@@ -79,23 +85,28 @@ export function BranchPicker({
                 <FormattedMessage id="review.noBranchesFound" defaultMessage="No branches found." />
               </div>
             ) : (
-              visible.map((b) => (
+              visible.map((name) => (
                 <button
-                  key={b.name}
+                  key={name}
                   type="button"
                   onClick={() => {
-                    onBaseChange(b.name)
+                    onBaseChange(name)
                     setOpen(false)
                     setQuery("")
                   }}
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60",
-                    b.name === base && "bg-muted/70",
+                    "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-row-hover",
+                    name === base && "bg-muted/70",
                   )}
                 >
                   <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-foreground">{b.name}</span>
-                  {b.name === base && <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />}
+                  <span className="min-w-0 flex-1 truncate text-foreground">{name}</span>
+                  {name === "HEAD" && (
+                    <span className="shrink-0 text-muted-foreground">
+                      <FormattedMessage id="filePreview.diff.uncommitted" defaultMessage="Uncommitted" />
+                    </span>
+                  )}
+                  {name === base && <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />}
                 </button>
               ))
             )}
@@ -148,7 +159,10 @@ export function CommitPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          className={cn(
+            TOOLBAR_PILL,
+            "min-w-0 shrink gap-1 pl-3 pr-2.5 text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground data-[state=open]:bg-accent-active"
+          )}
         >
           <span className="max-w-65 truncate text-foreground">
             {selected
@@ -163,7 +177,7 @@ export function CommitPicker({
           <ChevronDown className="h-3 w-3 shrink-0" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-96 border-border/40 p-2">
+      <PopoverContent onCloseAutoFocus={(e) => e.preventDefault()} align="start" className="w-96 border-border/40 p-2">
         <div className="flex h-8 items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
@@ -196,7 +210,7 @@ export function CommitPicker({
                   setQuery("")
                 }}
                 className={cn(
-                  "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60",
+                  "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-row-hover",
                   c.sha === selectedSha && "bg-muted/70",
                 )}
               >

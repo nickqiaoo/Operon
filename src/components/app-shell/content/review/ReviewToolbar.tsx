@@ -23,6 +23,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  TOOLBAR_ICON_BUTTON,
+  TOOLBAR_ICON_BUTTON_ON,
+  TOOLBAR_PILL,
+  TOOLBAR_PILL_BUTTON,
+} from "@/components/ui/toolbar-styles"
 import type { ExistingPr, PrPhase } from "../use-pr-creation"
 import type { BranchInfo, DiffScope, FileChange } from "./types"
 import { SCOPE_MESSAGES } from "./constants"
@@ -68,9 +74,11 @@ export interface ReviewToolbarProps {
 }
 
 /**
- * Codex review header: full-width bar with
+ * Codex review header: full-width row with
  * `grid-cols-[minmax(0,1fr)_auto]` semantics — left scope/stats, right action
- * chrome. Action chrome never leaves this bar (matches codex.review.header).
+ * chrome. Action chrome never leaves this row (matches codex.review.header).
+ * Built from the same capsules as the file browser's toolbar, so the two
+ * sibling tabs share one row height and one button look.
  */
 export function ReviewToolbar({
   scope,
@@ -103,19 +111,22 @@ export function ReviewToolbar({
 }: ReviewToolbarProps) {
   const intl = useIntl()
   return (
-    <div className="grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-border/50 px-3 text-xs">
-      <div className="flex min-w-0 items-center gap-2">
+    <div className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 px-2 text-xs">
+      <div className="flex min-w-0 items-center gap-1.5">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-foreground hover:bg-muted/60"
+            className={cn(
+              TOOLBAR_PILL,
+              "gap-1 pl-3 pr-2.5 font-medium text-foreground transition-colors hover:bg-accent-hover data-[state=open]:bg-accent-active"
+            )}
           >
             <span>{intl.formatMessage(SCOPE_MESSAGES[scope])}</span>
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </button>
         </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44 border-border/40">
+          <DropdownMenuContent onCloseAutoFocus={(e) => e.preventDefault()} align="start" className="w-44 border-border/40">
           <DropdownMenuRadioGroup
             value={scope}
             onValueChange={(v) => onScopeChange(v as DiffScope)}
@@ -140,7 +151,9 @@ export function ReviewToolbar({
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <DiffStats additions={totals.additions} deletions={totals.deletions} />
+      <span className="px-1">
+        <DiffStats additions={totals.additions} deletions={totals.deletions} />
+      </span>
       {scope === "branch" && (
         <BranchPicker
           rootPath={rootPath}
@@ -226,10 +239,7 @@ export function CommitSplitButton({
         })
       : prBlockedReason
 
-  const shellCn = cn(
-    "flex h-7 shrink-0 items-center overflow-hidden rounded-lg border border-border/50 bg-background/60",
-    className,
-  )
+  const shellCn = cn(TOOLBAR_PILL, className)
 
   if (prPhase != null) {
     const canStop = prPhase === "summary"
@@ -244,7 +254,7 @@ export function CommitSplitButton({
               ? intl.formatMessage({ id: "review.pr.stop", defaultMessage: "Stop" })
               : undefined
           }
-          className="inline-flex h-full items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground disabled:pointer-events-none"
+          className={cn(TOOLBAR_PILL_BUTTON, "gap-1.5 px-3 font-medium")}
         >
           <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
           <span>
@@ -274,7 +284,7 @@ export function CommitSplitButton({
         }
         disabled={!primaryIsPr && commitBlockedReason != null}
         title={showsExisting ? existingPr.title : (commitBlockedReason ?? undefined)}
-        className="inline-flex h-full items-center gap-1.5 px-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary-hover disabled:pointer-events-none disabled:text-muted-foreground/60"
+        className={cn(TOOLBAR_PILL_BUTTON, "gap-1.5 pl-3 pr-2 font-medium text-foreground")}
       >
         {primaryIsPr ? (
           <GitPullRequest className="h-3.5 w-3.5 text-muted-foreground" />
@@ -295,7 +305,6 @@ export function CommitSplitButton({
           )}
         </span>
       </button>
-      <div className="h-4 w-px bg-border/50" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -304,12 +313,15 @@ export function CommitSplitButton({
               id: "review.moreGitActions",
               defaultMessage: "More git actions",
             })}
-            className="inline-flex h-full items-center px-1.5 text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+            className={cn(
+              TOOLBAR_PILL_BUTTON,
+              "w-7 pr-0.5 data-[state=open]:bg-accent-active data-[state=open]:text-foreground"
+            )}
           >
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3 w-3" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-52">
+        <DropdownMenuContent onCloseAutoFocus={(e) => e.preventDefault()} align="end" className="min-w-52">
           <DropdownMenuItem
             onSelect={onCommit}
             disabled={commitBlockedReason != null}
@@ -397,7 +409,17 @@ export function DiffToolbarControls({
   className,
 }: DiffToolbarControlsProps) {
   return (
+    // Same order as the file browser's toolbar: icon buttons, then the split
+    // capsule at the far right where "Open ▾" sits on the Files tab.
     <div className={cn("flex shrink-0 items-center gap-0.5", className)}>
+      <FileJumpButton files={files} activePath={activePath} onSelectPath={onSelectPath} />
+      <CollapseAllDiffsButton
+        disabled={files.length === 0}
+        areAllDiffsCollapsed={areAllDiffsCollapsed}
+        onToggleAllDiffs={onToggleAllDiffs}
+      />
+      <ViewModeToggle viewMode={viewMode} onViewModeChange={onViewModeChange} />
+      <TreeToggle isTreeVisible={isTreeVisible} onToggleTree={onToggleTree} />
       <CommitSplitButton
         onCommit={onCommit}
         onCreatePr={onCreatePr}
@@ -407,16 +429,8 @@ export function DiffToolbarControls({
         existingPr={existingPr}
         prPhase={prPhase}
         onStopPr={onStopPr}
-        className="mr-1"
+        className="ml-1"
       />
-      <CollapseAllDiffsButton
-        disabled={files.length === 0}
-        areAllDiffsCollapsed={areAllDiffsCollapsed}
-        onToggleAllDiffs={onToggleAllDiffs}
-      />
-      <FileJumpButton files={files} activePath={activePath} onSelectPath={onSelectPath} />
-      <ViewModeToggle viewMode={viewMode} onViewModeChange={onViewModeChange} />
-      <TreeToggle isTreeVisible={isTreeVisible} onToggleTree={onToggleTree} />
     </div>
   )
 }
@@ -450,7 +464,7 @@ export function CollapseAllDiffsButton({
       aria-label={actionLabel}
       title={actionLabel}
       onClick={onToggleAllDiffs}
-      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+      className={TOOLBAR_ICON_BUTTON}
     >
       <ActionIcon className="h-3.5 w-3.5" />
     </button>
@@ -494,12 +508,12 @@ export function FileJumpButton({
           disabled={files.length === 0}
           aria-label={jumpToFile}
           title={jumpToFile}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          className={TOOLBAR_ICON_BUTTON}
         >
           <FileSearch className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 border-border/40 p-2">
+      <PopoverContent onCloseAutoFocus={(e) => e.preventDefault()} align="end" className="w-72 border-border/40 p-2">
         <div className="flex h-8 items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
@@ -527,7 +541,7 @@ export function FileJumpButton({
                   type="button"
                   onClick={() => selectPath(file.path)}
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/60",
+                    "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-row-hover",
                     active && "bg-muted/70",
                   )}
                 >
@@ -572,12 +586,7 @@ export function ViewModeToggle({
       aria-label={label}
       aria-pressed={viewMode === "split"}
       title={label}
-      className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
-        viewMode === "split"
-          ? "bg-muted/60 text-foreground"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-      )}
+      className={cn(TOOLBAR_ICON_BUTTON, viewMode === "split" && TOOLBAR_ICON_BUTTON_ON)}
     >
       <DiffLayoutIcon targetMode={nextViewMode} />
     </button>
@@ -591,11 +600,11 @@ export function DiffLayoutIcon({ targetMode }: { targetMode: "unified" | "split"
         aria-hidden="true"
         className="grid h-3.5 w-3.5 grid-rows-2 overflow-hidden rounded-[3px] border border-border/60 bg-background"
       >
-        <span className="relative bg-[#c84d4d]/20">
-          <span className="absolute left-0 top-0 h-full w-0.5 bg-[#c84d4d]/75" />
+        <span className="relative bg-diff-remove/20">
+          <span className="absolute left-0 top-0 h-full w-0.5 bg-diff-remove/75" />
         </span>
-        <span className="relative border-t border-border/50 bg-[#3f9348]/20">
-          <span className="absolute left-0 top-0 h-full w-0.5 bg-[#3f9348]/75" />
+        <span className="relative border-t border-border/50 bg-diff-add/20">
+          <span className="absolute left-0 top-0 h-full w-0.5 bg-diff-add/75" />
         </span>
       </span>
     )
@@ -606,11 +615,11 @@ export function DiffLayoutIcon({ targetMode }: { targetMode: "unified" | "split"
       aria-hidden="true"
       className="grid h-3.5 w-3.5 grid-cols-2 overflow-hidden rounded-[3px] border border-border/60 bg-background"
     >
-      <span className="relative bg-[#c84d4d]/20">
-        <span className="absolute left-0 top-0 h-full w-0.5 bg-[#c84d4d]/75" />
+      <span className="relative bg-diff-remove/20">
+        <span className="absolute left-0 top-0 h-full w-0.5 bg-diff-remove/75" />
       </span>
-      <span className="relative border-l border-border/50 bg-[#3f9348]/20">
-        <span className="absolute left-0 top-0 h-full w-0.5 bg-[#3f9348]/75" />
+      <span className="relative border-l border-border/50 bg-diff-add/20">
+        <span className="absolute left-0 top-0 h-full w-0.5 bg-diff-add/75" />
       </span>
     </span>
   )
@@ -640,15 +649,9 @@ export function TreeToggle({
       aria-label={treeLabel}
       aria-pressed={isTreeVisible}
       title={treeLabel}
-      className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
-        // Codex pattern: same `Folders` glyph in both states; the *button*
-        // toggles between secondary (filled) when open and ghost
-        // (hover-only) when closed.
-        isTreeVisible
-          ? "bg-muted/60 text-foreground hover:bg-muted/80"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-      )}
+      // Codex pattern: same `Folders` glyph in both states; the button is
+      // filled while the tree is open and ghost (hover-only) while closed.
+      className={cn(TOOLBAR_ICON_BUTTON, isTreeVisible && TOOLBAR_ICON_BUTTON_ON)}
     >
       <Folders className="h-3.5 w-3.5" />
     </button>
