@@ -120,7 +120,6 @@ export interface AgentBinding {
   status: BindingStatus
   imProviderInstanceId: number | null
   agentSessionId: string | null
-  teamLabel: string | null
   metadata: Record<string, unknown> | null
   createdAt: number
   updatedAt: number

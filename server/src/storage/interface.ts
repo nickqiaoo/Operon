@@ -38,9 +38,6 @@ import type {
   TaskDetail,
   TaskLabel,
   TaskListItem,
-  Team,
-  CreateTeamInput,
-  UpdateTeamInput,
   ListTasksQuery,
   CreateTaskLabelInput,
   CreateTaskInput as CreateProjectTaskInput,
@@ -62,9 +59,7 @@ import type {
 } from '../types/notification.js'
 import type {
   AgentBinding,
-  AgentInboxMessageRow,
   AgentMessageCursor,
-  CreateAgentInboxMessageInput,
   CursorStreamKind,
   ListBindingsQuery,
   UpdateAgentBindingInput,
@@ -359,13 +354,6 @@ export interface TaskStorageAdapter {
   taskCreateLabelDef(input: CreateTaskLabelInput): TaskLabel
   taskGetLabels(taskId: number): TaskLabel[]
 
-  // Teams (first-class coordination scope; inbox keys on team_id)
-  teamCreate(input: CreateTeamInput): Team
-  teamUpdate(id: number, updates: UpdateTeamInput): Team | null
-  teamDelete(id: number): boolean
-  teamList(projectId?: number): Team[]
-  teamGet(id: number): Team | null
-  taskListByTeam(teamId: number): Task[]
   taskListChildren(parentTaskId: number): Task[]
 
   // SDD artifacts (gate state + pointer to the change-branch file; §5/§10).
@@ -487,8 +475,6 @@ export interface AgentBindingStorageAdapter {
     scopeKey: string,
     agentId: number,
   ): AgentBinding | null
-  /** Reverse lookup by a binding's external session id. */
-  getBindingByAgentSessionId(agentSessionId: string): AgentBinding | null
   /** Reverse lookup by chat id (used by orchestrators on stream end). */
   getBindingByActiveChatId(chatId: number): AgentBinding | null
   /** List bindings matching the query. Indexes cover (agent, status), (project, kind, status), (im_provider). */
@@ -496,7 +482,7 @@ export interface AgentBindingStorageAdapter {
   /** Convenience: all bindings on a given scope (e.g. all agents on slack:C123). */
   listBindingsForScope(scopeKind: AgentBinding['scopeKind'], scopeKey: string): AgentBinding[]
 
-  // Cursors (unified across channel / mate / inbox streams)
+  // Cursors (unified across channel / mate streams)
   getCursor(agentId: number, streamKind: CursorStreamKind, streamKey: string): AgentMessageCursor | null
   upsertCursor(
     agentId: number,
@@ -504,23 +490,6 @@ export interface AgentBindingStorageAdapter {
     streamKey: string,
     lastReadId: number,
   ): void
-
-  // Inbox (agent-to-agent point-to-point messages)
-  insertInboxMessage(input: CreateAgentInboxMessageInput): AgentInboxMessageRow
-  getInboxMessage(id: number): AgentInboxMessageRow | null
-  /** Unread inbox messages for an agent. Reads cursor from agent_message_cursors.
-   *  When `scopeDisplayName` is provided, only returns messages whose `ref_id` matches
-   *  it or is NULL (broadcast); cursor is keyed per scope so each session has
-   *  its own read pointer. When omitted/null, falls back to legacy cross-session behavior. */
-  getUnreadInboxMessages(
-    agentId: number,
-    opts?: { scopeDisplayName?: string | null; limit?: number },
-  ): AgentInboxMessageRow[]
-  /** History query for inbox_read_history tool. */
-  listInboxMessages(
-    agentId: number,
-    opts?: { senderAgentId?: number; beforeId?: number; afterId?: number; limit?: number },
-  ): AgentInboxMessageRow[]
 }
 
 export interface MobilePairingStorageAdapter {

@@ -76,11 +76,6 @@ export interface AgentMcpContext {
    * (but not workspace_chat) and the SDD create-spec hint.
    */
   sourceChatId?: number
-  /**
-   * When set (with agentId), injects the team inbox MCP for agent-to-agent
-   * messaging. Value is the sender binding's session key.
-   */
-  inboxAgentSessionId?: string
 }
 
 export interface ChatRecordState {

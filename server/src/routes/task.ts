@@ -16,14 +16,11 @@ import {
   type SddStorage,
 } from '../services/sdd/sdd-service.js'
 import { broadcastTask } from '../services/task-events.js'
-import { ensureParentTeam } from '../services/task-team.js'
 import { onTaskEvent } from '../services/channel-bus.js'
 import { commentOnTaskAsHuman, updateTaskAsHuman } from '../services/task-human-actions.js'
 import {
   type CreateTaskInput,
   type CreateTaskLabelInput,
-  type CreateTeamInput,
-  type UpdateTeamInput,
   type ListTasksQuery,
   type Task,
   type TaskPriority,
@@ -37,7 +34,7 @@ const STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done', 'can
  * Project-level task routes (the "local Linear" board). Mounted at /api/tasks.
  * Project scope is passed via ?projectId= (query) or the request body, matching
  * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
- * list reads (tasks, labels, teams, stream) take no projectId for every project.
+ * list reads (tasks, labels, stream) take no projectId for every project.
  *
  * Dispatch (assign → run an agent in a worktree) is NOT here — it arrives in P3.
  */
@@ -96,51 +93,6 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
     return c.json({ label: storage.taskCreateLabelDef(input) })
   })
 
-  // ---- Teams (registered before /:id) ----
-
-  router.get('/teams', (c) => {
-    return c.json({ teams: storage.teamList(projectScope(c.req.query('projectId'))) })
-  })
-
-  router.post('/teams', async (c) => {
-    const input = await c.req.json<CreateTeamInput>()
-    if (!input.projectId || !input.name?.trim()) {
-      return c.json({ error: 'projectId and name required' }, 400)
-    }
-    return c.json({ team: storage.teamCreate(input) })
-  })
-
-  router.patch('/teams/:teamId', async (c) => {
-    const teamId = parseInt(c.req.param('teamId'), 10)
-    const existing = storage.teamGet(teamId)
-    if (!existing) return c.json({ error: 'Not found' }, 404)
-    const body: UpdateTeamInput =
-      (await c.req.json<UpdateTeamInput>().catch((): UpdateTeamInput => ({}))) ?? {}
-    const updates: UpdateTeamInput = {}
-    if (body.name !== undefined) {
-      const name = body.name.trim()
-      if (!name) return c.json({ error: 'name required' }, 400)
-      updates.name = name
-    }
-    if (body.color !== undefined) {
-      const color = body.color.trim()
-      if (!color) return c.json({ error: 'color required' }, 400)
-      updates.color = color
-    }
-    const team = storage.teamUpdate(teamId, updates)
-    if (!team) return c.json({ error: 'Not found' }, 404)
-    return c.json({ team })
-  })
-
-  router.delete('/teams/:teamId', (c) => {
-    const teamId = parseInt(c.req.param('teamId'), 10)
-    if (!storage.teamGet(teamId)) return c.json({ error: 'Not found' }, 404)
-    const affected = storage.taskListByTeam(teamId)
-    storage.teamDelete(teamId)
-    for (const task of affected) broadcastTask(storage, task.id)
-    return c.json({ success: true })
-  })
-
   // ---- Live board / activity feed stream (SSE) ----
   // Registered before /:id so 'stream' is never parsed as an id.
   router.get('/stream', (c) => {
@@ -182,17 +134,6 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
     const input = await c.req.json<CreateTaskInput>()
     if (!input.projectId || !input.title?.trim()) {
       return c.json({ error: 'projectId and title required' }, 400)
-    }
-    // Epic path: a sub-task inherits its parent's team so siblings coordinate.
-    // If the parent has no team yet, decomposing it forms one (named after the
-    // parent). An explicit teamId on the request wins.
-    if (input.parentTaskId && input.teamId == null) {
-      const parent = storage.taskGet(input.parentTaskId)
-      if (parent) {
-        const [teamId, parentChanged] = ensureParentTeam(storage, parent)
-        if (parentChanged) broadcastTask(storage, parent.id)
-        input.teamId = teamId
-      }
     }
     const task = storage.taskCreate(input)
     broadcastTask(storage, task.id)

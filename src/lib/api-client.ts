@@ -19,9 +19,6 @@ import type {
   TaskDetail,
   TaskLabel,
   TaskActivity,
-  Team,
-  CreateTeamInput,
-  UpdateTeamInput,
   CreateTaskInput as CreateProjectTaskInput,
   UpdateTaskInput as UpdateProjectTaskInput,
   CreateTaskLabelInput,
@@ -820,28 +817,6 @@ export function taskVerify(taskId: number, agentId: number) {
 
 export function taskLabelList(projectId: number | null) {
   return request<{ labels: TaskLabel[] }>(`/tasks/labels${projectQuery(projectId)}`)
-}
-
-export function taskTeamList(projectId: number | null) {
-  return request<{ teams: Team[] }>(`/tasks/teams${projectQuery(projectId)}`)
-}
-
-export function taskTeamCreate(input: CreateTeamInput) {
-  return request<{ team: Team }>(`/tasks/teams`, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  })
-}
-
-export function taskTeamUpdate(teamId: number, input: UpdateTeamInput) {
-  return request<{ team: Team }>(`/tasks/teams/${teamId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(input),
-  })
-}
-
-export function taskTeamDelete(teamId: number) {
-  return request<{ success: boolean }>(`/tasks/teams/${teamId}`, { method: 'DELETE' })
 }
 
 export function taskLabelCreate(input: CreateTaskLabelInput) {

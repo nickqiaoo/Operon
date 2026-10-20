@@ -30,7 +30,6 @@ export interface Task {
   priority: TaskPriority
   assignedAgentId: number | null
   parentTaskId: number | null
-  teamId: number | null
   sourceChannelId: number | null
   sourceMessageId: number | null
   branchName: string | null
@@ -70,31 +69,11 @@ export interface TaskArtifact {
   content?: string | null
 }
 
-export interface Team {
-  id: number
-  projectId: number
-  name: string
-  color: string
-  createdAt: number
-}
-
-export interface CreateTeamInput {
-  projectId: number
-  name: string
-  color?: string
-}
-
-export interface UpdateTeamInput {
-  name?: string
-  color?: string
-}
-
 export interface TaskLabel {
   id: number
   projectId: number
   name: string
   color: string
-  isTeam: boolean
   createdAt: number
 }
 
@@ -141,7 +120,6 @@ export interface TaskSurface {
 export interface TaskDetail extends Task {
   labels: TaskLabel[]
   activity: TaskActivity[]
-  team: Team | null
   children: TaskListItem[]
   surfaces: TaskSurface[]
   /** Status of the task's own execution session (null if never dispatched). */
@@ -155,7 +133,6 @@ export interface CreateTaskInput {
   priority?: TaskPriority
   assignedAgentId?: number | null
   parentTaskId?: number | null
-  teamId?: number | null
   sourceChannelId?: number | null
   sourceMessageId?: number | null
   labelIds?: number[]
@@ -171,7 +148,6 @@ export interface UpdateTaskInput {
   priority?: TaskPriority
   assignedAgentId?: number | null
   parentTaskId?: number | null
-  teamId?: number | null
   branchName?: string | null
   workspaceId?: number | null
   bindingId?: number | null
@@ -182,7 +158,6 @@ export interface CreateTaskLabelInput {
   projectId: number
   name: string
   color?: string
-  isTeam?: boolean
 }
 
 // ---- UI metadata ----

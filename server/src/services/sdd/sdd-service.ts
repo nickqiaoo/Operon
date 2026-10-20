@@ -22,7 +22,6 @@ import {
   gitShow,
 } from '../git.js'
 import { provisionWorkspace } from '../workspace-provision.js'
-import { ensureTeamNamed } from '../task-team.js'
 import { splitPlanTaskText } from '@shared/taskboard/plan-task'
 
 /** What promote/write/approve need from storage — spans channel/project/task adapters. */
@@ -416,11 +415,8 @@ export interface ParsedPlanTask {
   /** `[P]` flag = parallelizable (no deps / disjoint files) → feeds the DAG engine. */
   parallel: boolean
   /**
-   * `[C<n>]` coordination group, e.g. 'C1' — rows sharing one are dispatched into
-   * a shared team inbox so their agents can reconcile a contract that is still
-   * moving. null = works alone (the default; see SDD_WORKFLOW_PROMPT §3).
-   * Distinct from `parallel`: `[P]` is about file conflicts, `[C]` is about
-   * whether they need to talk.
+   * Legacy `[C<n>]` tag, e.g. 'C1'. It used to put rows into a shared team inbox;
+   * teams are gone, so it now only means "concurrent", exactly like `[P]`.
    */
   coordGroup: string | null
   /** AC ids this row claims, e.g. ['AC-1','AC-3']. Becomes the child's claimed_acs (§4, acceptance axis). */
@@ -613,52 +609,6 @@ export async function decomposePlan(
     storage.taskListChildren(parent.id).map((c) => c.planAnchor).filter((a): a is string => !!a),
   )
 
-  // Coordination teams (§11.3): a subtask only joins a team inbox when the plan
-  // explicitly tagged it `[C<n>]`, and only if that group has ≥2 members — a
-  // group of one has nobody to talk to. Un-grouped subtasks get no team, so
-  // their agent sees an empty peer list rather than being tempted to ask around
-  // (every peer message costs a real turn and can interrupt a running one).
-  // Counted over the whole plan, not just newly-created rows, so re-running
-  // decompose after adding a row still lands it in the right team.
-  const groupMembers = new Map<string, ParsedPlanTask[]>()
-  for (const item of parsed) {
-    if (!item.coordGroup) continue
-    const list = groupMembers.get(item.coordGroup) ?? []
-    list.push(item)
-    groupMembers.set(item.coordGroup, list)
-  }
-  // `[C<n>]` implies `[P]`, so a group's members normally share one wave. They can
-  // still be split by a barrier row written between them — and members in different
-  // waves are never alive at the same time, which makes the team worse than useless:
-  // the earlier one sees no peers, and the later one can see (and wake) a sibling
-  // that is already Done. Refuse to form such a group and say so.
-  const waveOfAnchor = new Map<string, number>()
-  planWaves(parsed).forEach((wave, i) => wave.forEach((a) => waveOfAnchor.set(a, i)))
-
-  const teamIdByGroup = new Map<string, number>()
-  for (const [group, members] of groupMembers) {
-    if (members.length < 2) continue
-    const waves = new Set(members.map((m) => waveOfAnchor.get(m.anchor)))
-    if (waves.size > 1) {
-      storage.taskAppendActivity(parent.id, {
-        kind: 'system',
-        actorType: 'system',
-        actorName: 'system',
-        body:
-          `Coordination group ${group} was ignored: its rows (${members.map((m) => m.anchor).join(', ')}) ` +
-          `land in different execution waves, so they never run at the same time. ` +
-          `Remove the barrier row between them, or drop the ${group} tag.`,
-        meta: { coordGroup: group, anchors: members.map((m) => m.anchor) },
-      })
-      continue
-    }
-    const base = parent.title.trim() || `Task #${parent.number}`
-    teamIdByGroup.set(
-      group,
-      ensureTeamNamed(storage, parent.projectId, `${base.slice(0, 55)} · ${group}`),
-    )
-  }
-
   const created: Task[] = []
   const skipped: string[] = []
   for (const item of parsed) {
@@ -671,11 +621,6 @@ export async function decomposePlan(
       title: item.title,
       description: item.description,
       parentTaskId: parent.id,
-      // Coordination group wins; otherwise inherit only an explicitly-set parent
-      // team (promote never sets one, so in practice that means no team).
-      teamId: (item.coordGroup ? teamIdByGroup.get(item.coordGroup) : undefined)
-        ?? parent.teamId
-        ?? undefined,
       sddManaged: true,
       planAnchor: item.anchor,
       claimedAcs: item.claimedAcs.length ? item.claimedAcs : null,
@@ -687,7 +632,6 @@ export async function decomposePlan(
   }
 
   if (created.length > 0) {
-    const teamed = [...teamIdByGroup.keys()].sort()
     storage.taskAppendActivity(parent.id, {
       kind: 'system',
       actorType: actor.type,
@@ -696,12 +640,10 @@ export async function decomposePlan(
       body:
         `Decomposed plan into ${created.length} subtask(s): ${created
           .map((c) => `#${c.number}`)
-          .join(', ')}` +
-        (teamed.length ? ` · coordination group(s): ${teamed.join(', ')}` : ''),
+          .join(', ')}`,
       meta: {
         decomposed: created.length,
         anchors: created.map((c) => c.planAnchor),
-        coordGroups: teamed,
       },
     })
   }

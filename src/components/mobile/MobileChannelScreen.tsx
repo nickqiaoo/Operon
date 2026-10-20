@@ -28,7 +28,6 @@ const DEFAULT_CONTROLS: TaskViewControls = {
   status: "all",
   priority: "all",
   assignee: "all",
-  team: "all",
   showArchived: false,
 }
 
@@ -65,7 +64,6 @@ export function MobileChannelScreen({
   const loadTasks = useTaskStore((s) => s.load)
   const openDetail = useTaskStore((s) => s.openDetail)
   const taskDetailOpen = useTaskStore((s) => s.detail != null)
-  const teams = useTaskStore((s) => s.teams)
   // The tasks' grouping and filters: the desktop toolbar's, kept in the header's menu here.
   const [controls, setControls] = useState<TaskViewControls>(DEFAULT_CONTROLS)
 
@@ -281,7 +279,7 @@ export function MobileChannelScreen({
   const filtering =
     projectFilter != null ||
     (section === "tasks" &&
-      (controls.status !== "all" || controls.priority !== "all" || controls.assignee !== "all" || controls.team !== "all" || controls.showArchived))
+      (controls.status !== "all" || controls.priority !== "all" || controls.assignee !== "all" || controls.showArchived))
 
   // The header's filter menu. The project narrows both halves; the rest is the
   // desktop toolbar's grouping and filters, for the tasks.
@@ -295,7 +293,6 @@ export function MobileChannelScreen({
     children,
   })
   const allProjects = intl.formatMessage({ id: "board.allProjects", defaultMessage: "All projects" })
-  const projectTeams = projectFilter == null ? teams : teams.filter((t) => t.projectId === projectFilter)
   const menuNodes: MobileMenuNode[] = [
     {
       kind: "group",
@@ -317,7 +314,7 @@ export function MobileChannelScreen({
       inline: true,
       children: [
         submenu("groupBy", intl.formatMessage({ id: "mobile.board.menu.groupBy", defaultMessage: "Group by" }), (
-          [["status", "Status"], ["priority", "Priority"], ["assignee", "Assignee"], ["team", "Team"]] as const
+          [["status", "Status"], ["priority", "Priority"], ["assignee", "Assignee"]] as const
         ).map(([key, fallback]) => choice(`groupBy:${key}`, intl.formatMessage({ id: `task.groupBy.${key}`, defaultMessage: fallback }), controls.groupBy === key))),
         submenu("status", intl.formatMessage({ id: "task.groupBy.status", defaultMessage: "Status" }), [
           choice("status:all", all("task.toolbar.allStatus", "All status"), controls.status === "all"),
@@ -332,13 +329,6 @@ export function MobileChannelScreen({
           choice("assignee:unassigned", intl.formatMessage({ id: "task.unassigned", defaultMessage: "Unassigned" }), controls.assignee === "unassigned"),
           ...agents.map((a) => choice(`assignee:${a.id}`, a.name, controls.assignee === String(a.id))),
         ]),
-        ...(projectTeams.length > 0
-          ? [submenu("team", intl.formatMessage({ id: "task.groupBy.team", defaultMessage: "Team" }), [
-              choice("team:all", all("task.toolbar.allTeams", "All teams"), controls.team === "all"),
-              choice("team:none", intl.formatMessage({ id: "mobile.board.menu.noTeam", defaultMessage: "No team" }), controls.team === "none"),
-              ...projectTeams.map((t) => choice(`team:${t.id}`, t.name, controls.team === String(t.id))),
-            ])]
-          : []),
         choice("archived", intl.formatMessage({ id: "mobile.board.menu.showArchived", defaultMessage: "Show archived" }), controls.showArchived),
       ],
     })
@@ -350,7 +340,7 @@ export function MobileChannelScreen({
     const [key, value = ""] = id.split(":")
     if (key === "project") onProjectFilterChange(value === "all" ? null : Number(value))
     else if (key === "groupBy") setControls((c) => ({ ...c, groupBy: value as GroupBy }))
-    else if (key === "status" || key === "priority" || key === "assignee" || key === "team") setControls((c) => ({ ...c, [key]: value }))
+    else if (key === "status" || key === "priority" || key === "assignee") setControls((c) => ({ ...c, [key]: value }))
     else if (key === "archived") setControls((c) => ({ ...c, showArchived: !c.showArchived }))
     else if (key === "agents") setAgentsOpen(true)
   }

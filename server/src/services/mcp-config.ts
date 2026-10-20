@@ -97,6 +97,7 @@ export function userMcpServersForCli(providerId: string): McpServersConfig {
   delete servers['chat_bridge']
   delete servers['im_bridge']
   delete servers['inbox']
+  delete servers['team_inbox']
   delete servers['task_board']
 
   // Plugin MCP servers reach every agent, not just Operon. Operon (`operon`) is skipped: its
@@ -285,22 +286,6 @@ export function buildMcpServersForCli(
     }
     console.log(
       `[MCP] ${options.sourceChatId ? 'taskboard' : 'workspace_chat/taskboard'} injected for agent ${options.agentId} project ${options.projectId}`,
-    )
-  }
-
-  // Team inbox: agent-to-agent point-to-point. Independent from workspace chat,
-  // task board, and IM chat; scope is resolved from the binding session id.
-  if (options?.agentId && options.inboxAgentSessionId) {
-    servers['team_inbox'] = {
-      type: 'http',
-      url: withApiToken(
-        `http://127.0.0.1:${appPort}/api/team-inbox-mcp` +
-        `?agentId=${options.agentId}` +
-        `&agentSessionId=${encodeURIComponent(options.inboxAgentSessionId)}`,
-      ),
-    }
-    console.log(
-      `[MCP] team_inbox injected for agent ${options.agentId} (session ${options.inboxAgentSessionId})`,
     )
   }
 

@@ -30,14 +30,11 @@ import type { Activity, ActivityCoding, ActivityStep, ActivitySummary, ApprovalI
 import { MAIN_ACTIVITY_TASK_PREFIX } from '../../../shared/assistant.js'
 import type {
   AgentBinding,
-  AgentInboxMessageRow,
   AgentMessageCursor,
   BindingChannelKind,
   BindingScopeKind,
   BindingStatus,
-  CreateAgentInboxMessageInput,
   CursorStreamKind,
-  InboxRefKind,
   ListBindingsQuery,
   UpdateAgentBindingInput,
   UpsertAgentBindingInput,
@@ -101,9 +98,6 @@ import type {
   TaskListItem,
   TaskPriority,
   TaskStatus as ProjectTaskStatus,
-  Team,
-  CreateTeamInput,
-  UpdateTeamInput,
   ListTasksQuery,
   CreateTaskLabelInput,
   CreateTaskInput as CreateProjectTaskInput,
@@ -1907,10 +1901,10 @@ export class SqliteStorage
         .prepare(
           `INSERT INTO tasks (
              project_id, number, title, description, priority,
-             assigned_agent_id, parent_task_id, team_id, source_channel_id, source_chat_id, source_message_id,
+             assigned_agent_id, parent_task_id, source_channel_id, source_chat_id, source_message_id,
              sdd_managed, spec_author_agent_id, plan_anchor, claimed_acs,
              created_by, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.projectId,
@@ -1920,7 +1914,6 @@ export class SqliteStorage
           input.priority ?? 0,
           input.assignedAgentId ?? null,
           input.parentTaskId ?? null,
-          input.teamId ?? null,
           input.sourceChannelId ?? null,
           input.sourceChatId ?? null,
           input.sourceMessageId ?? null,
@@ -2028,7 +2021,6 @@ export class SqliteStorage
       labels: this.taskGetLabels(id),
       activity: this.taskListActivity(id),
       surfaces: this.taskSurfaceList(id),
-      team: task.teamId != null ? this.teamGet(task.teamId) : null,
       children: childTasks.map((t) => ({ ...t, labels: childLabels.get(t.id) ?? [] })),
       // Status of the task's own execution binding (null if never dispatched).
       executionStatus: task.bindingId != null ? (this.getBinding(task.bindingId)?.status ?? null) : null,
@@ -2051,7 +2043,6 @@ export class SqliteStorage
     if (updates.priority !== undefined) set('priority', updates.priority)
     if (updates.assignedAgentId !== undefined) set('assigned_agent_id', updates.assignedAgentId)
     if (updates.parentTaskId !== undefined) set('parent_task_id', updates.parentTaskId)
-    if (updates.teamId !== undefined) set('team_id', updates.teamId)
     if (updates.branchName !== undefined) set('branch_name', updates.branchName)
     if (updates.workspaceId !== undefined) set('workspace_id', updates.workspaceId)
     if (updates.bindingId !== undefined) set('binding_id', updates.bindingId)
@@ -2285,30 +2276,8 @@ export class SqliteStorage
     const color = input.color ?? '#888888'
     const res = this.db
       .prepare(
-        'INSERT INTO task_label_defs (project_id, name, color, is_team, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO task_label_defs (project_id, name, color, created_at) VALUES (?, ?, ?, ?)',
       )
-      .run(input.projectId, input.name, color, input.isTeam ? 1 : 0, now)
-    return {
-      id: res.lastInsertRowid as number,
-      projectId: input.projectId,
-      name: input.name,
-      color,
-      isTeam: !!input.isTeam,
-      createdAt: now,
-    }
-  }
-
-  taskGetLabels(taskId: number): TaskLabel[] {
-    return this.taskLabelsForMany([taskId]).get(taskId) ?? []
-  }
-
-  // ---- Teams ----
-
-  teamCreate(input: CreateTeamInput): Team {
-    const now = Date.now()
-    const color = input.color ?? '#8b5cf6'
-    const res = this.db
-      .prepare('INSERT INTO teams (project_id, name, color, created_at) VALUES (?, ?, ?, ?)')
       .run(input.projectId, input.name, color, now)
     return {
       id: res.lastInsertRowid as number,
@@ -2319,47 +2288,8 @@ export class SqliteStorage
     }
   }
 
-  teamUpdate(id: number, updates: UpdateTeamInput): Team | null {
-    const existing = this.teamGet(id)
-    if (!existing) return null
-    const name = updates.name ?? existing.name
-    const color = updates.color ?? existing.color
-    this.db
-      .prepare('UPDATE teams SET name = ?, color = ? WHERE id = ?')
-      .run(name, color, id)
-    return this.teamGet(id)
-  }
-
-  teamDelete(id: number): boolean {
-    const tx = this.db.transaction((teamId: number) => {
-      this.db.prepare('UPDATE tasks SET team_id = NULL WHERE team_id = ?').run(teamId)
-      const res = this.db.prepare('DELETE FROM teams WHERE id = ?').run(teamId)
-      return res.changes > 0
-    })
-    return tx(id) as boolean
-  }
-
-  teamList(projectId?: number): Team[] {
-    const rows = (
-      projectId === undefined
-        ? this.db.prepare('SELECT * FROM teams ORDER BY name ASC').all()
-        : this.db.prepare('SELECT * FROM teams WHERE project_id = ? ORDER BY name ASC').all(projectId)
-    ) as Array<Record<string, unknown>>
-    return rows.map((r) => this.rowToTeam(r))
-  }
-
-  teamGet(id: number): Team | null {
-    const row = this.db.prepare('SELECT * FROM teams WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
-    return row ? this.rowToTeam(row) : null
-  }
-
-  taskListByTeam(teamId: number): Task[] {
-    const rows = this.db
-      .prepare('SELECT * FROM tasks WHERE team_id = ? ORDER BY number ASC')
-      .all(teamId) as Array<Record<string, unknown>>
-    return rows.map((r) => this.rowToTask(r))
+  taskGetLabels(taskId: number): TaskLabel[] {
+    return this.taskLabelsForMany([taskId]).get(taskId) ?? []
   }
 
   taskListChildren(parentTaskId: number): Task[] {
@@ -2439,16 +2369,6 @@ export class SqliteStorage
       contentRef: (row.content_ref as string | null) ?? null,
       contentSha: (row.content_sha as string | null) ?? null,
       updatedAt: row.updated_at as number,
-    }
-  }
-
-  private rowToTeam(row: Record<string, unknown>): Team {
-    return {
-      id: row.id as number,
-      projectId: row.project_id as number,
-      name: row.name as string,
-      color: row.color as string,
-      createdAt: row.created_at as number,
     }
   }
 
@@ -2725,7 +2645,6 @@ export class SqliteStorage
       priority: row.priority as TaskPriority,
       assignedAgentId: (row.assigned_agent_id as number | null) ?? null,
       parentTaskId: (row.parent_task_id as number | null) ?? null,
-      teamId: (row.team_id as number | null) ?? null,
       sourceChannelId: (row.source_channel_id as number | null) ?? null,
       sourceChatId: (row.source_chat_id as number | null) ?? null,
       sourceMessageId: (row.source_message_id as number | null) ?? null,
@@ -2749,7 +2668,6 @@ export class SqliteStorage
       projectId: row.project_id as number,
       name: row.name as string,
       color: row.color as string,
-      isTeam: !!(row.is_team as number),
       createdAt: row.created_at as number,
     }
   }
@@ -3271,7 +3189,6 @@ export class SqliteStorage
              status                  = ?,
              im_provider_instance_id = COALESCE(?, im_provider_instance_id),
              agent_session_id        = COALESCE(?, agent_session_id),
-             team_label              = COALESCE(?, team_label),
              metadata                = COALESCE(?, metadata),
              updated_at              = ?
            WHERE id = ?`
@@ -3285,7 +3202,6 @@ export class SqliteStorage
           status,
           input.imProviderInstanceId ?? null,
           input.agentSessionId ?? null,
-          input.teamLabel ?? null,
           metaJson,
           now,
           existing.id,
@@ -3297,9 +3213,9 @@ export class SqliteStorage
         `INSERT INTO agent_bindings (
            agent_id, scope_kind, scope_key, scope_display_name, channel_kind,
            project_id, workspace_id, active_chat_id, status,
-           im_provider_instance_id, agent_session_id, team_label, metadata,
+           im_provider_instance_id, agent_session_id, metadata,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.agentId,
@@ -3313,7 +3229,6 @@ export class SqliteStorage
         status,
         input.imProviderInstanceId ?? null,
         input.agentSessionId ?? null,
-        input.teamLabel ?? null,
         metaJson,
         now,
         now,
@@ -3335,7 +3250,6 @@ export class SqliteStorage
     if ('status' in updates && updates.status !== undefined) push('status', updates.status)
     if ('imProviderInstanceId' in updates) push('im_provider_instance_id', updates.imProviderInstanceId ?? null)
     if ('agentSessionId' in updates) push('agent_session_id', updates.agentSessionId ?? null)
-    if ('teamLabel' in updates) push('team_label', updates.teamLabel ?? null)
     if ('metadata' in updates) push('metadata', serializeMetadata(updates.metadata ?? null))
     if (fields.length === 0) return
     push('updated_at', Date.now())
@@ -3369,13 +3283,6 @@ export class SqliteStorage
     return row ? this.rowToAgentBinding(row) : null
   }
 
-  getBindingByAgentSessionId(agentSessionId: string): AgentBinding | null {
-    const row = this.db
-      .prepare('SELECT * FROM agent_bindings WHERE agent_session_id = ?')
-      .get(agentSessionId) as Record<string, unknown> | undefined
-    return row ? this.rowToAgentBinding(row) : null
-  }
-
   getBindingByActiveChatId(chatId: number): AgentBinding | null {
     const row = this.db
       .prepare('SELECT * FROM agent_bindings WHERE active_chat_id = ?')
@@ -3401,10 +3308,6 @@ export class SqliteStorage
     if (query.imProviderInstanceId !== undefined) {
       clauses.push('im_provider_instance_id = ?')
       params.push(query.imProviderInstanceId)
-    }
-    if (query.teamLabel !== undefined) {
-      clauses.push('team_label = ?')
-      params.push(query.teamLabel)
     }
     if (query.status !== undefined) {
       clauses.push('status = ?')
@@ -3462,91 +3365,6 @@ export class SqliteStorage
       .run(agentId, streamKind, streamKey, lastReadId, now)
   }
 
-  // ---- Inbox ----
-
-  insertInboxMessage(input: CreateAgentInboxMessageInput): AgentInboxMessageRow {
-    const now = Date.now()
-    const result = this.db
-      .prepare(
-        `INSERT INTO agent_inbox_messages (
-           recipient_agent_id, sender_agent_id, sender_name, content,
-           ref_kind, ref_id, metadata, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        input.recipientAgentId,
-        input.senderAgentId ?? null,
-        input.senderName,
-        input.content,
-        input.refKind ?? null,
-        input.refId ?? null,
-        serializeMetadata(input.metadata ?? null),
-        now,
-      )
-    return this.getInboxMessage(Number(result.lastInsertRowid))!
-  }
-
-  getInboxMessage(id: number): AgentInboxMessageRow | null {
-    const row = this.db
-      .prepare('SELECT * FROM agent_inbox_messages WHERE id = ?')
-      .get(id) as Record<string, unknown> | undefined
-    return row ? this.rowToInboxMessage(row) : null
-  }
-
-  getUnreadInboxMessages(
-    agentId: number,
-    opts: { scopeDisplayName?: string | null; limit?: number } = {},
-  ): AgentInboxMessageRow[] {
-    const scope = opts.scopeDisplayName ?? null
-    const cursorKey = scope ?? ''
-    const cursor = this.getCursor(agentId, 'inbox', cursorKey)
-    const lastReadId = cursor?.lastReadId ?? 0
-    const bounded = Math.max(1, Math.min(opts.limit ?? 50, 200))
-    const params: unknown[] = [agentId, lastReadId]
-    let scopeClause = ''
-    if (scope !== null) {
-      scopeClause = ' AND (ref_id = ? OR ref_id IS NULL)'
-      params.push(scope)
-    }
-    params.push(bounded)
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM agent_inbox_messages
-         WHERE recipient_agent_id = ? AND id > ?${scopeClause}
-         ORDER BY id ASC LIMIT ?`
-      )
-      .all(...params) as Array<Record<string, unknown>>
-    return rows.map((r) => this.rowToInboxMessage(r))
-  }
-
-  listInboxMessages(
-    agentId: number,
-    opts: { senderAgentId?: number; beforeId?: number; afterId?: number; limit?: number } = {},
-  ): AgentInboxMessageRow[] {
-    const clauses = ['recipient_agent_id = ?']
-    const params: unknown[] = [agentId]
-    if (opts.senderAgentId !== undefined) {
-      clauses.push('sender_agent_id = ?')
-      params.push(opts.senderAgentId)
-    }
-    if (opts.beforeId !== undefined) {
-      clauses.push('id < ?')
-      params.push(opts.beforeId)
-    }
-    if (opts.afterId !== undefined) {
-      clauses.push('id > ?')
-      params.push(opts.afterId)
-    }
-    const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
-    params.push(limit)
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM agent_inbox_messages WHERE ${clauses.join(' AND ')} ORDER BY id DESC LIMIT ?`
-      )
-      .all(...params) as Array<Record<string, unknown>>
-    return rows.map((r) => this.rowToInboxMessage(r))
-  }
-
   // ---- Row mappers ----
 
   private rowToAgentBinding(row: Record<string, unknown>): AgentBinding {
@@ -3563,24 +3381,9 @@ export class SqliteStorage
       status: row.status as BindingStatus,
       imProviderInstanceId: (row.im_provider_instance_id as number | null) ?? null,
       agentSessionId: (row.agent_session_id as string | null) ?? null,
-      teamLabel: (row.team_label as string | null) ?? null,
       metadata: parseMetadata(row.metadata),
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
-    }
-  }
-
-  private rowToInboxMessage(row: Record<string, unknown>): AgentInboxMessageRow {
-    return {
-      id: row.id as number,
-      recipientAgentId: row.recipient_agent_id as number,
-      senderAgentId: (row.sender_agent_id as number | null) ?? null,
-      senderName: row.sender_name as string,
-      content: row.content as string,
-      refKind: (row.ref_kind as InboxRefKind | null) ?? null,
-      refId: (row.ref_id as string | null) ?? null,
-      metadata: parseMetadata(row.metadata),
-      createdAt: row.created_at as number,
     }
   }
 

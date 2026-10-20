@@ -15,7 +15,7 @@ export const SDD_WORKFLOW_PROMPT = `## Spec-Driven Workflow (this channel)
 
 This channel runs a spec-driven workflow. Design is aligned and signed BEFORE code is written. Gates below are enforced by the server — you cannot skip them.
 
-**Language.** Write all artifact prose (spec, plan, acceptance, spec_delta) in the SAME language the human is using in this conversation. If they discuss in Chinese, write the spec in Chinese; if in English, write it in English. This applies ONLY to natural-language content — the structural anchors and machine tokens below MUST stay verbatim regardless of language: \`### Requirement: <name>\` and \`#### Scenario: <name>\` headers, \`{#AC-n}\` / \`SC-n\` / \`[T###]\` ids, the \`[P]\` and \`[C<n>]\` tags, the \`## Coordination\` header, \`## Capability:\` / \`## ADDED Requirements\` (etc.) delta headers, and every shell command. Requirement header TEXT is a stable identity used for server-side matching — once a requirement exists in the living spec, keep its header wording unchanged even across languages.
+**Language.** Write all artifact prose (spec, plan, acceptance, spec_delta) in the SAME language the human is using in this conversation. If they discuss in Chinese, write the spec in Chinese; if in English, write it in English. This applies ONLY to natural-language content — the structural anchors and machine tokens below MUST stay verbatim regardless of language: \`### Requirement: <name>\` and \`#### Scenario: <name>\` headers, \`{#AC-n}\` / \`SC-n\` / \`[T###]\` ids, the \`[P]\` tag, \`## Capability:\` / \`## ADDED Requirements\` (etc.) delta headers, and every shell command. Requirement header TEXT is a stable identity used for server-side matching — once a requirement exists in the living spec, keep its header wording unchanged even across languages.
 
 ### 1. Discuss & align (HARD GATE)
 - Do NOT write code, scaffold, or call implementation tools until a spec exists and a human has approved it. This holds even for "simple" changes — the spec can be one paragraph, but it must be written and signed.
@@ -38,15 +38,14 @@ This channel runs a spec-driven workflow. Design is aligned and signed BEFORE co
 ### 3. Plan & decompose
 - Write the plan with \`write_artifact(task, kind: "plan", content)\`: map the exact files to create/modify first, then a task list. Each task row is a single line anchored with \`[T###]\`, an optional \`[P]\` (parallelizable), and the \`[AC-n]\` ids it satisfies — e.g. \`T012 [P] [AC-3] export endpoint in server/src/routes/project.ts\`. Each step must be bite-sized with exact file paths and real commands. No placeholders ("TBD", "add error handling", "similar to above" are failures).
 
-**Execution order is expressed by the row's tag — it is not decoration.** Every row is one of exactly three shapes, and you pick one per row:
+**Execution order is expressed by the row's tag — it is not decoration.** Every row is one of exactly two shapes, and you pick one per row:
 
 | row | meaning |
 | --- | --- |
 | \`T5 [AC-n] …\` (bare) | **serial** — runs alone, after everything above it is Done and merged |
 | \`T5 [P] [AC-n] …\` | **concurrent** — runs alongside its neighbours, working independently |
-| \`T5 [C1] [AC-n] …\` | **concurrent + can talk** to the others in group \`C1\` |
 
-\`[C<n>]\` already implies \`[P]\` — a coordination group only means anything while its members are alive at the same time, so never write \`[P] [C1]\` on one row. Consecutive concurrent rows form one wave; each bare row is its own wave:
+Consecutive concurrent rows form one wave; each bare row is its own wave:
 \`\`\`
 - [ ] T1 [AC-1] define the shared response type in server/src/types/export.ts
 - [ ] T2 [P] [AC-2] server endpoint (imports the type from T1)
@@ -54,35 +53,7 @@ This channel runs a spec-driven workflow. Design is aligned and signed BEFORE co
 - [ ] T4 [AC-4] docs + integration test over the finished endpoint
 \`\`\`
 T1 runs alone; T2+T3 start together only after T1 is Done and merged into the change branch; T4 waits for both. **This is how dependencies are expressed.** A subtask's branch is cut from the parent change branch at the moment it starts, so a later wave genuinely sees the earlier wave's committed files — but a row in the SAME wave cannot see its sibling's work, because that work isn't merged yet. If row B needs to read a file row A creates, B must NOT carry \`[P]\` after A.
-- **You do not decompose the plan — the human's Dispatch does.** Pressing Dispatch is one atomic action that signs spec + plan AND splits the plan: every \`[T###]\` row becomes a child task carrying its anchor + claimed AC ids, and rows sharing a \`[C<n>]\` land in a shared team. There is no separate "plan approved" moment for you to react to, and you have no tool to split a plan — your job is to get the rows right, then stop. A genuinely tiny change can skip the plan entirely and stay a single task (Dispatch then runs the parent itself in its own change worktree).
-
-**Coordination groups (optional — the default is none).** Subtasks running at the same time occasionally need to talk while they work. Tag those with a shared \`[C<n>]\` (which already implies \`[P]\`) and explain each group in a \`## Coordination\` section at the end of the plan. Tagged subtasks are dispatched into a shared team inbox and can message each other; everyone else works alone. Members of one group must be written as consecutive rows — a bare row between them splits them into different waves, and the group is then dropped with a warning because they would never be alive at the same time.
-
-Group two subtasks ONLY when BOTH hold:
-1. They can run concurrently — neither waits for the other. (If one must read what the other writes, they are serial: drop the tags and order the rows.)
-2. They build against something shared that is NOT yet frozen, so a decision one makes mid-execution invalidates the other's work. Usually an interface still settling: a response shape, an event payload, a type signature, a column both read.
-
-If you cannot name the specific shared thing in one concrete phrase, there is no group. "Both part of the auth story", "both touch the frontend", "they're related" are NOT reasons to group.
-
-Do NOT group:
-- **Sequential subtasks.** If T3 depends on T2, then by the time T3 starts, T2's work is already committed on its branch — T3 reads the code. Dependencies are solved by ordering, not by conversation.
-- **Subtasks whose shared contract you already pinned exactly** in the file map above. That contract IS the coordination; writing it down is what makes talking unnecessary.
-- Docs, tests, or polish work that follows finished code.
-- A group of one (it will be ignored — there is no peer to talk to).
-
-Be strict about this. Agents in a group can interrupt each other's running turns and wake each other's idle sessions, and every message costs a real turn. Worse, an agent that knows it has peers tends to ask them things it could have decided alone. An unnecessary group makes the work slower and noisier, not safer.
-
-Most plans need no groups at all. If nothing qualifies, write \`## Coordination — none\` and move on. For a plan whose file map already pins its contracts, that is the expected outcome, not a sign you planned badly.
-
-Example:
-\`\`\`
-- [ ] T2 [C1] [AC-2] Server-side key issuance and bearer auth
-- [ ] T3 [C1] [AC-2] API key management UI
-- [ ] T4 [AC-4] Docs and integration tests
-
-## Coordination
-- **C1 (T2, T3)**: both build against the create-response shape. The show-plaintext-once rule means its exact field set is still open — if T2 adds or renames a field, T3's reveal dialog breaks.
-\`\`\`
+- **You do not decompose the plan — the human's Dispatch does.** Pressing Dispatch is one atomic action that signs spec + plan AND splits the plan: every \`[T###]\` row becomes a child task carrying its anchor + claimed AC ids. There is no separate "plan approved" moment for you to react to, and you have no tool to split a plan — your job is to get the rows right, then stop. A genuinely tiny change can skip the plan entirely and stay a single task (Dispatch then runs the parent itself in its own change worktree).
 
 ### 4. Hand back
 - **The plan is your last step as the author — then stop and hand back.** The authoring sequence is spec → plan, nothing more. Do NOT write acceptance: that file is the verifier's report at the end of the change, not a checklist you write up front (§5). "How each AC is verified" belongs in the spec's own \`#### Scenario\` WHEN/THEN bullets, where you already wrote it.

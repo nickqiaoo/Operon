@@ -1,6 +1,6 @@
 // User-facing notification inbox — a cross-project "attention center".
 // Collects completion / needs-you events from workspace chats and dispatched
-// tasks. Distinct from the agent-to-agent inbox (routes/team-inbox-mcp.ts).
+// tasks.
 
 export type NotificationKind =
   | 'chat_complete'

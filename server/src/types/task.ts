@@ -21,7 +21,6 @@ export interface Task {
   priority: TaskPriority
   assignedAgentId: number | null
   parentTaskId: number | null
-  teamId: number | null
   sourceChannelId: number | null
   /** SDD: promoted from a direct workspace chat (chats.id); mutually exclusive with sourceChannelId. */
   sourceChatId: number | null
@@ -77,31 +76,11 @@ export interface UpsertArtifactInput {
   contentSha?: string | null
 }
 
-export interface Team {
-  id: number
-  projectId: number
-  name: string
-  color: string
-  createdAt: number
-}
-
-export interface CreateTeamInput {
-  projectId: number
-  name: string
-  color?: string
-}
-
-export interface UpdateTeamInput {
-  name?: string
-  color?: string
-}
-
 export interface TaskLabel {
   id: number
   projectId: number
   name: string
   color: string
-  isTeam: boolean
   createdAt: number
 }
 
@@ -171,11 +150,10 @@ export interface SurfacePending {
   createdAt: number
 }
 
-/** Task plus labels, team, sub-tasks, and full activity feed — detail page shape. */
+/** Task plus labels, sub-tasks, and full activity feed — detail page shape. */
 export interface TaskDetail extends Task {
   labels: TaskLabel[]
   activity: TaskActivity[]
-  team: Team | null
   children: TaskListItem[]
   /** External surfaces (Linear issue / session, GitHub PR); empty when none. */
   surfaces: TaskSurface[]
@@ -195,7 +173,6 @@ export interface CreateTaskInput {
   priority?: TaskPriority
   assignedAgentId?: number | null
   parentTaskId?: number | null
-  teamId?: number | null
   sourceChannelId?: number | null
   sourceChatId?: number | null
   sourceMessageId?: number | null
@@ -218,7 +195,6 @@ export interface UpdateTaskInput {
   priority?: TaskPriority
   assignedAgentId?: number | null
   parentTaskId?: number | null
-  teamId?: number | null
   branchName?: string | null
   workspaceId?: number | null
   bindingId?: number | null
@@ -251,7 +227,6 @@ export interface CreateTaskLabelInput {
   projectId: number
   name: string
   color?: string
-  isTeam?: boolean
 }
 
 /** Actor performing a mutation — used to attribute auto-logged activity. */

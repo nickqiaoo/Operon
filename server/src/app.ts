@@ -56,7 +56,6 @@ import { peersRoutes } from './routes/peers.js'
 import { connectorRoutes } from './routes/connectors.js'
 import { adminIMRoutes } from './routes/admin-im.js'
 import { imChatMcpRoutes } from './routes/im-chat-mcp.js'
-import { teamInboxMcpRoutes } from './routes/team-inbox-mcp.js'
 import { initDesktopIdentity } from './services/mobile/identity.js'
 import { IMProviderRegistry } from './gateway/im/registry.js'
 import { InboundPipeline } from './gateway/im/inbound-pipeline.js'
@@ -401,7 +400,6 @@ export async function createApp(deps: AppDeps) {
   })
   app.route('/api/admin/im', adminIMRoutes(deps.storage, imRegistry))
   app.route('/api/im-chat-mcp', imChatMcpRoutes(deps.storage, imRegistry))
-  app.route('/api/team-inbox-mcp', teamInboxMcpRoutes(deps.storage))
 
   if (process.env.OPERON_ENABLE_FAKE_RUNTIME === '1' && deps.reseed) {
     const { testControlRoutes } = await import('./routes/test-control.js')

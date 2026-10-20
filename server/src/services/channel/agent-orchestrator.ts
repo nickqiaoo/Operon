@@ -404,12 +404,6 @@ async function startBindingChat(
         // Forwarded to taskboard so SDD create_spec_task derives its channel here
         // instead of trusting a (frequently wrong) model-supplied id.
         channelId: binding.scopeKind === 'app' ? Number(binding.scopeKey) : undefined,
-        // Team tasks get the inbox MCP for private peer coordination (gated on a
-        // team label, mirroring Linear's team:<name> opt-in).
-        inboxAgentSessionId:
-          binding.scopeKind === 'task' && binding.teamLabel
-            ? binding.agentSessionId ?? undefined
-            : undefined,
       },
     })
   } catch (err) {
@@ -655,16 +649,12 @@ function ensureTaskBinding(
   projectId: number,
   agentId: number,
   workspaceId: number | null,
-  teamLabel: string | null,
 ): AgentBinding {
-  // agent_session_id is the inbox routing key (unique per binding);
-  // scopeDisplayName is the peer-facing handle suffix (`name@task-N`).
   const sessionKey = `task-${taskId}-${agentId}`
   const existing = storage.getBindingByScope('task', String(taskId), agentId)
   if (existing) {
     storage.updateBinding(existing.id, {
       workspaceId: existing.workspaceId ?? workspaceId ?? undefined,
-      teamLabel: teamLabel ?? undefined,
       agentSessionId: sessionKey,
     })
     return storage.getBinding(existing.id) ?? existing
@@ -679,7 +669,6 @@ function ensureTaskBinding(
     workspaceId,
     status: 'offline',
     agentSessionId: sessionKey,
-    teamLabel: teamLabel ?? undefined,
   })
 }
 
@@ -729,11 +718,6 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
           workspaceName: `${agent.name} · task #${task.number}`,
         })
 
-  // A team on the task groups its execution agent with peers working sibling
-  // tasks (same team_id) for private inbox coordination. The binding's
-  // team_label carries the team id so peer scoping stays an exact-match.
-  const teamLabel = task.teamId != null ? `team-${task.teamId}` : null
-
   const binding = ensureTaskBinding(
     storage,
     taskId,
@@ -741,7 +725,6 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     task.projectId,
     assignedAgentId,
     workspace.id,
-    teamLabel,
   )
 
   storage.taskUpdate(
@@ -1042,7 +1025,6 @@ export async function dispatchVerifier(taskId: number, verifierAgentId: number):
     worktreeName: `verify-task-${task.number}`,
   })
 
-  // No team label: a verifier reports to the human, not to the implementers.
   const binding = ensureTaskBinding(
     storage,
     taskId,
@@ -1050,7 +1032,6 @@ export async function dispatchVerifier(taskId: number, verifierAgentId: number):
     task.projectId,
     verifierAgentId,
     workspace.id,
-    null,
   )
 
   storage.taskAppendActivity(taskId, {
@@ -1349,10 +1330,11 @@ export async function cleanupTaskWorktree(taskId: number): Promise<void> {
 }
 
 /**
- * Wake an idle/offline task binding to deliver an inbox notification — the
- * local analog of Linear's "post a comment to resurrect the session". Reuses
- * deliverToBinding: starts a fresh chat with the notification so the agent
- * reads its inbox via inbox_check. Returns false if it couldn't be woken.
+ * Wake an idle/offline task binding with a notification (e.g. a comment on its
+ * task) — the local analog of Linear's "post a comment to resurrect the
+ * session". Reuses deliverToBinding: injects into the running chat, or starts a
+ * fresh one with the notification as the prompt. Returns false if it couldn't
+ * be woken.
  */
 export async function wakeTaskBinding(bindingId: number, notification: string): Promise<boolean> {
   const storage = _storage

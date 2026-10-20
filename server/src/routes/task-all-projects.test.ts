@@ -7,12 +7,11 @@ import { taskRoutes } from "./task.js"
 
 type Storage = TaskStorageAdapter & SddStorage & NotificationStorageAdapter
 
-// The board over every project asks for its tasks, labels and teams without a projectId.
+// The board over every project asks for its tasks and labels without a projectId.
 describe("task list reads without ?projectId=", () => {
   const storage = () => ({
     taskList: vi.fn(() => []),
     taskListLabelDefs: vi.fn(() => []),
-    teamList: vi.fn(() => []),
   })
 
   it("lists every project's tasks", async () => {
@@ -30,15 +29,13 @@ describe("task list reads without ?projectId=", () => {
     expect(s.taskList).toHaveBeenCalledWith({ projectId: 4 })
   })
 
-  it("lists every project's labels and teams", async () => {
+  it("lists every project's labels", async () => {
     const s = storage()
     const routes = taskRoutes(s as unknown as Storage)
 
     await routes.request("/labels")
-    await routes.request("/teams")
 
     expect(s.taskListLabelDefs).toHaveBeenCalledWith(undefined)
-    expect(s.teamList).toHaveBeenCalledWith(undefined)
   })
 })
 

@@ -7,7 +7,6 @@ import {
   GitBranch,
   Check,
   Zap,
-  Users,
   Plus,
   Archive,
   ArchiveRestore,
@@ -67,7 +66,7 @@ interface TaskDetailViewProps {
 }
 
 /**
- * Shared inline-input look for the inline "create" fields (new label / team /
+ * Shared inline-input look for the inline "create" fields (new label /
  * sub-task). A thin transparent border that only firms up on focus — no chunky
  * gray focus ring (per the project's light-border UI guideline).
  */
@@ -417,10 +416,6 @@ export function TaskDetailView({
             {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
           </PropertyRow>
 
-          <PropertyRow label={intl.formatMessage({ id: 'task.detail.teamLabel', defaultMessage: 'Team' })}>
-            <TeamPicker detail={detail} />
-          </PropertyRow>
-
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.labelsLabel', defaultMessage: 'Labels' })}>
             <LabelPicker detail={detail} />
           </PropertyRow>
@@ -690,103 +685,6 @@ function LabelPicker({ detail }: { detail: TaskDetail }) {
               if (e.key === 'Enter') void handleCreate()
             }}
             placeholder={intl.formatMessage({ id: 'task.detail.newLabelPlaceholder', defaultMessage: 'New label…' })}
-            className={cn(INLINE_INPUT, 'flex-1 min-w-0')}
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 px-2.5 text-xs shrink-0"
-            disabled={!newName.trim()}
-            onClick={() => void handleCreate()}
-          >
-            <FormattedMessage id="common.add" defaultMessage="Add" />
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function TeamPicker({ detail }: { detail: TaskDetail }) {
-  const intl = useIntl()
-  const allTeams = useTaskStore((s) => s.teams)
-  const teams = useMemo(() => allTeams.filter((t) => t.projectId === detail.projectId), [allTeams, detail.projectId])
-  const update = useTaskStore((s) => s.update)
-  const createTeam = useTaskStore((s) => s.createTeam)
-  const [newName, setNewName] = useState('')
-
-  const setTeam = (teamId: number | null) => {
-    void update(detail.id, { teamId }).catch((error) =>
-      toastTaskError(error, 'Task update failed'),
-    )
-  }
-
-  const handleCreate = async () => {
-    const name = newName.trim()
-    if (!name) return
-    try {
-      const team = await createTeam({ projectId: detail.projectId, name })
-      setNewName('')
-      await update(detail.id, { teamId: team.id })
-    } catch (error) {
-      toastTaskError(error, 'Team update failed')
-    }
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="w-full flex items-center gap-2 min-h-8 rounded-md bg-muted/30 hover:bg-row-hover px-2 py-1.5 transition-colors">
-          {detail.team ? (
-            <>
-              <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: detail.team.color }}
-              />
-              <span className="text-sm truncate">{detail.team.name}</span>
-            </>
-          ) : (
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground/50">
-              <Users className="w-3.5 h-3.5" />
-              <FormattedMessage id="task.noTeam" defaultMessage="No team" />
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-60 p-0 overflow-hidden rounded-lg border border-border/50 bg-popover/95 backdrop-blur-sm shadow-float"
-      >
-        <div className="max-h-52 overflow-y-auto p-1">
-          <button
-            onClick={() => setTeam(null)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-row-hover text-sm transition-colors"
-          >
-            <span className="w-2 h-2 rounded-full border border-muted-foreground/40 shrink-0" />
-            <span className="flex-1 text-left"><FormattedMessage id="task.noTeam" defaultMessage="No team" /></span>
-            {detail.teamId == null && <Check className="w-3.5 h-3.5 text-primary" />}
-          </button>
-          {teams.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTeam(t.id)}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-row-hover text-sm transition-colors"
-            >
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
-              <span className="flex-1 text-left truncate">{t.name}</span>
-              {detail.teamId === t.id && <Check className="w-3.5 h-3.5 text-primary" />}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 border-t border-border/40 p-1.5">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleCreate()
-            }}
-            placeholder={intl.formatMessage({ id: 'task.detail.newTeamPlaceholder', defaultMessage: 'New team…' })}
             className={cn(INLINE_INPUT, 'flex-1 min-w-0')}
           />
           <Button

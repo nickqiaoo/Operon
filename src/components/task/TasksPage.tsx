@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Plus, List as ListIcon, LayoutGrid, Loader2, Users, Archive } from 'lucide-react'
+import { Plus, List as ListIcon, LayoutGrid, Loader2, Archive } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +14,6 @@ import { useTaskStore } from '@/stores/task-store'
 import { useChannelStore } from '@/stores/channel-store'
 import { TaskListView } from './TaskListView'
 import { TaskBoardView } from './TaskBoardView'
-import { TaskTeamsView } from './TaskTeamsView'
 import { TaskDetailView } from './TaskDetailView'
 import { NewTaskDialog } from './NewTaskDialog'
 import { StatusIcon, PriorityIcon, AssigneeAvatar, TaskScopeContext, type TaskGroup } from './task-meta'
@@ -56,8 +55,8 @@ interface TasksPageProps {
   listBottomOffset?: string
 }
 
-export type GroupBy = 'status' | 'priority' | 'assignee' | 'team'
-type ViewMode = 'list' | 'board' | 'teams'
+export type GroupBy = 'status' | 'priority' | 'assignee'
+type ViewMode = 'list' | 'board'
 
 /** The toolbar's state; `'all'` means that filter is off. */
 export interface TaskViewControls {
@@ -65,14 +64,12 @@ export interface TaskViewControls {
   status: string
   priority: string
   assignee: string
-  team: string
   showArchived: boolean
 }
 
 export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initialTaskId, onInitialTaskConsumed, toolbarEnd, initialView = 'board', showNewTask = true, controls, listTopOffset, listBottomOffset }: TasksPageProps) {
   const intl = useIntl()
   const allTasks = useTaskStore((s) => s.tasks)
-  const allTeams = useTaskStore((s) => s.teams)
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.projectsLoaded)
   const mixed = projectFilter == null
@@ -83,21 +80,12 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
     const live = new Set(projects.map((p) => p.id))
     return allTasks.filter((t) => live.has(t.projectId))
   }, [allTasks, mixed, projectFilter, projects, projectsLoaded])
-  // A board over every project names each team's project: two repos can both have a "Frontend".
-  const teams = useMemo(() => {
-    if (!mixed) return allTeams.filter((t) => t.projectId === projectFilter)
-    const nameOf = new Map(projects.map((p) => [p.id, p.name]))
-    return allTeams.map((t) => ({ ...t, name: `${nameOf.get(t.projectId) ?? '?'} / ${t.name}` }))
-  }, [allTeams, mixed, projectFilter, projects])
   const detail = useTaskStore((s) => s.detail)
   const loading = useTaskStore((s) => s.loading)
   const openDetail = useTaskStore((s) => s.openDetail)
   const closeDetail = useTaskStore((s) => s.closeDetail)
   const update = useTaskStore((s) => s.update)
   const dispatch = useTaskStore((s) => s.dispatch)
-  const createTeam = useTaskStore((s) => s.createTeam)
-  const updateTeam = useTaskStore((s) => s.updateTeam)
-  const deleteTeam = useTaskStore((s) => s.deleteTeam)
   const agents = useChannelStore((s) => s.agents)
   const sessions = useChannelStore((s) => s.sessions)
   // The board first (on a desktop): where everything stands at a glance is what the page is opened for.
@@ -107,7 +95,6 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
   const [ownStatus, setFStatus] = useState<string>('all')
   const [ownAssignee, setFAssignee] = useState<string>('all')
   const [ownPriority, setFPriority] = useState<string>('all')
-  const [ownTeam, setFTeam] = useState<string>('all')
   const [ownShowArchived, setShowArchived] = useState(false)
   // Controlled (the phone): the header's menu holds these, and it is always the list.
   const view: ViewMode = controls ? 'list' : ownView
@@ -115,7 +102,6 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
   const fStatus = controls?.status ?? ownStatus
   const fAssignee = controls?.assignee ?? ownAssignee
   const fPriority = controls?.priority ?? ownPriority
-  const fTeam = controls?.team ?? ownTeam
   const showArchived = controls?.showArchived ?? ownShowArchived
 
   // Deep-link: open the requested task's detail once. load() keeps an open detail
@@ -141,32 +127,12 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
         if (!ok) return false
       }
       if (fPriority !== 'all' && t.priority !== Number(fPriority)) return false
-      if (fTeam !== 'all') {
-        const ok = fTeam === 'none' ? t.teamId == null : t.teamId === Number(fTeam)
-        if (!ok) return false
-      }
       return true
     })
-  }, [tasks, fStatus, fAssignee, fPriority, fTeam, showArchived])
+  }, [tasks, fStatus, fAssignee, fPriority, showArchived])
 
   // Grouping axis for List sections / Board columns.
   const groups: TaskGroup[] = useMemo(() => {
-    if (groupBy === 'team') {
-      return [
-        {
-          key: 'none',
-          label: 'No team',
-          accent: <Users className="w-3.5 h-3.5 text-muted-foreground/50" />,
-        },
-        ...teams.map((t) => ({
-          key: String(t.id),
-          label: t.name,
-          accent: (
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
-          ),
-        })),
-      ]
-    }
     if (groupBy === 'priority') {
       // Urgent first (priority DESC), matching the type's documented sort order.
       return [...TASK_PRIORITIES].reverse().map((p) => ({
@@ -194,13 +160,11 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
       label: intl.formatMessage(STATUS_MESSAGES[s]),
       accent: <StatusIcon status={s} />,
     }))
-  }, [groupBy, teams, agents, sessions, intl])
+  }, [groupBy, agents, sessions, intl])
 
   const groupKeyOf = useMemo(
     () => (t: TaskListItem) => {
       switch (groupBy) {
-        case 'team':
-          return t.teamId == null ? 'none' : String(t.teamId)
         case 'priority':
           return String(t.priority)
         case 'assignee':
@@ -212,26 +176,9 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
     [groupBy],
   )
 
-  const runTaskAction = async <T,>(action: () => Promise<T>, title = 'Task action failed'): Promise<T> => {
-    try {
-      return await action()
-    } catch (error) {
-      toastTaskError(error, title)
-      throw error
-    }
-  }
-
   const onDrop = (taskId: number, key: string) => {
     const t = tasks.find((x) => x.id === taskId)
     if (!t) return
-    if (groupBy === 'team') {
-      const teamId = key === 'none' ? null : Number(key)
-      if (t.teamId === teamId) return
-      void update(taskId, { teamId }).catch((error) =>
-        toastTaskError(error, 'Task update failed'),
-      )
-      return
-    }
     if (groupBy === 'priority') {
       const priority = Number(key) as TaskPriority
       if (t.priority === priority) return
@@ -298,15 +245,9 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
               icon={<LayoutGrid className="w-3.5 h-3.5" />}
               label={intl.formatMessage({ id: 'task.toolbar.board', defaultMessage: 'Board' })}
             />
-            <ToolbarToggle
-              active={view === 'teams'}
-              onClick={() => setView('teams')}
-              icon={<Users className="w-3.5 h-3.5" />}
-              label={intl.formatMessage({ id: 'task.toolbar.teams', defaultMessage: 'Teams' })}
-            />
           </div>
 
-          {view !== 'teams' && <GroupBySelect value={groupBy} onChange={setGroupBy} />}
+          <GroupBySelect value={groupBy} onChange={setGroupBy} />
 
           {/* On phones the row scrolls, so drop the spacer that would push New Task
               off-screen; at md+ it right-aligns the filters as before. */}
@@ -323,15 +264,6 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
             onChange={setFPriority}
             allLabel={intl.formatMessage({ id: 'task.toolbar.allPriority', defaultMessage: 'All priority' })}
             options={TASK_PRIORITIES.map((p) => ({ value: String(p), label: intl.formatMessage(priorityMessage(p)) }))}
-          />
-          <FilterSelect
-            value={fTeam}
-            onChange={setFTeam}
-            allLabel={intl.formatMessage({ id: 'task.toolbar.allTeams', defaultMessage: 'All teams' })}
-            options={[
-              { value: 'none', label: 'No team' },
-              ...teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
-            ]}
           />
           <FilterSelect
             value={fAssignee}
@@ -396,7 +328,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
             topOffset={listTopOffset}
             bottomOffset={listBottomOffset}
           />
-        ) : view === 'board' ? (
+        ) : (
           <TaskBoardView
             tasks={filtered}
             agents={agents}
@@ -405,27 +337,6 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
             groupKeyOf={groupKeyOf}
             onOpen={openDetail}
             onDrop={onDrop}
-          />
-        ) : (
-          <TaskTeamsView
-            tasks={filtered}
-            teams={teams}
-            agents={agents}
-            sessions={sessions}
-            onOpen={openDetail}
-            // Teams belong to a project, so the board over every project only lists them.
-            onCreateTeam={
-              projectFilter == null
-                ? undefined
-                : (name, color) =>
-                    runTaskAction(() => createTeam({ projectId: projectFilter, name, color }), 'Team update failed')
-            }
-            onUpdateTeam={(teamId, name, color) =>
-              runTaskAction(() => updateTeam(teamId, { name, color }), 'Team update failed')
-            }
-            onDeleteTeam={(teamId) =>
-              runTaskAction(() => deleteTeam(teamId), 'Team delete failed')
-            }
           />
         )}
       </div>
@@ -489,7 +400,6 @@ function GroupBySelect({ value, onChange }: { value: GroupBy; onChange: (v: Grou
         <SelectItem value="status"><FormattedMessage id="task.groupBy.status" defaultMessage="Status" /></SelectItem>
         <SelectItem value="priority"><FormattedMessage id="task.groupBy.priority" defaultMessage="Priority" /></SelectItem>
         <SelectItem value="assignee"><FormattedMessage id="task.groupBy.assignee" defaultMessage="Assignee" /></SelectItem>
-        <SelectItem value="team"><FormattedMessage id="task.groupBy.team" defaultMessage="Team" /></SelectItem>
       </SelectContent>
     </Select>
   )

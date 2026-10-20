@@ -4,13 +4,10 @@ import { trackEvent } from '@/lib/analytics'
 import type {
   CreateTaskInput,
   CreateTaskLabelInput,
-  CreateTeamInput,
-  UpdateTeamInput,
   PreparedSubtask,
   TaskDetail,
   TaskLabel,
   TaskListItem,
-  Team,
   UpdateTaskInput,
 } from '@/types/task'
 
@@ -19,7 +16,6 @@ interface TaskStore {
   projectId: number | null
   tasks: TaskListItem[]
   labels: TaskLabel[]
-  teams: Team[]
   detail: TaskDetail | null
   loading: boolean
 
@@ -42,9 +38,6 @@ interface TaskStore {
   /** Apply a live task_upsert from the SSE stream (agent or other-window change). */
   applyUpsert: (task: TaskListItem) => void
   createLabel: (input: CreateTaskLabelInput) => Promise<TaskLabel>
-  createTeam: (input: CreateTeamInput) => Promise<Team>
-  updateTeam: (teamId: number, input: UpdateTeamInput) => Promise<Team>
-  deleteTeam: (teamId: number) => Promise<void>
   /** Create a sub-task under a parent (epic path) and refresh the parent's detail. */
   createSubtask: (parentId: number, title: string) => Promise<void>
 }
@@ -66,15 +59,10 @@ function upsertTask(tasks: TaskListItem[], task: TaskListItem): TaskListItem[] {
   return tasks.map((t) => (t.id === task.id ? task : t))
 }
 
-function sortTeams(teams: Team[]): Team[] {
-  return [...teams].sort((a, b) => a.name.localeCompare(b.name))
-}
-
 export const useTaskStore = create<TaskStore>((set, get) => ({
   projectId: null,
   tasks: [],
   labels: [],
-  teams: [],
   detail: null,
   loading: false,
 
@@ -84,14 +72,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const same = get().projectId === projectId && get().tasks.length > 0
     set((s) => ({ projectId, loading: !same, detail: same ? s.detail : null }))
     try {
-      const [{ tasks }, { labels }, { teams }] = await Promise.all([
+      const [{ tasks }, { labels }] = await Promise.all([
         // Fetch archived too — the board filters them client-side via the
         // "Show archived" toggle, so toggling needs no refetch.
         api.taskList(projectId, { includeArchived: true }),
         api.taskLabelList(projectId),
-        api.taskTeamList(projectId),
       ])
-      set({ tasks, labels, teams, loading: false })
+      set({ tasks, labels, loading: false })
     } catch {
       set({ loading: false })
     }
@@ -205,67 +192,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     return label
   },
 
-  createTeam: async (input) => {
-    const { team } = await api.taskTeamCreate(input)
-    set((s) => ({ teams: sortTeams([...s.teams, team]) }))
-    return team
-  },
-
-  updateTeam: async (teamId, input) => {
-    const prevTeams = get().teams
-    const prevDetail = get().detail
-    const existing = prevTeams.find((team) => team.id === teamId)
-    if (!existing) throw new Error('Team not found')
-    const optimistic = { ...existing, ...input }
-    set((s) => ({
-      teams: sortTeams(s.teams.map((team) => (team.id === teamId ? optimistic : team))),
-      detail:
-        s.detail?.team?.id === teamId
-          ? { ...s.detail, team: optimistic }
-          : s.detail,
-    }))
-    try {
-      const { team } = await api.taskTeamUpdate(teamId, input)
-      set((s) => ({
-        teams: sortTeams(s.teams.map((item) => (item.id === teamId ? team : item))),
-        detail: s.detail?.team?.id === teamId ? { ...s.detail, team } : s.detail,
-      }))
-      return team
-    } catch (e) {
-      set({ teams: prevTeams, detail: prevDetail })
-      throw e
-    }
-  },
-
-  deleteTeam: async (teamId) => {
-    const prevTeams = get().teams
-    const prevTasks = get().tasks
-    const prevDetail = get().detail
-    set((s) => ({
-      teams: s.teams.filter((team) => team.id !== teamId),
-      tasks: s.tasks.map((task) => (task.teamId === teamId ? { ...task, teamId: null } : task)),
-      detail:
-        s.detail?.teamId === teamId
-          ? { ...s.detail, teamId: null, team: null }
-          : s.detail,
-    }))
-    try {
-      await api.taskTeamDelete(teamId)
-    } catch (e) {
-      set({ teams: prevTeams, tasks: prevTasks, detail: prevDetail })
-      throw e
-    }
-  },
-
   createSubtask: async (parentId, title) => {
     // A sub-task lives in its parent's project, whatever the board's scope.
     const open = get().detail
     const pid = open?.id === parentId ? open.projectId : (await api.taskGet(parentId)).task.projectId
     await api.taskCreate({ projectId: pid, title, parentTaskId: parentId })
-    // Refresh the parent detail (children + possibly a freshly-formed team) and
-    // the team list (the epic path may have created one).
+    // Refresh the parent detail so the new child shows up.
     await get().openDetail(parentId)
-    const { teams } = await api.taskTeamList(get().projectId)
-    set({ teams })
   },
 }))

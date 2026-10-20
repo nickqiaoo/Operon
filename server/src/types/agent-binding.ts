@@ -34,8 +34,6 @@ export interface AgentBinding {
   imProviderInstanceId: number | null
   /** Linear-only: external Linear agentSession id. */
   agentSessionId: string | null
-  /** Linear-only: team label for inbox peer scoping. */
-  teamLabel: string | null
 
   /**
    * Scope-specific extension fields (low-frequency; hot fields are own columns).
@@ -60,7 +58,6 @@ export interface UpsertAgentBindingInput {
   status?: BindingStatus
   imProviderInstanceId?: number | null
   agentSessionId?: string | null
-  teamLabel?: string | null
   metadata?: Record<string, unknown> | null
 }
 
@@ -72,7 +69,6 @@ export interface UpdateAgentBindingInput {
   status?: BindingStatus
   imProviderInstanceId?: number | null
   agentSessionId?: string | null
-  teamLabel?: string | null
   metadata?: Record<string, unknown> | null
 }
 
@@ -81,13 +77,12 @@ export interface ListBindingsQuery {
   agentId?: number
   projectId?: number
   imProviderInstanceId?: number
-  teamLabel?: string
   status?: BindingStatus
 }
 
 // ---------- Cursor ----------
 
-export type CursorStreamKind = 'app' | 'mate' | 'inbox'
+export type CursorStreamKind = 'app' | 'mate'
 
 export interface AgentMessageCursor {
   agentId: number
@@ -97,28 +92,3 @@ export interface AgentMessageCursor {
   updatedAt: number
 }
 
-// ---------- Inbox ----------
-
-export type InboxRefKind = 'linear_issue' | 'channel_task'
-
-export interface AgentInboxMessageRow {
-  id: number
-  recipientAgentId: number
-  senderAgentId: number | null
-  senderName: string
-  content: string
-  refKind: InboxRefKind | null
-  refId: string | null
-  metadata: Record<string, unknown> | null
-  createdAt: number
-}
-
-export interface CreateAgentInboxMessageInput {
-  recipientAgentId: number
-  senderAgentId?: number | null
-  senderName: string
-  content: string
-  refKind?: InboxRefKind | null
-  refId?: string | null
-  metadata?: Record<string, unknown> | null
-}
