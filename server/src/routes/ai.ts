@@ -4,11 +4,15 @@ import * as aiService from '../services/ai.js'
 import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
 import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
+import { replaceLiveAgent, steerLiveAgent } from '../services/workflow/live-agents.js'
 import { getOrCreateWorkspaceAssistant, type SddStorage } from '../services/sdd/sdd-service.js'
+import type { AgentBindingStorageAdapter } from '../storage/interface.js'
+
+type AiRouteStorage = SddStorage & Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>
 
 /**
  * Give an interactive workspace chat the SDD promote source it needs, so the
- * agent can `create_spec_task` from a plain conversation (not just a channel).
+ * agent can `start_spec` from a plain conversation.
  * Derives the project from the chat's workspace and uses the hidden Workspace
  * Assistant as the recorded spec author. No-op unless this is a workspace-bound
  * user chat (cronjob/canvas/subagent/linear call startChat directly and never
@@ -23,9 +27,18 @@ import { getOrCreateWorkspaceAssistant, type SddStorage } from '../services/sdd/
  * sourceChatId would change the session params key and destroy the cached,
  * stateful provider session mid-chat).
  */
-function enrichChatAgentContext(payload: AiChatRequest, storage: SddStorage): void {
+function enrichChatAgentContext(payload: AiChatRequest, storage: AiRouteStorage): void {
   if (payload.agentContext) return
   if (payload.tp && payload.tp !== 'chat') return
+  // A person typing into a task's session (taking over a stuck ticket) speaks for
+  // the task's assignee, exactly as the orchestrator does when it wakes that
+  // session — otherwise the turn runs as the Workspace Assistant and the task
+  // board refuses its status change ("Only the assignee can change…").
+  const binding = payload.chatId != null ? storage.getBindingByActiveChatId(payload.chatId) : null
+  if (binding?.scopeKind === 'task' && binding.projectId != null) {
+    payload.agentContext = { agentId: binding.agentId, projectId: binding.projectId }
+    return
+  }
   const { workspaceId } = payload
   if (!workspaceId) return
   const workspace = storage.getWorkspace(workspaceId)
@@ -40,7 +53,7 @@ function enrichChatAgentContext(payload: AiChatRequest, storage: SddStorage): vo
   }
 }
 
-export function aiRoutes(storage: SddStorage) {
+export function aiRoutes(storage: AiRouteStorage) {
   const router = new Hono()
 
   // POST /api/ai/chat - returns standard AI SDK UIMessageStream response
@@ -333,6 +346,31 @@ export function aiRoutes(storage: SddStorage) {
     const index = Number.parseInt(c.req.param('index'), 10)
     if (!Number.isFinite(index)) return c.json({ error: 'Invalid agent index' }, 400)
     return c.json(aiService.getWorkflowAgentChunks(c.req.param('runId'), index))
+  })
+
+  // POST /api/ai/workflow/run/:runId/agent/:index/steer — message a sub-agent
+  // while it works, without stopping it.
+  router.post('/workflow/run/:runId/agent/:index/steer', async (c) => {
+    const index = Number.parseInt(c.req.param('index'), 10)
+    if (!Number.isFinite(index)) return c.json({ success: false, error: 'Invalid agent index' }, 400)
+    const { text } = await c.req.json<{ text?: string }>().catch(() => ({ text: undefined }))
+    const result = await steerLiveAgent(c.req.param('runId'), index, text ?? '')
+    return c.json(result, result.success ? 200 : 409)
+  })
+
+  // POST /api/ai/workflow/run/:runId/agent/:index/replace — hand a running
+  // sub-agent's work to another provider; the run carries on.
+  router.post('/workflow/run/:runId/agent/:index/replace', async (c) => {
+    const index = Number.parseInt(c.req.param('index'), 10)
+    if (!Number.isFinite(index)) return c.json({ success: false, error: 'Invalid agent index' }, 400)
+    const { providerId, modelId } = await c.req
+      .json<{ providerId?: string; modelId?: string }>()
+      .catch(() => ({ providerId: undefined, modelId: undefined }))
+    if (!providerId || !aiService.getSessionManager().hasProvider(providerId)) {
+      return c.json({ success: false, error: `Unknown agent: ${providerId ?? '(none)'}` }, 400)
+    }
+    const result = replaceLiveAgent(c.req.param('runId'), index, { providerId, modelId: modelId || undefined })
+    return c.json(result, result.success ? 200 : 409)
   })
 
   // POST /api/ai/cc/dynamic-set — switch model/mode/effort on a live session.

@@ -1,7 +1,7 @@
 import { exec } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
-import { unlink } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { appendFile, mkdir, readFile, unlink } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import simpleGit, { type StatusResult } from 'simple-git'
 import type { GitFileStatus, GitStatusSummary, GitWorktreeEntry } from '../types/git.js'
@@ -551,6 +551,28 @@ export async function getFileDiffRange(
   }
 }
 
+/** `git diff --stat base head` as git prints it; '' when there is nothing or no repo. */
+export async function getDiffStatText(repoPath: string, baseRef: string, headRef: string): Promise<string> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return ''
+  try {
+    return (await git.raw(['diff', '--stat', baseRef, headRef])).trimEnd()
+  } catch {
+    return ''
+  }
+}
+
+/** The commit HEAD points at; null outside a repo or before the first commit. */
+export async function getHeadSha(repoPath: string): Promise<string | null> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return null
+  try {
+    return (await git.revparse(['HEAD'])).trim() || null
+  } catch {
+    return null
+  }
+}
+
 /** Parent sha of a commit, or the empty-tree sha for a root commit. */
 export async function getCommitParentSha(repoPath: string, sha: string): Promise<string> {
   const git = await ensureRepo(repoPath)
@@ -565,10 +587,18 @@ export async function getCommitParentSha(repoPath: string, sha: string): Promise
 export async function commit(
   repoPath: string,
   message: string,
-  options?: { includeUnstaged?: boolean }
+  options?: {
+    includeUnstaged?: boolean
+    /** Commit only these paths (staging their unstaged changes too); anything else is left alone. */
+    paths?: string[]
+  }
 ): Promise<string> {
   const git = await ensureRepo(repoPath)
   if (!git) throw new Error('Not a git repository')
+  if (options?.paths) {
+    await git.add(['-A', '--', ...options.paths])
+    return (await git.commit(message, options.paths)).commit
+  }
   // `includeUnstaged` mirrors Codex's commit modal toggle: stage everything
   // (tracked edits + untracked) before committing. When off we commit only
   // what's already staged.
@@ -603,9 +633,16 @@ export async function mergeBranch(
 ): Promise<string> {
   const git = await ensureRepo(worktreePath)
   if (!git) throw new Error('Not a git repository')
+  let failure: unknown
   try {
     await git.raw(['merge', '--no-ff', '-m', message ?? `Merge ${branch}`, branch])
   } catch (err) {
+    failure = err
+  }
+  // simple-git only rejects when git writes to stderr. A conflicted merge reports
+  // on stdout and exits 1, so `raw` resolves — check the merge actually concluded.
+  const pending = (await git.raw(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).catch(() => '')).trim()
+  if (failure !== undefined || pending) {
     let files: string[] = []
     try {
       const out = await git.raw(['diff', '--name-only', '--diff-filter=U'])
@@ -622,7 +659,7 @@ export async function mergeBranch(
       // ignore — nothing to abort
     }
     if (files.length > 0) throw new MergeConflictError(branch, files)
-    throw err instanceof Error ? err : new Error(String(err))
+    throw failure instanceof Error ? failure : new Error(`Merge of ${branch} did not complete`)
   }
   return (await git.revparse(['HEAD'])).trim()
 }
@@ -748,6 +785,21 @@ export async function push(
     const output = error instanceof Error ? error.message : String(error)
     throw new PushError(classifyPushError(output), output)
   }
+}
+
+/**
+ * Ignore `pattern` in this checkout without touching any tracked file: it goes
+ * into git's own `info/exclude` (shared by all worktrees of the repo), so it
+ * never shows up as a change an agent might commit.
+ */
+export async function excludeLocally(repoPath: string, pattern: string): Promise<void> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return
+  const excludePath = resolve(repoPath, (await git.revparse(['--git-path', 'info/exclude'])).trim())
+  const existing = await readFile(excludePath, 'utf-8').catch(() => '')
+  if (existing.split('\n').some((line) => line.trim() === pattern)) return
+  await mkdir(dirname(excludePath), { recursive: true })
+  await appendFile(excludePath, `${existing && !existing.endsWith('\n') ? '\n' : ''}${pattern}\n`, 'utf-8')
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string | null> {

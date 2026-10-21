@@ -133,6 +133,21 @@ async function touchUsedMarker(gitDir: string): Promise<void> {
 }
 
 /** Ensure sidecar git repo exists and is properly configured */
+/**
+ * Whether this workspace has a sidecar repo at all. Reads (diffs, change lists)
+ * can arrive before any capture — e.g. a worktree the server created whose
+ * changes the UI asks about — or after the orphan sweep removed it; there is
+ * nothing to diff then, and staging into a missing gitdir would throw.
+ */
+async function hasRepo(gitDir: string): Promise<boolean> {
+  try {
+    await fs.access(path.join(gitDir, 'HEAD'))
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function ensureRepo(gitDir: string, cwd: string): Promise<void> {
   await fs.mkdir(gitDir, { recursive: true })
 
@@ -460,6 +475,7 @@ export async function restore(cwd: string, snapshotId: string): Promise<void> {
  */
 export async function diff(cwd: string, snapshotId: string): Promise<FileDiff[]> {
   const gd = gitdir(cwd)
+  if (!(await hasRepo(gd))) return []
   const release = await mutex.acquire(gd)
   try {
     await exec('git', ['--git-dir', gd, '--work-tree', cwd, 'add', '.'], { cwd })
@@ -496,6 +512,7 @@ export async function diff(cwd: string, snapshotId: string): Promise<FileDiff[]>
  */
 export async function changedFiles(cwd: string, snapshotId: string): Promise<TurnFileChange[]> {
   const gd = gitdir(cwd)
+  if (!(await hasRepo(gd))) return []
   const release = await mutex.acquire(gd)
   try {
     // Stage so untracked (new) files show up in `git diff <snapshot>`.
@@ -591,6 +608,7 @@ export interface TurnFileDiff {
  */
 export async function turnFileDiffs(cwd: string, snapshotId: string): Promise<TurnFileDiff[]> {
   const gd = gitdir(cwd)
+  if (!(await hasRepo(gd))) return []
   const release = await mutex.acquire(gd)
   try {
     await exec('git', ['--git-dir', gd, '--work-tree', cwd, 'add', '.'], { cwd })

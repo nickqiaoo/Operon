@@ -12,7 +12,7 @@ import { observePendingInputPart, clearPendingApprovals } from './chat-pending-i
 import './approval-inbox.js'
 import { resolveMcpServersForSession } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
-import { SDD_CREATE_SPEC_TASK_HINT } from '../sdd/sdd-prompt.js'
+import { SPEC_CHAT_HINT } from '../spec/prompts.js'
 import type {
   AiChatRequest,
   ChatRecordState,
@@ -152,16 +152,15 @@ export async function startChat(
   // Plugin MCP servers are merged in from the plugin store, which must be loaded first.
   await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
   const mcpServers = resolveMcpServersForSession(providerId, mcpContext)
-  // SDD hint for a direct workspace chat (sourceChatId set): a light, always-on
-  // nudge that create_spec_task exists and when to reach for it — the same hint
-  // channel agents get, delivered the same way: as session instructions, layered
-  // once onto the provider's system prompt. It used to ride every user message
+  // OperonSpec hint for a direct workspace chat (sourceChatId set): a light,
+  // always-on sizing rule and when to start a spec, delivered as session
+  // instructions layered once onto the provider's system prompt. It used to ride every user message
   // as a <system-reminder>; that block was journaled with the message by every
   // stateful provider, so a long chat carried one copy per turn. sourceChatId
   // is resolved above, before the session exists, so the hint is baked in on
   // message #1 and never changes the session's params afterwards.
   const instructions = payload.agentContext?.sourceChatId != null
-    ? [payload.instructions?.trim(), SDD_CREATE_SPEC_TASK_HINT].filter(Boolean).join('\n\n')
+    ? [payload.instructions?.trim(), SPEC_CHAT_HINT].filter(Boolean).join('\n\n')
     : payload.instructions
   const session = await sessionManager.getOrCreate(chatId, providerId, {
     cwd,

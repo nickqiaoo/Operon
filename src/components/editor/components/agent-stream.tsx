@@ -1,5 +1,5 @@
 import { useIntl } from 'react-intl';
-import { CheckIcon, LoaderIcon, WrenchIcon, XIcon } from 'lucide-react';
+import { ArrowRightLeftIcon, CheckIcon, CornerDownRightIcon, LoaderIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Shared agent-stream model ────────────────────────────────────────
@@ -17,9 +17,15 @@ export interface TrackedToolCall {
 }
 
 export interface TimelineItem {
-  kind: 'text' | 'tool';
+  /**
+   * `steer`: a message the person sent the agent while it worked.
+   * `replaced`: the person handed the work to another provider, which starts over from here.
+   */
+  kind: 'text' | 'tool' | 'steer' | 'replaced';
   text?: string;
   toolCallId?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface AgentStreamState {
@@ -110,6 +116,20 @@ export function reduceAgentChunk(prev: AgentStreamState, chunk: Record<string, u
           : [...prev.timeline, { kind: 'text', text: delta }];
       return { ...prev, text: prev.text + delta, timeline };
     }
+    case 'data-steer': {
+      const text = String((chunk.data as { text?: unknown } | undefined)?.text ?? '');
+      if (!text) return prev;
+      return { ...prev, timeline: [...prev.timeline, { kind: 'steer', text }] };
+    }
+    case 'data-replaced': {
+      const data = (chunk.data ?? {}) as { from?: unknown; to?: unknown };
+      // The stopped session's abort error is not the agent failing.
+      return {
+        ...prev,
+        error: null,
+        timeline: [...prev.timeline, { kind: 'replaced', from: String(data.from ?? ''), to: String(data.to ?? '') }],
+      };
+    }
     case 'error':
       return { ...prev, error: String(chunk.errorText ?? 'Unknown error') };
     default:
@@ -160,6 +180,28 @@ export function AgentStreamView({ state }: { state: AgentStreamState }) {
               className="whitespace-pre-wrap break-words text-xs text-foreground/75"
             >
               {item.text}
+            </div>
+          );
+        }
+        if (item.kind === 'replaced') {
+          return (
+            <div key={`replaced-${i}`} className="flex items-center gap-1.5 py-0.5 text-[11px] text-muted-foreground">
+              <ArrowRightLeftIcon className="size-3 shrink-0" />
+              {intl.formatMessage(
+                { id: 'editor.agentStream.replaced', defaultMessage: 'Handed from {from} to {to} — starting over' },
+                { from: item.from, to: item.to },
+              )}
+            </div>
+          );
+        }
+        if (item.kind === 'steer') {
+          return (
+            <div
+              key={`steer-${i}`}
+              className="flex items-start gap-1.5 rounded-md bg-row-selected px-1.5 py-1 text-xs text-foreground"
+            >
+              <CornerDownRightIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
+              <span className="whitespace-pre-wrap break-words">{item.text}</span>
             </div>
           );
         }

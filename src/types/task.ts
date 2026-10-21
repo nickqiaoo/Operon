@@ -3,6 +3,8 @@
 
 import type { BindingStatus } from './channel'
 
+import type { SpecProgress, SpecStage, SpecTicketState } from '@shared/spec'
+
 export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
 
 /** A subtask surfaced by POST /tasks/:id/prepare, for per-subtask agent assignment in the dispatch dialog. */
@@ -43,6 +45,14 @@ export interface Task {
   planAnchor: string | null
   /** SDD child: AC ids this task is responsible for; null for parents. */
   claimedAcs: string[] | null
+  /** OperonSpec parent: where the spec stands; null for every other task. */
+  specStage: SpecStage | null
+  /** OperonSpec ticket: sibling task ids that must finish before this one can start. */
+  blockedBy: number[] | null
+  /** OperonSpec parent from gate 1 on: tickets merged / total / blocked. */
+  specProgress?: SpecProgress | null
+  /** OperonSpec ticket: where it stands in its spec's build. */
+  ticketState?: SpecTicketState | null
   createdBy: TaskCreatedBy
   /** Archived-at timestamp (ms); null = active. Archived tasks are hidden from the board by default. */
   archivedAt: number | null

@@ -18,6 +18,8 @@ import {
   Sparkles,
   Settings2,
   Hash,
+  Play,
+  Ban,
 } from 'lucide-react'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { GithubIcon } from '@/components/icons/GithubIcon'
@@ -39,13 +41,14 @@ import { useTaskStore } from '@/stores/task-store'
 import { useChannelStore } from '@/stores/channel-store'
 import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime } from './task-meta'
 import { SddArtifactsPanel } from './SddArtifactsPanel'
+import { SpecPanel } from '@/components/spec/SpecPanel'
 import { STATUS_MESSAGES, ACTOR_MESSAGES, priorityMessage, activityEventMessage } from './task-i18n'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   isValidTaskTransition,
 } from '@/types/task'
-import type { TaskActivity, TaskDetail, TaskPriority, TaskStatus, PreparedSubtask, TaskSurface, UpdateTaskInput } from '@/types/task'
+import type { TaskActivity, TaskDetail, TaskListItem, TaskPriority, TaskStatus, PreparedSubtask, TaskSurface, UpdateTaskInput } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
 import type { LinearPublishOptions } from '@/types/integrations'
 import { DispatchDialog } from './DispatchDialog'
@@ -92,6 +95,18 @@ export function TaskDetailView({
   const update = useTaskStore((s) => s.update)
   const comment = useTaskStore((s) => s.comment)
   const dispatch = useTaskStore((s) => s.dispatch)
+  const resume = useTaskStore((s) => s.resume)
+  const [resuming, setResuming] = useState(false)
+  const allTasks = useTaskStore((s) => s.tasks)
+  const openDetail = useTaskStore((s) => s.openDetail)
+  const parentTask = detail.parentTaskId != null ? allTasks.find((t) => t.id === detail.parentTaskId) : undefined
+  const openBlockers = useMemo(
+    () =>
+      (detail.blockedBy ?? [])
+        .map((id) => allTasks.find((t) => t.id === id))
+        .filter((t): t is TaskListItem => t != null && t.status !== 'done' && t.status !== 'cancelled'),
+    [detail.blockedBy, allTasks],
+  )
   const setArchived = useTaskStore((s) => s.setArchived)
   const prepare = useTaskStore((s) => s.prepare)
 
@@ -176,6 +191,19 @@ export function TaskDetailView({
             <ArrowLeft className="h-4 w-4" />
             <FormattedMessage id="task.detail.back" defaultMessage="Tasks" />
           </Button>
+          {parentTask && (
+            <>
+              <button
+                type="button"
+                onClick={() => void openDetail(parentTask.id)}
+                className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
+              >
+                <TaskRef projectId={parentTask.projectId} number={parentTask.number} />
+                <span className="truncate max-w-48">{parentTask.title}</span>
+              </button>
+              <span className="text-xs text-muted-foreground/40">/</span>
+            </>
+          )}
           <TaskRef projectId={detail.projectId} number={detail.number} className="text-xs text-muted-foreground/50" />
           {sourceChannel && onOpenChannel && (
             <button
@@ -273,7 +301,7 @@ export function TaskDetailView({
           <SubtasksSection detail={detail} />
 
           {/* SDD artifacts (spec/plan/acceptance + human approval gates) */}
-          {detail.sddManaged && <SddArtifactsPanel task={detail} />}
+          {detail.specStage != null ? <SpecPanel taskId={detail.id} stage={detail.specStage} onOpenWorkspace={onOpenWorkspace} /> : detail.sddManaged && <SddArtifactsPanel task={detail} />}
 
           {/* Activity — timeline, oldest first, composer pinned at the end */}
           <div>
@@ -416,6 +444,8 @@ export function TaskDetailView({
             {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
           </PropertyRow>
 
+          <RelationRows detail={detail} />
+
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.labelsLabel', defaultMessage: 'Labels' })}>
             <LabelPicker detail={detail} />
           </PropertyRow>
@@ -488,15 +518,17 @@ export function TaskDetailView({
               Shown whenever the task is assigned and has no live execution session,
               regardless of status — so a task that reached in_progress without ever
               being dispatched (e.g. an agent flipped it via update_project_task) isn't stuck
-              with no way to launch the executor. */}
+              with no way to launch the executor. A spec parent is never dispatched
+              itself: its tickets are the work. */}
           {detail.assignedAgentId &&
+            detail.specStage == null &&
             detail.executionStatus !== 'active' &&
             detail.executionStatus !== 'idle' && (
               <Button
                 size="sm"
                 variant="secondary"
                 className="w-full gap-2 h-8"
-                disabled={dispatching}
+                disabled={dispatching || openBlockers.length > 0}
                 onClick={async () => {
                   if (detail.assignedAgentId == null) return
                   setDispatching(true)
@@ -527,6 +559,43 @@ export function TaskDetailView({
                     : intl.formatMessage({ id: 'task.detail.dispatch', defaultMessage: 'Dispatch' })}
               </Button>
             )}
+
+          {openBlockers.length > 0 && detail.executionStatus !== 'active' && detail.executionStatus !== 'idle' && (
+            <p className="text-xs text-muted-foreground">
+              <FormattedMessage
+                id="task.detail.waitingOnBlockers"
+                defaultMessage="Starts once {tasks} {count, plural, one {is} other {are}} done."
+                values={{ tasks: openBlockers.map((b) => `#${b.number}`).join(', '), count: openBlockers.length }}
+              />
+            </p>
+          )}
+
+          {/* Resume — the agent has a session here but nothing is running: Operon
+              restarted mid-turn, or the agent stopped before the task was done. */}
+          {detail.status === 'in_progress' &&
+            detail.bindingId != null &&
+            detail.executionStatus === 'idle' &&
+            agents.some((a) => a.id === detail.assignedAgentId) && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-full gap-2 h-8"
+              disabled={resuming}
+              onClick={async () => {
+                setResuming(true)
+                try {
+                  await resume(detail.id)
+                } catch (error) {
+                  toastTaskError(error, 'Resume failed')
+                } finally {
+                  setResuming(false)
+                }
+              }}
+            >
+              {resuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              <FormattedMessage id="task.detail.resume" defaultMessage="Resume" />
+            </Button>
+          )}
 
           {dispatchSubtasks && (
             <DispatchDialog
@@ -593,6 +662,69 @@ export function TaskDetailView({
         </div>
       </div>
     </div>
+  )
+}
+
+/** The siblings a sub-task still waits for, in the parent's list. Nothing once they are done. */
+function WaitingOn({ task, siblings }: { task: TaskListItem; siblings: TaskListItem[] }) {
+  const intl = useIntl()
+  if (task.status === 'done' || task.status === 'cancelled') return null
+  const open = (task.blockedBy ?? [])
+    .map((id) => siblings.find((s) => s.id === id))
+    .filter((s): s is TaskListItem => s != null && s.status !== 'done' && s.status !== 'cancelled')
+  if (open.length === 0) return null
+  const label = intl.formatMessage(
+    { id: 'task.card.blockedBy', defaultMessage: 'Blocked by {tasks}' },
+    { tasks: open.map((b) => `#${b.number}`).join(', ') },
+  )
+  return (
+    <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] text-status-warn tabular-nums" title={label}>
+      <Ban className="w-3 h-3" aria-hidden />
+      <span aria-hidden>{open.map((b) => `#${b.number}`).join(' ')}</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
+/** Where this task sits: the task it belongs to and the ones it waits for. */
+function RelationRows({ detail }: { detail: TaskDetail }) {
+  const intl = useIntl()
+  const tasks = useTaskStore((s) => s.tasks)
+  const openDetail = useTaskStore((s) => s.openDetail)
+  const parent = detail.parentTaskId != null ? tasks.find((t) => t.id === detail.parentTaskId) : undefined
+  const blockers = (detail.blockedBy ?? [])
+    .map((id) => tasks.find((t) => t.id === id))
+    .filter((t): t is TaskListItem => t != null)
+  const blocking = tasks.filter((t) => t.blockedBy?.includes(detail.id))
+  const row = (t: TaskListItem) => (
+    <button
+      key={t.id}
+      onClick={() => void openDetail(t.id)}
+      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-row-hover text-left transition-colors"
+    >
+      <StatusIcon status={t.status} />
+      <span className="text-xs text-muted-foreground/50 tabular-nums">#{t.number}</span>
+      <span className="flex-1 text-sm truncate text-foreground/90">{t.title}</span>
+    </button>
+  )
+  return (
+    <>
+      {parent && (
+        <PropertyRow label={intl.formatMessage({ id: 'task.detail.parentLabel', defaultMessage: 'Parent' })}>
+          {row(parent)}
+        </PropertyRow>
+      )}
+      {blockers.length > 0 && (
+        <PropertyRow label={intl.formatMessage({ id: 'task.detail.blockedByLabel', defaultMessage: 'Blocked by' })}>
+          <div className="space-y-0.5">{blockers.map(row)}</div>
+        </PropertyRow>
+      )}
+      {blocking.length > 0 && (
+        <PropertyRow label={intl.formatMessage({ id: 'task.detail.blockingLabel', defaultMessage: 'Blocking' })}>
+          <div className="space-y-0.5">{blocking.map(row)}</div>
+        </PropertyRow>
+      )}
+    </>
   )
 }
 
@@ -754,6 +886,7 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
             <StatusIcon status={c.status} />
             <span className="text-xs text-muted-foreground/50 tabular-nums">#{c.number}</span>
             <span className="flex-1 text-sm truncate text-foreground/90">{c.title}</span>
+            <WaitingOn task={c} siblings={children} />
           </button>
         ))}
         {adding && (

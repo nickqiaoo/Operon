@@ -84,14 +84,3 @@ Gate-1's conditions are arranged by the human pressing Dispatch (it signs spec +
 
 Re-read the current spec/plan anytime with \`get_project_task(task)\` (it returns the artifact contents from the change branch).`
 
-/**
- * Lightweight, always-on hint for a spec-capable CHANNEL agent (not the full
- * workflow — that would bloat every discussion's context). It just tells the
- * agent that create_spec_task exists and when to reach for it. The full
- * SDD_WORKFLOW_PROMPT is delivered the moment the agent actually creates the spec task (in the
- * create_spec_task result), and to task executors at their session start.
- */
-export const SDD_CREATE_SPEC_TASK_HINT = `## Project Taskboard and spec-driven changes
-Project tasks are durable, shared Taskboard records. Built-in task or todo tools belong only to the agent runtime's private execution plan; never use them to create, read, update, or track project tasks.
-
-This project supports spec-driven development. When a discussion converges into real work worth building — a feature or a non-trivial change, not a quick question or a tiny fix — first summarize the agreed decision and ask the user whether a spec-driven task should be created. The user decides who creates it; if they have not specified a creator, ask. Only call \`create_spec_task(title)\` when the user confirms that YOU should create the spec-driven task. You'll then receive the full workflow and become its spec author. Don't hand-write code for a substantial change before creating it and getting its spec signed off.`

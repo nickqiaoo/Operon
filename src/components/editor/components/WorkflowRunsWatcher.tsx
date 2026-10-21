@@ -12,7 +12,8 @@
 
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Loader2, CheckIcon, XIcon, CircleAlert as CircleAlertIcon } from 'lucide-react';
+import { Loader2, CheckIcon, XIcon, ChevronDownIcon, CircleAlert as CircleAlertIcon } from 'lucide-react';
+import { FormattedMessage } from 'react-intl';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { api, type WorkflowPendingApprovalView } from '@/lib/api';
@@ -167,14 +168,61 @@ export function WorkflowApprovalsBar({ chatId }: { chatId?: number | null }) {
   // compares snapshots by reference — without it React sees a new value on every
   // render and loops until it throws "Maximum update depth exceeded".
   const blocked = useWorkflowRunsStore(useShallow((s) => selectBlockedRuns(s, chatId)));
-  if (blocked.length === 0) return null;
+  const [expanded, setExpanded] = useState(false);
+  const items = blocked.flatMap((run) =>
+    (run.pendingApprovals ?? []).map((approval) => ({ approval, chatId: run.chatId })),
+  );
+  if (items.length === 0) return null;
 
+  // One request at a time by default: a sub-agent that asks again and again
+  // (a read per file) would otherwise stack full cards up the conversation.
+  // The rest sit as edges behind the first and open into a capped, scrolling list.
+  const [first, ...rest] = items;
+  const showAll = expanded && rest.length > 0;
   return (
-    <div className="mb-2 space-y-2">
-      {blocked.flatMap((run) =>
-        (run.pendingApprovals ?? []).map((approval) => (
-          <WorkflowApprovalPrompt key={approval.approvalId} approval={approval} chatId={run.chatId} />
-        )),
+    <div className="mb-2">
+      {showAll ? (
+        <div className="scroll-fade-y max-h-72 space-y-2 overflow-y-auto">
+          {items.map(({ approval, chatId: runChatId }) => (
+            <WorkflowApprovalPrompt key={approval.approvalId} approval={approval} chatId={runChatId} />
+          ))}
+        </div>
+      ) : (
+        <div className={cn('relative', rest.length > 0 && 'mb-3')}>
+          {rest.length > 1 && (
+            <div
+              aria-hidden
+              className="absolute inset-x-6 -bottom-3 h-full rounded-lg border border-status-warn/15 bg-status-warn/5"
+            />
+          )}
+          {rest.length > 0 && (
+            <div
+              aria-hidden
+              className="absolute inset-x-3 -bottom-1.5 h-full rounded-lg border border-status-warn/20 bg-status-warn/10"
+            />
+          )}
+          <div className="relative bg-background rounded-lg">
+            <WorkflowApprovalPrompt approval={first.approval} chatId={first.chatId} />
+          </div>
+        </div>
+      )}
+      {rest.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
+        >
+          <ChevronDownIcon className={cn('h-3.5 w-3.5 transition-transform', showAll && 'rotate-180')} />
+          {showAll ? (
+            <FormattedMessage id="workflow.approvals.collapse" defaultMessage="Show one at a time" />
+          ) : (
+            <FormattedMessage
+              id="workflow.approvals.more"
+              defaultMessage="{count, plural, one {# more request} other {# more requests}}"
+              values={{ count: rest.length }}
+            />
+          )}
+        </button>
       )}
     </div>
   );

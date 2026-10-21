@@ -32,6 +32,8 @@ interface TaskStore {
     assignedAgentId: number,
     subtaskAgents?: Record<number, number>,
   ) => Promise<void>
+  /** Wake a dispatched task's agent in its existing session to carry on. */
+  resume: (taskId: number) => Promise<void>
   /** SDD parent: auto approve+decompose, returning its subtasks (empty = tiny change). */
   prepare: (taskId: number) => Promise<PreparedSubtask[]>
   comment: (taskId: number, body: string) => Promise<void>
@@ -155,6 +157,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   dispatch: async (taskId, assignedAgentId, subtaskAgents) => {
     const { task } = await api.taskDispatch(taskId, assignedAgentId, subtaskAgents)
+    set((s) => ({
+      tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
+      detail: s.detail && s.detail.id === taskId ? task : s.detail,
+    }))
+  },
+
+  resume: async (taskId) => {
+    const { task } = await api.taskResume(taskId)
     set((s) => ({
       tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
       detail: s.detail && s.detail.id === taskId ? task : s.detail,

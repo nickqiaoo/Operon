@@ -22,6 +22,7 @@ import { TaskBoardService, type ToolResult } from '../services/agent-comm/task-b
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import type { ArtifactKind, TaskPriority, TaskStatus } from '../types/task.js'
 import { TASKBOARD_TOOLS } from '@shared/taskboard/tools'
+import { START_SPEC_DESCRIPTION } from '../services/spec/prompts.js'
 
 const TOOLS: Tool[] = [
   {
@@ -107,17 +108,21 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: TASKBOARD_TOOLS.createSpecTask,
-    description:
-      'SDD: create a spec-driven task from a converged channel discussion. Use ONLY once the design is agreed and the user confirms YOU should create it. If the user has not named the creator, ask first. The channel is taken from your current session — you do not (and cannot) pass it. Creates the task + change branch and makes YOU the spec author; then write the spec with write_artifact.',
+    name: TASKBOARD_TOOLS.startSpec,
+    description: START_SPEC_DESCRIPTION,
     inputSchema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Task title' },
-        message_id: { type: 'number', description: 'Source message id (optional)' },
-        description: { type: 'string', description: 'Short summary (optional)' },
+        title: { type: 'string', description: 'Short title of the change, in the user\'s language' },
+        brief: { type: 'string', description: 'The brief, markdown, with exactly the sections listed in the description' },
+        candidates: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional: provider ids the user named (e.g. ["codex","opencode"]). They become the design candidates AND the only agents used for every other role (judge, builder, explorers, implementers, reviewers), plus this chat\'s own. When the user also named a model for one, write it as "provider:model" (e.g. "opencode:opencode/deepseek-v4.1-flash-free") and every seat of that provider runs on it. Omit to use the defaults — two candidates from different families and a judge from a third.',
+        },
       },
-      required: ['title'],
+      required: ['title', 'brief'],
     },
     // Declared so the structured half of the result is a contract, not a payload
     // a client may or may not bother to carry. `taskId` is the database id, which
@@ -131,8 +136,22 @@ const TOOLS: Tool[] = [
         taskNumber: { type: 'number', description: 'Per-project number shown as #N' },
         title: { type: 'string' },
         sddManaged: { type: 'boolean' },
+        spec: { type: 'boolean' },
       },
       required: ['kind', 'taskId', 'taskNumber'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.answerSpecQuestions,
+    description:
+      "OperonSpec: pass the user's answers to the questions a spec's design run brought back (they arrive in this chat as a workflow result). Use only with the user's own answers — never answer for them. The design then continues in the background.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        answers: { type: 'string', description: "The user's answers, numbered to match the questions" },
+      },
+      required: ['task', 'answers'],
     },
   },
   {
@@ -201,11 +220,10 @@ function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Serv
     { capabilities: { tools: {} } },
   )
 
-  // All board tools — including the SDD tools (create_spec_task / write_artifact /
-  // sediment_change) — are always listed. SDD is not a pre-armed channel "mode": a
-  // discussion becomes a spec-driven change when the agent calls create_spec_task,
-  // and every SDD tool validates its own context at call time (promote needs a
-  // channel session; write/sediment need an existing spec task + author).
+  // All board tools are always listed. A spec is not a pre-armed "mode": a chat
+  // becomes one when its agent calls start_spec, and every spec tool validates its
+  // own context at call time (start_spec needs a workspace chat; the SDD v2
+  // write/sediment tools need an existing v2 task).
   // Decomposition is deliberately NOT an agent tool: approve+decompose happen
   // atomically when the human presses Dispatch (routes/task.ts prepareSddParent),
   // so an agent could never call it at a moment when it would succeed.
@@ -269,15 +287,20 @@ async function dispatch(
     case TASKBOARD_TOOLS.commentProjectTask:
       return board.comment(Number(args.task), String(args.body), agentId)
 
-    case TASKBOARD_TOOLS.createSpecTask:
-      return board.createSpecTask(
+    case TASKBOARD_TOOLS.startSpec:
+      return board.startSpec(
         {
-          messageId: typeof args.message_id === 'number' ? args.message_id : null,
-          title: String(args.title),
-          description: typeof args.description === 'string' ? args.description : undefined,
+          title: String(args.title ?? ''),
+          brief: String(args.brief ?? ''),
+          candidates: Array.isArray(args.candidates)
+            ? args.candidates.filter((c): c is string => typeof c === 'string')
+            : undefined,
         },
         agentId,
       )
+
+    case TASKBOARD_TOOLS.answerSpecQuestions:
+      return board.answerSpecQuestions(Number(args.task), String(args.answers ?? ''))
 
     case TASKBOARD_TOOLS.writeArtifact:
       return board.writeArtifact(
@@ -312,19 +335,16 @@ export function taskBoardMcpRoutes(storage: TaskBoardRouteStorage) {
       console.warn('[task-board-mcp] Missing X-Agent-Id/X-Project-Id (header or query)')
       return c.json({ error: 'agentId and projectId required (header or query)' }, 400)
     }
-    // SDD promote source, derived from the session URL (set by mcp-config), never
-    // from a model argument — this is how create_spec_task knows what it's turning
-    // into a spec-driven task. channelId = a channel agent; sourceChatId = a direct
-    // user chat (mutually exclusive). Both absent for non-promotable sessions
-    // (task execution, IM).
-    const channelIdRaw = c.req.query('channelId')
-    const channelId = channelIdRaw ? parseInt(channelIdRaw, 10) : undefined
+    // The session's own chat, from the URL mcp-config built — never a model
+    // argument. It is how start_spec knows which conversation to report back to;
+    // absent for channel agents, task execution and IM sessions.
+    const channelId = c.req.query('channelId')
     const sourceChatIdRaw = c.req.query('sourceChatId')
     const sourceChatId = sourceChatIdRaw ? parseInt(sourceChatIdRaw, 10) : undefined
     console.log(
       `[task-board-mcp] agent=${agentId} ${c.req.method} channel=${channelId ?? '-'} chat=${sourceChatId ?? '-'}`,
     )
-    const board = new TaskBoardService(storage, projectId, channelId, sourceChatId)
+    const board = new TaskBoardService(storage, projectId, sourceChatId)
     return serveMcpOverHono(c, buildTaskBoardMcpServer(board, agentId))
   }
 

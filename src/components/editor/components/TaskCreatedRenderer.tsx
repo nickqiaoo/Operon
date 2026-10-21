@@ -7,9 +7,11 @@ import {
   TASK_CREATING_TOOLS,
   asCreatedTaskRef,
   bareToolName,
+  isOperonSpecTool,
   isSpecTaskTool,
   type CreatedTaskRef,
 } from '@shared/taskboard/tools'
+import { SpecChatCard } from '@/components/spec/SpecChatCard'
 import { unwrapToolEnvelope, type ToolPartLike } from './toolName'
 
 /**
@@ -160,6 +162,12 @@ export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
   // asks the same question, so such a call stays in the collapsed work group and
   // never reaches this renderer; the guard is here to keep the two in step.
   if (number === null) return null
+
+  // An OperonSpec gets the live card with its design gate. It needs the task id,
+  // which only the structured payload carries; without it, the plain card below.
+  if (ref && (ref.spec || isOperonSpecTool(toolNameOf(toolPart)))) {
+    return <SpecChatCard taskId={ref.taskId} taskNumber={ref.taskNumber} title={title} />
+  }
 
   const open = async () => {
     if (busy) return

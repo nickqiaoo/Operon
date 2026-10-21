@@ -119,6 +119,34 @@ import type {
   UnreadCounts,
 } from '../types/notification.js'
 import { runMigrations } from './migrate.js'
+import { isSpecStage, type CreateSpecRunInput, type SpecRun, type SpecRunConfig, type SpecProgress, type SpecRuling, type SpecStage, type SpecTicketBuild, type SpecTicketState, type UpdateSpecRunInput } from '../types/spec.js'
+
+/**
+ * A task row plus the stage of its spec run, if it has one. Every query that
+ * hands a task to the board or the detail page selects through this, so a spec
+ * parent always arrives knowing where it stands (`specStage`).
+ */
+const TASK_COLUMNS =
+  't.*, (SELECT sr.stage FROM spec_runs sr WHERE sr.task_id = t.id) AS spec_stage' +
+  // A spec parent's build, counted for its card; a ticket's own place in its parent's build.
+  ", (SELECT json_array(" +
+  "(SELECT count(*) FROM json_each(sr.build) WHERE json_extract(value, '$.state') = 'merged'), " +
+  'json_array_length(sr.build), ' +
+  "(SELECT count(*) FROM json_each(sr.build) WHERE json_extract(value, '$.state') = 'blocked')" +
+  ') FROM spec_runs sr WHERE sr.task_id = t.id AND json_array_length(sr.build) > 0) AS spec_progress' +
+  ", (SELECT json_extract(b.value, '$.state') FROM spec_runs sr, json_each(sr.build) b " +
+  "WHERE sr.task_id = t.parent_task_id AND json_extract(b.value, '$.taskId') = t.id) AS ticket_state"
+
+function specProgressOf(raw: unknown): SpecProgress | null {
+  if (typeof raw !== 'string') return null
+  const [merged, total, blocked] = JSON.parse(raw) as number[]
+  return { merged, total, blocked }
+}
+
+const TICKET_STATES: readonly SpecTicketState[] = ['waiting', 'building', 'reviewing', 'merged', 'blocked']
+function isTicketState(value: unknown): value is SpecTicketState {
+  return typeof value === 'string' && (TICKET_STATES as readonly string[]).includes(value)
+}
 
 interface ChatRow {
   id: number
@@ -1902,9 +1930,9 @@ export class SqliteStorage
           `INSERT INTO tasks (
              project_id, number, title, description, priority,
              assigned_agent_id, parent_task_id, source_channel_id, source_chat_id, source_message_id,
-             sdd_managed, spec_author_agent_id, plan_anchor, claimed_acs,
+             sdd_managed, spec_author_agent_id, plan_anchor, claimed_acs, blocked_by,
              created_by, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.projectId,
@@ -1921,6 +1949,7 @@ export class SqliteStorage
           input.specAuthorAgentId ?? null,
           input.planAnchor ?? null,
           input.claimedAcs ? JSON.stringify(input.claimedAcs) : null,
+          input.blockedBy?.length ? JSON.stringify(input.blockedBy) : null,
           input.createdBy ?? 'human',
           now,
           now,
@@ -1946,7 +1975,7 @@ export class SqliteStorage
   }
 
   taskGet(id: number): Task | null {
-    const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
+    const row = this.db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks t WHERE t.id = ?`).get(id) as
       | Record<string, unknown>
       | undefined
     return row ? this.rowToTask(row) : null
@@ -1954,7 +1983,7 @@ export class SqliteStorage
 
   taskGetByNumber(projectId: number, number: number): Task | null {
     const row = this.db
-      .prepare('SELECT * FROM tasks WHERE project_id = ? AND number = ?')
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks t WHERE t.project_id = ? AND t.number = ?`)
       .get(projectId, number) as Record<string, unknown> | undefined
     return row ? this.rowToTask(row) : null
   }
@@ -1967,7 +1996,7 @@ export class SqliteStorage
    */
   taskGetByWorkspace(workspaceId: number): Task | null {
     const row = this.db
-      .prepare('SELECT * FROM tasks WHERE workspace_id = ? ORDER BY id DESC LIMIT 1')
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks t WHERE t.workspace_id = ? ORDER BY t.id DESC LIMIT 1`)
       .get(workspaceId) as Record<string, unknown> | undefined
     return row ? this.rowToTask(row) : null
   }
@@ -2003,7 +2032,7 @@ export class SqliteStorage
     }
     const rows = this.db
       .prepare(
-        `SELECT t.* FROM tasks t ${join} WHERE ${where.join(' AND ')} ORDER BY t.priority DESC, t.project_id ASC, t.number ASC`,
+        `SELECT ${TASK_COLUMNS} FROM tasks t ${join} WHERE ${where.join(' AND ')} ORDER BY t.priority DESC, t.project_id ASC, t.number ASC`,
       )
       .all(...args) as Array<Record<string, unknown>>
     const tasks = rows.map((r) => this.rowToTask(r))
@@ -2297,6 +2326,72 @@ export class SqliteStorage
       .prepare('SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY number ASC')
       .all(parentTaskId) as Array<Record<string, unknown>>
     return rows.map((r) => this.rowToTask(r))
+  }
+
+  // ---- OperonSpec runs ----
+
+  specRunGet(taskId: number): SpecRun | null {
+    const row = this.db.prepare('SELECT * FROM spec_runs WHERE task_id = ?').get(taskId) as
+      | Record<string, unknown>
+      | undefined
+    return row ? this.rowToSpecRun(row) : null
+  }
+
+  specRunCreate(input: CreateSpecRunInput): SpecRun {
+    const now = Date.now()
+    this.db
+      .prepare('INSERT INTO spec_runs (task_id, stage, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(input.taskId, input.stage, JSON.stringify(input.config), now, now)
+    return this.specRunGet(input.taskId)!
+  }
+
+  specRunUpdate(taskId: number, updates: UpdateSpecRunInput): SpecRun | null {
+    const sets: string[] = ['updated_at = ?']
+    const values: unknown[] = [Date.now()]
+    if (updates.stage !== undefined) { sets.push('stage = ?'); values.push(updates.stage) }
+    if (updates.config !== undefined) { sets.push('config = ?'); values.push(JSON.stringify(updates.config)) }
+    if (updates.designSha !== undefined) { sets.push('design_sha = ?'); values.push(updates.designSha) }
+    if (updates.workflowRunId !== undefined) {
+      sets.push('workflow_run_id = ?')
+      values.push(updates.workflowRunId)
+      // A new run joins the spec's history rather than replacing it.
+      if (updates.workflowRunId !== null) {
+        sets.push("run_ids = CASE WHEN EXISTS (SELECT 1 FROM json_each(run_ids) WHERE value = ?) THEN run_ids ELSE json_insert(run_ids, '$[#]', ?) END")
+        values.push(updates.workflowRunId, updates.workflowRunId)
+      }
+    }
+    if (updates.build !== undefined) { sets.push('build = ?'); values.push(JSON.stringify(updates.build)) }
+    if (updates.rulings !== undefined) { sets.push('rulings = ?'); values.push(JSON.stringify(updates.rulings)) }
+    if (updates.error !== undefined) { sets.push('error = ?'); values.push(updates.error) }
+    this.db.prepare(`UPDATE spec_runs SET ${sets.join(', ')} WHERE task_id = ?`).run(...values, taskId)
+    return this.specRunGet(taskId)
+  }
+
+  specRunList(stages: readonly SpecStage[]): SpecRun[] {
+    if (stages.length === 0) return []
+    const rows = this.db
+      .prepare(`SELECT * FROM spec_runs WHERE stage IN (${stages.map(() => '?').join(', ')})`)
+      .all(...stages) as Array<Record<string, unknown>>
+    return rows.map((r) => this.rowToSpecRun(r))
+  }
+
+  private rowToSpecRun(row: Record<string, unknown>): SpecRun {
+    const stage = row.stage
+    return {
+      taskId: row.task_id as number,
+      // An unknown stage can only come from a newer app version's write; treat it
+      // as stopped so the run is visible and resumable rather than a crash.
+      stage: isSpecStage(stage) ? stage : 'stopped',
+      config: JSON.parse(row.config as string) as SpecRunConfig,
+      designSha: (row.design_sha as string | null) ?? null,
+      workflowRunId: (row.workflow_run_id as string | null) ?? null,
+      runIds: JSON.parse((row.run_ids as string | undefined) ?? '[]') as string[],
+      build: JSON.parse((row.build as string | undefined) ?? '[]') as SpecTicketBuild[],
+      rulings: JSON.parse((row.rulings as string | undefined) ?? '[]') as SpecRuling[],
+      error: (row.error as string | null) ?? null,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+    }
   }
 
   // ---- SDD artifacts (gate state + pointer to change-branch file; §5/§10) ----
@@ -2655,6 +2750,10 @@ export class SqliteStorage
       specAuthorAgentId: (row.spec_author_agent_id as number | null) ?? null,
       planAnchor: (row.plan_anchor as string | null) ?? null,
       claimedAcs: row.claimed_acs ? (JSON.parse(row.claimed_acs as string) as string[]) : null,
+      specStage: isSpecStage(row.spec_stage) ? row.spec_stage : null,
+      blockedBy: row.blocked_by ? (JSON.parse(row.blocked_by as string) as number[]) : null,
+      specProgress: specProgressOf(row.spec_progress),
+      ticketState: isTicketState(row.ticket_state) ? row.ticket_state : null,
       createdBy: row.created_by as Task['createdBy'],
       archivedAt: (row.archived_at as number | null) ?? null,
       createdAt: row.created_at as number,

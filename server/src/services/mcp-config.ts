@@ -279,7 +279,7 @@ export function buildMcpServersForCli(
         `http://127.0.0.1:${appPort}/api/task-board-mcp?agentId=${options.agentId}&projectId=${options.projectId}` +
         // SDD promote source — derived server-side, never model-supplied. A channel
         // agent carries channelId; a direct user chat carries sourceChatId (mutually
-        // exclusive). The SDD tools are always exposed; create_spec_task is the trigger.
+        // exclusive). start_spec needs the chat: its results are delivered back there.
         (options.channelId ? `&channelId=${options.channelId}` : '') +
         (options.sourceChatId ? `&sourceChatId=${options.sourceChatId}` : ''),
       ),

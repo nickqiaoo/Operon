@@ -35,7 +35,7 @@ interface AgentBuffer {
 }
 
 export class RunEventWriter {
-  private readonly runId: string
+  readonly runId: string
   private readonly buffers = new Map<number, AgentBuffer>()
   private timer: ReturnType<typeof setTimeout> | null = null
   private disposed = false

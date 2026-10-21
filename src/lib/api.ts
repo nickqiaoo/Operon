@@ -483,6 +483,12 @@ export const api = {
     ),
   aiWorkflowStop: (runId: string) =>
     post<{ stopped: boolean }>(`/ai/workflow/run/${encodeURIComponent(runId)}/stop`, {}),
+  /** Message a sub-agent while it works; it takes the text in without stopping. */
+  aiWorkflowAgentSteer: (runId: string, agentIndex: number, text: string) =>
+    post<{ success: true }>(`/ai/workflow/run/${encodeURIComponent(runId)}/agent/${agentIndex}/steer`, { text }),
+  /** Hand a running sub-agent's work to another provider; the same prompt starts over there. */
+  aiWorkflowAgentReplace: (runId: string, agentIndex: number, providerId: string) =>
+    post<{ success: true }>(`/ai/workflow/run/${encodeURIComponent(runId)}/agent/${agentIndex}/replace`, { providerId }),
   externalAgentFeedUrl: async () => `${await getBaseUrl()}/external-agents/feed`,
   aiWorkflowFeedUrl: async (limit = 30) => `${await getBaseUrl()}/ai/workflow/feed?limit=${limit}`,
   /** A sub-agent's steps, from its transcript — for background agents' cards. */
@@ -1204,6 +1210,7 @@ export const api = {
   taskSetArchived: httpClient.taskSetArchived,
   taskComment: httpClient.taskComment,
   taskDispatch: httpClient.taskDispatch,
+  taskResume: httpClient.taskResume,
   taskPrepare: httpClient.taskPrepare,
   taskVerify: httpClient.taskVerify,
   taskStreamUrl: httpClient.taskStreamUrl,
@@ -1215,6 +1222,15 @@ export const api = {
   inboxArchive: httpClient.inboxArchive,
   inboxSetViewing: httpClient.inboxSetViewing,
   inboxStreamUrl: httpClient.inboxStreamUrl,
+  // --- OperonSpec ---
+  specGet: httpClient.specGet,
+  specApprove: httpClient.specApprove,
+  specReapprove: httpClient.specReapprove,
+  specRequestChanges: httpClient.specRequestChanges,
+  specAnswer: httpClient.specAnswer,
+  specResume: httpClient.specResume,
+  specSignOff: httpClient.specSignOff,
+  specStop: httpClient.specStop,
   // --- Spec-Driven Development (SDD) ---
   sddArtifacts: (taskId: number) =>
     softGet<{ artifacts?: TaskArtifact[]; error?: string }>(`/sdd/tasks/${taskId}/artifacts`),

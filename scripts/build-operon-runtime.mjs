@@ -106,6 +106,11 @@ await Promise.all([
     { recursive: true },
   ),
   cp(
+    path.join(root, "packages", "spec", "skill"),
+    path.join(outdir, "skills", "spec"),
+    { recursive: true },
+  ),
+  cp(
     path.join(root, "server", "src", "services", "connectors", "connectors.index.json"),
     path.join(outdir, "connectors", "connectors.index.json"),
   ),

@@ -11,10 +11,12 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { Archive } from 'lucide-react'
-import { FormattedMessage } from 'react-intl'
+import { Archive, Ban, CornerDownRight } from 'lucide-react'
+import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
+import { useTaskStore } from '@/stores/task-store'
 import { PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, type TaskGroup } from './task-meta'
+import { SpecCardBadge } from '@/components/spec/spec-shared'
 import type { TaskListItem } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
 
@@ -159,7 +161,20 @@ interface CardBodyProps {
 }
 
 function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
+  const intl = useIntl()
   const archived = task.archivedAt != null
+  const tasks = useTaskStore((s) => s.tasks)
+  const parent = task.parentTaskId != null ? tasks.find((t) => t.id === task.parentTaskId) : undefined
+  const openBlockers = (task.blockedBy ?? [])
+    .map((id) => tasks.find((t) => t.id === id))
+    .filter((t): t is TaskListItem => t != null && t.status !== 'done' && t.status !== 'cancelled')
+  // Spelled out for the title tooltip and screen readers; the card shows only the numbers.
+  const subtaskOf =
+    parent && intl.formatMessage({ id: 'task.card.subtaskOf', defaultMessage: 'Sub-task of #{number}' }, { number: parent.number })
+  const blockedBy = intl.formatMessage(
+    { id: 'task.card.blockedBy', defaultMessage: 'Blocked by {tasks}' },
+    { tasks: openBlockers.map((b) => `#${b.number}`).join(', ') },
+  )
   return (
     <div
       className={cn(
@@ -172,7 +187,27 @@ function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
       <div className="flex items-center gap-2">
         <PriorityIcon priority={task.priority} />
         <TaskRef projectId={task.projectId} number={task.number} className="text-[11px] text-muted-foreground/50" />
+        {parent && (
+          <span
+            className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground/50 tabular-nums"
+            title={subtaskOf}
+          >
+            <CornerDownRight className="w-3 h-3" aria-hidden />
+            <span aria-hidden>#{parent.number}</span>
+            <span className="sr-only">{subtaskOf}</span>
+          </span>
+        )}
+        {openBlockers.length > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-[11px] text-status-warn tabular-nums" title={blockedBy}>
+            <Ban className="w-3 h-3" aria-hidden />
+            <span aria-hidden>{openBlockers.map((b) => `#${b.number}`).join(' ')}</span>
+            <span className="sr-only">{blockedBy}</span>
+          </span>
+        )}
         {archived && <Archive className="w-3 h-3 text-muted-foreground/50" />}
+        <span className="ml-auto">
+          <SpecCardBadge task={task} />
+        </span>
       </div>
       {/* anywhere: a path or file name in the title has no spaces to break at, and would run out of the card. */}
       <div className="text-sm text-foreground/90 leading-snug line-clamp-3 [overflow-wrap:anywhere]">{task.title}</div>

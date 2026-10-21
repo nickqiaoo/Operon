@@ -298,12 +298,28 @@ export async function runAgentTurnText(
    */
   onChunk?: (chunk: UIMessageChunk) => void,
 ): Promise<string> {
-  const { preparedParts, done } = runAgentTurn(session, input)
+  // A turn can fail without an error part: codex, for one, reports a failed turn
+  // (a usage limit, say) as a finish with reason "error" and writes the error as
+  // the reply's text, so it reads well in a chat. As a result it is a failure.
+  let finishedWithError = false
   let streamError: string | undefined
   const noteError = (error: unknown): string => {
     streamError = error instanceof Error ? error.message : String(error ?? 'stream error')
     return streamError
   }
+  const { preparedParts, done } = runAgentTurn(session, {
+    ...input,
+    onPart: (part) => {
+      input.onPart?.(part)
+      if (part.type === 'finish' && isErrorFinish((part as { finishReason?: unknown }).finishReason)) finishedWithError = true
+      // An error the provider reports as a part (opencode's session.error: an
+      // upstream 429, say). With `onChunk` it is only rendered into the UI stream —
+      // createUIMessageStream's onError fires for a throwing execute, not for an
+      // error chunk — so without this the turn "succeeded" with no text and the
+      // caller could only say it produced no output.
+      if (part.type === 'error') noteError((part as { error?: unknown }).error)
+    },
+  })
   const drained = (async () => {
     try {
       if (onChunk) {
@@ -326,5 +342,12 @@ export async function runAgentTurnText(
   const { message } = await done
   await drained
   if (streamError) throw new Error(streamError)
-  return extractAssistantText(message)
+  const text = extractAssistantText(message)
+  if (finishedWithError) throw new Error(text.trim() || 'The turn ended with an error')
+  return text
+}
+
+function isErrorFinish(reason: unknown): boolean {
+  if (reason === 'error') return true
+  return typeof reason === 'object' && reason != null && (reason as { unified?: unknown }).unified === 'error'
 }

@@ -9,6 +9,8 @@ export type NotificationKind =
   | 'task_done'
   | 'task_failed'
   | 'sdd_gate'
+  | 'spec_gate'
+  | 'spec_blocked'
   | 'cron_done'
   | 'workflow_approval'
   | 'device_paired'

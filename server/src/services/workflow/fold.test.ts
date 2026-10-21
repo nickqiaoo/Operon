@@ -102,6 +102,22 @@ describe('foldRunView', () => {
     expect(settled?.status).toBe('stopped')
   })
 
+  it('ends the agents a run settled under', () => {
+    // The app quit mid-run: the startup sweep settles the run, and an agent left
+    // "running" would spin on every card that shows it.
+    const view = foldRunView(
+      RUN,
+      log(
+        started,
+        { kind: 'agent', index: 0, patch: { label: 'done one', state: 'done' } },
+        { kind: 'agent', index: 1, patch: { label: 'cut off', state: 'running', startedAt: 1_100 } },
+        { kind: 'settled', status: 'interrupted', endedAt: 1_500 },
+      ),
+    )
+    expect(view?.agents.map((a) => a.state)).toEqual(['done', 'error'])
+    expect(view?.agents[1]).toMatchObject({ error: 'Ended before it finished', endedAt: 1_500 })
+  })
+
   it('resolves an approval by id and ignores duplicates', () => {
     const approval = { approvalId: 'ap1', agentId: 'a', toolName: 'Bash', requestedAt: 1 }
     const view = foldRunView(

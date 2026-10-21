@@ -147,6 +147,27 @@ describe('detached sub-agent approvals', () => {
     expect(session.decisions).toHaveLength(1)
   })
 
+  it('answers what the caller settles itself, and surfaces only the rest', () => {
+    vi.useFakeTimers()
+    const session = fakeSession()
+    const surfaced: DetachedApprovalRequest[] = []
+    const { onPart } = watchDetachedApprovals({
+      session,
+      parentChatId: 7,
+      agentId: 'opencode-a1',
+      onRequest: (r) => surfaced.push(r),
+      autoAllow: (tool) => tool === 'read',
+    })
+
+    onPart(approvalPart('ap-read', 'read'))
+    onPart(approvalPart('ap-edit', 'edit'))
+
+    // The read is allowed on the spot and never shown; the edit still waits for a human.
+    expect(session.decisions).toEqual([{ id: 'ap-read', decision: { type: 'allow' } }])
+    expect(surfaced.map((r) => r.approvalId)).toEqual(['ap-edit'])
+    expect(resolveDetachedApproval(7, 'ap-read', { type: 'allow' })).toBe(false)
+  })
+
   it('forwards a question and delivers the typed answers back', () => {
     const session = fakeSession()
     const { onPart } = watchDetachedApprovals({ session, parentChatId: 7, agentId: 'codex-a1' })

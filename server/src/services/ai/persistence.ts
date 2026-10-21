@@ -1,7 +1,20 @@
 import type { UIMessage } from 'ai'
 import type { AiChatRequest, ChatRecordState } from './types.js'
+import type { ChatMetadata } from '../../types/chat.js'
 import { getChatStorage, getChatHistoryService } from './state.js'
 import { findLatestUserMessage } from './helpers.js'
+
+/**
+ * Remember the permission mode the person last sent with. The composer holds it
+ * client-side and sends it on every turn, but turns the server starts on the
+ * chat's behalf (a workflow reporting back, an external agent's result, an IM
+ * reply) only have the chat row to go on — without this they fell back to the
+ * provider's default mode, e.g. stopping for approvals in a Full Access chat.
+ */
+const persistModeId = (chatId: number, modeId: string | undefined, metadata: ChatMetadata | undefined): void => {
+  if (!modeId || chatId <= 0 || metadata?.modeId === modeId) return
+  getChatStorage()?.updateChatMetadata(chatId, { ...metadata, modeId })
+}
 
 export const prepareChatRecord = (
   payload: AiChatRequest,
@@ -51,6 +64,7 @@ export const prepareChatRecord = (
       if (!saveResult.success) {
         throw new Error(`Chat history conflict while appending user message (chatId=${chatId}, revision=${saveResult.revision})`)
       }
+      persistModeId(chatId, payload.modeId, meta.metadata)
       return {
         chatId,
         baseRevision: saveResult.revision,
@@ -81,6 +95,7 @@ export const prepareChatRecord = (
   }
 
   chatId = createResult.chatId
+  persistModeId(chatId, payload.modeId, undefined)
   return {
     chatId,
     baseRevision: createResult.revision,

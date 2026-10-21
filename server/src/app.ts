@@ -20,6 +20,9 @@ import { agentRoutes, agentBindingRoutes, channelRoutes } from './routes/channel
 import { taskRoutes } from './routes/task.js'
 import { notificationRoutes } from './routes/notifications.js'
 import { sddRoutes } from './routes/sdd.js'
+import { specRoutes } from './routes/spec.js'
+import { sweepInterruptedSpecRuns } from './services/spec/spec-service.js'
+import { sweepBuilds } from './services/spec/build-run.js'
 import { workspaceChatMcpRoutes } from './routes/workspace-chat-mcp.js'
 import { taskBoardMcpRoutes } from './routes/task-board-mcp.js'
 import { mcpRoutes } from './routes/mcp.js'
@@ -82,6 +85,7 @@ import { getComputerUseConfig, initComputerUseConfig } from './services/computer
 import { syncChromeUseSkill } from './services/chrome-use-skill.js'
 import { syncSiteAdaptersSkill } from './services/site-adapters-skill.js'
 import { syncExternalAgentSkill } from './services/external-agent-skill.js'
+import { syncSpecSkill } from './services/spec-skill.js'
 import { syncWorkflowSkill } from './services/workflow-skill.js'
 import { getChromeUseConfig, initChromeUseConfig } from './services/chrome-use-config.js'
 import type { SqliteStorage } from './storage/sqlite.js'
@@ -126,6 +130,7 @@ export async function createApp(deps: AppDeps) {
     for (const [label, sync] of [
       ['Workflow', () => syncWorkflowSkill(true)],
       ['ExternalAgent', () => syncExternalAgentSkill(true)],
+      ['OperonSpec', () => syncSpecSkill(true)],
       ['Browser Use', () => syncBrowserUseSkill(getBrowserUseConfig().enabled)],
       ['Computer Use', () => syncComputerUseSkill(getComputerUseConfig().enabled)],
       ['Chrome', () => syncChromeUseSkill(getChromeUseConfig().enabled)],
@@ -164,7 +169,19 @@ export async function createApp(deps: AppDeps) {
   } catch (error) {
     console.warn(`[workflow] startup sweep failed: ${error instanceof Error ? error.message : String(error)}`)
   }
+  // Same for OperonSpec: a spec whose design run died with the process is marked
+  // stopped, so its card offers Resume instead of spinning forever.
+  try {
+    const swept = sweepInterruptedSpecRuns(deps.storage)
+    if (swept > 0) console.log(`[spec] startup sweep: marked ${swept} interrupted spec run(s) stopped`)
+  } catch (error) {
+    console.warn(`[spec] startup sweep failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
   initOrchestrator(deps.storage)
+  // A spec's build is a chain of events, not a process; a restart only cuts
+  // short the reviews that were running. Pick them (and the frontier) up once
+  // the providers are ready.
+  setTimeout(() => void sweepBuilds(deps.storage), 15_000).unref?.()
   if (__ENABLE_MEMORY__) {
     initEmbeddingConfig(deps.storage)
   }
@@ -279,6 +296,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/tasks', taskRoutes(deps.storage))
   app.route('/api/inbox', notificationRoutes(deps.storage))
   app.route('/api/sdd', sddRoutes(deps.storage))
+  app.route('/api/spec', specRoutes(deps.storage))
   app.route('/api/workspace-chat-mcp', workspaceChatMcpRoutes(deps.storage))
   app.route('/api/task-board-mcp', taskBoardMcpRoutes(deps.storage))
   // node_repl (Computer Use / Browser Use). Lazy: it forks a kernel per session,

@@ -8,11 +8,13 @@ import { wakeUpBindingForRecovery } from './agent-orchestrator.js'
 type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStorageAdapter
 
 /**
- * On app startup: reset all non-offline app bindings to idle.
+ * On app startup: reset all non-offline app and task bindings to idle — no
+ * session survives a restart, so 'active' is stale.
  * Bindings are NOT auto-woken — users can wake them manually or recoverAgentSessions resumes those with unread.
+ * An interrupted task is resumed from its page (POST /tasks/:id/resume).
  */
 export function resetAgentSessionsOnStartup(storage: Storage): void {
-  const bindings = storage.listBindings({ scopeKind: 'app' })
+  const bindings = [...storage.listBindings({ scopeKind: 'app' }), ...storage.listBindings({ scopeKind: 'task' })]
   for (const binding of bindings) {
     if (binding.status === 'offline') continue
     storage.updateBinding(binding.id, { status: 'idle' })

@@ -13,6 +13,7 @@ import type {
 } from '../types/channel.js'
 import { getUserId, getSelectedNodeId } from './web-auth.js'
 import type { Notification, UnreadCounts } from '@/types/notification'
+import type { SpecView } from '@shared/spec'
 import type {
   Task,
   TaskListItem,
@@ -690,6 +691,51 @@ export function taskSetArchived(taskId: number, archived: boolean) {
   })
 }
 
+// ---- OperonSpec ----
+
+export function specGet(taskId: number) {
+  return request<{ spec: SpecView }>(`/spec/${taskId}`)
+}
+
+/** `implementers`: provider to build each ticket, by ticket key; the rest get the spec's default. */
+export function specApprove(taskId: number, implementers?: Record<string, string>, concurrency?: number) {
+  return request<{ tickets: Array<{ id: number; number: number; title: string }> }>(`/spec/${taskId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ implementers, concurrency }),
+  })
+}
+
+export function specReapprove(taskId: number) {
+  return request<{ ok: true }>(`/spec/${taskId}/reapprove`, { method: 'POST', body: '{}' })
+}
+
+export function specRequestChanges(taskId: number, input: { comment: string; redesign?: boolean }) {
+  return request<{ runId: string }>(`/spec/${taskId}/request-changes`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function specAnswer(taskId: number, answers: string) {
+  return request<{ runId: string }>(`/spec/${taskId}/answers`, {
+    method: 'POST',
+    body: JSON.stringify({ answers }),
+  })
+}
+
+/** Gate 2: merge the built and reviewed change into the default branch. */
+export function specSignOff(taskId: number) {
+  return request<{ ok: true }>(`/spec/${taskId}/signoff`, { method: 'POST', body: '{}' })
+}
+
+export function specResume(taskId: number) {
+  return request<{ runId: string | null }>(`/spec/${taskId}/resume`, { method: 'POST', body: '{}' })
+}
+
+export function specStop(taskId: number) {
+  return request<{ stopped: boolean }>(`/spec/${taskId}/stop`, { method: 'POST', body: '{}' })
+}
+
 export function taskGet(taskId: number) {
   return request<{ task: TaskDetail }>(`/tasks/${taskId}`)
 }
@@ -789,6 +835,11 @@ export function taskDispatch(
     method: 'POST',
     body: JSON.stringify({ assignedAgentId, subtaskAgents }),
   })
+}
+
+/** Pick a dispatched task back up in its own agent session (after a restart, or a turn that stopped short). */
+export function taskResume(taskId: number) {
+  return request<{ woke: boolean; task: TaskDetail }>(`/tasks/${taskId}/resume`, { method: 'POST' })
 }
 
 /**

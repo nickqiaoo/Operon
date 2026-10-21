@@ -20,6 +20,7 @@ import type {
   CreateCanvasRunOptions,
 } from '../types/canvas-workflow.js'
 import type { Project, Workspace, CreateProjectInput, CreateWorkspaceInput } from '../types/project.js'
+import type { CreateSpecRunInput, SpecRun, SpecStage, UpdateSpecRunInput } from '../types/spec.js'
 import type {
   Agent,
   Channel,
@@ -355,6 +356,13 @@ export interface TaskStorageAdapter {
   taskGetLabels(taskId: number): TaskLabel[]
 
   taskListChildren(parentTaskId: number): Task[]
+
+  // OperonSpec runs (one per spec parent task; artifacts are change-branch files)
+  specRunGet(taskId: number): SpecRun | null
+  specRunCreate(input: CreateSpecRunInput): SpecRun
+  specRunUpdate(taskId: number, updates: UpdateSpecRunInput): SpecRun | null
+  /** Runs whose stage is one of `stages`. */
+  specRunList(stages: readonly SpecStage[]): SpecRun[]
 
   // SDD artifacts (gate state + pointer to the change-branch file; §5/§10).
   // The canonical content lives in git, not here: these rows only carry status/ref/sha.

@@ -20,6 +20,7 @@ import {
   type WorkflowProgressEvent as FwProgressEvent,
 } from 'operon-agents'
 import { runProviderAgent } from './dispatch.js'
+import { parseJsonReply } from './json-reply.js'
 import type { RunEventWriter } from './writer.js'
 
 /**
@@ -119,18 +120,6 @@ function jsonInstruction(schema: unknown): string {
   )
 }
 
-function tryParseJson(text: string): unknown {
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```\s*$/i, '')
-    .trim()
-  try {
-    return JSON.parse(cleaned)
-  } catch {
-    return undefined
-  }
-}
 
 export function buildHooks(
   ctx: WorkflowRunContext,
@@ -222,6 +211,11 @@ export function buildHooks(
         // log — which is both how a watcher sees it live and how it is still
         // there tomorrow. There is no separate "recording" path any more.
         onChunk: (chunk) => writer.chunk(index, chunk),
+        live: { runId: writer.runId, index },
+        onReplaced: (from, to) => {
+          writer.emit({ kind: 'agent', index, patch: { agentType: to.providerId, modelId: to.modelId } })
+          writer.emit({ kind: 'log', message: `${agentId}: handed from ${from.providerId} to ${to.providerId}` })
+        },
         signal,
       })
 
@@ -236,7 +230,7 @@ export function buildHooks(
       let lastError = ''
       for (let attempt = 1; attempt <= 3; attempt++) {
         const text = await runOne(attemptPrompt)
-        const parsed = tryParseJson(text)
+        const parsed = parseJsonReply(text)
         const verdict = validateValue(schema, parsed)
         if (verdict.ok) return { value: parsed, outputTokens: 0, ...identity }
         lastError = verdict.error

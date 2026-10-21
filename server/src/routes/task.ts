@@ -4,6 +4,9 @@ import type { NotificationStorageAdapter, TaskStorageAdapter } from '../storage/
 import {
   dispatchProjectTask,
   wakeTaskBinding,
+  resumeProjectTask,
+  TaskBlockedError,
+  SpecDesignChangedError,
   dispatchVerifier,
 } from '../services/channel/agent-orchestrator.js'
 import {
@@ -322,9 +325,23 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
       await dispatchProjectTask(id, agentId)
     } catch (e) {
       if (e instanceof GateError) return c.json(e.detail, 409)
+      if (e instanceof TaskBlockedError || e instanceof SpecDesignChangedError) return c.json({ error: e.message }, 409)
       return c.json({ error: e instanceof Error ? e.message : 'dispatch failed' }, 500)
     }
     return c.json({ task: storage.taskDetail(id) })
+  })
+
+  // Pick a dispatched task back up in its own session (after a restart killed
+  // the turn, or the agent stopped short). A live session is left alone.
+  router.post('/:id/resume', async (c) => {
+    const id = parseInt(c.req.param('id'), 10)
+    if (!storage.taskGet(id)) return c.json({ error: 'Not found' }, 404)
+    try {
+      const woke = await resumeProjectTask(id)
+      return c.json({ woke, task: storage.taskDetail(id) })
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : 'resume failed' }, 409)
+    }
   })
 
   router.post('/:id/comments', async (c) => {

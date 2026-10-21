@@ -679,12 +679,14 @@ export async function mergeChildIntoParent(
 ): Promise<MergeChildResult> {
   const child = storage.taskGet(childTaskId)
   if (!child) throw new Error(`Task ${childTaskId} not found`)
-  if (!child.sddManaged || child.parentTaskId == null) {
-    throw new Error(`Task #${child.number} is not an SDD subtask`)
-  }
-  if (!child.branchName) throw new Error(`Subtask #${child.number} has no branch to merge`)
+  if (child.parentTaskId == null) throw new Error(`Task #${child.number} is not a subtask`)
   const parent = storage.taskGet(child.parentTaskId)
   if (!parent) throw new Error(`Parent task ${child.parentTaskId} not found`)
+  // v2 children carry sddManaged; an OperonSpec ticket is a plain child of a spec parent.
+  if (!child.sddManaged && parent.specStage == null) {
+    throw new Error(`Task #${child.number} is not a subtask of a change`)
+  }
+  if (!child.branchName) throw new Error(`Subtask #${child.number} has no branch to merge`)
   if (parent.workspaceId == null) {
     throw new Error(`Parent #${parent.number} has no change-branch worktree`)
   }

@@ -117,6 +117,14 @@ export function foldRunView(runId: string, events: readonly StoredWorkflowEvent[
         view.hasResult = event.result !== undefined
         // Whatever a sub-agent was waiting for, nobody is going to answer it now.
         view.pendingApprovals = []
+        // Nor is any of them still working: an agent the run ended under (stopped,
+        // or the app quit) would otherwise spin as "running" forever.
+        for (const agent of agents.values()) {
+          if (agent.state !== 'running' && agent.state !== 'queued') continue
+          agent.state = 'error'
+          agent.error ??= event.status === 'stopped' ? 'Stopped before it finished' : 'Ended before it finished'
+          agent.endedAt ??= event.endedAt
+        }
         break
       }
 

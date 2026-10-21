@@ -3,6 +3,7 @@
 // and own an activity feed.
 
 import type { BindingStatus } from './agent-binding.js'
+import type { SpecProgress, SpecStage, SpecTicketState } from './spec.js'
 
 export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
 
@@ -36,6 +37,14 @@ export interface Task {
   planAnchor: string | null
   /** SDD child: AC ids this task is responsible for (e.g. ['AC-1','AC-2']); null for parents. */
   claimedAcs: string[] | null
+  /** OperonSpec parent: where the spec stands (from spec_runs); null for every other task. */
+  specStage: SpecStage | null
+  /** OperonSpec ticket: sibling task ids that must finish before this one can start. */
+  blockedBy: number[] | null
+  /** OperonSpec parent from gate 1 on: tickets merged / total / blocked. */
+  specProgress?: SpecProgress | null
+  /** OperonSpec ticket: where it stands in its spec's build. */
+  ticketState?: SpecTicketState | null
   createdBy: TaskCreatedBy
   /** Archived-at timestamp (ms); null = active. Archived tasks drop out of the default board view. */
   archivedAt: number | null
@@ -183,6 +192,8 @@ export interface CreateTaskInput {
   specAuthorAgentId?: number | null
   planAnchor?: string | null
   claimedAcs?: string[] | null
+  /** OperonSpec ticket: sibling task ids that must finish first. */
+  blockedBy?: number[] | null
   /** Actor recorded on the auto-created "created this task" activity row. */
   actorId?: number | null
   actorName?: string

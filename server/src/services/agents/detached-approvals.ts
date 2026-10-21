@@ -126,6 +126,11 @@ export function watchDetachedApprovals(params: {
   onSettled?: (approvalId: string) => void
   /** Set false to skip the inbox row (the panel alone is the surface). */
   surfaceToInbox?: boolean
+  /**
+   * Requests this caller answers itself, without asking anyone — for a role
+   * whose contract already settles it (a read-only designer reading a file).
+   */
+  autoAllow?: (toolName: string) => boolean
 }): { onPart: (part: RuntimeStreamPart) => void; dispose: () => void } {
   const owned = new Set<string>()
   /** toolCallId → that call's input, so a question can be paired with its options. */
@@ -181,6 +186,15 @@ export function watchDetachedApprovals(params: {
       console.log(`[Workflow] ${agentId}: ${toolName} is not applicable to a sub-agent — declining`)
       try {
         session.respond(req.approvalId, { type: 'deny', reason: PLAN_REVIEW_REASON })
+      } catch (err) {
+        console.error(`[Workflow] ${agentId}: resolvePermission failed for ${req.approvalId}:`, err)
+      }
+      return
+    }
+
+    if (params.autoAllow?.(toolName)) {
+      try {
+        session.respond(req.approvalId, { type: 'allow' })
       } catch (err) {
         console.error(`[Workflow] ${agentId}: resolvePermission failed for ${req.approvalId}:`, err)
       }

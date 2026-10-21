@@ -5,6 +5,7 @@ import type { UIMessage } from 'ai'
 import type {
   AgentBindingStorageAdapter,
   ChannelStorageAdapter,
+  NotificationStorageAdapter,
   ProjectStorageAdapter,
   TaskStorageAdapter,
 } from '../../storage/interface.js'
@@ -20,11 +21,22 @@ import {
   worktreeAdd,
   worktreeRemove,
   deleteLocalBranch,
+  excludeLocally,
+  MergeConflictError,
   worktreeList,
 } from '../git.js'
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
-import { SDD_CREATE_SPEC_TASK_HINT, SDD_WORKFLOW_PROMPT } from '../sdd/sdd-prompt.js'
+import { SDD_WORKFLOW_PROMPT } from '../sdd/sdd-prompt.js'
+import { SPEC_FILES, specDir } from '../spec/files.js'
+import { specDesignChanged } from '../spec/spec-service.js'
+import {
+  isReviewedTicket,
+  onTicketInReview,
+  onTicketLanded,
+  onTicketSentBack,
+  onTicketTurnEnded,
+} from '../spec/build-run.js'
 import { SURFACE_PROMPT, observeTaskChatPart, taskHasSurfaces } from '../../gateway/surfaces/task-surface-bridge.js'
 import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
 import {
@@ -40,7 +52,7 @@ import {
   type ArtifactActor,
   type GateBlock,
 } from '../sdd/sdd-service.js'
-import type { TaskStatus } from '../../types/task.js'
+import type { Task, TaskStatus } from '../../types/task.js'
 import { deliverToBinding } from '../message-router.js'
 import {
   deliverBinding,
@@ -58,7 +70,7 @@ import {
 } from './agent-system-prompt.js'
 import { resolveAgentEnv } from './agent-env.js'
 
-type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStorageAdapter & TaskStorageAdapter
+type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStorageAdapter & TaskStorageAdapter & NotificationStorageAdapter
 
 const DEBOUNCE_MS = 3000
 /** Context usage threshold (0-1) above which auto-compact is triggered for providers that don't auto-compact */
@@ -290,15 +302,9 @@ export async function provisionAgentWorkspace(
     await fs.writeFile(memoryPath, memoryMd, 'utf-8')
   }
 
-  const gitignorePath = path.join(worktreePath, '.gitignore')
-  try {
-    const existing = await fs.readFile(gitignorePath, 'utf-8')
-    if (!existing.includes('.agent-memory')) {
-      await fs.appendFile(gitignorePath, '\n.agent-memory/\n', 'utf-8')
-    }
-  } catch {
-    await fs.writeFile(gitignorePath, '.agent-memory/\n', 'utf-8')
-  }
+  // Not the tracked .gitignore: editing it left every fresh worktree dirty, and
+  // agents committed that line into their task's branch.
+  await excludeLocally(worktreePath, '.agent-memory/')
 
   // One workspace row per worktree path: reuse the row if this worktree already
   // has one (a re-dispatch of the same task resolves to the same path), so
@@ -344,15 +350,9 @@ async function startBindingChat(
       `agent=${agent.name}(${agent.id}) firstStartup=${isFirstStartup} chatId=${binding.activeChatId ?? 'none'}`,
   )
 
-  // SDD prompt layering (§9/§11.2). No per-agent capability gate:
-  //  - Task executor on an SDD task → the FULL workflow rules (any executor must
-  //    follow the gates / acceptance / sediment discipline from the start).
-  //  - Channel (app) agent → a LIGHT hint that create_spec_task exists and when to
-  //    reach for it. The full rules are delivered at promote time (in the
-  //    create_spec_task result), not pre-armed by any channel "mode".
-  // Racing promotes are handled by dedup in promoteToTask, not by pre-marking one
-  // agent. §13 ①: living specs live in `.operon/specs/*.md` in the worktree; the
-  // prompt tells the agent to read them on demand rather than dumping into context.
+  // SDD v2 prompt layering: an executor on a v2 SDD task gets the full workflow
+  // rules (gates / acceptance / sediment) from the start. New specs are
+  // OperonSpecs, started from workspace chats — channel agents get no spec hint.
   // Persona + SDD layering travel as session instructions, re-derived on EVERY
   // start (not just first startup) — providers bake instructions at session
   // creation and resume does not restore a previous value.
@@ -361,8 +361,6 @@ async function startBindingChat(
     binding.scopeKind === 'task' && !!storage.taskGet(Number(binding.scopeKey))?.sddManaged
   if (taskSddManaged) {
     instructions += `\n\n${SDD_WORKFLOW_PROMPT}`
-  } else if (binding.scopeKind === 'app') {
-    instructions += `\n\n${SDD_CREATE_SPEC_TASK_HINT}`
   }
   // A task that is visible on Linear / GitHub gets told how to talk there and
   // how code leaves the worktree (design.md §12). SDD rules decide when work
@@ -392,7 +390,8 @@ async function startBindingChat(
       chatId: binding.activeChatId ?? undefined,
       messages,
       providerId: agent.provider,
-      modelId: agent.model,
+      // An agent without a model (the hidden spec builders) runs on the provider's default.
+      modelId: agent.model || undefined,
       modeId: agent.permissionMode || undefined,
       workspaceId: workspaceId ?? undefined,
       env: resolveAgentEnv(agent),
@@ -401,7 +400,7 @@ async function startBindingChat(
         agentId: agent.id,
         projectId: binding.projectId,
         // App-scoped bindings are channel sessions: scopeKey is the channel id.
-        // Forwarded to taskboard so SDD create_spec_task derives its channel here
+        // Forwarded to taskboard so tools that need the source channel derive it here
         // instead of trusting a (frequently wrong) model-supplied id.
         channelId: binding.scopeKind === 'app' ? Number(binding.scopeKey) : undefined,
       },
@@ -422,6 +421,8 @@ async function startBindingChat(
     // Surface the error in the channel (app scope only — task/linear bindings
     // have no channel to post into; scopeKey is a task id / session id there).
     const errMsg = err instanceof Error ? err.message : String(err)
+    // A spec ticket whose session cannot start would sit in "building" forever.
+    if (binding.scopeKind === 'task') void onTicketTurnEnded(storage, Number(binding.scopeKey), errMsg).catch(() => {})
     const channelId = Number(binding.scopeKey)
     if (binding.scopeKind === 'app' && Number.isFinite(channelId)) {
       const sysMsg = storage.createMessage({
@@ -541,6 +542,12 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
         }
       }
 
+      // A spec ticket's turn that ended without handing the ticket in gets a reminder (or blocks it).
+      if (surfaceTaskId != null) {
+        void onTicketTurnEnded(storage, surfaceTaskId, errors.length > 0 ? errors.join('; ') : undefined).catch((err) =>
+          console.error('[Orchestrator] spec ticket turn-end hook failed:', err),
+        )
+      }
       console.log(
         `[Orchestrator] drainAgentChat: chatId=${ctx.chatId} finished, triggering handleBindingFinish`,
       )
@@ -550,6 +557,9 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
     }
   })().catch((err) => {
     console.error('[Orchestrator] agent chat drain error:', err)
+    if (surfaceTaskId != null && _storage) {
+      void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err)).catch(() => {})
+    }
   })
 }
 
@@ -601,7 +611,8 @@ async function triggerAutoCompact(binding: AgentBinding): Promise<void> {
       chatId: binding.activeChatId,
       messages,
       providerId: agent.provider,
-      modelId: agent.model,
+      // An agent without a model (the hidden spec builders) runs on the provider's default.
+      modelId: agent.model || undefined,
       modeId: agent.permissionMode || undefined,
       workspaceId: binding.workspaceId ?? undefined,
       skipSnapshot: true,
@@ -679,12 +690,37 @@ function ensureTaskBinding(
  * task activity feed arrives with the agent task tools (P4); for now the feed
  * records the dispatch + status events and the agent runs in its worktree.
  */
+/** Dispatch refused because tasks this one is blocked by are not done yet. */
+export class TaskBlockedError extends Error {
+  constructor(readonly blockers: Task[]) {
+    super(`Blocked by ${blockers.map((b) => `#${b.number} (${b.status})`).join(', ')} — finish those first`)
+  }
+}
+
+/** Dispatch refused because the spec's design changed after it was approved. */
+export class SpecDesignChangedError extends Error {
+  constructor(readonly specNumber: number) {
+    super(`The design of spec #${specNumber} changed after it was approved — re-approve it before starting more tickets`)
+  }
+}
+
 export async function dispatchProjectTask(taskId: number, assignedAgentId: number): Promise<void> {
   const storage = _storage
   if (!storage) throw new Error('Orchestrator not initialised')
 
   const task = storage.taskGet(taskId)
   if (!task) throw new Error(`Task ${taskId} not found`)
+  // A blocker builds what this task stands on; starting before it is done means
+  // starting from a branch that does not have it yet.
+  const blockers = (task.blockedBy ?? [])
+    .map((id) => storage.taskGet(id))
+    .filter((b): b is Task => b != null && b.status !== 'done' && b.status !== 'cancelled')
+  if (blockers.length > 0) throw new TaskBlockedError(blockers)
+  // A ticket builds the design that was signed; if design.md moved on since, the
+  // user signs the new text before more work starts from it.
+  if (task.parentTaskId != null && (await specDesignChanged(storage, task.parentTaskId))) {
+    throw new SpecDesignChangedError(storage.taskGet(task.parentTaskId)?.number ?? task.parentTaskId)
+  }
   const project = storage.getProject(task.projectId)
   if (!project) throw new Error(`Project ${task.projectId} not found`)
   const agent = storage.getAgent(assignedAgentId)
@@ -694,8 +730,10 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
   // SDD child (§7 ④): cut a change-scoped branch `operon/task-<N>` off the
   // PARENT change branch, so siblings each own one branch (single-writer, §5.4)
   // and the branch belongs to the change, not the agent.
-  const sddParent =
-    task.sddManaged && task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
+  // An OperonSpec ticket is the same shape: its design lives on the parent's
+  // change branch, so it has to start from there to see it.
+  const parentTask = task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
+  const sddParent = parentTask && (task.sddManaged || parentTask.specStage != null) ? parentTask : null
   // An SDD parent already owns its change-branch worktree from promote
   // (`operon/task-<N>` + workspace, where spec/plan/acceptance live). A
   // small-change parent must execute THERE, not on a divergent `operon/<agent>/…`
@@ -746,8 +784,31 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     meta: { agentId: assignedAgentId, branch: workspace.branchName },
   })
   broadcastTask(storage, taskId)
+  // The first ticket under way puts the spec itself in progress.
+  if (parentTask?.specStage != null && parentTask.status === 'todo') {
+    storage.taskUpdate(parentTask.id, { status: 'in_progress' }, { type: 'system', name: 'system' })
+    broadcastTask(storage, parentTask.id)
+  }
 
-  const sddChildPrompt = sddParent
+  // An OperonSpec ticket carries its acceptance and interfaces in the description;
+  // the design it implements lives on the parent's change branch, which this branch
+  // was cut from. None of the v2 plan-item / AC-ownership vocabulary applies.
+  const specTicketPrompt =
+    parentTask?.specStage != null
+      ? `\nThis is a ticket of spec #${parentTask.number}. Your branch was cut from the spec's change ` +
+        `branch, so the design is already in your worktree: read ` +
+        `\`${specDir(parentTask.number)}/${SPEC_FILES.design}\` (and \`${SPEC_FILES.grounding}\` next to it) ` +
+        `before coding, then build exactly this ticket — nothing another ticket owns. If the design ` +
+        `contradicts itself in a small way, decide, write "Ruling: …, because …" in your report and keep ` +
+        `going; stop only for something destructive or irreversible. When you finish, commit your work on ` +
+        `this branch (the ticket is merged from its commits, so uncommitted changes are lost), then post your report ` +
+        `with comment_project_task: what you built, the commands you actually ran with their results, every ruling, ` +
+        `and anything that departs from the design. Then move the ticket to in_review — a separate reviewer reads that ` +
+        `report against your diff, and either merges the ticket or sends its points back to you here.\n`
+      : ''
+  const sddChildPrompt = specTicketPrompt
+    ? specTicketPrompt
+    : sddParent
     ? `\nThis is a spec-driven subtask of #${sddParent.number}` +
       (task.planAnchor ? ` (plan item ${task.planAnchor})` : '') +
       `. Your branch was cut from the parent change branch. Before coding, call ` +
@@ -813,9 +874,14 @@ export async function maybeAutoDispatchTask(taskId: number): Promise<void> {
     return
   }
   // Already running? A live task binding (active/idle with a chat) means an
-  // execution session exists — don't start a second one.
+  // execution session exists — don't start a second one. A binding without a
+  // worktree is not one: Done removed it, and a reopened task needs it back.
   const existing = storage.getBindingByScope('task', String(taskId), task.assignedAgentId)
-  if (existing?.activeChatId != null && (existing.status === 'active' || existing.status === 'idle')) {
+  if (
+    existing?.activeChatId != null &&
+    existing.workspaceId != null &&
+    (existing.status === 'active' || existing.status === 'idle')
+  ) {
     return
   }
   try {
@@ -953,7 +1019,13 @@ export async function maybeAutoIntegrate(
   const storage = _storage
   if (!storage) return
   const task = storage.taskGet(taskId)
-  if (!task || !task.sddManaged || task.parentTaskId == null || toStatus !== 'in_review') return
+  if (!task || task.parentTaskId == null || toStatus !== 'in_review') return
+  // A spec ticket is reviewed by an agent from another family, not by a person.
+  if (isReviewedTicket(storage, taskId)) {
+    onTicketInReview(storage, taskId)
+    return
+  }
+  if (!task.sddManaged) return
   storage.taskAppendActivity(taskId, {
     kind: 'system',
     actorType: 'system',
@@ -1195,6 +1267,79 @@ async function mergeTaskBranchToDefault(taskId: number, actor: ArtifactActor): P
 }
 
 /**
+ * A ticket's branch conflicts with the change branch (another ticket touched the
+ * same lines). Git cannot settle it, so the ticket goes back to its own agent —
+ * it knows the code — to merge the change branch in, resolve, re-check and
+ * return to review. Without an agent there is nobody to hand it to.
+ */
+async function handBackMergeConflict(task: Task, parent: Task, err: MergeConflictError): Promise<CompletionResult> {
+  const storage = _storage
+  if (!storage) return { ok: false, reason: 'orchestrator not initialised' }
+  const files = err.files.length > 0 ? err.files.join(', ') : 'unknown files'
+  const agent = task.assignedAgentId != null ? storage.getAgent(task.assignedAgentId) : null
+  if (task.bindingId == null || !agent) {
+    return {
+      ok: false,
+      reason: `Merging into ${parent.branchName} conflicts in ${files}, and no agent is assigned to resolve it — merge it by hand.`,
+    }
+  }
+  storage.taskUpdate(task.id, { status: 'in_progress' }, { type: 'system', name: 'system' })
+  storage.taskAppendActivity(task.id, {
+    kind: 'system',
+    actorType: 'system',
+    actorName: 'system',
+    body: `Merging into \`${parent.branchName}\` conflicted in ${files}. Sent back to ${agent.name} to resolve.`,
+    meta: { event: 'merge.conflict', target: parent.branchName, files: err.files },
+  })
+  broadcastTask(storage, task.id)
+  await wakeTaskBinding(
+    task.bindingId,
+    `Marking task #${task.number} done failed: merging your branch \`${task.branchName}\` into \`${parent.branchName}\` ` +
+      `conflicts in ${files} — another ticket changed the same code. Merge \`${parent.branchName}\` into your branch, ` +
+      `resolve the conflicts so both tickets' changes survive (never drop the other ticket's work), re-run the checks ` +
+      `your acceptance criteria name, commit the merge, then call update_project_task(task: ${task.number}, status: "in_review").`,
+  )
+  return {
+    ok: false,
+    reason: `Merge conflict in ${files} — sent back to ${agent.name} to resolve. Mark it Done again once it is back in review.`,
+  }
+}
+
+/**
+ * Land a reviewed spec ticket: merge it into the spec's change branch, mark it
+ * done, reclaim its worktree, and let the build stage start what it unblocked.
+ * The ticket's review passing and a person marking it Done both end here. A
+ * merge conflict sends it back to its own implementer (`handedBack`).
+ */
+export async function landSpecTicket(
+  taskId: number,
+  actor: ArtifactActor,
+): Promise<CompletionResult | { ok: false; reason: string; handedBack: true }> {
+  const storage = _storage
+  if (!storage) return { ok: false, reason: 'orchestrator not initialised' }
+  const task = storage.taskGet(taskId)
+  const parent = task?.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
+  if (!task || !parent || parent.specStage == null) return { ok: false, reason: `Task ${taskId} is not a spec ticket` }
+  if (task.status !== 'in_review') return { ok: false, reason: 'subtask must be In Review before it can be marked Done' }
+  try {
+    await mergeChildIntoParent(storage, taskId, actor)
+  } catch (err) {
+    if (err instanceof MergeConflictError) {
+      const handed = await handBackMergeConflict(task, parent, err)
+      if (handed.ok || task.bindingId == null || task.assignedAgentId == null) return handed
+      onTicketSentBack(storage, parent.id, taskId)
+      return { ok: false, reason: handed.reason, handedBack: true }
+    }
+    return { ok: false, reason: err instanceof Error ? err.message : 'merge into parent failed' }
+  }
+  storage.taskUpdate(taskId, { status: 'done' }, { type: actor.type, id: actor.id ?? undefined, name: actor.name })
+  broadcastTask(storage, taskId)
+  await cleanupTaskWorktree(taskId)
+  await onTicketLanded(storage, parent.id, taskId)
+  return { ok: true }
+}
+
+/**
  * Human "Done" path after review. The task is marked done only after the relevant
  * merge succeeds: SDD children merge into their parent change branch; ordinary
  * tasks and SDD parents merge their task branch into the default branch.
@@ -1208,7 +1353,14 @@ export async function completeTaskAfterHumanReview(
   const task = storage.taskGet(taskId)
   if (!task) return { ok: false, reason: `Task ${taskId} not found` }
 
-  if (task.sddManaged && task.parentTaskId != null) {
+  // A ticket of an OperonSpec merges into the spec's change branch; a person's
+  // Done is the way past its automatic review.
+  const changeParent = task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
+  if (changeParent?.specStage != null) {
+    const landed = await landSpecTicket(taskId, actor)
+    return landed.ok ? landed : { ok: false, reason: landed.reason }
+  }
+  if (task.parentTaskId != null && task.sddManaged) {
     if (task.status !== 'in_review') {
       return { ok: false, reason: 'subtask must be In Review before it can be marked Done' }
     }
@@ -1280,9 +1432,17 @@ export async function completeTaskAfterHumanReview(
     const finalized = await attemptFinalizeSddParent(taskId, actor)
     if (!finalized.ok) return finalized
   }
+  if (task.specStage != null) {
+    const open = storage.taskListChildren(task.id).filter((c) => c.status !== 'done' && c.status !== 'cancelled')
+    if (open.length > 0) {
+      return { ok: false, reason: `Tickets still open: ${open.map((c) => `#${c.number}`).join(', ')}` }
+    }
+  }
 
   const merged = await mergeTaskBranchToDefault(taskId, actor)
   if (!merged.ok) return merged
+  // Gate 2 signed: the spec's change is in the default branch.
+  if (task.specStage != null) storage.specRunUpdate(taskId, { stage: 'done', error: null })
 
   storage.taskUpdate(
     taskId,
@@ -1336,6 +1496,38 @@ export async function cleanupTaskWorktree(taskId: number): Promise<void> {
  * fresh one with the notification as the prompt. Returns false if it couldn't
  * be woken.
  */
+/**
+ * Pick an assigned task back up in its existing session — after an Operon
+ * restart killed the turn, or when the agent stopped before the task was done.
+ * The session keeps its history; the prompt only says where to restart from.
+ */
+export async function resumeProjectTask(taskId: number): Promise<boolean> {
+  const storage = _storage
+  if (!storage) throw new Error('Orchestrator not initialised')
+  const task = storage.taskGet(taskId)
+  if (!task) throw new Error(`Task ${taskId} not found`)
+  if (task.bindingId == null) throw new Error(`Task #${task.number} has never been dispatched`)
+  const binding = storage.getBinding(task.bindingId)
+  if (binding?.status === 'active') return false
+  const woke = await wakeTaskBinding(
+    task.bindingId,
+    `Your work on task #${task.number} stopped before it was finished (Operon restarted or the last turn ended). ` +
+      `Continue from the current state of your worktree — check \`git status\` and the task's activity first, ` +
+      `don't redo what is already there.`,
+  )
+  if (woke) {
+    storage.taskAppendActivity(taskId, {
+      kind: 'system',
+      actorType: 'human',
+      actorName: 'You',
+      body: 'Resumed the agent',
+      meta: { event: 'task.resumed' },
+    })
+    broadcastTask(storage, taskId)
+  }
+  return woke
+}
+
 export async function wakeTaskBinding(bindingId: number, notification: string): Promise<boolean> {
   const storage = _storage
   if (!storage) return false
@@ -1451,7 +1643,10 @@ const channelAdapter: BindingPlatformAdapter = {
  */
 export async function handleBindingFinish(bindingId: number): Promise<void> {
   if (!_storage) return
-  await driverHandleFinish(_storage, channelAdapter, bindingId)
+  // Task turns drain through here too; the channel adapter ignores task scope, so
+  // without this a finished task binding stayed 'active' forever.
+  const adapter = _storage.getBinding(bindingId)?.scopeKind === 'task' ? taskFinishAdapter : channelAdapter
+  await driverHandleFinish(_storage, adapter, bindingId)
 }
 
 // Re-export so unchanged callers compile — first-startup prompt constant is

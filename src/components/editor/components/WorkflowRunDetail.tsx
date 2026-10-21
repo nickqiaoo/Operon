@@ -12,6 +12,8 @@ import {
   Square as StopIcon,
   Clock as ClockIcon,
   FileCode2,
+  SendHorizontal as SendIcon,
+  ArrowRightLeft as ReplaceIcon,
 } from 'lucide-react';
 import type { BundledLanguage } from 'shiki';
 import { cn } from '@/lib/utils';
@@ -30,6 +32,14 @@ import {
 } from './agent-stream';
 import { WorkflowApprovalPrompt } from './WorkflowRunsWatcher';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ProviderIcon } from './ModelSelectorPanel';
 
 /**
  * One workflow run, rendered for the panel — where there is actual room.
@@ -47,7 +57,7 @@ import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
  * reported back to.
  */
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
@@ -248,14 +258,17 @@ function ScriptSection({ runId }: { runId: string }) {
   );
 }
 
-/** One agent: who ran it, how long it took, what came back — expandable to its stream. */
-function AgentRow({
+/**
+ * One agent: who ran it, how long it took, what came back — expandable to its stream.
+ * Also lists a spec's agents on its progress card, which has no engine task id.
+ */
+export function AgentRow({
   runId,
   agent,
   stream,
 }: {
   runId: string | undefined;
-  agent: WorkflowAgentView;
+  agent: Omit<WorkflowAgentView, 'taskId'>;
   stream: AgentStreamState | undefined;
 }) {
   const [open, setOpen] = useState(false);
@@ -271,6 +284,15 @@ function AgentRow({
   // cancelled, and `finally` then skipped `setLoading(false)`: the row sat on
   // "loading transcript…" forever even though the response had arrived.
   const wantsReplay = open && !stream && runId != null;
+  // Without a live stream, a running agent's transcript is re-read every few
+  // seconds (and right after a message is sent), so the row keeps up with it.
+  const [refresh, setRefresh] = useState(0);
+  const polling = wantsReplay && agent.state === 'running';
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(() => setRefresh((n) => n + 1), 3000);
+    return () => clearInterval(timer);
+  }, [polling]);
   useEffect(() => {
     if (!wantsReplay || runId == null) return;
     let cancelled = false;
@@ -294,7 +316,7 @@ function AgentRow({
     return () => {
       cancelled = true;
     };
-  }, [wantsReplay, runId, agent.index]);
+  }, [wantsReplay, runId, agent.index, refresh]);
   const elapsed =
     agent.startedAt != null ? (agent.endedAt ?? (agent.state === 'running' ? Date.now() : undefined)) : undefined;
   const duration = elapsed != null && agent.startedAt != null ? formatDuration(elapsed - agent.startedAt) : null;
@@ -364,8 +386,119 @@ function AgentRow({
           ) : (
             <AgentStreamView state={INITIAL_AGENT_STREAM_STATE} />
           )}
+          {agent.state === 'running' && runId != null && (
+            <AgentSteerBox
+              runId={runId}
+              index={agent.index}
+              current={agent.agentType}
+              onSent={() => setRefresh((n) => n + 1)}
+            />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Talk to a sub-agent while it works — redirect it, unstick it — without
+ * stopping the run. The message joins the turn it is in, as a chat's steer does.
+ */
+function AgentSteerBox({
+  runId,
+  index,
+  current,
+  onSent,
+}: {
+  runId: string;
+  index: number;
+  /** The provider running it now — not offered as a replacement. */
+  current: string | undefined;
+  onSent: () => void;
+}) {
+  const intl = useIntl();
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const providers = useHandoffProviders();
+  const handTo = async (providerId: string) => {
+    setError(null);
+    try {
+      await api.aiWorkflowAgentReplace(runId, index, providerId);
+      onSent();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+  const send = async () => {
+    const message = text.trim();
+    if (!message || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await api.aiWorkflowAgentSteer(runId, index, message);
+      setText('');
+      onSent();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="space-y-1 pb-1 pt-1.5">
+      <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-background px-2 focus-within:border-border">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          placeholder={intl.formatMessage({
+            id: 'editor.workflow.steerPlaceholder',
+            defaultMessage: 'Message this agent while it works…',
+          })}
+          className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+        />
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={!text.trim() || sending}
+          aria-label={intl.formatMessage({ id: 'editor.workflow.steerSend', defaultMessage: 'Send to agent' })}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground disabled:opacity-40"
+        >
+          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SendIcon className="h-3.5 w-3.5" />}
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={intl.formatMessage({ id: 'editor.workflow.replace', defaultMessage: 'Hand to another agent' })}
+              title={intl.formatMessage({ id: 'editor.workflow.replace', defaultMessage: 'Hand to another agent' })}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
+            >
+              <ReplaceIcon className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+              <FormattedMessage id="editor.workflow.replaceHint" defaultMessage="Stop it and start over on" />
+            </DropdownMenuLabel>
+            {providers
+              .filter((p) => p.id !== current)
+              .map((p) => (
+                <DropdownMenuItem key={p.id} onSelect={() => void handTo(p.id)} className="gap-2 text-xs">
+                  <ProviderIcon id={p.id} size={13} />
+                  {p.label}
+                </DropdownMenuItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {error && <div className="text-[11px] text-status-error">{error}</div>}
     </div>
   );
 }
@@ -679,4 +812,29 @@ export function WorkflowRunDetail({
       )}
     </div>
   );
+}
+
+type HandoffProvider = { id: string; label: string };
+let handoffProviders: Promise<HandoffProvider[]> | null = null;
+
+/** The agents a running one can be handed to — fetched once, shared by every row. */
+function useHandoffProviders(): HandoffProvider[] {
+  const [list, setList] = useState<HandoffProvider[]>([]);
+  useEffect(() => {
+    let active = true;
+    handoffProviders ??= api
+      .getProviders()
+      .then((all) => all.filter((p) => p.available).map(({ id, label }) => ({ id, label })))
+      .catch(() => {
+        handoffProviders = null;
+        return [];
+      });
+    void handoffProviders.then((next) => {
+      if (active) setList(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return list;
 }

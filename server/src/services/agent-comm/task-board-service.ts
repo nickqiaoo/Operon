@@ -8,7 +8,6 @@ import { broadcastTask } from '../task-events.js'
 import { notifyTaskStatusChange } from '../notification-service.js'
 import { mirrorAgentComment } from '../../gateway/surfaces/surface-sync.js'
 import { submitPullRequest } from '../../gateway/surfaces/pull-request-tool.js'
-import { SDD_WORKFLOW_PROMPT } from '../sdd/sdd-prompt.js'
 import type { CreatedTaskRef } from '@shared/taskboard/tools'
 import {
   maybeAutoDispatchTask,
@@ -17,8 +16,6 @@ import {
 import {
   assertGateOrThrow,
   GateError,
-  promoteToTask,
-  type PromoteSource,
   writeArtifact as sddWriteArtifact,
   planAcWarnings,
   sedimentChange,
@@ -32,6 +29,10 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from '../../types/task.js'
+import { getChatStorage } from '../ai/state.js'
+import { getProviders } from '../ai/providers.js'
+import { isReviewedTicket } from '../spec/build-run.js'
+import { SpecError, answerSpecQuestions, startSpec } from '../spec/spec-service.js'
 
 /**
  * A tool result that carries a machine-readable payload beside the prose. The
@@ -64,12 +65,8 @@ export class TaskBoardService {
   constructor(
     private readonly storage: TaskBoardStorage,
     private readonly projectId: number,
-    /** Channel this session is bound to — the SDD promote source for a channel
-     *  agent. Derived from the session URL, not a model argument. Undefined for
-     *  non-channel sessions. */
-    private readonly channelId?: number,
-    /** Direct workspace chat this session is — the SDD promote source for a plain
-     *  chat (mutually exclusive with channelId). Derived from the session URL. */
+    /** Direct workspace chat this session is — where a spec it starts reports
+     *  back. Derived from the session URL, never from a model argument. */
     private readonly sourceChatId?: number,
   ) {}
 
@@ -218,8 +215,9 @@ export class TaskBoardService {
       name: this.agentName(agentId) ?? 'agent',
     })
     broadcastTask(this.storage, task.id)
-    if (updates.status != null) {
-      // Inbox: agent moved the task (e.g. → in_review "ready for your review").
+    // Inbox: agent moved the task (e.g. → in_review "ready for your review").
+    // A spec ticket in review waits on its reviewer agent, not on the user.
+    if (updates.status != null && !(updates.status === 'in_review' && isReviewedTicket(this.storage, task.id))) {
       notifyTaskStatusChange(this.storage, task, updates.status, task.status)
     }
     if (updates.status === 'in_progress') {
@@ -237,65 +235,75 @@ export class TaskBoardService {
   }
 
   /** Create an SDD parent task from a converged channel discussion (the caller becomes spec author). */
-  async createSpecTask(
-    input: { messageId?: number | null; title: string; description?: string },
+  /**
+   * OperonSpec entry. Only a direct workspace chat can start one: the spec's
+   * design results are delivered back into that conversation, and its provider
+   * is who leads the design.
+   */
+  async startSpec(
+    input: { title: string; brief: string; candidates?: string[] },
     agentId: number,
   ): Promise<ToolResult> {
-    // The promote source comes from the session (constructor), not the model:
-    // a channel discussion, or a direct workspace chat. A session with neither
-    // (task execution, IM bridge) has no discussion to convert.
-    const source: PromoteSource | null =
-      this.channelId != null
-        ? { kind: 'channel', channelId: this.channelId, messageId: input.messageId ?? null }
-        : this.sourceChatId != null
-          ? { kind: 'chat', projectId: this.projectId, chatId: this.sourceChatId }
-          : null
-    if (source == null) {
-      return toolError(
-        'Could not create spec task: this session is not bound to a channel or a workspace chat, so there is no discussion to convert.',
-      )
+    if (this.sourceChatId == null) {
+      return toolError('OperonSpec can only be started from a workspace chat — this session has no conversation to report back to.')
     }
+    const meta = getChatStorage()?.getChatMeta(this.sourceChatId)
+    if (!meta?.providerId) return toolError('Could not start the spec: this chat has no provider recorded yet.')
+    const agent = this.storage.getAgent(agentId)
     try {
-      const task = await promoteToTask(this.storage, {
-        source,
-        authorAgentId: agentId,
+      const { task, reused } = await startSpec(this.storage, {
+        projectId: this.projectId,
+        chatId: this.sourceChatId,
+        actor: { type: 'agent', id: agentId, name: agent?.name ?? 'Assistant' },
         title: input.title,
-        description: input.description,
+        brief: input.brief,
+        lead: { providerId: meta.providerId, ...(meta.model ? { modelId: meta.model } : {}) },
+        available: getProviders()
+          .filter((p) => p.available)
+          .map((p) => p.id),
+        candidates: input.candidates,
       })
-      broadcastTask(this.storage, task.id)
-      // promoteToTask dedups a racing second promote: if the returned change was
-      // authored by a DIFFERENT agent, this discussion is already being specced —
-      // don't hand this caller the "you are the author" workflow, point it there.
       const ref: CreatedTaskRef = {
         kind: 'created-task',
         taskId: task.id,
         taskNumber: task.number,
         title: task.title,
-        sddManaged: true,
+        sddManaged: false,
+        spec: true,
       }
-      if (task.specAuthorAgentId !== agentId) {
+      if (reused) {
         return {
           text:
-            `This discussion is already a spec-driven change: task #${task.number} (being authored by another agent). ` +
-            `Don't start a duplicate — read it with get_project_task(task: ${task.number}) and coordinate there.`,
+            `This chat already has an open spec: task #${task.number} (${task.specStage ?? 'unknown stage'}). ` +
+            'Do not start another — continue that one (its result will come back to this chat).',
           structured: ref,
         }
       }
-      // Deliver the full spec-driven workflow here (not pre-armed at session start):
-      // promoting is what turns this discussion into a spec-driven change, so the
-      // author agent learns the rules the moment it promotes.
+      const run = this.storage.specRunGet(task.id)
+      const seats = run
+        ? ` Candidates: ${run.config.candidates.map((c) => c.providerId).join(', ')}; judge: ${run.config.judge.providerId}.`
+        : ''
       return {
         text:
-          `Promoted to task #${task.number} (branch ${task.branchName ?? '?'}). You are now the spec author for this change. ` +
-          `Follow this spec-driven workflow from here on:\n\n${SDD_WORKFLOW_PROMPT}\n\n` +
-          `Start now: write the spec with write_artifact(task: ${task.number}, kind: "spec", content: "..."), ` +
-          `then the plan — and stop there (acceptance is the verifier's report later, not yours). ` +
-          `A human signs the design off by pressing Dispatch ` +
-          `(Gate-0), which also splits the plan into subtasks and starts them. You never approve or decompose anything yourself.`,
+          `Started spec task #${task.number} (branch ${task.branchName ?? '?'}).${seats} ` +
+          'The design runs in the background and its result will be delivered to this chat — do not poll or wait. ' +
+          'Tell the user it has started, that they can watch it in the Workflow tab, and stop here.',
         structured: ref,
       }
     } catch (e) {
-      return toolError(`Could not promote: ${e instanceof Error ? e.message : String(e)}`)
+      return toolError(`Could not start the spec: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  /** Hand the user's answers to a spec waiting on them; the design run continues. */
+  async answerSpecQuestions(taskNumber: number, answers: string): Promise<string | ToolResult> {
+    try {
+      const task = this.requireTask(taskNumber)
+      await answerSpecQuestions(this.storage, task.id, answers)
+      return `Answers saved on spec #${task.number}; the design continues in the background and its result will come back to this chat.`
+    } catch (e) {
+      if (e instanceof SpecError || e instanceof Error) return toolError(e.message)
+      throw e
     }
   }
 

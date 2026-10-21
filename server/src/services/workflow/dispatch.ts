@@ -19,6 +19,7 @@ import { getSessionManager } from '../ai.js'
 import { latestUserInput } from '../ai/message-utils.js'
 import { runAgentTurnText } from '../ai/agent-turn.js'
 import { subagentMode } from '../agents/subagent-mode.js'
+import { trackLiveAgent } from './live-agents.js'
 import {
   watchDetachedApprovals,
   type DetachedApprovalRequest,
@@ -44,28 +45,66 @@ export interface ProviderAgentParams {
    */
   onApproval?: (request: DetachedApprovalRequest) => void
   onApprovalSettled?: (approvalId: string) => void
+  /** Requests answered "allow" on the spot instead of surfaced (see watchDetachedApprovals). */
+  autoAllow?: (toolName: string) => boolean
   /**
    * Receives this sub-agent's UI chunks so the run panel can show what it is
    * doing. Without it the panel only knows queued/running/done — the sub-agent's
    * actual work (its text, its tool calls) is produced and then thrown away.
    */
   onChunk?: (chunk: UIMessageChunk) => void
+  /**
+   * The run row this agent is, so a person watching can message it while it works
+   * (`steerLiveAgent`). Omit for agents nobody can see.
+   */
+  live?: { runId: string; index: number }
+  /** The agent was handed to another provider; `to` runs the prompt from here on. */
+  onReplaced?: (from: AgentSeat, to: AgentSeat) => void
+  /** The model to use on a provider the agent is handed to without one named. */
+  modelFor?: (providerId: string) => string | undefined
   signal: AbortSignal
 }
 
+/** Which provider (and model) runs an agent. */
+export interface AgentSeat {
+  providerId: string
+  modelId?: string
+}
+
 /**
- * Run one sub-agent to completion on the given provider and return its final
- * text. Creates a disposable standalone session, runs a single turn, disposes.
+ * Run one sub-agent to completion and return its final text. Creates a
+ * disposable standalone session, runs a single turn, disposes.
+ *
+ * Someone watching can hand a running agent to another provider
+ * (`replaceLiveAgent`): its session is stopped and the same prompt runs again
+ * on the new one, until one of them answers. The caller only ever sees the answer.
  */
 export async function runProviderAgent(params: ProviderAgentParams): Promise<string> {
+  let seat: AgentSeat = { providerId: params.providerId, modelId: params.modelId }
+  for (;;) {
+    const outcome = await runOnce(params, seat)
+    if (outcome.kind === 'done') return outcome.text
+    const to: AgentSeat = {
+      providerId: outcome.to.providerId,
+      modelId: outcome.to.modelId ?? params.modelFor?.(outcome.to.providerId),
+    }
+    params.onChunk?.({ type: 'data-replaced', data: { from: seat.providerId, to: to.providerId } })
+    params.onReplaced?.(seat, to)
+    seat = to
+  }
+}
+
+type RunOutcome = { kind: 'done'; text: string } | { kind: 'replaced'; to: AgentSeat }
+
+async function runOnce(params: ProviderAgentParams, seat: AgentSeat): Promise<RunOutcome> {
   const manager = getSessionManager()
-  const session = await manager.createStandaloneSession(params.providerId, {
+  const session = await manager.createStandaloneSession(seat.providerId, {
     cwd: params.cwd,
-    model: params.modelId,
+    model: seat.modelId,
     // Fixed per provider, NOT derived from the parent turn: a sub-agent runs
     // unattended, and any mode that stops to ask would stall it. Throws for an
     // unregistered provider rather than guessing an id (see subagent-mode.ts).
-    mode: subagentMode(params.providerId),
+    mode: subagentMode(seat.providerId),
   })
   // The mode above suppresses ordinary permission prompts, but it cannot suppress
   // everything — `AskUserQuestion` is the agent's own deliberate question, and a
@@ -78,28 +117,60 @@ export async function runProviderAgent(params: ProviderAgentParams): Promise<str
     agentId: params.agentId,
     onRequest: params.onApproval,
     onSettled: params.onApprovalSettled,
+    autoAllow: params.autoAllow,
   })
+  // This agent's own stop, under the run's: stopping the run still stops it, and
+  // it can be stopped alone to hand its work to another provider.
+  const local = new AbortController()
+  const stopWithRun = () => local.abort(params.signal.reason)
+  if (params.signal.aborted) local.abort(params.signal.reason)
+  else params.signal.addEventListener('abort', stopWithRun, { once: true })
+  const handoff: { to?: AgentSeat } = {}
+  const untrack = params.live
+    ? trackLiveAgent(params.live.runId, params.live.index, {
+        session,
+        providerId: seat.providerId,
+        // Shown in the agent's transcript where it was sent, as the person's words.
+        note: (text, id) => params.onChunk?.({ type: 'data-steer', id, data: { text } }),
+        replace: (to) => {
+          handoff.to = to
+          local.abort()
+        },
+      })
+    : undefined
   const userMessage: UIMessage = {
     id: randomUUID(),
     role: 'user',
     parts: [{ type: 'text', text: params.prompt }],
   }
   try {
-    // The one true "give me the final text" path — no hand-rolled delta consumption
-    // (that read the wrong field and returned "" from live custom sub-agents).
-    return await runAgentTurnText(
-      session,
-      {
-        requestId: randomUUID(),
-        input: latestUserInput(await convertToModelMessages([userMessage])),
-        signal: params.signal,
-        assistantMessageId: randomUUID(),
-        originalMessages: [userMessage],
-        onPart: approvals.onPart,
-      },
-      params.onChunk,
-    )
+    let text: string | undefined
+    let failure: unknown
+    try {
+      // The one true "give me the final text" path — no hand-rolled delta consumption
+      // (that read the wrong field and returned "" from live custom sub-agents).
+      text = await runAgentTurnText(
+        session,
+        {
+          requestId: randomUUID(),
+          input: latestUserInput(await convertToModelMessages([userMessage])),
+          signal: local.signal,
+          assistantMessageId: randomUUID(),
+          originalMessages: [userMessage],
+          onPart: approvals.onPart,
+        },
+        params.onChunk,
+      )
+    } catch (err) {
+      failure = err
+    }
+    // Handed off: whatever the stopped turn returned or threw is beside the point.
+    if (handoff.to) return { kind: 'replaced', to: handoff.to }
+    if (failure !== undefined) throw failure
+    return { kind: 'done', text: text ?? '' }
   } finally {
+    params.signal.removeEventListener('abort', stopWithRun)
+    untrack?.()
     // Deny before dispose: a request still outstanding here will never be answered
     // (the session is going away), and leaving it pending would strand an inbox row.
     approvals.dispose()

@@ -9,6 +9,10 @@ export type NotificationKind =
   | 'task_done'
   | 'task_failed'
   | 'sdd_gate'
+  /** An OperonSpec waits on the user at a gate (design ready, change ready to sign). */
+  | 'spec_gate'
+  /** An OperonSpec cannot go on by itself: a ticket blocked, or its design does not hold. */
+  | 'spec_blocked'
   | 'cron_done'
   | 'workflow_approval'
   | 'device_paired'
