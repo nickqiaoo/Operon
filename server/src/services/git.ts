@@ -404,6 +404,106 @@ export async function getDefaultBaseBranch(repoPath: string): Promise<string | n
   return null
 }
 
+/**
+ * The default branch as a local branch name: getDefaultBaseBranch without its
+ * remote, so `origin/release/2.x` is `release/2.x`. Null when there is none.
+ */
+export async function getDefaultLocalBranch(repoPath: string): Promise<string | null> {
+  const ref = await getDefaultBaseBranch(repoPath)
+  if (!ref) return null
+  const git = await ensureRepo(repoPath)
+  const remotes = git ? await git.getRemotes(false) : []
+  const remote = remotes.find((r) => ref.startsWith(`${r.name}/`))
+  return remote ? ref.slice(remote.name.length + 1) : ref
+}
+
+/**
+ * The tree git makes on its own of `from` merged with the newest commit of `ref`
+ * HEAD already has — conflict markers and all where it could not. `from` itself
+ * when there is nothing to merge, or without `git merge-tree --write-tree`
+ * (git < 2.38): no such ref, unrelated histories.
+ */
+async function automaticMerge(git: ReturnType<typeof getGit>, from: string, ref: string): Promise<string> {
+  try {
+    const merged = (await git.raw(['merge-base', 'HEAD', ref])).trim()
+    // Exits 1 on a conflict but still prints the merged tree on its first line.
+    if (merged) return (await git.raw(['merge-tree', '--write-tree', from, merged])).split('\n')[0].trim() || from
+  } catch {
+    // Compare with `from` itself.
+  }
+  return from
+}
+
+function excluding(paths: readonly string[]): string[] {
+  return paths.length > 0 ? ['--', '.', ...paths.map((p) => `:(exclude)${p}`)] : []
+}
+
+/**
+ * Files where the checkout — commits and uncommitted edits alike — differs from
+ * `from` merged with `ref` by git on its own: the work done since `from`, less
+ * what merging `ref` in brought. The merge is taken at the newest commit of
+ * `ref` HEAD already has, so a merge whose conflicts were settled by hand shows
+ * up as the files settled. Without `git merge-tree --write-tree` (git < 2.38) it
+ * is everything since `from`. Null outside a repo or when `from` is not a commit.
+ */
+export async function filesChangedBeyondMerge(repoPath: string, from: string, ref: string): Promise<string[] | null> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return null
+  const baseline = await automaticMerge(git, from, ref)
+  try {
+    const [changed, untracked] = await Promise.all([
+      git.raw(['diff', '--name-only', baseline]),
+      git.raw(['ls-files', '--others', '--exclude-standard']),
+    ])
+    const files = `${changed}\n${untracked}`
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    return [...new Set(files)]
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The committed counterpart of filesChangedBeyondMerge, as a diff: how HEAD
+ * differs from git's own merge of `from` and `ref`. A conflict settled by hand
+ * reads as the markers replaced by the resolution. `exclude` leaves paths out.
+ */
+export async function diffBeyondMerge(repoPath: string, from: string, ref: string, exclude: readonly string[] = []): Promise<string> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return ''
+  const baseline = await automaticMerge(git, from, ref)
+  try {
+    return await git.raw(['diff', baseline, 'HEAD', ...excluding(exclude)])
+  } catch {
+    return ''
+  }
+}
+
+/** Whether `ancestor` is in the history of `ref`. False when either is unknown. */
+export async function isAncestor(repoPath: string, ancestor: string, ref = 'HEAD'): Promise<boolean> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return false
+  // Not `merge-base --is-ancestor`: it answers by exit code alone, which simple-git does not reject on.
+  try {
+    const [base, sha] = await Promise.all([
+      git.raw(['merge-base', ancestor, ref]),
+      git.raw(['rev-parse', '--verify', `${ancestor}^{commit}`]),
+    ])
+    return base.trim() !== '' && base.trim() === sha.trim()
+  } catch {
+    return false
+  }
+}
+
+/** Whether a merge is under way in the checkout (MERGE_HEAD exists). */
+export async function isMerging(repoPath: string): Promise<boolean> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return false
+  return (await git.raw(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).catch(() => '')).trim() !== ''
+}
+
 export interface BranchEntry {
   name: string
   current: boolean

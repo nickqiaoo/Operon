@@ -62,8 +62,8 @@ export function specRoutes(storage: BuildStorage) {
   router.post('/:taskId/signoff', async (c) => {
     const body = await c.req.json<{ actorName?: string }>().catch(() => ({ actorName: undefined }))
     try {
-      await signOffSpec(storage, Number(c.req.param('taskId')), humanActor(body.actorName))
-      return c.json({ ok: true })
+      const { pending } = await signOffSpec(storage, Number(c.req.param('taskId')), humanActor(body.actorName))
+      return c.json({ ok: true, ...(pending ? { pending } : {}) })
     } catch (error) {
       const { message, status } = fail(error)
       return c.json({ error: message }, status)

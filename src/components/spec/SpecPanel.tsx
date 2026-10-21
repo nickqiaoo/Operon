@@ -12,6 +12,7 @@ import {
   SpecActions,
   SpecAgentList,
   SpecBuildSummary,
+  SpecCoordinatorLine,
   SpecSeatsLine,
   SpecStageBadge,
   TicketBuildLine,
@@ -71,6 +72,8 @@ export function SpecPanel({
           <SpecBuildSummary spec={spec} />
         </div>
       </div>
+
+      <SpecCoordinatorLine spec={spec} onOpenSession={onOpenWorkspace} />
 
       <SpecAgentList spec={spec} />
 

@@ -17,9 +17,11 @@ const replies = {
 const prompts: string[] = []
 const reviewItem = { title: 'Swallowed error', where: 'a.ts:9', detail: 'the catch drops it', highConfidence: true, raisedBy: ['codex', 'claude-code'] }
 
+const seats: string[] = []
 vi.mock('../workflow/dispatch.js', () => ({
-  runProviderAgent: vi.fn(async ({ prompt }: { prompt: string }) => {
+  runProviderAgent: vi.fn(async ({ prompt, providerId }: { prompt: string; providerId: string }) => {
     prompts.push(prompt)
+    seats.push(providerId)
     if (prompt.includes('adversarial reviewer of a finished change')) return JSON.stringify(replies.branch)
     if (prompt.includes('Decide what it should leave behind')) return JSON.stringify(replies.decisions)
     const review = {
@@ -51,7 +53,12 @@ vi.mock('../git.js', () => ({
   getMergeBase: vi.fn(async () => 'base0'),
   getFileDiffRange: vi.fn(async (_r: string, _f: unknown, base: string, head: string) => `diff ${base}..${head}`),
   getDiffStatText: vi.fn(async () => ' a.ts | 2 +-'),
+  getDefaultLocalBranch: vi.fn(async () => 'main'),
+  filesChangedBeyondMerge: vi.fn(async () => ['a.ts']),
+  diffBeyondMerge: vi.fn(async () => '-<<<<<<< ours\n+resolved'),
 }))
+const coordinator = vi.hoisted(() => ({ wakeCoordinator: vi.fn(async () => true) }))
+vi.mock('./coordinator.js', () => coordinator)
 vi.mock('../workflow/store.js', () => ({
   appendEvent: vi.fn(),
   markExecuting: vi.fn(),
@@ -73,7 +80,8 @@ const notify = vi.hoisted(() => vi.fn())
 vi.mock('../notification-service.js', () => ({ notify }))
 vi.mock('./spec-service.js', () => ({ specDesignChanged: vi.fn(async () => false) }))
 
-const { branchReviewers, onAllTicketsMerged, isReviewActive, requestSignoffChanges } = await import('./review-run.js')
+const { branchReviewers, integrationReviewer, onAllTicketsMerged, isReviewActive, requestSignoffChanges, startIntegration } =
+  await import('./review-run.js')
 const { readSpecFile, readSpecJson } = await import('./files.js')
 
 // ---- Fixture: spec #7, ticket T1 merged -------------------------------------
@@ -134,6 +142,7 @@ beforeEach(async () => {
   replies.actOn = []
   git.head = 'h1'
   prompts.length = 0
+  seats.length = 0
   delivered.length = 0
   vi.clearAllMocks()
 })
@@ -220,5 +229,80 @@ describe('the whole-change review', () => {
     expect(await readSpecFile(loc(), 'reviews/codex.json')).toBeNull()
     // The changed change is drafted again.
     expect(await readSpecFile(loc(), 'decisions.json')).toBeNull()
+  })
+})
+
+describe('a conflict at sign-off', () => {
+  async function atSignoff() {
+    const fixture = makeStorage()
+    onAllTicketsMerged(fixture.storage, 1)
+    await settled()
+    prompts.length = 0
+    seats.length = 0
+    return fixture
+  }
+
+  it('goes to the coordinator, with the spec waiting on it', async () => {
+    const { storage, spec, run } = await atSignoff()
+    expect(await startIntegration(storage, spec, 'release/2.x', ['a.ts'])).toBe(true)
+
+    expect(run().stage).toBe('integrating')
+    expect(await readSpecJson(loc(), 'integration.json')).toMatchObject({ target: 'release/2.x', files: ['a.ts'] })
+    expect(coordinator.wakeCoordinator).toHaveBeenCalledWith(storage, spec, expect.stringContaining('git merge release/2.x'))
+  })
+
+  it('stays at gate 2 when there is no coordinator to take it', async () => {
+    const { storage, spec, run } = await atSignoff()
+    coordinator.wakeCoordinator.mockResolvedValueOnce(false)
+    expect(await startIntegration(storage, spec, 'main', ['a.ts'])).toBe(false)
+
+    expect(run().stage).toBe('awaiting_signoff')
+    expect(await readSpecFile(loc(), 'integration.json')).toBeNull()
+  })
+
+  it('waits for the coordinator to hand the resolution in', async () => {
+    const { storage, spec, run } = await atSignoff()
+    await startIntegration(storage, spec, 'main', ['a.ts'])
+    onAllTicketsMerged(storage, 1)
+    await settled()
+
+    expect(prompts).toHaveLength(0)
+    expect(run().stage).toBe('integrating')
+  })
+
+  it('has another family review the resolution, then returns to gate 2', async () => {
+    const { storage, spec, run } = await atSignoff()
+    await startIntegration(storage, spec, 'main', ['a.ts'])
+    const integration = await readSpecJson<object>(loc(), 'integration.json')
+    await fs.writeFile(
+      path.join(dir, '.operon/changes/task-7/integration.json'),
+      JSON.stringify({ ...integration, summary: 'kept both handlers' }),
+    )
+    git.head = 'h3'
+    onAllTicketsMerged(storage, 1)
+    await settled()
+
+    expect(prompts[0]).toContain('You review how a merge was resolved')
+    expect(prompts[0]).toContain('kept both handlers')
+    expect(prompts[0]).toContain('+resolved')
+    // The coordinator is the lead (claude-code): the resolution is checked by another family.
+    expect(seats[0]).toBe('codex')
+    expect(run().stage).toBe('awaiting_signoff')
+    expect(await readSpecFile(loc(), 'integration.json')).toBeNull()
+    expect(await readSpecJson(loc(), 'review.json')).toMatchObject({ head: 'h3' })
+  })
+
+  it('is dropped when the user requests changes instead', async () => {
+    const { storage, spec } = await atSignoff()
+    await startIntegration(storage, spec, 'main', ['a.ts'])
+    await requestSignoffChanges(storage, spec, 'merge main in and keep both handlers')
+    expect(await readSpecFile(loc(), 'integration.json')).toBeNull()
+  })
+})
+
+describe('integrationReviewer', () => {
+  it('is a reviewer outside the lead\'s family', () => {
+    expect(integrationReviewer(config)).toEqual({ providerId: 'codex' })
+    expect(integrationReviewer({ ...config, lead: { providerId: 'codex' } })).toEqual({ providerId: 'claude-code' })
   })
 })

@@ -18,6 +18,18 @@ export interface Workspace {
   updatedAt: number
 }
 
+/** The board task whose agent runs in a workspace — a dispatched task, a spec or one of its tickets. */
+export interface WorkspaceTask {
+  id: number
+  number: number
+  title: string
+  status: string
+  /** Set on a spec's ticket: the spec it belongs to. */
+  parentTaskId: number | null
+  /** Set on a spec. */
+  specStage: string | null
+}
+
 export interface CreateProjectInput {
   name: string
   rootPath: string

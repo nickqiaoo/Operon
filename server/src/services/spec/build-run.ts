@@ -21,7 +21,7 @@
  * so the progress card and the Workflow tab show the whole spec in one place.
  */
 
-import type { NotificationStorageAdapter } from '../../storage/interface.js'
+import type { AgentBindingStorageAdapter, ChannelStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
 import type { Task } from '../../types/task.js'
 import type { SpecRun, SpecRuling, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
 import { appendEvent, markExecuting, readRunView, unmarkExecuting } from '../workflow/store.js'
@@ -38,7 +38,9 @@ import { familyOf, reviewerFor, seatFor, withBuildDefaults } from './config.js'
 import { getOrCreateSpecBuilder, type BuilderStorage } from './builders.js'
 import { SPEC_FILES, readSpecFile, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
 import {
+  MAX_COORDINATOR_RETRIES,
   TICKET_REVIEW_SCHEMA,
+  blockedTicketMessage,
   reworkMessage,
   ticketDescription,
   ticketReviewPrompt,
@@ -47,8 +49,13 @@ import {
 } from './prompts.js'
 import { specDesignChanged, type SpecStorage } from './spec-service.js'
 import { onAllTicketsMerged } from './review-run.js'
+import { ensureCoordinator, onCoordinatorTurnEnded, wakeCoordinator } from './coordinator.js'
 
-export type BuildStorage = SpecStorage & BuilderStorage & NotificationStorageAdapter
+export type BuildStorage = SpecStorage &
+  BuilderStorage &
+  NotificationStorageAdapter &
+  Pick<AgentBindingStorageAdapter, 'getBinding'> &
+  Pick<ChannelStorageAdapter, 'getAgent'>
 
 /** Review rounds that may ask for changes before a ticket is handed to a person. */
 export const MAX_REVIEW_ROUNDS = 3
@@ -59,7 +66,7 @@ const REVIEWER_ACTOR = { type: 'agent' as const, id: null, name: 'OperonSpec rev
 // The spec row's build state
 // ---------------------------------------------------------------------------
 
-function patchTicket(storage: BuildStorage, specId: number, taskId: number, patch: Partial<SpecTicketBuild>): SpecTicketBuild | null {
+export function patchTicket(storage: BuildStorage, specId: number, taskId: number, patch: Partial<SpecTicketBuild>): SpecTicketBuild | null {
   const run = storage.specRunGet(specId)
   if (!run) return null
   const build = run.build.map((b) => (b.taskId === taskId ? { ...b, ...patch } : b))
@@ -67,7 +74,7 @@ function patchTicket(storage: BuildStorage, specId: number, taskId: number, patc
   return build.find((b) => b.taskId === taskId) ?? null
 }
 
-function addRulings(storage: BuildStorage, specId: number, ticketKey: string, rulings: readonly string[]): void {
+export function addRulings(storage: BuildStorage, specId: number, ticketKey: string, rulings: readonly string[]): void {
   const run = storage.specRunGet(specId)
   if (!run || rulings.length === 0) return
   const known = new Set(run.rulings.map((r) => `${r.ticketKey}\n${r.ruling}`))
@@ -128,6 +135,8 @@ export async function startBuild(storage: BuildStorage, spec: Task, tickets: rea
     return { key: t.key, taskId: t.taskId, implementer, reviewer: reviewerFor(config, implementer), rounds: 0, state: 'waiting' }
   })
   storage.specRunUpdate(spec.id, { config, build })
+  // Its session starts with the first thing it is asked; the binding makes it reachable from now on.
+  await ensureCoordinator(storage, spec)
   await advance(storage, spec.id)
 }
 
@@ -147,12 +156,16 @@ export async function addTicket(storage: BuildStorage, spec: Task, ticket: SpecT
   const config = withBuildDefaults(run.config)
   const implementer = config.implementer.providerId
   const agent = getOrCreateSpecBuilder(storage, config.implementer)
+  const blockedBy = ticket.blockedBy
+    .map((key) => run.build.find((b) => b.key === key)?.taskId)
+    .filter((id): id is number => id != null)
   const child = storage.taskCreate({
     projectId: spec.projectId,
     title: ticket.title,
     description: ticketDescription(ticket, spec.number, `${specDir(spec.number)}/${SPEC_FILES.design}`),
     parentTaskId: spec.id,
     assignedAgentId: agent.id,
+    ...(blockedBy.length > 0 ? { blockedBy } : {}),
     createdBy: 'agent',
     actorName: 'OperonSpec',
   })
@@ -191,7 +204,8 @@ export async function advance(storage: BuildStorage, specId: number): Promise<vo
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       console.error(`[Spec] could not start ticket ${ticket.key}:`, err)
-      patchTicket(storage, specId, ticket.taskId, { state: 'blocked', blockedReason: `Could not start: ${reason}` })
+      const spec = storage.taskGet(specId)
+      if (spec) await blockTicket(storage, spec, ticket.taskId, `Could not start: ${reason}`, `Ticket ${ticket.key} could not start: ${reason}`)
     }
   }
   if (ready.length > 0) broadcastTask(storage, specId)
@@ -225,7 +239,7 @@ export function onTicketInReview(storage: BuildStorage, taskId: number): void {
   if (!found || found.run.stage !== 'building') return
   if (found.entry.state === 'merged' || reviewing.has(taskId)) return
   // A blocked ticket coming back means a person got it moving again: its rounds start over.
-  const fresh = found.entry.state === 'blocked' ? { rounds: 0, blockedReason: undefined } : {}
+  const fresh = found.entry.state === 'blocked' ? { rounds: 0, blockedReason: undefined, coordinator: undefined } : {}
   if (found.entry.state === 'blocked') settleSpecNotice(storage, found.spec.id, 'spec_blocked')
   patchTicket(storage, found.spec.id, taskId, { ...fresh, state: 'reviewing', nudged: undefined })
   broadcastTask(storage, found.spec.id)
@@ -382,9 +396,13 @@ async function settleReview(
     patchTicket(storage, spec.id, ticket.id, { openIssues: undefined })
     const landed = await landSpecTicket(ticket.id, REVIEWER_ACTOR)
     if (!landed.ok && !('handedBack' in landed)) {
-      patchTicket(storage, spec.id, ticket.id, { state: 'blocked', blockedReason: `Could not merge: ${landed.reason}` })
-      notifySpec(storage, spec, 'spec_blocked', `Ticket #${ticket.number} passed review but could not be merged: ${landed.reason}`)
-      broadcastTask(storage, spec.id)
+      await blockTicket(
+        storage,
+        spec,
+        ticket.id,
+        `Could not merge: ${landed.reason}`,
+        `Ticket #${ticket.number} passed review but could not be merged: ${landed.reason}`,
+      )
     }
     return
   }
@@ -393,14 +411,14 @@ async function settleReview(
   const issues = blocking.map(formatIssue)
   comment([`Review round ${round} asks for changes:`, ...issues.map((i) => `- ${i}`)].join('\n'))
   if (round >= MAX_REVIEW_ROUNDS) {
-    patchTicket(storage, spec.id, ticket.id, {
-      rounds: round,
-      state: 'blocked',
-      openIssues: issues,
-      blockedReason: `${round} review rounds did not pass. Still open: ${blocking[0].issue}`,
-    })
-    notifySpec(storage, spec, 'spec_blocked', `Ticket #${ticket.number} did not pass review after ${round} rounds`)
-    broadcastTask(storage, spec.id)
+    patchTicket(storage, spec.id, ticket.id, { rounds: round, openIssues: issues })
+    await blockTicket(
+      storage,
+      spec,
+      ticket.id,
+      `${round} review rounds did not pass. Still open: ${blocking[0].issue}`,
+      `Ticket #${ticket.number} did not pass review after ${round} rounds`,
+    )
     // A blocked ticket gives its slot back.
     await advance(storage, spec.id)
     return
@@ -410,9 +428,52 @@ async function settleReview(
   broadcastTask(storage, ticket.id)
   broadcastTask(storage, spec.id)
   if (ticket.bindingId == null || !(await wakeTaskBinding(ticket.bindingId, reworkMessage(ticket.number, round, blocking)))) {
-    patchTicket(storage, spec.id, ticket.id, { state: 'blocked', blockedReason: 'Review asked for changes, but its implementer session could not be woken' })
-    broadcastTask(storage, spec.id)
+    const reason = 'Review asked for changes, but its implementer session could not be woken'
+    await blockTicket(storage, spec, ticket.id, reason, `Ticket #${ticket.number}: ${reason}`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Blocked
+// ---------------------------------------------------------------------------
+
+/**
+ * Block a ticket. The spec's coordinator gets it first and the user only hears
+ * of it when the coordinator cannot help: it already set this ticket going
+ * MAX_COORDINATOR_RETRIES times, it cannot be woken, or its turn ends without
+ * acting (onCoordinatorTurnEnded). `notice` is what the user is told.
+ */
+export async function blockTicket(storage: BuildStorage, spec: Task, taskId: number, reason: string, notice: string): Promise<void> {
+  const entry = patchTicket(storage, spec.id, taskId, { state: 'blocked', blockedReason: reason, coordinator: undefined })
+  broadcastTask(storage, spec.id)
+  const retries = entry?.retries ?? 0
+  if (entry && retries < MAX_COORDINATOR_RETRIES) {
+    // Marked before the wake, so a coordinator that answers at once finds it asked.
+    patchTicket(storage, spec.id, taskId, { coordinator: 'asked' })
+    const ticket = storage.taskGet(taskId)
+    const woke = await wakeCoordinator(
+      storage,
+      spec,
+      blockedTicketMessage({
+        specNumber: spec.number,
+        ticketNumber: ticket?.number ?? 0,
+        ticketKey: entry.key,
+        reason,
+        retriesLeft: MAX_COORDINATOR_RETRIES - retries,
+      }),
+    )
+    if (woke) {
+      storage.taskAppendActivity(spec.id, {
+        kind: 'system',
+        actorType: 'system',
+        actorName: 'OperonSpec',
+        body: `Ticket #${ticket?.number ?? entry.key} is blocked (${reason}). The coordinator is looking at it.`,
+      })
+      return
+    }
+    patchTicket(storage, spec.id, taskId, { coordinator: undefined })
+  }
+  notifySpec(storage, spec, 'spec_blocked', notice)
 }
 
 // ---------------------------------------------------------------------------
@@ -427,21 +488,19 @@ async function settleReview(
  */
 export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, error?: string): Promise<void> {
   const found = ticketOf(storage, taskId)
-  if (!found || found.run.stage !== 'building' || found.entry.state !== 'building') return
+  // Not a ticket: the spec's own session is its coordinator's.
+  if (!found) return storage.specRunGet(taskId) ? onCoordinatorTurnEnded(storage, taskId, error) : undefined
+  if (found.run.stage !== 'building' || found.entry.state !== 'building') return
   const { ticket, spec, entry } = found
   if (ticket.status !== 'in_progress') return
-  const block = (reason: string) => {
-    patchTicket(storage, spec.id, taskId, { state: 'blocked', blockedReason: reason })
-    notifySpec(storage, spec, 'spec_blocked', `Ticket #${ticket.number} stopped: ${reason}`)
-    broadcastTask(storage, spec.id)
-  }
+  const block = (reason: string) => blockTicket(storage, spec, taskId, reason, `Ticket #${ticket.number} stopped: ${reason}`)
   if (error) {
-    block(`Its session failed: ${error}`)
+    await block(`Its session failed: ${error}`)
     await advance(storage, spec.id)
     return
   }
   if (entry.nudged) {
-    block('Its implementer stopped twice without handing the ticket in')
+    await block('Its implementer stopped twice without handing the ticket in')
     await advance(storage, spec.id)
     return
   }
@@ -455,7 +514,7 @@ export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, e
         `report with comment_project_task and call update_project_task(task: ${ticket.number}, status: "in_review"). ` +
         'If it truly cannot be finished, say why in a comment and stop.',
     ))
-  if (!woke) block('Its implementer session ended and could not be woken')
+  if (!woke) await block('Its implementer session ended and could not be woken')
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +526,7 @@ export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, e
  * what it unblocked; once every ticket is in, the change as a whole goes to review.
  */
 export async function onTicketLanded(storage: BuildStorage, specId: number, taskId: number): Promise<void> {
-  patchTicket(storage, specId, taskId, { state: 'merged', openIssues: undefined, blockedReason: undefined })
+  patchTicket(storage, specId, taskId, { state: 'merged', openIssues: undefined, blockedReason: undefined, coordinator: undefined })
   const children = storage.taskListChildren(specId)
   if (children.every((c) => c.status === 'done' || c.status === 'cancelled')) {
     // The whole change is in: review it as one before the user signs it.
@@ -566,6 +625,20 @@ export async function sweepBuilds(storage: BuildStorage): Promise<void> {
     } catch (err) {
       console.error(`[Spec] could not resume the build of spec task ${run.taskId}:`, err)
     }
+  }
+  // The coordinator's session was cut off too, maybe in the middle of what it was asked.
+  for (const run of storage.specRunList(['building', 'integrating'])) {
+    const spec = storage.taskGet(run.taskId)
+    const asked = run.build.filter((b) => b.state === 'blocked' && b.coordinator === 'asked')
+    if (!spec || (run.stage !== 'integrating' && asked.length === 0)) continue
+    const numbers = asked.map((b) => `#${storage.taskGet(b.taskId)?.number ?? b.key}`)
+    const message =
+      run.stage === 'integrating'
+        ? `The app restarted while you were resolving the sign-off conflict of spec #${spec.number}, and your session was cut off. ` +
+          `Check your worktree (git status) and carry on; when the merge is committed, call spec_integration_done(task: ${spec.number}, summary: ...).`
+        : `The app restarted and cut your session off. Tickets of spec #${spec.number} still blocked and waiting on you: ${numbers.join(', ')}. ` +
+          `Check spec_status(task: ${spec.number}) and carry on.`
+    await wakeCoordinator(storage, spec, message).catch(() => false)
   }
 }
 

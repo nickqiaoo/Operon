@@ -1,9 +1,19 @@
-import { FormattedMessage } from 'react-intl'
-import { ExternalLink, Layers, Workflow } from 'lucide-react'
+import { FormattedMessage, useIntl } from 'react-intl'
+import { Layers, SquareKanban, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useEditorStore } from '@/stores/editor-store'
 import { openWorkflowPanel } from '@/components/app-shell/useWorkflowTab'
-import { SpecActions, SpecAgentList, SpecBuildSummary, SpecGateSummary, SpecSeatsLine, SpecStageBadge, useSpecView } from './spec-shared'
+import {
+  SpecActions,
+  SpecAgentList,
+  SpecBuildSummary,
+  SpecGateSummary,
+  SpecSeatsLine,
+  SpecStageBadge,
+  SpecStopButton,
+  specHasGate,
+  useSpecView,
+} from './spec-shared'
 
 /**
  * The card a `start_spec` call leaves in the transcript: where the spec stands,
@@ -14,6 +24,9 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
   const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const projectId = useEditorStore((s) => s.currentProjectId)
   const { spec, error } = useSpecView(taskId)
+  const intl = useIntl()
+  const openTask = () => projectId != null && requestOpenTask({ projectId, taskId })
+  const boardLabel = intl.formatMessage({ id: 'spec.card.openBoard', defaultMessage: 'Open on the board' })
 
   return (
     <div className="@container my-2 rounded-xl border border-border/50 bg-background/60 shadow-card">
@@ -27,10 +40,22 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
             <span className="font-mono normal-case tracking-normal">#{taskNumber}</span>
             {spec && <SpecStageBadge stage={spec.run.stage} running={spec.running} />}
           </div>
-          <div className="mt-0.5 truncate text-sm font-medium text-foreground">{spec?.title ?? title}</div>
+          {/* The title is the task: clicking it opens the board card, like the button. */}
+          <button
+            type="button"
+            disabled={projectId == null}
+            onClick={openTask}
+            title={boardLabel}
+            className="mt-0.5 block max-w-full cursor-pointer truncate text-left text-sm font-medium text-foreground underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline"
+          >
+            {spec?.title ?? title}
+          </button>
           {spec && <SpecSeatsLine spec={spec} />}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {/* Stop sits with the other controls: a row of its own under the card
+              made a running spec's card a good deal taller for one button. */}
+          {spec?.running && <SpecStopButton spec={spec} />}
           <Button
             size="sm"
             variant="ghost"
@@ -48,12 +73,13 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
             variant="ghost"
             className="h-7 gap-1.5 text-xs"
             disabled={projectId == null}
-            onClick={() => projectId != null && requestOpenTask({ projectId, taskId })}
+            onClick={openTask}
+            title={boardLabel}
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            <span className="@max-[480px]:sr-only">
-              <FormattedMessage id="spec.card.open" defaultMessage="Open" />
-            </span>
+            {/* A board icon and a label that stays: an arrow alone did not say
+                where it went. */}
+            <SquareKanban className="h-3.5 w-3.5" />
+            <FormattedMessage id="spec.card.board" defaultMessage="Board" />
           </Button>
         </div>
       </div>
@@ -62,10 +88,10 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
           <SpecAgentList spec={spec} />
         </div>
       )}
-      {spec && (spec.run.stage !== 'building' || spec.designChanged || spec.running) && (
+      {spec && specHasGate(spec) && (
         <div className="space-y-2 border-t border-border/40 px-3 py-2.5">
           <SpecGateSummary spec={spec} />
-          <SpecActions spec={spec} />
+          <SpecActions spec={spec} showStop={false} />
         </div>
       )}
       {spec && spec.run.build.length > 0 && (

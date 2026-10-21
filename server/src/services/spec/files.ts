@@ -30,6 +30,8 @@ export const SPEC_FILES = {
   review: 'review.md',
   /** The ADRs and glossary terms the change records at gate 2. */
   decisions: 'decisions.json',
+  /** A sign-off conflict being resolved; see SpecIntegration. */
+  integration: 'integration.json',
 } as const
 
 /** One reviewer's raw review of the whole change: `reviews/<provider>.json`. */

@@ -349,6 +349,8 @@ export interface WorkflowRunView {
   endedAt?: number
   error?: string
   hasResult: boolean
+  /** False for a run with no script to show, e.g. a spec's. */
+  hasScript?: boolean
 }
 
 /**

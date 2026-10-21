@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SpecDecisions } from '../../types/spec.js'
 import type { Task } from '../../types/task.js'
 import { appendGlossary, readRecorded, recordDecisions, renderAdr } from './decisions.js'
+import { unreviewedFiles } from './review-run.js'
 
 let root: string
 let repo: string
@@ -20,11 +21,12 @@ async function write(dir: string, rel: string, content: string) {
   await fs.writeFile(path.join(dir, rel), content)
 }
 
-const spec = { id: 1, number: 7, projectId: 1, branchName: 'operon/task-7' } as Task
+const spec = { id: 1, number: 7, projectId: 1, branchName: 'operon/task-7', workspaceId: 1 } as Task
 const loc = () => ({ taskId: 1, taskNumber: 7, worktreePath: worktree })
 const storage = () =>
   ({
     getProject: () => ({ id: 1, rootPath: repo }),
+    getWorkspace: () => ({ id: 1, worktreePath: worktree }),
     taskAppendActivity: vi.fn(),
   }) as never
 
@@ -101,12 +103,57 @@ describe('recordDecisions', () => {
     expect(git(worktree, 'rev-parse', 'HEAD')).toBe(head)
   })
 
+  it('merges a default branch whose name has a slash in it', async () => {
+    git(repo, 'branch', '-m', 'main', 'release/2.x')
+    git(repo, 'remote', 'add', 'origin', 'https://example.com/repo.git')
+    git(repo, 'update-ref', 'refs/remotes/origin/release/2.x', 'release/2.x')
+    git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release/2.x')
+
+    expect(await recordDecisions(storage(), spec, loc())).toEqual(['docs/adr/0003-reminders-own-table.md', 'GLOSSARY.md'])
+    expect(git(worktree, 'log', '--format=%s', '-2')).toContain('Merge release/2.x into operon/task-7')
+  })
+
   it('does nothing when there is nothing to record', async () => {
     await write(worktree, '.operon/changes/task-7/decisions.json', JSON.stringify({ adrs: [], glossary: [], recorded: null }))
     git(worktree, 'commit', '-qam', 'empty')
     const head = git(worktree, 'rev-parse', 'HEAD')
     expect(await recordDecisions(storage(), spec, loc())).toEqual([])
     expect(git(worktree, 'rev-parse', 'HEAD')).toBe(head)
+  })
+})
+
+describe('unreviewedFiles', () => {
+  /** The change as gate 2 shows it: reviewed at its current head. */
+  async function reviewedNow() {
+    const head = git(worktree, 'rev-parse', 'HEAD').trim()
+    await write(worktree, '.operon/changes/task-7/review.json', JSON.stringify({ head, base: 'main' }))
+    git(worktree, 'add', '-A')
+    git(worktree, 'commit', '-q', '-m', 'review')
+  }
+
+  it('lets through what sign-off itself merged and wrote', async () => {
+    await write(worktree, 'feature.ts', 'export const x = 1\n')
+    git(worktree, 'add', '-A')
+    git(worktree, 'commit', '-q', '-m', 'ticket work')
+    await reviewedNow()
+    // A sign-off that recorded the decisions, then could not merge into main.
+    await recordDecisions(storage(), spec, loc())
+    expect(await unreviewedFiles(storage(), spec)).toEqual([])
+  })
+
+  it('names work committed after the review', async () => {
+    await reviewedNow()
+    await write(worktree, 'feature.ts', 'export const x = 2\n')
+    git(worktree, 'add', '-A')
+    git(worktree, 'commit', '-q', '-m', 'unreviewed')
+    expect(await unreviewedFiles(storage(), spec)).toEqual(['feature.ts'])
+  })
+
+  it('has nothing to say without a review', async () => {
+    await write(worktree, 'feature.ts', 'export const x = 2\n')
+    git(worktree, 'add', '-A')
+    git(worktree, 'commit', '-q', '-m', 'unreviewed')
+    expect(await unreviewedFiles(storage(), spec)).toEqual([])
   })
 })
 

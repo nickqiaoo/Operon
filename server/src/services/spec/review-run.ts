@@ -19,19 +19,40 @@
  */
 
 import type { Task } from '../../types/task.js'
-import type { SpecDecisions, SpecReviewSummary, SpecRunConfig, SpecStage, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
-import { getCurrentBranch, getDiffStatText, getFileDiffRange, getHeadSha, getMergeBase } from '../git.js'
+import type {
+  SpecDecisions,
+  SpecIntegration,
+  SpecReviewSummary,
+  SpecRunConfig,
+  SpecSeat,
+  SpecStage,
+  SpecTicket,
+  SpecTicketBuild,
+} from '../../types/spec.js'
+import {
+  diffBeyondMerge,
+  filesChangedBeyondMerge,
+  getCurrentBranch,
+  getDefaultLocalBranch,
+  getDiffStatText,
+  getFileDiffRange,
+  getHeadSha,
+  getMergeBase,
+} from '../git.js'
 import { broadcastTask } from '../task-events.js'
 import type { SpecAgents } from './agents.js'
 import { addTicket, advance, notifySpec, sessionFor, type BuildStorage } from './build-run.js'
 import { familyOf, seatFor } from './config.js'
 import { draftDecisions } from './decisions.js'
-import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, writeSpecFiles, type SpecLocation } from './files.js'
+import { wakeCoordinator } from './coordinator.js'
+import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
 import {
   BRANCH_REVIEW_SCHEMA,
   SPEC_REVIEW_SCHEMA,
   branchReviewPrompt,
   consolidateReviewPrompt,
+  integrationMessage,
+  integrationReviewPrompt,
   recheckPrompt,
   renderReview,
   reviewFixesTicket,
@@ -68,6 +89,18 @@ export function branchReviewers(config: SpecRunConfig): string[] {
   return picked
 }
 
+/**
+ * Who checks a sign-off conflict the coordinator resolved: a whole-change
+ * reviewer from a family other than the coordinator's (the lead's) — or, in a
+ * spec with one family, the first reviewer.
+ */
+export function integrationReviewer(config: SpecRunConfig): SpecSeat {
+  const reviewers = branchReviewers(config)
+  const lead = familyOf(config.lead.providerId)
+  const id = reviewers.find((p) => familyOf(p) !== lead) ?? reviewers[0] ?? config.lead.providerId
+  return seatFor(config, id)
+}
+
 /** Every ticket was reviewed by a family other than its implementer's — not so in a spec limited to one agent. */
 export function crossFamilyReviewed(build: readonly Pick<SpecTicketBuild, 'implementer' | 'reviewer'>[]): boolean {
   return build.every((b) => familyOf(b.implementer) !== familyOf(b.reviewer))
@@ -99,7 +132,18 @@ export function onAllTicketsMerged(storage: BuildStorage, specId: number): void 
       const loc = locate(storage, spec)
       const stored = await readSpecJson<StoredReview>(loc, SPEC_FILES.reviewJson)
       const final = await readSpecFile(loc, SPEC_FILES.review)
-      const gate = stored && !final ? await recheck(storage, agents, spec, loc, stored) : await review(storage, agents, spec, loc)
+      const integration = await readSpecJson<SpecIntegration>(loc, SPEC_FILES.integration)
+      // A sign-off conflict not handed in yet is still the coordinator's.
+      if (integration && !integration.summary) {
+        setStage(storage, specId, 'integrating')
+        return
+      }
+      const gate =
+        integration && stored
+          ? await integrationReview(storage, agents, spec, loc, stored, integration)
+          : stored && !final
+            ? await recheck(storage, agents, spec, loc, stored)
+            : await review(storage, agents, spec, loc)
       // Inside the run: the segment settles (and reports) as soon as it returns.
       if (gate) session.deliver(gate)
     })
@@ -237,6 +281,79 @@ async function recheck(
   return finalize(storage, agents, spec, loc, { ...rechecked, head, base: stored.base, actOnBefore: stored.actOnBefore })
 }
 
+/** The coordinator resolved a sign-off conflict: another family checks the resolution, then gate 2 again. */
+async function integrationReview(
+  storage: BuildStorage,
+  agents: SpecAgents,
+  spec: Task,
+  loc: SpecLocation,
+  stored: StoredReview,
+  integration: SpecIntegration,
+): Promise<GateResult | null> {
+  const run = storage.specRunGet(spec.id)
+  if (!run) return null
+  const head = await getHeadSha(loc.worktreePath)
+  if (!head) throw new Error(`spec #${spec.number}'s change branch has no commits`)
+  const own = specDir(spec.number)
+  const [diff, files] = await Promise.all([
+    diffBeyondMerge(loc.worktreePath, stored.head, integration.target, [own]),
+    filesChangedBeyondMerge(loc.worktreePath, stored.head, integration.target),
+  ])
+  const seat = integrationReviewer(run.config)
+  const checked = await agents.json<SpecReview>(
+    {
+      label: `review merge · ${seat.providerId}`,
+      phase: 'Review',
+      seat,
+      prompt: integrationReviewPrompt({
+        review: stored,
+        target: integration.target,
+        files: integration.files,
+        summary: integration.summary ?? '',
+        diff,
+        stat: (files ?? []).filter((f) => !f.startsWith(`${own}/`)).join('\n'),
+      }),
+    },
+    SPEC_REVIEW_SCHEMA,
+  )
+  const gate = await finalize(storage, agents, spec, loc, { ...checked, head, base: stored.base, actOnBefore: stored.actOnBefore })
+  await writeSpecFiles(loc, { [SPEC_FILES.integration]: null }, 'sign-off conflict reviewed')
+  return gate
+}
+
+/**
+ * Signing gate 2 hit a conflict merging the default branch in. The coordinator
+ * resolves it on the change branch (stage integrating) and hands it in through
+ * spec_integration_done, which sends the result to integrationReview. False when
+ * there is no coordinator to wake — the spec stays at gate 2.
+ */
+export async function startIntegration(storage: BuildStorage, spec: Task, target: string, files: string[]): Promise<boolean> {
+  const loc = locate(storage, spec)
+  const integration: SpecIntegration = { target, files, startedAt: Date.now() }
+  await writeSpecFiles(loc, { [SPEC_FILES.integration]: JSON.stringify(integration, null, 2) }, 'sign-off conflict')
+  setStage(storage, spec.id, 'integrating')
+  const woke = await wakeCoordinator(
+    storage,
+    spec,
+    integrationMessage({ specNumber: spec.number, branch: spec.branchName ?? `operon/task-${spec.number}`, target, files }),
+  )
+  if (!woke) {
+    await writeSpecFiles(loc, { [SPEC_FILES.integration]: null }, 'no coordinator for the sign-off conflict')
+    setStage(storage, spec.id, 'awaiting_signoff')
+    return false
+  }
+  storage.taskAppendActivity(spec.id, {
+    kind: 'system',
+    actorType: 'system',
+    actorName: 'OperonSpec',
+    body:
+      `Merging \`${target}\` in conflicted in ${files.map((f) => `\`${f}\``).join(', ') || 'some files'}. ` +
+      'The coordinator is resolving it; the result is reviewed before you sign off again.',
+    meta: { event: 'spec.integrating', target, files },
+  })
+  return true
+}
+
 async function finalize(
   storage: BuildStorage,
   agents: SpecAgents,
@@ -291,6 +408,26 @@ export async function reviewSummary(loc: SpecLocation): Promise<SpecReviewSummar
 }
 
 /**
+ * What the change branch gained since the review gate 2 shows, beyond the
+ * default branch merged in, the spec's own files and the decisions it recorded:
+ * work nobody reviewed, such as a merge conflict settled by hand. Empty when the
+ * branch is as reviewed, or there is no review to compare with.
+ */
+export async function unreviewedFiles(storage: BuildStorage, spec: Task): Promise<string[]> {
+  const loc = locate(storage, spec)
+  const stored = await readSpecJson<StoredReview>(loc, SPEC_FILES.reviewJson)
+  if (!stored?.head) return []
+  const project = storage.getProject(spec.projectId)
+  const ref = (project ? await getDefaultLocalBranch(project.rootPath) : null) ?? stored.base
+  const changed = await filesChangedBeyondMerge(loc.worktreePath, stored.head, ref)
+  if (!changed) return []
+  const decisions = await readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions)
+  const recorded = new Set(decisions?.recorded?.files ?? [])
+  const own = `${specDir(spec.number)}/`
+  return changed.filter((file) => !file.startsWith(own) && !recorded.has(file))
+}
+
+/**
  * Gate 2, "request changes": the user's comment becomes a ticket, built and
  * reviewed like the others; once it lands the whole change is reviewed again.
  */
@@ -317,6 +454,7 @@ export async function requestSignoffChanges(storage: BuildStorage, spec: Task, c
       [SPEC_FILES.review]: null,
       ...Object.fromEntries(reviewers.map((r) => [branchReviewFile(r), null])),
       ...(decisions && !decisions.recorded ? { [SPEC_FILES.decisions]: null } : {}),
+      [SPEC_FILES.integration]: null,
     },
     'changes requested at sign-off',
   )

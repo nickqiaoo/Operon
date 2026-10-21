@@ -20,7 +20,7 @@ import { CompactToolCall } from './compact-tool/CompactToolCall';
 import { AskUserQuestionRenderer, isAskUserQuestionTool } from './AskUserQuestionRenderer';
 import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
-import { WorkflowResultMessage, isWorkflowResultMessage } from './WorkflowResultMessage';
+import { WorkflowResultMessage, isSpecWorkflowResult, isWorkflowResultMessage } from './WorkflowResultMessage';
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import { getInjectedInput } from './steer-message';
 import {
@@ -505,6 +505,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   // is how the result reaches the model, but nobody typed it — render it as a
   // result card, not as something the user said.
   if (message.role === 'user' && isWorkflowResultMessage(displayText)) {
+    if (isSpecWorkflowResult(displayText)) return null;
     return <WorkflowResultMessage key={`${message.id}-${partIndex}`} text={displayText} />;
   }
 

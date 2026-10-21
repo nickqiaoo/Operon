@@ -13,6 +13,7 @@ import type { ChannelStorageAdapter } from '../../storage/interface.js'
 import type { Agent } from '../../types/channel.js'
 import type { SpecSeat } from '../../types/spec.js'
 import { subagentMode } from '../agents/subagent-mode.js'
+import { COORDINATOR_INSTRUCTIONS } from './prompts.js'
 
 export type BuilderStorage = Pick<ChannelStorageAdapter, 'getAgentByName' | 'createAgent'>
 
@@ -33,6 +34,30 @@ export function getOrCreateSpecBuilder(storage: BuilderStorage, seat: SpecSeat):
     instructions: '',
     // Nobody sits in front of a ticket session; a mode that stops to ask would
     // stall it. The same unattended mode Workflow sub-agents run in.
+    permissionMode: subagentMode(seat.providerId),
+    hidden: true,
+  })
+}
+
+export function coordinatorAgentName(seat: SpecSeat): string {
+  return seat.modelId ? `Spec coordinator · ${seat.providerId} · ${seat.modelId}` : `Spec coordinator · ${seat.providerId}`
+}
+
+/**
+ * The hidden agent that coordinates specs from a seat — the lead's. Like the
+ * builders, one per seat serves every spec; each spec has its own session (a
+ * task binding on the spec) in its change worktree.
+ */
+export function getOrCreateSpecCoordinator(storage: BuilderStorage, seat: SpecSeat): Agent {
+  const name = coordinatorAgentName(seat)
+  const existing = storage.getAgentByName(name)
+  if (existing) return existing
+  return storage.createAgent({
+    name,
+    provider: seat.providerId,
+    model: seat.modelId ?? '',
+    instructions: COORDINATOR_INSTRUCTIONS,
+    // Woken by events with nobody at the screen, like a ticket session.
     permissionMode: subagentMode(seat.providerId),
     hidden: true,
   })

@@ -1,10 +1,31 @@
 import { Hono } from 'hono'
-import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
-import type { CreateProjectInput, CreateWorkspaceInput } from '../types/project.js'
+import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
+import type { CreateProjectInput, CreateWorkspaceInput, Workspace, WorkspaceTask } from '../types/project.js'
 import { RewindService } from '../services/rewind/index.js'
 
-export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStorageAdapter & ChatStorageAdapter) {
+export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStorageAdapter & ChatStorageAdapter & TaskStorageAdapter) {
   const router = new Hono()
+
+  // A project's workspaces, each with the board task whose agent runs in it, so
+  // the sidebar can show a spec's ticket worktrees under the spec.
+  const workspacesOf = (projectId: number): (Workspace & { task?: WorkspaceTask })[] => {
+    const owners = new Map<number, WorkspaceTask>()
+    for (const t of storage.taskList({ projectId, includeArchived: true })) {
+      if (t.workspaceId == null) continue
+      owners.set(t.workspaceId, {
+        id: t.id,
+        number: t.number,
+        title: t.title,
+        status: t.status,
+        parentTaskId: t.parentTaskId ?? null,
+        specStage: t.specStage ?? null,
+      })
+    }
+    return storage.listWorkspaces(projectId).map((w) => {
+      const task = owners.get(w.id)
+      return task ? { ...w, task } : w
+    })
+  }
 
   // List projects. `?include=workspaces` embeds each project's workspaces so a
   // client only pays one round trip instead of 1 + N — the web build reaches
@@ -17,7 +38,7 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     return c.json({
       projects: projects.map((project) => ({
         ...project,
-        workspaces: storage.listWorkspaces(project.id),
+        workspaces: workspacesOf(project.id),
       })),
     })
   })
@@ -62,8 +83,7 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
   // List workspaces for a project
   router.get('/:id/workspaces', (c) => {
     const id = parseInt(c.req.param('id'), 10)
-    const workspaces = storage.listWorkspaces(id)
-    return c.json({ workspaces })
+    return c.json({ workspaces: workspacesOf(id) })
   })
 
   // Create workspace

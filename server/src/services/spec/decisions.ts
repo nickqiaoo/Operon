@@ -18,7 +18,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Task } from '../../types/task.js'
 import type { SpecAdr, SpecDecisions, SpecGlossaryTerm } from '../../types/spec.js'
-import { getCurrentBranch, getDefaultBaseBranch, mergeBranch } from '../git.js'
+import { getCurrentBranch, getDefaultLocalBranch, mergeBranch } from '../git.js'
 import type { SpecAgents } from './agents.js'
 import { SPEC_FILES, readSpecFile, readSpecJson, writeSpecFiles, type SpecLocation } from './files.js'
 import { DECISIONS_SCHEMA, decisionsPrompt, type DecisionsResult } from './prompts.js'
@@ -192,8 +192,7 @@ export async function recordDecisions(storage: BuildStorage, spec: Task, loc: Sp
   // may have recorded its own since this change branched off.
   const project = storage.getProject(spec.projectId)
   if (project) {
-    const base = await getDefaultBaseBranch(project.rootPath)
-    const target = base ? base.slice(base.lastIndexOf('/') + 1) : await getCurrentBranch(project.rootPath)
+    const target = (await getDefaultLocalBranch(project.rootPath)) ?? (await getCurrentBranch(project.rootPath))
     if (target) await mergeBranch(loc.worktreePath, target, `Merge ${target} into ${spec.branchName} before recording decisions`)
   }
 

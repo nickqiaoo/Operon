@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, Hash, Inbox, Layers, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
@@ -17,6 +17,7 @@ import { useStreamingStore } from "@/stores/streaming-store"
 import { useInboxStore } from "@/stores/inbox-store"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
+import { groupSpecWorkspaces } from "./workspace-groups"
 
 type GitWorktreeEntry = {
   path: string
@@ -92,6 +93,9 @@ function ProjectItem({
   const setProjectCollapsed = useProjectStore((s) => s.setProjectCollapsed)
   const containsActiveWorkspace = project.workspaces.some((workspace) => workspace.id === activeWorkspaceId)
   const pinLabel = pinned ? "Unpin" : "Pin to top"
+  const groups = useMemo(() => groupSpecWorkspaces(project.workspaces), [project.workspaces])
+  // Specs whose tickets the user folded away; open by default.
+  const [closedSpecs, setClosedSpecs] = useState<ReadonlySet<number>>(() => new Set())
   return (
     <Collapsible
       open={!collapsed}
@@ -118,9 +122,9 @@ function ProjectItem({
             {collapsed && (
               <span
                 className="shrink-0 px-1 text-[11px] font-normal tabular-nums text-muted-foreground"
-                aria-label={`${project.workspaces.length} workspaces`}
+                aria-label={`${groups.top.length} workspaces`}
               >
-                {project.workspaces.length}
+                {groups.top.length}
               </span>
             )}
           </button>
@@ -159,62 +163,173 @@ function ProjectItem({
         ) : (
           // The project folder's own checkout goes first; the rest are worktrees
           // operon placed under ~/.operon/worktrees. Every row is a branch, so
-          // the icon is a branch — the folder icon belongs to the project.
-          [...project.workspaces]
+          // the icon is a branch — the folder icon belongs to the project. A
+          // spec's ticket worktrees sit under the spec's own row.
+          [...groups.top]
             .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
             .map((workspace) => {
-            const isActive = activeWorkspaceId === workspace.id
-            const workspaceStats = workspaceDiffStats?.[workspace.worktreePath]
-            const wsStreaming = streamingCounts?.[workspace.id] ?? 0
-            const wsUnseen = unseenCounts?.[workspace.id] ?? 0
-            const wsBadge = wsStreaming + wsUnseen
-            return (
-              <button
-                key={workspace.id}
-                onClick={() => onSelectWorkspace(workspace.id, project.id)}
-                className={cn(
-                  // Align the branch icon with the project name; keep the fill full width.
-                  "w-full rounded-lg py-2 pl-11 pr-3 text-left transition-colors duration-150 bg-transparent hover:bg-row-hover hover:text-foreground relative overflow-hidden",
-                  // Selection is a plain fill — no border, no tint. `tint-muted`
-                  // only cleared the sidebar by ~9 levels and skewed blue, so the
-                  // block read as a smudge; a neutral 7% of the foreground lands
-                  // ~15 levels down and stays right in dark mode and under every
-                  // UI theme, since it composites against whatever the surface is.
-                  isActive && "bg-row-selected text-foreground shadow-none hover:bg-row-selected",
-                  wsStreaming > 0 && "animate-shimmer-sweep"
-                )}
-              >
-                <div className="flex items-center gap-2 relative z-[1]">
-                  <GitBranch className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
-                  <span className={cn("min-w-0 flex-1 truncate text-sm", isActive ? "font-semibold text-foreground" : "font-medium text-foreground/70")}>
-                    {workspace.name}
-                  </span>
-
-                  {workspaceStats && (workspaceStats.additions > 0 || workspaceStats.deletions > 0) && (
-                    <span className="shrink-0 text-[11px] font-mono tabular-nums font-normal opacity-80">
-                      {workspaceStats.additions > 0 && (
-                        <span className="text-diff-add">+{workspaceStats.additions}</span>
-                      )}
-                      {workspaceStats.deletions > 0 && (
-                        <span className="text-diff-remove ml-0.5">-{workspaceStats.deletions}</span>
-                      )}
-                    </span>
-                  )}
-                  {wsBadge > 0 && (
-                    <span className={cn(
-                      "shrink-0 text-[11px] font-medium tabular-nums leading-none",
-                      wsStreaming > 0 ? "text-status-info" : "text-status-warn"
-                    )}>
-                      {wsBadge}
-                    </span>
-                  )}
-                </div>
-              </button>
-            )
-          })
+              const tickets = groups.tickets.get(workspace.id) ?? []
+              const open = tickets.length > 0 && !closedSpecs.has(workspace.id)
+              const rowProps = (w: Workspace) => ({
+                isActive: activeWorkspaceId === w.id,
+                stats: workspaceDiffStats?.[w.worktreePath],
+                streaming: streamingCounts?.[w.id] ?? 0,
+                unseen: unseenCounts?.[w.id] ?? 0,
+                onSelect: () => onSelectWorkspace(w.id, project.id),
+              })
+              const own = rowProps(workspace)
+              // Folded, the spec's row carries what its tickets have going on.
+              const folded = open ? [] : tickets.map(rowProps)
+              return (
+                <Fragment key={workspace.id}>
+                  <WorkspaceRow
+                    {...own}
+                    streaming={own.streaming + folded.reduce((n, r) => n + r.streaming, 0)}
+                    unseen={own.unseen + folded.reduce((n, r) => n + r.unseen, 0)}
+                    label={workspace.task?.specStage != null ? workspace.task.title : workspace.name}
+                    title={workspace.task?.specStage != null ? `#${workspace.task.number} · ${workspace.name}` : workspace.name}
+                    spec={workspace.task?.specStage != null}
+                    toggle={
+                      tickets.length > 0
+                        ? {
+                            open,
+                            count: tickets.length,
+                            onToggle: () =>
+                              setClosedSpecs((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(workspace.id)) next.delete(workspace.id)
+                                else next.add(workspace.id)
+                                return next
+                              }),
+                          }
+                        : undefined
+                    }
+                  />
+                  {open &&
+                    tickets.map((ticket) => (
+                      <WorkspaceRow
+                        key={ticket.id}
+                        {...rowProps(ticket)}
+                        nested
+                        label={ticket.task ? `#${ticket.task.number} ${ticket.task.title}` : ticket.name}
+                        title={ticket.name}
+                        ticketStatus={ticket.task?.status}
+                      />
+                    ))}
+                </Fragment>
+              )
+            })
         )}
       </CollapsibleContent>
     </Collapsible>
+  )
+}
+
+const TICKET_DOT: Record<string, string> = {
+  in_progress: "bg-status-info",
+  in_review: "bg-status-warn",
+}
+
+/**
+ * One workspace in the project's list. A spec's row shows the spec's title and
+ * can fold its tickets away; a ticket's row sits indented under it.
+ */
+function WorkspaceRow({
+  label,
+  title,
+  isActive,
+  stats,
+  streaming,
+  unseen,
+  onSelect,
+  spec,
+  nested,
+  ticketStatus,
+  toggle,
+}: {
+  label: string
+  title: string
+  isActive: boolean
+  stats?: WorkspaceDiffStat
+  streaming: number
+  unseen: number
+  onSelect: () => void
+  spec?: boolean
+  nested?: boolean
+  ticketStatus?: string
+  toggle?: { open: boolean; count: number; onToggle: () => void }
+}) {
+  const badge = streaming + unseen
+  const Icon = spec ? Layers : GitBranch
+  return (
+    <div
+      className={cn(
+        "group/ws relative flex w-full items-center overflow-hidden rounded-lg transition-colors duration-150 hover:bg-row-hover hover:text-foreground",
+        // Selection is a plain fill — no border, no tint. `tint-muted`
+        // only cleared the sidebar by ~9 levels and skewed blue, so the
+        // block read as a smudge; a neutral 7% of the foreground lands
+        // ~15 levels down and stays right in dark mode and under every
+        // UI theme, since it composites against whatever the surface is.
+        isActive && "bg-row-selected text-foreground shadow-none hover:bg-row-selected",
+        streaming > 0 && "animate-shimmer-sweep"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        title={title}
+        className={cn(
+          // Align the branch icon with the project name; keep the fill full width.
+          "relative z-[1] flex min-w-0 flex-1 items-center gap-2 bg-transparent py-2 pr-3 text-left",
+          nested ? "pl-16" : "pl-11"
+        )}
+      >
+        {nested ? (
+          <span className={cn("size-1.5 shrink-0 rounded-full", TICKET_DOT[ticketStatus ?? ""] ?? "bg-muted-foreground/40")} />
+        ) : (
+          <Icon className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
+        )}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            nested ? "text-[13px]" : "text-sm",
+            isActive ? "font-semibold text-foreground" : "font-medium text-foreground/70"
+          )}
+        >
+          {label}
+        </span>
+
+        {stats && (stats.additions > 0 || stats.deletions > 0) && (
+          <span className="shrink-0 text-[11px] font-mono tabular-nums font-normal opacity-80">
+            {stats.additions > 0 && <span className="text-diff-add">+{stats.additions}</span>}
+            {stats.deletions > 0 && <span className="text-diff-remove ml-0.5">-{stats.deletions}</span>}
+          </span>
+        )}
+        {badge > 0 && (
+          <span
+            className={cn(
+              "shrink-0 text-[11px] font-medium tabular-nums leading-none",
+              streaming > 0 ? "text-status-info" : "text-status-warn"
+            )}
+          >
+            {badge}
+          </span>
+        )}
+      </button>
+      {toggle && (
+        <button
+          type="button"
+          onClick={toggle.onToggle}
+          className="relative z-[1] mr-1 flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1 text-[11px] tabular-nums text-muted-foreground hover:bg-accent-hover hover:text-foreground"
+          aria-expanded={toggle.open}
+          aria-label={`${toggle.open ? "Hide" : "Show"} ${toggle.count} ticket workspaces`}
+          title={`${toggle.count} ticket${toggle.count === 1 ? "" : "s"} at work`}
+        >
+          {!toggle.open && toggle.count}
+          <ChevronRight className={cn("size-3 transition-transform duration-150", toggle.open && "rotate-90")} strokeWidth={1.5} />
+        </button>
+      )}
+    </div>
   )
 }
 

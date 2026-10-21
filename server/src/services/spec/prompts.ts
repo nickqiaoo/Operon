@@ -902,6 +902,34 @@ ${diffSection(input.diff, input.stat)}
 ${LANGUAGE_RULE.replace('the brief', 'the review')}`
 }
 
+export function integrationReviewPrompt(input: {
+  review: SpecReview
+  target: string
+  files: string[]
+  summary: string
+  diff: string
+  stat: string
+}): string {
+  return `You review how a merge was resolved. The change below was reviewed (the review is included) and was being signed off, but merging \`${input.target}\` into it conflicted in ${input.files.map((f) => `\`${f}\``).join(', ') || 'some files'}. Another agent resolved the merge. The diff shows only how the result differs from what git produced on its own: conflicted files appear with git's conflict markers on the old side, and anything else the agent changed appears too.
+
+Check that the resolution keeps both sides: the change's behaviour as reviewed, and what \`${input.target}\` added. Look for dropped code from either side, a side taken wholesale where both were needed, and changes that go beyond resolving the conflict. Your checkout is the merged result; run what you need.
+
+Return the review with anything the resolution broke or dropped added to \`actOn\` (raisedBy: your provider), the evidence rows updated for criteria the resolution affects, and \`summary\` rewritten to say how the merge was resolved. Leave the other items as they are.
+
+## The review
+\`\`\`json
+${JSON.stringify(input.review, null, 2)}
+\`\`\`
+
+## What the agent says it did
+${input.summary || '(nothing)'}
+
+## The resolution, against git's own merge
+${diffSection(input.diff, input.stat)}
+
+${LANGUAGE_RULE.replace('the brief', 'the review')}`
+}
+
 /** review.md — the gate 2 document, rendered from the consolidated review. */
 export function renderReview(review: SpecReview, opts: { fixed: number; base: string }): string {
   const item = (i: ReviewItem) =>
@@ -1012,4 +1040,60 @@ ${decisionsSince(input.answers)}
 ${input.design}
 ${input.synthesis ? `\n## Synthesis note (what was chosen, grafted and rejected)\n${input.synthesis}\n` : ''}${input.rulings.length > 0 ? `\n## Rulings the implementers made\n${input.rulings.map((r) => `- ${r}`).join('\n')}\n` : ''}${recordedSection(input.recorded)}
 ${LANGUAGE_RULE}`
+}
+
+// ---------------------------------------------------------------------------
+// The coordinator
+// ---------------------------------------------------------------------------
+
+/** Times the coordinator may set one ticket going again before a block goes to the user. */
+export const MAX_COORDINATOR_RETRIES = 2
+
+/**
+ * The coordinator agent's standing instructions. One agent per seat serves every
+ * spec, so nothing here is about a particular spec; each wake-up message says which.
+ */
+export const COORDINATOR_INSTRUCTIONS = `You are the coordinator of OperonSpec changes. A spec is one change: its design was approved by the user, split into tickets, and the tickets are being built by implementer agents, each reviewed by another model family and merged into the spec's change branch. That machinery runs on rules without you. You are woken for what needs judgement: a ticket that is stuck, a conflict when the user signs the change off, or a comment the user leaves on the spec. Each message names the spec (#N); between messages you sleep.
+
+Your session runs in the spec's change worktree (branch operon/task-N). The spec's files are in .operon/changes/task-N/: brief.md, design.md (what was approved), tickets.json, review.md.
+
+Tools (taskboard): spec_status reads where the spec and every ticket stand; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
+
+Rules:
+- Never change what the user approved. A problem that needs a different design goes to the user with spec_escalate, with what you found and what you recommend.
+- Never merge into the default branch, and never sign anything off: that is the user's.
+- Don't build tickets yourself; implementers do. Change code only to resolve a merge you were asked to resolve. Never edit files under .operon/changes/.
+- Decide small things the design left open yourself, and say so as a ruling.
+- When you have dealt with the message, end your turn. Write anything the user reads in the language of the spec's brief.`
+
+export function blockedTicketMessage(input: {
+  specNumber: number
+  ticketNumber: number
+  ticketKey: string
+  reason: string
+  retriesLeft: number
+}): string {
+  return [
+    `Ticket #${input.ticketNumber} (${input.ticketKey}) of spec #${input.specNumber} is blocked: ${input.reason}`,
+    '',
+    `Find out why: spec_status(task: ${input.specNumber}), get_project_task(task: ${input.ticketNumber}) for its report and the reviews, ` +
+      `and its branch operon/task-${input.ticketNumber} (git log / git diff against operon/task-${input.specNumber}). Then do one of:`,
+    `- spec_retry_ticket(task: ${input.specNumber}, ticket: ${input.ticketNumber}, instructions: ...) — when its implementer can finish with clearer instructions ` +
+      `(add a ruling when you decide something the design left open). ${input.retriesLeft > 0 ? `You can do this ${input.retriesLeft} more time(s) for this ticket.` : 'You cannot retry this ticket again.'}`,
+    `- spec_add_ticket(task: ${input.specNumber}, ...) — when work is missing that another ticket should do first or alongside.`,
+    `- spec_escalate(task: ${input.specNumber}, ticket: ${input.ticketNumber}, message: ...) — when the design is wrong, or retrying will not help. Say what you found and what you recommend.`,
+    'If you do none of these, the user is told the ticket is blocked when your turn ends.',
+  ].join('\n')
+}
+
+export function integrationMessage(input: { specNumber: number; branch: string; target: string; files: string[] }): string {
+  return [
+    `The user signed spec #${input.specNumber} off, but merging \`${input.target}\` into \`${input.branch}\` conflicts in ${input.files.map((f) => `\`${f}\``).join(', ') || 'some files'}.`,
+    '',
+    `In your worktree (it is on \`${input.branch}\`): run \`git merge ${input.target}\`, and resolve every conflict so both sides survive — ` +
+      `the change as it was reviewed, and what \`${input.target}\` added since. Don't change anything else. Run the checks from the acceptance ` +
+      `criteria in tickets.json that cover the files you touched. Commit the merge, then call spec_integration_done(task: ${input.specNumber}, ` +
+      'summary: how you resolved each file and what you ran). A reviewer from another model family checks the result before the user signs off again.',
+    `If it cannot be resolved without changing what the change does, run \`git merge --abort\` and call spec_escalate(task: ${input.specNumber}, message: ...) instead.`,
+  ].join('\n')
 }

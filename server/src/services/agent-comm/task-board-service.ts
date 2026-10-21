@@ -1,4 +1,5 @@
 import type {
+  AgentBindingStorageAdapter,
   ChannelStorageAdapter,
   NotificationStorageAdapter,
   ProjectStorageAdapter,
@@ -25,6 +26,14 @@ import { getProviders } from '../ai/providers.js'
 import { isReviewedTicket } from '../spec/build-run.js'
 import { SpecError, answerSpecQuestions, startSpec } from '../spec/spec-service.js'
 import { SPEC_FILES, specDir } from '../spec/files.js'
+import {
+  addCoordinatorTicket,
+  escalate,
+  integrationDone,
+  isCoordinatorOf,
+  retryTicket,
+  specStatus,
+} from '../spec/coordinator.js'
 
 /**
  * A tool result that carries a machine-readable payload beside the prose. The
@@ -51,7 +60,8 @@ function toolError(text: string): ToolResult {
 export type TaskBoardStorage = TaskStorageAdapter &
   ChannelStorageAdapter &
   ProjectStorageAdapter &
-  NotificationStorageAdapter
+  NotificationStorageAdapter &
+  Pick<AgentBindingStorageAdapter, 'getBinding'>
 
 export class TaskBoardService {
   constructor(
@@ -276,6 +286,61 @@ export class TaskBoardService {
       if (e instanceof SpecError || e instanceof Error) return toolError(e.message)
       throw e
     }
+  }
+
+  // ---- OperonSpec coordinator ----
+
+  /** The spec behind a task number, when `agentId` is its coordinator; otherwise a refusal to hand back. */
+  private coordinatedSpec(number: number, agentId: number): Task | ToolResult {
+    const spec = this.requireTask(number)
+    if (!this.storage.specRunGet(spec.id)) return toolError(`#${number} is not a spec.`)
+    if (!isCoordinatorOf(this.storage, spec, agentId)) {
+      return toolError(`Only spec #${number}'s coordinator can do this. Comment on the spec instead.`)
+    }
+    return spec
+  }
+
+  private async asCoordinator(number: number, agentId: number, fn: (spec: Task) => Promise<string> | string): Promise<string | ToolResult> {
+    const spec = this.coordinatedSpec(number, agentId)
+    if ('text' in spec) return spec
+    try {
+      return await fn(spec)
+    } catch (e) {
+      if (e instanceof SpecError || e instanceof Error) return toolError(e.message)
+      throw e
+    }
+  }
+
+  /** Readable by anyone: where a spec and its tickets stand. */
+  async specStatus(number: number): Promise<string | ToolResult> {
+    try {
+      return await specStatus(this.storage, this.requireTask(number))
+    } catch (e) {
+      if (e instanceof Error) return toolError(e.message)
+      throw e
+    }
+  }
+
+  specRetryTicket(number: number, input: { ticket: number; instructions: string; ruling?: string }, agentId: number) {
+    return this.asCoordinator(number, agentId, (spec) => retryTicket(this.storage, spec, input, this.agentName(agentId) ?? 'Spec coordinator'))
+  }
+
+  specAddTicket(
+    number: number,
+    input: { title: string; delivers: string; acceptance: string[]; blockedBy?: number[] },
+    agentId: number,
+  ) {
+    return this.asCoordinator(number, agentId, (spec) => addCoordinatorTicket(this.storage, spec, input))
+  }
+
+  specEscalate(number: number, message: string, agentId: number, ticket?: number) {
+    return this.asCoordinator(number, agentId, (spec) =>
+      escalate(this.storage, spec, message, this.agentName(agentId) ?? 'Spec coordinator', ticket),
+    )
+  }
+
+  specIntegrationDone(number: number, summary: string, agentId: number) {
+    return this.asCoordinator(number, agentId, (spec) => integrationDone(this.storage, spec, summary))
   }
 
   comment(number: number, body: string, agentId: number): string {

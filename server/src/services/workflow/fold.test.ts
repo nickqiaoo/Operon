@@ -81,6 +81,28 @@ describe('foldRunView', () => {
     expect(view?.hasResult).toBe(true)
   })
 
+  it('keeps earlier phases first when a resumed segment numbers its own from 0', () => {
+    // A spec resumes in segments (answers, then the build). Each announces its
+    // phases from index 0; starting the list over put the newest segment's
+    // phases ahead of the ones the run went through first.
+    const view = foldRunView(
+      RUN,
+      log(
+        { ...started, script: '' },
+        { kind: 'phase', index: 0, title: 'Ground' },
+        { kind: 'phase', index: 1, title: 'Design' },
+        { kind: 'settled', status: 'completed', endedAt: 1_500 },
+        { ...started, script: '', resumed: true },
+        { kind: 'phase', index: 0, title: 'Revise' },
+        { kind: 'phase', index: 1, title: 'Design' },
+        { kind: 'settled', status: 'completed', endedAt: 2_000 },
+      ),
+    )
+
+    expect(view?.phases.map((p) => p.title)).toEqual(['Ground', 'Design', 'Revise'])
+    expect(view?.hasScript).toBe(false)
+  })
+
   it('drops pending approvals once the run settles', () => {
     // A settled run cannot be waiting on anyone: whatever the sub-agent asked was
     // answered, denied or timed out. Leaving the request visible would render a

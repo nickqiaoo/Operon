@@ -91,4 +91,6 @@ export interface WorkflowRunView {
   endedAt?: number
   error?: string
   hasResult: boolean
+  /** Whether the run was launched from a script the panel can show (a spec run has none). */
+  hasScript: boolean
 }

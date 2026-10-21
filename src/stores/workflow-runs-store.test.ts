@@ -14,6 +14,7 @@ function run(runId: string, status: WorkflowRunView["status"] = "running"): Work
     failures: [],
     startedAt: 1,
     hasResult: false,
+    hasScript: true,
   }
 }
 

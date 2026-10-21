@@ -31,7 +31,12 @@ export function foldRunView(runId: string, events: readonly StoredWorkflowEvent[
 
   for (const { event } of events) {
     switch (event.kind) {
-      case 'started':
+      case 'started': {
+        // A resume continues the same run: the phases it already went through
+        // stay, ahead of whatever this attempt announces. A spec resumes by
+        // segments (answers, then the build), each numbering its phases from 0,
+        // and starting the list over put the latest segment's phases first.
+        const earlierPhases = view?.phases ?? []
         view = {
           runId,
           taskId: runId,
@@ -39,22 +44,27 @@ export function foldRunView(runId: string, events: readonly StoredWorkflowEvent[
           name: event.name,
           description: event.description,
           status: 'running',
-          phases: [],
+          phases: earlierPhases,
           agents: [],
           pendingApprovals: [],
           logs: [],
           failures: [],
           startedAt: event.startedAt,
           hasResult: false,
+          // A spec records no script: it resumes from its files, not by replay.
+          hasScript: typeof event.script === 'string' && event.script.trim().length > 0,
         }
         // A resume re-appends `started` under the same runId. Keep the agents
         // already folded from the first attempt: the ones the journal replays are
         // never re-run, so their only record of having happened is that history.
         break
+      }
 
       case 'phase': {
         if (!view) break
-        if (view.phases.some((p) => p.index === event.index)) break
+        // By title, not index: the panel groups agents under a phase's title, and
+        // a resumed segment re-announces phases from index 0.
+        if (view.phases.some((p) => p.title === event.title)) break
         view.phases.push({ index: event.index, title: event.title, kind: event.phaseKind })
         break
       }

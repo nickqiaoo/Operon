@@ -40,6 +40,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ProviderIcon } from './ModelSelectorPanel';
+import { StructuredValue } from './StructuredValue';
+import { splitTrailingJson, summarizeStructured } from '@shared/json-reply';
 
 /**
  * One workflow run, rendered for the panel — where there is actual room.
@@ -259,6 +261,34 @@ function ScriptSection({ runId }: { runId: string }) {
 }
 
 /**
+ * A row's one line. New spec rows already carry a summary; a whole JSON reply
+ * stored as the preview (a short one, or an older run's) is summarised here.
+ */
+function previewLine(preview: string): string {
+  const structured = splitTrailingJson(preview);
+  return structured ? summarizeStructured(structured.value) : preview;
+}
+
+/**
+ * A run's final result as it should be read. A string that holds JSON is
+ * parsed, and a lone wrapper key (`{ operonSpec: {…} }`) is looked through.
+ */
+function resultValue(result: unknown): { text: string } | { value: unknown } {
+  if (typeof result === 'string') {
+    const structured = splitTrailingJson(result);
+    if (!structured || structured.lead) return { text: result };
+    result = structured.value;
+  }
+  if (result === null || typeof result !== 'object') return { text: String(result) };
+  const keys = Object.keys(result);
+  if (!Array.isArray(result) && keys.length === 1) {
+    const inner = (result as Record<string, unknown>)[keys[0]];
+    if (inner !== null && typeof inner === 'object') return { value: inner };
+  }
+  return { value: result };
+}
+
+/**
  * One agent: who ran it, how long it took, what came back — expandable to its stream.
  * Also lists a spec's agents on its progress card, which has no engine task id.
  */
@@ -353,7 +383,7 @@ export function AgentRow({
           {agent.error ? (
             <div className="mt-1 line-clamp-2 text-[11px] text-status-error">{agent.error}</div>
           ) : agent.resultPreview ? (
-            <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{agent.resultPreview}</div>
+            <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{previewLine(agent.resultPreview)}</div>
           ) : null}
         </div>
       </button>
@@ -529,7 +559,7 @@ export function WorkflowRunDetail({
 }) {
   const intl = useIntl();
   const [open, setOpen] = useState(defaultOpen);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ text: string } | { value: unknown } | null>(null);
 
   const status = run?.status ?? 'running';
   const name = run?.name ?? fallbackName;
@@ -562,7 +592,19 @@ export function WorkflowRunDetail({
       else if (agent.phase) byPhase.set(agent.phase, [agent]);
       else loose.push(agent);
     }
-    const rows = [...byPhase.entries()].map(([title, list]) => ({ title, agents: list }));
+    // In the order they ran: by each phase's first agent. Declaration order is
+    // not enough — a spec continues its run in segments, and a phase first
+    // reached by an undeclared step (a review) would otherwise sort after the
+    // declared ones whenever it happened. Phases with nothing run yet go last,
+    // as the steps still to come.
+    const firstIndex = (list: WorkflowAgentView[]) =>
+      list.length > 0 ? Math.min(...list.map((a) => a.index)) : Number.POSITIVE_INFINITY;
+    const rows = [...byPhase.entries()]
+      .map(([title, list]) => ({ title, agents: list }))
+      .sort((a, b) => {
+        const [x, y] = [firstIndex(a.agents), firstIndex(b.agents)];
+        return x === y ? 0 : x < y ? -1 : 1;
+      });
     if (loose.length > 0) rows.push({ title: '', agents: loose });
     return rows;
   }, [run?.phases, agents]);
@@ -576,7 +618,7 @@ export function WorkflowRunDetail({
       .aiWorkflowResult(run.runId)
       .then((res) => {
         if (cancelled || !res.hasResult || res.result === undefined) return
-        setResult(typeof res.result === 'string' ? res.result : JSON.stringify(res.result, null, 2))
+        setResult(resultValue(res.result))
       })
       .catch(() => {
         // A missing result is not worth an error state; the run row still shows.
@@ -761,7 +803,11 @@ export function WorkflowRunDetail({
                 <FormattedMessage id="editor.workflow.result" defaultMessage="Result" />
               </div>
               <div className="max-h-80 overflow-y-auto rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
-                <MarkdownRenderer content={result} className="text-xs" />
+                {'text' in result ? (
+                  <MarkdownRenderer content={result.text} className="text-xs" />
+                ) : (
+                  <StructuredValue value={result.value} />
+                )}
               </div>
             </div>
           )}
@@ -802,8 +848,10 @@ export function WorkflowRunDetail({
           {run?.error && <div className="text-xs text-status-error">{run.error}</div>}
 
           {/* Last, and collapsed: the script explains a run you are questioning,
-              which is a different job from watching one. */}
-          {run && (
+              which is a different job from watching one. A spec's run has none —
+              its steps are the server's, not a script — so it offers nothing to
+              open rather than a "no longer stored" that was never true. */}
+          {run && run.hasScript !== false && (
             <div className="border-t border-border/40 pt-2">
               <ScriptSection runId={run.runId} />
             </div>
