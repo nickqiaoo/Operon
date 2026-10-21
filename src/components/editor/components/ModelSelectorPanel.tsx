@@ -86,11 +86,13 @@ export function ModelSelectorPanel({
   };
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Wait for the position too: until it is measured the panel is `invisible`,
+  // and an invisible input cannot take focus.
   useEffect(() => {
-    if (panel.open && !isMobile) {
+    if (panel.open && panel.pos && !isMobile) {
       requestAnimationFrame(() => searchInputRef.current?.focus());
     }
-  }, [isMobile, panel.open]);
+  }, [isMobile, panel.open, panel.pos]);
 
   const groupedModels = useMemo(() => {
     const query = modelSearch.toLowerCase();
