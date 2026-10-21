@@ -16,6 +16,26 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* `prose-h2:` / `prose-p:` … element modifiers. @tailwindcss/typography is not
+   installed (`.prose` is our own, further down), so these generated nothing and
+   every markdown surface fell back to streamdown's own classes (h2 = text-2xl).
+   `:is()` keeps the element in the specificity, so `.x h2` outranks the single
+   class streamdown puts on the element itself. Declaration order is variant
+   order: `prose-headings` first so `prose-h1:` etc. win over it. */
+@custom-variant prose-headings (& :is(h1, h2, h3, h4, h5, h6));
+@custom-variant prose-h1 (& :is(h1));
+@custom-variant prose-h2 (& :is(h2));
+@custom-variant prose-h3 (& :is(h3));
+@custom-variant prose-h4 (& :is(h4));
+@custom-variant prose-p (& :is(p));
+@custom-variant prose-ul (& :is(ul));
+@custom-variant prose-ol (& :is(ol));
+@custom-variant prose-li (& :is(li));
+@custom-variant prose-strong (& :is(strong));
+@custom-variant prose-code (& :is(code));
+@custom-variant prose-pre (& :is(pre));
+@custom-variant prose-blockquote (& :is(blockquote));
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
