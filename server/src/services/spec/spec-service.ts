@@ -6,7 +6,7 @@
  * starts work goes through `launch`, which refuses a second concurrent run.
  */
 
-import type { ProjectStorageAdapter, TaskStorageAdapter } from '../../storage/interface.js'
+import type { AgentBindingStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../../storage/interface.js'
 import type { Task, TaskActor } from '../../types/task.js'
 import {
   ACTIVE_SPEC_STAGES,
@@ -47,6 +47,7 @@ import { readRunView } from '../workflow/store.js'
 import { advance, isBuildActive, resumeBuild, settleSpecNotice, startBuild, stopBuild, type BuildStorage } from './build-run.js'
 import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-run.js'
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
+import { specChatRef, specChatRefs, type SpecChatStorage } from './chats.js'
 
 
 export type SpecStorage = TaskStorageAdapter & Pick<ProjectStorageAdapter, 'getProject' | 'getWorkspace' | 'createWorkspace'>
@@ -389,7 +390,10 @@ export function sweepInterruptedSpecRuns(storage: SpecStorage): number {
 // Read
 // ---------------------------------------------------------------------------
 
-export async function getSpecView(storage: SpecStorage, taskId: number): Promise<SpecView> {
+/** Bindings are read only for tickets dispatched before they recorded their chats. */
+type SpecViewStorage = SpecStorage & SpecChatStorage & Partial<Pick<AgentBindingStorageAdapter, 'getBinding'>>
+
+export async function getSpecView(storage: SpecViewStorage, taskId: number): Promise<SpecView> {
   const { task, run } = requireSpec(storage, taskId)
   const workspace = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
   const config = withBuildDefaults(run.config)
@@ -403,7 +407,8 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     worktreePath: workspace?.worktreePath ?? null,
     specDir: specDir(task.number),
     running: isDesignRunActive(task.id) || isBuildActive(task.id) || isReviewActive(task.id),
-    ...specAgents(run),
+    sourceChat: task.sourceChatId != null ? specChatRef(storage, task.sourceChatId, task.workspaceId ?? null) : null,
+    ...specAgents(storage, task, run),
   }
   if (!workspace) {
     return {
@@ -461,18 +466,18 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     reviewSummary: review ? summary : null,
     decisions,
     designChanged: run.designSha != null && design != null && blobSha(design) !== run.designSha,
-    ticketTasks: ticketTasksOf(storage, task.id, run, tickets),
+    ticketTasks: ticketTasksOf(storage, task, run, tickets),
   }
 }
 
 /** Every agent call across the spec's runs, and the wall-clock time those runs took. */
-function specAgents(run: SpecRun): { agents: SpecAgentRun[]; elapsedMs: number } {
+function specAgents(storage: SpecViewStorage, task: Task, run: SpecRun): { agents: SpecAgentRun[]; elapsedMs: number } {
   const agents: SpecAgentRun[] = []
   // Older rows predate run history; their latest run is all there is.
   const runIds = run.runIds.length > 0 ? run.runIds : run.workflowRunId ? [run.workflowRunId] : []
   for (const runId of runIds) {
     const view = readRunView(runId)
-    // Pruned from the workflow store: its agents are gone, its files are not.
+    // Runs from before they were kept for good may be gone; their files are not.
     if (!view) continue
     for (const a of view.agents) {
       agents.push({
@@ -487,6 +492,7 @@ function specAgents(run: SpecRun): { agents: SpecAgentRun[]; elapsedMs: number }
         error: a.error,
         startedAt: a.startedAt,
         endedAt: a.endedAt,
+        ...(a.chatIds?.length ? { chats: specChatRefs(storage, a.chatIds, task.workspaceId ?? null) } : {}),
       })
     }
   }
@@ -518,14 +524,25 @@ function workingTime(agents: readonly SpecAgentRun[]): number {
  * Which subtask each ticket became. The build record names it; specs approved
  * before the build stage have none, and there the title is the link.
  */
-function ticketTasksOf(storage: SpecStorage, taskId: number, run: SpecRun, tickets: SpecTicket[] | null): SpecView['ticketTasks'] {
+function ticketTasksOf(storage: SpecViewStorage, spec: Task, run: SpecRun, tickets: SpecTicket[] | null): SpecView['ticketTasks'] {
   if (!tickets) return {}
-  const children = storage.taskListChildren(taskId)
+  const children = storage.taskListChildren(spec.id)
   const out: SpecView['ticketTasks'] = {}
   for (const ticket of tickets) {
-    const id = run.build.find((b) => b.key === ticket.key)?.taskId
+    const entry = run.build.find((b) => b.key === ticket.key)
+    const id = entry?.taskId
     const child = id != null ? children.find((c) => c.id === id) : children.find((c) => c.title === ticket.title)
-    if (child) out[ticket.key] = { id: child.id, number: child.number, status: child.status, workspaceId: child.workspaceId ?? null }
+    if (!child) continue
+    // Tickets dispatched before chats were recorded on them: their binding still names the latest one.
+    const legacyChat = child.bindingId != null ? storage.getBinding?.(child.bindingId)?.activeChatId : null
+    const chatIds = entry?.chatIds?.length ? entry.chatIds : legacyChat != null ? [legacyChat] : []
+    out[ticket.key] = {
+      id: child.id,
+      number: child.number,
+      status: child.status,
+      workspaceId: child.workspaceId ?? null,
+      chats: specChatRefs(storage, chatIds, spec.workspaceId ?? null),
+    }
   }
   return out
 }

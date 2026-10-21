@@ -93,7 +93,7 @@ export function useWorkflowStream(runId: string): WorkflowStreamState {
           const url = await api.aiWorkflowRunFeedUrl(runId, cursor);
           const response = await fetch(url, { headers: apiAuthHeaders() });
           if (!response.ok || !response.body) {
-            // 404 = the run is not in the log (just launched, or pruned). Retry a
+            // 404 = the run is not in the log yet (just launched). Retry a
             // few times; if no frame has ever arrived, surface unavailable.
             connectFailures += 1;
             if (!runRef.current && connectFailures >= MAX_CONNECT_FAILURES) {

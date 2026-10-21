@@ -20,18 +20,10 @@ import { registerWorkflowAbort, unregisterWorkflowAbort } from './registry.js'
 import {
   appendEvent,
   markExecuting,
-  pruneRuns,
   readRunView,
   unmarkExecuting,
 } from './store.js'
 import { RunEventWriter } from './writer.js'
-
-/**
- * How many runs are kept. Beyond this the oldest settled runs are deleted with
- * their entire event log — the only retention rule, applied in the only place
- * runs are stored.
- */
-const KEEP_RUNS = 200
 
 export interface StartRunParams {
   ctx: WorkflowRunContext
@@ -135,11 +127,6 @@ async function executeRun(params: StartRunParams): Promise<void> {
       // Detached: delivery waits for the launching chat to go idle, which can
       // take minutes, and terminal bookkeeping must not wait for that.
       void deliverWorkflowResult(view)
-    }
-    try {
-      pruneRuns(KEEP_RUNS)
-    } catch (err) {
-      console.warn(`[workflow] retention pass failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 }

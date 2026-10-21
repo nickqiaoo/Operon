@@ -724,18 +724,20 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
           <span>{build.blockedReason}</span>
         </div>
       )}
-      {build.state === 'blocked' && onOpenSession && (
+      {onOpenSession && build.state !== 'waiting' && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
           <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onOpenSession}>
             <ExternalLink className="h-3.5 w-3.5" />
             <FormattedMessage id="spec.ticket.openSession" defaultMessage="Open its session" />
           </Button>
-          <span className="text-xs text-muted-foreground">
-            <FormattedMessage
-              id="spec.ticket.blockedHint"
-              defaultMessage="Get its agent moving there; once it hands the ticket in, review picks it up again."
-            />
-          </span>
+          {build.state === 'blocked' && (
+            <span className="text-xs text-muted-foreground">
+              <FormattedMessage
+                id="spec.ticket.blockedHint"
+                defaultMessage="Get its agent moving there; once it hands the ticket in, review picks it up again."
+              />
+            </span>
+          )}
         </div>
       )}
     </div>

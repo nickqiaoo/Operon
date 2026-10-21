@@ -35,6 +35,7 @@ import {
   onTicketLanded,
   onTicketSentBack,
   onTicketTurnEnded,
+  recordTicketChat,
 } from '../spec/build-run.js'
 import { SURFACE_PROMPT, observeTaskChatPart, taskHasSurfaces } from '../../gateway/surfaces/task-surface-bridge.js'
 import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
@@ -416,6 +417,7 @@ async function startBindingChat(
   console.log(
     `[Orchestrator] startBindingChat: binding=${binding.id} chat started chatId=${ctx.chatId}`,
   )
+  if (binding.scopeKind === 'task') recordTicketChat(storage, Number(binding.scopeKey), ctx.chatId)
   drainAgentChat(ctx, binding)
   return ctx.chatId
 }

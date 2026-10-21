@@ -211,6 +211,14 @@ function ticketOf(storage: BuildStorage, taskId: number): { ticket: Task; spec: 
   return spec && run && entry ? { ticket, spec, run, entry } : null
 }
 
+/** A ticket's implementer started a chat: remember it, so it can be opened after the ticket's workspace is gone. */
+export function recordTicketChat(storage: BuildStorage, taskId: number, chatId: number): void {
+  const found = ticketOf(storage, taskId)
+  if (!found || found.entry.chatIds?.includes(chatId)) return
+  patchTicket(storage, found.spec.id, taskId, { chatIds: [...(found.entry.chatIds ?? []), chatId] })
+  broadcastTask(storage, found.spec.id)
+}
+
 /** Whether a task is a ticket the build stage reviews (so nobody else needs to be told it is in review). */
 export function isReviewedTicket(storage: BuildStorage, taskId: number): boolean {
   return ticketOf(storage, taskId) != null

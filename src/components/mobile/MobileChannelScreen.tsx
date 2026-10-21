@@ -20,6 +20,7 @@ import { MobileSheet } from "./MobileSheet"
 import { hasNativeTabBar, NativeShell } from "@/lib/native"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { MobileHeader, useMobileContentBottom, useMobileContentOffset, useMobileTopInset, type MobileMenuNode } from "./MobileHeader"
+import type { SpecChatRef } from "@shared/spec"
 
 type Section = "tasks" | "channels"
 
@@ -46,7 +47,10 @@ export function MobileChannelScreen({
   openTaskId,
   onDeepLinkConsumed,
   onImmersiveChange,
+  onOpenChat,
 }: {
+  /** Opens a conversation a task links to (a spec's agents and tickets). */
+  onOpenChat?: (chat: SpecChatRef) => void
   /** Soft keyboard is up — the channel/thread composers lift above it. */
   keyboardOpen?: boolean
   /** A conversation is open: the shell hides its bars, as for a chat. */
@@ -388,6 +392,7 @@ export function MobileChannelScreen({
           <TasksPage
             projectFilter={projectFilter}
             onOpenWorkspace={openWorkspace}
+            onOpenChat={onOpenChat}
             onOpenChannel={(channelId, messageId) => {
               setChannelFocus(messageId)
               setActiveChannel(channelId)

@@ -1,4 +1,4 @@
-export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side' | 'teammate'
+export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side' | 'teammate' | 'workflow-agent'
 
 export interface ChatMetadata {
   /** An independent, server-owned external-agent conversation (not a fork). */

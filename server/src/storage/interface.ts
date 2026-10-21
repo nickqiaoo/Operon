@@ -138,12 +138,6 @@ export interface ChatStorageAdapter {
   getWorkflowRunIndex(runId: string): WorkflowRunIndexRow | undefined
   /** Run ids still marked `running` — the startup sweep settles these as interrupted. */
   listRunningWorkflowRunIds(): string[]
-  /**
-   * Retention: drop every run beyond the newest `keep`, from BOTH tables. The
-   * single place workflow data is deleted, because it is the single place it is
-   * stored. Returns how many runs were removed.
-   */
-  pruneWorkflowRuns(keep: number): number
 }
 
 /** An event on its way into the log. */

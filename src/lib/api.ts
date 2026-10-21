@@ -306,6 +306,8 @@ export interface WorkflowAgentView {
   endedAt?: number
   /** This agent's recorded output hit the byte cap; its tail is missing. */
   truncated?: boolean
+  /** The chats it ran as, newest last — a handoff to another provider starts a new one. */
+  chatIds?: number[]
 }
 
 /**

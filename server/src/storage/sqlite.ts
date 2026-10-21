@@ -779,27 +779,6 @@ export class SqliteStorage
     return rows.map((row) => row.run_id)
   }
 
-  pruneWorkflowRuns(keep: number): number {
-    const stale = this.db
-      .prepare(
-        `SELECT run_id FROM workflow_run_index
-         WHERE status != 'running'
-           AND run_id NOT IN (SELECT run_id FROM workflow_run_index ORDER BY sort_at DESC LIMIT ?)`,
-      )
-      .all(Math.max(0, keep)) as { run_id: string }[]
-    if (stale.length === 0) return 0
-    const dropEvents = this.db.prepare('DELETE FROM workflow_events WHERE run_id = ?')
-    const dropIndex = this.db.prepare('DELETE FROM workflow_run_index WHERE run_id = ?')
-    const runAll = this.db.transaction((ids: string[]) => {
-      for (const id of ids) {
-        dropEvents.run(id)
-        dropIndex.run(id)
-      }
-    })
-    runAll(stale.map((row) => row.run_id))
-    return stale.length
-  }
-
   deleteChatEntry(chatId: number): void {
     this.db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId)
     this.db.prepare('DELETE FROM chats WHERE id = ?').run(chatId)

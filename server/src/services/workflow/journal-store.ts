@@ -6,7 +6,7 @@
  * calls `appendRecord` + `readRecords`. This implements exactly those two over
  * `journal` events, so the framework journal runs UNCHANGED while its records
  * land in the same append-only log as everything else about the run — one table,
- * one retention rule, one thing to delete when a run is pruned.
+ * one lifetime, nothing kept anywhere else.
  *
  * (It previously had a table of its own, which meant a run's history lived in
  * two places, with two lifetimes and no code deleting either.)

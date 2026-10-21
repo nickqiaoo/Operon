@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useTaskStore } from '@/stores/task-store'
 import { StatusIcon } from '@/components/task/task-meta'
-import type { SpecAdr, SpecDecisions, SpecReviewSummary, SpecStage, SpecView } from '@shared/spec'
+import type { SpecAdr, SpecChatRef, SpecDecisions, SpecReviewSummary, SpecStage, SpecTicketTask, SpecView } from '@shared/spec'
 import {
   SPEC_MARKDOWN_CLASS,
   SpecActions,
@@ -36,11 +36,14 @@ export function SpecPanel({
   taskId,
   stage,
   onOpenWorkspace,
+  onOpenChat,
 }: {
   taskId: number
   stage: SpecStage | null
-  /** Opens a ticket's worktree and its session; absent where the page cannot navigate. */
+  /** Opens a ticket's worktree; absent where the page cannot navigate. */
   onOpenWorkspace?: (workspaceId: number) => void
+  /** Opens one of the spec's conversations; absent where the page cannot navigate. */
+  onOpenChat?: (chat: SpecChatRef) => void
 }) {
   const { spec, error } = useSpecView(taskId, stage)
 
@@ -76,12 +79,35 @@ export function SpecPanel({
 
       <SpecActions spec={spec} />
 
-      <SpecTabs spec={spec} onOpenWorkspace={onOpenWorkspace} />
+      <SpecTabs spec={spec} onOpenWorkspace={onOpenWorkspace} onOpenChat={onOpenChat} />
     </section>
   )
 }
 
-function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?: (workspaceId: number) => void }) {
+/**
+ * Where "open its session" goes: the ticket's latest chat, which outlives the
+ * ticket's worktree; for a ticket without one on record, its worktree.
+ */
+function ticketSessionOpener(
+  task: SpecTicketTask | undefined,
+  onOpenChat?: (chat: SpecChatRef) => void,
+  onOpenWorkspace?: (workspaceId: number) => void,
+): (() => void) | undefined {
+  const chat = task?.chats.at(-1)
+  if (chat && onOpenChat) return () => onOpenChat(chat)
+  if (task?.workspaceId != null && onOpenWorkspace) return () => onOpenWorkspace(task.workspaceId!)
+  return undefined
+}
+
+function SpecTabs({
+  spec,
+  onOpenWorkspace,
+  onOpenChat,
+}: {
+  spec: SpecView
+  onOpenWorkspace?: (workspaceId: number) => void
+  onOpenChat?: (chat: SpecChatRef) => void
+}) {
   const intl = useIntl()
   const builds = new Map(spec.run.build.map((b) => [b.key, b]))
   // Once the tickets are being built, where they stand is what the page is for.
@@ -186,11 +212,7 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
                 {builds.get(t.key) && (
                   <TicketBuildLine
                     build={builds.get(t.key)!}
-                    onOpenSession={
-                      onOpenWorkspace && spec.ticketTasks[t.key]?.workspaceId != null
-                        ? () => onOpenWorkspace(spec.ticketTasks[t.key].workspaceId!)
-                        : undefined
-                    }
+                    onOpenSession={ticketSessionOpener(spec.ticketTasks[t.key], onOpenChat, onOpenWorkspace)}
                   />
                 )}
               </li>

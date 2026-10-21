@@ -26,12 +26,15 @@ import {
 import { STATUS_MESSAGES, priorityMessage } from './task-i18n'
 import { toastTaskError } from './task-error-toast'
 import type { TaskListItem, TaskStatus, TaskPriority } from '@/types/task'
+import type { SpecChatRef } from '@shared/spec'
 
 interface TasksPageProps {
   /** Show one project's tasks, or null for every project's. The tasks themselves
    *  are loaded (and kept live) by the page around this one, for every project. */
   projectFilter: number | null
   onOpenWorkspace?: (workspaceId: number) => void
+  /** Opens a conversation a task links to (a spec's agents and tickets). */
+  onOpenChat?: (chat: SpecChatRef) => void
   /** A task captured from a channel message links back to it. */
   onOpenChannel?: (channelId: number, messageId: number | null) => void
   /** Deep-link target (e.g. from an inbox notification): open this task's detail
@@ -67,7 +70,7 @@ export interface TaskViewControls {
   showArchived: boolean
 }
 
-export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initialTaskId, onInitialTaskConsumed, toolbarEnd, initialView = 'board', showNewTask = true, controls, listTopOffset, listBottomOffset }: TasksPageProps) {
+export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenChannel, initialTaskId, onInitialTaskConsumed, toolbarEnd, initialView = 'board', showNewTask = true, controls, listTopOffset, listBottomOffset }: TasksPageProps) {
   const intl = useIntl()
   const allTasks = useTaskStore((s) => s.tasks)
   const projects = useProjectStore((s) => s.projects)
@@ -218,6 +221,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChannel, initi
           sessions={sessions}
           onClose={closeDetail}
           onOpenWorkspace={onOpenWorkspace}
+          onOpenChat={onOpenChat}
           onOpenChannel={onOpenChannel}
         />
       </TaskScopeContext.Provider>

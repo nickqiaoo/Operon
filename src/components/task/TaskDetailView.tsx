@@ -52,6 +52,7 @@ import type { LinearPublishOptions } from '@/types/integrations'
 import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
 import { cn } from '@/lib/utils'
 import { toastTaskError } from './task-error-toast'
+import type { SpecChatRef } from '@shared/spec'
 
 interface TaskDetailViewProps {
   detail: TaskDetail
@@ -59,6 +60,8 @@ interface TaskDetailViewProps {
   sessions: AgentSession[]
   onClose: () => void
   onOpenWorkspace?: (workspaceId: number) => void
+  /** Opens a conversation the task links to (a spec's agents and tickets). */
+  onOpenChat?: (chat: SpecChatRef) => void
   /** Jump to the channel (and message) the task was captured from. */
   onOpenChannel?: (channelId: number, messageId: number | null) => void
 }
@@ -81,6 +84,7 @@ export function TaskDetailView({
   sessions,
   onClose,
   onOpenWorkspace,
+  onOpenChat,
   onOpenChannel,
 }: TaskDetailViewProps) {
   const intl = useIntl()
@@ -278,7 +282,7 @@ export function TaskDetailView({
           <SubtasksSection detail={detail} />
 
           {/* OperonSpec: design, tickets, review and both gates */}
-          {detail.specStage != null && <SpecPanel taskId={detail.id} stage={detail.specStage} onOpenWorkspace={onOpenWorkspace} />}
+          {detail.specStage != null && <SpecPanel taskId={detail.id} stage={detail.specStage} onOpenWorkspace={onOpenWorkspace} onOpenChat={onOpenChat} />}
 
           {/* Activity — timeline, oldest first, composer pinned at the end */}
           <div>

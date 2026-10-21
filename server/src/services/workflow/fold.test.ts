@@ -1,6 +1,6 @@
 /**
  * The fold is the single interpreter of the workflow event log — every screen,
- * every endpoint and the retention index all read through it. These cases pin
+ * every endpoint and the run index all read through it. These cases pin
  * the behaviour the rest of the system assumes, and each of them is a bug the
  * previous snapshot-based design actually had.
  */

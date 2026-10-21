@@ -275,16 +275,6 @@ export function sweepInterruptedRuns(): number {
   return runIds.length
 }
 
-/**
- * Retention. Runs are kept newest-first; everything past `keep` is deleted from
- * the log and the index together.
- */
-export function pruneRuns(keep: number): number {
-  const removed = storage()?.pruneWorkflowRuns(keep) ?? 0
-  if (removed > 0) viewCache.clear()
-  return removed
-}
-
 /** Test seam: forget every cached fold. */
 export function clearViewCache(): void {
   viewCache.clear()
