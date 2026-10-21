@@ -17,6 +17,20 @@ export interface Workspace {
   name: string
   branchName: string
   worktreePath: string
+  /** The board task whose agent runs here, when one does (absent in a tree cached before the field existed). */
+  task?: WorkspaceTask
+}
+
+/** A dispatched task, a spec, or one of a spec's tickets — mirrors the server's WorkspaceTask. */
+export interface WorkspaceTask {
+  id: number
+  number: number
+  title: string
+  status: string
+  /** Set on a spec's ticket: the spec it belongs to. */
+  parentTaskId: number | null
+  /** Set on a spec. */
+  specStage: string | null
 }
 
 export type WorkspaceDiffStat = { additions: number; deletions: number }
