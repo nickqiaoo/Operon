@@ -14,6 +14,7 @@ import {
   FileCode2,
   SendHorizontal as SendIcon,
   ArrowRightLeft as ReplaceIcon,
+  MessageSquareText as ChatIcon,
 } from 'lucide-react';
 import type { BundledLanguage } from 'shiki';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ProviderIcon } from './ModelSelectorPanel';
+import { useEditorStore } from '@/stores/editor-store';
 
 /**
  * One workflow run, rendered for the panel — where there is actual room.
@@ -258,18 +260,31 @@ function ScriptSection({ runId }: { runId: string }) {
   );
 }
 
+/** An agent's conversation, as a tab in the editor the panel sits beside. */
+function openAgentChatTab(chatId: number, title: string, providerId?: string): void {
+  const { openChatTab, setTabChatId } = useEditorStore.getState();
+  const tabId = `chat:${chatId}`;
+  openChatTab(tabId, title, undefined, providerId, true);
+  setTabChatId(tabId, chatId);
+}
+
 /**
  * One agent: who ran it, how long it took, what came back — expandable to its stream.
  * Also lists a spec's agents on its progress card, which has no engine task id.
+ *
+ * An agent that ran as a chat links to it; `onOpenChat` says where that opens
+ * when the row is not beside the editor (a task page).
  */
 export function AgentRow({
   runId,
   agent,
   stream,
+  onOpenChat,
 }: {
   runId: string | undefined;
   agent: Omit<WorkflowAgentView, 'taskId'>;
   stream: AgentStreamState | undefined;
+  onOpenChat?: (chatId: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   // A finished run has no live frames left, but the node recorded them. Replay
@@ -317,6 +332,8 @@ export function AgentRow({
       cancelled = true;
     };
   }, [wantsReplay, runId, agent.index, refresh]);
+  // The latest one: a handoff to another provider starts a new chat.
+  const chatId = agent.chatIds?.at(-1);
   const elapsed =
     agent.startedAt != null ? (agent.endedAt ?? (agent.state === 'running' ? Date.now() : undefined)) : undefined;
   const duration = elapsed != null && agent.startedAt != null ? formatDuration(elapsed - agent.startedAt) : null;
@@ -359,8 +376,22 @@ export function AgentRow({
       </button>
       {open && (
         <div className="border-t border-border/40 px-2.5 py-1.5">
-          {agent.modelId && (
-            <div className="pb-1 font-mono text-[10px] text-muted-foreground/60">{agent.modelId}</div>
+          {(agent.modelId || chatId != null) && (
+            <div className="flex items-center gap-2 pb-1">
+              {agent.modelId && (
+                <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">{agent.modelId}</span>
+              )}
+              {chatId != null && (
+                <button
+                  type="button"
+                  onClick={() => (onOpenChat ? onOpenChat(chatId) : openAgentChatTab(chatId, agent.label, agent.agentType))}
+                  className="ml-auto flex shrink-0 items-center gap-1 rounded px-1 text-[11px] text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
+                >
+                  <ChatIcon className="h-3 w-3" />
+                  <FormattedMessage id="editor.workflow.openConversation" defaultMessage="Open conversation" />
+                </button>
+              )}
+            </div>
           )}
           {/* `replay` outranks `loading`: once the transcript is in hand it is
               what the user wants to see, whatever the in-flight flag says. */}

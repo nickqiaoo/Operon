@@ -84,6 +84,12 @@ export class LiveTurn {
     this.wake()
   }
 
+  /** Everything buffered so far, decoded — for a reader that wants the turn as it stands, not a tail. */
+  snapshot(): string {
+    const decoder = new TextDecoder()
+    return this.chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode()
+  }
+
   finish(): void {
     if (this.done) return
     this.done = true

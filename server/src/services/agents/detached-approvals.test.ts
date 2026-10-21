@@ -22,6 +22,7 @@ import {
   APPROVAL_TIMEOUT_MS,
   type DetachedApprovalRequest,
 } from './detached-approvals.js'
+import { listPendingApprovals, observePendingInputPart } from '../ai/chat-pending-input.js'
 
 afterEach(() => {
   resetDetachedApprovals()
@@ -260,5 +261,37 @@ describe('detached sub-agent approvals', () => {
     vi.advanceTimersByTime(APPROVAL_TIMEOUT_MS)
     expect(session.decisions).toHaveLength(1)
     expect(session.decisions[0]!.decision.type).toBe('deny')
+  })
+
+  it('takes an answer from the sub-agent\'s own chat, and clears it there', () => {
+    vi.useFakeTimers()
+    const session = fakeSession()
+    const { onPart } = watchDetachedApprovals({ session, parentChatId: 7, childChatId: 40, agentId: 'codex-a1' })
+    // The chat's own turn registered the request on the child chat as it streamed.
+    observePendingInputPart(40, approvalPart('ap-child'), { userFacing: false })
+    onPart(approvalPart('ap-child'))
+
+    expect(resolveDetachedApproval(41, 'ap-child', { type: 'allow' })).toBe(false)
+    expect(resolveDetachedApproval(40, 'ap-child', { type: 'allow' })).toBe(true)
+    expect(session.decisions).toEqual([{ id: 'ap-child', decision: { type: 'allow' } }])
+    expect(listPendingApprovals(40)).toEqual([])
+    vi.advanceTimersByTime(APPROVAL_TIMEOUT_MS * 2)
+    expect(session.decisions).toHaveLength(1)
+  })
+
+  it('clears a request it answers itself from the sub-agent\'s chat', () => {
+    const session = fakeSession()
+    const { onPart } = watchDetachedApprovals({
+      session,
+      parentChatId: 7,
+      childChatId: 41,
+      agentId: 'codex-a1',
+      autoAllow: (tool) => tool === 'Read',
+    })
+    observePendingInputPart(41, approvalPart('ap-read', 'Read'), { userFacing: false })
+    onPart(approvalPart('ap-read', 'Read'))
+
+    expect(session.decisions).toEqual([{ id: 'ap-read', decision: { type: 'allow' } }])
+    expect(listPendingApprovals(41)).toEqual([])
   })
 })

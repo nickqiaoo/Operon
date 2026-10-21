@@ -75,7 +75,7 @@ export function SpecPanel({
         </div>
       </div>
 
-      <SpecAgentList spec={spec} />
+      <SpecAgentList spec={spec} onOpenChat={onOpenChat} />
 
       <SpecActions spec={spec} />
 

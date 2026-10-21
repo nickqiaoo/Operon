@@ -113,9 +113,6 @@ async function executeRun(params: StartRunParams): Promise<void> {
       }
     }
 
-    // Flush any buffered sub-agent output BEFORE the terminal event, so the log
-    // reads in real order and `settled` is genuinely the last thing in it.
-    writer.flush()
     appendEvent(runId, { kind: 'settled', status, endedAt: Date.now(), error, failures, result })
   } finally {
     writer.dispose()

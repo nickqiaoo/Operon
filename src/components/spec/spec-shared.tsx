@@ -11,7 +11,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AgentRow, formatDuration } from '@/components/editor/components/WorkflowRunDetail'
-import type { SpecStage, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
+import type { SpecChatRef, SpecStage, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
 import type { TaskListItem } from '@/types/task'
 
 /** Stages in which the server is working and the view changes on its own. */
@@ -166,7 +166,7 @@ export function SpecSeatsLine({ spec }: { spec: SpecView }) {
  * (calls and wall-clock time) and, while closed, who is working right now. Each
  * row opens to that agent's recorded output — the same row as the Workflow panel.
  */
-export function SpecAgentList({ spec }: { spec: SpecView }) {
+export function SpecAgentList({ spec, onOpenChat }: { spec: SpecView; onOpenChat?: (chat: SpecChatRef) => void }) {
   const [open, setOpen] = useState(false)
   if (spec.agents.length === 0) return null
   const working = spec.agents.filter((a) => a.state === 'running')
@@ -196,7 +196,19 @@ export function SpecAgentList({ spec }: { spec: SpecView }) {
               {agent.phase && agent.phase !== spec.agents[i - 1]?.phase && (
                 <div className="heading-section px-1 pt-1">{agent.phase}</div>
               )}
-              <AgentRow runId={agent.runId} agent={agent} stream={undefined} />
+              <AgentRow
+                runId={agent.runId}
+                agent={{ ...agent, chatIds: agent.chats?.map((c) => c.chatId) }}
+                stream={undefined}
+                onOpenChat={
+                  onOpenChat
+                    ? (chatId) => {
+                        const chat = agent.chats?.find((c) => c.chatId === chatId)
+                        if (chat) onOpenChat(chat)
+                      }
+                    : undefined
+                }
+              />
             </div>
           ))}
         </div>

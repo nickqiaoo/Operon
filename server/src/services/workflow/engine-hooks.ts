@@ -157,6 +157,7 @@ export function buildHooks(
   const runAgent: WorkflowHostHooks['runAgent'] = async ({
     index,
     prompt,
+    label,
     agentType,
     model,
     schema,
@@ -195,6 +196,8 @@ export function buildHooks(
       }
     }
 
+    // Every chat this row ran as, across structured-output retries and handoffs.
+    const chatIds: number[] = []
     const runOne = (p: string): Promise<string> =>
       runProviderAgent({
         providerId,
@@ -202,15 +205,17 @@ export function buildHooks(
         cwd: runCwd,
         prompt: p,
         agentId,
+        title: label,
         // A blocked sub-agent shows up on this run's card (where the user is
-        // watching) AND in the launching conversation's inbox as a fallback.
+        // watching), in its own chat, and in the launching conversation's inbox.
         parentChatId: ctx.chatId,
         onApproval: (request) => writer.emit({ kind: 'approval', approval: request }),
         onApprovalSettled: (approvalId) => writer.emit({ kind: 'approval-resolved', approvalId }),
-        // The sub-agent's own output. Buffered by the writer and appended to the
-        // log — which is both how a watcher sees it live and how it is still
-        // there tomorrow. There is no separate "recording" path any more.
-        onChunk: (chunk) => writer.chunk(index, chunk),
+        // The sub-agent's conversation is a chat of its own; the row names it.
+        onChats: (ids) => {
+          for (const id of ids) if (!chatIds.includes(id)) chatIds.push(id)
+          writer.emit({ kind: 'agent', index, patch: { chatIds: [...chatIds] } })
+        },
         live: { runId: writer.runId, index },
         onReplaced: (from, to) => {
           writer.emit({ kind: 'agent', index, patch: { agentType: to.providerId, modelId: to.modelId } })

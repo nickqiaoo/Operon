@@ -646,6 +646,7 @@ export class BuildSession {
       writer,
       cwd: specWs?.worktreePath ?? '',
       chatId: this.spec.sourceChatId,
+      workspaceId: this.spec.workspaceId ?? null,
       signal: this.controller.signal,
       firstIndex,
     })
@@ -658,7 +659,6 @@ export class BuildSession {
     this.agents = null
     if (sessions.get(this.spec.id) === this) sessions.delete(this.spec.id)
     if (!writer) return
-    writer.flush()
     const result = this.stopped ? undefined : this.result
     appendEvent(writer.runId, {
       kind: 'settled',

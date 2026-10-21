@@ -347,7 +347,7 @@ export async function runAgentTurnText(
   return text
 }
 
-function isErrorFinish(reason: unknown): boolean {
+export function isErrorFinish(reason: unknown): boolean {
   if (reason === 'error') return true
   return typeof reason === 'object' && reason != null && (reason as { unified?: unknown }).unified === 'error'
 }

@@ -8,8 +8,9 @@
  * The feed contract is deliberately small and identical in both scopes:
  *   `sync`  — the current truth, sent on connect, with the cursor it was read at
  *   `run`   — this run's view changed (already folded server-side)
- *   `chunk` — sub-agent output (run-scoped feeds only; the panel list has no use
- *             for it and it is by far the highest-volume kind)
+ *   `chunk` — sub-agent output recorded in the log (run-scoped feeds only). Only
+ *             runs from before sub-agents ran as chats have any; an agent now
+ *             is a chat, read through `getWorkflowAgentChunks`
  *
  * Every frame carries the event id it came from, so a client that reconnects
  * passes `since=<last id>` and receives exactly what it missed — including a
@@ -30,6 +31,7 @@ import {
   readRunView,
 } from '../workflow/store.js'
 import { VIEW_EXCLUDED_KINDS, type StoredWorkflowEvent } from '../workflow/events.js'
+import { readAgentChatChunks } from '../workflow/agent-chats.js'
 import type { WorkflowRunView } from '../workflow/types.js'
 
 export type { WorkflowRunView }
@@ -54,14 +56,18 @@ export function getWorkflowScript(runId: string): { script?: string; args?: unkn
 }
 
 /**
- * One sub-agent's recorded output, as the raw chunk array the panel's reducer
- * consumes — the same frames the live feed carries, so a finished run and a
- * running one render through exactly one code path.
+ * One sub-agent's output, as the raw chunk array the panel's reducer consumes.
+ *
+ * An agent that ran as a chat is read from that chat (and its live turn, while
+ * it is going). One recorded before agents ran as chats still has its output in
+ * the run's own log.
  */
 export function getWorkflowAgentChunks(
   runId: string,
   agentIndex: number,
 ): { chunks: unknown[]; truncated: boolean } {
+  const chatIds = readRunView(runId)?.agents.find((agent) => agent.index === agentIndex)?.chatIds
+  if (chatIds?.length) return { chunks: readAgentChatChunks(chatIds), truncated: false }
   return readAgentChunks(runId, agentIndex)
 }
 

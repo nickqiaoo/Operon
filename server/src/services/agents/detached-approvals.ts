@@ -82,6 +82,8 @@ interface DetachedApproval {
   approvalId: string
   /** Conversation that launched the workflow — where the request surfaces. */
   parentChatId: number
+  /** The sub-agent's own chat, whose tab can answer it too; 0 when it has none. */
+  childChatId: number
   toolName: string
   /** Settles the request exactly once, whoever gets there first. */
   settle: (decision: PermissionDecision) => void
@@ -110,9 +112,15 @@ export interface DetachedApprovalRequest {
  * with an unanswered request must not leave a live row anywhere.
  */
 export function watchDetachedApprovals(params: {
-  session: AgentSession
+  /** Whatever answers the provider that is blocked. */
+  session: Pick<AgentSession, 'respond'>
   /** The conversation that launched this sub-agent; <= 0 disables the inbox row. */
   parentChatId: number | null | undefined
+  /**
+   * The sub-agent's own chat, when it runs as one: its tab shows the request in
+   * the transcript and answers it there, so that answer is taken here too.
+   */
+  childChatId?: number
   /** Sub-agent label used in log lines (e.g. 'codex-a3'). */
   agentId: string
   /**
@@ -137,7 +145,12 @@ export function watchDetachedApprovals(params: {
   const toolInputs = new Map<string, unknown>()
   const { session, agentId } = params
   const parentChatId = params.parentChatId ?? 0
+  const childChatId = params.childChatId ?? 0
   const surfaceToInbox = params.surfaceToInbox !== false
+  /** The child chat lists every request its turn raised; one settled here is no longer waiting. */
+  const clearChild = (approvalId: string): void => {
+    if (childChatId > 0) resolvePendingApproval(childChatId, approvalId)
+  }
 
   const settleOnce = (approvalId: string, decision: PermissionDecision): void => {
     const entry = pending.get(approvalId)
@@ -147,6 +160,7 @@ export function watchDetachedApprovals(params: {
     clearTimeout(entry.timer)
     // Clear every surface that showed it, so an answered request stops asking.
     if (parentChatId > 0 && surfaceToInbox) resolvePendingApproval(parentChatId, approvalId)
+    clearChild(approvalId)
     try {
       params.onSettled?.(approvalId)
     } catch (err) {
@@ -189,6 +203,7 @@ export function watchDetachedApprovals(params: {
       } catch (err) {
         console.error(`[Workflow] ${agentId}: resolvePermission failed for ${req.approvalId}:`, err)
       }
+      clearChild(req.approvalId)
       return
     }
 
@@ -198,6 +213,7 @@ export function watchDetachedApprovals(params: {
       } catch (err) {
         console.error(`[Workflow] ${agentId}: resolvePermission failed for ${req.approvalId}:`, err)
       }
+      clearChild(req.approvalId)
       return
     }
 
@@ -219,6 +235,7 @@ export function watchDetachedApprovals(params: {
     pending.set(req.approvalId, {
       approvalId: req.approvalId,
       parentChatId,
+      childChatId,
       toolName,
       settle: (decision) => settleOnce(req.approvalId, decision),
       timer,
@@ -284,6 +301,7 @@ export function watchDetachedApprovals(params: {
  *
  * `chatId` is checked so one conversation cannot answer another's request — the
  * id alone is an unguessable UUID, but the parent link is what the UI acted on.
+ * The sub-agent's own chat may answer too: its tab shows the request.
  */
 export function resolveDetachedApproval(
   chatId: number,
@@ -291,7 +309,7 @@ export function resolveDetachedApproval(
   decision: PermissionDecision,
 ): boolean {
   const entry = pending.get(approvalId)
-  if (!entry || entry.parentChatId !== chatId) return false
+  if (!entry || (entry.parentChatId !== chatId && (entry.childChatId <= 0 || entry.childChatId !== chatId))) return false
   entry.settle(decision)
   return true
 }
