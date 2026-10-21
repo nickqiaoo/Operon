@@ -1,6 +1,7 @@
 import { useIntl } from 'react-intl';
 import { ArrowRightLeftIcon, CheckIcon, CornerDownRightIcon, LoaderIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StructuredOrText } from './StructuredValue';
 
 // ── Shared agent-stream model ────────────────────────────────────────
 // A reducer (`reduceAgentChunk`) + presentational view (`AgentStreamView`)
@@ -174,13 +175,15 @@ export function AgentStreamView({ state }: { state: AgentStreamState }) {
       {state.timeline.map((item, i) => {
         if (item.kind === 'text') {
           if (!item.text || !item.text.trim()) return null;
+          // A role that answers in JSON is shown as its fields, not as the raw object.
           return (
-            <div
+            <StructuredOrText
               key={`text-${i}`}
-              className="whitespace-pre-wrap break-words text-xs text-foreground/75"
-            >
-              {item.text}
-            </div>
+              text={item.text}
+              fallback={(text) => (
+                <div className="whitespace-pre-wrap break-words text-xs text-foreground/75">{text}</div>
+              )}
+            />
           );
         }
         if (item.kind === 'replaced') {

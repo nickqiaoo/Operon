@@ -209,10 +209,52 @@ export function SpecAgentList({ spec }: { spec: SpecView }) {
 }
 
 /**
+ * Stop a running spec, as a compact header control: the chat card keeps it
+ * beside its other buttons instead of spending a row on it below the card.
+ */
+export function SpecStopButton({ spec, className }: { spec: SpecView; className?: string }) {
+  const intl = useIntl()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const label = intl.formatMessage({ id: 'spec.action.stop', defaultMessage: 'Stop' })
+  const stop = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.specStop(spec.taskId)
+      notifySpecChanged(spec.taskId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className={cn(
+        'h-7 w-7 p-0 text-muted-foreground hover:bg-status-error/10 hover:text-status-error',
+        error && 'text-status-error',
+        className,
+      )}
+      disabled={busy}
+      onClick={() => void stop()}
+      aria-label={label}
+      // The failure has nowhere else to go on a button this small.
+      title={error ?? label}
+    >
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+    </Button>
+  )
+}
+
+/**
  * What the user can do with a spec right now — the same buttons on the chat card
  * and the task page, because both gates are one act wherever they are pressed.
+ * `showStop` off: the caller shows `SpecStopButton` itself.
  */
-export function SpecActions({ spec }: { spec: SpecView }) {
+export function SpecActions({ spec, showStop = true }: { spec: SpecView; showStop?: boolean }) {
   const intl = useIntl()
   // On a phone the gates are thumb targets: taller buttons that share the row.
   const btn = useGateButtonClass()
@@ -239,7 +281,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
 
   if (stage === 'done') return null
   if ((stage === 'building' || stage === 'reviewing') && !spec.designChanged) {
-    if (!spec.running) return null
+    if (!spec.running || !showStop) return null
     return (
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -388,7 +430,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
             <FormattedMessage id="spec.action.resume" defaultMessage="Resume" />
           </Button>
         )}
-        {spec.running && (
+        {spec.running && showStop && (
           <Button
             size="sm"
             variant="ghost"
@@ -421,6 +463,24 @@ export function SpecActions({ spec }: { spec: SpecView }) {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Whether the spec waits on the user for more than a Stop button: a gate to
+ * sign, questions to answer, a stopped run to resume. While it just runs,
+ * there is nothing below the card's header to show.
+ */
+export function specHasGate(spec: SpecView): boolean {
+  const stage = spec.run.stage
+  if (stage === 'building') return spec.designChanged
+  return (
+    stage === 'awaiting_answers' ||
+    stage === 'awaiting_design' ||
+    stage === 'awaiting_signoff' ||
+    stage === 'integrating' ||
+    stage === 'stopped' ||
+    stage === 'failed'
   )
 }
 

@@ -16,7 +16,7 @@
 
 import { LocalEnvironment, createWorktree, newAgentId, validateValue } from 'operon-agents'
 import { runProviderAgent } from '../workflow/dispatch.js'
-import { parseJsonReply } from '../workflow/json-reply.js'
+import { parseJsonReply, splitTrailingJson, summarizeStructured } from '../workflow/json-reply.js'
 import { excludeLocally } from '../git.js'
 import type { RunEventWriter } from '../workflow/writer.js'
 import type { SpecSeat } from '../../types/spec.js'
@@ -61,6 +61,16 @@ export interface SpecAgentCall {
 
 /** Cap on the preview kept on the agent row; the full output is in its chunks. */
 const PREVIEW_CHARS = 280
+
+/**
+ * The row's one line. A structured reply (most roles answer in JSON) is
+ * summarised as its fields — the first 280 characters of the raw object were
+ * mostly braces and quotes, cut off before anything that mattered.
+ */
+function previewOf(reply: string): string {
+  const structured = splitTrailingJson(reply)
+  return structured ? summarizeStructured(structured.value) : reply.slice(0, PREVIEW_CHARS)
+}
 
 export class SpecAgents {
   private nextIndex: number
@@ -160,7 +170,7 @@ export class SpecAgents {
       writer.emit({
         kind: 'agent',
         index,
-        patch: { state: 'done', resultPreview: reply.slice(0, PREVIEW_CHARS), endedAt: Date.now() },
+        patch: { state: 'done', resultPreview: previewOf(reply), endedAt: Date.now() },
       })
       return value
     } catch (error) {

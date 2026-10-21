@@ -20,6 +20,15 @@ export function isWorkflowResultMessage(text: string): boolean {
   return text.includes(WORKFLOW_RESULT_TAG);
 }
 
+/**
+ * A spec's run reporting back (`OperonSpec #N`, see `services/spec`). The spec's
+ * own card above it already shows where the spec stands, live, so a second
+ * "workflow finished" strip after each stage only repeats it.
+ */
+export function isSpecWorkflowResult(text: string): boolean {
+  return /^OperonSpec #\d+$/.test(tagValue(text, 'name') ?? '');
+}
+
 function tagValue(text: string, tag: string): string | undefined {
   const match = new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*</${tag}>`).exec(text);
   return match?.[1];
