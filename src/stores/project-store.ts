@@ -55,6 +55,8 @@ interface ProjectStore {
   projects: Project[]
   activeProjectId: number | null
   activeWorkspaceId: number | null
+  /** Local sidebar preference; omitted ids stay expanded. */
+  collapsedProjectIds: number[]
   /**
    * Whether `loadProjects` has settled at least once this session. `projects`
    * is persisted, so an empty list on its own can't tell "no projects" apart
@@ -74,6 +76,7 @@ interface ProjectStore {
   removeProject: (id: number) => Promise<void>
   /** Pin to / unpin from the top of the list. Moves it at once; puts it back if the server refuses. */
   setProjectPinned: (id: number, pinned: boolean) => Promise<void>
+  setProjectCollapsed: (id: number, collapsed: boolean) => void
   setActiveProject: (id: number | null) => void
   setActiveWorkspace: (id: number | null, projectId?: number | null) => void
   addWorkspace: (projectId: number, workspace: Omit<Workspace, "id">) => Promise<Workspace>
@@ -92,6 +95,7 @@ export const useProjectStore = create<ProjectStore>()(
       projects: [],
       activeProjectId: null,
       activeWorkspaceId: null,
+      collapsedProjectIds: [],
       projectsLoaded: false,
       cacheNodeId: null,
       workspaceDiffStats: {},
@@ -101,6 +105,7 @@ export const useProjectStore = create<ProjectStore>()(
           projects: [],
           activeProjectId: null,
           activeWorkspaceId: null,
+          collapsedProjectIds: [],
           projectsLoaded: false,
           cacheNodeId: null,
           workspaceDiffStats: {},
@@ -146,6 +151,9 @@ export const useProjectStore = create<ProjectStore>()(
 
           return {
             projects: fullProjects,
+            collapsedProjectIds: state.collapsedProjectIds.filter((id) =>
+              fullProjects.some((project) => project.id === id)
+            ),
             activeProjectId: nextActiveProjectId,
             activeWorkspaceId: nextActiveWorkspaceId,
             projectsLoaded: true,
@@ -175,6 +183,7 @@ export const useProjectStore = create<ProjectStore>()(
         await api.projectDelete(id)
         set((state) => ({
           projects: state.projects.filter((p) => p.id !== id),
+          collapsedProjectIds: state.collapsedProjectIds.filter((projectId) => projectId !== id),
           activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
         }))
       },
@@ -196,6 +205,16 @@ export const useProjectStore = create<ProjectStore>()(
         }
       },
 
+      setProjectCollapsed: (id, collapsed) => {
+        set((state) => ({
+          collapsedProjectIds: collapsed
+            ? state.collapsedProjectIds.includes(id)
+              ? state.collapsedProjectIds
+              : [...state.collapsedProjectIds, id]
+            : state.collapsedProjectIds.filter((projectId) => projectId !== id),
+        }))
+      },
+
       setActiveProject: (id) => {
         const project = get().projects.find((p) => p.id === id) || null
         set({
@@ -215,6 +234,7 @@ export const useProjectStore = create<ProjectStore>()(
       addWorkspace: async (projectId, workspaceData) => {
         const { workspace } = await api.workspaceCreate(projectId, workspaceData)
         set((state) => ({
+          collapsedProjectIds: state.collapsedProjectIds.filter((id) => id !== projectId),
           projects: state.projects.map((p) =>
             p.id === projectId
               ? { ...p, workspaces: [...p.workspaces, workspace], updatedAt: Date.now() }
@@ -286,6 +306,7 @@ export const useProjectStore = create<ProjectStore>()(
         projects: state.projects,
         activeProjectId: state.activeProjectId,
         activeWorkspaceId: state.activeWorkspaceId,
+        collapsedProjectIds: state.collapsedProjectIds,
         cacheNodeId: state.cacheNodeId,
       }),
       // A cached tree is only valid for the node that produced it. Ids are not
@@ -295,7 +316,12 @@ export const useProjectStore = create<ProjectStore>()(
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<ProjectStore>
         const stale = (saved.cacheNodeId ?? null) !== currentCacheNodeId()
-        return { ...current, ...saved, projects: stale ? [] : saved.projects ?? [] }
+        return {
+          ...current,
+          ...saved,
+          projects: stale ? [] : saved.projects ?? [],
+          collapsedProjectIds: stale ? [] : saved.collapsedProjectIds ?? [],
+        }
       },
     }
   )

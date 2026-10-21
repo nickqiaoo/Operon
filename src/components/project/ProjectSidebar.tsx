@@ -1,12 +1,13 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, CircleHelp, Folder, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useProjectStore, Project, Workspace, WorkspaceDiffStat } from "@/stores/project-store"
@@ -86,34 +87,61 @@ function ProjectItem({
   streamingCounts,
   unseenCounts,
 }: ProjectItemProps) {
-  const intl = useIntl()
   const pinned = project.pinnedAt != null
+  const collapsed = useProjectStore((s) => s.collapsedProjectIds.includes(project.id))
+  const setProjectCollapsed = useProjectStore((s) => s.setProjectCollapsed)
+  const containsActiveWorkspace = project.workspaces.some((workspace) => workspace.id === activeWorkspaceId)
+  const pinLabel = pinned ? "Unpin" : "Pin to top"
   return (
-    <div className="group/project px-4">
-      <div className="flex items-center gap-2 pb-1 text-sm text-foreground/80 font-medium">
-        <Folder className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-        <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        {/* Hover-only like its neighbours: a pinned project already says so by sitting above the
-            hairline, and a mark kept up here floated mid-row (the hidden buttons still take room). */}
+    <Collapsible
+      open={!collapsed}
+      onOpenChange={(open) => setProjectCollapsed(project.id, !open)}
+      className="px-4"
+    >
+      <div className={cn(
+        "group/project-header mb-1 flex items-center gap-1 rounded-lg pr-1 text-sm font-medium text-foreground/80 transition-colors hover:bg-row-hover",
+        collapsed && containsActiveWorkspace && "bg-row-selected text-foreground hover:bg-row-selected"
+      )}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-2 pl-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${project.name}`}
+            title={project.name}
+          >
+            <ChevronRight
+              className={cn("size-3 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", !collapsed && "rotate-90")}
+              strokeWidth={1.5}
+            />
+            <Folder className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+            <span className="min-w-0 flex-1 truncate">{project.name}</span>
+            {collapsed && (
+              <span
+                className="shrink-0 px-1 text-[11px] font-normal tabular-nums text-muted-foreground"
+                aria-label={`${project.workspaces.length} workspaces`}
+              >
+                {project.workspaces.length}
+              </span>
+            )}
+          </button>
+        </CollapsibleTrigger>
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground group-hover/project-header:opacity-100 group-focus-within/project-header:opacity-100 [@media(hover:none)]:opacity-100"
           onClick={() => onTogglePin(project)}
-          title={
-            pinned
-              ? intl.formatMessage({ id: "sidebar.unpinProject", defaultMessage: "Unpin" })
-              : intl.formatMessage({ id: "sidebar.pinProject", defaultMessage: "Pin to top" })
-          }
+          title={pinLabel}
+          aria-label={`${pinLabel} ${project.name}`}
         >
           {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-accent-hover hover:text-foreground group-hover/project-header:opacity-100 group-focus-within/project-header:opacity-100 [@media(hover:none)]:opacity-100"
           onClick={() => onAddWorkspace(project)}
-          title={intl.formatMessage({ id: "sidebar.newWorkspace", defaultMessage: "New workspace on a new branch" })}
+          title="New workspace on a new branch"
+          aria-label={`New workspace in ${project.name}`}
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -123,7 +151,7 @@ function ProjectItem({
           {error}
         </div>
       )}
-      <div>
+      <CollapsibleContent>
         {project.workspaces.length === 0 ? (
           <div className="rounded-xl bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
             No workspaces yet.
@@ -145,11 +173,8 @@ function ProjectItem({
                 key={workspace.id}
                 onClick={() => onSelectWorkspace(workspace.id, project.id)}
                 className={cn(
-                  // pl-6 rather than px-3: the row's icon lines up with the project
-                  // NAME above it (both at 40px from the rail edge), so the workspaces
-                  // read as hanging off their project instead of sitting beside it. The
-                  // fill stays full-bleed — only the content is indented.
-                  "w-full rounded-lg py-2 pl-6 pr-3 text-left transition-colors duration-150 bg-transparent hover:bg-row-hover hover:text-foreground relative overflow-hidden",
+                  // Align the branch icon with the project name; keep the fill full width.
+                  "w-full rounded-lg py-2 pl-11 pr-3 text-left transition-colors duration-150 bg-transparent hover:bg-row-hover hover:text-foreground relative overflow-hidden",
                   // Selection is a plain fill — no border, no tint. `tint-muted`
                   // only cleared the sidebar by ~9 levels and skewed blue, so the
                   // block read as a smudge; a neutral 7% of the foreground lands
@@ -188,8 +213,8 @@ function ProjectItem({
             )
           })
         )}
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
