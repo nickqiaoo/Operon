@@ -28,6 +28,7 @@ import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
 import { SPEC_FILES, specDir } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
+import { recordDecisions } from '../spec/decisions.js'
 import {
   isReviewedTicket,
   onTicketInReview,
@@ -1039,6 +1040,23 @@ export async function completeTaskAfterHumanReview(
     const open = storage.taskListChildren(task.id).filter((c) => c.status !== 'done' && c.status !== 'cancelled')
     if (open.length > 0) {
       return { ok: false, reason: `Tickets still open: ${open.map((c) => `#${c.number}`).join(', ')}` }
+    }
+    // What the change leaves behind rides into the default branch with it.
+    const ws = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
+    if (ws) {
+      try {
+        await recordDecisions(storage, task, { taskId: task.id, taskNumber: task.number, worktreePath: ws.worktreePath })
+      } catch (err) {
+        if (err instanceof MergeConflictError) {
+          return {
+            ok: false,
+            reason:
+              `The default branch has changed since this spec branched, and merging it in conflicts in ${err.files.join(', ') || 'some files'}. ` +
+              `Merge ${err.branch} into \`${task.branchName}\` and resolve it there, then sign off again.`,
+          }
+        }
+        return { ok: false, reason: `Could not record the spec's decisions: ${err instanceof Error ? err.message : String(err)}` }
+      }
     }
   }
 

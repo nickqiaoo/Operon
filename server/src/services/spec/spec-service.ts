@@ -11,6 +11,7 @@ import type { Task, TaskActor } from '../../types/task.js'
 import {
   ACTIVE_SPEC_STAGES,
   type SpecAgentRun,
+  type SpecDecisions,
   type SpecRun,
   type SpecSeat,
   type SpecStage,
@@ -46,6 +47,7 @@ import { readRunView } from '../workflow/store.js'
 import { advance, isBuildActive, resumeBuild, settleSpecNotice, startBuild, stopBuild, type BuildStorage } from './build-run.js'
 import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-run.js'
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
+
 
 export type SpecStorage = TaskStorageAdapter & Pick<ProjectStorageAdapter, 'getProject' | 'getWorkspace' | 'createWorkspace'>
 
@@ -265,7 +267,10 @@ export async function approveSpecDesign(
 // Gate 2: sign off the change
 // ---------------------------------------------------------------------------
 
-/** Merge the built and reviewed change into the default branch. */
+/**
+ * Merge the built and reviewed change into the default branch, carrying the
+ * ADRs and glossary terms it records (written by the Done path).
+ */
 export async function signOffSpec(storage: BuildStorage, taskId: number, actor: TaskActor): Promise<void> {
   const { task, run } = requireSpec(storage, taskId)
   if (run.stage !== 'awaiting_signoff') {
@@ -414,13 +419,14 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
       feedback: null,
       review: null,
       reviewSummary: null,
+      decisions: null,
       designChanged: false,
       ticketTasks: {},
     }
   }
   const loc: SpecLocation = { taskId: task.id, taskNumber: task.number, worktreePath: workspace.worktreePath }
   const keys = await listCandidateKeys(loc)
-  const [brief, grounding, judge, design, synthesis, tickets, pending, feedback, review, summary, candidates] = await Promise.all([
+  const [brief, grounding, judge, design, synthesis, tickets, pending, feedback, review, summary, decisions, candidates] = await Promise.all([
     readSpecFile(loc, SPEC_FILES.brief),
     readSpecFile(loc, SPEC_FILES.grounding),
     readSpecFile(loc, SPEC_FILES.judge),
@@ -431,6 +437,7 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     readSpecFile(loc, SPEC_FILES.feedback),
     readSpecFile(loc, SPEC_FILES.review),
     reviewSummary(loc),
+    readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions),
     Promise.all(
       keys.map(async (key) => ({
         key,
@@ -452,6 +459,7 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     feedback,
     review,
     reviewSummary: review ? summary : null,
+    decisions,
     designChanged: run.designSha != null && design != null && blobSha(design) !== run.designSha,
     ticketTasks: ticketTasksOf(storage, task.id, run, tickets),
   }

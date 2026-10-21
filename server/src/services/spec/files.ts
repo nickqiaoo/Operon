@@ -28,6 +28,8 @@ export const SPEC_FILES = {
   /** ⑥ the consolidated whole-change review (structured); review.md is rendered from it once final. */
   reviewJson: 'review.json',
   review: 'review.md',
+  /** The ADRs and glossary terms the change records at gate 2. */
+  decisions: 'decisions.json',
 } as const
 
 /** One reviewer's raw review of the whole change: `reviews/<provider>.json`. */
@@ -78,11 +80,14 @@ function isNothingToCommit(error: unknown): boolean {
 /**
  * Write (or, with `null`, delete) spec files and commit them in one commit.
  * Writing identical content is not an error — the commit is simply skipped.
+ * `alsoCommit` names repository paths outside the spec directory that the
+ * caller already wrote and that belong in the same commit.
  */
 export function writeSpecFiles(
   loc: SpecLocation,
   files: Record<string, string | null>,
   message: string,
+  options: { alsoCommit?: string[] } = {},
 ): Promise<void> {
   return serialized(loc.taskId, async () => {
     const dir = path.join(loc.worktreePath, specDir(loc.taskNumber))
@@ -98,7 +103,9 @@ export function writeSpecFiles(
     try {
       // Only the spec's own directory: design agents run in disposable worktrees
       // nested in this checkout, and `add -A` would commit a running one as a gitlink.
-      await commit(loc.worktreePath, `spec(task #${loc.taskNumber}): ${message}`, { paths: [specDir(loc.taskNumber)] })
+      await commit(loc.worktreePath, `spec(task #${loc.taskNumber}): ${message}`, {
+        paths: [specDir(loc.taskNumber), ...(options.alsoCommit ?? [])],
+      })
     } catch (error) {
       if (!isNothingToCommit(error)) throw error
     }

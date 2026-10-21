@@ -7,7 +7,9 @@
  *                      verdict in four piles (act on / consider / noted / dismissed)
  *   (act on?)        — one "Review fixes" ticket, built and reviewed like any
  *                      other; once it lands the lead re-checks only the fix
- *   awaiting_signoff — review.md is written; gate 2 waits for the user
+ *   awaiting_signoff — the lead drafts the ADRs and glossary terms the change
+ *                      will record (decisions.ts), review.md is written, and
+ *                      gate 2 waits for the user
  *
  * Like the design stage, each step is idempotent on the change branch: a
  * reviewer whose `reviews/<provider>.json` exists is not run again, and
@@ -17,12 +19,13 @@
  */
 
 import type { Task } from '../../types/task.js'
-import type { SpecReviewSummary, SpecRunConfig, SpecStage, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
+import type { SpecDecisions, SpecReviewSummary, SpecRunConfig, SpecStage, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
 import { getCurrentBranch, getDiffStatText, getFileDiffRange, getHeadSha, getMergeBase } from '../git.js'
 import { broadcastTask } from '../task-events.js'
 import type { SpecAgents } from './agents.js'
 import { addTicket, advance, notifySpec, sessionFor, type BuildStorage } from './build-run.js'
 import { familyOf, seatFor } from './config.js'
+import { draftDecisions } from './decisions.js'
 import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, writeSpecFiles, type SpecLocation } from './files.js'
 import {
   BRANCH_REVIEW_SCHEMA,
@@ -209,7 +212,7 @@ async function review(
     await advance(storage, spec.id)
     return null
   }
-  return finalize(storage, spec, loc, stored)
+  return finalize(storage, agents, spec, loc, stored)
 }
 
 async function recheck(
@@ -231,10 +234,18 @@ async function recheck(
     },
     SPEC_REVIEW_SCHEMA,
   )
-  return finalize(storage, spec, loc, { ...rechecked, head, base: stored.base, actOnBefore: stored.actOnBefore })
+  return finalize(storage, agents, spec, loc, { ...rechecked, head, base: stored.base, actOnBefore: stored.actOnBefore })
 }
 
-async function finalize(storage: BuildStorage, spec: Task, loc: SpecLocation, review: StoredReview): Promise<GateResult> {
+async function finalize(
+  storage: BuildStorage,
+  agents: SpecAgents,
+  spec: Task,
+  loc: SpecLocation,
+  review: StoredReview,
+): Promise<GateResult> {
+  // What the change will record goes in front of the user with the review, before review.md marks the gate.
+  await draftDecisions(storage, agents, spec, loc)
   const fixed = Math.max(0, review.actOnBefore - review.actOn.length)
   await writeSpecFiles(
     loc,
@@ -295,14 +306,17 @@ export async function requestSignoffChanges(storage: BuildStorage, spec: Task, c
     blockedBy: [],
     interfaces: [],
   }
-  // The next review is of the changed change, from scratch.
+  // The next review is of the changed change, from scratch — and so is what it
+  // records, unless an earlier sign-off attempt already wrote that into the repository.
   const reviewers = run ? branchReviewers(run.config) : []
+  const decisions = await readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions)
   await writeSpecFiles(
     loc,
     {
       [SPEC_FILES.reviewJson]: null,
       [SPEC_FILES.review]: null,
       ...Object.fromEntries(reviewers.map((r) => [branchReviewFile(r), null])),
+      ...(decisions && !decisions.recorded ? { [SPEC_FILES.decisions]: null } : {}),
     },
     'changes requested at sign-off',
   )

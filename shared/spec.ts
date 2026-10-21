@@ -210,6 +210,8 @@ export interface SpecView {
   review: string | null
   /** The same review, structured, for counts and the evidence table. */
   reviewSummary: SpecReviewSummary | null
+  /** The ADRs and glossary terms this change records at gate 2 (drafted when the review ends). */
+  decisions: SpecDecisions | null
   /** True while a design run or a ticket review for this spec is executing in this process. */
   running: boolean
   /** Providers this spec works with — the ones a ticket can be given to at gate 1. */
@@ -222,6 +224,40 @@ export interface SpecView {
   agents: SpecAgentRun[]
   /** Time agents have spent working on the spec so far, in ms — parallel ones counted once, waits for the user not at all. */
   elapsedMs: number
+}
+
+/**
+ * What a spec leaves behind for later work: architecture decision records under
+ * `docs/adr/` and terms in `GLOSSARY.md`. The lead drafts them when the review
+ * ends (`decisions.json` in the spec directory); signing gate 2 writes them into
+ * the repository on the change branch, numbered after the ADRs the default
+ * branch already has, so they merge in with the change.
+ */
+export interface SpecDecisions {
+  adrs: SpecAdr[]
+  glossary: SpecGlossaryTerm[]
+  /** Set once gate 2 wrote them: the repository paths that were written. */
+  recorded: { at: number; files: string[] } | null
+}
+
+/** One architecture decision record. Never edited once written; a changed decision gets a new one that supersedes it. */
+export interface SpecAdr {
+  /** Short kebab-case file name part, e.g. 'reminders-own-table'. */
+  slug: string
+  title: string
+  context: string
+  decision: string
+  /** What follows from it, including the alternatives turned down and why. */
+  consequences: string
+  /** Number of an earlier ADR this one replaces, if any. */
+  supersedes: number | null
+  /** Assigned when written at gate 2. */
+  number: number | null
+}
+
+export interface SpecGlossaryTerm {
+  term: string
+  definition: string
 }
 
 /** What the gate 2 header says about the review at a glance. */

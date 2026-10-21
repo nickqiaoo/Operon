@@ -28,6 +28,7 @@ import { deliverWorkflowResult } from '../workflow/completion.js'
 import { broadcastTask } from '../task-events.js'
 import { SpecAgents } from './agents.js'
 import { candidateKey } from './config.js'
+import { readRecorded } from './decisions.js'
 import {
   SPEC_FILES,
   candidateFile,
@@ -253,6 +254,8 @@ async function designStage(
   }
 
   setStage('designing')
+  // The ADRs and glossary the repository already has: designs must not quietly contradict them.
+  const recorded = await readRecorded(loc.worktreePath)
   const answers = await readSpecFile(loc, SPEC_FILES.answers)
   const feedback = await readSpecFile(loc, SPEC_FILES.feedback)
   let pending = await readSpecJson<PendingQuestions>(loc, SPEC_FILES.questions)
@@ -285,7 +288,7 @@ async function designStage(
           label: `candidate ${c.key} · ${c.seat.providerId}`,
           phase: 'Design',
           seat: c.seat,
-          prompt: candidatePrompt(brief, grounding as string, c.direction),
+          prompt: candidatePrompt(brief, grounding as string, c.direction, recorded),
         })
         // Saved as each one lands, so a failure elsewhere never costs a finished candidate.
         await writeSpecFiles(loc, { [candidateFile(c.key)]: text }, `candidate ${c.key}`)
@@ -332,7 +335,7 @@ async function designStage(
         label: `lead · ${leadName}`,
         phase: 'Synthesize',
         seat: config.lead,
-        prompt: synthesisPrompt({ brief, grounding, criteria: rubric.criteria, candidates, judge, feedback, answers }),
+        prompt: synthesisPrompt({ brief, grounding, criteria: rubric.criteria, candidates, judge, feedback, answers, recorded }),
       },
       SYNTHESIS_SCHEMA,
     )

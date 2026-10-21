@@ -90,7 +90,8 @@ export function signoffNext(taskNumber: number, crossFamily: boolean): string {
     `Spec task #${taskNumber} is built: every ticket was ${reviewed} and merged, and the whole change ` +
     'was reviewed again. Summarize the review for the user in a few lines — whether it is ready, anything still to act on or ' +
     'worth considering, and which acceptance criteria were not verified (NOT_RUN) — then ask them to sign it off on the spec ' +
-    "card or the task page, which merges it into the default branch, or to request changes there (the buttons are labelled in the user's " +
+    'card or the task page, which merges it into the default branch together with the ADRs and glossary terms it records ' +
+    "(listed under Decisions on the task page), or to request changes there (the buttons are labelled in the user's " +
     'UI language, so describe them rather than quoting English labels). Do not sign it off yourself.'
   )
 }
@@ -214,7 +215,7 @@ export const CANDIDATE_DIRECTIONS = [
   'Rethink from first principles: assume the current structure is negotiable if a cleaner shape exists.',
 ]
 
-export function candidatePrompt(brief: string, grounding: string, direction: string): string {
+export function candidatePrompt(brief: string, grounding: string, direction: string, recorded = ''): string {
   return `You are producing ONE candidate design for the change below. Other candidates, each on a different model, are designing the same change in parallel. The differences between candidates are the signal used to pick and combine — do not hedge toward a safe middle. Produce the best design your model can make.
 
 ${READ_ONLY_RULE} You may sketch code in the disposable copy to test an idea, but put everything that matters in your reply.
@@ -224,7 +225,7 @@ ${brief}
 
 ## Grounding (how the code works today)
 ${grounding}
-
+${recordedSection(recorded)}
 ## Your leaning
 ${direction}
 Follow it unless the brief rules it out — then say so and why.
@@ -235,7 +236,7 @@ Follow it unless the brief rules it out — then say so and why.
 - **Deep interfaces.** A small surface hiding a lot of behaviour beats a wide surface that leaks how it works. Keep transport/storage types off the public surface.
 - **One owner per piece of state.** If two places could write it, say who owns it.
 - **One way to do each thing.** The next contributor is an agent that copies the nearest example; make the right example the only one.
-- Respect the project's conventions in the grounding (and any ADR it names).
+- Respect the project's conventions in the grounding and the decisions already recorded.
 - Show bodies as \`not implemented\` with doc comments for intent and invariants; pseudocode only for genuinely tricky logic.
 
 ## Output — markdown, these sections
@@ -308,6 +309,7 @@ export function synthesisPrompt(input: {
   judge: string
   feedback: string | null
   answers: string | null
+  recorded?: string
 }): string {
   return `You are the lead designer. Several candidates designed the same change in parallel and a judge on another model scored them against your rubric. Produce the ONE design the user will sign.
 
@@ -326,7 +328,7 @@ ${input.brief}
 ${decisionsSince(input.answers)}
 ## Grounding
 ${input.grounding}
-
+${recordedSection(input.recorded ?? '')}
 ## Your rubric
 ${input.criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
@@ -929,4 +931,85 @@ export function renderReview(review: SpecReview, opts: { fixed: number; base: st
 
 function cell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\n+/g, ' ')
+}
+
+// ---------------------------------------------------------------------------
+// Gate 2: what the change leaves behind (ADRs and glossary)
+// ---------------------------------------------------------------------------
+
+/**
+ * The decisions and terms the repository already records, for the roles that
+ * must not contradict them. Built by the server from `docs/adr/` and
+ * `GLOSSARY.md`; empty when the repository has neither.
+ */
+export function recordedSection(recorded: string): string {
+  if (!recorded) return ''
+  return `\n## Already recorded in this repository\nDecisions in docs/adr/ stand until a new ADR supersedes them; use the glossary's terms as defined. If the change needs to go against one, say so explicitly.\n\n${recorded}\n`
+}
+
+export const DECISIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    adrs: {
+      type: 'array',
+      maxItems: 3,
+      items: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string', description: 'Short kebab-case, ASCII, e.g. "reminders-own-table"' },
+          title: { type: 'string', description: 'The decision as one sentence' },
+          context: { type: 'string', description: 'Markdown: the forces that made a decision necessary' },
+          decision: { type: 'string', description: 'Markdown: what was decided' },
+          consequences: { type: 'string', description: 'Markdown: what follows, including the alternatives turned down and why' },
+          supersedes: { type: ['number', 'null'], description: 'Number of the recorded ADR this replaces, or null' },
+        },
+        required: ['slug', 'title', 'context', 'decision', 'consequences', 'supersedes'],
+      },
+    },
+    glossary: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          term: { type: 'string' },
+          definition: { type: 'string', description: 'One or two sentences, in the domain\'s own words' },
+        },
+        required: ['term', 'definition'],
+      },
+    },
+  },
+  required: ['adrs', 'glossary'],
+} as const
+
+export interface DecisionsResult {
+  adrs: { slug: string; title: string; context: string; decision: string; consequences: string; supersedes: number | null }[]
+  glossary: { term: string; definition: string }[]
+}
+
+export function decisionsPrompt(input: {
+  brief: string
+  answers: string | null
+  design: string
+  synthesis: string | null
+  rulings: string[]
+  recorded: string
+}): string {
+  return `You are the lead. The change below is built and reviewed, and the user is about to sign it off. Decide what it should leave behind for whoever works on this code next. Everything you return is written into the repository: architecture decision records under docs/adr/ (one short file per decision, never edited afterwards) and new terms in GLOSSARY.md.
+
+## ADRs — usually none or one, never more than three
+Record a decision only if either holds:
+- someone could plausibly propose an alternative this change turned down, and should find out why it lost;
+- the code alone does not show why it is shaped this way.
+Implementation detail, naming, and anything obvious from reading the code do not qualify. An empty list is the common, correct answer. If a decision changes one already recorded, write a new ADR and put the old one's number in \`supersedes\`; never restate a recorded decision.
+
+## Glossary — domain terms only
+Add a term this change introduced or pinned down that a newcomer would not know, as the brief and design use it. No general technical vocabulary, and nothing the glossary already defines.
+
+## Brief
+${input.brief}
+${decisionsSince(input.answers)}
+## Design
+${input.design}
+${input.synthesis ? `\n## Synthesis note (what was chosen, grafted and rejected)\n${input.synthesis}\n` : ''}${input.rulings.length > 0 ? `\n## Rulings the implementers made\n${input.rulings.map((r) => `- ${r}`).join('\n')}\n` : ''}${recordedSection(input.recorded)}
+${LANGUAGE_RULE}`
 }

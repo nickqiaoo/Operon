@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { branchReviewPrompt, builderFoundNothing, signoffNext, synthesisPrompt, ticketReviewPrompt, triagePrompt } from './prompts.js'
+import {
+  branchReviewPrompt,
+  builderFoundNothing,
+  candidatePrompt,
+  signoffNext,
+  synthesisPrompt,
+  ticketReviewPrompt,
+  triagePrompt,
+} from './prompts.js'
 import { crossFamilyReviewed } from './review-run.js'
 
 describe('builderFoundNothing', () => {
@@ -56,5 +64,19 @@ describe('a spec limited to one agent', () => {
   it('says so when the families did differ', () => {
     const build = [{ implementer: 'codex', reviewer: 'claude-code' }]
     expect(signoffNext(1, crossFamilyReviewed(build))).toMatch(/another model family/)
+  })
+})
+
+describe('what the repository already records', () => {
+  const recorded = '### ADRs (docs/adr/)\n- 0001 Notifications merge by source key'
+
+  it('reaches the candidates and the lead', () => {
+    expect(candidatePrompt('brief', 'g', 'lean', recorded)).toContain('## Already recorded in this repository')
+    const synthesis = synthesisPrompt({ brief: 'b', grounding: 'g', criteria: ['c'], candidates: [], judge: 'j', feedback: null, answers: null, recorded })
+    expect(synthesis).toContain('0001 Notifications merge by source key')
+  })
+
+  it('adds nothing when the repository records nothing', () => {
+    expect(candidatePrompt('brief', 'g', 'lean')).not.toContain('Already recorded')
   })
 })
