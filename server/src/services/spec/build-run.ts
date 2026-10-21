@@ -27,7 +27,7 @@ import type { SpecRun, SpecRunConfig, SpecRuling, SpecSeat, SpecTicket, SpecTick
 import { appendEvent, markExecuting, readRunView, unmarkExecuting } from '../workflow/store.js'
 import { registerWorkflowAbort, unregisterWorkflowAbort } from '../workflow/registry.js'
 import { RunEventWriter } from '../workflow/writer.js'
-import { deliverWorkflowResult } from '../workflow/completion.js'
+import { deliverChatNotice, deliverWorkflowResult } from '../workflow/completion.js'
 import { broadcastTask } from '../task-events.js'
 import { emitCounts, notify } from '../notification-service.js'
 import { emitInboxEvent } from '../channel-bus.js'
@@ -42,6 +42,7 @@ import {
   TICKET_REVIEW_SCHEMA,
   blockedTicketMessage,
   reworkMessage,
+  specNoticeText,
   ticketDescription,
   ticketReviewPrompt,
   type TicketReviewIssue,
@@ -55,7 +56,7 @@ export type BuildStorage = SpecStorage &
   BuilderStorage &
   NotificationStorageAdapter &
   Pick<AgentBindingStorageAdapter, 'getBinding'> &
-  Pick<ChannelStorageAdapter, 'getAgent'>
+  Pick<ChannelStorageAdapter, 'getAgent' | 'updateAgent'>
 
 /** Review rounds that may ask for changes before a ticket is handed to a person. */
 export const MAX_REVIEW_ROUNDS = 3
@@ -904,6 +905,11 @@ export class BuildSession {
 
 const sessions = new Map<number, BuildSession>()
 
+/** Test seam: forget every open segment. */
+export function clearBuildSessions(): void {
+  sessions.clear()
+}
+
 export function sessionFor(storage: BuildStorage, spec: Task): BuildSession {
   let session = sessions.get(spec.id)
   if (!session) sessions.set(spec.id, (session = new BuildSession(storage, spec)))
@@ -942,4 +948,14 @@ export function notifySpec(storage: BuildStorage, spec: Task, kind: 'spec_gate' 
     title: spec.title,
     body,
   })
+  // The spec's chat is where the user talks to it. A gate already reaches it as
+  // the run's result; anything else that needs them is said there too.
+  if (kind === 'spec_blocked' && spec.sourceChatId != null) {
+    void deliverChatNotice(
+      spec.sourceChatId,
+      specNoticeText(spec.number, body),
+      { specNotice: { taskId: spec.id, taskNumber: spec.number } },
+      `spec-${spec.id}-${Date.now()}`,
+    )
+  }
 }

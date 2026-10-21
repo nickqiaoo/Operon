@@ -25,7 +25,6 @@ import {
   type SpecSwitchProposal,
   type SpecTicketBuild,
 } from '../../types/spec.js'
-import { getProviders } from '../ai/providers.js'
 import { detachTaskSession } from '../channel/agent-orchestrator.js'
 import { broadcastTask } from '../task-events.js'
 import { getOrCreateSpecBuilder } from './builders.js'
@@ -41,9 +40,10 @@ import {
   type BuildStorage,
 } from './build-run.js'
 import { coordinatorSeat, reviewerFor, withBuildDefaults } from './config.js'
-import { coordinatorBinding, ensureCoordinator, wakeCoordinator } from './coordinator.js'
+import { coordinatorBinding, ensureCoordinator, settleFailure, wakeCoordinator } from './coordinator.js'
 import { isDesignRunActive } from './design-run.js'
 import { SpecError, resumeSpec } from './spec-service.js'
+import { usableProviders } from './role-settings.js'
 
 /** `codex`, or `opencode · vendor/model`. */
 export function seatName(seat: SpecSeat | null | undefined): string {
@@ -61,12 +61,6 @@ export function roleName(sw: Pick<SpecSwitch, 'role' | 'index' | 'ticketKey'>): 
   return sw.ticketKey ? `the ${sw.role} of ${sw.ticketKey}` : `the ${sw.role}`
 }
 
-/** Providers installed and usable on this machine. */
-export function usableProviders(): string[] {
-  return getProviders()
-    .filter((p) => p.available)
-    .map((p) => p.id)
-}
 
 /** Every seat a person can switch, as the panel lists them. Pure, for tests. */
 export function specSeats(config: SpecRunConfig, build: readonly SpecTicketBuild[]): SpecSeatView[] {
@@ -285,6 +279,7 @@ export function proposeSwitch(storage: BuildStorage, spec: Task, sw: SpecSwitch,
     proposedAt: Date.now(),
   }
   storage.specRunUpdate(spec.id, { proposal })
+  settleFailure(spec.id)
   const body = `Proposes switching ${roleName(sw)} from ${seatName(from)} to ${seatName(to)}: ${why}`
   storage.taskAppendActivity(spec.id, { kind: 'comment', actorType: 'agent', actorId: null, actorName, body })
   notifySpec(storage, spec, 'spec_blocked', `The coordinator of #${spec.number} asks to switch ${roleName(sw)} from ${seatName(from)} to ${seatName(to)}: ${why}`)

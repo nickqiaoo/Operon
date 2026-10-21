@@ -38,19 +38,21 @@ vi.mock('../git.js', () => ({
   getFileDiffRange: vi.fn(async (_repo: string, _file: unknown, base: string, head: string) => `diff ${base}..${head}`),
   getDiffStatText: vi.fn(async () => ' a.ts | 2 +-'),
 }))
+const store = vi.hoisted(() => ({ appendEvent: vi.fn() }))
 vi.mock('../workflow/store.js', () => ({
-  appendEvent: vi.fn(),
+  appendEvent: store.appendEvent,
   markExecuting: vi.fn(),
   unmarkExecuting: vi.fn(),
   readRunView: vi.fn(() => ({ runId: 'spec-1', agents: [{ index: 0 }, { index: 1 }] })),
 }))
 vi.mock('../workflow/registry.js', () => ({ registerWorkflowAbort: vi.fn(), unregisterWorkflowAbort: vi.fn() }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
-vi.mock('../workflow/completion.js', () => ({ deliverWorkflowResult: vi.fn() }))
+vi.mock('../workflow/completion.js', () => ({ deliverChatNotice: vi.fn(async () => true), deliverWorkflowResult: vi.fn() }))
 const orchestrator = vi.hoisted(() => ({
   dispatchProjectTask: vi.fn(async () => undefined),
   landSpecTicket: vi.fn(async () => ({ ok: true }) as { ok: boolean; reason?: string }),
   wakeTaskBinding: vi.fn(async () => true),
+  stopTaskSession: vi.fn(() => true),
 }))
 vi.mock('../channel/agent-orchestrator.js', () => orchestrator)
 // Never let a test reach the phone push relay.
@@ -60,8 +62,19 @@ vi.mock('./spec-service.js', () => ({ specDesignChanged: vi.fn(async () => false
 const reviewRun = vi.hoisted(() => ({ onAllTicketsMerged: vi.fn() }))
 vi.mock('./review-run.js', () => reviewRun)
 
-const { frontier, onTicketInReview, onTicketLanded, onTicketTurnEnded, recordTicketChat, resumeBuild, isBuildActive, MAX_REVIEW_ROUNDS } =
-  await import('./build-run.js')
+const {
+  frontier,
+  onTicketInReview,
+  onTicketLanded,
+  onTicketTurnEnded,
+  recordTicketChat,
+  resumeBuild,
+  isBuildActive,
+  isTicketUnderReview,
+  stopBuild,
+  clearBuildSessions,
+  MAX_REVIEW_ROUNDS,
+} = await import('./build-run.js')
 
 // ---- Fixture: spec #7 with tickets T1 → T2, T3 independent ------------------
 
@@ -114,6 +127,7 @@ function makeStorage() {
     specRunUpdate: (_: number, patch: Partial<SpecRun>) => (run = { ...run, ...patch }),
     specRunList: () => [run],
     getWorkspace: (id: number) => ({ id, worktreePath: id === 9 ? dir : path.join(dir, 'ticket') }),
+    getBinding: () => null,
   }
   return { storage: storage as never, spec, tasks, run: () => run, activity }
 }
@@ -122,8 +136,9 @@ const ticket = (key: string, blockedBy: string[] = []): SpecTicket => ({
   key, title: key, delivers: `${key} works`, acceptance: [`${key} accepted`], blockedBy, interfaces: [],
 })
 
+/** Every review has finished (a ticket being built keeps the build itself active). */
 async function settled() {
-  await vi.waitFor(() => expect(isBuildActive(1)).toBe(false))
+  await vi.waitFor(() => expect([101, 102, 103].some(isTicketUnderReview)).toBe(false))
   // Let the settle step after the session closes run too.
   await new Promise((r) => setTimeout(r, 10))
 }
@@ -138,6 +153,7 @@ beforeEach(async () => {
   git.head = 'head1'
   prompts.length = 0
   vi.clearAllMocks()
+  clearBuildSessions()
 })
 afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true })
@@ -224,7 +240,7 @@ describe('ticket review', () => {
     expect(run().build[0]).toMatchObject({ state: 'blocked', rounds: MAX_REVIEW_ROUNDS })
     expect(notify).toHaveBeenCalledWith(storage, expect.objectContaining({ kind: 'spec_blocked', sourceKey: 'spec:1' }))
     // T2 waits on T1; T3 does not, and takes the freed slot (concurrency 1).
-    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(103, 50)
+    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(103, 50, undefined)
     expect(orchestrator.dispatchProjectTask).not.toHaveBeenCalledWith(102, expect.anything())
   })
 
@@ -259,7 +275,7 @@ describe('landing', () => {
     await onTicketLanded(storage, 1, 101)
     expect(run().build[0].state).toBe('merged')
     // Concurrency 1: the first ticket of the frontier.
-    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(102, 50)
+    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(102, 50, undefined)
     expect(run().build[1].state).toBe('building')
   })
 
@@ -269,6 +285,79 @@ describe('landing', () => {
     await onTicketLanded(storage, 1, 103)
     expect(reviewRun.onAllTicketsMerged).toHaveBeenCalledWith(storage, 1)
     expect(orchestrator.dispatchProjectTask).not.toHaveBeenCalled()
+  })
+})
+
+/** The agent rows the spec's workflow run was given, folded by index. */
+function agentRows(): Map<number, Record<string, unknown>> {
+  const rows = new Map<number, Record<string, unknown>>()
+  for (const [, event] of store.appendEvent.mock.calls as unknown as [string, { kind: string; index: number; patch: Record<string, unknown> }][]) {
+    if (event.kind === 'agent') rows.set(event.index, { ...rows.get(event.index), ...event.patch })
+  }
+  return rows
+}
+
+describe('tickets in the workflow run', () => {
+  it('shows a ticket being built as a running row, and keeps the run open until it is handed in', async () => {
+    const { storage, tasks } = makeStorage()
+    tasks.get(101)!.status = 'done'
+    await onTicketLanded(storage, 1, 101)
+    // The design run left agents 0 and 1; the ticket's row comes after them.
+    expect(agentRows().get(2)).toMatchObject({ label: 'build T2 · codex', phase: 'Build', state: 'running', agentType: 'codex' })
+    expect(isBuildActive(1)).toBe(true)
+    expect(store.appendEvent).not.toHaveBeenCalledWith('spec-1', expect.objectContaining({ kind: 'settled' }))
+
+    recordTicketChat(storage, 102, 400)
+    expect(agentRows().get(2)?.chatIds).toEqual([400])
+
+    tasks.get(102)!.status = 'in_review'
+    tasks.get(102)!.workspaceId = 12
+    onTicketInReview(storage, 102)
+    expect(agentRows().get(2)).toMatchObject({ state: 'done', resultPreview: 'Handed in for review' })
+    await settled()
+  })
+
+  it('ends a blocked ticket\'s row with why', async () => {
+    const { storage, tasks } = makeStorage()
+    tasks.get(101)!.status = 'done'
+    await onTicketLanded(storage, 1, 101)
+    tasks.get(102)!.status = 'in_progress'
+    await onTicketTurnEnded(storage, 102, 'quota exceeded')
+    const patches = store.appendEvent.mock.calls.map(([, e]) => e as { kind: string; patch?: Record<string, unknown> })
+    expect(patches).toContainEqual(expect.objectContaining({ kind: 'agent', patch: expect.objectContaining({ state: 'error', error: 'Its session failed: quota exceeded' }) }))
+    // Its slot went to the next ticket, which keeps the run open.
+    expect(patches.at(-1)?.patch).toMatchObject({ label: 'build T3 · codex', state: 'running' })
+    expect(isBuildActive(1)).toBe(true)
+  })
+
+  it('stops the tickets at work on Stop, and wakes them on Resume', async () => {
+    const { storage, tasks, run } = makeStorage()
+    tasks.get(101)!.status = 'done'
+    await onTicketLanded(storage, 1, 101)
+    Object.assign(tasks.get(102)!, { status: 'in_progress', bindingId: 6 })
+
+    expect(stopBuild(storage, 1)).toBe(true)
+    expect(run().stage).toBe('stopped')
+    expect(orchestrator.stopTaskSession).toHaveBeenCalledWith(102)
+    expect(store.appendEvent).toHaveBeenCalledWith('spec-1', expect.objectContaining({ kind: 'settled', status: 'stopped' }))
+    expect(isBuildActive(1)).toBe(false)
+    // Its turn ending under the stop is a pause, not a ticket that stopped short.
+    await onTicketTurnEnded(storage, 102)
+    expect(run().build[1].state).toBe('building')
+
+    await resumeBuild(storage, 1)
+    expect(orchestrator.wakeTaskBinding).toHaveBeenCalledWith(6, expect.stringContaining('The build was stopped'))
+    expect(isBuildActive(1)).toBe(true)
+  })
+
+  it('ignores the end of a turn from a session the ticket was taken off', async () => {
+    const { storage, tasks, run } = makeStorage()
+    Object.assign(tasks.get(101)!, { status: 'in_progress', bindingId: 7 })
+    ;(storage as { specRunUpdate: (id: number, p: Partial<SpecRun>) => void }).specRunUpdate(1, {
+      build: [entry('T1', 101, 'building'), entry('T2', 102, 'waiting'), entry('T3', 103, 'waiting')],
+    })
+    await onTicketTurnEnded(storage, 101, 'aborted', 5)
+    expect(run().build[0].state).toBe('building')
   })
 })
 

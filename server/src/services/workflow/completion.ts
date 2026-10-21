@@ -88,37 +88,24 @@ function waitForIdle(chatId: number, signal?: AbortSignal): Promise<boolean> {
 }
 
 /**
- * Feed a terminal run's result back into its launching conversation.
- *
- * No-ops when the run has no chat (launched outside a conversation) or that chat
- * is gone — a deleted conversation is not an error, it just means there is no
- * one left to tell. Never throws: this runs in the workflow's `finally`, where a
- * failure to deliver must not also lose the run's terminal bookkeeping.
+ * Start a turn in a conversation with a message nobody typed — a workflow's
+ * result, a spec asking for the user — once the chat is idle. Returns false when
+ * the chat is gone or stayed busy. Never throws.
  */
-export async function deliverWorkflowResult(run: WorkflowRunView, signal?: AbortSignal): Promise<void> {
-  const chatId = run.chatId ?? 0
-  if (chatId <= 0) return
+export async function deliverChatNotice(
+  chatId: number,
+  text: string,
+  metadata: Record<string, unknown>,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   try {
     const meta = getChatHistoryService()?.getChatMeta(chatId)
-    if (!meta) return // conversation deleted while the workflow ran
-
-    // The view deliberately omits the result (it can be large); read it from the
-    // run's `settled` event only when there is actually one to deliver.
-    const stored = run.status === 'completed' && run.hasResult ? readRunResult(run.runId) : undefined
-    const resultText = stored?.hasResult ? formatResult(stored.result) : null
-    const message: UIMessage = {
-      id: randomUUID(),
-      role: 'user',
-      parts: [{ type: 'text', text: buildText(run, resultText) }],
-      metadata: {
-        workflowResult: { runId: run.runId, name: run.name, status: run.status } satisfies WorkflowResultMetadata,
-      },
-    }
-
-    if (!(await waitForIdle(chatId, signal))) return
-
+    if (!meta) return false // conversation deleted
+    const message: UIMessage = { id: randomUUID(), role: 'user', parts: [{ type: 'text', text }], metadata }
+    if (!(await waitForIdle(chatId, signal))) return false
     const response = await handleChat({
-      requestId: `workflow-${run.runId}`,
+      requestId,
       chatId,
       messages: [message],
       providerId: meta.providerId,
@@ -130,6 +117,36 @@ export async function deliverWorkflowResult(run: WorkflowRunView, signal?: Abort
     // Drain our own branch. The bytes that matter went to the live-turn hub via
     // tee inside handleChat; this side just has to not hold the stream open.
     await response.body?.cancel().catch(() => {})
+    return true
+  } catch (error) {
+    console.warn(`[chat-notice] could not deliver ${requestId} to chat ${chatId}: ${error instanceof Error ? error.message : String(error)}`)
+    return false
+  }
+}
+
+/**
+ * Feed a terminal run's result back into its launching conversation.
+ *
+ * No-ops when the run has no chat (launched outside a conversation) or that chat
+ * is gone — a deleted conversation is not an error, it just means there is no
+ * one left to tell. Never throws: this runs in the workflow's `finally`, where a
+ * failure to deliver must not also lose the run's terminal bookkeeping.
+ */
+export async function deliverWorkflowResult(run: WorkflowRunView, signal?: AbortSignal): Promise<void> {
+  const chatId = run.chatId ?? 0
+  if (chatId <= 0 || !getChatHistoryService()?.getChatMeta(chatId)) return // no chat, or deleted while the workflow ran
+  try {
+    // The view deliberately omits the result (it can be large); read it from the
+    // run's `settled` event only when there is actually one to deliver.
+    const stored = run.status === 'completed' && run.hasResult ? readRunResult(run.runId) : undefined
+    const resultText = stored?.hasResult ? formatResult(stored.result) : null
+    await deliverChatNotice(
+      chatId,
+      buildText(run, resultText),
+      { workflowResult: { runId: run.runId, name: run.name, status: run.status } satisfies WorkflowResultMetadata },
+      `workflow-${run.runId}`,
+      signal,
+    )
   } catch (error) {
     console.warn(
       `[workflow] could not deliver result of ${run.runId} to chat ${chatId}: ` +

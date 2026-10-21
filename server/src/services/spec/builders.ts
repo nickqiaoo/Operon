@@ -48,10 +48,12 @@ export function coordinatorAgentName(seat: SpecSeat): string {
  * builders, one per seat serves every spec; each spec has its own session (a
  * task binding on the spec) in its change worktree.
  */
-export function getOrCreateSpecCoordinator(storage: BuilderStorage, seat: SpecSeat): Agent {
+export function getOrCreateSpecCoordinator(storage: BuilderStorage & Pick<ChannelStorageAdapter, 'updateAgent'>, seat: SpecSeat): Agent {
   const name = coordinatorAgentName(seat)
   const existing = storage.getAgentByName(name)
-  if (existing) return existing
+  // Its instructions move on with the app; an agent created by an older version keeps up.
+  if (existing && existing.instructions !== COORDINATOR_INSTRUCTIONS) storage.updateAgent(existing.id, { instructions: COORDINATOR_INSTRUCTIONS })
+  if (existing) return storage.getAgentByName(name) ?? existing
   return storage.createAgent({
     name,
     provider: seat.providerId,

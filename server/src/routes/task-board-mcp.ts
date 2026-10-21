@@ -19,11 +19,25 @@ import type {
   ProjectStorageAdapter,
   TaskStorageAdapter,
 } from '../storage/interface.js'
-import { TaskBoardService, type ToolResult } from '../services/agent-comm/task-board-service.js'
+import { TaskBoardService, type SwitchToolInput, type ToolResult } from '../services/agent-comm/task-board-service.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import type { TaskPriority, TaskStatus } from '../types/task.js'
 import { TASKBOARD_TOOLS } from '@shared/taskboard/tools'
 import { START_SPEC_DESCRIPTION } from '../services/spec/prompts.js'
+
+/** Which seat of a spec a switch moves, and to whom — shared by propose and switch. */
+const SWITCH_TARGET = {
+  task: { type: 'number', description: 'Spec task number' },
+  role: {
+    type: 'string',
+    enum: ['lead', 'explorer', 'candidate', 'judge', 'builder', 'implementer', 'reviewer', 'coordinator'],
+    description: 'The role to move. implementer/reviewer with `ticket` moves one ticket; without it, the spec\'s default for that role',
+  },
+  ticket: { type: 'number', description: "Optional: the ticket's task number, for one ticket's implementer or reviewer" },
+  candidate: { type: 'string', description: 'For role candidate: which one (A, B, …)' },
+  provider: { type: 'string', description: 'Agent to move it to — one spec_status lists as usable here' },
+  model: { type: 'string', description: "Optional: the model on that agent; omit for the agent's default" },
+} as const
 
 const TOOLS: Tool[] = [
   {
@@ -250,6 +264,50 @@ const TOOLS: Tool[] = [
       required: ['task', 'summary'],
     },
   },
+  {
+    name: TASKBOARD_TOOLS.specProposeSwitch,
+    description:
+      "OperonSpec coordinator only: ask the user to move a role to another agent or model — when the agent is the problem (out of quota, rate-limited, not logged in, a provider error, a model that will not start). Nothing changes until the user agrees; then the work carries on on the new agent.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...SWITCH_TARGET,
+        reason: { type: 'string', description: "Why, in the brief's language: what failed and why the other agent is the fix" },
+      },
+      required: ['task', 'role', 'provider', 'reason'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.specSwitchAgent,
+    description:
+      "OperonSpec, from the chat the spec was started from: move a role to another agent or model because the user said so (including agreeing to the coordinator's proposal). A ticket's implementer switch hands the ticket over at once; a stopped or failed spec carries on.",
+    inputSchema: { type: 'object', properties: SWITCH_TARGET, required: ['task', 'role', 'provider'] },
+  },
+  {
+    name: TASKBOARD_TOOLS.specDeclineSwitch,
+    description: "OperonSpec, from the chat the spec was started from: the user turned down the coordinator's proposed switch. The coordinator hears so.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        note: { type: 'string', description: 'What the user said instead, if anything' },
+      },
+      required: ['task'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.specMessageCoordinator,
+    description:
+      "OperonSpec, from the chat the spec was started from: pass the user's words to the spec's coordinator — an answer to what it asked, or something it should do about the build. It acts in the background and comes back here if it needs them.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        message: { type: 'string', description: "What the user said, faithfully" },
+      },
+      required: ['task', 'message'],
+    },
+  },
 ]
 
 type TaskBoardRouteStorage = TaskStorageAdapter &
@@ -257,6 +315,16 @@ type TaskBoardRouteStorage = TaskStorageAdapter &
   ProjectStorageAdapter &
   NotificationStorageAdapter &
   Pick<AgentBindingStorageAdapter, 'getBinding'>
+
+function switchArgs(args: Record<string, unknown>): SwitchToolInput {
+  return {
+    role: String(args.role ?? ''),
+    ticket: typeof args.ticket === 'number' ? args.ticket : undefined,
+    candidate: typeof args.candidate === 'string' ? args.candidate : undefined,
+    provider: String(args.provider ?? ''),
+    model: typeof args.model === 'string' ? args.model : undefined,
+  }
+}
 
 function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Server {
   const server = new Server(
@@ -385,6 +453,18 @@ async function dispatch(
 
     case TASKBOARD_TOOLS.specIntegrationDone:
       return board.specIntegrationDone(Number(args.task), String(args.summary ?? ''), agentId)
+
+    case TASKBOARD_TOOLS.specProposeSwitch:
+      return board.specProposeSwitch(Number(args.task), switchArgs(args), String(args.reason ?? ''), agentId)
+
+    case TASKBOARD_TOOLS.specSwitchAgent:
+      return board.specSwitchAgent(Number(args.task), switchArgs(args))
+
+    case TASKBOARD_TOOLS.specDeclineSwitch:
+      return board.specDeclineSwitch(Number(args.task), typeof args.note === 'string' ? args.note : undefined)
+
+    case TASKBOARD_TOOLS.specMessageCoordinator:
+      return board.specMessageCoordinator(Number(args.task), String(args.message ?? ''))
 
     default:
       throw new Error(`Unknown tool: ${name}`)

@@ -67,7 +67,7 @@ vi.mock('../workflow/store.js', () => ({
 }))
 vi.mock('../workflow/registry.js', () => ({ registerWorkflowAbort: vi.fn(), unregisterWorkflowAbort: vi.fn() }))
 const delivered = vi.hoisted(() => [] as unknown[])
-vi.mock('../workflow/completion.js', () => ({ deliverWorkflowResult: vi.fn(async (v: unknown) => delivered.push(v)) }))
+vi.mock('../workflow/completion.js', () => ({ deliverChatNotice: vi.fn(async () => true), deliverWorkflowResult: vi.fn(async (v: unknown) => delivered.push(v)) }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
 const orchestrator = vi.hoisted(() => ({
   dispatchProjectTask: vi.fn(async () => undefined),
@@ -196,7 +196,7 @@ describe('the whole-change review', () => {
     expect(run().stage).toBe('building')
     const fix = run().build.find((b) => b.key === 'R1')
     expect(fix).toMatchObject({ implementer: 'codex', state: 'building' })
-    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(fix!.taskId, 50)
+    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(fix!.taskId, 50, undefined)
     expect((await readSpecJson<SpecTicket[]>(loc(), 'tickets.json'))?.map((t) => t.key)).toEqual(['T1', 'R1'])
     expect(await readSpecFile(loc(), 'review.md')).toBeNull()
     expect(delivered).toHaveLength(0)

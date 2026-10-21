@@ -45,3 +45,17 @@ export function setSpecRoleSettings(value: unknown): SpecRoleSettings {
   _storage?.set(KV_ROLES, settings)
   return settings
 }
+
+/**
+ * The providers usable on this machine, as the app knows them. Set at startup,
+ * so the spec services do not pull the provider runtime in (or into their tests).
+ */
+let providerSource: () => string[] = () => []
+
+export function setUsableProviderSource(source: () => string[]): void {
+  providerSource = source
+}
+
+export function usableProviders(): string[] {
+  return providerSource()
+}

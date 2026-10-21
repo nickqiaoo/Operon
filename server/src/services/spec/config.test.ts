@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultSpecConfig, familyOf, parseNamedAgent, seatFor, withBuildDefaults } from './config.js'
+import { coordinatorSeat, defaultSpecConfig, familyOf, parseNamedAgent, reviewerFor, seatFor, withBuildDefaults } from './config.js'
 import { builderAgentName, getOrCreateSpecBuilder } from './builders.js'
 import type { Agent } from '../../types/channel.js'
 
@@ -131,5 +131,49 @@ describe('naming a model with an agent', () => {
   it('carries the named model into the build stage', () => {
     expect(seatFor(config, 'opencode')).toEqual({ providerId: 'opencode', modelId: 'opencode/deepseek-v4.1-flash-free' })
     expect(withBuildDefaults(config).implementer).toEqual({ providerId: 'codex', modelId: 'gpt-6-luna' })
+  })
+})
+
+describe('roles from Settings', () => {
+  const available = ['claude-code', 'codex', 'grok', 'opencode']
+  const lead = { providerId: 'claude-code', modelId: 'opus' }
+
+  it('fills every configured seat, the build seats too', () => {
+    const config = defaultSpecConfig({
+      available,
+      lead,
+      roles: {
+        lead: { providerId: 'codex', modelId: 'gpt-5' },
+        judge: { providerId: 'opencode', modelId: 'vendor/cheap' },
+        candidates: [{ providerId: 'grok' }, { providerId: 'claude-code' }],
+        implementer: { providerId: 'opencode' },
+        reviewer: { providerId: 'grok' },
+        coordinator: { providerId: 'claude-code' },
+      },
+    })
+    expect(config.lead).toEqual({ providerId: 'codex', modelId: 'gpt-5' })
+    expect(config.judge).toEqual({ providerId: 'opencode', modelId: 'vendor/cheap' })
+    expect(config.candidates.map((c) => c.providerId)).toEqual(['grok', 'claude-code'])
+    expect(withBuildDefaults(config).implementer).toEqual({ providerId: 'opencode' })
+    // A reviewer the user picked reviews every ticket, whatever family built it.
+    expect(reviewerFor(config, 'grok')).toBe('grok')
+    expect(coordinatorSeat(config)).toEqual({ providerId: 'claude-code' })
+  })
+
+  it('leaves unset roles automatic, and ignores agents that are not usable here', () => {
+    const auto = defaultSpecConfig({ available, lead })
+    const config = defaultSpecConfig({ available, lead, roles: { judge: { providerId: 'kimi' } } })
+    expect(config).toEqual(auto)
+    expect(coordinatorSeat(config)).toEqual(lead)
+  })
+
+  it('keeps an automatic second candidate beside a single configured one, and agents named in the chat win', () => {
+    const one = defaultSpecConfig({ available, lead, roles: { candidates: [{ providerId: 'opencode' }] } })
+    expect(one.candidates).toHaveLength(2)
+    expect(one.candidates[0]).toEqual({ providerId: 'opencode' })
+    expect(one.candidates[1].providerId).not.toBe('opencode')
+
+    const named = defaultSpecConfig({ available, lead, candidates: ['codex', 'grok'], roles: { candidates: [{ providerId: 'opencode' }] } })
+    expect(named.candidates.map((c) => c.providerId)).toEqual(['codex', 'grok'])
   })
 })

@@ -11,7 +11,7 @@ vi.mock('../workflow/dispatch.js', () => ({ runProviderAgent: vi.fn() }))
 vi.mock('operon-agents', () => ({ LocalEnvironment: class {}, createWorktree: vi.fn(), newAgentId: () => 'a', validateValue: vi.fn() }))
 vi.mock('../workflow/store.js', () => ({ appendEvent: vi.fn(), markExecuting: vi.fn(), unmarkExecuting: vi.fn(), readRunView: vi.fn() }))
 vi.mock('../workflow/registry.js', () => ({ registerWorkflowAbort: vi.fn(), unregisterWorkflowAbort: vi.fn() }))
-vi.mock('../workflow/completion.js', () => ({ deliverWorkflowResult: vi.fn() }))
+vi.mock('../workflow/completion.js', () => ({ deliverChatNotice: vi.fn(async () => true), deliverWorkflowResult: vi.fn() }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
 const orchestrator = vi.hoisted(() => ({
   attachSpecCoordinator: vi.fn(),

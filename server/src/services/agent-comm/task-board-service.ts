@@ -25,6 +25,8 @@ import { getChatStorage } from '../ai/state.js'
 import { getProviders } from '../ai/providers.js'
 import { isReviewedTicket } from '../spec/build-run.js'
 import { SpecError, answerSpecQuestions, startSpec } from '../spec/spec-service.js'
+import { dismissSwitchProposal, proposeSwitch, switchSpecSeat } from '../spec/switch.js'
+import { isSpecRole, type SpecSwitch } from '../../types/spec.js'
 import { SPEC_FILES, specDir } from '../spec/files.js'
 import {
   addCoordinatorTicket,
@@ -33,6 +35,7 @@ import {
   isCoordinatorOf,
   retryTicket,
   specStatus,
+  wakeCoordinator,
 } from '../spec/coordinator.js'
 
 /**
@@ -62,6 +65,20 @@ export type TaskBoardStorage = TaskStorageAdapter &
   ProjectStorageAdapter &
   NotificationStorageAdapter &
   Pick<AgentBindingStorageAdapter, 'getBinding'>
+
+/** A switch as the spec tools take it. */
+export interface SwitchToolInput {
+  role: string
+  /** A ticket's task number. */
+  ticket?: number
+  /** A candidate's letter (A, B…). */
+  candidate?: string
+  provider: string
+  model?: string
+}
+
+/** Who acts when the spec's chat does something on the user's word. */
+const USER_IN_CHAT = { type: 'human' as const, id: null, name: 'You (in chat)' }
 
 export class TaskBoardService {
   constructor(
@@ -341,6 +358,80 @@ export class TaskBoardService {
 
   specIntegrationDone(number: number, summary: string, agentId: number) {
     return this.asCoordinator(number, agentId, (spec) => integrationDone(this.storage, spec, summary))
+  }
+
+  specProposeSwitch(number: number, input: SwitchToolInput, reason: string, agentId: number) {
+    return this.asCoordinator(number, agentId, (spec) =>
+      proposeSwitch(this.storage, spec, this.toSwitch(spec, input), reason, this.agentName(agentId) ?? 'Spec coordinator'),
+    )
+  }
+
+  // ---- OperonSpec, from the chat it was started from ----
+
+  /**
+   * Run `fn` for the spec behind a task number when this session is the chat
+   * that spec was started from — where the user talks to it, so what is asked
+   * here is the user's say-so. Anyone else gets a refusal.
+   */
+  private async asSpecChat(number: number, fn: (spec: Task) => Promise<string> | string): Promise<string | ToolResult> {
+    try {
+      const spec = this.requireTask(number)
+      if (!this.storage.specRunGet(spec.id)) return toolError(`#${number} is not a spec.`)
+      if (this.sourceChatId == null || spec.sourceChatId !== this.sourceChatId) {
+        return toolError(`Only the chat spec #${number} was started from can do this: it is where the user decides.`)
+      }
+      return await fn(spec)
+    } catch (e) {
+      if (e instanceof SpecError || e instanceof Error) return toolError(e.message)
+      throw e
+    }
+  }
+
+  specSwitchAgent(number: number, input: SwitchToolInput) {
+    return this.asSpecChat(number, (spec) => switchSpecSeat(this.storage, spec.id, this.toSwitch(spec, input), USER_IN_CHAT))
+  }
+
+  specDeclineSwitch(number: number, note?: string) {
+    return this.asSpecChat(number, async (spec) => {
+      await dismissSwitchProposal(this.storage, spec.id, USER_IN_CHAT, note)
+      return `Turned the switch down; the coordinator of #${number} has been told.`
+    })
+  }
+
+  specMessageCoordinator(number: number, message: string) {
+    return this.asSpecChat(number, async (spec) => {
+      const body = message.trim()
+      if (!body) throw new SpecError('The message is empty')
+      this.storage.taskAppendActivity(spec.id, { kind: 'comment', actorType: 'human', actorName: USER_IN_CHAT.name, body })
+      broadcastTask(this.storage, spec.id)
+      const woke = await wakeCoordinator(
+        this.storage,
+        spec,
+        `[The user, from the chat spec #${number} was started from]: ${body}\n` +
+          `Act on it; if you need them again, use spec_propose_switch or spec_escalate — that reaches them in that chat.`,
+      )
+      if (!woke) throw new SpecError(`The coordinator of #${number} could not be woken`)
+      return `Passed to the coordinator of #${number}; it works on it in the background and comes back here if it needs the user.`
+    })
+  }
+
+  /** A switch as the tools name it (ticket by number, candidate by letter), as the spec names it. */
+  private toSwitch(spec: Task, input: SwitchToolInput): SpecSwitch {
+    if (!isSpecRole(input.role)) throw new SpecError(`"${input.role}" is not a spec role`)
+    let ticketKey: string | undefined
+    if (input.ticket != null) {
+      const ticket = this.storage.taskGetByNumber(this.projectId, input.ticket)
+      ticketKey = ticket ? this.storage.specRunGet(spec.id)?.build.find((b) => b.taskId === ticket.id)?.key : undefined
+      if (!ticketKey) throw new SpecError(`#${input.ticket} is not a ticket of spec #${spec.number}`)
+    }
+    const letter = input.candidate?.trim().toUpperCase()
+    const index = letter ? (/^\d+$/.test(letter) ? Number(letter) - 1 : letter.charCodeAt(0) - 65) : undefined
+    return {
+      role: input.role,
+      ...(index != null ? { index } : {}),
+      ...(ticketKey ? { ticketKey } : {}),
+      to: { providerId: input.provider.trim(), ...(input.model?.trim() ? { modelId: input.model.trim() } : {}) },
+    }
   }
 
   comment(number: number, body: string, agentId: number): string {

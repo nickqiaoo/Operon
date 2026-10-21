@@ -49,9 +49,9 @@ import { advance, isBuildActive, resumeBuild, settleSpecNotice, startBuild, stop
 import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-run.js'
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
 import { isMerging } from '../git.js'
-import { coordinatorView } from './coordinator.js'
-import { getSpecRoleSettings } from './role-settings.js'
-import { specSeats, usableProviders } from './switch.js'
+import { coordinatorView, ensureCoordinator, onStepFailed } from './coordinator.js'
+import { getSpecRoleSettings, usableProviders } from './role-settings.js'
+import { specSeats } from './switch.js'
 import { specChatRef, specChatRefs, type SpecChatStorage } from './chats.js'
 
 
@@ -81,11 +81,18 @@ function locationOf(storage: SpecStorage, task: Task): SpecLocation {
   return { taskId: task.id, taskNumber: task.number, worktreePath: workspace.worktreePath }
 }
 
-function launch(storage: SpecStorage, task: Task): string {
+function launch(storage: BuildStorage, task: Task): string {
   const run = storage.specRunGet(task.id)
   if (!run) throw new SpecError(`Task #${task.number} is not an OperonSpec`)
   if (isDesignRunActive(task.id)) throw new SpecError(`Spec #${task.number} is already running`)
-  return startDesignRun({ storage, task, run, loc: locationOf(storage, task), chatId: task.sourceChatId })
+  return startDesignRun({
+    storage,
+    task,
+    run,
+    loc: locationOf(storage, task),
+    chatId: task.sourceChatId,
+    onFailed: (error) => onStepFailed(storage, task, 'the design run', error),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +121,7 @@ export interface StartSpecResult {
   reused: boolean
 }
 
-export async function startSpec(storage: SpecStorage, input: StartSpecInput): Promise<StartSpecResult> {
+export async function startSpec(storage: BuildStorage, input: StartSpecInput): Promise<StartSpecResult> {
   const project = storage.getProject(input.projectId)
   if (!project) throw new SpecError(`Project ${input.projectId} not found`)
   const brief = input.brief.trim()
@@ -165,6 +172,9 @@ export async function startSpec(storage: SpecStorage, input: StartSpecInput): Pr
   const fresh = storage.taskGet(task.id) as Task
   await writeSpecFiles(locationOf(storage, fresh), { [SPEC_FILES.brief]: brief }, 'brief')
   const runId = launch(storage, fresh)
+  // From the start: any step can fail on its agent, and the coordinator is who
+  // works out what to switch. Its session opens the first time it is needed.
+  await ensureCoordinator(storage, fresh)
   broadcastTask(storage, task.id)
   return { task: storage.taskGet(task.id) as Task, runId, reused: false }
 }
@@ -173,7 +183,7 @@ export async function startSpec(storage: SpecStorage, input: StartSpecInput): Pr
 // Answer the user's questions
 // ---------------------------------------------------------------------------
 
-export async function answerSpecQuestions(storage: SpecStorage, taskId: number, answers: string): Promise<string> {
+export async function answerSpecQuestions(storage: BuildStorage, taskId: number, answers: string): Promise<string> {
   const { task, run } = requireSpec(storage, taskId)
   if (run.stage !== 'awaiting_answers') {
     throw new SpecError(`Spec #${task.number} is not waiting for answers (it is ${run.stage})`)

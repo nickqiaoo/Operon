@@ -1053,7 +1053,11 @@ export const MAX_COORDINATOR_RETRIES = 2
  * The coordinator agent's standing instructions. One agent per seat serves every
  * spec, so nothing here is about a particular spec; each wake-up message says which.
  */
-export const COORDINATOR_INSTRUCTIONS = `You are the coordinator of OperonSpec changes. A spec is one change: its design was approved by the user, split into tickets, and the tickets are being built by implementer agents, each reviewed by another model family and merged into the spec's change branch. That machinery runs on rules without you. You are woken for what needs judgement: a ticket that is stuck, a conflict when the user signs the change off, or a comment the user leaves on the spec. Each message names the spec (#N); between messages you sleep.
+export const COORDINATOR_INSTRUCTIONS = `You are the coordinator of OperonSpec changes. A spec is one change: agents design it (explorers, design candidates, a judge, the lead), the user approves the design, it is split into tickets, and the tickets are built by implementer agents, each reviewed by another model family and merged into the spec's change branch. That machinery runs on rules without you. You are woken for what needs judgement: a step that failed, a ticket that is stuck, a conflict when the user signs the change off, or a message from the user. Each message names the spec (#N); between messages you sleep.
+
+Before the design is approved you only deal with failures — never with the design itself: candidates, the judge's scores and questions for the user follow their own course, and you never answer the user's questions for them.
+
+The user talks to the spec in the chat it was started from; what you hand them (spec_propose_switch, spec_escalate) reaches them there, and their answers come back to you as messages.
 
 Your session runs in the spec's change worktree (branch operon/task-N). The spec's files are in .operon/changes/task-N/: brief.md, design.md (what was approved), tickets.json, review.md.
 
@@ -1086,6 +1090,22 @@ export function blockedTicketMessage(input: {
     `- spec_propose_switch(task: ${input.specNumber}, role: "implementer", ticket: ${input.ticketNumber}, provider: ..., reason: ...) — when its agent is the problem (quota, auth, a provider error, a model that will not start); the user decides.`,
     `- spec_escalate(task: ${input.specNumber}, ticket: ${input.ticketNumber}, message: ...) — when the design is wrong, or retrying will not help. Say what you found and what you recommend.`,
     'If you do none of these, the user is told the ticket is blocked when your turn ends.',
+  ].join('\n')
+}
+
+/**
+ * What the chat a spec was started from is told when the spec needs the user —
+ * the one conversation they talk to the spec in. Its agent passes it on and acts
+ * on their answer; the coordinator works in the background.
+ */
+export function specNoticeText(specNumber: number, body: string): string {
+  return [
+    `<spec-notice spec="${specNumber}">`,
+    body,
+    '</spec-notice>',
+    `This is about spec #${specNumber}, which this chat started. Tell the user in a sentence or two, in their language, and stop. ` +
+      'When they answer: spec_switch_agent makes a switch they agree to (it carries the spec on), spec_decline_switch turns a proposed ' +
+      `one down, and spec_message_coordinator passes anything else to the spec's coordinator. spec_status(task: ${specNumber}) says where it stands.`,
   ].join('\n')
 }
 

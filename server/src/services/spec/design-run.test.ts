@@ -102,6 +102,7 @@ vi.mock('../channel/agent-orchestrator.js', () => ({
   dispatchProjectTask: dispatchMock,
   landSpecTicket: vi.fn(),
   wakeTaskBinding: vi.fn(),
+  attachSpecCoordinator: vi.fn(() => null),
 }))
 // Never let a test reach the phone push relay.
 vi.mock('../notification-service.js', () => ({ notify: vi.fn() }))
@@ -299,7 +300,7 @@ describe('the design stage', () => {
       ['T2', 'codex', 'grok', 'waiting'],
     ])
     expect(dispatchMock).toHaveBeenCalledTimes(1)
-    expect(dispatchMock).toHaveBeenCalledWith(created[0].id, 50)
+    expect(dispatchMock).toHaveBeenCalledWith(created[0].id, 50, undefined)
   })
 
   it('builds a ticket on the provider picked for it at gate 1', async () => {

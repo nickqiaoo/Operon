@@ -108,6 +108,11 @@ export interface DesignRunInput {
   run: SpecRun
   loc: SpecLocation
   chatId: number | null
+  /**
+   * The run failed: hand it to the spec's coordinator. True when it took it on —
+   * then it, not this run, reports to the chat (with a switch to propose, say).
+   */
+  onFailed?: (error: string) => Promise<boolean>
 }
 
 /** Start the design stage detached. Returns the workflow run id the progress is recorded under. */
@@ -176,6 +181,9 @@ async function execute(input: DesignRunInput, runId: string, controller: AbortCo
     activeRuns.delete(task.id)
   }
 
+  // A failure goes to the coordinator first: the usual cause is an agent (out of
+  // quota, logged out), and it comes back to the chat with what to switch.
+  if (status === 'failed' && error != null && input.onFailed && (await input.onFailed(error).catch(() => false))) return
   // A run the user stopped needs no report; anything else goes back to the chat
   // so its agent can ask the questions, present the design, or explain the failure.
   if (status !== 'stopped') {

@@ -28,6 +28,8 @@ import { MAX_COORDINATOR_RETRIES, stepFailedMessage } from './prompts.js'
 import { addRulings, addTicket, advance, notifySpec, patchTicket, type BuildStorage } from './build-run.js'
 import { onAllTicketsMerged } from './review-run.js'
 import { SpecError } from './spec-service.js'
+import { roleName, seatName, specSeats } from './switch.js'
+import { usableProviders } from './role-settings.js'
 
 // ---------------------------------------------------------------------------
 // The session
@@ -80,13 +82,32 @@ export async function onStepFailed(
   step: string,
   reason: string,
   role?: { role: string; ticketNumber?: number },
-): Promise<void> {
+): Promise<boolean> {
+  const notice = `#${spec.number} stopped: ${step} failed — ${reason}`.slice(0, 280)
+  // Marked before the wake, so a coordinator that answers at once settles it.
+  failures.set(spec.id, notice)
   const woke = await wakeCoordinator(
     storage,
     spec,
     stepFailedMessage({ specNumber: spec.number, step, reason, role: role?.role, ticketNumber: role?.ticketNumber }),
   ).catch(() => false)
-  if (!woke) notifySpec(storage, spec, 'spec_blocked', `#${spec.number} stopped: ${step} failed — ${reason}`.slice(0, 280))
+  if (!woke) {
+    failures.delete(spec.id)
+    notifySpec(storage, spec, 'spec_blocked', notice)
+  }
+  return woke
+}
+
+/**
+ * Failures the coordinator was asked about and has not answered yet (with a
+ * proposal or an escalation), by spec — what the user is told if its turn
+ * ends without either.
+ */
+const failures = new Map<number, string>()
+
+/** The coordinator answered a failure (proposed a switch, escalated): its turn ending says nothing more. */
+export function settleFailure(specId: number): void {
+  failures.delete(specId)
 }
 
 export function isCoordinatorOf(storage: BuildStorage, spec: Task, agentId: number): boolean {
@@ -122,6 +143,11 @@ export async function onCoordinatorTurnEnded(storage: BuildStorage, specId: numb
   const run = spec ? storage.specRunGet(specId) : null
   if (!spec || !run) return
   const why = error ? ` (its session failed: ${error})` : ''
+  const failure = failures.get(specId)
+  if (failure) {
+    failures.delete(specId)
+    notifySpec(storage, spec, 'spec_blocked', `${failure} — the coordinator found nothing to change${why}.`.slice(0, 280))
+  }
   for (const entry of run.build) {
     if (entry.state !== 'blocked' || entry.coordinator !== 'asked') continue
     patchTicket(storage, specId, entry.taskId, { coordinator: 'escalated' })
@@ -193,6 +219,11 @@ export async function specStatus(storage: BuildStorage, spec: Task): Promise<str
   }
   if (run.rulings.length > 0) {
     lines.push('', '## Rulings', ...run.rulings.map((r) => `- ${r.ticketKey}: ${r.ruling}`))
+  }
+  lines.push('', '## Agents', ...specSeats(run.config, run.build).map((v) => `- ${roleName(v)}: ${seatName(v.seat)}${v.auto ? ' (picked per ticket)' : ''}`))
+  lines.push(`Usable here: ${usableProviders().join(', ') || 'none'}`)
+  if (run.proposal) {
+    lines.push('', `Waiting on the user: switch ${roleName(run.proposal)} to ${seatName(run.proposal.to)} — ${run.proposal.reason}`)
   }
   if (run.stage === 'integrating') {
     const integration = await readIntegration(storage, spec)
@@ -299,6 +330,7 @@ export async function addCoordinatorTicket(
 export function escalate(storage: BuildStorage, spec: Task, message: string, actorName: string, ticketNumber?: number): string {
   const body = message.trim()
   if (!body) throw new SpecError('Say what the user needs to decide')
+  settleFailure(spec.id)
   if (ticketNumber != null) {
     const { entry, ticket } = entryFor(storage, spec, ticketNumber)
     if (entry.state === 'blocked') patchTicket(storage, spec.id, ticket.id, { coordinator: 'escalated' })
