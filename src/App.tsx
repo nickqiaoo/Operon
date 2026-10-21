@@ -10,7 +10,7 @@ import { createPortal } from "react-dom"
 import { AnnotationEditorHost } from "@/components/browser/AnnotationEditorHost"
 
 import { LeftSidebar } from "@/components/app-shell/LeftSidebar"
-import { TopBarControls } from "@/components/app-shell/TopBarControls"
+import { SessionPanelToggle, TopBarControls } from "@/components/app-shell/TopBarControls"
 import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
 import { ProjectSidebar } from "@/components/project/ProjectSidebar"
@@ -543,6 +543,7 @@ export default function App() {
                       its `no-drag`; it sits before the panel toggles because it
                       is read, not operated. */}
                   <AccountUsageBar className="shrink-0 pr-3" />
+                  <SessionPanelToggle />
                   {/* When the right panel is closed this row is the window's
                       top-right, so the controls live here; when it's open they
                       move into the right panel's tab strip instead. */}

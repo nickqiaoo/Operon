@@ -5,9 +5,37 @@ import { useAppShellStore } from "@/stores/app-shell-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { toggleBottomPanelWithTerminal } from "./tabs/tab-entries"
 
+/** The chat's Session cards toggle stays in the center header. */
+export function SessionPanelToggle() {
+  const intl = useIntl()
+  const sessionAvailable = useSessionPanelStore((s) => s.owner != null)
+  const sessionPanelOpen = useSessionPanelStore((s) => s.open)
+  const toggleSessionPanel = useSessionPanelStore((s) => s.toggle)
+
+  if (!sessionAvailable) return null
+
+  return (
+    <button
+      type="button"
+      data-testid="toggle-session-panel"
+      onClick={toggleSessionPanel}
+      className={cn(
+        "no-drag mr-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
+        sessionPanelOpen
+          ? "bg-muted/70 text-foreground"
+          : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
+      )}
+      title={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
+      aria-pressed={sessionPanelOpen}
+    >
+      <Activity className="h-4 w-4" />
+    </button>
+  )
+}
+
 /**
- * The window's top-right controls: the chat's Session cards and the
- * bottom/right panel toggles. ("Open with…" lives in the file browser's
+ * The window's top-right controls: the bottom/right panel toggles.
+ * ("Open with…" lives in the file browser's
  * toolbar, next to the file it opens.)
  *
  * Rendered INLINE inside whichever bar is pinned to the window's top-right
@@ -21,31 +49,9 @@ export function TopBarControls() {
   const bottomPanelOpen = useAppShellStore((s) => s.bottomPanelOpen)
   const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
   const toggleRightPanel = useAppShellStore((s) => s.toggleRightPanel)
-  // Only while the visible tab is a chat with a session to read out.
-  const sessionAvailable = useSessionPanelStore((s) => s.owner != null)
-  const sessionPanelOpen = useSessionPanelStore((s) => s.open)
-  const toggleSessionPanel = useSessionPanelStore((s) => s.toggle)
 
   return (
     <div className="no-drag flex items-center gap-0.5">
-      {sessionAvailable && (
-        <button
-          type="button"
-          data-testid="toggle-session-panel"
-          onClick={toggleSessionPanel}
-          className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
-            sessionPanelOpen
-              ? "bg-muted/70 text-foreground"
-              : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
-          )}
-          title={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
-          aria-pressed={sessionPanelOpen}
-        >
-          <Activity className="h-4 w-4" />
-        </button>
-      )}
-      {sessionAvailable && <div className="mx-0.5 h-4 w-px bg-border/50" />}
       <button
         type="button"
         data-testid="toggle-bottom-panel"
