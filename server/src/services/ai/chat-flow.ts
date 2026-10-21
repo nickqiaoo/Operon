@@ -14,6 +14,7 @@ import './approval-inbox.js'
 import { resolveMcpServersForSession } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
 import { SPEC_CHAT_HINT } from '../spec/prompts.js'
+import type { ChatMetadata } from '../../types/chat.js'
 import type {
   AiChatRequest,
   ChatRecordState,
@@ -128,7 +129,8 @@ export async function startChat(
   const assistantMessageId = continuation?.assistantMessage.id ?? randomUUID()
 
   const chatId = chatRecord.chatId
-  const cwd = workflowAgentCwd(chatId) ?? resolveWorkspaceCwd(payload.workspaceId)
+  const workflowAgent = chatId > 0 ? getChatStorage()?.getChatMeta(chatId)?.metadata?.workflowAgent : undefined
+  const cwd = workflowAgentCwd(workflowAgent) ?? resolveWorkspaceCwd(payload.workspaceId)
   // Backfill the spec source chat with the server-assigned chatId. The route
   // sets agentId/projectId but leaves sourceChatId unset because a new chat's
   // first message has no chatId yet; chatRecord.chatId is the real id even on
@@ -152,7 +154,10 @@ export async function startChat(
     : payload.agentContext
   // Plugin MCP servers are merged in from the plugin store, which must be loaded first.
   await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
-  const mcpServers = resolveMcpServersForSession(providerId, mcpContext)
+  // A workflow sub-agent runs with its provider's own tools, as it did before it
+  // was a chat: the app's servers would let it start workflows, delegate and
+  // schedule from inside a run.
+  const mcpServers = workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
   // OperonSpec hint for a direct workspace chat (sourceChatId set): a light,
   // always-on sizing rule and when to start a spec, delivered as session
   // instructions layered once onto the provider's system prompt. It used to ride every user message
@@ -400,9 +405,8 @@ export async function startServerChat(payload: AiChatRequest, options?: StartCha
  * worktree of its own, not its workspace's checkout. Once that is gone (it is
  * removed when the agent ends), a later turn runs in the workspace instead.
  */
-function workflowAgentCwd(chatId: number): string | undefined {
-  if (chatId <= 0) return undefined
-  const cwd = getChatStorage()?.getChatMeta(chatId)?.metadata?.workflowAgent?.cwd
+function workflowAgentCwd(workflowAgent: ChatMetadata['workflowAgent']): string | undefined {
+  const cwd = workflowAgent?.cwd
   return cwd && existsSync(cwd) ? cwd : undefined
 }
 

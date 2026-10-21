@@ -5,6 +5,17 @@ import { makeTestApp, registerFakeScript, type TestApp } from './helpers/make-ap
 
 // The fake provider has no entry in the unattended-mode table.
 vi.mock('../src/services/agents/subagent-mode.js', () => ({ subagentMode: () => 'default' }))
+const mcp = vi.hoisted(() => ({ resolved: 0 }))
+vi.mock('../src/services/mcp-config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/services/mcp-config.js')>()
+  return {
+    ...actual,
+    resolveMcpServersForSession: (...args: Parameters<typeof actual.resolveMcpServersForSession>) => {
+      mcp.resolved++
+      return actual.resolveMcpServersForSession(...args)
+    },
+  }
+})
 
 const { runProviderAgent } = await import('../src/services/workflow/dispatch.js')
 const { readAgentChatChunks } = await import('../src/services/workflow/agent-chats.js')
@@ -31,6 +42,7 @@ describe('a workflow sub-agent is a chat', () => {
 
   it('stores its prompt and reply as a chat that its run row names', async () => {
     registerFakeScript('judge', reply('Candidate A wins.'))
+    mcp.resolved = 0
     const onChats = vi.fn()
     const text = await runProviderAgent({
       providerId: 'fake',
@@ -58,6 +70,8 @@ describe('a workflow sub-agent is a chat', () => {
     expect(readAgentChatChunks([chatId])).toContainEqual({ type: 'text-delta', delta: 'Candidate A wins.' })
     // Reached from its run, not listed among the workspace's conversations.
     expect(ctx.storage.listChatEntries({ workspaceId: ctx.workspaceId }).map((c) => c.id)).not.toContain(chatId)
+    // No app MCP servers: a sub-agent cannot start workflows or schedule from inside a run.
+    expect(mcp.resolved).toBe(0)
     // Its warm session is gone; the chat is not.
     expect(getSessionManager().get(chatId)).toBeUndefined()
   })

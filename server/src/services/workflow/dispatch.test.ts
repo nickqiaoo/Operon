@@ -118,6 +118,7 @@ describe('handing a running sub-agent to another provider', () => {
       cwd: '/tmp',
       prompt: 'design it',
       agentId: 'opencode-1',
+      title: 'design · opencode',
       live: { runId: 'run-x', index: 3 },
       modelFor: (id) => (id === 'codex' ? 'gpt-5.6-terra' : undefined),
       onReplaced,
@@ -130,6 +131,7 @@ describe('handing a running sub-agent to another provider', () => {
 
     await expect(result).resolves.toBe('answer from codex')
     expect([...chats.values()].map((c) => c.providerId)).toEqual(['opencode', 'codex'])
+    expect([...chats.values()].map((c) => c.title)).toEqual(['design · opencode', 'design · codex'])
     expect(onReplaced).toHaveBeenCalledWith(
       { providerId: 'opencode', modelId: undefined },
       { providerId: 'codex', modelId: 'gpt-5.6-terra' },

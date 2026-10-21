@@ -123,12 +123,15 @@ function createAgentChat(params: ProviderAgentParams, seat: AgentSeat, modeId: s
       cwd: params.cwd,
     },
   }
+  // Titles name their provider ("candidate B · opencode"); a handoff's chat names its own.
+  const title = params.title ?? params.agentId
+  const suffix = ` · ${params.providerId}`
   const created = storage.patchChatEntry(null, {
     baseRevision: 0,
     replaceFrom: 0,
     tailMessages: [],
     tp: 'workflow-agent',
-    title: params.title ?? params.agentId,
+    title: seat.providerId !== params.providerId && title.endsWith(suffix) ? `${title.slice(0, -suffix.length)} · ${seat.providerId}` : title,
     workspaceId,
     providerId: seat.providerId,
     model: seat.modelId,
