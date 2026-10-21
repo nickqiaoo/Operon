@@ -12,6 +12,7 @@ import {
   ACTIVE_SPEC_STAGES,
   type SpecAgentRun,
   type SpecDecisions,
+  type SpecIntegration,
   type SpecRun,
   type SpecSeat,
   type SpecStage,
@@ -45,8 +46,10 @@ import {
 import { ticketDescription } from './prompts.js'
 import { readRunView } from '../workflow/store.js'
 import { advance, isBuildActive, resumeBuild, settleSpecNotice, startBuild, stopBuild, type BuildStorage } from './build-run.js'
-import { isReviewActive, requestSignoffChanges, reviewSummary, unreviewedFiles } from './review-run.js'
+import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-run.js'
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
+import { isMerging } from '../git.js'
+import { coordinatorView } from './coordinator.js'
 
 
 export type SpecStorage = TaskStorageAdapter & Pick<ProjectStorageAdapter, 'getProject' | 'getWorkspace' | 'createWorkspace'>
@@ -269,29 +272,23 @@ export async function approveSpecDesign(
 
 /**
  * Merge the built and reviewed change into the default branch, carrying the
- * ADRs and glossary terms it records (written by the Done path).
+ * ADRs and glossary terms it records (written by the Done path). Returns
+ * `pending` when merging the default branch in conflicted and the coordinator
+ * took it on: the user signs again once the resolution is reviewed.
  */
-export async function signOffSpec(storage: BuildStorage, taskId: number, actor: TaskActor): Promise<void> {
+export async function signOffSpec(storage: BuildStorage, taskId: number, actor: TaskActor): Promise<{ pending?: string }> {
   const { task, run } = requireSpec(storage, taskId)
   if (run.stage !== 'awaiting_signoff') {
     throw new SpecError(`Spec #${task.number} is not waiting for sign-off (it is ${run.stage})`)
-  }
-  // What lands is what was reviewed: a commit since then would ride in unseen.
-  const unreviewed = await unreviewedFiles(storage, task)
-  if (unreviewed.length > 0) {
-    const files = unreviewed.slice(0, 5).map((f) => `\`${f}\``).join(', ') + (unreviewed.length > 5 ? ` and ${unreviewed.length - 5} more` : '')
-    throw new SpecError(
-      `\`${task.branchName}\` changed after its review, in ${files}, and nobody has reviewed that. ` +
-        'Request changes to have the change reviewed again, then sign off.',
-    )
   }
   const done = await completeTaskAfterHumanReview(task.id, {
     type: actor.type === 'agent' ? 'agent' : 'human',
     id: actor.id ?? null,
     name: actor.name,
   })
-  if (!done.ok) throw new SpecError(done.reason)
+  if (!done.ok && !done.pending) throw new SpecError(done.reason)
   settleSpecNotice(storage, task.id, 'spec_gate')
+  return done.ok ? {} : { pending: done.reason }
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +309,12 @@ export async function requestSpecChanges(
 ): Promise<string> {
   const { task, run } = requireSpec(storage, taskId)
   // Gate 2: the change is built; what the user asks for becomes a ticket.
-  if (run.stage === 'awaiting_signoff') {
+  if (run.stage === 'awaiting_signoff' || run.stage === 'integrating') {
+    // A half-done merge on the change branch would ride into the ticket's branch.
+    const ws = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
+    if (run.stage === 'integrating' && ws && (await isMerging(ws.worktreePath))) {
+      throw new SpecError(`The coordinator of #${task.number} is in the middle of a merge; ask it to abort (comment on the spec) first`)
+    }
     const comment = input.comment.trim()
     if (!comment) throw new SpecError('Say what should change')
     const child = await requestSignoffChanges(storage, task, comment)
@@ -398,7 +400,7 @@ export function sweepInterruptedSpecRuns(storage: SpecStorage): number {
 // Read
 // ---------------------------------------------------------------------------
 
-export async function getSpecView(storage: SpecStorage, taskId: number): Promise<SpecView> {
+export async function getSpecView(storage: BuildStorage, taskId: number): Promise<SpecView> {
   const { task, run } = requireSpec(storage, taskId)
   const workspace = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
   const config = withBuildDefaults(run.config)
@@ -412,6 +414,7 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     worktreePath: workspace?.worktreePath ?? null,
     specDir: specDir(task.number),
     running: isDesignRunActive(task.id) || isBuildActive(task.id) || isReviewActive(task.id),
+    coordinator: coordinatorView(storage, task),
     ...specAgents(run),
   }
   if (!workspace) {
@@ -429,13 +432,14 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
       review: null,
       reviewSummary: null,
       decisions: null,
+      integration: null,
       designChanged: false,
       ticketTasks: {},
     }
   }
   const loc: SpecLocation = { taskId: task.id, taskNumber: task.number, worktreePath: workspace.worktreePath }
   const keys = await listCandidateKeys(loc)
-  const [brief, grounding, judge, design, synthesis, tickets, pending, feedback, review, summary, decisions, candidates] = await Promise.all([
+  const [brief, grounding, judge, design, synthesis, tickets, pending, feedback, review, summary, decisions, integration, candidates] = await Promise.all([
     readSpecFile(loc, SPEC_FILES.brief),
     readSpecFile(loc, SPEC_FILES.grounding),
     readSpecFile(loc, SPEC_FILES.judge),
@@ -447,6 +451,7 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     readSpecFile(loc, SPEC_FILES.review),
     reviewSummary(loc),
     readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions),
+    readSpecJson<SpecIntegration>(loc, SPEC_FILES.integration),
     Promise.all(
       keys.map(async (key) => ({
         key,
@@ -469,6 +474,7 @@ export async function getSpecView(storage: SpecStorage, taskId: number): Promise
     review,
     reviewSummary: review ? summary : null,
     decisions,
+    integration: run.stage === 'integrating' ? integration : null,
     designChanged: run.designSha != null && design != null && blobSha(design) !== run.designSha,
     ticketTasks: ticketTasksOf(storage, task.id, run, tickets),
   }

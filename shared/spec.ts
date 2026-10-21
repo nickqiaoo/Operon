@@ -22,6 +22,11 @@ export const SPEC_STAGES = [
   'reviewing',
   /** review.md is written; waiting for gate 2. */
   'awaiting_signoff',
+  /**
+   * Signing gate 2 hit a conflict merging the default branch in: the spec's
+   * coordinator is resolving it, and the result is reviewed before gate 2 again.
+   */
+  'integrating',
   /** Gate 2 signed: the change is merged into the default branch. */
   'done',
   /** A run stopped on request (or the app quit mid-run); resumable. */
@@ -40,7 +45,7 @@ export function isSpecStage(value: unknown): value is SpecStage {
 export const ACTIVE_SPEC_STAGES: readonly SpecStage[] = ['grounding', 'designing']
 
 /** Stages after gate 1: the design is signed and the tickets exist. */
-export const SIGNED_SPEC_STAGES: readonly SpecStage[] = ['building', 'reviewing', 'awaiting_signoff', 'done']
+export const SIGNED_SPEC_STAGES: readonly SpecStage[] = ['building', 'reviewing', 'awaiting_signoff', 'integrating', 'done']
 
 /** One agent seat: which provider runs it, and optionally which model. */
 export interface SpecSeat {
@@ -103,6 +108,13 @@ export interface SpecTicketBuild {
   blockedReason?: string
   /** Its implementer already got the one reminder for a turn that ended without handing the ticket in. */
   nudged?: boolean
+  /**
+   * Blocked, and handed to the spec's coordinator (`asked`), or passed on by it
+   * to the user (`escalated`). Cleared when the ticket moves again.
+   */
+  coordinator?: 'asked' | 'escalated'
+  /** Times the coordinator set it going again; past the limit a block goes straight to the user. */
+  retries?: number
 }
 
 /** How far a spec's build has got, as its board card shows it. */
@@ -224,6 +236,38 @@ export interface SpecView {
   agents: SpecAgentRun[]
   /** Time agents have spent working on the spec so far, in ms — parallel ones counted once, waits for the user not at all. */
   elapsedMs: number
+  /** The agent that coordinates the build, once gate 1 has given it one. */
+  coordinator: SpecCoordinatorView | null
+  /** A sign-off conflict the coordinator is resolving (stage integrating). */
+  integration: SpecIntegration | null
+}
+
+/**
+ * The spec's coordinator: one long-lived session on the change branch that takes
+ * what needs judgement — a blocked ticket, a sign-off conflict, what the user
+ * says on the spec — while the build itself runs on rules.
+ */
+export interface SpecCoordinatorView {
+  agentName: string
+  providerId: string
+  modelId?: string
+  /** Its session: active while a turn runs, idle between, offline before the first. */
+  status: 'active' | 'idle' | 'offline' | null
+  /** Its conversation, once it has had one. */
+  chatId: number | null
+  /** The change worktree its session runs in. */
+  workspaceId: number | null
+}
+
+/** integration.json: why the spec is integrating. Removed once the result is reviewed. */
+export interface SpecIntegration {
+  /** The default branch that would not merge in. */
+  target: string
+  /** Files git could not merge. */
+  files: string[]
+  startedAt: number
+  /** What the coordinator says it did, once it hands the result in. */
+  summary?: string
 }
 
 /**

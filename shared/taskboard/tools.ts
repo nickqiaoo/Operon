@@ -15,6 +15,12 @@ export const TASKBOARD_TOOLS = {
   startSpec: 'start_spec',
   answerSpecQuestions: 'answer_spec_questions',
   submitPullRequest: 'submit_pull_request',
+  // OperonSpec coordinator: only the spec's own coordinator session may call these.
+  specStatus: 'spec_status',
+  specRetryTicket: 'spec_retry_ticket',
+  specAddTicket: 'spec_add_ticket',
+  specEscalate: 'spec_escalate',
+  specIntegrationDone: 'spec_integration_done',
 } as const
 
 export type TaskboardToolName = (typeof TASKBOARD_TOOLS)[keyof typeof TASKBOARD_TOOLS]

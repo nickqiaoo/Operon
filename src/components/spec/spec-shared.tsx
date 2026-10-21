@@ -1,6 +1,6 @@
 import { cloneElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
-import { AlertCircle, Check, ChevronRight, ExternalLink, GitMerge, Hammer, Loader2, MessageSquareText, Play, Send, Square } from 'lucide-react'
+import { AlertCircle, Bot, Check, ChevronRight, ExternalLink, GitMerge, Hammer, Loader2, MessageSquareText, Play, Send, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -78,7 +78,7 @@ export function useSpecView(taskId: number, stage?: SpecStage | null) {
   const pollMs =
     spec != null && (spec.running || LIVE_STAGES.includes(spec.run.stage))
       ? POLL_MS
-      : spec?.run.stage === 'building'
+      : spec?.run.stage === 'building' || spec?.run.stage === 'integrating'
         ? BUILD_POLL_MS
         : IDLE_POLL_MS
   useEffect(() => {
@@ -105,6 +105,8 @@ export function stageLabel(intl: IntlShape, stage: SpecStage): string {
       return intl.formatMessage({ id: 'spec.stage.reviewing', defaultMessage: 'Reviewing the change' })
     case 'awaiting_signoff':
       return intl.formatMessage({ id: 'spec.stage.awaitingSignoff', defaultMessage: 'Awaiting sign-off' })
+    case 'integrating':
+      return intl.formatMessage({ id: 'spec.stage.integrating', defaultMessage: 'Resolving a merge conflict' })
     case 'done':
       return intl.formatMessage({ id: 'spec.stage.done', defaultMessage: 'Done' })
     case 'stopped':
@@ -122,6 +124,7 @@ const STAGE_TONE: Record<SpecStage, string> = {
   building: 'bg-status-info/10 text-status-info',
   reviewing: 'bg-status-info/10 text-status-info',
   awaiting_signoff: 'bg-status-warn/10 text-status-warn',
+  integrating: 'bg-status-info/10 text-status-info',
   done: 'bg-status-ok/10 text-status-ok',
   stopped: 'bg-muted text-muted-foreground',
   failed: 'bg-status-error/10 text-status-error',
@@ -250,6 +253,43 @@ export function SpecActions({ spec }: { spec: SpecView }) {
           <FormattedMessage id="spec.action.stop" defaultMessage="Stop" />
         </Button>
         {error && <div className="flex items-center gap-2 text-xs text-destructive">{error}</div>}
+      </div>
+    )
+  }
+
+  if (stage === 'integrating') {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <GitMerge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-info" />
+          <span>
+            <FormattedMessage
+              id="spec.integrating"
+              defaultMessage="Signing off hit a conflict merging {target} in ({files}). The coordinator is resolving it; a reviewer from another model family checks the result, then you sign off again."
+              values={{
+                target: spec.integration?.target ?? '—',
+                files: spec.integration?.files.join(', ') || '—',
+              }}
+            />
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <RequestChanges
+            disabled={busy != null}
+            busy={busy === 'changes'}
+            placeholder={intl.formatMessage({
+              id: 'spec.changes.signoffPlaceholder',
+              defaultMessage: 'What should change before this is merged?',
+            })}
+            onSend={(comment) => act('changes', () => api.specRequestChanges(spec.taskId, { comment, redesign: false }))}
+          />
+        </div>
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-destructive">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            {error}
+          </div>
+        )}
       </div>
     )
   }
@@ -724,7 +764,13 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
           <span>{build.blockedReason}</span>
         </div>
       )}
-      {build.state === 'blocked' && onOpenSession && (
+      {build.state === 'blocked' && build.coordinator === 'asked' && (
+        <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <FormattedMessage id="spec.ticket.coordinatorAsked" defaultMessage="The coordinator is looking at it." />
+        </div>
+      )}
+      {build.state === 'blocked' && build.coordinator !== 'asked' && onOpenSession && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
           <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onOpenSession}>
             <ExternalLink className="h-3.5 w-3.5" />
@@ -737,6 +783,42 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
             />
           </span>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The spec's coordinator: who it is, whether it is at work, and the way into its
+ * session. Talking to it is a comment on the spec — that wakes it.
+ */
+export function SpecCoordinatorLine({ spec, onOpenSession }: { spec: SpecView; onOpenSession?: (workspaceId: number) => void }) {
+  const coordinator = spec.coordinator
+  if (!coordinator) return null
+  const active = coordinator.status === 'active'
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-0.5 text-xs text-muted-foreground">
+      <Bot className="h-3.5 w-3.5 shrink-0" />
+      <span>
+        <FormattedMessage
+          id="spec.coordinator.line"
+          defaultMessage="Coordinated by {provider}"
+          values={{ provider: coordinator.modelId ? `${coordinator.providerId} · ${coordinator.modelId}` : coordinator.providerId }}
+        />
+      </span>
+      <span className={cn('inline-flex items-center gap-1', active && 'text-status-info')}>
+        <span className={cn('h-1.5 w-1.5 rounded-full', active ? 'animate-pulse bg-status-info' : 'bg-muted-foreground/40')} />
+        {active ? (
+          <FormattedMessage id="spec.coordinator.working" defaultMessage="working" />
+        ) : (
+          <FormattedMessage id="spec.coordinator.waiting" defaultMessage="comment on the spec to talk to it" />
+        )}
+      </span>
+      {onOpenSession && coordinator.chatId != null && coordinator.workspaceId != null && (
+        <Button size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-xs" onClick={() => onOpenSession(coordinator.workspaceId!)}>
+          <ExternalLink className="h-3 w-3" />
+          <FormattedMessage id="spec.coordinator.open" defaultMessage="Open its session" />
+        </Button>
       )}
     </div>
   )

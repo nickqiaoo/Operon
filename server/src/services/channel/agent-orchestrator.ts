@@ -29,6 +29,7 @@ import { broadcastTask } from '../task-events.js'
 import { SPEC_FILES, specDir } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
 import { recordDecisions } from '../spec/decisions.js'
+import { startIntegration, unreviewedFiles } from '../spec/review-run.js'
 import {
   isReviewedTicket,
   onTicketInReview,
@@ -661,6 +662,26 @@ function ensureTaskBinding(
 }
 
 /**
+ * Give a spec its coordinator's session: a task binding on the spec itself, in
+ * the spec's change worktree (no worktree of its own — it works on the change
+ * branch). Recorded as the spec's binding, so a comment on the spec wakes it.
+ * Null when the spec has no change worktree.
+ */
+export function attachSpecCoordinator(specId: number, agentId: number): AgentBinding | null {
+  const storage = _storage
+  if (!storage) return null
+  const spec = storage.taskGet(specId)
+  if (!spec || spec.workspaceId == null || !storage.getWorkspace(spec.workspaceId)) return null
+  const binding = ensureTaskBinding(storage, spec.id, spec.number, spec.projectId, agentId, spec.workspaceId)
+  if (binding.workspaceId !== spec.workspaceId) storage.updateBinding(binding.id, { workspaceId: spec.workspaceId })
+  if (spec.bindingId !== binding.id) {
+    storage.taskUpdate(spec.id, { bindingId: binding.id }, { type: 'system', name: 'OperonSpec' })
+    broadcastTask(storage, spec.id)
+  }
+  return storage.getBinding(binding.id) ?? binding
+}
+
+/**
  * Dispatch a project-level task to its assigned agent: provision a dedicated
  * per-task worktree, create a task-scoped binding, flip the task to
  * in_progress, and start the agent working on it. Progress narration into the
@@ -861,7 +882,8 @@ export async function maybeAutoIntegrate(
   if (isReviewedTicket(storage, taskId)) onTicketInReview(storage, taskId)
 }
 
-type CompletionResult = { ok: true } | { ok: false; reason: string }
+/** `pending`: not done, but under way — the spec's coordinator is resolving a sign-off conflict. */
+type CompletionResult = { ok: true } | { ok: false; reason: string; pending?: true }
 
 function isNothingToCommit(err: unknown): boolean {
   return /nothing to commit|no changes added to commit|working tree clean/i.test(
@@ -1035,6 +1057,23 @@ export async function completeTaskAfterHumanReview(
     if (open.length > 0) {
       return { ok: false, reason: `Tickets still open: ${open.map((c) => `#${c.number}`).join(', ')}` }
     }
+    const run = storage.specRunGet(task.id)
+    if (run?.stage === 'integrating') {
+      return { ok: false, reason: 'The coordinator is still resolving the conflict from the last sign-off; sign off once it has been reviewed.', pending: true }
+    }
+    // What lands is what was reviewed: a commit since then would ride in unseen.
+    if (run?.stage === 'awaiting_signoff') {
+      const unreviewed = await unreviewedFiles(storage, task)
+      if (unreviewed.length > 0) {
+        const files = unreviewed.slice(0, 5).map((f) => `\`${f}\``).join(', ') + (unreviewed.length > 5 ? ` and ${unreviewed.length - 5} more` : '')
+        return {
+          ok: false,
+          reason:
+            `\`${task.branchName}\` changed after its review, in ${files}, and nobody has reviewed that. ` +
+            'Request changes to have the change reviewed again, then sign off.',
+        }
+      }
+    }
     // What the change leaves behind rides into the default branch with it.
     const ws = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
     if (ws) {
@@ -1042,10 +1081,21 @@ export async function completeTaskAfterHumanReview(
         await recordDecisions(storage, task, { taskId: task.id, taskNumber: task.number, worktreePath: ws.worktreePath })
       } catch (err) {
         if (err instanceof MergeConflictError) {
+          const files = err.files.join(', ') || 'some files'
+          // The coordinator resolves it on the change branch; the resolution is reviewed before gate 2 again.
+          if (run?.stage === 'awaiting_signoff' && (await startIntegration(storage, task, err.branch, err.files))) {
+            return {
+              ok: false,
+              pending: true,
+              reason:
+                `${err.branch} has changed since this spec branched, and merging it in conflicts in ${files}. ` +
+                "The spec's coordinator is resolving it; once a reviewer has checked the result, sign off again.",
+            }
+          }
           return {
             ok: false,
             reason:
-              `The default branch has changed since this spec branched, and merging it in conflicts in ${err.files.join(', ') || 'some files'}. ` +
+              `The default branch has changed since this spec branched, and merging it in conflicts in ${files}. ` +
               `Request changes asking for ${err.branch} to be merged in and the conflicts resolved — that is built and reviewed ` +
               `like any ticket — then sign off again.`,
           }

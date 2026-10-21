@@ -704,7 +704,8 @@ export function specAnswer(taskId: number, answers: string) {
 
 /** Gate 2: merge the built and reviewed change into the default branch. */
 export function specSignOff(taskId: number) {
-  return request<{ ok: true }>(`/spec/${taskId}/signoff`, { method: 'POST', body: '{}' })
+  // `pending`: merging the default branch in conflicted and the coordinator took it on.
+  return request<{ ok: true; pending?: string }>(`/spec/${taskId}/signoff`, { method: 'POST', body: '{}' })
 }
 
 export function specResume(taskId: number) {

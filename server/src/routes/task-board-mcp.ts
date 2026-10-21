@@ -13,6 +13,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
 import type {
+  AgentBindingStorageAdapter,
   ChannelStorageAdapter,
   NotificationStorageAdapter,
   ProjectStorageAdapter,
@@ -174,12 +175,88 @@ const TOOLS: Tool[] = [
       required: ['task', 'title', 'body', 'branch'],
     },
   },
+  {
+    name: TASKBOARD_TOOLS.specStatus,
+    description:
+      "OperonSpec: where a spec stands — its stage, and every ticket's build state, review rounds, why it is blocked and the issues still open — plus the rulings made so far.",
+    inputSchema: {
+      type: 'object',
+      properties: { task: { type: 'number', description: 'Spec task number' } },
+      required: ['task'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.specRetryTicket,
+    description:
+      "OperonSpec coordinator only: set a blocked ticket going again. Its implementer's own session is woken with your instructions; its review rounds start over. Limited retries per ticket — past them, escalate.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        ticket: { type: 'number', description: 'Task number of the blocked ticket' },
+        instructions: { type: 'string', description: 'What the implementer should do differently, concretely' },
+        ruling: {
+          type: 'string',
+          description: 'Optional: a decision you made where the design was unclear, "…, because …" — recorded for the review and sign-off',
+        },
+      },
+      required: ['task', 'ticket', 'instructions'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.specAddTicket,
+    description:
+      'OperonSpec coordinator only: add a ticket the build is missing — built by an implementer and reviewed by another model family like the others. It must stay within the approved design.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        title: { type: 'string' },
+        delivers: { type: 'string', description: 'The behaviour it makes work, end to end' },
+        acceptance: { type: 'array', items: { type: 'string' }, description: 'Checkable acceptance criteria' },
+        blocked_by: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Optional: task numbers of tickets that must merge before this one starts',
+        },
+      },
+      required: ['task', 'title', 'delivers', 'acceptance'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.specEscalate,
+    description:
+      "OperonSpec coordinator only: hand a decision to the user — a design that does not hold, a ticket that retrying will not fix, a conflict you cannot resolve without changing the change. Say what you found and what you recommend. Their answer comes back as a comment on the spec.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        message: { type: 'string', description: "What the user needs to decide, in the brief's language" },
+        ticket: { type: 'number', description: 'Task number of the blocked ticket this is about, if it is about one' },
+      },
+      required: ['task', 'message'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.specIntegrationDone,
+    description:
+      'OperonSpec coordinator only: the sign-off conflict is resolved — the default branch is merged into the change branch and committed, the worktree clean. A reviewer from another model family checks the resolution before the user signs off again.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Spec task number' },
+        summary: { type: 'string', description: 'How you resolved each conflicted file, and the checks you ran with their results' },
+      },
+      required: ['task', 'summary'],
+    },
+  },
 ]
 
 type TaskBoardRouteStorage = TaskStorageAdapter &
   ChannelStorageAdapter &
   ProjectStorageAdapter &
-  NotificationStorageAdapter
+  NotificationStorageAdapter &
+  Pick<AgentBindingStorageAdapter, 'getBinding'>
 
 function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Server {
   const server = new Server(
@@ -271,6 +348,43 @@ async function dispatch(
         { title: String(args.title ?? ''), body: String(args.body ?? ''), branch: String(args.branch ?? '') },
         agentId,
       )
+
+    case TASKBOARD_TOOLS.specStatus:
+      return board.specStatus(Number(args.task))
+
+    case TASKBOARD_TOOLS.specRetryTicket:
+      return board.specRetryTicket(
+        Number(args.task),
+        {
+          ticket: Number(args.ticket),
+          instructions: String(args.instructions ?? ''),
+          ruling: typeof args.ruling === 'string' ? args.ruling : undefined,
+        },
+        agentId,
+      )
+
+    case TASKBOARD_TOOLS.specAddTicket:
+      return board.specAddTicket(
+        Number(args.task),
+        {
+          title: String(args.title ?? ''),
+          delivers: String(args.delivers ?? ''),
+          acceptance: Array.isArray(args.acceptance) ? args.acceptance.filter((a): a is string => typeof a === 'string') : [],
+          blockedBy: Array.isArray(args.blocked_by) ? args.blocked_by.map(Number).filter(Number.isFinite) : undefined,
+        },
+        agentId,
+      )
+
+    case TASKBOARD_TOOLS.specEscalate:
+      return board.specEscalate(
+        Number(args.task),
+        String(args.message ?? ''),
+        agentId,
+        typeof args.ticket === 'number' ? args.ticket : undefined,
+      )
+
+    case TASKBOARD_TOOLS.specIntegrationDone:
+      return board.specIntegrationDone(Number(args.task), String(args.summary ?? ''), agentId)
 
     default:
       throw new Error(`Unknown tool: ${name}`)

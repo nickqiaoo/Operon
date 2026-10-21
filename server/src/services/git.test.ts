@@ -3,7 +3,16 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { MergeConflictError, commit, filesChangedBeyondMerge, getDefaultLocalBranch, mergeBranch } from './git.js'
+import {
+  MergeConflictError,
+  commit,
+  diffBeyondMerge,
+  filesChangedBeyondMerge,
+  getDefaultLocalBranch,
+  isAncestor,
+  isMerging,
+  mergeBranch,
+} from './git.js'
 
 const run = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -169,5 +178,30 @@ describe('filesChangedBeyondMerge', () => {
     run(repo, 'add', '.')
     run(repo, 'commit', '-qm', 'settle by hand')
     expect(await filesChangedBeyondMerge(repo, reviewed, 'main')).toEqual(['b.txt'])
+    // As a diff: git's conflict markers replaced by the resolution, the clean part of the merge left out.
+    const diff = await diffBeyondMerge(repo, reviewed, 'main')
+    expect(diff).toContain('-<<<<<<<')
+    expect(diff).toContain('+settled')
+    expect(diff).not.toContain('c.txt')
+  })
+
+  it('says whether a branch is merged in, and whether a merge is under way', async () => {
+    run(repo, 'checkout', '-q', 'main')
+    commitFile('b.txt', 'main\n', 'main touched the same file')
+    run(repo, 'checkout', '-q', 'change')
+    expect(await isAncestor(repo, 'main')).toBe(false)
+    expect(await isAncestor(repo, reviewed)).toBe(true)
+    expect(await isAncestor(repo, 'no-such-branch')).toBe(false)
+    try {
+      run(repo, 'merge', '-q', 'main')
+    } catch {
+      // conflicted, as intended
+    }
+    expect(await isMerging(repo)).toBe(true)
+    writeFileSync(path.join(repo, 'b.txt'), 'settled\n')
+    run(repo, 'add', '.')
+    run(repo, 'commit', '-qm', 'settle by hand')
+    expect(await isMerging(repo)).toBe(false)
+    expect(await isAncestor(repo, 'main')).toBe(true)
   })
 })
