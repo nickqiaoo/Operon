@@ -13,7 +13,7 @@ import type {
 } from '../types/channel.js'
 import { getUserId, getSelectedNodeId } from './web-auth.js'
 import type { Notification, UnreadCounts } from '@/types/notification'
-import type { SpecView } from '@shared/spec'
+import type { SpecRole, SpecRoleSettings, SpecStage, SpecView } from '@shared/spec'
 import type {
   Task,
   TaskListItem,
@@ -714,6 +714,32 @@ export function specResume(taskId: number) {
 
 export function specStop(taskId: number) {
   return request<{ stopped: boolean }>(`/spec/${taskId}/stop`, { method: 'POST', body: '{}' })
+}
+
+/** Move a role — or, with `ticketKey`, one ticket's implementer or reviewer — to another agent. */
+export function specSwitch(taskId: number, input: { role: SpecRole; index?: number; ticketKey?: string; providerId: string; modelId?: string }) {
+  return request<{ message: string }>(`/spec/${taskId}/switch`, { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function specAcceptProposal(taskId: number) {
+  return request<{ message: string }>(`/spec/${taskId}/proposal/accept`, { method: 'POST', body: '{}' })
+}
+
+export function specDismissProposal(taskId: number, note?: string) {
+  return request<{ ok: true }>(`/spec/${taskId}/proposal/dismiss`, { method: 'POST', body: JSON.stringify({ note }) })
+}
+
+/** The specs a chat started that are not done yet, newest first. */
+export function specListByChat(chatId: number) {
+  return request<{ specs: Array<{ taskId: number; taskNumber: number; title: string; stage: SpecStage }> }>(`/spec/by-chat/${chatId}`)
+}
+
+export function specGetRoleSettings() {
+  return request<{ roles: SpecRoleSettings; available: string[] }>('/spec/settings/roles')
+}
+
+export function specSaveRoleSettings(roles: SpecRoleSettings) {
+  return request<{ roles: SpecRoleSettings }>('/spec/settings/roles', { method: 'PUT', body: JSON.stringify({ roles }) })
 }
 
 export function taskGet(taskId: number) {

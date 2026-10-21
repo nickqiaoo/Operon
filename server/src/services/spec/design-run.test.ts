@@ -259,6 +259,23 @@ describe('the design stage', () => {
     expect(prompts.filter((p) => p.includes('ONE candidate design'))).toHaveLength(3)
   })
 
+  it('hands a failure to the coordinator, which reports to the chat instead of the run', async () => {
+    replies.failCandidates = 1
+    const { storage, task, run } = makeStorage(dir)
+    const onFailed = vi.fn(async () => true)
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42, onFailed })
+    await settle(1)
+    await vi.waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.stringMatching(/at least two/)))
+    expect(delivered).toHaveLength(0)
+
+    // Without a coordinator to take it, the run reports the failure itself.
+    replies.failCandidates = 2
+    await fs.rm(path.join(dir, '.operon/changes/task-7/candidates'), { recursive: true, force: true })
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42, onFailed: async () => false })
+    await settle(1)
+    await vi.waitFor(() => expect(delivered).toHaveLength(1))
+  })
+
   it('re-synthesizes with the user\'s feedback, keeping the candidates', async () => {
     const { storage, task, run } = makeStorage(dir)
     startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42 })

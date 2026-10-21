@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, Hash, Inbox, Layers, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, Hash, Inbox, Layers, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, MessageSquare, Pin, PinOff } from "lucide-react"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
@@ -36,6 +36,10 @@ interface ProjectItemProps {
   workspaceDiffStats?: Record<string, WorkspaceDiffStat>
   streamingCounts?: Record<number, number>
   unseenCounts?: Record<number, number>
+  /** A spec's row opens the spec itself, not its change worktree. */
+  onOpenSpec?: (taskId: number, projectId: number) => void
+  /** Opens a conversation in its own workspace — a spec's chat. */
+  onOpenChat?: (target: { chatId: number; workspaceId?: number; title?: string }) => void
 }
 
 const getBasename = (filePath: string) => {
@@ -87,6 +91,8 @@ function ProjectItem({
   workspaceDiffStats,
   streamingCounts,
   unseenCounts,
+  onOpenSpec,
+  onOpenChat,
 }: ProjectItemProps) {
   const pinned = project.pinnedAt != null
   const collapsed = useProjectStore((s) => s.collapsedProjectIds.includes(project.id))
@@ -169,7 +175,11 @@ function ProjectItem({
             .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
             .map((workspace) => {
               const tickets = groups.tickets.get(workspace.id) ?? []
-              const open = tickets.length > 0 && !closedSpecs.has(workspace.id)
+              const spec = workspace.task?.specStage != null ? workspace.task : null
+              // A spec's conversation sits first under it: the one place the user talks to the spec.
+              const chat = spec?.sourceChat && onOpenChat ? spec.sourceChat : null
+              const children = tickets.length + (chat ? 1 : 0)
+              const open = children > 0 && !closedSpecs.has(workspace.id)
               const rowProps = (w: Workspace) => ({
                 isActive: activeWorkspaceId === w.id,
                 stats: workspaceDiffStats?.[w.worktreePath],
@@ -177,7 +187,7 @@ function ProjectItem({
                 unseen: unseenCounts?.[w.id] ?? 0,
                 onSelect: () => onSelectWorkspace(w.id, project.id),
               })
-              const own = rowProps(workspace)
+              const own = spec && onOpenSpec ? { ...rowProps(workspace), onSelect: () => onOpenSpec(spec.id, project.id) } : rowProps(workspace)
               // Folded, the spec's row carries what its tickets have going on.
               const folded = open ? [] : tickets.map(rowProps)
               return (
@@ -190,10 +200,10 @@ function ProjectItem({
                     title={workspace.task?.specStage != null ? `#${workspace.task.number} · ${workspace.name}` : workspace.name}
                     spec={workspace.task?.specStage != null}
                     toggle={
-                      tickets.length > 0
+                      children > 0
                         ? {
                             open,
-                            count: tickets.length,
+                            count: children,
                             onToggle: () =>
                               setClosedSpecs((prev) => {
                                 const next = new Set(prev)
@@ -205,6 +215,18 @@ function ProjectItem({
                         : undefined
                     }
                   />
+                  {open && chat && (
+                    <WorkspaceRow
+                      isActive={false}
+                      streaming={0}
+                      unseen={0}
+                      onSelect={() => onOpenChat?.({ chatId: chat.chatId, workspaceId: chat.workspaceId ?? undefined, title: chat.title })}
+                      nested
+                      chatRow
+                      label={chat.title}
+                      title={chat.title}
+                    />
+                  )}
                   {open &&
                     tickets.map((ticket) => (
                       <WorkspaceRow
@@ -244,6 +266,7 @@ function WorkspaceRow({
   onSelect,
   spec,
   nested,
+  chatRow,
   ticketStatus,
   toggle,
 }: {
@@ -256,6 +279,8 @@ function WorkspaceRow({
   onSelect: () => void
   spec?: boolean
   nested?: boolean
+  /** A spec's conversation, under the spec. */
+  chatRow?: boolean
   ticketStatus?: string
   toggle?: { open: boolean; count: number; onToggle: () => void }
 }) {
@@ -284,7 +309,9 @@ function WorkspaceRow({
           nested ? "pl-16" : "pl-11"
         )}
       >
-        {nested ? (
+        {chatRow ? (
+          <MessageSquare className="-ml-1 size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+        ) : nested ? (
           <span className={cn("size-1.5 shrink-0 rounded-full", TICKET_DOT[ticketStatus ?? ""] ?? "bg-muted-foreground/40")} />
         ) : (
           <Icon className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
@@ -322,8 +349,8 @@ function WorkspaceRow({
           onClick={toggle.onToggle}
           className="relative z-[1] mr-1 flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1 text-[11px] tabular-nums text-muted-foreground hover:bg-accent-hover hover:text-foreground"
           aria-expanded={toggle.open}
-          aria-label={`${toggle.open ? "Hide" : "Show"} ${toggle.count} ticket workspaces`}
-          title={`${toggle.count} ticket${toggle.count === 1 ? "" : "s"} at work`}
+          aria-label={`${toggle.open ? "Hide" : "Show"} ${toggle.count} items`}
+          title={`${toggle.count} item${toggle.count === 1 ? "" : "s"}: the spec's chat and its tickets`}
         >
           {!toggle.open && toggle.count}
           <ChevronRight className={cn("size-3 transition-transform duration-150", toggle.open && "rotate-90")} strokeWidth={1.5} />
@@ -374,11 +401,15 @@ interface ProjectSidebarProps {
   channelsActive?: boolean
   /** Picking a workspace leaves the Assistant / Inbox view. */
   onLeaveMainView?: () => void
+  /** A spec's row opens the spec's page. */
+  onOpenSpec?: (taskId: number, projectId: number) => void
+  /** Opens a conversation in its workspace — a spec's chat. */
+  onOpenChat?: (target: { chatId: number; workspaceId?: number; title?: string }) => void
   onCollapse?: () => void
   collapsed?: boolean
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, onOpenSpec, onOpenChat, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
@@ -658,6 +689,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                   workspaceDiffStats={workspaceDiffStats}
                   streamingCounts={streamingCounts}
                   unseenCounts={unseenCounts}
+                  onOpenSpec={onOpenSpec}
+                  onOpenChat={onOpenChat}
                 />
               </Fragment>
             ))

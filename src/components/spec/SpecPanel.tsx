@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { AlertCircle, Layers, Loader2, MessageSquareText } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
@@ -74,9 +75,16 @@ export function SpecPanel({
           <SpecSeatsLine spec={spec} />
           <SpecBuildSummary spec={spec} />
         </div>
+        {/* The one conversation about the spec: what needs the user lands there, and it is where they answer. */}
+        {spec.sourceChat && onOpenChat && (
+          <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" onClick={() => onOpenChat(spec.sourceChat!)}>
+            <MessageSquareText className="h-3.5 w-3.5" />
+            <FormattedMessage id="spec.panel.openChat" defaultMessage="Open chat" />
+          </Button>
+        )}
       </div>
 
-      <SpecCoordinatorLine spec={spec} onOpenSession={onOpenWorkspace} />
+      <SpecCoordinatorLine spec={spec} onOpenChat={onOpenChat} />
 
       <SpecAgentList spec={spec} onOpenChat={onOpenChat} />
 
@@ -220,6 +228,7 @@ function SpecTabs({
                 {builds.get(t.key) && (
                   <TicketBuildLine
                     build={builds.get(t.key)!}
+                    spec={spec}
                     onOpenSession={ticketSessionOpener(spec.ticketTasks[t.key], onOpenChat, onOpenWorkspace)}
                   />
                 )}
@@ -277,6 +286,7 @@ function SpecTabs({
 function countSessions(spec: SpecView): number {
   return (
     (spec.sourceChat ? 1 : 0) +
+    (spec.coordinator?.chat ? 1 : 0) +
     spec.agents.reduce((n, a) => n + (a.chats?.length ?? 0), 0) +
     Object.values(spec.ticketTasks).reduce((n, t) => n + t.chats.length, 0)
   )
@@ -309,8 +319,18 @@ function Sessions({ spec, onOpenChat }: { spec: SpecView; onOpenChat?: (chat: Sp
   return (
     <div className="space-y-4">
       {spec.sourceChat && (
-        <SessionGroup title={<FormattedMessage id="spec.sessions.source" defaultMessage="Started from" />}>
+        <SessionGroup title={<FormattedMessage id="spec.sessions.source" defaultMessage="The spec's chat" />}>
           <SessionRow chat={spec.sourceChat} label={spec.sourceChat.title} onOpenChat={onOpenChat} />
+        </SessionGroup>
+      )}
+      {spec.coordinator?.chat && (
+        <SessionGroup title={<FormattedMessage id="spec.sessions.coordinator" defaultMessage="Coordinator · working log" />}>
+          <SessionRow
+            chat={spec.coordinator.chat}
+            label={spec.coordinator.chat.title}
+            state={spec.coordinator.status === 'active' ? 'running' : undefined}
+            onOpenChat={onOpenChat}
+          />
         </SessionGroup>
       )}
       {phases.map((group, i) => (

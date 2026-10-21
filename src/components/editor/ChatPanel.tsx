@@ -93,6 +93,7 @@ import { useTabsStore } from '@/stores/tabs-store';
 import { useReviewTurnStore } from '@/stores/review-turn-store';
 import { useAppShellStore } from '@/stores/app-shell-store';
 import { WorkflowApprovalsBar } from './components/WorkflowRunsWatcher';
+import { SpecChatBar } from '@/components/spec/SpecChatBar';
 import { RewindConfirmDialog, RewindConflictDialog } from './components/RewindConfirmDialog';
 import { extractTodosFromPart, isTodoWriteTool } from './components/TodoWriteRenderer';
 import { CanvasChatBanner } from './components/CanvasChatBanner';
@@ -1317,6 +1318,7 @@ function ChatPanelContent({
         <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
         <LineCommentTray workspaceId={currentWorkspaceId} />
         <WorkflowApprovalsBar chatId={tab?.chatId ?? dbChatIdRef.current} />
+        <SpecChatBar chatId={tab?.chatId ?? dbChatIdRef.current} />
         {goal && (
           <GoalBanner
             goal={goal}

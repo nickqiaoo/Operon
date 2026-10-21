@@ -350,6 +350,8 @@ export interface SpecCoordinatorView {
   status: 'active' | 'idle' | 'offline' | null
   /** Its conversation, once it has had one. */
   chatId: number | null
+  /** The same, as a link the spec's Sessions tab opens — its working log. */
+  chat?: SpecChatRef | null
   /** The change worktree its session runs in. */
   workspaceId: number | null
 }

@@ -82,6 +82,8 @@ export async function onStepFailed(
   step: string,
   reason: string,
   role?: { role: string; ticketNumber?: number },
+  /** Off when the caller reports the failure itself if the coordinator cannot take it (the design run does). */
+  tellUser = true,
 ): Promise<boolean> {
   const notice = `#${spec.number} stopped: ${step} failed — ${reason}`.slice(0, 280)
   // Marked before the wake, so a coordinator that answers at once settles it.
@@ -93,7 +95,7 @@ export async function onStepFailed(
   ).catch(() => false)
   if (!woke) {
     failures.delete(spec.id)
-    notifySpec(storage, spec, 'spec_blocked', notice)
+    if (tellUser) notifySpec(storage, spec, 'spec_blocked', notice)
   }
   return woke
 }

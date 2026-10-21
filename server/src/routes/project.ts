@@ -8,6 +8,10 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
 
   // A project's workspaces, each with the board task whose agent runs in it, so
   // the sidebar can show a spec's ticket worktrees under the spec.
+  const sourceChatOf = (chatId: number | null | undefined): WorkspaceTask['sourceChat'] => {
+    const meta = chatId != null ? storage.getChatMeta(chatId) : undefined
+    return meta && chatId != null ? { chatId, workspaceId: meta.workspaceId ?? null, title: meta.title?.trim() || 'Chat' } : null
+  }
   const workspacesOf = (projectId: number): (Workspace & { task?: WorkspaceTask })[] => {
     const owners = new Map<number, WorkspaceTask>()
     for (const t of storage.taskList({ projectId, includeArchived: true })) {
@@ -19,6 +23,7 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
         status: t.status,
         parentTaskId: t.parentTaskId ?? null,
         specStage: t.specStage ?? null,
+        ...(t.specStage != null ? { sourceChat: sourceChatOf(t.sourceChatId) } : {}),
       })
     }
     return storage.listWorkspaces(projectId).map((w) => {

@@ -28,6 +28,8 @@ export interface WorkspaceTask {
   parentTaskId: number | null
   /** Set on a spec. */
   specStage: string | null
+  /** A spec's conversation — the chat it was started from, where the user talks to it. */
+  sourceChat?: { chatId: number; workspaceId: number | null; title: string } | null
 }
 
 export interface CreateProjectInput {

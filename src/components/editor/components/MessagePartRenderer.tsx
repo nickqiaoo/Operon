@@ -20,7 +20,7 @@ import { CompactToolCall } from './compact-tool/CompactToolCall';
 import { AskUserQuestionRenderer, isAskUserQuestionTool } from './AskUserQuestionRenderer';
 import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
-import { WorkflowResultMessage, isSpecWorkflowResult, isWorkflowResultMessage } from './WorkflowResultMessage';
+import { SpecNoticeMessage, WorkflowResultMessage, isSpecWorkflowResult, isWorkflowResultMessage, parseSpecNotice } from './WorkflowResultMessage';
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import { getInjectedInput } from './steer-message';
 import {
@@ -507,6 +507,12 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   if (message.role === 'user' && isWorkflowResultMessage(displayText)) {
     if (isSpecWorkflowResult(displayText)) return null;
     return <WorkflowResultMessage key={`${message.id}-${partIndex}`} text={displayText} />;
+  }
+
+  // A spec that needs the user, said in the chat it was started from.
+  const specNotice = message.role === 'user' ? parseSpecNotice(displayText) : undefined;
+  if (specNotice) {
+    return <SpecNoticeMessage key={`${message.id}-${partIndex}`} notice={specNotice} />;
   }
 
   // Runtime-injected events (background task settled, extension spoke, external delivery).

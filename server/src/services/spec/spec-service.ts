@@ -91,7 +91,8 @@ function launch(storage: BuildStorage, task: Task): string {
     run,
     loc: locationOf(storage, task),
     chatId: task.sourceChatId,
-    onFailed: (error) => onStepFailed(storage, task, 'the design run', error),
+    // Without a coordinator to take it, the run's own report tells the chat.
+    onFailed: (error) => onStepFailed(storage, task, 'the design run', error, undefined, false),
   })
 }
 
@@ -436,7 +437,7 @@ export async function getSpecView(storage: SpecViewStorage, taskId: number): Pro
     worktreePath: workspace?.worktreePath ?? null,
     specDir: specDir(task.number),
     running: isDesignRunActive(task.id) || isBuildActive(task.id) || isReviewActive(task.id),
-    coordinator: coordinatorView(storage, task),
+    coordinator: withChat(storage, coordinatorView(storage, task), task.workspaceId ?? null),
     sourceChat: task.sourceChatId != null ? specChatRef(storage, task.sourceChatId, task.workspaceId ?? null) : null,
     ...specAgents(storage, task, run),
   }
@@ -501,6 +502,11 @@ export async function getSpecView(storage: SpecViewStorage, taskId: number): Pro
     designChanged: run.designSha != null && design != null && blobSha(design) !== run.designSha,
     ticketTasks: ticketTasksOf(storage, task, run, tickets),
   }
+}
+
+/** The coordinator with its conversation as a link — the Sessions tab lists it as the spec's working log. */
+function withChat(storage: SpecViewStorage, view: SpecView['coordinator'], workspaceId: number | null): SpecView['coordinator'] {
+  return view && view.chatId != null ? { ...view, chat: specChatRef(storage, view.chatId, workspaceId) } : view
 }
 
 /** Every agent call across the spec's runs, and the wall-clock time those runs took. */

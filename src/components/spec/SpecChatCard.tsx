@@ -1,105 +1,47 @@
+import { useEffect } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Layers, SquareKanban, Workflow } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ChevronRight, Layers } from 'lucide-react'
 import { useEditorStore } from '@/stores/editor-store'
-import { openWorkflowPanel } from '@/components/app-shell/useWorkflowTab'
-import {
-  SpecActions,
-  SpecAgentList,
-  SpecBuildSummary,
-  SpecGateSummary,
-  SpecSeatsLine,
-  SpecStageBadge,
-  SpecStopButton,
-  specHasGate,
-  useSpecView,
-} from './spec-shared'
+import { SPEC_STARTED_EVENT } from './SpecChatBar'
+import { SpecStageBadge, useSpecView } from './spec-shared'
 
 /**
- * The card a `start_spec` call leaves in the transcript: where the spec stands,
- * and the design gate right there — the same Approve / Request changes as the
- * task page, so the user never has to leave the conversation to sign it.
+ * Where a `start_spec` call sits in the transcript: one line that says a spec
+ * started here, and opens it.
+ *
+ * It used to carry the whole spec — agents, gates, buttons — but a conversation
+ * keeps going below it, and the buttons scrolled away just when they were
+ * wanted. Those live in the bar above the composer now (`SpecChatBar`); this
+ * line is the record, and tells the bar a spec is there.
  */
 export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; taskNumber: number; title: string }) {
   const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const projectId = useEditorStore((s) => s.currentProjectId)
-  const { spec, error } = useSpecView(taskId)
+  const { spec } = useSpecView(taskId)
   const intl = useIntl()
-  const openTask = () => projectId != null && requestOpenTask({ projectId, taskId })
-  const boardLabel = intl.formatMessage({ id: 'spec.card.openBoard', defaultMessage: 'Open on the board' })
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(SPEC_STARTED_EVENT, { detail: { taskId } }))
+  }, [taskId])
 
   return (
-    <div className="@container my-2 rounded-xl border border-border/50 bg-background/60 shadow-card">
-      <div className="flex items-start gap-3 px-3 py-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/40 bg-muted/40">
-          <Layers className="h-4 w-4 text-muted-foreground" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            OperonSpec
-            <span className="font-mono normal-case tracking-normal">#{taskNumber}</span>
-            {spec && <SpecStageBadge stage={spec.run.stage} running={spec.running} />}
-          </div>
-          {/* The title is the task: clicking it opens the board card, like the button. */}
-          <button
-            type="button"
-            disabled={projectId == null}
-            onClick={openTask}
-            title={boardLabel}
-            className="mt-0.5 block max-w-full cursor-pointer truncate text-left text-sm font-medium text-foreground underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline"
-          >
-            {spec?.title ?? title}
-          </button>
-          {spec && <SpecSeatsLine spec={spec} />}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {/* Stop sits with the other controls: a row of its own under the card
-              made a running spec's card a good deal taller for one button. */}
-          {spec?.running && <SpecStopButton spec={spec} />}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => openWorkflowPanel()}
-          >
-            <Workflow className="h-3.5 w-3.5" />
-            {/* A narrow chat column gives the title the room; the icons stay. */}
-            <span className="@max-[480px]:sr-only">
-              <FormattedMessage id="spec.card.watch" defaultMessage="Agents" />
-            </span>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            disabled={projectId == null}
-            onClick={openTask}
-            title={boardLabel}
-          >
-            {/* A board icon and a label that stays: an arrow alone did not say
-                where it went. */}
-            <SquareKanban className="h-3.5 w-3.5" />
-            <FormattedMessage id="spec.card.board" defaultMessage="Board" />
-          </Button>
-        </div>
-      </div>
-      {spec && spec.agents.length > 0 && (
-        <div className="border-t border-border/40 px-3 py-2">
-          <SpecAgentList spec={spec} />
-        </div>
-      )}
-      {spec && specHasGate(spec) && (
-        <div className="space-y-2 border-t border-border/40 px-3 py-2.5">
-          <SpecGateSummary spec={spec} />
-          <SpecActions spec={spec} showStop={false} />
-        </div>
-      )}
-      {spec && spec.run.build.length > 0 && (
-        <div className="border-t border-border/40 px-3 py-2">
-          <SpecBuildSummary spec={spec} />
-        </div>
-      )}
-      {error && !spec && <div className="border-t border-border/40 px-3 py-2 text-xs text-destructive">{error}</div>}
-    </div>
+    <button
+      type="button"
+      disabled={projectId == null}
+      onClick={() => projectId != null && requestOpenTask({ projectId, taskId })}
+      title={intl.formatMessage({ id: 'spec.bar.open', defaultMessage: 'Open the spec' })}
+      className="group my-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-left text-xs transition-colors hover:bg-row-hover disabled:cursor-default"
+    >
+      <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="shrink-0 text-muted-foreground">
+        <FormattedMessage id="spec.card.started" defaultMessage="Started OperonSpec #{number}" values={{ number: taskNumber }} />
+      </span>
+      <span className="min-w-0 truncate font-medium text-foreground">{spec?.title ?? title}</span>
+      {spec && <SpecStageBadge stage={spec.run.stage} running={spec.running} />}
+      <span className="ml-auto flex shrink-0 items-center gap-0.5 text-muted-foreground group-hover:text-foreground">
+        <FormattedMessage id="spec.card.open" defaultMessage="Open spec" />
+        <ChevronRight className="h-3.5 w-3.5" />
+      </span>
+    </button>
   )
 }
