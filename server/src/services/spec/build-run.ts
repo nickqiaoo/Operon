@@ -23,7 +23,7 @@
 
 import type { AgentBindingStorageAdapter, ChannelStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
 import type { Task } from '../../types/task.js'
-import type { SpecRun, SpecRuling, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
+import type { SpecRun, SpecRunConfig, SpecRuling, SpecSeat, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
 import { appendEvent, markExecuting, readRunView, unmarkExecuting } from '../workflow/store.js'
 import { registerWorkflowAbort, unregisterWorkflowAbort } from '../workflow/registry.js'
 import { RunEventWriter } from '../workflow/writer.js'
@@ -32,7 +32,7 @@ import { broadcastTask } from '../task-events.js'
 import { emitCounts, notify } from '../notification-service.js'
 import { emitInboxEvent } from '../channel-bus.js'
 import { commit, getDiffStatText, getFileDiffRange, getHeadSha, getMergeBase } from '../git.js'
-import { dispatchProjectTask, landSpecTicket, wakeTaskBinding } from '../channel/agent-orchestrator.js'
+import { dispatchProjectTask, landSpecTicket, stopTaskSession, wakeTaskBinding } from '../channel/agent-orchestrator.js'
 import { SpecAgents } from './agents.js'
 import { familyOf, reviewerFor, seatFor, withBuildDefaults } from './config.js'
 import { getOrCreateSpecBuilder, type BuilderStorage } from './builders.js'
@@ -49,7 +49,7 @@ import {
 } from './prompts.js'
 import { specDesignChanged, type SpecStorage } from './spec-service.js'
 import { onAllTicketsMerged } from './review-run.js'
-import { ensureCoordinator, onCoordinatorTurnEnded, wakeCoordinator } from './coordinator.js'
+import { ensureCoordinator, onCoordinatorTurnEnded, onStepFailed, wakeCoordinator } from './coordinator.js'
 
 export type BuildStorage = SpecStorage &
   BuilderStorage &
@@ -106,6 +106,8 @@ export function frontier(
   return build
     .filter((b) => b.state === 'waiting' && tasks.get(b.taskId)?.status === 'todo')
     .filter((b) => (tasks.get(b.taskId)?.blockedBy ?? []).every(finished))
+    // A ticket just handed to another agent was under way: it goes first.
+    .sort((a, b) => Number(b.handedOver != null) - Number(a.handedOver != null))
     .slice(0, slots)
 }
 
@@ -129,10 +131,10 @@ export async function startBuild(storage: BuildStorage, spec: Task, tickets: rea
   if (!run) return
   const config = withBuildDefaults(run.config)
   const build: SpecTicketBuild[] = tickets.map((t) => {
-    const implementer = t.implementer ?? config.implementer.providerId
-    const agent = getOrCreateSpecBuilder(storage, t.implementer ? seatFor(config, t.implementer) : config.implementer)
+    const seat = t.implementer ? seatFor(config, t.implementer) : config.implementer
+    const agent = getOrCreateSpecBuilder(storage, seat)
     storage.taskUpdate(t.taskId, { assignedAgentId: agent.id }, { type: 'system', name: 'OperonSpec' })
-    return { key: t.key, taskId: t.taskId, implementer, reviewer: reviewerFor(config, implementer), rounds: 0, state: 'waiting' }
+    return { key: t.key, taskId: t.taskId, ...builderFields(config, seat), rounds: 0, state: 'waiting' }
   })
   storage.specRunUpdate(spec.id, { config, build })
   // Its session starts with the first thing it is asked; the binding makes it reachable from now on.
@@ -154,7 +156,6 @@ export async function addTicket(storage: BuildStorage, spec: Task, ticket: SpecT
   const tickets = (await readSpecJson<SpecTicket[]>(loc, SPEC_FILES.tickets)) ?? []
   await writeSpecFiles(loc, { [SPEC_FILES.tickets]: JSON.stringify([...tickets, ticket], null, 2) }, `ticket ${ticket.key}`)
   const config = withBuildDefaults(run.config)
-  const implementer = config.implementer.providerId
   const agent = getOrCreateSpecBuilder(storage, config.implementer)
   const blockedBy = ticket.blockedBy
     .map((key) => run.build.find((b) => b.key === key)?.taskId)
@@ -169,17 +170,34 @@ export async function addTicket(storage: BuildStorage, spec: Task, ticket: SpecT
     createdBy: 'agent',
     actorName: 'OperonSpec',
   })
-  const entry: SpecTicketBuild = {
-    key: ticket.key,
-    taskId: child.id,
-    implementer,
-    reviewer: reviewerFor(config, implementer),
-    rounds: 0,
-    state: 'waiting',
-  }
+  const entry: SpecTicketBuild = { key: ticket.key, taskId: child.id, ...builderFields(config, config.implementer), rounds: 0, state: 'waiting' }
   storage.specRunUpdate(spec.id, { build: [...(storage.specRunGet(spec.id)?.build ?? []), entry] })
   broadcastTask(storage, child.id)
   return child
+}
+
+/** Who builds a ticket on `seat`, and who reviews it. */
+export function builderFields(
+  config: SpecRunConfig,
+  seat: SpecSeat,
+): Pick<SpecTicketBuild, 'implementer' | 'implementerModelId' | 'reviewer' | 'reviewerModelId'> {
+  return {
+    implementer: seat.providerId,
+    ...(seat.modelId ? { implementerModelId: seat.modelId } : {}),
+    reviewer: reviewerFor(config, seat.providerId),
+    ...(config.reviewer?.modelId ? { reviewerModelId: config.reviewer.modelId } : {}),
+  }
+}
+
+/** The seat that reviews a ticket. */
+export function reviewerSeat(config: SpecRunConfig | undefined, entry: SpecTicketBuild): SpecSeat {
+  if (entry.reviewerModelId) return { providerId: entry.reviewer, modelId: entry.reviewerModelId }
+  return config ? seatFor(config, entry.reviewer) : { providerId: entry.reviewer }
+}
+
+/** A ticket's row in the run, e.g. 'build T2 · codex'. */
+export function buildLabel(entry: SpecTicketBuild, what = 'build'): string {
+  return `${what} ${entry.key} · ${entry.implementer}`
 }
 
 /**
@@ -196,15 +214,17 @@ export async function advance(storage: BuildStorage, specId: number): Promise<vo
   const ready = frontier(run.build, tasks, withBuildDefaults(run.config).concurrency)
   // Claimed before any await, so an event landing meanwhile sees them taken.
   for (const ticket of ready) patchTicket(storage, specId, ticket.taskId, { state: 'building' })
+  const spec = storage.taskGet(specId)
   for (const ticket of ready) {
     const task = tasks.get(ticket.taskId)
     try {
       if (task?.assignedAgentId == null) throw new Error('no builder assigned')
-      await dispatchProjectTask(ticket.taskId, task.assignedAgentId)
+      await dispatchProjectTask(ticket.taskId, task.assignedAgentId, ticket.handedOver ? handoverNote(task.number, ticket.handedOver) : undefined)
+      if (ticket.handedOver) patchTicket(storage, specId, ticket.taskId, { handedOver: undefined })
+      if (spec) sessionFor(storage, spec).startTicket(ticket, buildLabel(ticket))
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       console.error(`[Spec] could not start ticket ${ticket.key}:`, err)
-      const spec = storage.taskGet(specId)
       if (spec) await blockTicket(storage, spec, ticket.taskId, `Could not start: ${reason}`, `Ticket ${ticket.key} could not start: ${reason}`)
     }
   }
@@ -229,7 +249,9 @@ function ticketOf(storage: BuildStorage, taskId: number): { ticket: Task; spec: 
 export function recordTicketChat(storage: BuildStorage, taskId: number, chatId: number): void {
   const found = ticketOf(storage, taskId)
   if (!found || found.entry.chatIds?.includes(chatId)) return
-  patchTicket(storage, found.spec.id, taskId, { chatIds: [...(found.entry.chatIds ?? []), chatId] })
+  const chatIds = [...(found.entry.chatIds ?? []), chatId]
+  patchTicket(storage, found.spec.id, taskId, { chatIds })
+  sessions.get(found.spec.id)?.ticketChats(taskId, chatIds)
   broadcastTask(storage, found.spec.id)
 }
 
@@ -249,6 +271,7 @@ export function onTicketInReview(storage: BuildStorage, taskId: number): void {
   // A blocked ticket coming back means a person got it moving again: its rounds start over.
   const fresh = found.entry.state === 'blocked' ? { rounds: 0, blockedReason: undefined, coordinator: undefined } : {}
   if (found.entry.state === 'blocked') settleSpecNotice(storage, found.spec.id, 'spec_blocked')
+  sessions.get(found.spec.id)?.endTicket(taskId, { preview: 'Handed in for review' })
   patchTicket(storage, found.spec.id, taskId, { ...fresh, state: 'reviewing', nudged: undefined })
   broadcastTask(storage, found.spec.id)
   void reviewTicket(storage, taskId)
@@ -256,6 +279,23 @@ export function onTicketInReview(storage: BuildStorage, taskId: number): void {
 
 /** Tickets whose review is executing in this process. */
 const reviewing = new Set<number>()
+
+export function isTicketUnderReview(taskId: number): boolean {
+  return reviewing.has(taskId)
+}
+
+/** End a ticket's row in the run, if it has one (it was switched to another agent, say). */
+export function endTicketRow(specId: number, taskId: number, outcome: { preview?: string; error?: string }): void {
+  sessions.get(specId)?.endTicket(taskId, outcome)
+}
+
+function handoverNote(ticketNumber: number, from: string): string {
+  return (
+    `This ticket was handed to you from another agent (${from}), which did not finish it. Your worktree is on the ` +
+    `ticket's branch with whatever it committed or left behind: check git status and git log first, read the ticket's ` +
+    `activity with get_project_task(task: ${ticketNumber}) for what was said and reviewed, and build on that work rather than starting over.`
+  )
+}
 
 async function reviewTicket(storage: BuildStorage, taskId: number): Promise<void> {
   const found = ticketOf(storage, taskId)
@@ -280,6 +320,9 @@ async function reviewTicket(storage: BuildStorage, taskId: number): Promise<void
       })
     }
     broadcastTask(storage, spec.id)
+    if (!stopped) {
+      await onStepFailed(storage, spec, `reviewing ${entry.key} (${entry.reviewer})`, reason, { role: 'reviewer', ticketNumber: ticket.number })
+    }
   } finally {
     reviewing.delete(taskId)
   }
@@ -319,11 +362,12 @@ async function runReview(
     storage.taskUpdate(ticket.id, { status: 'in_progress' }, { type: 'system', name: 'OperonSpec' })
     broadcastTask(storage, ticket.id)
     if (ticket.bindingId != null) {
-      await wakeTaskBinding(
+      const woke = await wakeTaskBinding(
         ticket.bindingId,
         `Ticket #${ticket.number} came back to review with no new commits on its branch. Commit your work, then call ` +
           `update_project_task(task: ${ticket.number}, status: "in_review").`,
       )
+      if (woke) sessionFor(storage, spec).startTicket(entry, buildLabel(entry))
     }
     return null
   }
@@ -343,7 +387,7 @@ async function runReview(
     {
       label: `${rereview ? 're-review' : 'review'} ${entry.key} · ${entry.reviewer}`,
       phase: 'Build',
-      seat: config ? seatFor(config, entry.reviewer) : { providerId: entry.reviewer },
+      seat: reviewerSeat(config, entry),
       cwd: ticketWs.worktreePath,
       prompt: ticketReviewPrompt({
         design,
@@ -438,7 +482,9 @@ async function settleReview(
   if (ticket.bindingId == null || !(await wakeTaskBinding(ticket.bindingId, reworkMessage(ticket.number, round, blocking)))) {
     const reason = 'Review asked for changes, but its implementer session could not be woken'
     await blockTicket(storage, spec, ticket.id, reason, `Ticket #${ticket.number}: ${reason}`)
+    return
   }
+  sessionFor(storage, spec).startTicket(entry, `${buildLabel(entry, 'rework')} (round ${round})`)
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +499,7 @@ async function settleReview(
  */
 export async function blockTicket(storage: BuildStorage, spec: Task, taskId: number, reason: string, notice: string): Promise<void> {
   const entry = patchTicket(storage, spec.id, taskId, { state: 'blocked', blockedReason: reason, coordinator: undefined })
+  sessions.get(spec.id)?.endTicket(taskId, { error: reason })
   broadcastTask(storage, spec.id)
   const retries = entry?.retries ?? 0
   if (entry && retries < MAX_COORDINATOR_RETRIES) {
@@ -494,7 +541,9 @@ export async function blockTicket(storage: BuildStorage, spec: Task, taskId: num
  * ticket "building" with nobody working on it. An error blocks it at once; a
  * quiet stop gets one reminder, and a second one blocks it.
  */
-export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, error?: string): Promise<void> {
+export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, error?: string, bindingId?: number): Promise<void> {
+  // A session the task was taken off (handed to another agent) speaks for nobody.
+  if (bindingId != null && storage.taskGet(taskId)?.bindingId !== bindingId) return
   const found = ticketOf(storage, taskId)
   // Not a ticket: the spec's own session is its coordinator's.
   if (!found) return storage.specRunGet(taskId) ? onCoordinatorTurnEnded(storage, taskId, error) : undefined
@@ -535,13 +584,18 @@ export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, e
  */
 export async function onTicketLanded(storage: BuildStorage, specId: number, taskId: number): Promise<void> {
   patchTicket(storage, specId, taskId, { state: 'merged', openIssues: undefined, blockedReason: undefined, coordinator: undefined })
+  // A person's Done can land a ticket straight from building.
+  const landed = () => sessions.get(specId)?.endTicket(taskId, { preview: 'Merged' })
   const children = storage.taskListChildren(specId)
   if (children.every((c) => c.status === 'done' || c.status === 'cancelled')) {
     // The whole change is in: review it as one before the user signs it.
     if ((storage.specRunGet(specId)?.build.length ?? 0) > 0) {
       onAllTicketsMerged(storage, specId)
+      // After the review took the run over, so it never reads as finished in between.
+      landed()
       return
     }
+    landed()
     // A spec approved before the build stage existed has no review stage either.
     const spec = storage.taskGet(specId)
     if (spec && spec.status !== 'in_review' && spec.status !== 'done') {
@@ -557,6 +611,7 @@ export async function onTicketLanded(storage: BuildStorage, specId: number, task
     broadcastTask(storage, specId)
     return
   }
+  landed()
   broadcastTask(storage, specId)
   await advance(storage, specId)
 }
@@ -567,7 +622,9 @@ export async function onTicketLanded(storage: BuildStorage, specId: number, task
  * branch), since a merge can drop either side's work.
  */
 export function onTicketSentBack(storage: BuildStorage, specId: number, taskId: number): void {
-  patchTicket(storage, specId, taskId, { state: 'building', reviewedSha: undefined, openIssues: undefined })
+  const entry = patchTicket(storage, specId, taskId, { state: 'building', reviewedSha: undefined, openIssues: undefined })
+  const spec = storage.taskGet(specId)
+  if (entry && spec) sessionFor(storage, spec).startTicket(entry, buildLabel(entry, 'merge conflict'))
   broadcastTask(storage, specId)
 }
 
@@ -577,13 +634,22 @@ export function onTicketSentBack(storage: BuildStorage, specId: number, taskId: 
 
 /** Whether ticket reviews of this spec are executing in this process. */
 export function isBuildActive(specId: number): boolean {
-  return (sessions.get(specId)?.active ?? 0) > 0
+  return sessions.get(specId)?.busy ?? false
 }
 
-export function stopBuild(specId: number): boolean {
+/**
+ * Stop the build: reviews in flight, and every ticket session at work. Resume
+ * wakes those tickets where they stopped.
+ */
+export function stopBuild(storage: BuildStorage, specId: number): boolean {
   const session = sessions.get(specId)
-  if (!session || session.active === 0) return false
+  if (!session?.busy) return false
+  const tickets = session.ticketIds()
+  // Before the turns end, so they read as a pause and not as tickets that stopped short.
+  storage.specRunUpdate(specId, { stage: 'stopped', error: null })
   session.stop()
+  for (const taskId of tickets) stopTaskSession(taskId)
+  broadcastTask(storage, specId)
   return true
 }
 
@@ -591,7 +657,7 @@ export function stopBuild(specId: number): boolean {
  * Carry a paused build on: review every ticket that is waiting for one (in
  * review, or cut short by a stop or a restart), then start the frontier.
  */
-export async function resumeBuild(storage: BuildStorage, specId: number): Promise<void> {
+export async function resumeBuild(storage: BuildStorage, specId: number, wake = RESUME_MESSAGE): Promise<void> {
   const before = storage.specRunGet(specId)
   // Everything merged already: what stopped was the review of the whole change.
   const children = storage.taskListChildren(specId)
@@ -602,13 +668,33 @@ export async function resumeBuild(storage: BuildStorage, specId: number): Promis
   storage.specRunUpdate(specId, { stage: 'building', error: null })
   broadcastTask(storage, specId)
   const run = storage.specRunGet(specId)
+  const spec = storage.taskGet(specId)
   for (const entry of run?.build ?? []) {
     const task = storage.taskGet(entry.taskId)
     const waitingForReview = entry.state === 'reviewing' || (entry.state === 'building' && task?.status === 'in_review')
     if (waitingForReview && !reviewing.has(entry.taskId)) onTicketInReview(storage, entry.taskId)
+    // Its session was stopped (or cut off by a restart) mid-ticket: pick it up from its worktree.
+    else if (spec && entry.state === 'building' && task?.status === 'in_progress' && task.bindingId != null) {
+      // Still at work (the build stopped on a failed review, not on Stop): it only needs its row back.
+      const atWork = storage.getBinding(task.bindingId)?.status === 'active'
+      if (atWork || (await wakeTaskBinding(task.bindingId, wake(task.number)).catch(() => false))) {
+        sessionFor(storage, spec).startTicket(entry, buildLabel(entry))
+      }
+    }
   }
   await advance(storage, specId)
 }
+
+const handInNote = (n: number) =>
+  `When it is done: commit, post your report with comment_project_task and call update_project_task(task: ${n}, status: "in_review").`
+
+const RESUME_MESSAGE = (n: number) =>
+  `The build was stopped while you were working on ticket #${n}, and has been resumed. Check your worktree ` +
+  `(git status, git log) to see how far you got, then carry on from there. ${handInNote(n)}`
+
+const RESTART_MESSAGE = (n: number) =>
+  `The app restarted while you were working on ticket #${n}, and your session was cut off. Check your ` +
+  `worktree (git status, git log) to see how far you got, then carry on from there. ${handInNote(n)}`
 
 /**
  * At startup: building and reviewing specs carry on where the restart left them.
@@ -618,18 +704,9 @@ export async function resumeBuild(storage: BuildStorage, specId: number): Promis
  */
 export async function sweepBuilds(storage: BuildStorage): Promise<void> {
   for (const run of storage.specRunList(['building', 'reviewing'])) {
-    for (const entry of run.build) {
-      const task = storage.taskGet(entry.taskId)
-      if (entry.state !== 'building' || task?.status !== 'in_progress' || task.bindingId == null) continue
-      await wakeTaskBinding(
-        task.bindingId,
-        `The app restarted while you were working on ticket #${task.number}, and your session was cut off. Check your ` +
-          'worktree (git status, git log) to see how far you got, then carry on from there. When it is done: commit, post ' +
-          `your report with comment_project_task and call update_project_task(task: ${task.number}, status: "in_review").`,
-      ).catch(() => false)
-    }
     try {
-      await resumeBuild(storage, run.taskId)
+      // Waking the tickets a restart cut off is part of resuming.
+      await resumeBuild(storage, run.taskId, RESTART_MESSAGE)
     } catch (err) {
       console.error(`[Spec] could not resume the build of spec task ${run.taskId}:`, err)
     }
@@ -660,8 +737,17 @@ export async function sweepBuilds(storage: BuildStorage): Promise<void> {
  * one finishes.
  */
 export class BuildSession {
+  /** Reviews running in this segment. */
   active = 0
   stopped = false
+  /**
+   * Tickets whose implementer is at work, by task id → their row in the run.
+   * A ticket session is not an agent this session runs — it is a task binding
+   * of its own — but it is the build's work, so it shows in the run as a row
+   * and keeps the segment open: without it, the run read "completed" the
+   * moment gate 1 was signed, while every ticket was being built.
+   */
+  private tickets = new Map<number, number>()
   /** Handed back to the chat that started the spec when this segment settles (gate 2 is ready, say). */
   private result: unknown = undefined
   private controller = new AbortController()
@@ -673,19 +759,78 @@ export class BuildSession {
     private readonly spec: Task,
   ) {}
 
+  /** Anything under way: a review running, or a ticket being built. */
+  get busy(): boolean {
+    return this.active > 0 || this.tickets.size > 0
+  }
+
   async run<T>(fn: (agents: SpecAgents) => Promise<T>): Promise<T> {
     const agents = this.open()
     this.active++
     try {
       return await fn(agents)
     } finally {
-      if (--this.active === 0) this.close()
+      this.active--
+      this.closeIfIdle()
     }
+  }
+
+  /**
+   * A ticket's implementer is at work (first pass, a rework round, a retry): a
+   * running row under Build until it hands the ticket in, is blocked or stops.
+   * A ticket that already has a row keeps it.
+   */
+  startTicket(entry: SpecTicketBuild, label: string): void {
+    if (this.tickets.has(entry.taskId)) return
+    const agents = this.open()
+    const index = agents.reserveIndex()
+    this.tickets.set(entry.taskId, index)
+    this.writer?.emit({
+      kind: 'agent',
+      index,
+      patch: {
+        label,
+        phase: 'Build',
+        state: 'running',
+        agentType: entry.implementer,
+        ...(entry.implementerModelId ? { modelId: entry.implementerModelId } : {}),
+        startedAt: Date.now(),
+        ...(entry.chatIds?.length ? { chatIds: entry.chatIds } : {}),
+      },
+    })
+  }
+
+  /** A ticket's implementer opened a chat: its row opens it. */
+  ticketChats(taskId: number, chatIds: number[]): void {
+    const index = this.tickets.get(taskId)
+    if (index != null) this.writer?.emit({ kind: 'agent', index, patch: { chatIds } })
+  }
+
+  /** The implementer's turn at the ticket is over: handed in (`preview`) or stopped short (`error`). */
+  endTicket(taskId: number, outcome: { preview?: string; error?: string }): void {
+    const index = this.tickets.get(taskId)
+    if (index == null) return
+    this.tickets.delete(taskId)
+    const endedAt = Date.now()
+    this.writer?.emit({
+      kind: 'agent',
+      index,
+      patch: outcome.error != null ? { state: 'error', error: outcome.error, endedAt } : { state: 'done', resultPreview: outcome.preview, endedAt },
+    })
+    this.closeIfIdle()
+  }
+
+  /** The tickets being built in this segment. */
+  ticketIds(): number[] {
+    return [...this.tickets.keys()]
   }
 
   stop(): void {
     this.stopped = true
+    // Their rows are settled with the segment: a stopped run marks what was still running.
+    this.tickets.clear()
     this.controller.abort()
+    this.closeIfIdle()
   }
 
   /** Report `result` to the spec's chat when this segment settles, as a design run reports its end. */
@@ -711,6 +856,10 @@ export class BuildSession {
     const writer = new RunEventWriter(runId)
     markExecuting(runId)
     registerWorkflowAbort(runId, this.controller)
+    // Stop on the run (the Workflow panel) stops the build, ticket sessions too.
+    this.controller.signal.addEventListener('abort', () => {
+      if (!this.stopped) stopBuild(this.storage, this.spec.id)
+    })
     writer.emit({ kind: 'phase', index: 0, title: 'Build' })
     const firstIndex = (previous?.agents ?? []).reduce((max, a) => Math.max(max, a.index + 1), 0)
     const specWs = this.spec.workspaceId != null ? this.storage.getWorkspace(this.spec.workspaceId) : null
@@ -724,6 +873,10 @@ export class BuildSession {
       firstIndex,
     })
     return this.agents
+  }
+
+  private closeIfIdle(): void {
+    if (this.active === 0 && this.tickets.size === 0) this.close()
   }
 
   private close(): void {

@@ -22,8 +22,9 @@ import { attachSpecCoordinator, dispatchProjectTask, wakeTaskBinding } from '../
 import { excludeLocally, getStatus, isAncestor, isMerging } from '../git.js'
 import { broadcastTask } from '../task-events.js'
 import { getOrCreateSpecCoordinator } from './builders.js'
+import { coordinatorSeat } from './config.js'
 import { SPEC_FILES, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
-import { MAX_COORDINATOR_RETRIES } from './prompts.js'
+import { MAX_COORDINATOR_RETRIES, stepFailedMessage } from './prompts.js'
 import { addRulings, addTicket, advance, notifySpec, patchTicket, type BuildStorage } from './build-run.js'
 import { onAllTicketsMerged } from './review-run.js'
 import { SpecError } from './spec-service.js'
@@ -50,7 +51,7 @@ export async function ensureCoordinator(storage: BuildStorage, spec: Task): Prom
   const ws = spec.workspaceId != null ? storage.getWorkspace(spec.workspaceId) : null
   if (!run || !ws) return null
   try {
-    const agent = getOrCreateSpecCoordinator(storage, run.config.lead)
+    const agent = getOrCreateSpecCoordinator(storage, coordinatorSeat(run.config))
     // Agents keep notes in .agent-memory/; on the change branch they would be committed with the change.
     await excludeLocally(ws.worktreePath, '.agent-memory/').catch(() => undefined)
     return attachSpecCoordinator(spec.id, agent.id)
@@ -65,6 +66,27 @@ export async function wakeCoordinator(storage: BuildStorage, spec: Task, message
   const binding = await ensureCoordinator(storage, spec)
   if (!binding) return false
   return wakeTaskBinding(binding.id, message)
+}
+
+/**
+ * A step of the build or review stopped on an error (the spec is now failed).
+ * The coordinator looks first — the usual cause is the agent (quota, auth, a
+ * provider error), and it can ask the user to switch; without one the user is
+ * told directly.
+ */
+export async function onStepFailed(
+  storage: BuildStorage,
+  spec: Task,
+  step: string,
+  reason: string,
+  role?: { role: string; ticketNumber?: number },
+): Promise<void> {
+  const woke = await wakeCoordinator(
+    storage,
+    spec,
+    stepFailedMessage({ specNumber: spec.number, step, reason, role: role?.role, ticketNumber: role?.ticketNumber }),
+  ).catch(() => false)
+  if (!woke) notifySpec(storage, spec, 'spec_blocked', `#${spec.number} stopped: ${step} failed — ${reason}`.slice(0, 280))
 }
 
 export function isCoordinatorOf(storage: BuildStorage, spec: Task, agentId: number): boolean {

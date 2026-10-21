@@ -116,7 +116,7 @@ import type {
   UnreadCounts,
 } from '../types/notification.js'
 import { runMigrations } from './migrate.js'
-import { isSpecStage, type CreateSpecRunInput, type SpecRun, type SpecRunConfig, type SpecProgress, type SpecRuling, type SpecStage, type SpecTicketBuild, type SpecTicketState, type UpdateSpecRunInput } from '../types/spec.js'
+import { isSpecStage, type CreateSpecRunInput, type SpecRun, type SpecRunConfig, type SpecProgress, type SpecRuling, type SpecStage, type SpecSwitchProposal, type SpecTicketBuild, type SpecTicketState, type UpdateSpecRunInput } from '../types/spec.js'
 
 /**
  * A task row plus the stage of its spec run, if it has one. Every query that
@@ -2335,6 +2335,10 @@ export class SqliteStorage
     if (updates.build !== undefined) { sets.push('build = ?'); values.push(JSON.stringify(updates.build)) }
     if (updates.rulings !== undefined) { sets.push('rulings = ?'); values.push(JSON.stringify(updates.rulings)) }
     if (updates.error !== undefined) { sets.push('error = ?'); values.push(updates.error) }
+    if (updates.proposal !== undefined) {
+      sets.push('proposal = ?')
+      values.push(updates.proposal === null ? null : JSON.stringify(updates.proposal))
+    }
     this.db.prepare(`UPDATE spec_runs SET ${sets.join(', ')} WHERE task_id = ?`).run(...values, taskId)
     return this.specRunGet(taskId)
   }
@@ -2361,6 +2365,7 @@ export class SqliteStorage
       build: JSON.parse((row.build as string | undefined) ?? '[]') as SpecTicketBuild[],
       rulings: JSON.parse((row.rulings as string | undefined) ?? '[]') as SpecRuling[],
       error: (row.error as string | null) ?? null,
+      proposal: row.proposal ? (JSON.parse(row.proposal as string) as SpecSwitchProposal) : null,
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
     }

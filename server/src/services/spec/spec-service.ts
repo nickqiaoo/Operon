@@ -50,6 +50,8 @@ import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-r
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
 import { isMerging } from '../git.js'
 import { coordinatorView } from './coordinator.js'
+import { getSpecRoleSettings } from './role-settings.js'
+import { specSeats, usableProviders } from './switch.js'
 import { specChatRef, specChatRefs, type SpecChatStorage } from './chats.js'
 
 
@@ -126,7 +128,12 @@ export async function startSpec(storage: SpecStorage, input: StartSpecInput): Pr
   if (existing) return { task: existing, runId: storage.specRunGet(existing.id)?.workflowRunId ?? null, reused: true }
 
   // Pick seats before creating anything: too few agents is a reason not to start.
-  const config = defaultSpecConfig({ available: input.available, lead: input.lead, candidates: input.candidates })
+  const config = defaultSpecConfig({
+    available: input.available,
+    lead: input.lead,
+    candidates: input.candidates,
+    roles: getSpecRoleSettings(),
+  })
 
   const task = storage.taskCreate({
     projectId: input.projectId,
@@ -379,7 +386,7 @@ export async function resumeSpec(storage: BuildStorage, taskId: number): Promise
 
 export function stopSpec(storage: SpecStorage, taskId: number): boolean {
   requireSpec(storage, taskId)
-  return stopDesignRun(taskId) || stopBuild(taskId)
+  return stopDesignRun(taskId) || stopBuild(storage as BuildStorage, taskId)
 }
 
 /**
@@ -414,6 +421,8 @@ export async function getSpecView(storage: SpecViewStorage, taskId: number): Pro
     // The build seats as they will be used, also before gate 1 fills them in.
     run: { ...run, config },
     providers: specPool(config),
+    availableProviders: usableProviders(),
+    seats: specSeats(config, run.build),
     worktreePath: workspace?.worktreePath ?? null,
     specDir: specDir(task.number),
     running: isDesignRunActive(task.id) || isBuildActive(task.id) || isReviewActive(task.id),

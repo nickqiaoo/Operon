@@ -57,7 +57,7 @@ vi.mock('../git.js', () => ({
   filesChangedBeyondMerge: vi.fn(async () => ['a.ts']),
   diffBeyondMerge: vi.fn(async () => '-<<<<<<< ours\n+resolved'),
 }))
-const coordinator = vi.hoisted(() => ({ wakeCoordinator: vi.fn(async () => true) }))
+const coordinator = vi.hoisted(() => ({ wakeCoordinator: vi.fn(async () => true), onStepFailed: vi.fn(async () => undefined) }))
 vi.mock('./coordinator.js', () => coordinator)
 vi.mock('../workflow/store.js', () => ({
   appendEvent: vi.fn(),
@@ -101,7 +101,7 @@ function makeStorage() {
   const merged: SpecTicketBuild = { key: 'T1', taskId: 101, implementer: 'codex', reviewer: 'claude-code', rounds: 0, state: 'merged' }
   let run: SpecRun = {
     taskId: 1, stage: 'building', config, designSha: 'signed', workflowRunId: 'spec-1', runIds: ['spec-1'],
-    build: [merged], rulings: [], error: null, createdAt: 0, updatedAt: 0,
+    build: [merged], rulings: [], error: null, proposal: null, createdAt: 0, updatedAt: 0,
   }
   const storage = {
     taskGet: (id: number) => (id === 1 ? spec : tasks.get(id) ?? null),

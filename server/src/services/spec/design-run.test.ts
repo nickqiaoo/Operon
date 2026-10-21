@@ -124,7 +124,7 @@ const config: SpecRunConfig = {
 function makeStorage(worktreePath: string) {
   const task = { id: 1, number: 7, projectId: 1, title: 'Snooze', workspaceId: 9, sourceChatId: 42 } as Task
   let run: SpecRun = {
-    taskId: 1, stage: 'grounding', config, designSha: null, workflowRunId: null, runIds: [], build: [], rulings: [], error: null, createdAt: 0, updatedAt: 0,
+    taskId: 1, stage: 'grounding', config, designSha: null, workflowRunId: null, runIds: [], build: [], rulings: [], error: null, proposal: null, createdAt: 0, updatedAt: 0,
   }
   const created: Task[] = []
   const storage = {

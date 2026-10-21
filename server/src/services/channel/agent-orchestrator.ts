@@ -12,7 +12,8 @@ import type {
 import type { ChannelMessage } from '../../types/channel.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
 import { emitChannelEvent, emitProjectEvent } from '../channel-bus.js'
-import { startChat, startServerChat } from '../ai.js'
+import { abortChat, startChat, startServerChat } from '../ai.js'
+import { resetBinding } from './binding-reset.js'
 import {
   commit,
   getDefaultLocalBranch,
@@ -401,7 +402,7 @@ async function startBindingChat(
     // have no channel to post into; scopeKey is a task id / session id there).
     const errMsg = err instanceof Error ? err.message : String(err)
     // A spec ticket whose session cannot start would sit in "building" forever.
-    if (binding.scopeKind === 'task') void onTicketTurnEnded(storage, Number(binding.scopeKey), errMsg).catch(() => {})
+    if (binding.scopeKind === 'task') void onTicketTurnEnded(storage, Number(binding.scopeKey), errMsg, binding.id).catch(() => {})
     const channelId = Number(binding.scopeKey)
     if (binding.scopeKind === 'app' && Number.isFinite(channelId)) {
       const sysMsg = storage.createMessage({
@@ -524,7 +525,7 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
 
       // A spec ticket's turn that ended without handing the ticket in gets a reminder (or blocks it).
       if (surfaceTaskId != null) {
-        void onTicketTurnEnded(storage, surfaceTaskId, errors.length > 0 ? errors.join('; ') : undefined).catch((err) =>
+        void onTicketTurnEnded(storage, surfaceTaskId, errors.length > 0 ? errors.join('; ') : undefined, binding.id).catch((err) =>
           console.error('[Orchestrator] spec ticket turn-end hook failed:', err),
         )
       }
@@ -538,7 +539,7 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
   })().catch((err) => {
     console.error('[Orchestrator] agent chat drain error:', err)
     if (surfaceTaskId != null && _storage) {
-      void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err)).catch(() => {})
+      void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err), binding?.id).catch(() => {})
     }
   })
 }
@@ -704,7 +705,8 @@ export class SpecDesignChangedError extends Error {
   }
 }
 
-export async function dispatchProjectTask(taskId: number, assignedAgentId: number): Promise<void> {
+/** `note`: said to the agent after the task itself (a ticket handed over from another agent, say). */
+export async function dispatchProjectTask(taskId: number, assignedAgentId: number, note?: string): Promise<void> {
   const storage = _storage
   if (!storage) throw new Error('Orchestrator not initialised')
 
@@ -812,7 +814,8 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     `Report progress with comment_project_task(task: ${task.number}, body: "...") as you go — ` +
     `when you start, hit a milestone, finish, or get blocked. When your work is ready for ` +
     `human review, call update_project_task(task: ${task.number}, status: "in_review"). ` +
-    `Use get_project_task(task: ${task.number}) anytime to re-read the spec and discussion.`
+    `Use get_project_task(task: ${task.number}) anytime to re-read the spec and discussion.` +
+    (note ? `\n\n${note}` : '')
 
   await deliverToBinding(
     storage,
@@ -1192,6 +1195,33 @@ export async function resumeProjectTask(taskId: number): Promise<boolean> {
     broadcastTask(storage, taskId)
   }
   return woke
+}
+
+/** Stop a task's running turn; its session stays, to be woken again. False when nothing was running. */
+export function stopTaskSession(taskId: number): boolean {
+  const storage = _storage
+  const task = storage?.taskGet(taskId)
+  const binding = task?.bindingId != null ? storage?.getBinding(task.bindingId) : null
+  if (!storage || !binding?.activeChatId) return false
+  const stopped = abortChat(binding.activeChatId)
+  if (stopped) storage.updateBinding(binding.id, { status: 'idle' })
+  return stopped
+}
+
+/**
+ * Take a task off its session — to hand it to another agent. The turn is
+ * stopped, the session torn down and the task no longer points at it, so how
+ * that turn ends is not the task's business any more. The worktree stays: the
+ * next session picks up where this one left off.
+ */
+export async function detachTaskSession(taskId: number): Promise<void> {
+  const storage = _storage
+  const task = storage?.taskGet(taskId)
+  if (!storage || !task || task.bindingId == null) return
+  const binding = storage.getBinding(task.bindingId)
+  storage.taskUpdate(taskId, { bindingId: null }, { type: 'system', name: 'OperonSpec' })
+  if (binding) await resetBinding(storage, binding)
+  broadcastTask(storage, taskId)
 }
 
 export async function wakeTaskBinding(bindingId: number, notification: string): Promise<boolean> {

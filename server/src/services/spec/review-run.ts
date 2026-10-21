@@ -44,7 +44,7 @@ import type { SpecAgents } from './agents.js'
 import { addTicket, advance, notifySpec, sessionFor, type BuildStorage } from './build-run.js'
 import { familyOf, seatFor } from './config.js'
 import { draftDecisions } from './decisions.js'
-import { wakeCoordinator } from './coordinator.js'
+import { onStepFailed, wakeCoordinator } from './coordinator.js'
 import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
 import {
   BRANCH_REVIEW_SCHEMA,
@@ -80,7 +80,10 @@ const running = new Set<number>()
  * were picked to differ from the lead. One reviewer when the spec has only one family.
  */
 export function branchReviewers(config: SpecRunConfig): string[] {
-  const order = [config.judge, config.builder, ...config.candidates, config.lead, config.explorer].map((s) => s.providerId)
+  // A reviewer the user set is always one of them.
+  const order = [...(config.reviewer ? [config.reviewer] : []), config.judge, config.builder, ...config.candidates, config.lead, config.explorer].map(
+    (s) => s.providerId,
+  )
   const picked: string[] = []
   for (const id of order) {
     if (picked.length === 2) break
@@ -160,6 +163,7 @@ export function onAllTicketsMerged(storage: BuildStorage, specId: number): void 
         actorName: 'OperonSpec',
         body: `The whole-change review stopped with an error: ${reason}`,
       })
+      void onStepFailed(storage, spec, 'the whole-change review', reason, { role: 'reviewer' })
     })
     .finally(() => running.delete(specId))
 }

@@ -1057,7 +1057,9 @@ export const COORDINATOR_INSTRUCTIONS = `You are the coordinator of OperonSpec c
 
 Your session runs in the spec's change worktree (branch operon/task-N). The spec's files are in .operon/changes/task-N/: brief.md, design.md (what was approved), tickets.json, review.md.
 
-Tools (taskboard): spec_status reads where the spec and every ticket stand; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
+Tools (taskboard): spec_status reads where the spec and every ticket stand, and which agent plays each role; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_propose_switch asks the user to move a role (a ticket's implementer or reviewer, the spec's reviewer, …) to another agent or model; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
+
+When the trouble is the agent rather than the work — out of quota or rate-limited, not logged in, a provider error, a model that will not start, or one that keeps failing the same way — retrying on the same agent will not help: call spec_propose_switch with the role, the agent (and model) to move it to, and why. Pick from the agents spec_status lists as usable here. Never switch without asking: the user decides, and the switch and the work carrying on follow from their yes.
 
 Rules:
 - Never change what the user approved. A problem that needs a different design goes to the user with spec_escalate, with what you found and what you recommend.
@@ -1081,8 +1083,23 @@ export function blockedTicketMessage(input: {
     `- spec_retry_ticket(task: ${input.specNumber}, ticket: ${input.ticketNumber}, instructions: ...) — when its implementer can finish with clearer instructions ` +
       `(add a ruling when you decide something the design left open). ${input.retriesLeft > 0 ? `You can do this ${input.retriesLeft} more time(s) for this ticket.` : 'You cannot retry this ticket again.'}`,
     `- spec_add_ticket(task: ${input.specNumber}, ...) — when work is missing that another ticket should do first or alongside.`,
+    `- spec_propose_switch(task: ${input.specNumber}, role: "implementer", ticket: ${input.ticketNumber}, provider: ..., reason: ...) — when its agent is the problem (quota, auth, a provider error, a model that will not start); the user decides.`,
     `- spec_escalate(task: ${input.specNumber}, ticket: ${input.ticketNumber}, message: ...) — when the design is wrong, or retrying will not help. Say what you found and what you recommend.`,
     'If you do none of these, the user is told the ticket is blocked when your turn ends.',
+  ].join('\n')
+}
+
+/** A step of the build stopped on an error: the coordinator looks first. */
+export function stepFailedMessage(input: { specNumber: number; step: string; reason: string; role?: string; ticketNumber?: number }): string {
+  const target = input.role
+    ? `role: "${input.role}"${input.ticketNumber != null ? `, ticket: ${input.ticketNumber}` : ''}`
+    : 'role: ...'
+  return [
+    `Spec #${input.specNumber} stopped: ${input.step} failed — ${input.reason}`,
+    '',
+    `If the agent is the problem (out of quota, rate-limited, not logged in, a provider error, a model that will not start), ` +
+      `call spec_propose_switch(task: ${input.specNumber}, ${target}, provider: ..., reason: ...): if the user agrees, the step runs again on that agent. ` +
+      `Otherwise tell the user what went wrong with spec_escalate(task: ${input.specNumber}, message: ...); they can resume the spec once it is dealt with.`,
   ].join('\n')
 }
 

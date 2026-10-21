@@ -82,6 +82,11 @@ export class SpecAgents {
     this.nextIndex = ctx.firstIndex ?? 0
   }
 
+  /** Take the next agent row's index for a row this class does not run itself (a ticket's implementer). */
+  reserveIndex(): number {
+    return this.nextIndex++
+  }
+
   /** Run one agent to completion and return its final reply. Throws on empty output. */
   async text(call: SpecAgentCall): Promise<string> {
     return this.run(call, (reply) => reply)

@@ -95,6 +95,7 @@ function makeStorage() {
     build: [entry('T1', 101, 'reviewing'), entry('T2', 102, 'waiting'), entry('T3', 103, 'waiting')],
     rulings: [],
     error: null,
+    proposal: null,
     createdAt: 0,
     updatedAt: 0,
   }

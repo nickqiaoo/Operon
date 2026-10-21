@@ -72,8 +72,78 @@ export interface SpecRunConfig {
    * `withBuildDefaults`.
    */
   implementer?: SpecSeat
+  /**
+   * Reviews tickets and the whole change. Absent: picked per ticket from another
+   * family than its implementer's (`reviewerFor`).
+   */
+  reviewer?: SpecSeat
+  /** Coordinates the build. Absent: the lead's seat. */
+  coordinator?: SpecSeat
   /** How many tickets may be in progress or in review at once. */
   concurrency?: number
+}
+
+/** The roles of a spec, each played by one seat (candidates by several). */
+export const SPEC_ROLES = ['lead', 'explorer', 'candidate', 'judge', 'builder', 'implementer', 'reviewer', 'coordinator'] as const
+
+export type SpecRole = (typeof SPEC_ROLES)[number]
+
+export function isSpecRole(value: unknown): value is SpecRole {
+  return typeof value === 'string' && (SPEC_ROLES as readonly string[]).includes(value)
+}
+
+/** Roles that run before gate 1 — the design stage. */
+export const DESIGN_ROLES: readonly SpecRole[] = ['lead', 'explorer', 'candidate', 'judge', 'builder']
+
+/**
+ * Moving one role to another agent: the spec's seat for it, or — for an
+ * implementer or reviewer with `ticketKey` — one ticket's.
+ */
+export interface SpecSwitch {
+  role: SpecRole
+  /** Which candidate, 0-based (role `candidate`). */
+  index?: number
+  /** One ticket's implementer or reviewer, instead of the spec's default for the role. */
+  ticketKey?: string
+  to: SpecSeat
+}
+
+/**
+ * A switch the coordinator asks the user for — an agent out of quota, failing to
+ * start, stuck. Nothing changes until the user says yes.
+ */
+export interface SpecSwitchProposal extends SpecSwitch {
+  /** Who plays the role now. */
+  from: SpecSeat | null
+  reason: string
+  proposedAt: number
+}
+
+/** One seat as the switch picker lists it. */
+export interface SpecSeatView {
+  role: SpecRole
+  index?: number
+  ticketKey?: string
+  seat: SpecSeat
+  /** Not set explicitly: chosen per ticket (a reviewer from another family), shown as the current pick. */
+  auto?: boolean
+}
+
+/**
+ * Settings → OperonSpec: who plays each role in a new spec. A role left out is
+ * picked automatically (model diversity across families); agents the user names
+ * in the chat still win for the candidates.
+ */
+export interface SpecRoleSettings {
+  lead?: SpecSeat | null
+  explorer?: SpecSeat | null
+  /** Empty or absent: picked automatically. */
+  candidates?: SpecSeat[]
+  judge?: SpecSeat | null
+  builder?: SpecSeat | null
+  implementer?: SpecSeat | null
+  reviewer?: SpecSeat | null
+  coordinator?: SpecSeat | null
 }
 
 /** Where one ticket stands in the build. The board status follows; this says why. */
@@ -95,8 +165,12 @@ export interface SpecTicketBuild {
   taskId: number
   /** Provider building it. */
   implementer: string
-  /** Provider reviewing it — always a different family from the implementer. */
+  /** Model its implementer runs on; absent = the provider's default. */
+  implementerModelId?: string
+  /** Provider reviewing it — a different family from the implementer, unless the user picked otherwise. */
   reviewer: string
+  /** Model its reviewer runs on; absent = whatever the spec uses that provider with. */
+  reviewerModelId?: string
   /** Review rounds that asked for changes. */
   rounds: number
   state: SpecTicketState
@@ -113,6 +187,12 @@ export interface SpecTicketBuild {
    * to the user (`escalated`). Cleared when the ticket moves again.
    */
   coordinator?: 'asked' | 'escalated'
+  /**
+   * The agent it was taken from when it was switched to another (`codex · gpt-5`),
+   * until the new one starts: that session is told the worktree holds the
+   * previous agent's work.
+   */
+  handedOver?: string
   /** Times the coordinator set it going again; past the limit a block goes straight to the user. */
   retries?: number
   /**
@@ -149,6 +229,8 @@ export interface SpecRun {
   build: SpecTicketBuild[]
   rulings: SpecRuling[]
   error: string | null
+  /** A switch the coordinator asked the user for, until they take it or turn it down. */
+  proposal: SpecSwitchProposal | null
   createdAt: number
   updatedAt: number
 }
@@ -167,6 +249,7 @@ export interface UpdateSpecRunInput {
   build?: SpecTicketBuild[]
   rulings?: SpecRuling[]
   error?: string | null
+  proposal?: SpecSwitchProposal | null
 }
 
 /** One vertical slice, as the lead produces it (structured output, never parsed from markdown). */
@@ -234,6 +317,10 @@ export interface SpecView {
   running: boolean
   /** Providers this spec works with — the ones a ticket can be given to at gate 1. */
   providers: string[]
+  /** Every provider usable here — what a role can be switched to. */
+  availableProviders: string[]
+  /** Who plays each role now, for switching one. */
+  seats: SpecSeatView[]
   /** Approved, but design.md no longer matches what was signed — dispatch waits for a re-approval. */
   designChanged: boolean
   /** The subtask each ticket became, by ticket key (empty until approval). */
