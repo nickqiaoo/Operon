@@ -102,9 +102,6 @@ import type {
   CreateTaskLabelInput,
   CreateTaskInput as CreateProjectTaskInput,
   UpdateTaskInput as UpdateProjectTaskInput,
-  TaskArtifact,
-  ArtifactKind,
-  UpsertArtifactInput,
   TaskSurface,
   TaskSurfaceInput,
   TaskSurfaceKind,
@@ -1930,9 +1927,8 @@ export class SqliteStorage
           `INSERT INTO tasks (
              project_id, number, title, description, priority,
              assigned_agent_id, parent_task_id, source_channel_id, source_chat_id, source_message_id,
-             sdd_managed, spec_author_agent_id, plan_anchor, claimed_acs, blocked_by,
-             created_by, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             blocked_by, created_by, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.projectId,
@@ -1945,10 +1941,6 @@ export class SqliteStorage
           input.sourceChannelId ?? null,
           input.sourceChatId ?? null,
           input.sourceMessageId ?? null,
-          input.sddManaged ? 1 : 0,
-          input.specAuthorAgentId ?? null,
-          input.planAnchor ?? null,
-          input.claimedAcs ? JSON.stringify(input.claimedAcs) : null,
           input.blockedBy?.length ? JSON.stringify(input.blockedBy) : null,
           input.createdBy ?? 'human',
           now,
@@ -2075,7 +2067,6 @@ export class SqliteStorage
     if (updates.branchName !== undefined) set('branch_name', updates.branchName)
     if (updates.workspaceId !== undefined) set('workspace_id', updates.workspaceId)
     if (updates.bindingId !== undefined) set('binding_id', updates.bindingId)
-    if (updates.specAuthorAgentId !== undefined) set('spec_author_agent_id', updates.specAuthorAgentId)
     const tx = this.db.transaction(() => {
       this.db.prepare(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values, id)
       if (updates.labelIds !== undefined) this.setTaskLabelsInternal(id, updates.labelIds)
@@ -2394,79 +2385,6 @@ export class SqliteStorage
     }
   }
 
-  // ---- SDD artifacts (gate state + pointer to change-branch file; §5/§10) ----
-  // The canonical content lives on the git change branch at content_ref, never here.
-
-  taskArtifactGet(taskId: number, kind: ArtifactKind): TaskArtifact | null {
-    const row = this.db
-      .prepare('SELECT * FROM task_artifacts WHERE task_id = ? AND kind = ?')
-      .get(taskId, kind) as Record<string, unknown> | undefined
-    return row ? this.rowToArtifact(row) : null
-  }
-
-  taskArtifactList(taskId: number): TaskArtifact[] {
-    const rows = this.db
-      .prepare('SELECT * FROM task_artifacts WHERE task_id = ? ORDER BY id ASC')
-      .all(taskId) as Array<Record<string, unknown>>
-    return rows.map((r) => this.rowToArtifact(r))
-  }
-
-  taskArtifactUpsert(taskId: number, kind: ArtifactKind, input: UpsertArtifactInput): TaskArtifact {
-    const now = Date.now()
-    const existing = this.taskArtifactGet(taskId, kind)
-    if (!existing) {
-      this.db
-        .prepare(
-          `INSERT INTO task_artifacts
-             (task_id, kind, status, approved_by_type, approved_by, approved_at, content_ref, content_sha, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          taskId,
-          kind,
-          input.status ?? 'draft',
-          input.approvedByType ?? null,
-          input.approvedBy ?? null,
-          input.approvedAt ?? null,
-          input.contentRef ?? null,
-          input.contentSha ?? null,
-          now,
-        )
-      return this.taskArtifactGet(taskId, kind)!
-    }
-    const fields: string[] = ['updated_at = ?']
-    const values: unknown[] = [now]
-    const set = (col: string, val: unknown) => {
-      fields.push(`${col} = ?`)
-      values.push(val)
-    }
-    if (input.status !== undefined) set('status', input.status)
-    if (input.approvedByType !== undefined) set('approved_by_type', input.approvedByType)
-    if (input.approvedBy !== undefined) set('approved_by', input.approvedBy)
-    if (input.approvedAt !== undefined) set('approved_at', input.approvedAt)
-    if (input.contentRef !== undefined) set('content_ref', input.contentRef)
-    if (input.contentSha !== undefined) set('content_sha', input.contentSha)
-    this.db
-      .prepare(`UPDATE task_artifacts SET ${fields.join(', ')} WHERE task_id = ? AND kind = ?`)
-      .run(...values, taskId, kind)
-    return this.taskArtifactGet(taskId, kind)!
-  }
-
-  private rowToArtifact(row: Record<string, unknown>): TaskArtifact {
-    return {
-      id: row.id as number,
-      taskId: row.task_id as number,
-      kind: row.kind as ArtifactKind,
-      status: row.status as TaskArtifact['status'],
-      approvedByType: (row.approved_by_type as 'human' | 'agent' | null) ?? null,
-      approvedBy: (row.approved_by as number | null) ?? null,
-      approvedAt: (row.approved_at as number | null) ?? null,
-      contentRef: (row.content_ref as string | null) ?? null,
-      contentSha: (row.content_sha as string | null) ?? null,
-      updatedAt: row.updated_at as number,
-    }
-  }
-
   private setTaskLabelsInternal(taskId: number, labelIds: number[]): void {
     this.db.prepare('DELETE FROM task_labels WHERE task_id = ?').run(taskId)
     const ins = this.db.prepare('INSERT OR IGNORE INTO task_labels (task_id, label_id) VALUES (?, ?)')
@@ -2746,10 +2664,6 @@ export class SqliteStorage
       branchName: (row.branch_name as string | null) ?? null,
       workspaceId: (row.workspace_id as number | null) ?? null,
       bindingId: (row.binding_id as number | null) ?? null,
-      sddManaged: !!(row.sdd_managed as number),
-      specAuthorAgentId: (row.spec_author_agent_id as number | null) ?? null,
-      planAnchor: (row.plan_anchor as string | null) ?? null,
-      claimedAcs: row.claimed_acs ? (JSON.parse(row.claimed_acs as string) as string[]) : null,
       specStage: isSpecStage(row.spec_stage) ? row.spec_stage : null,
       blockedBy: row.blocked_by ? (JSON.parse(row.blocked_by as string) as number[]) : null,
       specProgress: specProgressOf(row.spec_progress),

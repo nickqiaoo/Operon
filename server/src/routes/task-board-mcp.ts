@@ -20,7 +20,7 @@ import type {
 } from '../storage/interface.js'
 import { TaskBoardService, type ToolResult } from '../services/agent-comm/task-board-service.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
-import type { ArtifactKind, TaskPriority, TaskStatus } from '../types/task.js'
+import type { TaskPriority, TaskStatus } from '../types/task.js'
 import { TASKBOARD_TOOLS } from '@shared/taskboard/tools'
 import { START_SPEC_DESCRIPTION } from '../services/spec/prompts.js'
 
@@ -135,7 +135,6 @@ const TOOLS: Tool[] = [
         taskId: { type: 'number', description: 'Database id — open the task detail page by this' },
         taskNumber: { type: 'number', description: 'Per-project number shown as #N' },
         title: { type: 'string' },
-        sddManaged: { type: 'boolean' },
         spec: { type: 'boolean' },
       },
       required: ['kind', 'taskId', 'taskNumber'],
@@ -152,38 +151,6 @@ const TOOLS: Tool[] = [
         answers: { type: 'string', description: "The user's answers, numbered to match the questions" },
       },
       required: ['task', 'answers'],
-    },
-  },
-  {
-    name: TASKBOARD_TOOLS.writeArtifact,
-    description:
-      "SDD: write an artifact file onto the task's change branch. spec/plan are the author's, written before Dispatch (you must be the task's spec author); acceptance is the verifier's report on a finished change, written only if you were dispatched as its verifier. A fresh write lands as draft and needs human approval (Gate-0) before work can start.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task: { type: 'number', description: 'Task number' },
-        kind: {
-          type: 'string',
-          enum: ['spec', 'plan', 'acceptance', 'spec_delta'],
-          description:
-            'Which artifact to write. spec_delta = this change\'s delta against the living spec — one or more `## Capability: <name>` sections, each with ADDED/MODIFIED/REMOVED/RENAMED Requirements (requirements matched by `### Requirement:` header text). A brand-new capability is an all-ADDED delta.',
-        },
-        content: { type: 'string', description: 'Full markdown content of the artifact' },
-      },
-      required: ['task', 'kind', 'content'],
-    },
-  },
-  {
-    name: TASKBOARD_TOOLS.sedimentChange,
-    description:
-      "SDD: apply this change's spec_delta into the living spec(s) on the default branch (§13). For each `## Capability:` in the delta, reads that capability's current living spec as base and applies ADDED/MODIFIED/REMOVED/RENAMED matched by `### Requirement:` header text (a new capability bootstraps from empty). Defaults to a dry-run preview; pass apply:true to write onto the change branch. Semantic conflicts (e.g. MODIFIED a requirement whose header doesn't exist) halt for a human.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task: { type: 'number', description: 'Parent task number to sediment' },
-        apply: { type: 'boolean', description: 'Write the result (default false = preview only)' },
-      },
-      required: ['task'],
     },
   },
   {
@@ -222,11 +189,7 @@ function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Serv
 
   // All board tools are always listed. A spec is not a pre-armed "mode": a chat
   // becomes one when its agent calls start_spec, and every spec tool validates its
-  // own context at call time (start_spec needs a workspace chat; the SDD v2
-  // write/sediment tools need an existing v2 task).
-  // Decomposition is deliberately NOT an agent tool: approve+decompose happen
-  // atomically when the human presses Dispatch (routes/task.ts prepareSddParent),
-  // so an agent could never call it at a moment when it would succeed.
+  // own context at call time (start_spec needs a workspace chat).
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -301,17 +264,6 @@ async function dispatch(
 
     case TASKBOARD_TOOLS.answerSpecQuestions:
       return board.answerSpecQuestions(Number(args.task), String(args.answers ?? ''))
-
-    case TASKBOARD_TOOLS.writeArtifact:
-      return board.writeArtifact(
-        Number(args.task),
-        args.kind as ArtifactKind,
-        String(args.content),
-        agentId,
-      )
-
-    case TASKBOARD_TOOLS.sedimentChange:
-      return board.sediment(Number(args.task), args.apply === true, agentId)
 
     case TASKBOARD_TOOLS.submitPullRequest:
       return board.submitPullRequest(

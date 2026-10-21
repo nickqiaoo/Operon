@@ -8,8 +8,8 @@ import { sanitizeSegment, worktreePathFor } from './worktree-paths.js'
 
 /**
  * A new workspace for a project: a fresh branch checked out in its own worktree under operon's
- * managed worktrees dir (`worktreePathFor`), recorded so it shows in the sidebar. Shared by SDD
- * task dispatch and the personal assistant.
+ * managed worktrees dir (`worktreePathFor`), recorded so it shows in the sidebar. Shared by spec
+ * change branches and the personal assistant.
  */
 export async function provisionWorkspace(
   storage: Pick<ProjectStorageAdapter, 'getProject' | 'createWorkspace'>,

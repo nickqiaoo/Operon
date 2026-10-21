@@ -14,8 +14,6 @@ export const TASKBOARD_TOOLS = {
   commentProjectTask: 'comment_project_task',
   startSpec: 'start_spec',
   answerSpecQuestions: 'answer_spec_questions',
-  writeArtifact: 'write_artifact',
-  sedimentChange: 'sediment_change',
   submitPullRequest: 'submit_pull_request',
 } as const
 
@@ -60,7 +58,8 @@ export interface CreatedTaskRef {
   taskId: number
   taskNumber: number
   title: string
-  sddManaged: boolean
+  /** SDD v2 spec task — only in transcripts from before OperonSpec. */
+  sddManaged?: boolean
   /** An OperonSpec parent: the card shows its live stage and the design gate. */
   spec?: boolean
 }

@@ -128,7 +128,7 @@ export async function startChat(
 
   const chatId = chatRecord.chatId
   const cwd = resolveWorkspaceCwd(payload.workspaceId)
-  // Backfill the SDD promote source with the server-assigned chatId. The route
+  // Backfill the spec source chat with the server-assigned chatId. The route
   // sets agentId/projectId but leaves sourceChatId unset because a new chat's
   // first message has no chatId yet; chatRecord.chatId is the real id even on
   // message #1 (prepareChatRecord created the row). Doing it here — before the

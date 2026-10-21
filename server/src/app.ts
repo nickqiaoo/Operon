@@ -19,7 +19,6 @@ import { projectRoutes } from './routes/project.js'
 import { agentRoutes, agentBindingRoutes, channelRoutes } from './routes/channel.js'
 import { taskRoutes } from './routes/task.js'
 import { notificationRoutes } from './routes/notifications.js'
-import { sddRoutes } from './routes/sdd.js'
 import { specRoutes } from './routes/spec.js'
 import { sweepInterruptedSpecRuns } from './services/spec/spec-service.js'
 import { sweepBuilds } from './services/spec/build-run.js'
@@ -295,7 +294,6 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/channels', channelRoutes(deps.storage))
   app.route('/api/tasks', taskRoutes(deps.storage))
   app.route('/api/inbox', notificationRoutes(deps.storage))
-  app.route('/api/sdd', sddRoutes(deps.storage))
   app.route('/api/spec', specRoutes(deps.storage))
   app.route('/api/workspace-chat-mcp', workspaceChatMcpRoutes(deps.storage))
   app.route('/api/task-board-mcp', taskBoardMcpRoutes(deps.storage))

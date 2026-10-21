@@ -43,9 +43,6 @@ import type {
   CreateTaskLabelInput,
   CreateTaskInput as CreateProjectTaskInput,
   UpdateTaskInput as UpdateProjectTaskInput,
-  TaskArtifact,
-  ArtifactKind,
-  UpsertArtifactInput,
   TaskSurface,
   TaskSurfaceInput,
   TaskSurfaceKind,
@@ -299,7 +296,6 @@ export interface ChannelStorageAdapter {
   /** Omit projectId for every project's channels (the global Channels view). */
   listChannels(projectId?: number): Channel[]
   deleteChannel(id: number): void
-  /** Toggle the per-channel SDD master switch (§9). Returns the updated channel, or null if absent. */
 
   // Members
   addMember(channelId: number, agentId: number): ChannelMember
@@ -363,12 +359,6 @@ export interface TaskStorageAdapter {
   specRunUpdate(taskId: number, updates: UpdateSpecRunInput): SpecRun | null
   /** Runs whose stage is one of `stages`. */
   specRunList(stages: readonly SpecStage[]): SpecRun[]
-
-  // SDD artifacts (gate state + pointer to the change-branch file; §5/§10).
-  // The canonical content lives in git, not here: these rows only carry status/ref/sha.
-  taskArtifactGet(taskId: number, kind: ArtifactKind): TaskArtifact | null
-  taskArtifactList(taskId: number): TaskArtifact[]
-  taskArtifactUpsert(taskId: number, kind: ArtifactKind, input: UpsertArtifactInput): TaskArtifact
 }
 
 /**

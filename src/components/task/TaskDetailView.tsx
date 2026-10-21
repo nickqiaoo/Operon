@@ -10,7 +10,6 @@ import {
   Plus,
   Archive,
   ArchiveRestore,
-  ShieldCheck,
   Send,
   Loader2,
   UserRound,
@@ -40,7 +39,6 @@ import { useIntl, FormattedMessage, type IntlShape } from 'react-intl'
 import { useTaskStore } from '@/stores/task-store'
 import { useChannelStore } from '@/stores/channel-store'
 import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime } from './task-meta'
-import { SddArtifactsPanel } from './SddArtifactsPanel'
 import { SpecPanel } from '@/components/spec/SpecPanel'
 import { STATUS_MESSAGES, ACTOR_MESSAGES, priorityMessage, activityEventMessage } from './task-i18n'
 import {
@@ -48,15 +46,12 @@ import {
   TASK_STATUSES,
   isValidTaskTransition,
 } from '@/types/task'
-import type { TaskActivity, TaskDetail, TaskListItem, TaskPriority, TaskStatus, PreparedSubtask, TaskSurface, UpdateTaskInput } from '@/types/task'
+import type { TaskActivity, TaskDetail, TaskListItem, TaskPriority, TaskStatus, TaskSurface, UpdateTaskInput } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
 import type { LinearPublishOptions } from '@/types/integrations'
-import { DispatchDialog } from './DispatchDialog'
 import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
-import { VerifyDialog } from './VerifyDialog'
 import { cn } from '@/lib/utils'
 import { toastTaskError } from './task-error-toast'
-import { splitPlanTaskText } from '@shared/taskboard/plan-task'
 
 interface TaskDetailViewProps {
   detail: TaskDetail
@@ -108,27 +103,15 @@ export function TaskDetailView({
     [detail.blockedBy, allTasks],
   )
   const setArchived = useTaskStore((s) => s.setArchived)
-  const prepare = useTaskStore((s) => s.prepare)
 
-  // Children created before plan rows were split stored the whole Markdown row
-  // in title and left description empty. Present those records correctly without
-  // silently rewriting persisted task data.
-  const legacyPlanText =
-    detail.sddManaged && detail.parentTaskId != null && !detail.description
-      ? splitPlanTaskText(detail.title)
-      : null
-  const displayedTitle = legacyPlanText?.title ?? detail.title
-  const displayedDescription = legacyPlanText?.description ?? detail.description
 
   const [dispatching, setDispatching] = useState(false)
-  const [dispatchSubtasks, setDispatchSubtasks] = useState<PreparedSubtask[] | null>(null)
-  const [verifyOpen, setVerifyOpen] = useState(false)
   const [manageAgents, setManageAgents] = useState(false)
   const isArchived = detail.archivedAt != null
   const [editingTitle, setEditingTitle] = useState(false)
-  const [titleDraft, setTitleDraft] = useState(displayedTitle)
+  const [titleDraft, setTitleDraft] = useState(detail.title)
   const [editingDesc, setEditingDesc] = useState(false)
-  const [descDraft, setDescDraft] = useState(displayedDescription)
+  const [descDraft, setDescDraft] = useState(detail.description)
   const [commentDraft, setCommentDraft] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -139,23 +122,17 @@ export function TaskDetailView({
   const saveTitle = () => {
     setEditingTitle(false)
     const next = titleDraft.trim()
-    if (next && next !== displayedTitle) {
-      updateDetail({
-        title: next,
-        ...(legacyPlanText ? { description: legacyPlanText.description } : {}),
-      })
+    if (next && next !== detail.title) {
+      updateDetail({ title: next })
     } else {
-      setTitleDraft(displayedTitle)
+      setTitleDraft(detail.title)
     }
   }
 
   const saveDesc = () => {
     setEditingDesc(false)
-    if (descDraft !== displayedDescription) {
-      updateDetail({
-        description: descDraft,
-        ...(legacyPlanText ? { title: legacyPlanText.title } : {}),
-      })
+    if (descDraft !== detail.description) {
+      updateDetail({ description: descDraft })
     }
   }
 
@@ -237,7 +214,7 @@ export function TaskDetailView({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') saveTitle()
                 if (e.key === 'Escape') {
-                  setTitleDraft(displayedTitle)
+                  setTitleDraft(detail.title)
                   setEditingTitle(false)
                 }
               }}
@@ -246,12 +223,12 @@ export function TaskDetailView({
           ) : (
             <h1
               onClick={() => {
-                setTitleDraft(displayedTitle)
+                setTitleDraft(detail.title)
                 setEditingTitle(true)
               }}
               className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-muted/20 rounded px-1 -mx-1"
             >
-              {displayedTitle}
+              {detail.title}
             </h1>
           )}
 
@@ -268,7 +245,7 @@ export function TaskDetailView({
                 onBlur={saveDesc}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
-                    setDescDraft(displayedDescription)
+                    setDescDraft(detail.description)
                     setEditingDesc(false)
                   }
                 }}
@@ -278,18 +255,18 @@ export function TaskDetailView({
             ) : (
               <div
                 onClick={() => {
-                  setDescDraft(displayedDescription)
+                  setDescDraft(detail.description)
                   setEditingDesc(true)
                 }}
                 className={cn(
                   'text-sm cursor-text rounded-lg p-3 min-h-[44px] transition-colors',
-                  displayedDescription
+                  detail.description
                     ? 'text-foreground/80 -m-3 hover:bg-muted/20'
                     : 'border border-dashed border-border/50 hover:border-border/60 hover:bg-muted/20'
                 )}
               >
-                {displayedDescription ? (
-                  <MarkdownRenderer content={displayedDescription} />
+                {detail.description ? (
+                  <MarkdownRenderer content={detail.description} />
                 ) : (
                   <span className="text-muted-foreground/40"><FormattedMessage id="task.detail.addDescription" defaultMessage="Add a description…" /></span>
                 )}
@@ -300,8 +277,8 @@ export function TaskDetailView({
           {/* Sub-tasks (epic path) */}
           <SubtasksSection detail={detail} />
 
-          {/* SDD artifacts (spec/plan/acceptance + human approval gates) */}
-          {detail.specStage != null ? <SpecPanel taskId={detail.id} stage={detail.specStage} onOpenWorkspace={onOpenWorkspace} /> : detail.sddManaged && <SddArtifactsPanel task={detail} />}
+          {/* OperonSpec: design, tickets, review and both gates */}
+          {detail.specStage != null && <SpecPanel taskId={detail.id} stage={detail.specStage} onOpenWorkspace={onOpenWorkspace} />}
 
           {/* Activity — timeline, oldest first, composer pinned at the end */}
           <div>
@@ -487,33 +464,6 @@ export function TaskDetailView({
             </Button>
           )}
 
-          {/* Verify — opt-in independent check of a finished change (§11.2⑦). Only
-              offered for a parent change in review, where Gate-2p guarantees every
-              subtask already merged, so the verifier sees the whole change. Skipping
-              is a supported path: setting Status to Done signs off directly, and the
-              acceptance it records says no verification ran. */}
-          {detail.sddManaged && detail.parentTaskId == null && detail.status === 'in_review' && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full gap-2 h-8"
-              onClick={() => setVerifyOpen(true)}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <FormattedMessage id="task.detail.verify" defaultMessage="Run verifier" />
-            </Button>
-          )}
-
-          {verifyOpen && (
-            <VerifyDialog
-              taskId={detail.id}
-              agents={agents}
-              implementerAgentId={detail.assignedAgentId}
-              onClose={() => setVerifyOpen(false)}
-              onDispatched={() => setVerifyOpen(false)}
-            />
-          )}
-
           {/* Dispatch — start (or restart) the assigned agent in the task worktree.
               Shown whenever the task is assigned and has no live execution session,
               regardless of status — so a task that reached in_progress without ever
@@ -533,16 +483,6 @@ export function TaskDetailView({
                   if (detail.assignedAgentId == null) return
                   setDispatching(true)
                   try {
-                    // SDD feature parent → prepare (approve + decompose) then let
-                    // the user pick an agent per subtask. Tiny changes (no subtasks)
-                    // and non-SDD tasks dispatch straight through.
-                    if (detail.sddManaged && detail.parentTaskId == null) {
-                      const subs = await prepare(detail.id)
-                      if (subs.length > 0) {
-                        setDispatchSubtasks(subs)
-                        return
-                      }
-                    }
                     await dispatch(detail.id, detail.assignedAgentId)
                   } catch (error) {
                     toastTaskError(error, 'Dispatch failed')
@@ -595,17 +535,6 @@ export function TaskDetailView({
               {resuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               <FormattedMessage id="task.detail.resume" defaultMessage="Resume" />
             </Button>
-          )}
-
-          {dispatchSubtasks && (
-            <DispatchDialog
-              taskId={detail.id}
-              subtasks={dispatchSubtasks}
-              agents={agents}
-              defaultAgentId={detail.assignedAgentId}
-              onClose={() => setDispatchSubtasks(null)}
-              onDispatched={() => setDispatchSubtasks(null)}
-            />
           )}
 
           {/* Execution session status — the agent running IN the task worktree,
@@ -1118,9 +1047,6 @@ function EventIcon({ activity: a }: { activity: TaskActivity }) {
       return <Zap className={cls} />
     case 'branch':
       return <GitBranch className={cls} />
-    case 'verify':
-    case 'gate':
-      return <ShieldCheck className={cls} />
     default:
       return <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
   }

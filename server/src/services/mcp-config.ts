@@ -266,7 +266,7 @@ export function buildMcpServersForCli(
   } else if (options?.agentId && options.projectId) {
     // workspace_chat = agent-to-agent messaging within the project. Only for
     // channel/binding agents; a direct user chat (sourceChatId) is solo and has
-    // no peers to message, so it gets taskboard (SDD) but not workspace_chat.
+    // no peers to message, so it gets taskboard but not workspace_chat.
     if (!options.sourceChatId) {
       servers['workspace_chat'] = {
         type: 'http',
@@ -277,7 +277,7 @@ export function buildMcpServersForCli(
       type: 'http',
       url: withApiToken(
         `http://127.0.0.1:${appPort}/api/task-board-mcp?agentId=${options.agentId}&projectId=${options.projectId}` +
-        // SDD promote source — derived server-side, never model-supplied. A channel
+        // Where the board's calls come from — derived server-side, never model-supplied. A channel
         // agent carries channelId; a direct user chat carries sourceChatId (mutually
         // exclusive). start_spec needs the chat: its results are delivered back there.
         (options.channelId ? `&channelId=${options.channelId}` : '') +

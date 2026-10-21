@@ -64,16 +64,16 @@ export interface AgentMcpContext {
   imBridge?: boolean
   /**
    * Channel this session is bound to (channel-scoped agent sessions). Threaded
-   * to the taskboard MCP so SDD `create_spec_task` derives its channel from the
-   * session context instead of trusting a model-supplied id.
+   * to the taskboard MCP so the board derives its channel from the session
+   * context instead of trusting a model-supplied id.
    */
   channelId?: number
   /**
    * Direct workspace chat this session IS (interactive user chat). Threaded to
-   * the taskboard MCP as the alternative SDD promote source: `create_spec_task`
-   * turns this chat into a spec-driven task when there's no channel. Mutually
-   * exclusive with channelId. When set, the session is given the taskboard MCP
-   * (but not workspace_chat) and the SDD create-spec hint.
+   * the taskboard MCP so `start_spec` can start a spec from this chat and
+   * deliver its results back here. Mutually exclusive with channelId. When set,
+   * the session is given the taskboard MCP (but not workspace_chat) and the
+   * spec hint.
    */
   sourceChatId?: number
 }

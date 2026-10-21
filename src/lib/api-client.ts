@@ -25,7 +25,6 @@ import type {
   CreateTaskLabelInput,
   TaskStatus,
   TaskPriority,
-  PreparedSubtask,
 } from '../types/task.js'
 
 let _baseUrl: string | null = null
@@ -158,29 +157,9 @@ export function errorMessage(body: Record<string, unknown> | null, fallback?: st
     stringValue(body?.message) ??
     stringValue(body?.error) ??
     stringValue(body?.reason) ??
-    gateBlockMessage(body) ??
     (fallback?.trim() ? fallback : undefined) ??
     'Request failed'
   )
-}
-
-function gateBlockMessage(body: Record<string, unknown> | null): string | undefined {
-  if (!body || body.blocked !== true) return undefined
-  const gate = stringValue(body.gate)
-  const next = stringValue(body.next)
-  if (gate && next) return `SDD gate blocked (${gate}): ${next}`
-  if (next) return next
-
-  const reasons = Array.isArray(body.reasons)
-    ? body.reasons
-        .map(asRecord)
-        .map((reason) => stringValue(reason?.hint))
-        .filter((hint): hint is string => Boolean(hint))
-    : []
-  if (reasons.length === 0) return gate ? `SDD gate blocked (${gate})` : undefined
-  return gate
-    ? `SDD gate blocked (${gate}): ${reasons.join('; ')}`
-    : reasons.join('; ')
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -826,44 +805,16 @@ export async function inboxStreamUrl(): Promise<string> {
   return `${baseUrl}/inbox/stream`
 }
 
-export function taskDispatch(
-  taskId: number,
-  assignedAgentId: number,
-  subtaskAgents?: Record<number, number>,
-) {
+export function taskDispatch(taskId: number, assignedAgentId: number) {
   return request<{ task: TaskDetail }>(`/tasks/${taskId}/dispatch`, {
     method: 'POST',
-    body: JSON.stringify({ assignedAgentId, subtaskAgents }),
+    body: JSON.stringify({ assignedAgentId }),
   })
 }
 
 /** Pick a dispatched task back up in its own agent session (after a restart, or a turn that stopped short). */
 export function taskResume(taskId: number) {
   return request<{ woke: boolean; task: TaskDetail }>(`/tasks/${taskId}/resume`, { method: 'POST' })
-}
-
-/**
- * Prepare an SDD parent for dispatch: server auto-signs spec/plan + decomposes,
- * and returns the resulting subtasks so the UI can assign an agent to each. An
- * empty list means a tiny single-task change — just taskDispatch it directly.
- */
-export function taskPrepare(taskId: number) {
-  return request<{ subtasks: PreparedSubtask[]; error?: string }>(`/tasks/${taskId}/prepare`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  })
-}
-
-/**
- * Run an independent verifier over a change that is in review. Opt-in — skipping
- * it and marking Done straight away is a supported path (the sign-off then records
- * that nothing was verified). 409 carries the reason as `{ error }`.
- */
-export function taskVerify(taskId: number, agentId: number) {
-  return request<{ task: TaskDetail; error?: string }>(`/tasks/${taskId}/verify`, {
-    method: 'POST',
-    body: JSON.stringify({ agentId }),
-  })
 }
 
 export function taskLabelList(projectId: number | null) {

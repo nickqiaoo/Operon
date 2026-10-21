@@ -13,7 +13,7 @@ export interface Agent {
   permissionMode: string
   canDelegate: boolean
   /** Hidden from user-facing agent pickers (channel member list, dispatch assignee, @mention).
-   *  Used for the implicit `Workspace Assistant` spec author of chat-sourced SDD tasks. */
+   *  Used for the implicit `Workspace Assistant` a direct workspace chat acts as. */
   hidden: boolean
   env: AgentEnvVar[]
   createdAt: number

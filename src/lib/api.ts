@@ -32,7 +32,6 @@ import type {
   IMProviderUpdateInput,
   IMSourceMeta,
 } from '@/types/im'
-import type { TaskArtifact, ArtifactKind } from '@/types/task'
 import type { RemotePairingQrPayload, RemotePairingStatus } from '@shared/e2ee/protocol'
 
 export type ProjectDTO = {
@@ -1211,8 +1210,6 @@ export const api = {
   taskComment: httpClient.taskComment,
   taskDispatch: httpClient.taskDispatch,
   taskResume: httpClient.taskResume,
-  taskPrepare: httpClient.taskPrepare,
-  taskVerify: httpClient.taskVerify,
   taskStreamUrl: httpClient.taskStreamUrl,
 
   // --- Notification inbox ---
@@ -1231,28 +1228,6 @@ export const api = {
   specResume: httpClient.specResume,
   specSignOff: httpClient.specSignOff,
   specStop: httpClient.specStop,
-  // --- Spec-Driven Development (SDD) ---
-  sddArtifacts: (taskId: number) =>
-    softGet<{ artifacts?: TaskArtifact[]; error?: string }>(`/sdd/tasks/${taskId}/artifacts`),
-  sddWriteArtifact: (taskId: number, kind: ArtifactKind, content: string) =>
-    softPost<{ artifact?: TaskArtifact; error?: string }>(`/sdd/tasks/${taskId}/artifacts/${kind}`, {
-      content,
-    }),
-  sddMergeSubtask: (taskId: number) =>
-    softPost<{ result?: { parentTaskNumber: number; mergedBranch: string }; error?: string }>(
-      `/sdd/tasks/${taskId}/merge`,
-      {},
-    ),
-  sddSediment: (taskId: number, apply: boolean) =>
-    softPost<{
-      result?: {
-        capability: string
-        applied: boolean
-        conflicts: Array<{ kind: string; id: string; detail: string }>
-        preview: string
-      }
-      error?: string
-    }>(`/sdd/tasks/${taskId}/sediment`, { apply }),
   taskLabelList: httpClient.taskLabelList,
   taskLabelCreate: httpClient.taskLabelCreate,
   agentStop: httpClient.agentStop,

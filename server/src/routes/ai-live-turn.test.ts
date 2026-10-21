@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { aiRoutes } from './ai.js'
 import { emitPresence, startLiveTurn } from '../services/ai/live-turn-hub.js'
 
-// The live-attach endpoints only touch the in-memory hub, so the SDD storage the
+// The live-attach endpoints only touch the in-memory hub, so the storage the
 // router takes for the /chat POST path is never reached here.
 const storage = {} as unknown as Parameters<typeof aiRoutes>[0]
 

@@ -20,14 +20,12 @@ import {
   mergeBranch,
   worktreeAdd,
   worktreeRemove,
-  deleteLocalBranch,
   excludeLocally,
   MergeConflictError,
   worktreeList,
 } from '../git.js'
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
-import { SDD_WORKFLOW_PROMPT } from '../sdd/sdd-prompt.js'
 import { SPEC_FILES, specDir } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
 import {
@@ -39,19 +37,7 @@ import {
 } from '../spec/build-run.js'
 import { SURFACE_PROMPT, observeTaskChatPart, taskHasSurfaces } from '../../gateway/surfaces/task-surface-bridge.js'
 import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
-import {
-  changeBranchName,
-  mergeChildIntoParent,
-  nextDispatchableChildren,
-  sedimentChange,
-  approveArtifact,
-  writeArtifact,
-  assertGateOrThrow,
-  detectAndApplyDrift,
-  GateError,
-  type ArtifactActor,
-  type GateBlock,
-} from '../sdd/sdd-service.js'
+import { changeBranchName, mergeChildIntoParent, type ChangeActor } from '../spec/change-branch.js'
 import type { Task, TaskStatus } from '../../types/task.js'
 import { deliverToBinding } from '../message-router.js'
 import {
@@ -224,10 +210,9 @@ export async function ensureAgentWorktree(agentId: number, projectId: number): P
  * worktree-paths.ts), not in the repo's sibling directory.
  *
  * `branchName` / `baseBranch` / `worktreeName` override the default per-agent
- * naming — used by SDD child dispatch to put a change-scoped branch
- * (`operon/task-<N>`) cut off the parent change branch into a change-scoped
- * worktree, so the branch belongs to the change (survives author→executor
- * handoff), not the agent (§5.3).
+ * naming — used by spec ticket dispatch to put a change-scoped branch
+ * (`operon/task-<N>`) cut off the spec's change branch into a change-scoped
+ * worktree, so the branch belongs to the change, not the agent.
  */
 export async function provisionAgentWorkspace(
   agentId: number,
@@ -350,21 +335,12 @@ async function startBindingChat(
       `agent=${agent.name}(${agent.id}) firstStartup=${isFirstStartup} chatId=${binding.activeChatId ?? 'none'}`,
   )
 
-  // SDD v2 prompt layering: an executor on a v2 SDD task gets the full workflow
-  // rules (gates / acceptance / sediment) from the start. New specs are
-  // OperonSpecs, started from workspace chats — channel agents get no spec hint.
-  // Persona + SDD layering travel as session instructions, re-derived on EVERY
-  // start (not just first startup) — providers bake instructions at session
-  // creation and resume does not restore a previous value.
+  // The persona travels as session instructions, re-derived on EVERY start (not
+  // just first startup) — providers bake instructions at session creation and
+  // resume does not restore a previous value.
   let instructions = buildAgentSystemPrompt(agent)
-  const taskSddManaged =
-    binding.scopeKind === 'task' && !!storage.taskGet(Number(binding.scopeKey))?.sddManaged
-  if (taskSddManaged) {
-    instructions += `\n\n${SDD_WORKFLOW_PROMPT}`
-  }
   // A task that is visible on Linear / GitHub gets told how to talk there and
-  // how code leaves the worktree (design.md §12). SDD rules decide when work
-  // may start; this block decides how it is reported and shipped.
+  // how code leaves the worktree (design.md §12).
   if (binding.scopeKind === 'task' && taskHasSurfaces(Number(binding.scopeKey))) {
     instructions += `\n\n${SURFACE_PROMPT}`
   }
@@ -726,35 +702,23 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
   const agent = storage.getAgent(assignedAgentId)
   if (!agent) throw new Error(`Agent ${assignedAgentId} not found`)
 
-  // Per-task worktree — independent execution agent, no shared workspace.
-  // SDD child (§7 ④): cut a change-scoped branch `operon/task-<N>` off the
-  // PARENT change branch, so siblings each own one branch (single-writer, §5.4)
-  // and the branch belongs to the change, not the agent.
-  // An OperonSpec ticket is the same shape: its design lives on the parent's
-  // change branch, so it has to start from there to see it.
+  // Per-task worktree — independent execution agent, no shared workspace. A
+  // spec ticket cuts its own change-scoped branch `operon/task-<N>` off the
+  // spec's change branch: the design lives there, and so does every ticket
+  // merged before it.
   const parentTask = task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
-  const sddParent = parentTask && (task.sddManaged || parentTask.specStage != null) ? parentTask : null
-  // An SDD parent already owns its change-branch worktree from promote
-  // (`operon/task-<N>` + workspace, where spec/plan/acceptance live). A
-  // small-change parent must execute THERE, not on a divergent `operon/<agent>/…`
-  // branch — otherwise its code never lands on the change branch. Reuse it.
-  const existingParentWorkspace =
-    task.sddManaged && task.parentTaskId == null && task.workspaceId != null
-      ? storage.getWorkspace(task.workspaceId)
-      : null
-  const workspace = existingParentWorkspace
-    ? existingParentWorkspace
-    : sddParent
-      ? await provisionAgentWorkspace(assignedAgentId, task.projectId, {
-          workspaceName: `${agent.name} · task #${task.number}`,
-          branchName: changeBranchName(task.number),
-          baseBranch: sddParent.branchName ?? undefined,
-          worktreeName: `task-${task.number}`,
-        })
-      : await provisionAgentWorkspace(assignedAgentId, task.projectId, {
-          suffix: `task-${task.number}`,
-          workspaceName: `${agent.name} · task #${task.number}`,
-        })
+  const specParent = parentTask?.specStage != null ? parentTask : null
+  const workspace = specParent
+    ? await provisionAgentWorkspace(assignedAgentId, task.projectId, {
+        workspaceName: `${agent.name} · task #${task.number}`,
+        branchName: changeBranchName(task.number),
+        baseBranch: specParent.branchName ?? undefined,
+        worktreeName: `task-${task.number}`,
+      })
+    : await provisionAgentWorkspace(assignedAgentId, task.projectId, {
+        suffix: `task-${task.number}`,
+        workspaceName: `${agent.name} · task #${task.number}`,
+      })
 
   const binding = ensureTaskBinding(
     storage,
@@ -785,44 +749,31 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
   })
   broadcastTask(storage, taskId)
   // The first ticket under way puts the spec itself in progress.
-  if (parentTask?.specStage != null && parentTask.status === 'todo') {
-    storage.taskUpdate(parentTask.id, { status: 'in_progress' }, { type: 'system', name: 'system' })
-    broadcastTask(storage, parentTask.id)
+  if (specParent && specParent.status === 'todo') {
+    storage.taskUpdate(specParent.id, { status: 'in_progress' }, { type: 'system', name: 'system' })
+    broadcastTask(storage, specParent.id)
   }
 
-  // An OperonSpec ticket carries its acceptance and interfaces in the description;
-  // the design it implements lives on the parent's change branch, which this branch
-  // was cut from. None of the v2 plan-item / AC-ownership vocabulary applies.
-  const specTicketPrompt =
-    parentTask?.specStage != null
-      ? `\nThis is a ticket of spec #${parentTask.number}. Your branch was cut from the spec's change ` +
-        `branch, so the design is already in your worktree: read ` +
-        `\`${specDir(parentTask.number)}/${SPEC_FILES.design}\` (and \`${SPEC_FILES.grounding}\` next to it) ` +
-        `before coding, then build exactly this ticket — nothing another ticket owns. If the design ` +
-        `contradicts itself in a small way, decide, write "Ruling: …, because …" in your report and keep ` +
-        `going; stop only for something destructive or irreversible. When you finish, commit your work on ` +
-        `this branch (the ticket is merged from its commits, so uncommitted changes are lost), then post your report ` +
-        `with comment_project_task: what you built, the commands you actually ran with their results, every ruling, ` +
-        `and anything that departs from the design. Then move the ticket to in_review — a separate reviewer reads that ` +
-        `report against your diff, and either merges the ticket or sends its points back to you here.\n`
-      : ''
-  const sddChildPrompt = specTicketPrompt
-    ? specTicketPrompt
-    : sddParent
-    ? `\nThis is a spec-driven subtask of #${sddParent.number}` +
-      (task.planAnchor ? ` (plan item ${task.planAnchor})` : '') +
-      `. Your branch was cut from the parent change branch. Before coding, call ` +
-      `get_project_task(task: ${task.number}) to read the parent spec/plan and the acceptance ` +
-      `criteria you own${task.claimedAcs?.length ? ` (${task.claimedAcs.join(', ')})` : ''}; ` +
-      `implement exactly your plan item, nothing outside it. To pass review (Gate-2) the ` +
-      `subtask must own ≥1 AC. Expect an independent verifier to check those AC against your ` +
-      `code afterwards — leave the change in a state where each one can actually be demonstrated.\n`
+  // A spec ticket carries its acceptance and interfaces in the description; the
+  // design it implements lives on the spec's change branch, which this branch
+  // was cut from.
+  const specTicketPrompt = specParent
+    ? `\nThis is a ticket of spec #${specParent.number}. Your branch was cut from the spec's change ` +
+      `branch, so the design is already in your worktree: read ` +
+      `\`${specDir(specParent.number)}/${SPEC_FILES.design}\` (and \`${SPEC_FILES.grounding}\` next to it) ` +
+      `before coding, then build exactly this ticket — nothing another ticket owns. If the design ` +
+      `contradicts itself in a small way, decide, write "Ruling: …, because …" in your report and keep ` +
+      `going; stop only for something destructive or irreversible. When you finish, commit your work on ` +
+      `this branch (the ticket is merged from its commits, so uncommitted changes are lost), then post your report ` +
+      `with comment_project_task: what you built, the commands you actually ran with their results, every ruling, ` +
+      `and anything that departs from the design. Then move the ticket to in_review — a separate reviewer reads that ` +
+      `report against your diff, and either merges the ticket or sends its points back to you here.\n`
     : ''
-  // SDD children already get a forced pre-read via sddChildPrompt; every other
-  // task needs its own, because a comment left BEFORE dispatch lives only in the
-  // activity feed (never inlined into this prompt) and is only guaranteed to be
-  // seen if the agent reads the task first. get_project_task always renders `## Activity`.
-  const readFirstPrompt = sddParent
+  // A ticket already gets its forced pre-read above; every other task needs its
+  // own, because a comment left BEFORE dispatch lives only in the activity feed
+  // (never inlined into this prompt) and is only guaranteed to be seen if the
+  // agent reads the task first. get_project_task always renders `## Activity`.
+  const readFirstPrompt = specParent
     ? ''
     : `\nBefore you start coding, call get_project_task(task: ${task.number}) to read the full ` +
       `task — its description and the discussion/comments left before dispatch may carry ` +
@@ -830,7 +781,7 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
   const taskPrompt =
     `You've been assigned task #${task.number}: ${task.title}\n` +
     (task.description ? `\n${task.description}\n` : '') +
-    sddChildPrompt +
+    specTicketPrompt +
     readFirstPrompt +
     `\nYou are working on branch \`${workspace.branchName}\` in a dedicated worktree — ` +
     `this is your isolated workspace for this task. Implement it here.\n\n` +
@@ -860,7 +811,7 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
  *
  * Idempotent and guarded:
  *  - skips unless assigned and `in_progress`
- *  - skips a decomposed SDD parent (it coordinates; its children get dispatched)
+ *  - skips a spec parent (it coordinates; its tickets get dispatched)
  *  - skips if a live execution session already exists for the task
  * Errors are logged, never thrown — callers fire-and-forget.
  */
@@ -869,10 +820,8 @@ export async function maybeAutoDispatchTask(taskId: number): Promise<void> {
   if (!storage) return
   const task = storage.taskGet(taskId)
   if (!task || task.assignedAgentId == null || task.status !== 'in_progress') return
-  // A decomposed SDD parent is a coordinator — its children execute, not it.
-  if (task.sddManaged && task.parentTaskId == null && storage.taskListChildren(task.id).length > 0) {
-    return
-  }
+  // A spec parent is a coordinator — its tickets execute, not it.
+  if (task.specStage != null) return
   // Already running? A live task binding (active/idle with a chat) means an
   // execution session exists — don't start a second one. A binding without a
   // worktree is not one: Done removed it, and a reopened task needs it back.
@@ -892,119 +841,6 @@ export async function maybeAutoDispatchTask(taskId: number): Promise<void> {
 }
 
 /**
- * Validate an SDD parent for the human Done path. Approves acceptance (moving a
- * change to done IS the human acceptance approval, mirroring how Dispatch
- * approves spec/plan) and sediments the spec delta onto the change branch. The
- * caller marks the parent done only after that change branch successfully
- * merges to the default branch. Acceptance is a natural-language verification
- * summary for the human reviewer — nothing is executed here; actual
- * verification happens in review (human or an agent working the checklist).
- *
- * Returns a structured result so HTTP can surface a 409 without throwing.
- *
- * Blocks (ok:false) when acceptance isn't written or a gate is unmet (e.g. a
- * child still open). The parent stays put; a human resolves it and the next
- * done attempt retries.
- */
-export async function attemptFinalizeSddParent(
-  parentId: number,
-  actor: ArtifactActor,
-): Promise<{ ok: true } | { ok: false; reason: string; gateDetail?: GateBlock }> {
-  const storage = _storage
-  if (!storage) return { ok: false, reason: 'orchestrator not initialised' }
-  const parent = storage.taskGet(parentId)
-  if (!parent || !parent.sddManaged || parent.parentTaskId != null) {
-    return { ok: false, reason: 'not an SDD parent' }
-  }
-  if (parent.status === 'done') return { ok: true }
-
-  // Gate-3 needs acceptance written + approved. Acceptance is the verifier's
-  // report, so a missing one means nobody verified this change — allowed (a
-  // verifier is opt-in), but it must not look the same afterwards as a verified
-  // sign-off. Record the fact on the change branch instead of blocking: the file
-  // itself says no verification ran, so `git log`/review shows how it was signed.
-  let acc = storage.taskArtifactGet(parent.id, 'acceptance')
-  if (!acc) {
-    const stamp = `Signed off by ${actor.name} without running a verifier.`
-    try {
-      acc = await writeArtifact(storage, {
-        taskId: parent.id,
-        kind: 'acceptance',
-        content:
-          `# Acceptance — #${parent.number}\n\n` +
-          `**No verification was run.** ${stamp} No acceptance criterion was independently\n` +
-          `checked, and this file records that rather than any evidence.\n\n` +
-          `To verify instead: move the change back to In Review and run a verifier.\n`,
-        caller: actor,
-      })
-    } catch (err) {
-      return {
-        ok: false,
-        reason: err instanceof Error ? err.message : 'could not record unverified sign-off',
-      }
-    }
-    storage.taskAppendActivity(parent.id, {
-      kind: 'system',
-      actorType: 'system',
-      actorName: 'system',
-      body: 'Signed off without verification — acceptance records that no verifier ran.',
-      meta: { event: 'signoff.unverified', unverified: true },
-    })
-  }
-  if (acc.status !== 'approved') {
-    try {
-      await approveArtifact(storage, { taskId: parent.id, kind: 'acceptance', approver: actor })
-    } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : 'approve acceptance failed' }
-    }
-  }
-
-  // Gate-3: spec + acceptance approved + every child done/cancelled.
-  await detectAndApplyDrift(storage, parent)
-  try {
-    assertGateOrThrow(storage, parent, 'done')
-  } catch (err) {
-    if (err instanceof GateError) return { ok: false, reason: err.message, gateDetail: err.detail }
-    return { ok: false, reason: err instanceof Error ? err.message : 'gate check failed' }
-  }
-
-  // All gates clear → sediment the delta into the living spec on the change branch.
-  // The caller marks the task done only after the change branch has merged to main.
-  if (storage.taskArtifactGet(parent.id, 'spec_delta')) {
-    try {
-      const res = await sedimentChange(storage, parent.id, actor, { apply: true })
-      if (res.conflicts.length > 0) {
-        const details = res.conflicts.map((c) => `${c.id}: ${c.detail}`).join('; ')
-        storage.taskAppendActivity(parent.id, {
-          kind: 'system',
-          actorType: 'system',
-          actorName: 'system',
-          body: `Sediment blocked for ${res.capability} — ${res.conflicts.length} semantic conflict(s).`,
-          meta: { capability: res.capability, conflicts: res.conflicts },
-        })
-        broadcastTask(storage, parent.id)
-        return {
-          ok: false,
-          reason: `sediment blocked for ${res.capability}: ${details || `${res.conflicts.length} semantic conflict(s)`}`,
-        }
-      }
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      storage.taskAppendActivity(parent.id, {
-        kind: 'system',
-        actorType: 'system',
-        actorName: 'system',
-        body: `Sediment failed — ${reason}`,
-        meta: { error: reason },
-      })
-      broadcastTask(storage, parent.id)
-      return { ok: false, reason: `sediment failed: ${reason}` }
-    }
-  }
-  return { ok: true }
-}
-
-/**
  * A task entering in_review is a review state only. It intentionally does not
  * merge anything: the human reviewer marks the task done after reviewing, and
  * that done action performs the merge.
@@ -1014,178 +850,17 @@ export async function attemptFinalizeSddParent(
 export async function maybeAutoIntegrate(
   taskId: number,
   toStatus: TaskStatus,
-  _actor: ArtifactActor,
+  _actor: ChangeActor,
 ): Promise<void> {
   const storage = _storage
   if (!storage) return
   const task = storage.taskGet(taskId)
   if (!task || task.parentTaskId == null || toStatus !== 'in_review') return
   // A spec ticket is reviewed by an agent from another family, not by a person.
-  if (isReviewedTicket(storage, taskId)) {
-    onTicketInReview(storage, taskId)
-    return
-  }
-  if (!task.sddManaged) return
-  storage.taskAppendActivity(taskId, {
-    kind: 'system',
-    actorType: 'system',
-    actorName: 'system',
-    body: 'Ready for human review. Mark Done after review to merge this subtask into its parent.',
-    meta: { event: 'review.ready' },
-  })
-  broadcastTask(storage, taskId)
+  if (isReviewedTicket(storage, taskId)) onTicketInReview(storage, taskId)
 }
 
-/** Branch/worktree name for a parent change's throwaway verification checkout. */
-function verifyBranchName(taskNumber: number): string {
-  return `operon/verify-task-${taskNumber}`
-}
-
-/**
- * Run an independent verifier over a completed SDD parent change (§11.2⑦). Opt-in:
- * the human picks the agent at parent review time, or skips and signs off unverified.
- *
- * Deliberately NOT `dispatchProjectTask`: that function forces `in_progress`,
- * overwrites `assignedAgentId`/`bindingId`, and tells the agent to implement. A
- * verifier must leave all three alone — the parent stays `in_review` and keeps
- * pointing at its implementer, so this only adds a second binding on the task.
- *
- * The verifier gets its own worktree cut from the change branch, not the change
- * branch worktree itself: "you are read-only" is not enforceable against an LLM,
- * and anything it wrote there would ride along into main. Its findings still land
- * on the change branch, because `write_artifact` writes to `task.workspaceId`
- * (the parent's worktree) regardless of where the caller is running — so the
- * report is durable while stray edits are thrown away with the checkout.
- *
- * The branch name is stable per task, so re-running a verifier reuses the same
- * worktree instead of piling up new ones.
- */
-export async function dispatchVerifier(taskId: number, verifierAgentId: number): Promise<void> {
-  const storage = _storage
-  if (!storage) throw new Error('Orchestrator not initialised')
-
-  const task = storage.taskGet(taskId)
-  if (!task) throw new Error(`Task ${taskId} not found`)
-  if (!task.sddManaged || task.parentTaskId != null) {
-    throw new Error(`Task #${task.number} is not an SDD parent change`)
-  }
-  if (task.status !== 'in_review') {
-    throw new Error(
-      `Task #${task.number} is ${task.status} — a verifier only runs on a change that is in review`,
-    )
-  }
-  if (task.branchName == null) {
-    throw new Error(`Task #${task.number} has no change branch to verify`)
-  }
-  const agent = storage.getAgent(verifierAgentId)
-  if (!agent) throw new Error(`Agent ${verifierAgentId} not found`)
-  const project = storage.getProject(task.projectId)
-  if (!project) throw new Error(`Project ${task.projectId} not found`)
-
-  // Re-cut the checkout from scratch every run. The branch name is stable, and
-  // provisionAgentWorkspace would happily reuse an existing branch — which after a
-  // FAIL → fix → re-verify round trip still points at the OLD change-branch tip,
-  // so the verifier would review code that has since been rewritten. Dropping the
-  // worktree and the branch first is the only way the next checkout sees HEAD.
-  await cleanupVerifyWorktrees(taskId)
-  await deleteLocalBranch(project.rootPath, verifyBranchName(task.number))
-
-  const workspace = await provisionAgentWorkspace(verifierAgentId, task.projectId, {
-    workspaceName: `${agent.name} · verify #${task.number}`,
-    branchName: verifyBranchName(task.number),
-    baseBranch: task.branchName,
-    worktreeName: `verify-task-${task.number}`,
-  })
-
-  const binding = ensureTaskBinding(
-    storage,
-    taskId,
-    task.number,
-    task.projectId,
-    verifierAgentId,
-    workspace.id,
-  )
-
-  storage.taskAppendActivity(taskId, {
-    kind: 'system',
-    actorType: 'system',
-    actorName: 'system',
-    body: `Verification started by ${agent.name} on \`${workspace.branchName}\``,
-    meta: { event: 'verify.started', agent: agent.name, verifierAgentId, branch: workspace.branchName },
-  })
-  broadcastTask(storage, taskId)
-
-  const implementer =
-    task.assignedAgentId != null && task.assignedAgentId !== verifierAgentId
-      ? storage.getAgent(task.assignedAgentId)?.name
-      : null
-  const verifyPrompt =
-    `You are the independent verifier for spec-driven change #${task.number}: ${task.title}\n\n` +
-    `You did not implement this change${implementer ? ` — ${implementer} did` : ''}. Do not take ` +
-    `the implementer's reports at face value; check the code and the diff yourself.\n\n` +
-    `Start with get_project_task(task: ${task.number}) — it gives you the spec (with its ` +
-    `\`{#AC-n}\` scenarios), the plan, and the full activity history.\n\n` +
-    `You are in a throwaway worktree on branch \`${workspace.branchName}\`, cut from the change ` +
-    `branch \`${task.branchName}\`, which holds the complete merged change. Inspect it: read the ` +
-    `diff against the default branch, read the code, and run whatever each acceptance criterion ` +
-    `actually needs.\n\n` +
-    `Verify EVERY \`{#AC-n}\` the spec defines, one at a time. For each, record what you did, what ` +
-    `you observed, and PASS or FAIL. A check you did not actually run is not a PASS. Also look for ` +
-    `requirements that were missed, work that went beyond the spec, and requirements that were ` +
-    `misread.\n\n` +
-    `When you're done, file your report with write_artifact(task: ${task.number}, ` +
-    `kind: "acceptance", content: "...") — one section per AC with the evidence, then an overall ` +
-    `verdict. That file is what the human signs off on, and it lands on the change branch (not in ` +
-    `your worktree). Then post a one-paragraph summary with comment_project_task(task: ` +
-    `${task.number}, body: "...").\n\n` +
-    `Constraints: do not modify code — your worktree is discarded, so edits there are lost and ` +
-    `pointless. Do not change the task status and do not mark anything done. If something FAILs, ` +
-    `report it and stop; the human decides what happens next.`
-
-  await deliverToBinding(
-    storage,
-    {
-      binding,
-      injectNotification: () => verifyPrompt,
-      wakePrompt: verifyPrompt,
-      ensureWorkspace: () => Promise.resolve(workspace.id),
-      startChat: (prompt, workspaceId) => startBindingChat(binding, prompt, workspaceId, false),
-    },
-    { logTag: 'TaskVerify', debounceMs: DEBOUNCE_MS },
-  )
-}
-
-/**
- * Remove the throwaway verification worktrees on a task — any binding whose
- * workspace isn't the task's own. Called when the change is signed off; by then
- * the verifier's report has long since landed on the change branch.
- *
- * Must run BEFORE cleanupTaskWorktree, which nulls `task.workspaceId` (the very
- * field that distinguishes the task's own workspace from a verifier's).
- * Best-effort: failures are logged, never thrown.
- */
-async function cleanupVerifyWorktrees(taskId: number): Promise<void> {
-  const storage = _storage
-  if (!storage) return
-  const task = storage.taskGet(taskId)
-  if (!task) return
-  const project = storage.getProject(task.projectId)
-  if (!project) return
-  for (const binding of storage.listBindingsForScope('task', String(taskId))) {
-    if (binding.workspaceId == null || binding.workspaceId === task.workspaceId) continue
-    const ws = storage.getWorkspace(binding.workspaceId)
-    if (!ws) continue
-    try {
-      await worktreeRemove(project.rootPath, ws.worktreePath, true)
-    } catch (err) {
-      console.warn(`[Cleanup] verify worktree remove failed for task ${taskId}:`, err)
-    }
-    storage.deleteWorkspace(ws.id)
-    storage.updateBinding(binding.id, { workspaceId: null })
-  }
-}
-
-type CompletionResult = { ok: true } | { ok: false; reason: string; gateDetail?: GateBlock }
+type CompletionResult = { ok: true } | { ok: false; reason: string }
 
 function localBranchName(ref: string | null): string | null {
   if (!ref) return null
@@ -1214,7 +889,7 @@ async function commitOutstandingTaskWork(taskId: number): Promise<void> {
   }
 }
 
-async function mergeTaskBranchToDefault(taskId: number, actor: ArtifactActor): Promise<CompletionResult> {
+async function mergeTaskBranchToDefault(taskId: number, actor: ChangeActor): Promise<CompletionResult> {
   const storage = _storage
   if (!storage) return { ok: false, reason: 'orchestrator not initialised' }
   const task = storage.taskGet(taskId)
@@ -1313,7 +988,7 @@ async function handBackMergeConflict(task: Task, parent: Task, err: MergeConflic
  */
 export async function landSpecTicket(
   taskId: number,
-  actor: ArtifactActor,
+  actor: ChangeActor,
 ): Promise<CompletionResult | { ok: false; reason: string; handedBack: true }> {
   const storage = _storage
   if (!storage) return { ok: false, reason: 'orchestrator not initialised' }
@@ -1341,12 +1016,12 @@ export async function landSpecTicket(
 
 /**
  * Human "Done" path after review. The task is marked done only after the relevant
- * merge succeeds: SDD children merge into their parent change branch; ordinary
- * tasks and SDD parents merge their task branch into the default branch.
+ * merge succeeds: spec tickets merge into their spec's change branch; ordinary
+ * tasks and spec parents merge their branch into the default branch.
  */
 export async function completeTaskAfterHumanReview(
   taskId: number,
-  actor: ArtifactActor,
+  actor: ChangeActor,
 ): Promise<CompletionResult> {
   const storage = _storage
   if (!storage) return { ok: false, reason: 'orchestrator not initialised' }
@@ -1359,78 +1034,6 @@ export async function completeTaskAfterHumanReview(
   if (changeParent?.specStage != null) {
     const landed = await landSpecTicket(taskId, actor)
     return landed.ok ? landed : { ok: false, reason: landed.reason }
-  }
-  if (task.parentTaskId != null && task.sddManaged) {
-    if (task.status !== 'in_review') {
-      return { ok: false, reason: 'subtask must be In Review before it can be marked Done' }
-    }
-    try {
-      await mergeChildIntoParent(storage, taskId, actor)
-    } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : 'merge into parent failed' }
-    }
-    storage.taskUpdate(
-      taskId,
-      { status: 'done' },
-      { type: actor.type, id: actor.id ?? undefined, name: actor.name },
-    )
-    broadcastTask(storage, taskId)
-    await cleanupTaskWorktree(taskId)
-
-    const siblings = storage.taskListChildren(task.parentTaskId)
-    if (siblings.every((s) => s.status === 'done' || s.status === 'cancelled')) {
-      // Every subtask is merged into the parent change branch, so the parent now
-      // holds the complete change: move it to in_review, which for a parent means
-      // "ready to be verified and signed", not "an agent is still working". The
-      // human either runs a verifier (POST /tasks/:id/verify) or marks Done.
-      const parent = storage.taskGet(task.parentTaskId)
-      if (parent && parent.status !== 'in_review' && parent.status !== 'done') {
-        storage.taskUpdate(
-          task.parentTaskId,
-          { status: 'in_review' },
-          { type: 'system', name: 'system' },
-        )
-      }
-      storage.taskAppendActivity(task.parentTaskId, {
-        kind: 'system',
-        actorType: 'system',
-        actorName: 'system',
-        body: 'All subtasks are merged into the change branch. Run a verifier, or mark Done to sign off unverified.',
-        meta: {},
-      })
-      broadcastTask(storage, task.parentTaskId)
-    } else {
-      // This subtask's work is now merged into the parent change branch, which may
-      // release the next wave: their branches get cut from the parent HERE, so they
-      // actually see what just landed. Best-effort — a dispatch failure must not
-      // undo the Done we already committed.
-      const parent = storage.taskGet(task.parentTaskId)
-      if (parent) {
-        try {
-          const ready = await nextDispatchableChildren(storage, parent)
-          for (const next of ready) {
-            if (next.assignedAgentId == null) continue
-            await dispatchProjectTask(next.id, next.assignedAgentId)
-            storage.taskAppendActivity(parent.id, {
-              kind: 'system',
-              actorType: 'system',
-              actorName: 'system',
-              body: `Started queued subtask #${next.number}${next.planAnchor ? ` (${next.planAnchor})` : ''} — its wave is now unblocked.`,
-              meta: { childTaskId: next.id },
-            })
-          }
-          if (ready.length > 0) broadcastTask(storage, parent.id)
-        } catch (err) {
-          console.error(`[SDD] failed to start next wave for parent ${parent.id}:`, err)
-        }
-      }
-    }
-    return { ok: true }
-  }
-
-  if (task.sddManaged && task.parentTaskId == null) {
-    const finalized = await attemptFinalizeSddParent(taskId, actor)
-    if (!finalized.ok) return finalized
   }
   if (task.specStage != null) {
     const open = storage.taskListChildren(task.id).filter((c) => c.status !== 'done' && c.status !== 'cancelled')
@@ -1450,8 +1053,6 @@ export async function completeTaskAfterHumanReview(
     { type: actor.type, id: actor.id ?? undefined, name: actor.name },
   )
   broadcastTask(storage, taskId)
-  // Order matters: this reads task.workspaceId, which cleanupTaskWorktree nulls.
-  await cleanupVerifyWorktrees(taskId)
   await cleanupTaskWorktree(taskId)
   return { ok: true }
 }

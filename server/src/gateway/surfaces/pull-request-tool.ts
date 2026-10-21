@@ -51,8 +51,8 @@ export async function submitPullRequest(
 ): Promise<SubmitPullRequestResult> {
   const fail = (text: string): SubmitPullRequestResult => ({ text, isError: true })
 
-  if (task.sddManaged && task.parentTaskId != null) {
-    return fail('Subtasks merge into the parent change branch; the parent task opens the pull request.')
+  if (task.parentTaskId != null && storage.taskGet(task.parentTaskId)?.specStage != null) {
+    return fail('Tickets merge into the spec\'s change branch; the spec opens the pull request.')
   }
   const workspace = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
   if (!workspace) return fail('This task has no worktree yet; it must be dispatched first.')

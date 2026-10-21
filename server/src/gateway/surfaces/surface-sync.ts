@@ -22,7 +22,6 @@ import {
   maybeAutoDispatchTask,
   maybeAutoIntegrate,
 } from '../../services/channel/agent-orchestrator.js'
-import { assertGateOrThrow, detectAndApplyDrift, GateError } from '../../services/sdd/sdd-service.js'
 import { announceToSurfaces } from './task-surface-bridge.js'
 import { fromLinearPriority, pickLinearState, statusOfLinearState, toLinearPriority } from './linear-mapping.js'
 
@@ -37,8 +36,8 @@ export { fromLinearPriority, pickLinearState, statusOfLinearState, toLinearPrior
 // Outbound, the task is diffed against the same snapshot after every broadcast.
 //
 // Not in the set: the assignee (on Linear it is always the workspace agent; on
-// operon it is an agent, not a person), agent-session activities, SDD
-// artifacts, subtasks.
+// operon it is an agent, not a person), agent-session activities,
+// spec files, subtasks.
 
 type Storage = TaskStorageAdapter & ChannelStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter
 
@@ -243,16 +242,6 @@ async function applyStatusFromLinear(task: Task, status: TaskStatus, actorName: 
     notifyTaskStatusChange(st, task, 'done', task.status)
     writeSnapshot(task.id, surface, { status: 'done' })
     return
-  }
-  try {
-    if (task.sddManaged) await detectAndApplyDrift(st, task)
-    assertGateOrThrow(st, task, status)
-  } catch (e) {
-    if (e instanceof GateError) {
-      note(`Linear moved the issue to ${status}, but a gate blocks it: ${e.message}`)
-      return
-    }
-    throw e
   }
   st.taskUpdate(task.id, { status }, actor)
   writeSnapshot(task.id, surface, { status })

@@ -24,8 +24,8 @@ type ChannelStorage = ChannelStorageAdapter
 export function agentRoutes(storage: ChannelStorage) {
   const router = new Hono()
 
-  // Hidden agents (e.g. the implicit `Workspace Assistant` spec author for
-  // chat-sourced SDD tasks) are excluded from this list — it feeds every
+  // Hidden agents (e.g. the implicit `Workspace Assistant` a workspace chat
+  // acts as) are excluded from this list — it feeds every
   // user-facing agent picker (channel members, dispatch assignee, @mention).
   // Server-side callers that need them resolve by id via getAgent().
   router.get('/', (c) => c.json({ agents: storage.listAgents().filter((a) => !a.hidden) }))

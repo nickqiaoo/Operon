@@ -7,16 +7,6 @@ import type { SpecProgress, SpecStage, SpecTicketState } from '@shared/spec'
 
 export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
 
-/** A subtask surfaced by POST /tasks/:id/prepare, for per-subtask agent assignment in the dispatch dialog. */
-export interface PreparedSubtask {
-  id: number
-  number: number
-  title: string
-  planAnchor: string | null
-  claimedAcs: string[] | null
-  assignedAgentId: number | null
-}
-
 /** 0 none · 1 low · 2 medium · 3 high · 4 urgent. Sort DESC = urgent first. */
 export type TaskPriority = 0 | 1 | 2 | 3 | 4
 
@@ -37,14 +27,6 @@ export interface Task {
   branchName: string | null
   workspaceId: number | null
   bindingId: number | null
-  /** SDD: governed by the spec-driven gates? */
-  sddManaged: boolean
-  /** SDD parent: the single agent allowed to write spec/plan; null if none. */
-  specAuthorAgentId: number | null
-  /** SDD child: anchor into the parent plan item; null for parents. */
-  planAnchor: string | null
-  /** SDD child: AC ids this task is responsible for; null for parents. */
-  claimedAcs: string[] | null
   /** OperonSpec parent: where the spec stands; null for every other task. */
   specStage: SpecStage | null
   /** OperonSpec ticket: sibling task ids that must finish before this one can start. */
@@ -58,25 +40,6 @@ export interface Task {
   archivedAt: number | null
   createdAt: number
   updatedAt: number
-}
-
-export type ArtifactKind = 'spec' | 'plan' | 'acceptance' | 'spec_delta'
-export type ArtifactStatus = 'draft' | 'approved'
-
-/** SDD artifact gate-state (canonical content lives in the change-branch file at contentRef). */
-export interface TaskArtifact {
-  id: number
-  taskId: number
-  kind: ArtifactKind
-  status: ArtifactStatus
-  approvedByType: 'human' | 'agent' | null
-  approvedBy: number | null
-  approvedAt: number | null
-  contentRef: string | null
-  contentSha: string | null
-  updatedAt: number
-  /** Current file content, included by GET /sdd/tasks/:id/artifacts. */
-  content?: string | null
 }
 
 export interface TaskLabel {
@@ -94,8 +57,9 @@ export type TaskActivityKind =
   | 'dispatch'
   | 'branch'
   | 'system'
-  | 'verify' // SDD: analyze / acceptance results
-  | 'gate' // SDD: a gate blocked or was signed
+  // SDD v2 verifier results and gate events — old rows only, nothing writes them now.
+  | 'verify'
+  | 'gate'
 export type TaskActorType = 'human' | 'agent' | 'system'
 
 export interface TaskActivity {

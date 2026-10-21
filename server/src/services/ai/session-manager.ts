@@ -91,7 +91,7 @@ const buildStructuralKey = (params: HostSessionOptions): string =>
     codex: params.codex ?? {},
     opencode: params.opencode ?? {},
     // NOTE: instructions is intentionally excluded. For a given chat it is stable:
-    // a workspace chat gets the SDD hint from its first message on (chat-flow
+    // a workspace chat gets the spec hint from its first message on (chat-flow
     // resolves sourceChatId before the session exists), and a channel agent's
     // persona is what it was when the session was built. The trade-off taken is
     // that editing a persona no longer forces a rebuild — the new one lands when

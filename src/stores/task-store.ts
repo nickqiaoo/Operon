@@ -4,7 +4,6 @@ import { trackEvent } from '@/lib/analytics'
 import type {
   CreateTaskInput,
   CreateTaskLabelInput,
-  PreparedSubtask,
   TaskDetail,
   TaskLabel,
   TaskListItem,
@@ -27,15 +26,9 @@ interface TaskStore {
   create: (input: Omit<CreateTaskInput, 'projectId'> & { projectId?: number }) => Promise<TaskDetail>
   update: (taskId: number, updates: UpdateTaskInput) => Promise<void>
   setArchived: (taskId: number, archived: boolean) => Promise<void>
-  dispatch: (
-    taskId: number,
-    assignedAgentId: number,
-    subtaskAgents?: Record<number, number>,
-  ) => Promise<void>
+  dispatch: (taskId: number, assignedAgentId: number) => Promise<void>
   /** Wake a dispatched task's agent in its existing session to carry on. */
   resume: (taskId: number) => Promise<void>
-  /** SDD parent: auto approve+decompose, returning its subtasks (empty = tiny change). */
-  prepare: (taskId: number) => Promise<PreparedSubtask[]>
   comment: (taskId: number, body: string) => Promise<void>
   /** Apply a live task_upsert from the SSE stream (agent or other-window change). */
   applyUpsert: (task: TaskListItem) => void
@@ -155,8 +148,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
-  dispatch: async (taskId, assignedAgentId, subtaskAgents) => {
-    const { task } = await api.taskDispatch(taskId, assignedAgentId, subtaskAgents)
+  dispatch: async (taskId, assignedAgentId) => {
+    const { task } = await api.taskDispatch(taskId, assignedAgentId)
     set((s) => ({
       tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
       detail: s.detail && s.detail.id === taskId ? task : s.detail,
@@ -169,11 +162,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
       detail: s.detail && s.detail.id === taskId ? task : s.detail,
     }))
-  },
-
-  prepare: async (taskId) => {
-    const { subtasks } = await api.taskPrepare(taskId)
-    return subtasks ?? []
   },
 
   applyUpsert: (task) => {

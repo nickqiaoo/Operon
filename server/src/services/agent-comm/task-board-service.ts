@@ -14,16 +14,7 @@ import {
   maybeAutoIntegrate,
 } from '../channel/agent-orchestrator.js'
 import {
-  assertGateOrThrow,
-  GateError,
-  writeArtifact as sddWriteArtifact,
-  planAcWarnings,
-  sedimentChange,
-  readArtifactContent,
-} from '../sdd/sdd-service.js'
-import {
   isValidTaskTransition,
-  type ArtifactKind,
   type Task,
   type TaskActivity,
   type TaskPriority,
@@ -33,6 +24,7 @@ import { getChatStorage } from '../ai/state.js'
 import { getProviders } from '../ai/providers.js'
 import { isReviewedTicket } from '../spec/build-run.js'
 import { SpecError, answerSpecQuestions, startSpec } from '../spec/spec-service.js'
+import { SPEC_FILES, specDir } from '../spec/files.js'
 
 /**
  * A tool result that carries a machine-readable payload beside the prose. The
@@ -109,33 +101,20 @@ export class TaskBoardService {
     ]
     if (detail.branchName) lines.push(`branch=${detail.branchName}`)
     lines.push('', '## Description', detail.description || '(none)')
-    // SDD: surface spec/plan/acceptance (status + current content from the change branch).
-    if (detail.sddManaged && detail.parentTaskId != null) {
-      // Child task: it has no spec of its own — surface the PARENT's spec/plan/
-      // acceptance plus the AC ids this subtask owns (§11.1 / §4).
-      const parent = this.storage.taskGet(detail.parentTaskId)
+    // A spec: where it stands and where its files are. The files themselves are
+    // on the change branch; a ticket's worktree was cut from it.
+    const run = this.storage.specRunGet(detail.id)
+    if (run) {
       lines.push(
         '',
-        '## SDD (subtask)',
-        `parent=#${parent?.number ?? detail.parentTaskId} ` +
-          `planAnchor=${detail.planAnchor ?? '(none)'} ` +
-          `claimedAcs=${detail.claimedAcs?.join(', ') || '(none)'}`,
+        '## Spec',
+        `stage=${run.stage}; files in \`${specDir(detail.number)}/\` on \`${detail.branchName ?? '?'}\` ` +
+          `(${SPEC_FILES.brief}, ${SPEC_FILES.design}, ${SPEC_FILES.tickets}, ${SPEC_FILES.review})`,
       )
+    } else if (detail.parentTaskId != null && this.storage.specRunGet(detail.parentTaskId)) {
+      const parent = this.storage.taskGet(detail.parentTaskId)
       if (parent) {
-        for (const kind of ['spec', 'plan', 'acceptance'] as ArtifactKind[]) {
-          const content = await readArtifactContent(this.storage, parent, kind)
-          if (content != null) lines.push('', `### parent ${kind}`, content)
-        }
-      }
-    } else if (detail.sddManaged) {
-      const artifacts = this.storage.taskArtifactList(detail.id)
-      lines.push('', '## SDD Artifacts')
-      if (artifacts.length === 0) {
-        lines.push('(none yet — author writes spec via write_artifact)')
-      }
-      for (const a of artifacts) {
-        const content = await readArtifactContent(this.storage, detail, a.kind)
-        lines.push(`### ${a.kind} [${a.status}]`, content ?? '(no content)')
+        lines.push('', '## Spec', `ticket of spec #${parent.number}; design in \`${specDir(parent.number)}/${SPEC_FILES.design}\``)
       }
     }
     lines.push('', '## Activity')
@@ -202,12 +181,6 @@ export class TaskBoardService {
           `Human review required for #${number}: set it to in_review when ready; a human marks Done after review.`,
         )
       }
-      try {
-        assertGateOrThrow(this.storage, task, updates.status)
-      } catch (e) {
-        if (e instanceof GateError) return toolError(e.message)
-        throw e
-      }
     }
     this.storage.taskUpdate(task.id, updates, {
       type: 'agent',
@@ -234,7 +207,6 @@ export class TaskBoardService {
     return `Updated task #${number}.`
   }
 
-  /** Create an SDD parent task from a converged channel discussion (the caller becomes spec author). */
   /**
    * OperonSpec entry. Only a direct workspace chat can start one: the spec's
    * design results are delivered back into that conversation, and its provider
@@ -268,7 +240,6 @@ export class TaskBoardService {
         taskId: task.id,
         taskNumber: task.number,
         title: task.title,
-        sddManaged: false,
         spec: true,
       }
       if (reused) {
@@ -304,79 +275,6 @@ export class TaskBoardService {
     } catch (e) {
       if (e instanceof SpecError || e instanceof Error) return toolError(e.message)
       throw e
-    }
-  }
-
-  /** Write an artifact (spec/plan/acceptance) for an SDD task; single-writer enforced in sdd-service. */
-  async writeArtifact(
-    number: number,
-    kind: ArtifactKind,
-    content: string,
-    agentId: number,
-  ): Promise<string | ToolResult> {
-    const task = this.requireTask(number)
-    // Soft-warn (the single-writer ownership lock was removed): writing spec/plan
-    // when you aren't the recorded spec author is allowed, but surface it so the
-    // agent can reconsider clobbering someone else's authored artifact.
-    const overwritingOthersAuthorship =
-      (kind === 'spec' || kind === 'plan') &&
-      task.specAuthorAgentId != null &&
-      task.specAuthorAgentId !== agentId
-    try {
-      const artifact = await sddWriteArtifact(this.storage, {
-        taskId: task.id,
-        kind,
-        content,
-        caller: { type: 'agent', id: agentId, name: this.agentName(agentId) ?? 'agent' },
-      })
-      broadcastTask(this.storage, task.id)
-      let msg = `Wrote ${kind} for task #${number} (status: ${artifact.status}). Awaiting human approval.`
-      if (overwritingOthersAuthorship) {
-        const authorName =
-          this.agentName(task.specAuthorAgentId as number) ?? `agent ${task.specAuthorAgentId}`
-        msg +=
-          ` Note: this ${kind} was originally authored by ${authorName}, not you — you have just overwritten it, ` +
-          `and it is back to draft (needs re-approval). If that was not intended, coordinate via ` +
-          `get_project_task(${number}) / comment_project_task before rewriting.`
-      }
-      // A plan is the one artifact we can cross-check for free: its rows claim the
-      // AC ids the spec defines, so a mismatch is the author contradicting itself
-      // and is worth saying now rather than at sign-off (§8).
-      if (kind === 'plan') {
-        const warnings = await planAcWarnings(this.storage, task, content)
-        if (warnings.length > 0) {
-          msg += ` AC coverage: ${warnings.join(' ')}`
-        }
-      }
-      return msg
-    } catch (e) {
-      return toolError(`Could not write ${kind}: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
-  /** Sediment a change's spec_delta into the living spec (§13); preview unless apply (agent). */
-  async sediment(number: number, apply: boolean, agentId: number): Promise<string | ToolResult> {
-    const task = this.requireTask(number)
-    try {
-      const r = await sedimentChange(
-        this.storage,
-        task.id,
-        { type: 'agent', id: agentId, name: this.agentName(agentId) ?? 'agent' },
-        { apply },
-      )
-      if (r.conflicts.length > 0) {
-        return (
-          `Sediment blocked for ${r.capability}: semantic conflict(s) — resolve with a human:\n` +
-          r.conflicts.map((c) => `- ${c.kind} ${c.id}: ${c.detail}`).join('\n')
-        )
-      }
-      if (apply) {
-        broadcastTask(this.storage, task.id)
-        return `Sedimented ${r.capability} into the living spec (on the change branch).`
-      }
-      return `Preview — ${r.capability} would sediment cleanly. Living spec after:\n\n${r.preview}`
-    } catch (e) {
-      return toolError(`Could not sediment #${number}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 

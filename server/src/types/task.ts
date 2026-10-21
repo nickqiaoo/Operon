@@ -23,20 +23,12 @@ export interface Task {
   assignedAgentId: number | null
   parentTaskId: number | null
   sourceChannelId: number | null
-  /** SDD: promoted from a direct workspace chat (chats.id); mutually exclusive with sourceChannelId. */
+  /** Started from a direct workspace chat (chats.id) — a spec reports back there; mutually exclusive with sourceChannelId. */
   sourceChatId: number | null
   sourceMessageId: number | null
   branchName: string | null
   workspaceId: number | null
   bindingId: number | null
-  /** SDD: is this task governed by the spec-driven gates? (§9) */
-  sddManaged: boolean
-  /** SDD parent: the recorded spec author (§5.4, ownership lock removed — others may write but get a soft-warn); null if none. */
-  specAuthorAgentId: number | null
-  /** SDD child: anchor into the parent plan.md item this task implements (e.g. 'T1'); null for parents. */
-  planAnchor: string | null
-  /** SDD child: AC ids this task is responsible for (e.g. ['AC-1','AC-2']); null for parents. */
-  claimedAcs: string[] | null
   /** OperonSpec parent: where the spec stands (from spec_runs); null for every other task. */
   specStage: SpecStage | null
   /** OperonSpec ticket: sibling task ids that must finish before this one can start. */
@@ -50,39 +42,6 @@ export interface Task {
   archivedAt: number | null
   createdAt: number
   updatedAt: number
-}
-
-export type ArtifactKind = 'spec' | 'plan' | 'acceptance' | 'spec_delta'
-export type ArtifactStatus = 'draft' | 'approved'
-
-/**
- * SDD artifact gate-state row. The canonical markdown lives in the change-branch file
- * at `contentRef` (§5) — this row carries only the gate status + pointer + sha.
- */
-export interface TaskArtifact {
-  id: number
-  taskId: number
-  kind: ArtifactKind
-  status: ArtifactStatus
-  /** Who signed it: 'human' | 'agent'; null = unsigned. */
-  approvedByType: 'human' | 'agent' | null
-  approvedBy: number | null
-  approvedAt: number | null
-  /** Path on the change branch; null before materialization. */
-  contentRef: string | null
-  /** git blob sha at approval, for drift detection. */
-  contentSha: string | null
-  updatedAt: number
-}
-
-/** Partial upsert for a task artifact row. Only provided fields are written. */
-export interface UpsertArtifactInput {
-  status?: ArtifactStatus
-  approvedByType?: 'human' | 'agent' | null
-  approvedBy?: number | null
-  approvedAt?: number | null
-  contentRef?: string | null
-  contentSha?: string | null
 }
 
 export interface TaskLabel {
@@ -100,8 +59,9 @@ export type TaskActivityKind =
   | 'dispatch'
   | 'branch'
   | 'system'
-  | 'verify' // SDD: analyze / acceptance results (§10)
-  | 'gate' // SDD: a gate blocked or was signed (§10)
+  // SDD v2 verifier results and gate events — old rows only, nothing writes them now.
+  | 'verify'
+  | 'gate'
 export type TaskActorType = 'human' | 'agent' | 'system'
 
 export interface TaskActivity {
@@ -187,11 +147,6 @@ export interface CreateTaskInput {
   sourceMessageId?: number | null
   labelIds?: number[]
   createdBy?: TaskCreatedBy
-  /** SDD fields (§4/§9). Set by create_spec_task for parents; child fields set when decomposing a plan. */
-  sddManaged?: boolean
-  specAuthorAgentId?: number | null
-  planAnchor?: string | null
-  claimedAcs?: string[] | null
   /** OperonSpec ticket: sibling task ids that must finish first. */
   blockedBy?: number[] | null
   /** Actor recorded on the auto-created "created this task" activity row. */
@@ -209,8 +164,6 @@ export interface UpdateTaskInput {
   branchName?: string | null
   workspaceId?: number | null
   bindingId?: number | null
-  /** SDD: reassign the spec/plan single-writer (human owner may change this anytime; §5.4). */
-  specAuthorAgentId?: number | null
   labelIds?: number[]
 }
 

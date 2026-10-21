@@ -19,7 +19,7 @@ import {
 } from '../../types/spec.js'
 import { provisionWorkspace } from '../workspace-provision.js'
 import { broadcastTask } from '../task-events.js'
-import { changeBranchName } from '../sdd/sdd-service.js'
+import { changeBranchName } from './change-branch.js'
 import { defaultSpecConfig, specPool, withBuildDefaults } from './config.js'
 import {
   SPEC_FILES,

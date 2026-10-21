@@ -1,6 +1,6 @@
 /**
  * OperonSpec — the spec workflow (v3), shared by the server (`/api/spec`, the
- * taskboard tools) and the desktop UI. See docs/operon-sdd-design.md.
+ * taskboard tools) and the desktop UI.
  *
  * A spec is a parent task plus a `spec_runs` row. The row says where the change
  * stands; everything the agents produced lives as files on the task's change

@@ -5,16 +5,18 @@ import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
 import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
 import { replaceLiveAgent, steerLiveAgent } from '../services/workflow/live-agents.js'
-import { getOrCreateWorkspaceAssistant, type SddStorage } from '../services/sdd/sdd-service.js'
-import type { AgentBindingStorageAdapter } from '../storage/interface.js'
+import { getOrCreateWorkspaceAssistant } from '../services/workspace-assistant.js'
+import type { AgentBindingStorageAdapter, ChannelStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 
-type AiRouteStorage = SddStorage & Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>
+type AiRouteStorage = Pick<ChannelStorageAdapter, 'getAgentByName' | 'createAgent'> &
+  Pick<ProjectStorageAdapter, 'getWorkspace'> &
+  Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>
 
 /**
- * Give an interactive workspace chat the SDD promote source it needs, so the
+ * Give an interactive workspace chat the task-board context it needs, so the
  * agent can `start_spec` from a plain conversation.
- * Derives the project from the chat's workspace and uses the hidden Workspace
- * Assistant as the recorded spec author. No-op unless this is a workspace-bound
+ * Derives the project from the chat's workspace and acts as the hidden
+ * Workspace Assistant. No-op unless this is a workspace-bound
  * user chat (cronjob/canvas/subagent/linear call startChat directly and never
  * hit this route; a chat with no workspace has no git project to spec against).
  *

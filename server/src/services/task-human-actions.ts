@@ -7,7 +7,6 @@ import {
   maybeAutoIntegrate,
   wakeTaskBinding,
 } from './channel/agent-orchestrator.js'
-import { assertGateOrThrow, detectAndApplyDrift, GateError, type SddStorage } from './sdd/sdd-service.js'
 import { broadcastTask } from './task-events.js'
 import { notifyTaskStatusChange } from './notification-service.js'
 import { mirrorHumanComment } from '../gateway/surfaces/surface-sync.js'
@@ -18,7 +17,7 @@ import { mirrorHumanComment } from '../gateway/surfaces/surface-sync.js'
  * first, in_progress starts the assignee, a comment wakes the task's agent.
  */
 
-export type HumanTaskStorage = TaskStorageAdapter & SddStorage & NotificationStorageAdapter
+export type HumanTaskStorage = TaskStorageAdapter & NotificationStorageAdapter
 
 export type HumanTaskResult = { ok: true } | { ok: false; status: 400 | 409; body: unknown }
 
@@ -34,21 +33,13 @@ export async function updateTaskAsHuman(
   }
   if (updates.status !== undefined) {
     // Human Done is the review sign-off. It performs the required merge first:
-    // SDD children merge into the parent branch; ordinary tasks and SDD parents
+    // spec tickets merge into the change branch; ordinary tasks and spec parents
     // merge their branch into the default branch. Only then is the task marked done.
     if (updates.status === 'done') {
       const res = await completeTaskAfterHumanReview(id, { type: 'human', id: null, name: actorName })
-      if (!res.ok) return { ok: false, status: 409, body: res.gateDetail ?? { error: res.reason } }
+      if (!res.ok) return { ok: false, status: 409, body: { error: res.reason } }
       notifyTaskStatusChange(storage, existing, 'done', existing.status)
       return { ok: true }
-    }
-    // Demote any drifted approved artifact first, so the gate sees fresh state.
-    if (existing.sddManaged) await detectAndApplyDrift(storage, existing)
-    try {
-      assertGateOrThrow(storage, existing, updates.status)
-    } catch (e) {
-      if (e instanceof GateError) return { ok: false, status: 409, body: e.detail }
-      throw e
     }
   }
   storage.taskUpdate(id, updates, { type: 'human', name: actorName })
@@ -62,7 +53,7 @@ export async function updateTaskAsHuman(
   if (updates.status === 'in_progress') {
     void maybeAutoDispatchTask(id).catch((err) => console.error('[Task] auto-dispatch after update failed:', err))
   } else if (updates.status === 'in_review') {
-    // Review-ready only. SDD child merge happens later when a human marks Done.
+    // Review-ready only; a spec ticket's reviewer starts here.
     void maybeAutoIntegrate(id, updates.status, { type: 'human', id: null, name: actorName }).catch((err) =>
       console.error('[Task] auto-integrate after update failed:', err),
     )

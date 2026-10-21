@@ -7,17 +7,7 @@ import {
   resumeProjectTask,
   TaskBlockedError,
   SpecDesignChangedError,
-  dispatchVerifier,
 } from '../services/channel/agent-orchestrator.js'
-import {
-  assertGateOrThrow,
-  detectAndApplyDrift,
-  approveArtifact,
-  decomposePlan,
-  nextDispatchableChildren,
-  GateError,
-  type SddStorage,
-} from '../services/sdd/sdd-service.js'
 import { broadcastTask } from '../services/task-events.js'
 import { onTaskEvent } from '../services/channel-bus.js'
 import { commentOnTaskAsHuman, updateTaskAsHuman } from '../services/task-human-actions.js'
@@ -25,7 +15,6 @@ import {
   type CreateTaskInput,
   type CreateTaskLabelInput,
   type ListTasksQuery,
-  type Task,
   type TaskPriority,
   type TaskStatus,
   type UpdateTaskInput,
@@ -33,53 +22,19 @@ import {
 
 const STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done', 'cancelled']
 
-/**
- * Project-level task routes (the "local Linear" board). Mounted at /api/tasks.
- * Project scope is passed via ?projectId= (query) or the request body, matching
- * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
- * list reads (tasks, labels, stream) take no projectId for every project.
- *
- * Dispatch (assign → run an agent in a worktree) is NOT here — it arrives in P3.
- */
-// Widened to SddStorage so gate transitions can run a drift check (§5.5) before
-// evaluating; the injected SqliteStorage satisfies it. Non-SDD paths are unaffected.
-/**
- * Shared "prepare an SDD parent for execution" step: refresh drift, auto-sign the
- * spec (+ plan), and decompose the plan into subtasks (idempotent). This is the
- * approve+decompose half that Dispatch folds in — extracted so both /prepare
- * (dialog: show me the subtasks first) and /dispatch (one-click) reuse it.
- * A spec with unresolved [NEEDS CLARIFICATION] still throws — a real "not ready".
- */
-async function prepareSddParent(
-  storage: TaskStorageAdapter & SddStorage,
-  task: Task,
-  actor: { type: 'human'; id: null; name: string },
-): Promise<void> {
-  await detectAndApplyDrift(storage, task)
-  for (const kind of ['spec', 'plan'] as const) {
-    const a = storage.taskArtifactGet(task.id, kind)
-    if (a && a.status !== 'approved') {
-      await approveArtifact(storage, { taskId: task.id, kind, approver: actor })
-    }
-  }
-  if (storage.taskArtifactGet(task.id, 'plan')) {
-    try {
-      await decomposePlan(storage, task.id, actor)
-    } catch (err) {
-      // A plan with no [T###] rows / no content has nothing to split — treat the
-      // parent as a single-task change rather than blocking.
-      console.warn(`[Dispatch] decompose skipped for task ${task.id}:`, err)
-    }
-  }
-}
-
 /** `?projectId=` → that project; absent (or not a positive id) → every project, for the global board. */
 function projectScope(raw: string | undefined): number | undefined {
   const id = parseInt(raw ?? '', 10)
   return Number.isFinite(id) && id > 0 ? id : undefined
 }
 
-export function taskRoutes(storage: TaskStorageAdapter & SddStorage & NotificationStorageAdapter) {
+/**
+ * Project-level task routes (the "local Linear" board). Mounted at /api/tasks.
+ * Project scope is passed via ?projectId= (query) or the request body, matching
+ * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
+ * list reads (tasks, labels, stream) take no projectId for every project.
+ */
+export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdapter) {
   const router = new Hono()
 
   // ---- Labels (registered before /:id so 'labels' is never parsed as an id) ----
@@ -172,25 +127,6 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
     return c.json({ task: storage.taskDetail(id) })
   })
 
-  // Run an independent verifier over a completed change (opt-in, §11.2⑦). The
-  // parent must already be in review — Gate-2p guarantees every subtask merged, so
-  // the verifier never reviews a half-finished change.
-  router.post('/:id/verify', async (c) => {
-    const id = parseInt(c.req.param('id'), 10)
-    const task = storage.taskGet(id)
-    if (!task) return c.json({ error: 'Not found' }, 404)
-    const body = await c.req
-      .json<{ agentId?: number }>()
-      .catch(() => ({}) as { agentId?: number })
-    if (!body.agentId) return c.json({ error: 'agentId required' }, 400)
-    try {
-      await dispatchVerifier(id, body.agentId)
-    } catch (e) {
-      return c.json({ error: e instanceof Error ? e.message : 'verify dispatch failed' }, 409)
-    }
-    return c.json({ task: storage.taskDetail(id) })
-  })
-
   router.post('/:id/archive', async (c) => {
     const id = parseInt(c.req.param('id'), 10)
     if (!storage.taskGet(id)) return c.json({ error: 'Not found' }, 404)
@@ -203,128 +139,20 @@ export function taskRoutes(storage: TaskStorageAdapter & SddStorage & Notificati
     return c.json({ task: storage.taskDetail(id) })
   })
 
-  // Prepare an SDD parent for the dispatch dialog: auto-sign spec/plan + decompose,
-  // then return the resulting subtasks so the UI can assign an agent to each before
-  // dispatching. Idempotent — re-running returns the same subtasks (none = a tiny
-  // single-task change, the caller should just /dispatch).
-  router.post('/:id/prepare', async (c) => {
-    const id = parseInt(c.req.param('id'), 10)
-    const task = storage.taskGet(id)
-    if (!task) return c.json({ error: 'Not found' }, 404)
-    if (!task.sddManaged || task.parentTaskId != null) {
-      return c.json({ error: 'prepare is only for SDD parent tasks' }, 400)
-    }
-    const body = await c.req
-      .json<{ actorName?: string }>()
-      .catch(() => ({}) as { actorName?: string })
-    try {
-      await prepareSddParent(storage, task, {
-        type: 'human',
-        id: null,
-        name: body.actorName?.trim() || 'You',
-      })
-    } catch (e) {
-      if (e instanceof GateError) return c.json(e.detail, 409)
-      return c.json({ error: e instanceof Error ? e.message : 'prepare failed' }, 500)
-    }
-    const subtasks = storage
-      .taskListChildren(id)
-      .filter((ch) => ch.status !== 'cancelled')
-      .map((ch) => ({
-        id: ch.id,
-        number: ch.number,
-        title: ch.title,
-        planAnchor: ch.planAnchor,
-        claimedAcs: ch.claimedAcs,
-        assignedAgentId: ch.assignedAgentId,
-      }))
-    return c.json({ subtasks })
-  })
-
   router.post('/:id/dispatch', async (c) => {
     const id = parseInt(c.req.param('id'), 10)
     const task = storage.taskGet(id)
     if (!task) return c.json({ error: 'Not found' }, 404)
     const body = await c.req
-      .json<{ assignedAgentId?: number; actorName?: string; subtaskAgents?: Record<string, number> }>()
-      .catch(
-        () => ({}) as { assignedAgentId?: number; actorName?: string; subtaskAgents?: Record<string, number> },
-      )
+      .json<{ assignedAgentId?: number }>()
+      .catch(() => ({}) as { assignedAgentId?: number })
     const agentId = body.assignedAgentId ?? task.assignedAgentId
     if (!agentId) {
       return c.json({ error: 'assignedAgentId required — task is unassigned' }, 400)
     }
     try {
-      // SDD parent: Dispatch is the single human action and stands in for the
-      // approve/decompose gates. A solo author who just reviewed the spec/plan
-      // shouldn't click Approve and Decompose separately — pressing Dispatch
-      // means "I accept this design, start it". So we fold those steps in here.
-      if (task.sddManaged && task.parentTaskId == null) {
-        const actor = { type: 'human' as const, id: null, name: body.actorName?.trim() || 'You' }
-        await prepareSddParent(storage, task, actor)
-        const children = storage
-          .taskListChildren(task.id)
-          .filter((ch) => ch.status !== 'done' && ch.status !== 'cancelled')
-        if (children.length > 0) {
-          // Decomposed feature: the parent coordinates, each child executes.
-          assertGateOrThrow(storage, task, 'in_progress')
-          storage.taskUpdate(
-            task.id,
-            { status: 'in_progress', assignedAgentId: agentId },
-            { type: 'human', name: actor.name },
-          )
-          broadcastTask(storage, task.id)
-          // Pin every child's agent NOW, including ones held back for a later wave —
-          // the deferred dispatch (on sibling Done) reads assignedAgentId, and the
-          // dialog's per-subtask choice is only available here.
-          for (const child of children) {
-            // Per-subtask agent from the dispatch dialog wins; else the child's own
-            // assignee; else the default agent chosen for this dispatch.
-            const childAgent =
-              body.subtaskAgents?.[String(child.id)] ?? child.assignedAgentId ?? agentId
-            if (child.assignedAgentId !== childAgent) {
-              storage.taskUpdate(
-                child.id,
-                { assignedAgentId: childAgent },
-                { type: 'human', name: actor.name },
-              )
-            }
-          }
-          // Only the first wave starts; rows without `[P]` are barriers, so their
-          // successors wait until the earlier wave is Done and merged into the parent.
-          const ready = await nextDispatchableChildren(storage, task)
-          const readyIds = new Set(ready.map((r) => r.id))
-          for (const child of ready) {
-            await dispatchProjectTask(child.id, child.assignedAgentId ?? agentId)
-          }
-          const waiting = children.filter((c) => !readyIds.has(c.id))
-          if (waiting.length > 0) {
-            storage.taskAppendActivity(task.id, {
-              kind: 'system',
-              actorType: 'human',
-              actorName: actor.name,
-              body:
-                `Started ${ready.length} subtask(s); ${waiting.length} queued behind them ` +
-                `(${waiting.map((w) => w.planAnchor ?? `#${w.number}`).join(', ')}) — ` +
-                `each starts once the wave before it is Done.`,
-              meta: { started: ready.length, queued: waiting.length },
-            })
-            broadcastTask(storage, task.id)
-          }
-        } else {
-          // Tiny single-task change: the parent executes in its own change worktree.
-          assertGateOrThrow(storage, task, 'in_progress')
-          await dispatchProjectTask(task.id, agentId)
-        }
-        return c.json({ task: storage.taskDetail(id) })
-      }
-
-      // Non-SDD task, or an SDD child dispatched directly.
-      if (task.sddManaged) await detectAndApplyDrift(storage, task)
-      assertGateOrThrow(storage, task, 'in_progress')
       await dispatchProjectTask(id, agentId)
     } catch (e) {
-      if (e instanceof GateError) return c.json(e.detail, 409)
       if (e instanceof TaskBlockedError || e instanceof SpecDesignChangedError) return c.json({ error: e.message }, 409)
       return c.json({ error: e instanceof Error ? e.message : 'dispatch failed' }, 500)
     }
