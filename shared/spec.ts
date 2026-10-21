@@ -115,6 +115,12 @@ export interface SpecTicketBuild {
   coordinator?: 'asked' | 'escalated'
   /** Times the coordinator set it going again; past the limit a block goes straight to the user. */
   retries?: number
+  /**
+   * Every chat its implementer worked in, oldest first. Kept here because the
+   * ticket's workspace goes away when it lands, and with it the only other
+   * route to these conversations.
+   */
+  chatIds?: number[]
 }
 
 /** How far a spec's build has got, as its board card shows it. */
@@ -234,6 +240,8 @@ export interface SpecView {
   ticketTasks: Record<string, SpecTicketTask>
   /** Every agent the spec has run, across all its runs, in the order they started. */
   agents: SpecAgentRun[]
+  /** The conversation the spec was started from. */
+  sourceChat: SpecChatRef | null
   /** Time agents have spent working on the spec so far, in ms — parallel ones counted once, waits for the user not at all. */
   elapsedMs: number
   /** The agent that coordinates the build, once gate 1 has given it one. */
@@ -332,6 +340,8 @@ export interface SpecAgentRun {
   error?: string
   startedAt?: number
   endedAt?: number
+  /** The conversation it ran as, newest last (a handoff starts a new one); absent for agents from before agents ran as chats. */
+  chats?: SpecChatRef[]
 }
 
 /** The board task a ticket became at approval. */
@@ -341,4 +351,18 @@ export interface SpecTicketTask {
   status: 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
   /** The worktree its session runs in, once dispatched — where a person takes over a stuck ticket. */
   workspaceId: number | null
+  /** The chats its implementer worked in, oldest first — still there after the ticket lands. */
+  chats: SpecChatRef[]
+}
+
+/** A conversation that belongs to a spec, as its panel links to it. */
+export interface SpecChatRef {
+  chatId: number
+  title: string
+  providerId: string | null
+  /** Where it opens: its own workspace, or the spec's once that one is gone (a landed ticket's). */
+  workspaceId: number | null
+  /** An agent's conversation, which keeps the model it was started with. */
+  subAgent: boolean
+  updatedAt: number
 }

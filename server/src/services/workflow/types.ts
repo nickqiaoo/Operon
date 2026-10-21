@@ -29,6 +29,12 @@ export interface WorkflowAgentRecord {
   endedAt?: number
   /** This agent's recorded output hit the byte cap; its tail is missing. */
   truncated?: boolean
+  /**
+   * The chats it ran as, newest last: its conversation is stored there, not in
+   * this log. A handoff to another provider starts a new chat. Absent on agents
+   * recorded before sub-agents ran as chats — their output is `chunk` events.
+   */
+  chatIds?: number[]
 }
 
 export interface WorkflowProgressPhase {

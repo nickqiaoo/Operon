@@ -9,9 +9,10 @@
  * 'worktree'` uses): whatever it scribbles on disk is discarded with the
  * worktree, and nothing it does can land on the change branch.
  *
- * Progress goes through the workflow event log, so the run appears in the
- * workflow tab with each agent's live output, and a sub-agent that asks for
- * permission surfaces on the run card and in the chat's inbox.
+ * Each agent runs as a chat of its own (see `runProviderAgent`), named on its
+ * row in the spec's workflow run; progress goes through that run's event log, so
+ * it appears in the workflow tab and the spec's panel, and a sub-agent that asks
+ * for permission surfaces on the run card, in its chat and in the chat's inbox.
  */
 
 import { LocalEnvironment, createWorktree, newAgentId, validateValue } from 'operon-agents'
@@ -35,6 +36,8 @@ export interface SpecAgentContext {
   cwd: string
   /** The chat that started the spec — approvals fall back to its inbox. */
   chatId: number | null
+  /** The spec's change worktree's workspace — where its agents' chats belong. */
+  workspaceId: number | null
   signal: AbortSignal
   /** First agent index to use: a continued run already has agents below it. */
   firstIndex?: number
@@ -141,6 +144,8 @@ export class SpecAgents {
         cwd: worktree?.cwd ?? source,
         prompt: `${call.prompt}\n\n${WORKSPACE_NOTE}`,
         agentId,
+        title: call.label,
+        workspaceId: this.ctx.workspaceId,
         parentChatId: this.ctx.chatId,
         onApproval: (request) => writer.emit({ kind: 'approval', approval: request }),
         onApprovalSettled: (approvalId) => writer.emit({ kind: 'approval-resolved', approvalId }),
@@ -148,7 +153,7 @@ export class SpecAgents {
         // touching a path outside its checkout, e.g. one copied from the brief —
         // and nobody is watching to answer, so reads are let through.
         autoAllow: (toolName) => READ_TOOLS.has(toolName.toLowerCase()),
-        onChunk: (chunk) => writer.chunk(index, chunk),
+        onChats: (chatIds) => writer.emit({ kind: 'agent', index, patch: { chatIds } }),
         live: { runId: writer.runId, index },
         modelFor: this.ctx.modelFor,
         onReplaced: (from, to) => {

@@ -39,12 +39,12 @@ export type WorkflowEvent =
    */
   | { kind: 'agent'; index: number; patch: Partial<WorkflowAgentRecord> }
   /**
-   * A batch of a sub-agent's raw UIMessageChunks, in arrival order. Batched
-   * because one event per token would be one INSERT per token; the fold does not
-   * care how they were grouped.
+   * A batch of a sub-agent's raw UIMessageChunks, in arrival order. No longer
+   * written — a sub-agent's output is its chat's (`chatIds` on its row) — but
+   * runs recorded before that still read back through it.
    */
   | { kind: 'chunk'; index: number; chunks: unknown[] }
-  /** This sub-agent's recording hit its byte cap; later chunks are not kept. */
+  /** Such a recording hit its byte cap; later chunks were not kept. Read-only, like `chunk`. */
   | { kind: 'truncated'; index: number }
   | { kind: 'approval'; approval: WorkflowPendingApproval }
   | { kind: 'approval-resolved'; approvalId: string }

@@ -684,6 +684,14 @@ export function MobileApp() {
             onImmersiveChange={setImmersive}
             openTaskId={deepLink?.taskId ?? null}
             onDeepLinkConsumed={() => setDeepLink(null)}
+            onOpenChat={(chat) =>
+              handleOpenNotification({
+                chatId: chat.chatId,
+                workspaceId: chat.workspaceId,
+                title: chat.title,
+                subAgent: chat.subAgent || undefined,
+              })
+            }
           />
         )}
         {tab === "changes" && <MobileReviewScreen worktreePath={activeInfo?.workspace.worktreePath ?? null} />}

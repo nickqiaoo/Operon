@@ -60,7 +60,7 @@ vi.mock('./spec-service.js', () => ({ specDesignChanged: vi.fn(async () => false
 const reviewRun = vi.hoisted(() => ({ onAllTicketsMerged: vi.fn() }))
 vi.mock('./review-run.js', () => reviewRun)
 
-const { frontier, onTicketInReview, onTicketLanded, onTicketTurnEnded, resumeBuild, isBuildActive, MAX_REVIEW_ROUNDS } =
+const { frontier, onTicketInReview, onTicketLanded, onTicketTurnEnded, recordTicketChat, resumeBuild, isBuildActive, MAX_REVIEW_ROUNDS } =
   await import('./build-run.js')
 
 // ---- Fixture: spec #7 with tickets T1 → T2, T3 independent ------------------
@@ -305,5 +305,17 @@ describe('a turn that ends without handing the ticket in', () => {
     await onTicketTurnEnded(storage, 101)
     expect(run().build[0].state).toBe('building')
     expect(orchestrator.wakeTaskBinding).not.toHaveBeenCalled()
+  })
+})
+
+describe('a ticket\'s chats', () => {
+  it('are recorded once each, oldest first, and only for tickets of a spec', () => {
+    const { storage, run } = makeStorage()
+    recordTicketChat(storage, 101, 300)
+    recordTicketChat(storage, 101, 300)
+    recordTicketChat(storage, 101, 301)
+    recordTicketChat(storage, 999, 302)
+    expect(run().build[0].chatIds).toEqual([300, 301])
+    expect(run().build.slice(1).every((b) => b.chatIds === undefined)).toBe(true)
   })
 })

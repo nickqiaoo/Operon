@@ -484,6 +484,14 @@ export default function App() {
                     onExpandSidebar={handleToggleSidebar}
                     initialTaskId={boardInitialTaskId}
                     onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
+                    onOpenChat={(chat) =>
+                      openChat({
+                        chatId: chat.chatId,
+                        workspaceId: chat.workspaceId ?? undefined,
+                        title: chat.title,
+                        subAgent: chat.subAgent || undefined,
+                      })
+                    }
                     onOpenWorkspace={(workspaceId) => {
                       setMainView(null)
                       // The workspace was likely just provisioned by a task dispatch

@@ -779,27 +779,6 @@ export class SqliteStorage
     return rows.map((row) => row.run_id)
   }
 
-  pruneWorkflowRuns(keep: number): number {
-    const stale = this.db
-      .prepare(
-        `SELECT run_id FROM workflow_run_index
-         WHERE status != 'running'
-           AND run_id NOT IN (SELECT run_id FROM workflow_run_index ORDER BY sort_at DESC LIMIT ?)`,
-      )
-      .all(Math.max(0, keep)) as { run_id: string }[]
-    if (stale.length === 0) return 0
-    const dropEvents = this.db.prepare('DELETE FROM workflow_events WHERE run_id = ?')
-    const dropIndex = this.db.prepare('DELETE FROM workflow_run_index WHERE run_id = ?')
-    const runAll = this.db.transaction((ids: string[]) => {
-      for (const id of ids) {
-        dropEvents.run(id)
-        dropIndex.run(id)
-      }
-    })
-    runAll(stale.map((row) => row.run_id))
-    return stale.length
-  }
-
   deleteChatEntry(chatId: number): void {
     this.db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId)
     this.db.prepare('DELETE FROM chats WHERE id = ?').run(chatId)
@@ -819,9 +798,11 @@ export class SqliteStorage
     } else {
       // Side chats are throwaway branches of another conversation and never
       // belong in a history list; the tab that owns one is the only way back to
-      // it. An explicit `tp` filter still reaches them (the side chat tab reads
-      // its own row by id, not through here).
-      whereClauses.push("tp != 'side'")
+      // it. A workflow sub-agent's chat is reached from its run (and its spec),
+      // where it has a label; a run of ten agents would bury the history list.
+      // An explicit `tp` filter still reaches both (their tabs read their own
+      // row by id, not through here).
+      whereClauses.push("tp NOT IN ('side', 'workflow-agent')")
     }
 
     const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''

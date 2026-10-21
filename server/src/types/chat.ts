@@ -1,4 +1,4 @@
-export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side' | 'teammate'
+export type ChatType = 'chat' | 'canvas' | 'cronjob' | 'subagent' | 'linear' | 'side' | 'teammate' | 'workflow-agent'
 
 export interface ChatMetadata {
   /** An independent, server-owned external-agent conversation (not a fork). */
@@ -12,6 +12,15 @@ export interface ChatMetadata {
   cronjobId?: number
   /** chat-runtime fields */
   modeId?: string
+  /** A workflow or spec sub-agent's conversation (tp 'workflow-agent'): which run row it is. */
+  workflowAgent?: {
+    runId: string
+    index: number
+    /** The conversation that launched the run, if any. */
+    parentChatId: number | null
+    /** Where it ran — a disposable worktree, usually; used while it still exists. */
+    cwd: string
+  }
   /** linear agent chat fields */
   source?: 'linear'
   linearSessionId?: string

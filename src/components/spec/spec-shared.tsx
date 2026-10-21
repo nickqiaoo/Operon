@@ -11,7 +11,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AgentRow, formatDuration } from '@/components/editor/components/WorkflowRunDetail'
-import type { SpecStage, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
+import type { SpecChatRef, SpecStage, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
 import type { TaskListItem } from '@/types/task'
 
 /** Stages in which the server is working and the view changes on its own. */
@@ -169,7 +169,7 @@ export function SpecSeatsLine({ spec }: { spec: SpecView }) {
  * (calls and wall-clock time) and, while closed, who is working right now. Each
  * row opens to that agent's recorded output — the same row as the Workflow panel.
  */
-export function SpecAgentList({ spec }: { spec: SpecView }) {
+export function SpecAgentList({ spec, onOpenChat }: { spec: SpecView; onOpenChat?: (chat: SpecChatRef) => void }) {
   const [open, setOpen] = useState(false)
   if (spec.agents.length === 0) return null
   const working = spec.agents.filter((a) => a.state === 'running')
@@ -199,7 +199,19 @@ export function SpecAgentList({ spec }: { spec: SpecView }) {
               {agent.phase && agent.phase !== spec.agents[i - 1]?.phase && (
                 <div className="heading-section px-1 pt-1">{agent.phase}</div>
               )}
-              <AgentRow runId={agent.runId} agent={agent} stream={undefined} />
+              <AgentRow
+                runId={agent.runId}
+                agent={{ ...agent, chatIds: agent.chats?.map((c) => c.chatId) }}
+                stream={undefined}
+                onOpenChat={
+                  onOpenChat
+                    ? (chatId) => {
+                        const chat = agent.chats?.find((c) => c.chatId === chatId)
+                        if (chat) onOpenChat(chat)
+                      }
+                    : undefined
+                }
+              />
             </div>
           ))}
         </div>
@@ -830,18 +842,20 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
           <FormattedMessage id="spec.ticket.coordinatorAsked" defaultMessage="The coordinator is looking at it." />
         </div>
       )}
-      {build.state === 'blocked' && build.coordinator !== 'asked' && onOpenSession && (
+      {onOpenSession && build.state !== 'waiting' && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
           <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onOpenSession}>
             <ExternalLink className="h-3.5 w-3.5" />
             <FormattedMessage id="spec.ticket.openSession" defaultMessage="Open its session" />
           </Button>
-          <span className="text-xs text-muted-foreground">
-            <FormattedMessage
-              id="spec.ticket.blockedHint"
-              defaultMessage="Get its agent moving there; once it hands the ticket in, review picks it up again."
-            />
-          </span>
+          {build.state === 'blocked' && (
+            <span className="text-xs text-muted-foreground">
+              <FormattedMessage
+                id="spec.ticket.blockedHint"
+                defaultMessage="Get its agent moving there; once it hands the ticket in, review picks it up again."
+              />
+            </span>
+          )}
         </div>
       )}
     </div>

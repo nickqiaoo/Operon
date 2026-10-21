@@ -169,7 +169,6 @@ async function execute(input: DesignRunInput, runId: string, controller: AbortCo
       })
     }
   } finally {
-    writer.flush()
     appendEvent(runId, { kind: 'settled', status, endedAt: Date.now(), error, result })
     writer.dispose()
     unregisterWorkflowAbort(runId)
@@ -200,6 +199,7 @@ async function designStage(
     writer,
     cwd: loc.worktreePath,
     chatId: input.chatId,
+    workspaceId: task.workspaceId ?? null,
     signal,
     firstIndex,
     // As at start: only the lead's own provider brings the chat's model along.

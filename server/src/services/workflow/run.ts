@@ -20,18 +20,10 @@ import { registerWorkflowAbort, unregisterWorkflowAbort } from './registry.js'
 import {
   appendEvent,
   markExecuting,
-  pruneRuns,
   readRunView,
   unmarkExecuting,
 } from './store.js'
 import { RunEventWriter } from './writer.js'
-
-/**
- * How many runs are kept. Beyond this the oldest settled runs are deleted with
- * their entire event log — the only retention rule, applied in the only place
- * runs are stored.
- */
-const KEEP_RUNS = 200
 
 export interface StartRunParams {
   ctx: WorkflowRunContext
@@ -121,9 +113,6 @@ async function executeRun(params: StartRunParams): Promise<void> {
       }
     }
 
-    // Flush any buffered sub-agent output BEFORE the terminal event, so the log
-    // reads in real order and `settled` is genuinely the last thing in it.
-    writer.flush()
     appendEvent(runId, { kind: 'settled', status, endedAt: Date.now(), error, failures, result })
   } finally {
     writer.dispose()
@@ -135,11 +124,6 @@ async function executeRun(params: StartRunParams): Promise<void> {
       // Detached: delivery waits for the launching chat to go idle, which can
       // take minutes, and terminal bookkeeping must not wait for that.
       void deliverWorkflowResult(view)
-    }
-    try {
-      pruneRuns(KEEP_RUNS)
-    } catch (err) {
-      console.warn(`[workflow] retention pass failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 }

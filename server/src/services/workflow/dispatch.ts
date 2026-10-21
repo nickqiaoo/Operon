@@ -1,23 +1,27 @@
 /**
  * Workflow sub-agent dispatch (desktop-side).
  *
- * The Workflow MCP tool's `agent()` hook runs each sub-agent through HERE — a
- * real, disposable standalone session on ANY of our providers (custom /
- * codex / claude-code / kimi / opencode / cursor / copilot). This is
- * the piece that makes the framework `runWorkflow` engine (imported as a
- * library, never modified) dispatch to our agents instead of its own internal
- * profiles.
+ * The Workflow MCP tool's `agent()` hook — and every OperonSpec role — runs each
+ * sub-agent through HERE, on ANY of our providers (custom / codex / claude-code /
+ * kimi / opencode / cursor / copilot). This is the piece that makes the
+ * framework `runWorkflow` engine (imported as a library, never modified)
+ * dispatch to our agents instead of its own internal profiles.
  *
- * Same turn core as chat (`runAgentTurn`) and the same standalone-session
- * factory the headless memory agent uses, so a workflow sub-agent is an
- * ordinary provider turn — just launched by the orchestrator instead of a user.
+ * A sub-agent is a chat. It gets a row of its own (`tp: 'workflow-agent'`), its
+ * prompt and reply are stored as that chat's messages, and its turn runs through
+ * the same server-turn lifecycle a task session uses (`startServerChat`): live
+ * tee for an open tab, Stop, presence. Nothing about its conversation is kept
+ * anywhere else — the run's log only names the chat (`chatIds` on the agent row),
+ * and a person can open it, read it, and carry on talking to it afterwards.
  */
 
 import { randomUUID } from 'node:crypto'
-import { convertToModelMessages, type UIMessage, type UIMessageChunk } from 'ai'
-import { getSessionManager } from '../ai.js'
-import { latestUserInput } from '../ai/message-utils.js'
-import { runAgentTurnText } from '../ai/agent-turn.js'
+import type { UIMessage } from 'ai'
+import { readStreamAsAsyncIterable, type RuntimeStreamPart } from '@operon/agent-runtime'
+import { abortChat, getSessionManager, startServerChat } from '../ai.js'
+import { getChatStorage } from '../ai/state.js'
+import { isErrorFinish } from '../ai/agent-turn.js'
+import { extractAssistantText } from '../ai/message-utils.js'
 import { subagentMode } from '../agents/subagent-mode.js'
 import { trackLiveAgent } from './live-agents.js'
 import {
@@ -30,12 +34,16 @@ export interface ProviderAgentParams {
   providerId: string
   /** Model override; undefined lets the provider use its default. */
   modelId?: string
-  /** Workspace directory the sub-agent runs in. */
+  /** Directory the sub-agent runs in. */
   cwd: string
   /** Self-contained prompt (the sub-agent cannot see the parent conversation). */
   prompt: string
   /** Sub-agent label, used in approval/log lines (e.g. 'codex-a3'). */
   agentId: string
+  /** What its chat is called, e.g. 'candidate A · codex'. Defaults to `agentId`. */
+  title?: string
+  /** The workspace its chat belongs to. Defaults to the launching conversation's. */
+  workspaceId?: number | null
   /** Conversation that launched the workflow — carries the inbox fallback row. */
   parentChatId?: number | null
   /**
@@ -48,14 +56,13 @@ export interface ProviderAgentParams {
   /** Requests answered "allow" on the spot instead of surfaced (see watchDetachedApprovals). */
   autoAllow?: (toolName: string) => boolean
   /**
-   * Receives this sub-agent's UI chunks so the run panel can show what it is
-   * doing. Without it the panel only knows queued/running/done — the sub-agent's
-   * actual work (its text, its tool calls) is produced and then thrown away.
+   * The chats this agent has run as so far, newest last — called each time one
+   * is created, so the run row can name it while the agent is still working.
    */
-  onChunk?: (chunk: UIMessageChunk) => void
+  onChats?: (chatIds: number[]) => void
   /**
    * The run row this agent is, so a person watching can message it while it works
-   * (`steerLiveAgent`). Omit for agents nobody can see.
+   * (`steerLiveAgent`) or hand it to another provider. Also recorded on its chat.
    */
   live?: { runId: string; index: number }
   /** The agent was handed to another provider; `to` runs the prompt from here on. */
@@ -72,23 +79,26 @@ export interface AgentSeat {
 }
 
 /**
- * Run one sub-agent to completion and return its final text. Creates a
- * disposable standalone session, runs a single turn, disposes.
+ * Run one sub-agent to completion and return its final text.
  *
  * Someone watching can hand a running agent to another provider
- * (`replaceLiveAgent`): its session is stopped and the same prompt runs again
- * on the new one, until one of them answers. The caller only ever sees the answer.
+ * (`replaceLiveAgent`): its turn is stopped and the same prompt runs again on the
+ * new one, in a new chat (a chat stays on the provider it started on), until one
+ * of them answers. The caller only ever sees the answer.
  */
 export async function runProviderAgent(params: ProviderAgentParams): Promise<string> {
   let seat: AgentSeat = { providerId: params.providerId, modelId: params.modelId }
+  const chatIds: number[] = []
   for (;;) {
-    const outcome = await runOnce(params, seat)
+    const outcome = await runOnce(params, seat, (chatId) => {
+      chatIds.push(chatId)
+      params.onChats?.([...chatIds])
+    })
     if (outcome.kind === 'done') return outcome.text
     const to: AgentSeat = {
       providerId: outcome.to.providerId,
       modelId: outcome.to.modelId ?? params.modelFor?.(outcome.to.providerId),
     }
-    params.onChunk?.({ type: 'data-replaced', data: { from: seat.providerId, to: to.providerId } })
     params.onReplaced?.(seat, to)
     seat = to
   }
@@ -96,84 +106,150 @@ export async function runProviderAgent(params: ProviderAgentParams): Promise<str
 
 type RunOutcome = { kind: 'done'; text: string } | { kind: 'replaced'; to: AgentSeat }
 
-async function runOnce(params: ProviderAgentParams, seat: AgentSeat): Promise<RunOutcome> {
-  const manager = getSessionManager()
-  const session = await manager.createStandaloneSession(seat.providerId, {
-    cwd: params.cwd,
+/** The chat a sub-agent runs as: created empty, its prompt arrives as its first turn. */
+function createAgentChat(params: ProviderAgentParams, seat: AgentSeat, modeId: string): { chatId: number; workspaceId?: number } {
+  const storage = getChatStorage()
+  if (!storage) throw new Error('Chat storage is not ready')
+  const workspaceId =
+    params.workspaceId ??
+    (params.parentChatId != null && params.parentChatId > 0 ? storage.getChatMeta(params.parentChatId)?.workspaceId : undefined) ??
+    undefined
+  const metadata = {
+    modeId,
+    workflowAgent: {
+      runId: params.live?.runId ?? '',
+      index: params.live?.index ?? -1,
+      parentChatId: params.parentChatId ?? null,
+      cwd: params.cwd,
+    },
+  }
+  // Titles name their provider ("candidate B · opencode"); a handoff's chat names its own.
+  const title = params.title ?? params.agentId
+  const suffix = ` · ${params.providerId}`
+  const created = storage.patchChatEntry(null, {
+    baseRevision: 0,
+    replaceFrom: 0,
+    tailMessages: [],
+    tp: 'workflow-agent',
+    title: seat.providerId !== params.providerId && title.endsWith(suffix) ? `${title.slice(0, -suffix.length)} · ${seat.providerId}` : title,
+    workspaceId,
+    providerId: seat.providerId,
     model: seat.modelId,
-    // Fixed per provider, NOT derived from the parent turn: a sub-agent runs
-    // unattended, and any mode that stops to ask would stall it. Throws for an
-    // unregistered provider rather than guessing an id (see subagent-mode.ts).
-    mode: subagentMode(seat.providerId),
+    updatedAt: Date.now(),
+    metadata,
   })
+  if (!created.success) throw new Error(`Could not create a chat for ${params.agentId}`)
+  return { chatId: created.chatId, workspaceId }
+}
+
+async function runOnce(params: ProviderAgentParams, seat: AgentSeat, onChat: (chatId: number) => void): Promise<RunOutcome> {
+  // Fixed per provider, NOT derived from the parent turn: a sub-agent runs
+  // unattended, and any mode that stops to ask would stall it. Throws for an
+  // unregistered provider rather than guessing an id (see subagent-mode.ts).
+  const modeId = subagentMode(seat.providerId)
+  params.signal.throwIfAborted()
+  const { chatId, workspaceId } = createAgentChat(params, seat, modeId)
+  onChat(chatId)
+
   // The mode above suppresses ordinary permission prompts, but it cannot suppress
   // everything — `AskUserQuestion` is the agent's own deliberate question, and a
-  // few providers still confirm regardless. Anything that does get asked is routed
-  // to the launching conversation's inbox, and denied if nobody answers, so an
-  // unattended sub-agent can never wedge on a prompt no one can see.
+  // few providers still confirm regardless. Anything that does get asked shows in
+  // this chat, on the run card and in the launching conversation's inbox, and is
+  // denied if nobody answers, so an unattended sub-agent never wedges on a prompt.
   const approvals = watchDetachedApprovals({
-    session,
+    session: { respond: (approvalId, decision) => getSessionManager().get(chatId)?.runtime.respond(approvalId, decision) ?? false },
     parentChatId: params.parentChatId,
+    childChatId: chatId,
     agentId: params.agentId,
     onRequest: params.onApproval,
     onSettled: params.onApprovalSettled,
     autoAllow: params.autoAllow,
   })
+
+  // A turn can fail without throwing: codex reports a failed turn (a usage limit,
+  // say) as a finish with reason "error" and writes the error as the reply's
+  // text; opencode reports an upstream 429 as an error part.
+  let finishedWithError = false
+  let streamError: string | undefined
+  const onPart = (part: RuntimeStreamPart): void => {
+    approvals.onPart(part)
+    if (part.type === 'finish' && isErrorFinish((part as { finishReason?: unknown }).finishReason)) finishedWithError = true
+    if (part.type === 'error') streamError = String((part as { error?: unknown }).error ?? 'stream error')
+  }
+
   // This agent's own stop, under the run's: stopping the run still stops it, and
   // it can be stopped alone to hand its work to another provider.
-  const local = new AbortController()
-  const stopWithRun = () => local.abort(params.signal.reason)
-  if (params.signal.aborted) local.abort(params.signal.reason)
-  else params.signal.addEventListener('abort', stopWithRun, { once: true })
   const handoff: { to?: AgentSeat } = {}
+  const stop = () => abortChat(chatId)
+  params.signal.addEventListener('abort', stop, { once: true })
   const untrack = params.live
     ? trackLiveAgent(params.live.runId, params.live.index, {
-        session,
+        chatId,
         providerId: seat.providerId,
-        // Shown in the agent's transcript where it was sent, as the person's words.
-        note: (text, id) => params.onChunk?.({ type: 'data-steer', id, data: { text } }),
         replace: (to) => {
           handoff.to = to
-          local.abort()
+          stop()
         },
       })
     : undefined
-  const userMessage: UIMessage = {
-    id: randomUUID(),
-    role: 'user',
-    parts: [{ type: 'text', text: params.prompt }],
-  }
+
+  const userMessage: UIMessage = { id: randomUUID(), role: 'user', parts: [{ type: 'text', text: params.prompt }] }
   try {
-    let text: string | undefined
+    let message: UIMessage | undefined
     let failure: unknown
     try {
-      // The one true "give me the final text" path — no hand-rolled delta consumption
-      // (that read the wrong field and returned "" from live custom sub-agents).
-      text = await runAgentTurnText(
-        session,
+      const ctx = await startServerChat(
         {
-          requestId: randomUUID(),
-          input: latestUserInput(await convertToModelMessages([userMessage])),
-          signal: local.signal,
-          assistantMessageId: randomUUID(),
-          originalMessages: [userMessage],
-          onPart: approvals.onPart,
+          chatId,
+          messages: [userMessage],
+          providerId: seat.providerId,
+          modelId: seat.modelId,
+          modeId,
+          workspaceId,
+          tp: 'workflow-agent',
+          // Rewind checkpoints are for a person's own turns in their checkout.
+          skipSnapshot: true,
         },
-        params.onChunk,
+        { onPart },
       )
+      // Stopped while the session was starting: the abort above found no turn yet.
+      if (params.signal.aborted || handoff.to) abortChat(chatId)
+      try {
+        for await (const prepared of readStreamAsAsyncIterable(ctx.preparedParts)) {
+          const part = (prepared as { part?: { type?: string; error?: unknown } }).part
+          if (part?.type === 'error') streamError = String(part.error ?? 'stream error')
+        }
+      } catch (err) {
+        streamError = err instanceof Error ? err.message : String(err)
+        ctx.recordError(err)
+      } finally {
+        await ctx.persistDone
+        ctx.finish()
+      }
+      const completion = ctx.completion()
+      message = completion.message
+      if (completion.status === 'failed' && !streamError) streamError = completion.error ?? 'The turn failed'
     } catch (err) {
       failure = err
     }
     // Handed off: whatever the stopped turn returned or threw is beside the point.
     if (handoff.to) return { kind: 'replaced', to: handoff.to }
+    if (params.signal.aborted) throw params.signal.reason instanceof Error ? params.signal.reason : new Error('aborted')
     if (failure !== undefined) throw failure
-    return { kind: 'done', text: text ?? '' }
+    if (streamError) throw new Error(streamError)
+    const text = message ? extractAssistantText(message) : ''
+    if (finishedWithError) throw new Error(text.trim() || 'The turn ended with an error')
+    return { kind: 'done', text }
   } finally {
-    params.signal.removeEventListener('abort', stopWithRun)
+    params.signal.removeEventListener('abort', stop)
     untrack?.()
-    // Deny before dispose: a request still outstanding here will never be answered
-    // (the session is going away), and leaving it pending would strand an inbox row.
+    // Deny before closing: a request still outstanding here will never be
+    // answered, and leaving it pending would strand an inbox row.
     approvals.dispose()
-    await session.close().catch(() => {})
+    // The chat stays; its warm session does not. A person who opens it later
+    // resumes the provider session from the id the turn stored.
+    await getSessionManager()
+      .destroy(chatId)
+      .catch(() => {})
   }
 }

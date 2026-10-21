@@ -14,6 +14,7 @@ import { ChannelsView } from './ChannelsView'
 import { TasksPage } from '@/components/task/TasksPage'
 import { AgentManageDialog } from './AgentManageDialog'
 import type { Agent } from '@/types/channel'
+import type { SpecChatRef } from '@shared/spec'
 
 export type BoardPageView = 'board' | 'channels'
 
@@ -24,6 +25,8 @@ interface BoardPageProps {
   sidebarCollapsed: boolean
   onExpandSidebar: () => void
   onOpenWorkspace?: (workspaceId: number) => void
+  /** Opens a conversation a task links to (a spec's agents and tickets). */
+  onOpenChat?: (chat: SpecChatRef) => void
   /** Deep-link target (inbox notification): open this task's detail.
    *  Cleared via {@link onInitialTaskConsumed}. */
   initialTaskId?: number | null
@@ -37,7 +40,7 @@ interface BoardPageProps {
  * each other: a task captured from a message opens that message, a message
  * shows the tasks made from it.
  */
-export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSidebar, onOpenWorkspace, initialTaskId, onInitialTaskConsumed }: BoardPageProps) {
+export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSidebar, onOpenWorkspace, onOpenChat, initialTaskId, onInitialTaskConsumed }: BoardPageProps) {
   const intl = useIntl()
   const loadAgents = useChannelStore((s) => s.loadAgents)
   const loadChannels = useChannelStore((s) => s.loadChannels)
@@ -157,6 +160,7 @@ export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSideba
               <TasksPage
                 projectFilter={filter}
                 onOpenWorkspace={onOpenWorkspace}
+                onOpenChat={onOpenChat}
                 onOpenChannel={openChannel}
                 initialTaskId={initialTaskId}
                 onInitialTaskConsumed={onInitialTaskConsumed}

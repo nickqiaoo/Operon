@@ -18,7 +18,7 @@ import type { WorkflowAgentRecord, WorkflowRunView } from './types.js'
  * Fold one run's events into its view.
  *
  * Returns undefined when the sequence has no `started` event — a run is defined
- * by having been started, and a log without one is a fragment (a pruned tail, a
+ * by having been started, and a log without one is a fragment (a truncated log, a
  * corrupt row), not a run with defaults.
  *
  * `chunk` and `journal` events are ignored here; pass them or not, it makes no

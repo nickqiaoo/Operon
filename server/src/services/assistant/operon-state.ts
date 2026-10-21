@@ -39,7 +39,7 @@ const appLiveState: OperonLiveState = {
 }
 
 /** Kinds of chat that are not someone's conversation in a workspace. */
-const HIDDEN_CHAT_TYPES = new Set(['side', 'canvas'])
+const HIDDEN_CHAT_TYPES = new Set(['side', 'canvas', 'workflow-agent'])
 /** Recent conversations looked at per workspace — a running one is always among the latest. */
 const RECENT_CHATS = 30
 const OVERVIEW_CHATS = 15

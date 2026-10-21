@@ -1,12 +1,12 @@
 import { type ReactNode } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { Layers, Loader2 } from 'lucide-react'
+import { AlertCircle, Layers, Loader2, MessageSquareText } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useTaskStore } from '@/stores/task-store'
-import { StatusIcon } from '@/components/task/task-meta'
-import type { SpecAdr, SpecDecisions, SpecReviewSummary, SpecStage, SpecView } from '@shared/spec'
+import { StatusIcon, relativeTime } from '@/components/task/task-meta'
+import type { SpecAdr, SpecChatRef, SpecDecisions, SpecReviewSummary, SpecStage, SpecTicketTask, SpecView } from '@shared/spec'
 import {
   SPEC_MARKDOWN_CLASS,
   SpecActions,
@@ -37,11 +37,14 @@ export function SpecPanel({
   taskId,
   stage,
   onOpenWorkspace,
+  onOpenChat,
 }: {
   taskId: number
   stage: SpecStage | null
-  /** Opens a ticket's worktree and its session; absent where the page cannot navigate. */
+  /** Opens a ticket's worktree; absent where the page cannot navigate. */
   onOpenWorkspace?: (workspaceId: number) => void
+  /** Opens one of the spec's conversations; absent where the page cannot navigate. */
+  onOpenChat?: (chat: SpecChatRef) => void
 }) {
   const { spec, error } = useSpecView(taskId, stage)
 
@@ -75,18 +78,42 @@ export function SpecPanel({
 
       <SpecCoordinatorLine spec={spec} onOpenSession={onOpenWorkspace} />
 
-      <SpecAgentList spec={spec} />
+      <SpecAgentList spec={spec} onOpenChat={onOpenChat} />
 
       <SpecActions spec={spec} />
 
-      <SpecTabs spec={spec} onOpenWorkspace={onOpenWorkspace} />
+      <SpecTabs spec={spec} onOpenWorkspace={onOpenWorkspace} onOpenChat={onOpenChat} />
     </section>
   )
 }
 
-function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?: (workspaceId: number) => void }) {
+/**
+ * Where "open its session" goes: the ticket's latest chat, which outlives the
+ * ticket's worktree; for a ticket without one on record, its worktree.
+ */
+function ticketSessionOpener(
+  task: SpecTicketTask | undefined,
+  onOpenChat?: (chat: SpecChatRef) => void,
+  onOpenWorkspace?: (workspaceId: number) => void,
+): (() => void) | undefined {
+  const chat = task?.chats.at(-1)
+  if (chat && onOpenChat) return () => onOpenChat(chat)
+  if (task?.workspaceId != null && onOpenWorkspace) return () => onOpenWorkspace(task.workspaceId!)
+  return undefined
+}
+
+function SpecTabs({
+  spec,
+  onOpenWorkspace,
+  onOpenChat,
+}: {
+  spec: SpecView
+  onOpenWorkspace?: (workspaceId: number) => void
+  onOpenChat?: (chat: SpecChatRef) => void
+}) {
   const intl = useIntl()
   const builds = new Map(spec.run.build.map((b) => [b.key, b]))
+  const sessionCount = countSessions(spec)
   // Once the tickets are being built, where they stand is what the page is for.
   const first = spec.review
     ? 'review'
@@ -99,7 +126,7 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
           : 'brief'
   return (
     <Tabs defaultValue={first} key={first} className="gap-3">
-      {/* Six tabs outgrow a phone: the strip scrolls sideways instead of clipping the last one. */}
+      {/* Seven tabs outgrow a phone: the strip scrolls sideways instead of clipping the last one. */}
       <TabsList className="h-8 w-full justify-start gap-5 overflow-x-auto overflow-y-hidden rounded-none border-0 border-b border-border/40 bg-transparent p-0 scrollbar-none">
         <TabsTrigger value="design" disabled={!spec.design} className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.design" defaultMessage="Design" />
@@ -124,6 +151,10 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
               {spec.decisions.adrs.length + spec.decisions.glossary.length}
             </span>
           )}
+        </TabsTrigger>
+        <TabsTrigger value="sessions" disabled={sessionCount === 0} className={TAB_TRIGGER}>
+          <FormattedMessage id="spec.tab.sessions" defaultMessage="Sessions" />
+          {sessionCount > 0 && <span className="text-[10px] font-normal text-muted-foreground/70">{sessionCount}</span>}
         </TabsTrigger>
         <TabsTrigger value="brief" className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.brief" defaultMessage="Brief" />
@@ -189,11 +220,7 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
                 {builds.get(t.key) && (
                   <TicketBuildLine
                     build={builds.get(t.key)!}
-                    onOpenSession={
-                      onOpenWorkspace && spec.ticketTasks[t.key]?.workspaceId != null
-                        ? () => onOpenWorkspace(spec.ticketTasks[t.key].workspaceId!)
-                        : undefined
-                    }
+                    onOpenSession={ticketSessionOpener(spec.ticketTasks[t.key], onOpenChat, onOpenWorkspace)}
                   />
                 )}
               </li>
@@ -226,6 +253,10 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
         {spec.decisions && <Decisions decisions={spec.decisions} />}
       </TabsContent>
 
+      <TabsContent value="sessions" className="space-y-3">
+        <Sessions spec={spec} onOpenChat={onOpenChat} />
+      </TabsContent>
+
       <TabsContent value="brief" className="space-y-3">
         {spec.brief && <Doc title={intl.formatMessage({ id: 'spec.doc.brief', defaultMessage: 'Brief' })} content={spec.brief} />}
         {spec.feedback && (
@@ -240,6 +271,127 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
         )}
       </TabsContent>
     </Tabs>
+  )
+}
+
+function countSessions(spec: SpecView): number {
+  return (
+    (spec.sourceChat ? 1 : 0) +
+    spec.agents.reduce((n, a) => n + (a.chats?.length ?? 0), 0) +
+    Object.values(spec.ticketTasks).reduce((n, t) => n + t.chats.length, 0)
+  )
+}
+
+/**
+ * Every conversation the spec has had, by where it came from: the chat it was
+ * started in, each agent its runs dispatched (design roles, ticket reviews,
+ * the final review), and each ticket's builder. All of them are ordinary chats
+ * and open as such — read them, or pick one up where it left off.
+ */
+function Sessions({ spec, onOpenChat }: { spec: SpecView; onOpenChat?: (chat: SpecChatRef) => void }) {
+  // Agents by the phase they ran in, in the order they started.
+  const phases: { title: string; rows: { key: string; label: string; state: string; chat: SpecChatRef }[] }[] = []
+  let earlier = 0
+  for (const agent of spec.agents) {
+    if (!agent.chats?.length) {
+      earlier++
+      continue
+    }
+    const title = agent.phase ?? ''
+    let group = phases.at(-1)
+    if (!group || group.title !== title) phases.push((group = { title, rows: [] }))
+    // A handoff ran the agent in a second chat, named for its provider.
+    for (const chat of agent.chats) {
+      group.rows.push({ key: `${agent.runId}:${agent.index}:${chat.chatId}`, label: chat.title, state: agent.state, chat })
+    }
+  }
+  const tickets = (spec.tickets ?? []).filter((t) => (spec.ticketTasks[t.key]?.chats.length ?? 0) > 0)
+  return (
+    <div className="space-y-4">
+      {spec.sourceChat && (
+        <SessionGroup title={<FormattedMessage id="spec.sessions.source" defaultMessage="Started from" />}>
+          <SessionRow chat={spec.sourceChat} label={spec.sourceChat.title} onOpenChat={onOpenChat} />
+        </SessionGroup>
+      )}
+      {phases.map((group, i) => (
+        <SessionGroup
+          key={`${group.title}:${i}`}
+          title={group.title || <FormattedMessage id="spec.sessions.agents" defaultMessage="Agents" />}
+        >
+          {group.rows.map((row) => (
+            <SessionRow key={row.key} chat={row.chat} label={row.label} state={row.state} onOpenChat={onOpenChat} />
+          ))}
+        </SessionGroup>
+      ))}
+      {tickets.length > 0 && (
+        <SessionGroup title={<FormattedMessage id="spec.sessions.tickets" defaultMessage="Ticket builders" />}>
+          {tickets.map((t) =>
+            spec.ticketTasks[t.key].chats.map((chat) => (
+              <SessionRow
+                key={`${t.key}:${chat.chatId}`}
+                chat={chat}
+                label={`${t.key} · ${t.title}`}
+                onOpenChat={onOpenChat}
+              />
+            )),
+          )}
+        </SessionGroup>
+      )}
+      {earlier > 0 && (
+        <p className="px-0.5 text-xs leading-5 text-muted-foreground">
+          <FormattedMessage
+            id="spec.sessions.earlier"
+            defaultMessage="{count, plural, one {# agent call} other {# agent calls}} ran before agents were kept as conversations; their output is in the agent list above."
+            values={{ count: earlier }}
+          />
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SessionGroup({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <div className="heading-section px-1">{title}</div>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  )
+}
+
+function SessionRow({
+  chat,
+  label,
+  state,
+  onOpenChat,
+}: {
+  chat: SpecChatRef
+  label: string
+  /** An agent's state, when the row is one. */
+  state?: string
+  onOpenChat?: (chat: SpecChatRef) => void
+}) {
+  const body = (
+    <>
+      <MessageSquareText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {state === 'running' && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-status-info" />}
+      {state === 'error' && <AlertCircle className="h-3 w-3 shrink-0 text-status-error" />}
+      {chat.providerId && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{chat.providerId}</span>}
+      <span className="w-8 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground/70">{relativeTime(chat.updatedAt)}</span>
+    </>
+  )
+  const className = 'flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs'
+  if (!onOpenChat) return <div className={className}>{body}</div>
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenChat(chat)}
+      className={cn(className, 'transition-colors hover:bg-row-hover')}
+      title={chat.title}
+    >
+      {body}
+    </button>
   )
 }
 

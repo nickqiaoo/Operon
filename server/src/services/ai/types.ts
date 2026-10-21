@@ -113,6 +113,9 @@ export interface StartChatOptions {
    *  chat_needs_input). Set only by the user-facing workspace-chat path
    *  (handleChat) — background turns (cron/canvas/channel/task) stay silent. */
   notifyInbox?: boolean
+  /** Sees every runtime part of the turn, after the chat's own handling — a
+   *  workflow sub-agent's chat answers some approvals itself (see dispatch.ts). */
+  onPart?: (part: import('@operon/agent-runtime').RuntimeStreamPart) => void
 }
 
 export interface CompactRequest {
