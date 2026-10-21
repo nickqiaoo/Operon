@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { cloneElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
 import { AlertCircle, Check, ChevronRight, ExternalLink, GitMerge, Hammer, Loader2, MessageSquareText, Play, Send, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { MobileSheet } from '@/components/mobile/MobileSheet'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AgentRow, formatDuration } from '@/components/editor/components/WorkflowRunDetail'
@@ -209,6 +211,8 @@ export function SpecAgentList({ spec }: { spec: SpecView }) {
  */
 export function SpecActions({ spec }: { spec: SpecView }) {
   const intl = useIntl()
+  // On a phone the gates are thumb targets: taller buttons that share the row.
+  const btn = useGateButtonClass()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [implementers, setImplementers] = useState<Record<string, string>>({})
@@ -238,7 +242,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
         <Button
           size="sm"
           variant="ghost"
-          className="h-8 gap-1.5"
+          className={btn}
           disabled={busy != null}
           onClick={() => void act('stop', () => api.specStop(spec.taskId))}
         >
@@ -263,7 +267,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
         <Button
           size="sm"
           variant="secondary"
-          className="h-8 gap-1.5"
+          className={btn}
           disabled={busy != null}
           onClick={() => void act('reapprove', () => api.specReapprove(spec.taskId))}
         >
@@ -282,7 +286,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
           <Button
             size="sm"
             variant="secondary"
-            className="h-8 gap-1.5"
+            className={btn}
             disabled={busy != null}
             onClick={() => void act('approve', () => api.specApprove(spec.taskId, implementers, concurrency))}
           >
@@ -294,7 +298,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
           <Button
             size="sm"
             variant="secondary"
-            className="h-8 gap-1.5"
+            className={btn}
             disabled={busy != null}
             onClick={() => void act('signoff', () => api.specSignOff(spec.taskId))}
           >
@@ -336,7 +340,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
           <Button
             size="sm"
             variant="secondary"
-            className="h-8 gap-1.5"
+            className={btn}
             disabled={busy != null}
             onClick={() => void act('resume', () => api.specResume(spec.taskId))}
           >
@@ -348,7 +352,7 @@ export function SpecActions({ spec }: { spec: SpecView }) {
           <Button
             size="sm"
             variant="ghost"
-            className="h-8 gap-1.5"
+            className={btn}
             disabled={busy != null}
             onClick={() => void act('stop', () => api.specStop(spec.taskId))}
           >
@@ -380,6 +384,60 @@ export function SpecActions({ spec }: { spec: SpecView }) {
   )
 }
 
+/** Gate buttons: compact beside a mouse, tall and sharing the row on a phone. */
+function useGateButtonClass(): string {
+  return useIsMobile() ? 'h-10 min-w-[calc(50%-0.25rem)] flex-1 gap-1.5 text-sm' : 'h-8 gap-1.5'
+}
+
+/**
+ * A gate's secondary choices (who builds, what to change): a popover beside a
+ * mouse, a bottom sheet on a phone, where a fixed-width popover would run off
+ * the screen and sit under the keyboard.
+ */
+function GateSheet({
+  trigger,
+  title,
+  className,
+  open: controlled,
+  onOpenChange,
+  children,
+}: {
+  trigger: ReactElement<{ onClick?: () => void }>
+  title: string
+  /** Popover width and spacing; the sheet takes the screen's width. */
+  className: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  children: ReactNode
+}) {
+  const isMobile = useIsMobile()
+  const [own, setOwn] = useState(false)
+  const open = controlled ?? own
+  const setOpen = onOpenChange ?? setOwn
+  if (isMobile) {
+    return (
+      <>
+        {cloneElement(trigger, { onClick: () => setOpen(true) })}
+        <MobileSheet open={open} onClose={() => setOpen(false)} title={title} bodyClassName="space-y-3 px-4 pb-4">
+          {children}
+        </MobileSheet>
+      </>
+    )
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className={cn('rounded-xl border border-border/60 bg-popover p-3 shadow-float', className)}
+      >
+        {children}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /** The build's default and choosable concurrency — mirrors the server's DEFAULT_CONCURRENCY / MAX_CONCURRENCY. */
 const DEFAULT_CONCURRENCY = 3
 const CONCURRENCY_CHOICES = [1, 2, 3, 4, 5]
@@ -404,12 +462,16 @@ function BuildersPicker({
   onConcurrencyChange: (next: number) => void
   disabled: boolean
 }) {
+  const intl = useIntl()
+  const btn = useGateButtonClass()
   const fallback = spec.run.config.implementer?.providerId ?? spec.providers[0]
   const chosen = new Set((spec.tickets ?? []).map((t) => value[t.key] ?? fallback))
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-8 gap-1.5" disabled={disabled}>
+    <GateSheet
+      title={intl.formatMessage({ id: 'spec.builders.title', defaultMessage: 'Who builds the tickets' })}
+      className="w-96 space-y-2"
+      trigger={
+        <Button size="sm" variant="ghost" className={btn} disabled={disabled}>
           <Hammer className="h-3.5 w-3.5" />
           <FormattedMessage
             id="spec.builders.trigger"
@@ -417,65 +479,60 @@ function BuildersPicker({
             values={{ providers: [...chosen].join(', ') }}
           />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-96 space-y-2 rounded-xl border border-border/60 bg-popover p-3 shadow-float"
-      >
-        <div className="text-xs text-muted-foreground">
-          {/* Reviewers come from the spec's own agents; with only one, it reviews itself. */}
-          {spec.providers.length > 1 ? (
-            <FormattedMessage
-              id="spec.builders.hint"
-              defaultMessage="Who builds each ticket. A reviewer from another model family checks every ticket before it is merged."
-            />
-          ) : (
-            <FormattedMessage
-              id="spec.builders.hintSingle"
-              defaultMessage="Who builds each ticket. This spec uses one agent, so a separate session of the same agent reviews every ticket before it is merged."
-            />
-          )}
-        </div>
-        <div className="space-y-1">
-          {spec.tickets?.map((t) => (
-            <div key={t.key} className="flex items-center gap-2 rounded-lg px-1 py-0.5">
-              <span className="w-7 shrink-0 font-mono text-xs text-muted-foreground">{t.key}</span>
-              <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
-              <Select value={value[t.key] ?? fallback} onValueChange={(provider) => onChange({ ...value, [t.key]: provider })}>
-                <SelectTrigger size="sm" className="h-7 w-32 shrink-0 border-border/50 bg-background/80 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {spec.providers.map((p) => (
-                    <SelectItem key={p} value={p} className="text-xs">
-                      {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 border-t border-border/40 px-1 pt-2">
-          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-            <FormattedMessage id="spec.builders.concurrency" defaultMessage="Tickets built at once" />
-          </span>
-          <Select value={String(concurrency)} onValueChange={(n) => onConcurrencyChange(Number(n))}>
-            <SelectTrigger size="sm" className="h-7 w-32 shrink-0 border-border/50 bg-background/80 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CONCURRENCY_CHOICES.map((n) => (
-                <SelectItem key={n} value={String(n)} className="text-xs">
-                  {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </PopoverContent>
-    </Popover>
+      }
+    >
+      <div className="text-xs text-muted-foreground">
+        {/* Reviewers come from the spec's own agents; with only one, it reviews itself. */}
+        {spec.providers.length > 1 ? (
+          <FormattedMessage
+            id="spec.builders.hint"
+            defaultMessage="Who builds each ticket. A reviewer from another model family checks every ticket before it is merged."
+          />
+        ) : (
+          <FormattedMessage
+            id="spec.builders.hintSingle"
+            defaultMessage="Who builds each ticket. This spec uses one agent, so a separate session of the same agent reviews every ticket before it is merged."
+          />
+        )}
+      </div>
+      <div className="space-y-1">
+        {spec.tickets?.map((t) => (
+          <div key={t.key} className="flex items-center gap-2 rounded-lg px-1 py-0.5">
+            <span className="w-7 shrink-0 font-mono text-xs text-muted-foreground">{t.key}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
+            <Select value={value[t.key] ?? fallback} onValueChange={(provider) => onChange({ ...value, [t.key]: provider })}>
+              <SelectTrigger size="sm" className="h-7 w-32 shrink-0 border-border/50 bg-background/80 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {spec.providers.map((p) => (
+                  <SelectItem key={p} value={p} className="text-xs">
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 border-t border-border/40 px-1 pt-2">
+        <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+          <FormattedMessage id="spec.builders.concurrency" defaultMessage="Tickets built at once" />
+        </span>
+        <Select value={String(concurrency)} onValueChange={(n) => onConcurrencyChange(Number(n))}>
+          <SelectTrigger size="sm" className="h-7 w-32 shrink-0 border-border/50 bg-background/80 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CONCURRENCY_CHOICES.map((n) => (
+              <SelectItem key={n} value={String(n)} className="text-xs">
+                {n}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </GateSheet>
   )
 }
 
@@ -492,6 +549,7 @@ function RequestChanges({
   placeholder?: string
 }) {
   const intl = useIntl()
+  const btn = useGateButtonClass()
   const [open, setOpen] = useState(false)
   const [comment, setComment] = useState('')
   const [redesign, setRedesign] = useState(false)
@@ -505,50 +563,49 @@ function RequestChanges({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-8 gap-1.5" disabled={disabled}>
+    <GateSheet
+      open={open}
+      onOpenChange={setOpen}
+      title={intl.formatMessage({ id: 'spec.action.requestChanges', defaultMessage: 'Request changes' })}
+      className="w-80 space-y-3"
+      trigger={
+        <Button size="sm" variant="ghost" className={btn} disabled={disabled}>
           <MessageSquareText className="h-3.5 w-3.5" />
           <FormattedMessage id="spec.action.requestChanges" defaultMessage="Request changes" />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-80 space-y-3 rounded-xl border border-border/60 bg-popover p-3 shadow-float"
-      >
-        <Textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder={
-            placeholder ??
-            intl.formatMessage({
-              id: 'spec.changes.placeholder',
-              defaultMessage: 'What should change in the design?',
-            })
-          }
-          className="min-h-24 text-sm"
-          autoFocus
-        />
-        {!placeholder && (
-          <label className="flex items-start gap-2 text-xs text-muted-foreground">
-            <Switch checked={redesign} onCheckedChange={setRedesign} className="mt-0.5" />
-            <span>
-              <FormattedMessage
-                id="spec.changes.redesign"
-                defaultMessage="Discard the candidates and design again from scratch (otherwise only the synthesis is redone)"
-              />
-            </span>
-          </label>
-        )}
-        <div className="flex justify-end">
-          <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={busy || !comment.trim()} onClick={() => void send()}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            <FormattedMessage id="spec.changes.send" defaultMessage="Send" />
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+      }
+    >
+      <Textarea
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder={
+          placeholder ??
+          intl.formatMessage({
+            id: 'spec.changes.placeholder',
+            defaultMessage: 'What should change in the design?',
+          })
+        }
+        className="min-h-24 text-sm"
+        autoFocus
+      />
+      {!placeholder && (
+        <label className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Switch checked={redesign} onCheckedChange={setRedesign} className="mt-0.5" />
+          <span>
+            <FormattedMessage
+              id="spec.changes.redesign"
+              defaultMessage="Discard the candidates and design again from scratch (otherwise only the synthesis is redone)"
+            />
+          </span>
+        </label>
+      )}
+      <div className="flex justify-end">
+        <Button size="sm" variant="secondary" className={btn} disabled={busy || !comment.trim()} onClick={() => void send()}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          <FormattedMessage id="spec.changes.send" defaultMessage="Send" />
+        </Button>
+      </div>
+    </GateSheet>
   )
 }
 
@@ -562,6 +619,7 @@ function SpecQuestions({
   onSend: (answers: string) => Promise<void>
 }) {
   const intl = useIntl()
+  const btn = useGateButtonClass()
   const [answers, setAnswers] = useState('')
   return (
     <div className="space-y-2 rounded-lg border border-border/40 bg-background/40 p-3">
@@ -589,7 +647,7 @@ function SpecQuestions({
         <Button
           size="sm"
           variant="secondary"
-          className="h-8 gap-1.5"
+          className={btn}
           disabled={busy || !answers.trim()}
           onClick={() => void onSend(answers.trim()).then(() => setAnswers(''))}
         >
@@ -680,6 +738,58 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
           </span>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * What a gate asks the user to sign, in one line, for the chat card — where on a
+ * phone the user decides without the task page's tabs: the tickets the design
+ * splits into at gate 1; at gate 2, what the review left open and what the
+ * change will record.
+ */
+export function SpecGateSummary({ spec }: { spec: SpecView }) {
+  const stage = spec.run.stage
+  if (stage === 'awaiting_design' && spec.tickets) {
+    return (
+      <div className="text-xs text-muted-foreground">
+        <FormattedMessage
+          id="spec.gate.design"
+          defaultMessage="{count, plural, one {Splits into # ticket} other {Splits into # tickets}}"
+          values={{ count: spec.tickets.length }}
+        />
+      </div>
+    )
+  }
+  if (stage !== 'awaiting_signoff' || !spec.reviewSummary) return null
+  const r = spec.reviewSummary
+  const recorded = (spec.decisions?.adrs.length ?? 0) + (spec.decisions?.glossary.length ?? 0)
+  return (
+    <div className="space-y-0.5 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-1.5">
+        <span className={cn(r.actOn > 0 && 'text-status-error')}>
+          <FormattedMessage id="spec.gate.actOn" defaultMessage="{count} to act on" values={{ count: r.actOn }} />
+        </span>
+        <span>·</span>
+        <span className={cn(r.fail > 0 && 'text-status-error')}>
+          <FormattedMessage id="spec.gate.failing" defaultMessage="{count} failing" values={{ count: r.fail }} />
+        </span>
+        <span>·</span>
+        <span className={cn(r.notRun > 0 && 'text-status-warn')}>
+          <FormattedMessage id="spec.gate.notRun" defaultMessage="{count} not verified" values={{ count: r.notRun }} />
+        </span>
+        {recorded > 0 && (
+          <>
+            <span>·</span>
+            <FormattedMessage
+              id="spec.gate.decisions"
+              defaultMessage="{adrs, plural, one {# ADR} other {# ADRs}} and {terms, plural, one {# term} other {# terms}} to record"
+              values={{ adrs: spec.decisions?.adrs.length ?? 0, terms: spec.decisions?.glossary.length ?? 0 }}
+            />
+          </>
+        )}
+      </div>
+      {r.summary && <div className="line-clamp-3 text-foreground/80">{r.summary}</div>}
     </div>
   )
 }

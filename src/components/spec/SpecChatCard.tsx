@@ -3,7 +3,7 @@ import { ExternalLink, Layers, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useEditorStore } from '@/stores/editor-store'
 import { openWorkflowPanel } from '@/components/app-shell/useWorkflowTab'
-import { SpecActions, SpecAgentList, SpecBuildSummary, SpecSeatsLine, SpecStageBadge, useSpecView } from './spec-shared'
+import { SpecActions, SpecAgentList, SpecBuildSummary, SpecGateSummary, SpecSeatsLine, SpecStageBadge, useSpecView } from './spec-shared'
 
 /**
  * The card a `start_spec` call leaves in the transcript: where the spec stands,
@@ -63,7 +63,8 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
         </div>
       )}
       {spec && (spec.run.stage !== 'building' || spec.designChanged || spec.running) && (
-        <div className="border-t border-border/40 px-3 py-2.5">
+        <div className="space-y-2 border-t border-border/40 px-3 py-2.5">
+          <SpecGateSummary spec={spec} />
           <SpecActions spec={spec} />
         </div>
       )}

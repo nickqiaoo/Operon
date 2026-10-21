@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useTaskStore } from '@/stores/task-store'
 import { StatusIcon } from '@/components/task/task-meta'
-import type { SpecReviewSummary, SpecStage, SpecView } from '@shared/spec'
+import type { SpecAdr, SpecDecisions, SpecReviewSummary, SpecStage, SpecView } from '@shared/spec'
 import {
   SPEC_MARKDOWN_CLASS,
   SpecActions,
@@ -96,7 +96,8 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
           : 'brief'
   return (
     <Tabs defaultValue={first} key={first} className="gap-3">
-      <TabsList className="h-8 w-full justify-start gap-5 rounded-none border-0 border-b border-border/40 bg-transparent p-0">
+      {/* Six tabs outgrow a phone: the strip scrolls sideways instead of clipping the last one. */}
+      <TabsList className="h-8 w-full justify-start gap-5 overflow-x-auto overflow-y-hidden rounded-none border-0 border-b border-border/40 bg-transparent p-0 scrollbar-none">
         <TabsTrigger value="design" disabled={!spec.design} className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.design" defaultMessage="Design" />
         </TabsTrigger>
@@ -112,6 +113,14 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
         </TabsTrigger>
         <TabsTrigger value="review" disabled={!spec.review} className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.review" defaultMessage="Review" />
+        </TabsTrigger>
+        <TabsTrigger value="decisions" disabled={!spec.decisions} className={TAB_TRIGGER}>
+          <FormattedMessage id="spec.tab.decisions" defaultMessage="Decisions" />
+          {spec.decisions && (
+            <span className="text-[10px] font-normal text-muted-foreground/70">
+              {spec.decisions.adrs.length + spec.decisions.glossary.length}
+            </span>
+          )}
         </TabsTrigger>
         <TabsTrigger value="brief" className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.brief" defaultMessage="Brief" />
@@ -210,6 +219,10 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
         {spec.review && <Doc content={spec.review} />}
       </TabsContent>
 
+      <TabsContent value="decisions" className="space-y-3">
+        {spec.decisions && <Decisions decisions={spec.decisions} />}
+      </TabsContent>
+
       <TabsContent value="brief" className="space-y-3">
         {spec.brief && <Doc title={intl.formatMessage({ id: 'spec.doc.brief', defaultMessage: 'Brief' })} content={spec.brief} />}
         {spec.feedback && (
@@ -225,6 +238,84 @@ function SpecTabs({ spec, onOpenWorkspace }: { spec: SpecView; onOpenWorkspace?:
       </TabsContent>
     </Tabs>
   )
+}
+
+/**
+ * What the change leaves behind: its ADRs and glossary terms — proposed until
+ * gate 2 is signed, then the files that were written.
+ */
+function Decisions({ decisions }: { decisions: SpecDecisions }) {
+  const intl = useIntl()
+  const empty = decisions.adrs.length === 0 && decisions.glossary.length === 0
+  return (
+    <>
+      <p className="px-0.5 text-xs leading-5 text-muted-foreground">
+        {empty ? (
+          <FormattedMessage id="spec.decisions.none" defaultMessage="This change records no new decisions or terms." />
+        ) : decisions.recorded ? (
+          <FormattedMessage
+            id="spec.decisions.recorded"
+            defaultMessage="Written into the repository at sign-off: {files}"
+            values={{ files: decisions.recorded.files.join(', ') }}
+          />
+        ) : (
+          <FormattedMessage
+            id="spec.decisions.pending"
+            defaultMessage="Signing off writes these to docs/adr/ and GLOSSARY.md; ADR numbers are assigned then."
+          />
+        )}
+      </p>
+      {decisions.adrs.map((adr) => (
+        <Doc
+          key={adr.slug}
+          title={
+            adr.number != null
+              ? intl.formatMessage(
+                  { id: 'spec.decisions.adrNumbered', defaultMessage: 'ADR {number} · {title}' },
+                  { number: String(adr.number).padStart(4, '0'), title: adr.title },
+                )
+              : intl.formatMessage({ id: 'spec.decisions.adr', defaultMessage: 'ADR · {title}' }, { title: adr.title })
+          }
+          content={adrBody(
+            adr,
+            adr.supersedes != null
+              ? intl.formatMessage(
+                  { id: 'spec.decisions.supersedes', defaultMessage: 'Supersedes ADR {number}' },
+                  { number: String(adr.supersedes).padStart(4, '0') },
+                )
+              : null,
+          )}
+        />
+      ))}
+      {decisions.glossary.length > 0 && (
+        <div className="space-y-1.5 rounded-lg border border-border/40 bg-background/40 px-3 py-2.5">
+          <div className="heading-section">
+            <FormattedMessage id="spec.decisions.glossary" defaultMessage="Glossary terms" />
+          </div>
+          <dl className="space-y-1.5 text-xs">
+            {decisions.glossary.map((g) => (
+              <div key={g.term}>
+                <dt className="font-medium text-foreground">{g.term}</dt>
+                <dd className="leading-5 text-muted-foreground">{g.definition}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+    </>
+  )
+}
+
+/** An ADR's sections, as its file has them (the file's title is the card's). */
+function adrBody(adr: SpecAdr, supersedes: string | null): string {
+  return [
+    supersedes ? `_${supersedes}_` : '',
+    `## Context\n${adr.context}`,
+    `## Decision\n${adr.decision}`,
+    `## Consequences\n${adr.consequences}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 /** Gate 2 at a glance: what is left to act on, and how many criteria were actually shown to pass. */

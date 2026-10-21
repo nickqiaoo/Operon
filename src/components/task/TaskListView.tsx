@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime, type TaskGroup } from './task-meta'
 import type { TaskListItem } from '@/types/task'
+import { SpecCardBadge } from '@/components/spec/spec-shared'
 import type { Agent, AgentSession } from '@/types/channel'
 
 interface TaskListViewProps {
@@ -86,6 +87,10 @@ function TaskRow({
       <TaskRef projectId={task.projectId} number={task.number} className="text-xs text-muted-foreground/50 min-w-12 max-w-32 shrink-0" />
       {archived && <Archive className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
       <span className="flex-1 min-w-0 truncate text-sm text-foreground/90">{task.title}</span>
+      {/* A spec at a gate is waiting on the reader — on the phone this list is the only board. */}
+      <span className="shrink-0">
+        <SpecCardBadge task={task} />
+      </span>
       <div className="hidden md:flex items-center gap-1.5 shrink-0">
         {task.labels.slice(0, 3).map((l) => (
           <LabelChip key={l.id} label={l} />
