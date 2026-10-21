@@ -32,7 +32,7 @@ const TAB_TRIGGER = cn(
 
 /**
  * The spec on its task page: stage, the design gate, and everything the agents
- * produced — the design first, then how it was reached.
+ * produced, in the order they produced it. It opens on the stage the spec is at.
  */
 export function SpecPanel({
   taskId,
@@ -134,16 +134,20 @@ function SpecTabs({
           : 'brief'
   return (
     <Tabs defaultValue={first} key={first} className="gap-3">
-      {/* Seven tabs outgrow a phone: the strip scrolls sideways instead of clipping the last one. */}
+      {/* In the order the spec runs them — brief, candidates, design, tickets, review, decisions — with the
+          sessions behind them last. Seven tabs outgrow a phone: the strip scrolls sideways instead of clipping. */}
       <TabsList className="h-8 w-full justify-start gap-5 overflow-x-auto overflow-y-hidden rounded-none border-0 border-b border-border/40 bg-transparent p-0 scrollbar-none">
-        <TabsTrigger value="design" disabled={!spec.design} className={TAB_TRIGGER}>
-          <FormattedMessage id="spec.tab.design" defaultMessage="Design" />
+        <TabsTrigger value="brief" className={TAB_TRIGGER}>
+          <FormattedMessage id="spec.tab.brief" defaultMessage="Brief" />
         </TabsTrigger>
         <TabsTrigger value="candidates" disabled={spec.candidates.length === 0} className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.candidates" defaultMessage="Candidates" />
           {spec.candidates.length > 0 && (
             <span className="text-[10px] font-normal text-muted-foreground/70">{spec.candidates.length}</span>
           )}
+        </TabsTrigger>
+        <TabsTrigger value="design" disabled={!spec.design} className={TAB_TRIGGER}>
+          <FormattedMessage id="spec.tab.design" defaultMessage="Design" />
         </TabsTrigger>
         <TabsTrigger value="tickets" disabled={!spec.tickets} className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.tickets" defaultMessage="Tickets" />
@@ -163,9 +167,6 @@ function SpecTabs({
         <TabsTrigger value="sessions" disabled={sessionCount === 0} className={TAB_TRIGGER}>
           <FormattedMessage id="spec.tab.sessions" defaultMessage="Sessions" />
           {sessionCount > 0 && <span className="text-[10px] font-normal text-muted-foreground/70">{sessionCount}</span>}
-        </TabsTrigger>
-        <TabsTrigger value="brief" className={TAB_TRIGGER}>
-          <FormattedMessage id="spec.tab.brief" defaultMessage="Brief" />
         </TabsTrigger>
       </TabsList>
 
