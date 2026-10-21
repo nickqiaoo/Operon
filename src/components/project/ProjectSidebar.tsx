@@ -1,6 +1,6 @@
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, Hash, Inbox, Layers, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, MessageSquare, Pin, PinOff } from "lucide-react"
+import { CalendarClock, ChevronRight, CircleHelp, Folder, GitBranch, FolderKanban, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useProjectStore, Project, Workspace, WorkspaceDiffStat } from "@/stores/project-store"
+import { useProjectStore, Project, Workspace, WorkspaceChat, WorkspaceDiffStat } from "@/stores/project-store"
 import { useEditorStore } from "@/stores/editor-store"
 import type { EditorTab } from "@/types/editor"
 import { useStreamingStore } from "@/stores/streaming-store"
@@ -100,8 +100,9 @@ function ProjectItem({
   const containsActiveWorkspace = project.workspaces.some((workspace) => workspace.id === activeWorkspaceId)
   const pinLabel = pinned ? "Unpin" : "Pin to top"
   const groups = useMemo(() => groupSpecWorkspaces(project.workspaces), [project.workspaces])
-  // Specs whose tickets the user folded away; open by default.
-  const [closedSpecs, setClosedSpecs] = useState<ReadonlySet<number>>(() => new Set())
+  // Specs the user unfolded; folded by default, so a project with specs stays a short list.
+  const [openSpecs, setOpenSpecs] = useState<ReadonlySet<number>>(() => new Set())
+  const intl = useIntl()
   return (
     <Collapsible
       open={!collapsed}
@@ -176,10 +177,6 @@ function ProjectItem({
             .map((workspace) => {
               const tickets = groups.tickets.get(workspace.id) ?? []
               const spec = workspace.task?.specStage != null ? workspace.task : null
-              // A spec's conversation sits first under it: the one place the user talks to the spec.
-              const chat = spec?.sourceChat && onOpenChat ? spec.sourceChat : null
-              const children = tickets.length + (chat ? 1 : 0)
-              const open = children > 0 && !closedSpecs.has(workspace.id)
               const rowProps = (w: Workspace) => ({
                 isActive: activeWorkspaceId === w.id,
                 stats: workspaceDiffStats?.[w.worktreePath],
@@ -187,6 +184,27 @@ function ProjectItem({
                 unseen: unseenCounts?.[w.id] ?? 0,
                 onSelect: () => onSelectWorkspace(w.id, project.id),
               })
+              const openChatRow = (chat: WorkspaceChat) => () =>
+                onOpenChat?.({ chatId: chat.chatId, workspaceId: chat.workspaceId ?? undefined, title: chat.title })
+              // A spec's folder: its chat, its coordinator's session, then every ticket by
+              // number — a live one as its worktree, one that landed as its last session.
+              const chats = onOpenChat
+                ? [
+                    spec?.sourceChat && { key: "chat", chat: spec.sourceChat, dot: SPEC_CHAT_DOT, label: intl.formatMessage({ id: "sidebar.spec.chat", defaultMessage: "Chat" }) },
+                    spec?.coordinatorChat && {
+                      key: "coordinator",
+                      chat: spec.coordinatorChat,
+                      dot: COORDINATOR_DOT,
+                      label: intl.formatMessage({ id: "sidebar.spec.coordinator", defaultMessage: "Coordinator" }),
+                    },
+                  ].filter((c): c is { key: string; chat: WorkspaceChat; dot: string; label: string } => !!c)
+                : []
+              const ticketRows = [
+                ...tickets.map((ticket) => ({ number: ticket.task?.number ?? 0, live: ticket, finished: null })),
+                ...(onOpenChat ? (spec?.finishedTickets ?? []) : []).map((t) => ({ number: t.number, live: null, finished: t })),
+              ].sort((a, b) => a.number - b.number)
+              const children = chats.length + ticketRows.length
+              const open = children > 0 && openSpecs.has(workspace.id)
               const own = spec && onOpenSpec ? { ...rowProps(workspace), onSelect: () => onOpenSpec(spec.id, project.id) } : rowProps(workspace)
               // Folded, the spec's row carries what its tickets have going on.
               const folded = open ? [] : tickets.map(rowProps)
@@ -196,16 +214,16 @@ function ProjectItem({
                     {...own}
                     streaming={own.streaming + folded.reduce((n, r) => n + r.streaming, 0)}
                     unseen={own.unseen + folded.reduce((n, r) => n + r.unseen, 0)}
-                    label={workspace.task?.specStage != null ? workspace.task.title : workspace.name}
-                    title={workspace.task?.specStage != null ? `#${workspace.task.number} · ${workspace.name}` : workspace.name}
-                    spec={workspace.task?.specStage != null}
+                    label={spec ? spec.title : workspace.name}
+                    title={spec ? `#${spec.number} · ${workspace.name}` : workspace.name}
+                    spec={spec != null}
                     toggle={
                       children > 0
                         ? {
                             open,
                             count: children,
                             onToggle: () =>
-                              setClosedSpecs((prev) => {
+                              setOpenSpecs((prev) => {
                                 const next = new Set(prev)
                                 if (next.has(workspace.id)) next.delete(workspace.id)
                                 else next.add(workspace.id)
@@ -215,29 +233,46 @@ function ProjectItem({
                         : undefined
                     }
                   />
-                  {open && chat && (
-                    <WorkspaceRow
-                      isActive={false}
-                      streaming={0}
-                      unseen={0}
-                      onSelect={() => onOpenChat?.({ chatId: chat.chatId, workspaceId: chat.workspaceId ?? undefined, title: chat.title })}
-                      nested
-                      chatRow
-                      label={chat.title}
-                      title={chat.title}
-                    />
-                  )}
                   {open &&
-                    tickets.map((ticket) => (
+                    chats.map((c) => (
                       <WorkspaceRow
-                        key={ticket.id}
-                        {...rowProps(ticket)}
+                        key={c.key}
+                        isActive={false}
+                        streaming={0}
+                        unseen={0}
+                        onSelect={openChatRow(c.chat)}
                         nested
-                        label={ticket.task ? `#${ticket.task.number} ${ticket.task.title}` : ticket.name}
-                        title={ticket.name}
-                        ticketStatus={ticket.task?.status}
+                        dot={c.dot}
+                        label={c.label}
+                        title={c.chat.title}
                       />
                     ))}
+                  {open &&
+                    ticketRows.map(({ live, finished }) =>
+                      live ? (
+                        <WorkspaceRow
+                          key={live.id}
+                          {...rowProps(live)}
+                          nested
+                          dot={TICKET_DOT[live.task?.status ?? ""]}
+                          label={live.task ? `#${live.task.number} ${live.task.title}` : live.name}
+                          title={live.name}
+                        />
+                      ) : finished ? (
+                        <WorkspaceRow
+                          key={`done-${finished.id}`}
+                          isActive={false}
+                          streaming={0}
+                          unseen={0}
+                          onSelect={openChatRow(finished.chat)}
+                          nested
+                          finished
+                          dot={TICKET_DOT[finished.status]}
+                          label={`#${finished.number} ${finished.title}`}
+                          title={finished.chat.title}
+                        />
+                      ) : null,
+                    )}
                 </Fragment>
               )
             })
@@ -247,10 +282,15 @@ function ProjectItem({
   )
 }
 
+/** A ticket's dot by its status; anything else (waiting) is grey. */
 const TICKET_DOT: Record<string, string> = {
   in_progress: "bg-status-info",
   in_review: "bg-status-warn",
+  done: "bg-status-ok",
 }
+/** The spec's chat and its coordinator, told apart from tickets (and each other) by colour. */
+const SPEC_CHAT_DOT = "bg-brand"
+const COORDINATOR_DOT = "bg-accent-warm"
 
 /**
  * One workspace in the project's list. A spec's row shows the spec's title and
@@ -266,8 +306,8 @@ function WorkspaceRow({
   onSelect,
   spec,
   nested,
-  chatRow,
-  ticketStatus,
+  dot,
+  finished,
   toggle,
 }: {
   label: string
@@ -279,13 +319,14 @@ function WorkspaceRow({
   onSelect: () => void
   spec?: boolean
   nested?: boolean
-  /** A spec's conversation, under the spec. */
-  chatRow?: boolean
-  ticketStatus?: string
+  /** A nested row's dot colour class; grey when unset. */
+  dot?: string
+  /** A ticket that already landed: dimmed, it opens its last session. */
+  finished?: boolean
   toggle?: { open: boolean; count: number; onToggle: () => void }
 }) {
   const badge = streaming + unseen
-  const Icon = spec ? Layers : GitBranch
+  const Icon = spec ? FolderKanban : GitBranch
   return (
     <div
       className={cn(
@@ -309,10 +350,8 @@ function WorkspaceRow({
           nested ? "pl-16" : "pl-11"
         )}
       >
-        {chatRow ? (
-          <MessageSquare className="-ml-1 size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-        ) : nested ? (
-          <span className={cn("size-1.5 shrink-0 rounded-full", TICKET_DOT[ticketStatus ?? ""] ?? "bg-muted-foreground/40")} />
+        {nested ? (
+          <span className={cn("size-1.5 shrink-0 rounded-full", dot ?? "bg-muted-foreground/40")} />
         ) : (
           <Icon className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
         )}
@@ -320,7 +359,7 @@ function WorkspaceRow({
           className={cn(
             "min-w-0 flex-1 truncate",
             nested ? "text-[13px]" : "text-sm",
-            isActive ? "font-semibold text-foreground" : "font-medium text-foreground/70"
+            isActive ? "font-semibold text-foreground" : finished ? "font-medium text-muted-foreground" : "font-medium text-foreground/70"
           )}
         >
           {label}

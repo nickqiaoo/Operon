@@ -1,6 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
 import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
-import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, MessageCircle, Github, Cloud, Globe, MonitorCog, Puzzle, Layers } from "lucide-react"
+import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, MessageCircle, Github, Cloud, Globe, MonitorCog, Puzzle, FolderKanban } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import { ProvidersTab } from "./ProvidersTab"
 import { RepoDetail } from "./RepoDetail"
@@ -100,7 +100,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
         { id: "assistant", label: <FormattedMessage id="settings.tab.assistant" defaultMessage="Assistant" />, icon: MessageCircle },
-        { id: "spec", label: <FormattedMessage id="settings.tab.spec" defaultMessage="OperonSpec" />, icon: Layers },
+        { id: "spec", label: <FormattedMessage id="settings.tab.spec" defaultMessage="OperonSpec" />, icon: FolderKanban },
         // Agent capabilities
         { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
         { id: "skills", label: <FormattedMessage id="settings.tab.skills" defaultMessage="Skills" />, icon: Sparkles },

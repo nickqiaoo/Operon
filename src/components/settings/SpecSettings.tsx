@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { FormattedMessage, defineMessages, useIntl, type MessageDescriptor } from "react-intl"
-import { AlertCircle, Check, Layers, Loader2, Plus, Save, X } from "lucide-react"
+import { AlertCircle, Check, FolderKanban, Loader2, Plus, Save, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
 import { SeatPicker } from "@/components/spec/SeatPicker"
@@ -116,7 +116,7 @@ export function SpecSettings() {
   return (
     <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
       <div className="flex items-start gap-3">
-        <Layers className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        <FolderKanban className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
         <div>
           <div className="mb-1 text-sm font-semibold">
             <FormattedMessage id="spec.settings.title" defaultMessage="Who plays each role" />

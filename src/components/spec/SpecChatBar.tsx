@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { ChevronDown, Layers, Workflow } from 'lucide-react'
+import { ChevronDown, FolderKanban, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -105,7 +105,7 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
       )}
     >
       <div className="flex items-center gap-2 px-3 py-1.5">
-        <Layers className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
+        <FolderKanban className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
         <button
           type="button"
           onClick={openSpec}

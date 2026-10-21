@@ -2003,6 +2003,8 @@
   "inbox.time.weeks": "{n}周",
   "sidebar.board": "看板",
   "sidebar.channels": "频道",
+  "sidebar.spec.chat": "对话",
+  "sidebar.spec.coordinator": "协调者",
   "board.allProjects": "全部项目",
   "task.new.project": "项目",
   "task.detail.openSourceChannel": "打开这个任务来源的消息",

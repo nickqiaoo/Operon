@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
-import type { CreateProjectInput, CreateWorkspaceInput, Workspace, WorkspaceTask } from '../types/project.js'
+import type { CreateProjectInput, CreateWorkspaceInput, Workspace, WorkspaceChat, WorkspaceTask } from '../types/project.js'
+import type { Task } from '../types/task.js'
+import { specChatRef } from '../services/spec/chats.js'
 import { RewindService } from '../services/rewind/index.js'
 
 export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStorageAdapter & ChatStorageAdapter & TaskStorageAdapter) {
@@ -8,9 +10,28 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
 
   // A project's workspaces, each with the board task whose agent runs in it, so
   // the sidebar can show a spec's ticket worktrees under the spec.
-  const sourceChatOf = (chatId: number | null | undefined): WorkspaceTask['sourceChat'] => {
-    const meta = chatId != null ? storage.getChatMeta(chatId) : undefined
-    return meta && chatId != null ? { chatId, workspaceId: meta.workspaceId ?? null, title: meta.title?.trim() || 'Chat' } : null
+  const chatOf = (chatId: number | null | undefined, fallbackWorkspaceId: number | null): WorkspaceChat | null => {
+    const ref = chatId != null ? specChatRef(storage, chatId, fallbackWorkspaceId) : null
+    return ref ? { chatId: ref.chatId, workspaceId: ref.workspaceId, title: ref.title } : null
+  }
+
+  // What a spec's folder in the sidebar holds besides its live ticket worktrees:
+  // its chat, its coordinator's session, and the tickets that already landed.
+  const specExtras = (t: Task): Pick<WorkspaceTask, 'sourceChat' | 'coordinatorChat' | 'finishedTickets'> => {
+    const specWs = t.workspaceId ?? null
+    const coordinator = t.bindingId != null ? storage.getBinding(t.bindingId) : null
+    const finishedTickets: NonNullable<WorkspaceTask['finishedTickets']> = []
+    for (const entry of storage.specRunGet(t.id)?.build ?? []) {
+      const child = storage.taskGet(entry.taskId)
+      if (!child || child.workspaceId != null) continue
+      const chat = chatOf(entry.chatIds?.at(-1), specWs)
+      if (chat) finishedTickets.push({ id: child.id, number: child.number, title: child.title, status: child.status, chat })
+    }
+    return {
+      sourceChat: chatOf(t.sourceChatId, null),
+      coordinatorChat: coordinator?.scopeKind === 'task' && coordinator.scopeKey === String(t.id) ? chatOf(coordinator.activeChatId, specWs) : null,
+      finishedTickets,
+    }
   }
   const workspacesOf = (projectId: number): (Workspace & { task?: WorkspaceTask })[] => {
     const owners = new Map<number, WorkspaceTask>()
@@ -23,7 +44,7 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
         status: t.status,
         parentTaskId: t.parentTaskId ?? null,
         specStage: t.specStage ?? null,
-        ...(t.specStage != null ? { sourceChat: sourceChatOf(t.sourceChatId) } : {}),
+        ...(t.specStage != null ? specExtras(t) : {}),
       })
     }
     return storage.listWorkspaces(projectId).map((w) => {

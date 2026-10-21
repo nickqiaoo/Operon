@@ -1674,6 +1674,8 @@
   "sidebar.plugins": "Plugins",
   "sidebar.schedule": "Schedule",
   "sidebar.settings": "Settings",
+  "sidebar.spec.chat": "Chat",
+  "sidebar.spec.coordinator": "Coordinator",
   "sidebar.workflow": "Workflow",
   "sidebar.workspaces": "Workspaces",
   "skill.agentsTooltip": "Available in: {agents}",

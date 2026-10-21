@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { ChevronRight, Layers } from 'lucide-react'
+import { ChevronRight, FolderKanban } from 'lucide-react'
 import { useEditorStore } from '@/stores/editor-store'
 import { SPEC_STARTED_EVENT } from './SpecChatBar'
 import { SpecStageBadge, useSpecView } from './spec-shared'
@@ -32,7 +32,7 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
       title={intl.formatMessage({ id: 'spec.bar.open', defaultMessage: 'Open the spec' })}
       className="group my-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-left text-xs transition-colors hover:bg-row-hover disabled:cursor-default"
     >
-      <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <FolderKanban className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="shrink-0 text-muted-foreground">
         <FormattedMessage id="spec.card.started" defaultMessage="Started OperonSpec #{number}" values={{ number: taskNumber }} />
       </span>

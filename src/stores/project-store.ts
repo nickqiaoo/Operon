@@ -32,7 +32,18 @@ export interface WorkspaceTask {
   /** Set on a spec. */
   specStage: string | null
   /** A spec's conversation — the chat it was started from, where the user talks to it. */
-  sourceChat?: { chatId: number; workspaceId: number | null; title: string } | null
+  sourceChat?: WorkspaceChat | null
+  /** A spec's coordinator session — its working log. */
+  coordinatorChat?: WorkspaceChat | null
+  /** A spec's tickets whose worktree is gone (landed or dropped); their sessions still open. */
+  finishedTickets?: Array<{ id: number; number: number; title: string; status: string; chat: WorkspaceChat }>
+}
+
+/** A conversation the sidebar opens, in its own workspace (or the spec's, once that is gone). */
+export interface WorkspaceChat {
+  chatId: number
+  workspaceId: number | null
+  title: string
 }
 
 export type WorkspaceDiffStat = { additions: number; deletions: number }
