@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { MergeConflictError, commit, mergeBranch } from './git.js'
+import { MergeConflictError, commit, filesChangedBeyondMerge, getDefaultLocalBranch, mergeBranch } from './git.js'
 
 const run = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -79,5 +79,95 @@ describe('commit with paths', () => {
 
     expect(run(repo, 'show', '--name-only', '--format=', 'HEAD')).toBe('spec/A.md')
     expect(run(repo, 'status', '--porcelain', '--', 'a.txt')).toBe('M a.txt')
+  })
+})
+
+describe('getDefaultLocalBranch', () => {
+  let repo: string
+
+  beforeEach(() => {
+    repo = mkdtempSync(path.join(tmpdir(), 'operon-default-'))
+    run(repo, 'init', '-q', '-b', 'release/2.x')
+    run(repo, 'config', 'user.email', 'test@example.com')
+    run(repo, 'config', 'user.name', 'test')
+    writeFileSync(path.join(repo, 'a.txt'), 'one\n')
+    run(repo, 'add', '.')
+    run(repo, 'commit', '-qm', 'base')
+  })
+
+  afterEach(() => rmSync(repo, { recursive: true, force: true }))
+
+  it('keeps every segment of a default branch with a slash in it', async () => {
+    run(repo, 'remote', 'add', 'origin', 'https://example.com/repo.git')
+    run(repo, 'update-ref', 'refs/remotes/origin/release/2.x', 'HEAD')
+    run(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release/2.x')
+    expect(await getDefaultLocalBranch(repo)).toBe('release/2.x')
+  })
+
+  it('is null without a remote', async () => {
+    expect(await getDefaultLocalBranch(repo)).toBeNull()
+  })
+})
+
+describe('filesChangedBeyondMerge', () => {
+  let repo: string
+  let reviewed: string
+
+  const commitFile = (file: string, content: string, message: string) => {
+    writeFileSync(path.join(repo, file), content)
+    run(repo, 'add', '.')
+    run(repo, 'commit', '-qm', message)
+  }
+
+  beforeEach(() => {
+    repo = mkdtempSync(path.join(tmpdir(), 'operon-beyond-'))
+    run(repo, 'init', '-q', '-b', 'main')
+    run(repo, 'config', 'user.email', 'test@example.com')
+    run(repo, 'config', 'user.name', 'test')
+    commitFile('a.txt', 'one\n', 'base')
+    run(repo, 'checkout', '-qb', 'change')
+    commitFile('b.txt', 'change\n', 'the change')
+    reviewed = run(repo, 'rev-parse', 'HEAD')
+  })
+
+  afterEach(() => rmSync(repo, { recursive: true, force: true }))
+
+  it('is empty when HEAD is what was reviewed', async () => {
+    expect(await filesChangedBeyondMerge(repo, reviewed, 'main')).toEqual([])
+  })
+
+  it('leaves out what a clean merge of the default branch brought', async () => {
+    run(repo, 'checkout', '-q', 'main')
+    commitFile('c.txt', 'main\n', 'main moved')
+    run(repo, 'checkout', '-q', 'change')
+    run(repo, 'merge', '-q', '--no-ff', '-m', 'merge main', 'main')
+    expect(await filesChangedBeyondMerge(repo, reviewed, 'main')).toEqual([])
+  })
+
+  it('names commits made after the review', async () => {
+    commitFile('d.txt', 'later\n', 'unreviewed')
+    expect(await filesChangedBeyondMerge(repo, reviewed, 'main')).toEqual(['d.txt'])
+  })
+
+  it('names edits not committed yet, new files too', async () => {
+    writeFileSync(path.join(repo, 'b.txt'), 'edited\n')
+    writeFileSync(path.join(repo, 'e.txt'), 'new\n')
+    expect(await filesChangedBeyondMerge(repo, reviewed, 'main')).toEqual(['b.txt', 'e.txt'])
+  })
+
+  it('names the files of a merge conflict settled by hand', async () => {
+    run(repo, 'checkout', '-q', 'main')
+    commitFile('b.txt', 'main\n', 'main touched the same file')
+    commitFile('c.txt', 'main\n', 'and another')
+    run(repo, 'checkout', '-q', 'change')
+    try {
+      run(repo, 'merge', '-q', 'main')
+    } catch {
+      // conflicted, as intended
+    }
+    writeFileSync(path.join(repo, 'b.txt'), 'settled\n')
+    run(repo, 'add', '.')
+    run(repo, 'commit', '-qm', 'settle by hand')
+    expect(await filesChangedBeyondMerge(repo, reviewed, 'main')).toEqual(['b.txt'])
   })
 })

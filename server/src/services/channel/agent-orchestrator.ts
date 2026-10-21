@@ -15,7 +15,7 @@ import { emitChannelEvent, emitProjectEvent } from '../channel-bus.js'
 import { startChat, startServerChat } from '../ai.js'
 import {
   commit,
-  getDefaultBaseBranch,
+  getDefaultLocalBranch,
   getStatus,
   mergeBranch,
   worktreeAdd,
@@ -863,11 +863,6 @@ export async function maybeAutoIntegrate(
 
 type CompletionResult = { ok: true } | { ok: false; reason: string }
 
-function localBranchName(ref: string | null): string | null {
-  if (!ref) return null
-  return ref.includes('/') ? ref.slice(ref.lastIndexOf('/') + 1) : ref
-}
-
 function isNothingToCommit(err: unknown): boolean {
   return /nothing to commit|no changes added to commit|working tree clean/i.test(
     err instanceof Error ? err.message : String(err),
@@ -906,8 +901,7 @@ async function mergeTaskBranchToDefault(taskId: number, actor: ChangeActor): Pro
   }
 
   const status = await getStatus(project.rootPath)
-  const base = await getDefaultBaseBranch(project.rootPath)
-  const expected = localBranchName(base)
+  const expected = await getDefaultLocalBranch(project.rootPath)
   if (expected && status.current !== expected) {
     return {
       ok: false,
@@ -1052,7 +1046,8 @@ export async function completeTaskAfterHumanReview(
             ok: false,
             reason:
               `The default branch has changed since this spec branched, and merging it in conflicts in ${err.files.join(', ') || 'some files'}. ` +
-              `Merge ${err.branch} into \`${task.branchName}\` and resolve it there, then sign off again.`,
+              `Request changes asking for ${err.branch} to be merged in and the conflicts resolved — that is built and reviewed ` +
+              `like any ticket — then sign off again.`,
           }
         }
         return { ok: false, reason: `Could not record the spec's decisions: ${err instanceof Error ? err.message : String(err)}` }

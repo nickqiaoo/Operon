@@ -20,13 +20,21 @@
 
 import type { Task } from '../../types/task.js'
 import type { SpecDecisions, SpecReviewSummary, SpecRunConfig, SpecStage, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
-import { getCurrentBranch, getDiffStatText, getFileDiffRange, getHeadSha, getMergeBase } from '../git.js'
+import {
+  filesChangedBeyondMerge,
+  getCurrentBranch,
+  getDefaultLocalBranch,
+  getDiffStatText,
+  getFileDiffRange,
+  getHeadSha,
+  getMergeBase,
+} from '../git.js'
 import { broadcastTask } from '../task-events.js'
 import type { SpecAgents } from './agents.js'
 import { addTicket, advance, notifySpec, sessionFor, type BuildStorage } from './build-run.js'
 import { familyOf, seatFor } from './config.js'
 import { draftDecisions } from './decisions.js'
-import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, writeSpecFiles, type SpecLocation } from './files.js'
+import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
 import {
   BRANCH_REVIEW_SCHEMA,
   SPEC_REVIEW_SCHEMA,
@@ -288,6 +296,26 @@ export async function reviewSummary(loc: SpecLocation): Promise<SpecReviewSummar
     notRun: count('NOT_RUN'),
     summary: review.summary,
   }
+}
+
+/**
+ * What the change branch gained since the review gate 2 shows, beyond the
+ * default branch merged in, the spec's own files and the decisions it recorded:
+ * work nobody reviewed, such as a merge conflict settled by hand. Empty when the
+ * branch is as reviewed, or there is no review to compare with.
+ */
+export async function unreviewedFiles(storage: BuildStorage, spec: Task): Promise<string[]> {
+  const loc = locate(storage, spec)
+  const stored = await readSpecJson<StoredReview>(loc, SPEC_FILES.reviewJson)
+  if (!stored?.head) return []
+  const project = storage.getProject(spec.projectId)
+  const ref = (project ? await getDefaultLocalBranch(project.rootPath) : null) ?? stored.base
+  const changed = await filesChangedBeyondMerge(loc.worktreePath, stored.head, ref)
+  if (!changed) return []
+  const decisions = await readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions)
+  const recorded = new Set(decisions?.recorded?.files ?? [])
+  const own = `${specDir(spec.number)}/`
+  return changed.filter((file) => !file.startsWith(own) && !recorded.has(file))
 }
 
 /**

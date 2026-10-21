@@ -45,7 +45,7 @@ import {
 import { ticketDescription } from './prompts.js'
 import { readRunView } from '../workflow/store.js'
 import { advance, isBuildActive, resumeBuild, settleSpecNotice, startBuild, stopBuild, type BuildStorage } from './build-run.js'
-import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-run.js'
+import { isReviewActive, requestSignoffChanges, reviewSummary, unreviewedFiles } from './review-run.js'
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
 
 
@@ -275,6 +275,15 @@ export async function signOffSpec(storage: BuildStorage, taskId: number, actor: 
   const { task, run } = requireSpec(storage, taskId)
   if (run.stage !== 'awaiting_signoff') {
     throw new SpecError(`Spec #${task.number} is not waiting for sign-off (it is ${run.stage})`)
+  }
+  // What lands is what was reviewed: a commit since then would ride in unseen.
+  const unreviewed = await unreviewedFiles(storage, task)
+  if (unreviewed.length > 0) {
+    const files = unreviewed.slice(0, 5).map((f) => `\`${f}\``).join(', ') + (unreviewed.length > 5 ? ` and ${unreviewed.length - 5} more` : '')
+    throw new SpecError(
+      `\`${task.branchName}\` changed after its review, in ${files}, and nobody has reviewed that. ` +
+        'Request changes to have the change reviewed again, then sign off.',
+    )
   }
   const done = await completeTaskAfterHumanReview(task.id, {
     type: actor.type === 'agent' ? 'agent' : 'human',

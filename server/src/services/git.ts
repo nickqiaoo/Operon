@@ -404,6 +404,54 @@ export async function getDefaultBaseBranch(repoPath: string): Promise<string | n
   return null
 }
 
+/**
+ * The default branch as a local branch name: getDefaultBaseBranch without its
+ * remote, so `origin/release/2.x` is `release/2.x`. Null when there is none.
+ */
+export async function getDefaultLocalBranch(repoPath: string): Promise<string | null> {
+  const ref = await getDefaultBaseBranch(repoPath)
+  if (!ref) return null
+  const git = await ensureRepo(repoPath)
+  const remotes = git ? await git.getRemotes(false) : []
+  const remote = remotes.find((r) => ref.startsWith(`${r.name}/`))
+  return remote ? ref.slice(remote.name.length + 1) : ref
+}
+
+/**
+ * Files where the checkout — commits and uncommitted edits alike — differs from
+ * `from` merged with `ref` by git on its own: the work done since `from`, less
+ * what merging `ref` in brought. The merge is taken
+ * at the newest commit of `ref` HEAD already has, so a merge whose conflicts were
+ * settled by hand shows up as the files settled. Without `git merge-tree
+ * --write-tree` (git < 2.38) it is everything since `from`. Null outside a repo
+ * or when `from` is not a commit.
+ */
+export async function filesChangedBeyondMerge(repoPath: string, from: string, ref: string): Promise<string[] | null> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return null
+  let baseline = from
+  try {
+    const merged = (await git.raw(['merge-base', 'HEAD', ref])).trim()
+    // Exits 1 on a conflict but still prints the merged tree, markers and all, on its first line.
+    if (merged) baseline = (await git.raw(['merge-tree', '--write-tree', from, merged])).split('\n')[0].trim() || from
+  } catch {
+    // No such ref, unrelated histories or an older git — compare with `from` itself.
+  }
+  try {
+    const [changed, untracked] = await Promise.all([
+      git.raw(['diff', '--name-only', baseline]),
+      git.raw(['ls-files', '--others', '--exclude-standard']),
+    ])
+    const files = `${changed}\n${untracked}`
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    return [...new Set(files)]
+  } catch {
+    return null
+  }
+}
+
 export interface BranchEntry {
   name: string
   current: boolean

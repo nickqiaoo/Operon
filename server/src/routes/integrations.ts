@@ -394,9 +394,7 @@ export function integrationsRoutes(
       const status = await gitService.getStatus(repoPath)
       const currentBranch = status.current
 
-      // `origin/main` -> `main`; the remote prefix is not a branch name.
-      const localDefault = await gitService.getDefaultBaseBranch(repoPath)
-      const defaultBranch = localDefault ? localDefault.replace(/^[^/]+\//, '') : null
+      const defaultBranch = await gitService.getDefaultLocalBranch(repoPath)
 
       // A branch that was never pushed reports ahead = 0 (there is nothing to
       // count against), so "is there anything to push?" needs the upstream too.
