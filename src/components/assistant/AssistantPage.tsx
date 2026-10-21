@@ -87,7 +87,8 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
 
   const identity = parseIdentity(files.find((f) => f.name === "identity")?.content ?? "")
   const assistantName = identity.name ?? intl.formatMessage({ id: "assistant.defaultName", defaultMessage: "Assistant" })
-  const busyCount = activities.filter((a) => a.status === "running" || a.status === "waiting").length
+  // Its own turn counts as working too, not only the workers it sent off.
+  const busy = typing || activities.some((a) => a.status === "running" || a.status === "waiting")
   const tabReady = usePanelTabReady(tab)
 
   const openActivity = (id: string) => {
@@ -205,7 +206,7 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
           <aside className="w-[340px] shrink-0 border-l border-border/50 bg-sidebar">
             <AssistantSidePanel
               name={assistantName}
-              busyCount={busyCount}
+              busy={busy}
               tab={tab}
               onTabChange={setTab}
               onEditIdentity={() => openProfileFile("identity")}

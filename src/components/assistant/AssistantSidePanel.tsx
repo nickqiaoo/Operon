@@ -60,8 +60,8 @@ const TABS: { id: SidePanelTab; icon: typeof List }[] = [
 
 interface AssistantSidePanelProps {
   name: string
-  /** How many workers are running or waiting on the user. */
-  busyCount: number
+  /** The main agent is in a turn, or a worker is running or waiting on the user. */
+  busy: boolean
   tab: SidePanelTab
   onTabChange: (tab: SidePanelTab) => void
   onEditIdentity: () => void
@@ -77,11 +77,11 @@ interface AssistantSidePanelProps {
 }
 
 /** Right rail: who the assistant is, then Activity / Files / Audit / Schedule / Profile. */
-export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditIdentity, large, onClose, headerAction, children }: AssistantSidePanelProps) {
+export function AssistantSidePanel({ name, busy, tab, onTabChange, onEditIdentity, large, onClose, headerAction, children }: AssistantSidePanelProps) {
   const intl = useIntl()
   if (large) {
     return (
-      <LargePanel name={name} busyCount={busyCount} tab={tab} onTabChange={onTabChange} onEditIdentity={onEditIdentity} onClose={onClose}>
+      <LargePanel name={name} busy={busy} tab={tab} onTabChange={onTabChange} onEditIdentity={onEditIdentity} onClose={onClose}>
         {children}
       </LargePanel>
     )
@@ -104,8 +104,8 @@ export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditId
         </div>
         <div className="mt-2.5 text-base font-semibold">{name}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className={cn("h-1.5 w-1.5 rounded-full", busyCount > 0 ? "bg-accent-warm" : "bg-accent-green")} />
-          {busyLabel(intl, busyCount > 0)}
+          <span className={cn("h-1.5 w-1.5 rounded-full", busy ? "bg-accent-warm" : "bg-accent-green")} />
+          {busyLabel(intl, busy)}
         </div>
       </div>
 
@@ -140,7 +140,7 @@ export function AssistantSidePanel({ name, busyCount, tab, onTabChange, onEditId
 }
 
 /** The phone's version: the same parts at the size of a page of its own. */
-function LargePanel({ name, busyCount, tab, onTabChange, onEditIdentity, onClose, children }: Omit<AssistantSidePanelProps, "large" | "headerAction">) {
+function LargePanel({ name, busy, tab, onTabChange, onEditIdentity, onClose, children }: Omit<AssistantSidePanelProps, "large" | "headerAction">) {
   const intl = useIntl()
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -172,8 +172,8 @@ function LargePanel({ name, busyCount, tab, onTabChange, onEditIdentity, onClose
         </div>
         <div className="mt-3 text-2xl font-bold">{name}</div>
         <div className="mt-1 flex items-center gap-2 text-[15px] text-muted-foreground">
-          <span className={cn("size-2 rounded-full", busyCount > 0 ? "bg-accent-warm" : "bg-accent-green")} />
-          {busyLabel(intl, busyCount > 0)}
+          <span className={cn("size-2 rounded-full", busy ? "bg-accent-warm" : "bg-accent-green")} />
+          {busyLabel(intl, busy)}
         </div>
       </div>
 

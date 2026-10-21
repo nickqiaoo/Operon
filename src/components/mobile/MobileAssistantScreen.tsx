@@ -110,8 +110,9 @@ export function MobileAssistantScreen({
 
   const identity = parseIdentity(files.find((f) => f.name === "identity")?.content ?? "")
   const assistantName = identity.name ?? intl.formatMessage({ id: "assistant.defaultName", defaultMessage: "Assistant" })
-  const busyCount = activities.filter((a) => a.status === "running" || a.status === "waiting").length
-  const status = busyLabel(intl, busyCount > 0)
+  // Its own turn counts as working too, not only the workers it sent off.
+  const busy = typing || activities.some((a) => a.status === "running" || a.status === "waiting")
+  const status = busyLabel(intl, busy)
 
   const push = useCallback((layer: Layer) => {
     const id = nextLayerId.current++
@@ -158,12 +159,12 @@ export function MobileAssistantScreen({
         ? {
             title: assistantName,
             subtitle: status,
-            busy: busyCount > 0,
+            busy,
             covered,
           }
         : null,
     )
-  }, [onHeaderChange, loaded, assistantName, status, busyCount, covered])
+  }, [onHeaderChange, loaded, assistantName, status, busy, covered])
   useEffect(() => () => onHeaderChange?.(null), [onHeaderChange])
 
   // The native bar's taps.
@@ -198,7 +199,7 @@ export function MobileAssistantScreen({
             <AssistantSidePanel
               large
               name={assistantName}
-              busyCount={busyCount}
+              busy={busy}
               tab={panelTab}
               onTabChange={setPanelTab}
               onEditIdentity={() => push({ kind: "file", name: "identity" })}
@@ -377,7 +378,7 @@ export function MobileAssistantScreen({
                 </span>
                 {/* Idle is the usual state and says nothing worth a label: the name then.
                     Only while it works does the capsule show a status. */}
-                {busyCount > 0 ? (
+                {busy ? (
                   <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-muted-foreground">
                     <span className="size-2 shrink-0 rounded-full bg-accent-warm" />
                     <span className="truncate">{status}</span>
