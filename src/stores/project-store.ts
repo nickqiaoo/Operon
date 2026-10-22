@@ -31,6 +31,23 @@ export interface WorkspaceTask {
   parentTaskId: number | null
   /** Set on a spec. */
   specStage: string | null
+  archivedAt?: number | null
+  /** Provider of the task's current conversation, falling back to its assigned agent. */
+  providerId?: string | null
+  /** A spec's conversation — the chat it was started from, where the user talks to it. */
+  sourceChat?: WorkspaceChat | null
+  /** A spec's coordinator session — its working log. */
+  coordinatorChat?: WorkspaceChat | null
+  /** A spec's tickets whose worktree is gone (landed or dropped); their sessions still open. */
+  finishedTickets?: Array<{ id: number; number: number; title: string; status: string; chat: WorkspaceChat }>
+}
+
+/** A conversation the sidebar opens, in its own workspace (or the spec's, once that is gone). */
+export interface WorkspaceChat {
+  providerId?: string | null
+  chatId: number
+  workspaceId: number | null
+  title: string
 }
 
 export type WorkspaceDiffStat = { additions: number; deletions: number }
@@ -40,6 +57,8 @@ export interface Project {
   name: string
   rootPath: string
   workspaces: Workspace[]
+  /** Specs remain available after their workspaces have been reclaimed. */
+  specs?: WorkspaceTask[]
   createdAt: number
   updatedAt: number
   /**
@@ -71,6 +90,10 @@ interface ProjectStore {
   activeWorkspaceId: number | null
   /** Local sidebar preference; omitted ids stay expanded. */
   collapsedProjectIds: number[]
+  /** Local display preference, independent of task status and archiving. */
+  hiddenSpecIds: number[]
+  /** Explicitly shown specs can appear even without a workspace. */
+  shownSpecIds: number[]
   /**
    * Whether `loadProjects` has settled at least once this session. `projects`
    * is persisted, so an empty list on its own can't tell "no projects" apart
@@ -91,6 +114,8 @@ interface ProjectStore {
   /** Pin to / unpin from the top of the list. Moves it at once; puts it back if the server refuses. */
   setProjectPinned: (id: number, pinned: boolean) => Promise<void>
   setProjectCollapsed: (id: number, collapsed: boolean) => void
+  setSpecHidden: (taskId: number, hidden: boolean) => void
+  setWorkspaceTaskArchived: (taskId: number, archivedAt: number | null) => void
   setActiveProject: (id: number | null) => void
   setActiveWorkspace: (id: number | null, projectId?: number | null) => void
   addWorkspace: (projectId: number, workspace: Omit<Workspace, "id">) => Promise<Workspace>
@@ -110,6 +135,8 @@ export const useProjectStore = create<ProjectStore>()(
       activeProjectId: null,
       activeWorkspaceId: null,
       collapsedProjectIds: [],
+      hiddenSpecIds: [],
+      shownSpecIds: [],
       projectsLoaded: false,
       cacheNodeId: null,
       workspaceDiffStats: {},
@@ -120,6 +147,8 @@ export const useProjectStore = create<ProjectStore>()(
           activeProjectId: null,
           activeWorkspaceId: null,
           collapsedProjectIds: [],
+          hiddenSpecIds: [],
+          shownSpecIds: [],
           projectsLoaded: false,
           cacheNodeId: null,
           workspaceDiffStats: {},
@@ -229,6 +258,34 @@ export const useProjectStore = create<ProjectStore>()(
         }))
       },
 
+      setSpecHidden: (taskId, hidden) => {
+        set((state) => ({
+          hiddenSpecIds: hidden
+            ? state.hiddenSpecIds.includes(taskId) ? state.hiddenSpecIds : [...state.hiddenSpecIds, taskId]
+            : state.hiddenSpecIds.filter((id) => id !== taskId),
+          shownSpecIds: hidden
+            ? state.shownSpecIds.filter((id) => id !== taskId)
+            : state.shownSpecIds.includes(taskId) ? state.shownSpecIds : [...state.shownSpecIds, taskId],
+        }))
+      },
+
+      setWorkspaceTaskArchived: (taskId, archivedAt) => {
+        const needsUpdate = (task: WorkspaceTask | undefined) => task?.id === taskId && task.archivedAt !== archivedAt
+        const owner = get().projects.find((project) =>
+          project.workspaces.some((workspace) => needsUpdate(workspace.task)) || project.specs?.some(needsUpdate),
+        )
+        if (!owner) return
+        set((state) => ({
+          projects: state.projects.map((project) => project.id === owner.id ? {
+            ...project,
+            specs: project.specs?.map((spec) => spec.id === taskId ? { ...spec, archivedAt } : spec),
+            workspaces: project.workspaces.map((workspace) => workspace.task?.id === taskId
+              ? { ...workspace, task: { ...workspace.task, archivedAt } }
+              : workspace),
+          } : project),
+        }))
+      },
+
       setActiveProject: (id) => {
         const project = get().projects.find((p) => p.id === id) || null
         set({
@@ -321,6 +378,8 @@ export const useProjectStore = create<ProjectStore>()(
         activeProjectId: state.activeProjectId,
         activeWorkspaceId: state.activeWorkspaceId,
         collapsedProjectIds: state.collapsedProjectIds,
+        hiddenSpecIds: state.hiddenSpecIds,
+        shownSpecIds: state.shownSpecIds,
         cacheNodeId: state.cacheNodeId,
       }),
       // A cached tree is only valid for the node that produced it. Ids are not
@@ -335,6 +394,8 @@ export const useProjectStore = create<ProjectStore>()(
           ...saved,
           projects: stale ? [] : saved.projects ?? [],
           collapsedProjectIds: stale ? [] : saved.collapsedProjectIds ?? [],
+          hiddenSpecIds: stale ? [] : saved.hiddenSpecIds ?? [],
+          shownSpecIds: stale ? [] : saved.shownSpecIds ?? [],
         }
       },
     }

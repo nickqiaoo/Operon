@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai';
 import { isToolPart } from '../toolParentUtils';
 import { isCompactEligible } from './isCompactEligible';
 import type { ToolPartLike } from '../toolName';
+import { isCodeProgramTool } from '../codeProgram';
 
 type MessagePart = UIMessage['parts'][number];
 
@@ -18,7 +19,7 @@ const isBlankTextPart = (part: MessagePart) =>
  * Groups message parts into segments for rendering.
  *
  * A "work group" absorbs consecutive background-work parts — compact-eligible
- * tool calls AND reasoning ("thinking") parts — so that everything between two
+ * tool calls, Code Mode programs AND reasoning ("thinking") parts — so that everything between two
  * prose text blocks collapses into a single foldable block. What breaks a run:
  * prose text, attachments, and tools that own a dedicated renderer
  * (Agent / Workflow / plan review / pending questions).
@@ -53,7 +54,7 @@ export function segmentMessageParts(
 
     const isWork =
       i !== activeIndex &&
-      ((isToolPart(part) && isCompactEligible(part as ToolPartLike & { state?: string })) ||
+      ((isToolPart(part) && (isCodeProgramTool(part as ToolPartLike) || isCompactEligible(part as ToolPartLike & { state?: string }))) ||
         isReasoningPart(part));
 
     if (isWork) {

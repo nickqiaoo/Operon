@@ -11,7 +11,6 @@ import type { Task, TaskActor } from '../../types/task.js'
 import {
   ACTIVE_SPEC_STAGES,
   type SpecAgentRun,
-  type SpecDecisions,
   type SpecIntegration,
   type SpecRun,
   type SpecSeat,
@@ -43,13 +42,15 @@ import {
   topologicalOrder,
   type PendingQuestions,
 } from './design-run.js'
-import { ticketDescription } from './prompts.js'
+import { ticketDescription, type SpecReview } from './prompts.js'
 import { readRunView } from '../workflow/store.js'
 import { advance, isBuildActive, resumeBuild, settleSpecNotice, startBuild, stopBuild, type BuildStorage } from './build-run.js'
 import { isReviewActive, requestSignoffChanges, reviewSummary } from './review-run.js'
 import { completeTaskAfterHumanReview } from '../channel/agent-orchestrator.js'
 import { isMerging } from '../git.js'
-import { coordinatorView } from './coordinator.js'
+import { coordinatorView, ensureCoordinator, onStepFailed } from './coordinator.js'
+import { getSpecRoleSettings, usableProviders } from './role-settings.js'
+import { specSeats } from './switch.js'
 import { specChatRef, specChatRefs, type SpecChatStorage } from './chats.js'
 
 
@@ -79,11 +80,19 @@ function locationOf(storage: SpecStorage, task: Task): SpecLocation {
   return { taskId: task.id, taskNumber: task.number, worktreePath: workspace.worktreePath }
 }
 
-function launch(storage: SpecStorage, task: Task): string {
+function launch(storage: BuildStorage, task: Task): string {
   const run = storage.specRunGet(task.id)
   if (!run) throw new SpecError(`Task #${task.number} is not an OperonSpec`)
   if (isDesignRunActive(task.id)) throw new SpecError(`Spec #${task.number} is already running`)
-  return startDesignRun({ storage, task, run, loc: locationOf(storage, task), chatId: task.sourceChatId })
+  return startDesignRun({
+    storage,
+    task,
+    run,
+    loc: locationOf(storage, task),
+    chatId: task.sourceChatId,
+    // Without a coordinator to take it, the run's own report tells the chat.
+    onFailed: (error) => onStepFailed(storage, task, 'the design run', error, undefined, false),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +121,7 @@ export interface StartSpecResult {
   reused: boolean
 }
 
-export async function startSpec(storage: SpecStorage, input: StartSpecInput): Promise<StartSpecResult> {
+export async function startSpec(storage: BuildStorage, input: StartSpecInput): Promise<StartSpecResult> {
   const project = storage.getProject(input.projectId)
   if (!project) throw new SpecError(`Project ${input.projectId} not found`)
   const brief = input.brief.trim()
@@ -126,7 +135,12 @@ export async function startSpec(storage: SpecStorage, input: StartSpecInput): Pr
   if (existing) return { task: existing, runId: storage.specRunGet(existing.id)?.workflowRunId ?? null, reused: true }
 
   // Pick seats before creating anything: too few agents is a reason not to start.
-  const config = defaultSpecConfig({ available: input.available, lead: input.lead, candidates: input.candidates })
+  const config = defaultSpecConfig({
+    available: input.available,
+    lead: input.lead,
+    candidates: input.candidates,
+    roles: getSpecRoleSettings(),
+  })
 
   const task = storage.taskCreate({
     projectId: input.projectId,
@@ -156,8 +170,11 @@ export async function startSpec(storage: SpecStorage, input: StartSpecInput): Pr
   })
 
   const fresh = storage.taskGet(task.id) as Task
-  await writeSpecFiles(locationOf(storage, fresh), { [SPEC_FILES.brief]: brief }, 'brief')
+  await writeSpecFiles(storage, locationOf(storage, fresh), { [SPEC_FILES.brief]: brief }, 'brief')
   const runId = launch(storage, fresh)
+  // From the start: any step can fail on its agent, and the coordinator is who
+  // works out what to switch. Its session opens the first time it is needed.
+  await ensureCoordinator(storage, fresh)
   broadcastTask(storage, task.id)
   return { task: storage.taskGet(task.id) as Task, runId, reused: false }
 }
@@ -166,7 +183,7 @@ export async function startSpec(storage: SpecStorage, input: StartSpecInput): Pr
 // Answer the user's questions
 // ---------------------------------------------------------------------------
 
-export async function answerSpecQuestions(storage: SpecStorage, taskId: number, answers: string): Promise<string> {
+export async function answerSpecQuestions(storage: BuildStorage, taskId: number, answers: string): Promise<string> {
   const { task, run } = requireSpec(storage, taskId)
   if (run.stage !== 'awaiting_answers') {
     throw new SpecError(`Spec #${task.number} is not waiting for answers (it is ${run.stage})`)
@@ -186,7 +203,7 @@ export async function answerSpecQuestions(storage: SpecStorage, taskId: number, 
     '### Answers',
     text,
   ].join('\n')
-  await writeSpecFiles(loc, { [SPEC_FILES.answers]: previous ? `${previous.trimEnd()}\n\n${block}\n` : `${block}\n` }, 'answers')
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.answers]: previous ? `${previous.trimEnd()}\n\n${block}\n` : `${block}\n` }, 'answers')
   storage.specRunUpdate(task.id, { stage: 'designing' })
   return launch(storage, task)
 }
@@ -272,8 +289,8 @@ export async function approveSpecDesign(
 // ---------------------------------------------------------------------------
 
 /**
- * Merge the built and reviewed change into the default branch, carrying the
- * ADRs and glossary terms it records (written by the Done path). Returns
+ * Archive the Spec files, remove them from the change branch, then merge the
+ * built and reviewed change into the default branch. Returns
  * `pending` when merging the default branch in conflicted and the coordinator
  * took it on: the user signs again once the resolution is reviewed.
  */
@@ -352,7 +369,7 @@ export async function requestSpecChanges(
     for (const key of await listCandidateKeys(loc)) files[candidateFile(key)] = null
     files[SPEC_FILES.judge] = null
   }
-  await writeSpecFiles(loc, files, input.redesign ? 'changes requested — redesign' : 'changes requested')
+  await writeSpecFiles(storage, loc, files, input.redesign ? 'changes requested — redesign' : 'changes requested')
   storage.taskAppendActivity(task.id, {
     kind: 'comment',
     actorType: actor.type,
@@ -379,7 +396,7 @@ export async function resumeSpec(storage: BuildStorage, taskId: number): Promise
 
 export function stopSpec(storage: SpecStorage, taskId: number): boolean {
   requireSpec(storage, taskId)
-  return stopDesignRun(taskId) || stopBuild(taskId)
+  return stopDesignRun(taskId) || stopBuild(storage as BuildStorage, taskId)
 }
 
 /**
@@ -414,56 +431,40 @@ export async function getSpecView(storage: SpecViewStorage, taskId: number): Pro
     // The build seats as they will be used, also before gate 1 fills them in.
     run: { ...run, config },
     providers: specPool(config),
+    availableProviders: usableProviders(),
+    seats: specSeats(config, run.build),
     worktreePath: workspace?.worktreePath ?? null,
     specDir: specDir(task.number),
     running: isDesignRunActive(task.id) || isBuildActive(task.id) || isReviewActive(task.id),
-    coordinator: coordinatorView(storage, task),
+    coordinator: withChat(storage, coordinatorView(storage, task), task.workspaceId ?? null),
     sourceChat: task.sourceChatId != null ? specChatRef(storage, task.sourceChatId, task.workspaceId ?? null) : null,
     ...specAgents(storage, task, run),
   }
-  if (!workspace) {
-    return {
-      ...base,
-      brief: null,
-      grounding: null,
-      candidates: [],
-      judge: null,
-      design: null,
-      synthesis: null,
-      tickets: null,
-      questions: null,
-      feedback: null,
-      review: null,
-      reviewSummary: null,
-      decisions: null,
-      integration: null,
-      designChanged: false,
-      ticketTasks: {},
-    }
+  const artifacts = storage.specArtifactsRead(task.id)
+  const text = (file: string): string | null => artifacts[file] ?? null
+  const json = <T>(file: string): T | null => {
+    const content = text(file)
+    if (content == null) return null
+    try { return JSON.parse(content) as T } catch { return null }
   }
-  const loc: SpecLocation = { taskId: task.id, taskNumber: task.number, worktreePath: workspace.worktreePath }
-  const keys = await listCandidateKeys(loc)
-  const [brief, grounding, judge, design, synthesis, tickets, pending, feedback, review, summary, decisions, integration, candidates] = await Promise.all([
-    readSpecFile(loc, SPEC_FILES.brief),
-    readSpecFile(loc, SPEC_FILES.grounding),
-    readSpecFile(loc, SPEC_FILES.judge),
-    readSpecFile(loc, SPEC_FILES.design),
-    readSpecFile(loc, SPEC_FILES.synthesis),
-    readSpecJson<SpecTicket[]>(loc, SPEC_FILES.tickets),
-    readSpecJson<PendingQuestions>(loc, SPEC_FILES.questions),
-    readSpecFile(loc, SPEC_FILES.feedback),
-    readSpecFile(loc, SPEC_FILES.review),
-    reviewSummary(loc),
-    readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions),
-    readSpecJson<SpecIntegration>(loc, SPEC_FILES.integration),
-    Promise.all(
-      keys.map(async (key) => ({
-        key,
-        providerId: run.config.candidates[key.charCodeAt(0) - 65]?.providerId ?? '?',
-        content: (await readSpecFile(loc, candidateFile(key))) ?? '',
-      })),
-    ),
-  ])
+  const brief = text(SPEC_FILES.brief)
+  const grounding = text(SPEC_FILES.grounding)
+  const judge = text(SPEC_FILES.judge)
+  const design = text(SPEC_FILES.design)
+  const synthesis = text(SPEC_FILES.synthesis)
+  const tickets = json<SpecTicket[]>(SPEC_FILES.tickets)
+  const pending = json<PendingQuestions>(SPEC_FILES.questions)
+  const feedback = text(SPEC_FILES.feedback)
+  const review = text(SPEC_FILES.review)
+  const summary = reviewSummary(json<SpecReview>(SPEC_FILES.reviewJson))
+  const integration = json<SpecIntegration>(SPEC_FILES.integration)
+  const candidates = Object.keys(artifacts)
+    .filter((file) => /^candidates\/[^/]+\.md$/.test(file))
+    .sort()
+    .map((file) => {
+      const key = file.slice('candidates/'.length, -3)
+      return { key, providerId: run.config.candidates[key.charCodeAt(0) - 65]?.providerId ?? '?', content: artifacts[file] }
+    })
   return {
     ...base,
     brief,
@@ -477,11 +478,15 @@ export async function getSpecView(storage: SpecViewStorage, taskId: number): Pro
     feedback,
     review,
     reviewSummary: review ? summary : null,
-    decisions,
     integration: run.stage === 'integrating' ? integration : null,
     designChanged: run.designSha != null && design != null && blobSha(design) !== run.designSha,
     ticketTasks: ticketTasksOf(storage, task, run, tickets),
   }
+}
+
+/** The coordinator with its conversation as a link — the Sessions tab lists it as the spec's working log. */
+function withChat(storage: SpecViewStorage, view: SpecView['coordinator'], workspaceId: number | null): SpecView['coordinator'] {
+  return view && view.chatId != null ? { ...view, chat: specChatRef(storage, view.chatId, workspaceId) } : view
 }
 
 /** Every agent call across the spec's runs, and the wall-clock time those runs took. */

@@ -90,8 +90,8 @@ export function signoffNext(taskNumber: number, crossFamily: boolean): string {
     `Spec task #${taskNumber} is built: every ticket was ${reviewed} and merged, and the whole change ` +
     'was reviewed again. Summarize the review for the user in a few lines — whether it is ready, anything still to act on or ' +
     'worth considering, and which acceptance criteria were not verified (NOT_RUN) — then ask them to sign it off on the spec ' +
-    'card or the task page, which merges it into the default branch together with the ADRs and glossary terms it records ' +
-    "(listed under Decisions on the task page), or to request changes there (the buttons are labelled in the user's " +
+    'card or the task page, which merges it into the default branch and removes its intermediate Spec files, ' +
+    "or to request changes there (the buttons are labelled in the user's " +
     'UI language, so describe them rather than quoting English labels). Do not sign it off yourself.'
   )
 }
@@ -962,7 +962,7 @@ function cell(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Gate 2: what the change leaves behind (ADRs and glossary)
+// Existing project documentation
 // ---------------------------------------------------------------------------
 
 /**
@@ -973,73 +973,6 @@ function cell(text: string): string {
 export function recordedSection(recorded: string): string {
   if (!recorded) return ''
   return `\n## Already recorded in this repository\nDecisions in docs/adr/ stand until a new ADR supersedes them; use the glossary's terms as defined. If the change needs to go against one, say so explicitly.\n\n${recorded}\n`
-}
-
-export const DECISIONS_SCHEMA = {
-  type: 'object',
-  properties: {
-    adrs: {
-      type: 'array',
-      maxItems: 3,
-      items: {
-        type: 'object',
-        properties: {
-          slug: { type: 'string', description: 'Short kebab-case, ASCII, e.g. "reminders-own-table"' },
-          title: { type: 'string', description: 'The decision as one sentence' },
-          context: { type: 'string', description: 'Markdown: the forces that made a decision necessary' },
-          decision: { type: 'string', description: 'Markdown: what was decided' },
-          consequences: { type: 'string', description: 'Markdown: what follows, including the alternatives turned down and why' },
-          supersedes: { type: ['number', 'null'], description: 'Number of the recorded ADR this replaces, or null' },
-        },
-        required: ['slug', 'title', 'context', 'decision', 'consequences', 'supersedes'],
-      },
-    },
-    glossary: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          term: { type: 'string' },
-          definition: { type: 'string', description: 'One or two sentences, in the domain\'s own words' },
-        },
-        required: ['term', 'definition'],
-      },
-    },
-  },
-  required: ['adrs', 'glossary'],
-} as const
-
-export interface DecisionsResult {
-  adrs: { slug: string; title: string; context: string; decision: string; consequences: string; supersedes: number | null }[]
-  glossary: { term: string; definition: string }[]
-}
-
-export function decisionsPrompt(input: {
-  brief: string
-  answers: string | null
-  design: string
-  synthesis: string | null
-  rulings: string[]
-  recorded: string
-}): string {
-  return `You are the lead. The change below is built and reviewed, and the user is about to sign it off. Decide what it should leave behind for whoever works on this code next. Everything you return is written into the repository: architecture decision records under docs/adr/ (one short file per decision, never edited afterwards) and new terms in GLOSSARY.md.
-
-## ADRs — usually none or one, never more than three
-Record a decision only if either holds:
-- someone could plausibly propose an alternative this change turned down, and should find out why it lost;
-- the code alone does not show why it is shaped this way.
-Implementation detail, naming, and anything obvious from reading the code do not qualify. An empty list is the common, correct answer. If a decision changes one already recorded, write a new ADR and put the old one's number in \`supersedes\`; never restate a recorded decision.
-
-## Glossary — domain terms only
-Add a term this change introduced or pinned down that a newcomer would not know, as the brief and design use it. No general technical vocabulary, and nothing the glossary already defines.
-
-## Brief
-${input.brief}
-${decisionsSince(input.answers)}
-## Design
-${input.design}
-${input.synthesis ? `\n## Synthesis note (what was chosen, grafted and rejected)\n${input.synthesis}\n` : ''}${input.rulings.length > 0 ? `\n## Rulings the implementers made\n${input.rulings.map((r) => `- ${r}`).join('\n')}\n` : ''}${recordedSection(input.recorded)}
-${LANGUAGE_RULE}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,11 +986,17 @@ export const MAX_COORDINATOR_RETRIES = 2
  * The coordinator agent's standing instructions. One agent per seat serves every
  * spec, so nothing here is about a particular spec; each wake-up message says which.
  */
-export const COORDINATOR_INSTRUCTIONS = `You are the coordinator of OperonSpec changes. A spec is one change: its design was approved by the user, split into tickets, and the tickets are being built by implementer agents, each reviewed by another model family and merged into the spec's change branch. That machinery runs on rules without you. You are woken for what needs judgement: a ticket that is stuck, a conflict when the user signs the change off, or a comment the user leaves on the spec. Each message names the spec (#N); between messages you sleep.
+export const COORDINATOR_INSTRUCTIONS = `You are the coordinator of OperonSpec changes. A spec is one change: agents design it (explorers, design candidates, a judge, the lead), the user approves the design, it is split into tickets, and the tickets are built by implementer agents, each reviewed by another model family and merged into the spec's change branch. That machinery runs on rules without you. You are woken for what needs judgement: a step that failed, a ticket that is stuck, a conflict when the user signs the change off, or a message from the user. Each message names the spec (#N); between messages you sleep.
+
+Before the design is approved you only deal with failures — never with the design itself: candidates, the judge's scores and questions for the user follow their own course, and you never answer the user's questions for them.
+
+The user talks to the spec in the chat it was started from; what you hand them (spec_propose_switch, spec_escalate) reaches them there, and their answers come back to you as messages.
 
 Your session runs in the spec's change worktree (branch operon/task-N). The spec's files are in .operon/changes/task-N/: brief.md, design.md (what was approved), tickets.json, review.md.
 
-Tools (taskboard): spec_status reads where the spec and every ticket stand; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
+Tools (taskboard): spec_status reads where the spec and every ticket stand, and which agent plays each role; get_project_task reads a task with its activity (an implementer's report is its last comment); comment_project_task answers on a task; spec_retry_ticket sets a blocked ticket going again with your instructions; spec_add_ticket adds a ticket the build is missing; spec_propose_switch asks the user to move a role (a ticket's implementer or reviewer, the spec's reviewer, …) to another agent or model; spec_escalate hands something to the user; spec_integration_done hands in a resolved sign-off conflict.
+
+When the trouble is the agent rather than the work — out of quota or rate-limited, not logged in, a provider error, a model that will not start, or one that keeps failing the same way — retrying on the same agent will not help: call spec_propose_switch with the role, the agent (and model) to move it to, and why. Pick from the agents spec_status lists as usable here. Never switch without asking: the user decides, and the switch and the work carrying on follow from their yes.
 
 Rules:
 - Never change what the user approved. A problem that needs a different design goes to the user with spec_escalate, with what you found and what you recommend.
@@ -1081,8 +1020,39 @@ export function blockedTicketMessage(input: {
     `- spec_retry_ticket(task: ${input.specNumber}, ticket: ${input.ticketNumber}, instructions: ...) — when its implementer can finish with clearer instructions ` +
       `(add a ruling when you decide something the design left open). ${input.retriesLeft > 0 ? `You can do this ${input.retriesLeft} more time(s) for this ticket.` : 'You cannot retry this ticket again.'}`,
     `- spec_add_ticket(task: ${input.specNumber}, ...) — when work is missing that another ticket should do first or alongside.`,
+    `- spec_propose_switch(task: ${input.specNumber}, role: "implementer", ticket: ${input.ticketNumber}, provider: ..., reason: ...) — when its agent is the problem (quota, auth, a provider error, a model that will not start); the user decides.`,
     `- spec_escalate(task: ${input.specNumber}, ticket: ${input.ticketNumber}, message: ...) — when the design is wrong, or retrying will not help. Say what you found and what you recommend.`,
     'If you do none of these, the user is told the ticket is blocked when your turn ends.',
+  ].join('\n')
+}
+
+/**
+ * What the chat a spec was started from is told when the spec needs the user —
+ * the one conversation they talk to the spec in. Its agent passes it on and acts
+ * on their answer; the coordinator works in the background.
+ */
+export function specNoticeText(specNumber: number, body: string): string {
+  return [
+    `<spec-notice spec="${specNumber}">`,
+    body,
+    '</spec-notice>',
+    `This is about spec #${specNumber}, which this chat started. Tell the user in a sentence or two, in their language, and stop. ` +
+      'When they answer: spec_switch_agent makes a switch they agree to (it carries the spec on), spec_decline_switch turns a proposed ' +
+      `one down, and spec_message_coordinator passes anything else to the spec's coordinator. spec_status(task: ${specNumber}) says where it stands.`,
+  ].join('\n')
+}
+
+/** A step of the build stopped on an error: the coordinator looks first. */
+export function stepFailedMessage(input: { specNumber: number; step: string; reason: string; role?: string; ticketNumber?: number }): string {
+  const target = input.role
+    ? `role: "${input.role}"${input.ticketNumber != null ? `, ticket: ${input.ticketNumber}` : ''}`
+    : 'role: ...'
+  return [
+    `Spec #${input.specNumber} stopped: ${input.step} failed — ${input.reason}`,
+    '',
+    `If the agent is the problem (out of quota, rate-limited, not logged in, a provider error, a model that will not start), ` +
+      `call spec_propose_switch(task: ${input.specNumber}, ${target}, provider: ..., reason: ...): if the user agrees, the step runs again on that agent. ` +
+      `Otherwise tell the user what went wrong with spec_escalate(task: ${input.specNumber}, message: ...); they can resume the spec once it is dealt with.`,
   ].join('\n')
 }
 

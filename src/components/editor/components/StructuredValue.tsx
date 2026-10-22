@@ -1,3 +1,4 @@
+import { fileCitationsToText } from '@/lib/file-citation';
 import type { ReactNode } from 'react';
 import { FormattedMessage } from 'react-intl';
 import { humanizeKey, splitTrailingJson } from '@shared/json-reply';
@@ -55,7 +56,7 @@ function isEmpty(value: unknown): boolean {
 function Scalar({ value, fieldKey }: { value: unknown; fieldKey?: string }) {
   if (typeof value === 'string') {
     if (fieldKey && BADGE_KEYS.has(fieldKey) && value.length <= 24) return <Badge value={value} />;
-    if (value.length > PROSE_CHARS || value.includes('\n')) {
+    if (value.length > PROSE_CHARS || value.includes('\n') || value.includes('【F:')) {
       return <MarkdownRenderer content={value} className="text-xs" />;
     }
     return <span className="whitespace-pre-wrap break-words">{value}</span>;
@@ -87,7 +88,7 @@ function ItemCard({ item, depth }: { item: Record<string, unknown>; depth: numbe
           {badges.map(([k, v]) => (
             <Badge key={k} value={v as string} />
           ))}
-          {titleKey && <span className="font-medium text-foreground/90">{item[titleKey] as string}</span>}
+          {titleKey && <span className="font-medium text-foreground/90">{fileCitationsToText(item[titleKey] as string)}</span>}
         </div>
       )}
       {Object.keys(rest).length > 0 && <Fields value={rest} depth={depth + 1} />}

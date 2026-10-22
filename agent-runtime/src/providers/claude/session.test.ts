@@ -53,6 +53,7 @@ const resultMessage = {
 function mockStreamingQuery(options?: {
   mcpServerStatus?: () => Promise<McpServerStatus[]>;
   onUserMessage?: (message: SDKUserMessage) => void;
+  beforeResult?: () => Promise<void>;
 }) {
   const initializationResult = vi.fn().mockResolvedValue({});
   const mcpServerStatus =
@@ -62,6 +63,9 @@ function mockStreamingQuery(options?: {
   const toggleMcpServer = vi.fn().mockResolvedValue(undefined);
   const usageLimits = vi.fn();
   const contextUsage = vi.fn();
+  const setModel = vi.fn<Query['setModel']>().mockResolvedValue(undefined);
+  const setPermissionMode = vi.fn<Query['setPermissionMode']>().mockResolvedValue(undefined);
+  const applyFlagSettings = vi.fn<Query['applyFlagSettings']>().mockResolvedValue(undefined);
 
   sdkMock.query.mockImplementation(
     ({ prompt }: { prompt: string | AsyncIterable<SDKUserMessage> }) => {
@@ -73,6 +77,7 @@ function mockStreamingQuery(options?: {
         async *[Symbol.asyncIterator]() {
           for await (const message of prompt) {
             options?.onUserMessage?.(message);
+            await options?.beforeResult?.();
             yield resultMessage;
           }
         },
@@ -83,6 +88,9 @@ function mockStreamingQuery(options?: {
         interrupt,
         reconnectMcpServer,
         toggleMcpServer,
+        setModel,
+        setPermissionMode,
+        applyFlagSettings,
       } as unknown as Query;
     },
   );
@@ -95,8 +103,93 @@ function mockStreamingQuery(options?: {
     interrupt,
     reconnectMcpServer,
     toggleMcpServer,
+    setModel,
+    setPermissionMode,
+    applyFlagSettings,
   };
 }
+
+describe('ClaudeRuntimeSession live settings', () => {
+  afterEach(() => {
+    sdkMock.query.mockReset();
+  });
+
+  async function runTurn(session: ClaudeRuntimeSession) {
+    for await (const _part of session.send('Hello')) { /* Drain the reply. */ }
+  }
+
+  it('changes model, mode, effort and fast mode during a reply without replacing its query', async () => {
+    let signalStarted!: () => void;
+    let finishReply!: () => void;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const finish = new Promise<void>((resolve) => { finishReply = resolve; });
+    const controls = mockStreamingQuery({
+      onUserMessage: () => signalStarted(),
+      beforeResult: () => finish,
+    });
+    const session = new ClaudeRuntimeSession({ cwd: '/tmp', effort: 'low' }, ctx);
+    const running = runTurn(session);
+    await started;
+
+    try {
+      await expect(session.set({ model: 'claude-opus-4-6', mode: 'plan', effort: 'max', serviceTier: 'fast' }))
+        .resolves.toEqual(['model', 'mode', 'effort', 'serviceTier']);
+      expect(controls.setModel).toHaveBeenCalledWith('claude-opus-4-6');
+      expect(controls.setPermissionMode).toHaveBeenCalledWith('plan');
+      expect(controls.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: 'max', fastMode: true });
+      expect(session.state().currentThinkingLevel).toBe('max');
+      expect(controls.interrupt).not.toHaveBeenCalled();
+    } finally {
+      finishReply();
+      await running;
+    }
+
+    await runTurn(session);
+    expect(sdkMock.query).toHaveBeenCalledTimes(1);
+    await session.close();
+  });
+
+  it('clears fast mode explicitly and preserves changed settings when the query restarts', async () => {
+    const { applyFlagSettings } = mockStreamingQuery();
+    const session = new ClaudeRuntimeSession({ cwd: '/tmp', effort: 'low', serviceTier: 'fast' }, ctx);
+    await runTurn(session);
+
+    await session.set({ effort: 'high', serviceTier: undefined });
+    expect(applyFlagSettings).toHaveBeenCalledWith({ effortLevel: 'high', fastMode: false });
+    await session.close('rebuild');
+    await runTurn(session);
+
+    expect(sdkMock.query).toHaveBeenLastCalledWith(expect.objectContaining({
+      options: expect.objectContaining({ effort: 'high', settings: { fastMode: false } }),
+    }));
+    await session.close();
+  });
+
+  it('uses settings selected before the first turn without starting a query early', async () => {
+    const { applyFlagSettings } = mockStreamingQuery();
+    const session = new ClaudeRuntimeSession({ cwd: '/tmp', effort: 'low' }, ctx);
+    await expect(session.set({ effort: 'xhigh', serviceTier: 'fast' })).resolves.toEqual(['effort', 'serviceTier']);
+    expect(sdkMock.query).not.toHaveBeenCalled();
+
+    await runTurn(session);
+    expect(sdkMock.query).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({ effort: 'xhigh', settings: { fastMode: true } }),
+    }));
+    expect(applyFlagSettings).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it('does not record a rejected effort update as applied', async () => {
+    const { applyFlagSettings } = mockStreamingQuery();
+    const session = new ClaudeRuntimeSession({ cwd: '/tmp', effort: 'low' }, ctx);
+    await runTurn(session);
+    applyFlagSettings.mockRejectedValueOnce(new Error('Setting rejected'));
+
+    await expect(session.set({ effort: 'max' })).rejects.toThrow('Setting rejected');
+    expect(session.state().currentThinkingLevel).toBe('low');
+    await session.close();
+  });
+});
 
 describe('ClaudeRuntimeSession stream completion', () => {
 

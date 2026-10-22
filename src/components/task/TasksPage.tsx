@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Plus, List as ListIcon, LayoutGrid, Loader2, Archive } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
+import { ProviderIcon } from '@/components/icons/ProviderLabel'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -91,6 +92,13 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
   const dispatch = useTaskStore((s) => s.dispatch)
   const agents = useChannelStore((s) => s.agents)
   const sessions = useChannelStore((s) => s.sessions)
+  const assignees = useMemo(() => {
+    const known = new Map(agents.map((a) => [a.id, { id: a.id, name: a.name, provider: a.provider }]))
+    for (const task of tasks) {
+      if (task.assignedAgent) known.set(task.assignedAgent.id, task.assignedAgent)
+    }
+    return [...known.values()]
+  }, [agents, tasks])
   // The board first (on a desktop): where everything stands at a glance is what the page is opened for.
   const [ownView, setView] = useState<ViewMode>(initialView)
   const [ownGroupBy, setGroupBy] = useState<GroupBy>('status')
@@ -151,10 +159,10 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
           label: 'Unassigned',
           accent: <AssigneeAvatar agentId={null} agents={agents} sessions={sessions} />,
         },
-        ...agents.map((a) => ({
+        ...assignees.map((a) => ({
           key: String(a.id),
           label: a.name,
-          accent: <AssigneeAvatar agentId={a.id} agents={agents} sessions={sessions} />,
+          accent: <ProviderIcon id={a.provider} size={16} />,
         })),
       ]
     }
@@ -163,7 +171,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
       label: intl.formatMessage(STATUS_MESSAGES[s]),
       accent: <StatusIcon status={s} />,
     }))
-  }, [groupBy, agents, sessions, intl])
+  }, [groupBy, assignees, agents, sessions, intl])
 
   const groupKeyOf = useMemo(
     () => (t: TaskListItem) => {
@@ -201,7 +209,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
     // status grouping
     const status = key as TaskStatus
     if (t.status === status || !isValidTaskTransition(t.status, status)) return
-    if (status === 'in_progress' && t.status === 'todo' && t.assignedAgentId) {
+    if (status === 'in_progress' && t.status === 'todo' && t.assignedAgentId && t.specStage == null) {
       void dispatch(taskId, t.assignedAgentId).catch((error) =>
         toastTaskError(error, 'Dispatch failed'),
       )
@@ -275,7 +283,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
             allLabel={intl.formatMessage({ id: 'task.toolbar.allAssignees', defaultMessage: 'All assignees' })}
             options={[
               { value: 'unassigned', label: 'Unassigned' },
-              ...agents.map((a) => ({ value: String(a.id), label: a.name })),
+              ...assignees.map((a) => ({ value: String(a.id), label: a.name })),
             ]}
           />
 

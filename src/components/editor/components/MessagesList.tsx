@@ -20,6 +20,7 @@ import {
 import { getParentToolCallId, getToolCallId, isToolPart } from './toolParentUtils';
 import { isCodeProgramTool, programToolCallIdOf } from './codeProgram';
 import type { ToolPartLike } from './toolName';
+import { normalizeToolState } from './toolState';
 import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
@@ -292,6 +293,39 @@ const MessageItem = memo(function MessageItem({
       ) : null
     ) : null;
 
+  const renderPart = (partIndex: number) => {
+    const part = sortedParts[partIndex];
+    const toolCallId = isToolPart(part) ? getToolCallId(part) : null;
+    const childPartIndices = toolCallId ? childPartsMap.get(toolCallId) : undefined;
+    const childToolParts = childPartIndices
+      ? childPartIndices.map((index) => sortedParts[index])
+      : undefined;
+
+    return (
+      <div key={`${message.id}-${partIndex}`}>
+        <MessagePartRenderer
+          message={message}
+          part={part}
+          partIndex={partIndex}
+          isStreamingMessage={isStreamingMessage}
+          onPermissionDecide={onPermissionDecide}
+          onCopy={onCopy}
+          onSendTo={onSendTo}
+          availableModels={availableModels}
+          onSendToOpen={onSendToOpen}
+          getMessageText={getMessageText}
+          firstAttachmentIndex={firstAttachmentIndex}
+          attachmentParts={attachmentParts}
+          lastTextPartIndex={lastTextPartIndex}
+          SendToButton={SendToButton}
+          childParts={childToolParts}
+          externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
+          onRewindToHere={rewindToHere}
+        />
+      </div>
+    );
+  };
+
   return (
     <div
       data-message-item-role={message.role}
@@ -313,42 +347,19 @@ const MessageItem = memo(function MessageItem({
                     partIndices={segment.partIndices}
                     messageId={message.id}
                     onPermissionDecide={onPermissionDecide}
+                    renderProgram={renderPart}
+                    hasPendingApproval={segment.partIndices.some((index) => {
+                      const id = getToolCallId(sortedParts[index]);
+                      return id != null && childPartsMap.get(id)?.some((childIndex) =>
+                        normalizeToolState((sortedParts[childIndex] as ToolPartLike & { state?: string }).state) === 'approval-requested',
+                      );
+                    })}
                   />
                 </div>
               );
             }
 
-            const partIndex = segment.partIndex;
-            const part = sortedParts[partIndex];
-            const toolCallId = isToolPart(part) ? getToolCallId(part) : null;
-            const childPartIndices = toolCallId ? childPartsMap.get(toolCallId) : undefined;
-            const childToolParts = childPartIndices
-              ? childPartIndices.map((index) => sortedParts[index])
-              : undefined;
-
-            return (
-              <div key={`${message.id}-${partIndex}`}>
-                <MessagePartRenderer
-                  message={message}
-                  part={part}
-                  partIndex={partIndex}
-                  isStreamingMessage={isStreamingMessage}
-                  onPermissionDecide={onPermissionDecide}
-                  onCopy={onCopy}
-                  onSendTo={onSendTo}
-                  availableModels={availableModels}
-                  onSendToOpen={onSendToOpen}
-                  getMessageText={getMessageText}
-                  firstAttachmentIndex={firstAttachmentIndex}
-                  attachmentParts={attachmentParts}
-                  lastTextPartIndex={lastTextPartIndex}
-                  SendToButton={SendToButton}
-                  childParts={childToolParts}
-                  externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
-                  onRewindToHere={rewindToHere}
-                />
-              </div>
-            );
+            return renderPart(segment.partIndex);
           });
         })()
       ) : (

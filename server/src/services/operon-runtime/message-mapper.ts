@@ -116,6 +116,8 @@ export class OperonStreamMapper {
    */
   private readonly emittedToolCalls = new Set<string>()
 
+  constructor(private readonly takeInjection?: (steerId: string) => { id: string; text: string } | undefined) {}
+
   map(event: AgentEvent): RuntimeStreamPart[] {
     // Nested address ("main/<agentId>") = a sub-agent; surface its tool steps under
     // the spawning Agent task. Top-level ("main") feeds the main assistant message.
@@ -316,6 +318,13 @@ export class OperonStreamMapper {
       // the assistant message, not as an `error` event — without this the turn reads as an empty
       // success and the user sees nothing at all.
       case 'message.appended': {
+        if (event.message.role === 'user' && event.origin?.kind === 'user' && event.origin.steerId) {
+          const injected = this.takeInjection?.(event.origin.steerId)
+          if (injected) {
+            this.closeOpenBlocks(push)
+            push({ type: 'injected-input', ...injected })
+          }
+        }
         const message = event.message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown }
         if (message.role === 'assistant' && message.stopReason === 'error' && typeof message.errorMessage === 'string' && message.errorMessage.trim() && !this.errorSent) {
           this.errorSent = true

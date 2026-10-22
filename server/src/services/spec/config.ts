@@ -10,7 +10,7 @@
  * we cannot see what they will route to.
  */
 
-import type { SpecRunConfig, SpecSeat } from '../../types/spec.js'
+import type { SpecRoleSettings, SpecRunConfig, SpecSeat } from '../../types/spec.js'
 
 const FAMILY: Record<string, string> = {
   'claude-code': 'anthropic',
@@ -45,6 +45,13 @@ export interface SpecConfigInput {
    * then runs on it — usually picked for the same reasons, cost and quota.
    */
   candidates?: readonly string[]
+  /**
+   * Settings → OperonSpec: the seats the user fixed for each role. They win over
+   * the automatic picks (and over the limit naming agents sets), except that
+   * candidates named in the chat win over the configured ones. A seat whose
+   * provider is not usable here is ignored.
+   */
+  roles?: SpecRoleSettings
 }
 
 /** `codex` → `{ providerId: 'codex' }`; `opencode:vendor/model` → with that model (split at the first colon). */
@@ -117,13 +124,47 @@ export function defaultSpecConfig(input: SpecConfigInput): SpecRunConfig {
   const builderId = pick(CANDIDATE_ORDER, new Set([familyOf(lead.providerId)]))
   const explorerId = pick(EXPLORER_ORDER, new Set())
 
-  return {
+  const auto: SpecRunConfig = {
     lead,
     explorer: seat(explorerId, lead, models),
     candidates: candidateIds.map((id) => seat(id, lead, models)),
     judge: seat(judgeId, lead, models),
     builder: seat(builderId, lead, models),
   }
+  return applyRoleSettings(auto, input.roles, available, requested.length > 0)
+}
+
+/**
+ * Lay the user's configured seats over the automatic ones. Pure, for tests.
+ * `namedCandidates`: the chat named agents, which win for the candidates.
+ */
+export function applyRoleSettings(
+  config: SpecRunConfig,
+  roles: SpecRoleSettings | undefined,
+  available: ReadonlySet<string>,
+  namedCandidates: boolean,
+): SpecRunConfig {
+  if (!roles) return config
+  const usable = (s: SpecSeat | null | undefined): SpecSeat | null =>
+    s?.providerId && available.has(s.providerId) ? { providerId: s.providerId, ...(s.modelId ? { modelId: s.modelId } : {}) } : null
+  const out: SpecRunConfig = { ...config }
+  out.lead = usable(roles.lead) ?? out.lead
+  out.explorer = usable(roles.explorer) ?? out.explorer
+  out.judge = usable(roles.judge) ?? out.judge
+  out.builder = usable(roles.builder) ?? out.builder
+  const candidates = (roles.candidates ?? []).map(usable).filter((s): s is SpecSeat => s != null)
+  // One configured candidate still needs a second to compare against: keep an automatic one beside it.
+  if (!namedCandidates && candidates.length > 0) {
+    const extra = config.candidates.find((c) => c.providerId !== candidates[0].providerId)
+    out.candidates = candidates.length >= 2 ? candidates : [candidates[0], extra ?? { ...candidates[0] }]
+  }
+  const implementer = usable(roles.implementer)
+  if (implementer) out.implementer = implementer
+  const reviewer = usable(roles.reviewer)
+  if (reviewer) out.reviewer = reviewer
+  const coordinator = usable(roles.coordinator)
+  if (coordinator) out.coordinator = coordinator
+  return out
 }
 
 /** Candidate keys in order: A, B, C… */
@@ -133,9 +174,18 @@ export function candidateKey(index: number): string {
 
 /** The providers a spec already works with — the build stage stays inside them, as naming agents is a limit. */
 export function specPool(config: SpecRunConfig): string[] {
-  const seats = [config.lead, ...config.candidates, config.judge, config.builder, config.explorer]
-  const ids = [...(config.implementer ? [config.implementer] : []), ...seats].map((s) => s.providerId)
-  return [...new Set(ids)]
+  return [...new Set(allSeats(config).map((s) => s.providerId))]
+}
+
+/** Every seat the config names, the build seats first. */
+function allSeats(config: SpecRunConfig): SpecSeat[] {
+  const build = [config.implementer, config.reviewer, config.coordinator].filter((s): s is SpecSeat => s != null)
+  return [...build, config.lead, ...config.candidates, config.judge, config.builder, config.explorer]
+}
+
+/** The seat that coordinates the build: its own, or the lead's. */
+export function coordinatorSeat(config: SpecRunConfig): SpecSeat {
+  return config.coordinator ?? config.lead
 }
 
 /** Builders preferred by default: the doc's default (codex) first, then the strongest coders. */
@@ -160,8 +210,7 @@ export function withBuildDefaults(config: SpecRunConfig): Required<Pick<SpecRunC
  * model the user had started the spec with.
  */
 export function seatFor(config: SpecRunConfig, providerId: string): SpecSeat {
-  const seats = [config.lead, ...(config.implementer ? [config.implementer] : []), ...config.candidates, config.judge, config.builder, config.explorer]
-  const withModel = seats.find((s) => s.providerId === providerId && s.modelId)
+  const withModel = allSeats(config).find((s) => s.providerId === providerId && s.modelId)
   return withModel ? { providerId, modelId: withModel.modelId } : { providerId }
 }
 
@@ -170,9 +219,12 @@ export function seatFor(config: SpecRunConfig, providerId: string): SpecSeat {
  * of the providers this spec already uses. Two families agreeing a diff is good
  * is the point; one reviewing itself is a formality. Falls back to another
  * provider of the same family, then to the implementer itself, only when the
- * spec has nobody else.
+ * spec has nobody else. A reviewer seat the user set (settings, or a switch)
+ * wins over all of that.
  */
 export function reviewerFor(config: SpecRunConfig, implementer: string): string {
+  // A reviewer the user picked reviews every ticket, whatever family built it.
+  if (config.reviewer) return config.reviewer.providerId
   const pool = specPool(config)
   const preferred = [config.judge.providerId, config.builder.providerId, ...pool]
   return (

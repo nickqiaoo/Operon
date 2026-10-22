@@ -82,6 +82,11 @@ export class SpecAgents {
     this.nextIndex = ctx.firstIndex ?? 0
   }
 
+  /** Take the next agent row's index for a row this class does not run itself (a ticket's implementer). */
+  reserveIndex(): number {
+    return this.nextIndex++
+  }
+
   /** Run one agent to completion and return its final reply. Throws on empty output. */
   async text(call: SpecAgentCall): Promise<string> {
     return this.run(call, (reply) => reply)
@@ -91,23 +96,19 @@ export class SpecAgents {
    * Run one agent and return a schema-valid JSON value.
    *
    * External providers cannot take a structured-output tool, so it is enforced
-   * here exactly as Workflow does it: instruct, parse, validate, retry (3 times).
+   * here with one call: instruct, parse, validate. Failures go to the coordinator,
+   * which decides whether another call would help.
    */
   async json<T>(call: SpecAgentCall, schema: Record<string, unknown>): Promise<T> {
     const instruction =
       'Respond with ONLY a single JSON object matching this JSON Schema. ' +
       `No prose, no explanation, no markdown fences:\n${JSON.stringify(schema)}`
-    let prompt = `${call.prompt}\n\n${instruction}`
-    let lastError = ''
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const reply = await this.text({ ...call, label: attempt === 1 ? call.label : `${call.label} (retry ${attempt - 1})`, prompt })
+    return this.run({ ...call, prompt: `${call.prompt}\n\n${instruction}` }, (reply) => {
       const parsed = parseJsonReply(reply)
       const verdict = validateValue(schema, parsed)
-      if (verdict.ok) return parsed as T
-      lastError = verdict.error
-      prompt = `${call.prompt}\n\n${instruction}\n\nYour previous reply was invalid: ${lastError}. Return ONLY the corrected JSON object.`
-    }
-    throw new Error(`${call.label} produced no schema-valid output after 3 attempts: ${lastError}`)
+      if (!verdict.ok) throw new Error(`${call.label} produced invalid structured output: ${verdict.error}`)
+      return parsed as T
+    })
   }
 
   private async run<T>(call: SpecAgentCall, finish: (reply: string) => T): Promise<T> {

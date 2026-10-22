@@ -8,19 +8,11 @@ import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import { cn } from '@/lib/utils';
-import { providerLogoName, providerLogoSrc } from '@/lib/provider-logos';
+import { ProviderIcon } from '@/components/icons/ProviderLabel';
+import { providerLogoName } from '@/lib/provider-logos';
 import { useFloatingPanel, panelCn, panelInnerCn } from './floating-panel-utils';
 
-export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
-  const src = providerLogoSrc(id);
-  if (!src) return <span className="inline-block rounded bg-muted/60 flex-shrink-0" style={{ width: size, height: size }} />;
-  return (
-    <img src={src} alt="" width={size} height={size}
-      className="dark:invert flex-shrink-0"
-      style={{ width: size, height: size, objectFit: 'contain' }}
-    />
-  );
-}
+export { ProviderIcon } from '@/components/icons/ProviderLabel';
 
 export interface DynamicModel {
   id: string;

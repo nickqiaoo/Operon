@@ -1,3 +1,4 @@
+import { fileCitationsToText } from '@/lib/file-citation'
 import { Bot, CircleAlert, History, LayoutDashboard, Loader2, Plus, SquareTerminal, Users, X } from "lucide-react"
 import googleLogo from "@/assets/logos/google.svg"
 import openaiLogo from "@/assets/logos/openai.svg"
@@ -198,7 +199,7 @@ export function EditorTabs({
             ) : (
               <img src={providerLogos[tab.providerId ?? tab.provider ?? 'google'] ?? googleLogo} alt="model" className="absolute left-2 size-3.5 shrink-0 dark:invert" />
             )}
-            <span className="truncate font-medium">{tab.title}</span>
+            <span className="truncate font-medium">{fileCitationsToText(tab.title)}</span>
             {tab.chatId != null && pendingInputByChat.has(tab.chatId) ? (
               // Blocked on the user. Wins over the spinner: the turn is still
               // technically running, but nothing happens until someone answers.

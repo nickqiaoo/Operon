@@ -1,5 +1,6 @@
 import { ChevronRightIcon, LoaderIcon, CheckIcon, XIcon } from 'lucide-react';
 import type { UIMessage } from 'ai';
+import type { ReactNode } from 'react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -15,6 +16,7 @@ import { normalizeToolState } from '../toolState';
 import { buildToolGroupSummary } from './buildToolGroupSummary';
 import { CompactToolCall } from './CompactToolCall';
 import type { PermissionOutcome } from '../permission-utils';
+import { isCodeProgramTool } from '../codeProgram';
 
 type MessagePart = UIMessage['parts'][number];
 
@@ -31,6 +33,8 @@ interface ToolCallGroupProps {
   parts: MessagePart[];
   partIndices: number[];
   messageId: string;
+  renderProgram: (partIndex: number) => ReactNode;
+  hasPendingApproval?: boolean;
   onPermissionDecide: (id: string, outcome: PermissionOutcome, updatedInput?: Record<string, unknown>) => Promise<boolean>;
 }
 
@@ -45,12 +49,12 @@ function buildGroupSummary(toolParts: ToolInvocationPart[], reasoningCount: numb
   return chunks.join(' · ') || 'Worked';
 }
 
-function GroupStatusIndicator({ toolParts }: { toolParts: ToolInvocationPart[] }) {
+function GroupStatusIndicator({ toolParts, hasPendingApproval }: { toolParts: ToolInvocationPart[]; hasPendingApproval: boolean }) {
   if (toolParts.length === 0) return null;
   const states = toolParts.map((p) => normalizeToolState(p.state));
   const hasRunning = states.some((s) => s === 'input-streaming' || s === 'input-available');
   const hasError = states.some((s) => s === 'output-error' || s === 'output-denied');
-  const hasApproval = states.some((s) => s === 'approval-requested');
+  const hasApproval = hasPendingApproval || states.some((s) => s === 'approval-requested');
 
   if (hasApproval) return <span className="block size-2 rounded-full bg-status-warn animate-pulse" />;
   if (hasRunning) return <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />;
@@ -64,12 +68,17 @@ function GroupItem({
   partIndex,
   messageId,
   onPermissionDecide,
+  renderProgram,
 }: {
   part: MessagePart;
   partIndex: number;
   messageId: string;
   onPermissionDecide: ToolCallGroupProps['onPermissionDecide'];
+  renderProgram: ToolCallGroupProps['renderProgram'];
 }) {
+  if (isToolPart(part) && isCodeProgramTool(part as ToolPartLike)) {
+    return renderProgram(partIndex);
+  }
   if (isReasoningPart(part)) {
     return (
       <Reasoning className="w-full" defaultOpen={false}>
@@ -93,22 +102,25 @@ export function ToolCallGroup({
   partIndices,
   messageId,
   onPermissionDecide,
+  renderProgram,
+  hasPendingApproval = false,
 }: ToolCallGroupProps) {
   // Single item: render directly without the group wrapper.
-  if (parts.length === 1) {
+  if (parts.length === 1 && !isCodeProgramTool(parts[0] as ToolPartLike)) {
     return (
       <GroupItem
         part={parts[0]}
         partIndex={partIndices[0]}
         messageId={messageId}
         onPermissionDecide={onPermissionDecide}
+        renderProgram={renderProgram}
       />
     );
   }
 
   const toolParts = parts.filter(isToolPart) as ToolInvocationPart[];
   const reasoningCount = parts.filter(isReasoningPart).length;
-  const hasApproval = toolParts.some((p) => normalizeToolState(p.state) === 'approval-requested');
+  const hasApproval = hasPendingApproval || toolParts.some((p) => normalizeToolState(p.state) === 'approval-requested');
   const summary = buildGroupSummary(toolParts, reasoningCount);
 
   return (
@@ -122,7 +134,7 @@ export function ToolCallGroup({
           {summary}
         </span>
         <span className="ml-auto shrink-0">
-          <GroupStatusIndicator toolParts={toolParts} />
+          <GroupStatusIndicator toolParts={toolParts} hasPendingApproval={hasPendingApproval} />
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="pl-2 border-l border-border/40 ml-1.5 space-y-0">
@@ -133,6 +145,7 @@ export function ToolCallGroup({
             partIndex={partIndices[i]}
             messageId={messageId}
             onPermissionDecide={onPermissionDecide}
+            renderProgram={renderProgram}
           />
         ))}
       </CollapsibleContent>

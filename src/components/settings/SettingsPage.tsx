@@ -1,6 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
 import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
-import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, MessageCircle, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
+import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, MessageCircle, Github, Cloud, Globe, MonitorCog, Puzzle, ScrollText } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
 import { ProvidersTab } from "./ProvidersTab"
 import { RepoDetail } from "./RepoDetail"
@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils"
 import { useState, useMemo } from "react"
 import type { ConfigFileDefinition } from "./useConfigEditor"
 import { AssistantSettings } from "./AssistantSettings"
+import { SpecSettings } from "./SpecSettings"
 
 interface SettingsPageProps {
     onBack: () => void
@@ -99,6 +100,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
         { id: "assistant", label: <FormattedMessage id="settings.tab.assistant" defaultMessage="Assistant" />, icon: MessageCircle },
+        { id: "spec", label: <FormattedMessage id="settings.tab.spec" defaultMessage="OperonSpec" />, icon: ScrollText },
         // Agent capabilities
         { id: "mcp", label: <FormattedMessage id="settings.tab.mcp" defaultMessage="MCP" />, icon: Plug },
         { id: "skills", label: <FormattedMessage id="settings.tab.skills" defaultMessage="Skills" />, icon: Sparkles },
@@ -320,6 +322,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                 <ConfigEditor configDir=".operon" files={OPERON_FILES} />
                             )}
                             {activeTab === "assistant" && <AssistantSettings />}
+                            {activeTab === "spec" && <SpecSettings />}
                             {activeTab === "skills" && <SkillsSettings />}
                             {activeTab === "extensions" && <ExtensionsSettings />}
                             {activeTab === "browser" && <BrowserSettings initialSurface={initialTab === "chrome" ? "chrome" : "built-in"} />}

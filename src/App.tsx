@@ -444,6 +444,7 @@ export default function App() {
               boardActive={mainView === 'board'}
               channelsActive={mainView === 'channels'}
               onLeaveMainView={leaveMainView}
+              onOpenChat={openChat}
               onCollapse={handleToggleSidebar}
               collapsed={sidebarCollapsed}
             />

@@ -331,8 +331,8 @@ export type SessionPatchApplied = Array<keyof SessionPatch>
  * Why a session is being torn down.
  *
  * `'rebuild'` means the very same conversation is about to get a fresh session,
- * because something the runtime cannot change in place moved (fast mode, the MCP
- * map). State the conversation still needs — a side chat's forked session, say —
+ * because something the runtime cannot change in place moved (e.g. the MCP map).
+ * State the conversation still needs — a side chat's forked session, say —
  * must survive it. `'discard'` is the end of the conversation itself: the chat is
  * going away, and everything it owns can go with it.
  */
@@ -440,10 +440,9 @@ export interface AgentSession<Native = unknown> {
   /**
    * Change model / permission mode / effort on a live session (`features.dynamicSwitch`).
    *
-   * Returns the subset it actually applied in place. Support is uneven — Claude's
-   * SDK, for instance, can `setModel` and `setPermissionMode` on a running query
-   * but has no setter for effort — so a caller tracking what a session runs with
-   * must record only what came back, and rebuild for the rest.
+   * Returns the subset it actually applied in place. Support differs by provider,
+   * so a caller tracking what a session runs with must record only what came back,
+   * and rebuild for the rest.
    */
   set?(patch: SessionPatch): Promise<SessionPatchApplied>
   state?(): SessionState

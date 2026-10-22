@@ -12,6 +12,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { createHash } from 'node:crypto'
 import { commit } from '../git.js'
+import type { TaskStorageAdapter } from '../../storage/interface.js'
 
 /** Every file a spec can have, by role. Paths are relative to the spec directory. */
 export const SPEC_FILES = {
@@ -28,8 +29,6 @@ export const SPEC_FILES = {
   /** ⑥ the consolidated whole-change review (structured); review.md is rendered from it once final. */
   reviewJson: 'review.json',
   review: 'review.md',
-  /** The ADRs and glossary terms the change records at gate 2. */
-  decisions: 'decisions.json',
   /** A sign-off conflict being resolved; see SpecIntegration. */
   integration: 'integration.json',
 } as const
@@ -79,37 +78,103 @@ function isNothingToCommit(error: unknown): boolean {
   )
 }
 
+async function commitSpecFiles(loc: SpecLocation, message: string): Promise<void> {
+  try {
+    await commit(loc.worktreePath, `spec(task #${loc.taskNumber}): ${message}`, {
+      paths: [specDir(loc.taskNumber)],
+    })
+  } catch (error) {
+    if (!isNothingToCommit(error)) throw error
+  }
+}
+
+async function writeExecutionFiles(loc: SpecLocation, files: Record<string, string | null>): Promise<void> {
+  const dir = path.join(loc.worktreePath, specDir(loc.taskNumber))
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = path.join(dir, rel)
+    if (content === null) {
+      await fs.rm(abs, { force: true })
+    } else {
+      await fs.mkdir(path.dirname(abs), { recursive: true })
+      await fs.writeFile(abs, content, 'utf8')
+    }
+  }
+}
+
 /**
- * Write (or, with `null`, delete) spec files and commit them in one commit.
+ * Persist document snapshots, then write (or delete) and commit the execution files.
  * Writing identical content is not an error — the commit is simply skipped.
- * `alsoCommit` names repository paths outside the spec directory that the
- * caller already wrote and that belong in the same commit.
  */
 export function writeSpecFiles(
+  storage: Pick<TaskStorageAdapter, 'specArtifactsWrite'>,
   loc: SpecLocation,
   files: Record<string, string | null>,
   message: string,
-  options: { alsoCommit?: string[] } = {},
 ): Promise<void> {
   return serialized(loc.taskId, async () => {
+    // Persist first: a database failure must not leave a file that resume would skip.
+    storage.specArtifactsWrite(loc.taskId, files)
+    await writeExecutionFiles(loc, files)
+    // Only this spec's directory, never unrelated work in the checkout.
+    await commitSpecFiles(loc, message)
+  })
+}
+
+type ArtifactStorage = Pick<TaskStorageAdapter, 'specArtifactsRead' | 'specArtifactsWrite'>
+
+/** Recover execution files if the app quit between the cleanup commit and landing. */
+export async function restoreSpecFiles(storage: ArtifactStorage, loc: SpecLocation): Promise<void> {
+  try {
+    await fs.access(path.join(loc.worktreePath, specDir(loc.taskNumber)))
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const files = storage.specArtifactsRead(loc.taskId)
+  if (Object.keys(files).length > 0) await writeSpecFiles(storage, loc, files, 'restore execution files')
+}
+
+/**
+ * Snapshot the actual files (including direct edits), commit their removal, then
+ * land the change. A failed landing restores the files so rework can continue.
+ * The database snapshot survives the cleanup and worktree removal.
+ */
+export function withSpecFilesArchived<T extends { ok: boolean }>(
+  storage: ArtifactStorage,
+  loc: SpecLocation,
+  land: () => Promise<T>,
+): Promise<T> {
+  return serialized(loc.taskId, async () => {
     const dir = path.join(loc.worktreePath, specDir(loc.taskNumber))
-    for (const [rel, content] of Object.entries(files)) {
-      const abs = path.join(dir, rel)
-      if (content === null) {
-        await fs.rm(abs, { force: true })
-      } else {
-        await fs.mkdir(path.dirname(abs), { recursive: true })
-        await fs.writeFile(abs, content, 'utf8')
+    const snapshot: Record<string, string> = {}
+    async function readDirectory(relative: string): Promise<void> {
+      const entries = await fs.readdir(path.join(dir, relative), { withFileTypes: true })
+      for (const entry of entries) {
+        const key = path.posix.join(relative, entry.name)
+        if (entry.isDirectory()) await readDirectory(key)
+        else if (entry.isFile()) snapshot[key] = await fs.readFile(path.join(dir, key), 'utf8')
       }
     }
+    await readDirectory('')
+    const removed = Object.fromEntries(
+      Object.keys(storage.specArtifactsRead(loc.taskId))
+        .filter((key) => !(key in snapshot))
+        .map((key) => [key, null]),
+    )
+    // If persistence fails, leave the execution files untouched.
+    storage.specArtifactsWrite(loc.taskId, { ...removed, ...snapshot })
+    let landed = false
     try {
-      // Only the spec's own directory: design agents run in disposable worktrees
-      // nested in this checkout, and `add -A` would commit a running one as a gitlink.
-      await commit(loc.worktreePath, `spec(task #${loc.taskNumber}): ${message}`, {
-        paths: [specDir(loc.taskNumber), ...(options.alsoCommit ?? [])],
-      })
-    } catch (error) {
-      if (!isNothingToCommit(error)) throw error
+      await fs.rm(dir, { recursive: true, force: true })
+      await commitSpecFiles(loc, 'remove intermediate files before sign-off')
+      const result = await land()
+      landed = result.ok
+      return result
+    } finally {
+      if (!landed) {
+        await writeExecutionFiles(loc, snapshot)
+        await commitSpecFiles(loc, 'restore execution files after failed sign-off')
+      }
     }
   })
 }
@@ -117,7 +182,8 @@ export function writeSpecFiles(
 /** Read one spec file; null when it does not exist (yet). */
 export async function readSpecFile(loc: SpecLocation, rel: string): Promise<string | null> {
   try {
-    return await fs.readFile(path.join(loc.worktreePath, specDir(loc.taskNumber), rel), 'utf8')
+    const relativePath = path.posix.join(specDir(loc.taskNumber), rel)
+    return await fs.readFile(path.join(loc.worktreePath, relativePath), 'utf8')
   } catch {
     return null
   }
@@ -137,7 +203,8 @@ export async function readSpecJson<T>(loc: SpecLocation, rel: string): Promise<T
 /** Candidate keys present on disk, in order (A, B, …). */
 export async function listCandidateKeys(loc: SpecLocation): Promise<string[]> {
   try {
-    const entries = await fs.readdir(path.join(loc.worktreePath, specDir(loc.taskNumber), 'candidates'))
+    const dir = path.posix.join(specDir(loc.taskNumber), 'candidates')
+    const entries = await fs.readdir(path.join(loc.worktreePath, dir))
     return entries
       .filter((name) => name.endsWith('.md'))
       .map((name) => name.slice(0, -3))

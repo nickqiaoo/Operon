@@ -22,11 +22,14 @@ import { attachSpecCoordinator, dispatchProjectTask, wakeTaskBinding } from '../
 import { excludeLocally, getStatus, isAncestor, isMerging } from '../git.js'
 import { broadcastTask } from '../task-events.js'
 import { getOrCreateSpecCoordinator } from './builders.js'
+import { coordinatorSeat } from './config.js'
 import { SPEC_FILES, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
-import { MAX_COORDINATOR_RETRIES } from './prompts.js'
+import { MAX_COORDINATOR_RETRIES, stepFailedMessage } from './prompts.js'
 import { addRulings, addTicket, advance, notifySpec, patchTicket, type BuildStorage } from './build-run.js'
 import { onAllTicketsMerged } from './review-run.js'
 import { SpecError } from './spec-service.js'
+import { roleName, seatName, specSeats } from './switch.js'
+import { usableProviders } from './role-settings.js'
 
 // ---------------------------------------------------------------------------
 // The session
@@ -45,12 +48,15 @@ export function coordinatorBinding(storage: BuildStorage, spec: Task): AgentBind
  */
 export async function ensureCoordinator(storage: BuildStorage, spec: Task): Promise<AgentBinding | null> {
   const existing = coordinatorBinding(storage, spec)
-  if (existing) return existing
+  if (existing) {
+    attachSpecCoordinator(spec.id, existing.agentId)
+    return existing
+  }
   const run = storage.specRunGet(spec.id)
   const ws = spec.workspaceId != null ? storage.getWorkspace(spec.workspaceId) : null
   if (!run || !ws) return null
   try {
-    const agent = getOrCreateSpecCoordinator(storage, run.config.lead)
+    const agent = getOrCreateSpecCoordinator(storage, coordinatorSeat(run.config))
     // Agents keep notes in .agent-memory/; on the change branch they would be committed with the change.
     await excludeLocally(ws.worktreePath, '.agent-memory/').catch(() => undefined)
     return attachSpecCoordinator(spec.id, agent.id)
@@ -65,6 +71,48 @@ export async function wakeCoordinator(storage: BuildStorage, spec: Task, message
   const binding = await ensureCoordinator(storage, spec)
   if (!binding) return false
   return wakeTaskBinding(binding.id, message)
+}
+
+/**
+ * A step of the build or review stopped on an error (the spec is now failed).
+ * The coordinator looks first — the usual cause is the agent (quota, auth, a
+ * provider error), and it can ask the user to switch; without one the user is
+ * told directly.
+ */
+export async function onStepFailed(
+  storage: BuildStorage,
+  spec: Task,
+  step: string,
+  reason: string,
+  role?: { role: string; ticketNumber?: number },
+  /** Off when the caller reports the failure itself if the coordinator cannot take it (the design run does). */
+  tellUser = true,
+): Promise<boolean> {
+  const notice = `#${spec.number} stopped: ${step} failed — ${reason}`.slice(0, 280)
+  // Marked before the wake, so a coordinator that answers at once settles it.
+  failures.set(spec.id, notice)
+  const woke = await wakeCoordinator(
+    storage,
+    spec,
+    stepFailedMessage({ specNumber: spec.number, step, reason, role: role?.role, ticketNumber: role?.ticketNumber }),
+  ).catch(() => false)
+  if (!woke) {
+    failures.delete(spec.id)
+    if (tellUser) notifySpec(storage, spec, 'spec_blocked', notice)
+  }
+  return woke
+}
+
+/**
+ * Failures the coordinator was asked about and has not answered yet (with a
+ * proposal or an escalation), by spec — what the user is told if its turn
+ * ends without either.
+ */
+const failures = new Map<number, string>()
+
+/** The coordinator answered a failure (proposed a switch, escalated): its turn ending says nothing more. */
+export function settleFailure(specId: number): void {
+  failures.delete(specId)
 }
 
 export function isCoordinatorOf(storage: BuildStorage, spec: Task, agentId: number): boolean {
@@ -100,6 +148,11 @@ export async function onCoordinatorTurnEnded(storage: BuildStorage, specId: numb
   const run = spec ? storage.specRunGet(specId) : null
   if (!spec || !run) return
   const why = error ? ` (its session failed: ${error})` : ''
+  const failure = failures.get(specId)
+  if (failure) {
+    failures.delete(specId)
+    notifySpec(storage, spec, 'spec_blocked', `${failure} — the coordinator found nothing to change${why}.`.slice(0, 280))
+  }
   for (const entry of run.build) {
     if (entry.state !== 'blocked' || entry.coordinator !== 'asked') continue
     patchTicket(storage, specId, entry.taskId, { coordinator: 'escalated' })
@@ -171,6 +224,11 @@ export async function specStatus(storage: BuildStorage, spec: Task): Promise<str
   }
   if (run.rulings.length > 0) {
     lines.push('', '## Rulings', ...run.rulings.map((r) => `- ${r.ticketKey}: ${r.ruling}`))
+  }
+  lines.push('', '## Agents', ...specSeats(run.config, run.build).map((v) => `- ${roleName(v)}: ${seatName(v.seat)}${v.auto ? ' (picked per ticket)' : ''}`))
+  lines.push(`Usable here: ${usableProviders().join(', ') || 'none'}`)
+  if (run.proposal) {
+    lines.push('', `Waiting on the user: switch ${roleName(run.proposal)} to ${seatName(run.proposal.to)} — ${run.proposal.reason}`)
   }
   if (run.stage === 'integrating') {
     const integration = await readIntegration(storage, spec)
@@ -277,6 +335,7 @@ export async function addCoordinatorTicket(
 export function escalate(storage: BuildStorage, spec: Task, message: string, actorName: string, ticketNumber?: number): string {
   const body = message.trim()
   if (!body) throw new SpecError('Say what the user needs to decide')
+  settleFailure(spec.id)
   if (ticketNumber != null) {
     const { entry, ticket } = entryFor(storage, spec, ticketNumber)
     if (entry.state === 'blocked') patchTicket(storage, spec.id, ticket.id, { coordinator: 'escalated' })
@@ -305,7 +364,7 @@ export async function integrationDone(storage: BuildStorage, spec: Task, summary
   if (!(await isAncestor(loc.worktreePath, integration.target))) {
     throw new SpecError(`\`${integration.target}\` is not merged in yet (or moved on since): run git merge ${integration.target}, resolve, commit`)
   }
-  await writeSpecFiles(loc, { [SPEC_FILES.integration]: JSON.stringify({ ...integration, summary: summary.trim() || '(no summary)' }, null, 2) }, 'sign-off conflict resolved')
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.integration]: JSON.stringify({ ...integration, summary: summary.trim() || '(no summary)' }, null, 2) }, 'sign-off conflict resolved')
   storage.taskAppendActivity(spec.id, {
     kind: 'system',
     actorType: 'agent',

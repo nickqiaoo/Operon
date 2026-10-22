@@ -1,4 +1,4 @@
-import type { Workspace } from "@/stores/project-store"
+import type { Project, Workspace } from "@/stores/project-store"
 
 export interface WorkspaceGroups {
   /** What the project lists: every workspace that is not a spec's ticket. */
@@ -13,7 +13,14 @@ export interface WorkspaceGroups {
  * merges, so as siblings they would crowd out the workspaces people open
  * themselves. A ticket whose spec has no workspace here stays at the top.
  */
-export function groupSpecWorkspaces(workspaces: readonly Workspace[]): WorkspaceGroups {
+export function groupSpecWorkspaces(
+  workspaces: readonly Workspace[],
+  hiddenSpecIds: readonly number[] = [],
+): WorkspaceGroups {
+  const hiddenSpecs = new Set(hiddenSpecIds)
+  for (const workspace of workspaces) {
+    if (workspace.task?.specStage != null && workspace.task.archivedAt != null) hiddenSpecs.add(workspace.task.id)
+  }
   const specWorkspace = new Map<number, number>()
   for (const w of workspaces) {
     if (w.task?.specStage != null) specWorkspace.set(w.task.id, w.id)
@@ -21,6 +28,9 @@ export function groupSpecWorkspaces(workspaces: readonly Workspace[]): Workspace
   const top: Workspace[] = []
   const tickets = new Map<number, Workspace[]>()
   for (const w of workspaces) {
+    // Hide the whole spec tree, so its tickets do not reappear as loose workspaces.
+    if ((w.task?.specStage != null && hiddenSpecs.has(w.task.id)) ||
+      (w.task?.parentTaskId != null && hiddenSpecs.has(w.task.parentTaskId))) continue
     const parent = w.task?.parentTaskId != null ? specWorkspace.get(w.task.parentTaskId) : undefined
     if (parent == null) {
       top.push(w)
@@ -32,4 +42,12 @@ export function groupSpecWorkspaces(workspaces: readonly Workspace[]): Workspace
   }
   for (const list of tickets.values()) list.sort((a, b) => (a.task?.number ?? 0) - (b.task?.number ?? 0))
   return { top, tickets }
+}
+
+/** Completed specs have no workspace; only explicit user choices appear here. */
+export function sidebarSpecShortcuts(project: Project, shownIds: readonly number[], hiddenIds: readonly number[]) {
+  return (project.specs ?? []).filter((spec) =>
+    shownIds.includes(spec.id) && !hiddenIds.includes(spec.id) && spec.archivedAt == null &&
+    !project.workspaces.some((workspace) => workspace.task?.id === spec.id),
+  )
 }

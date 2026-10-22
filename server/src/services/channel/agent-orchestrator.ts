@@ -12,10 +12,12 @@ import type {
 import type { ChannelMessage } from '../../types/channel.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
 import { emitChannelEvent, emitProjectEvent } from '../channel-bus.js'
-import { startChat, startServerChat } from '../ai.js'
+import { abortChat, startChat, startServerChat } from '../ai.js'
+import { resetBinding } from './binding-reset.js'
 import {
   commit,
   getDefaultLocalBranch,
+  getCurrentBranch,
   getStatus,
   mergeBranch,
   worktreeAdd,
@@ -26,9 +28,8 @@ import {
 } from '../git.js'
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
-import { SPEC_FILES, specDir } from '../spec/files.js'
+import { SPEC_FILES, restoreSpecFiles, specDir, withSpecFilesArchived, type SpecLocation } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
-import { recordDecisions } from '../spec/decisions.js'
 import { startIntegration, unreviewedFiles } from '../spec/review-run.js'
 import {
   isReviewedTicket,
@@ -71,17 +72,22 @@ let _storage: Storage | null = null
 
 // ---- Public helpers ----
 
-/** Returns true if the given chatId belongs to an app binding (should not be destroyed by tab close). */
+/** App and task agents are owned by orchestration, not by the tabs viewing them. */
 export function isAgentOwnedChat(chatId: number): boolean {
   if (!_storage) return false
   const binding = _storage.getBindingByActiveChatId(chatId)
-  return binding != null && binding.scopeKind === 'app'
+  return binding != null && (binding.scopeKind === 'app' || binding.scopeKind === 'task')
 }
 
 // ---- Public init ----
 
 export function initOrchestrator(storage: Storage): void {
   _storage = storage
+  // Repair existing Specs too; these agents are hidden from ordinary pickers.
+  for (const binding of storage.listBindings({ scopeKind: 'task' })) {
+    const task = storage.taskGet(Number(binding.scopeKey))
+    if (task?.specStage != null && task.bindingId === binding.id) attachSpecCoordinator(task.id, binding.agentId)
+  }
   registerBindingAdapter(channelAdapter)
   registerBindingAdapter(taskFinishAdapter)
   initBindingFinishDispatch(storage)
@@ -401,7 +407,7 @@ async function startBindingChat(
     // have no channel to post into; scopeKey is a task id / session id there).
     const errMsg = err instanceof Error ? err.message : String(err)
     // A spec ticket whose session cannot start would sit in "building" forever.
-    if (binding.scopeKind === 'task') void onTicketTurnEnded(storage, Number(binding.scopeKey), errMsg).catch(() => {})
+    if (binding.scopeKind === 'task') void onTicketTurnEnded(storage, Number(binding.scopeKey), errMsg, binding.id).catch(() => {})
     const channelId = Number(binding.scopeKey)
     if (binding.scopeKind === 'app' && Number.isFinite(channelId)) {
       const sysMsg = storage.createMessage({
@@ -524,7 +530,7 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
 
       // A spec ticket's turn that ended without handing the ticket in gets a reminder (or blocks it).
       if (surfaceTaskId != null) {
-        void onTicketTurnEnded(storage, surfaceTaskId, errors.length > 0 ? errors.join('; ') : undefined).catch((err) =>
+        void onTicketTurnEnded(storage, surfaceTaskId, errors.length > 0 ? errors.join('; ') : undefined, binding.id).catch((err) =>
           console.error('[Orchestrator] spec ticket turn-end hook failed:', err),
         )
       }
@@ -538,7 +544,7 @@ function drainAgentChat(ctx: Awaited<ReturnType<typeof startServerChat>>, bindin
   })().catch((err) => {
     console.error('[Orchestrator] agent chat drain error:', err)
     if (surfaceTaskId != null && _storage) {
-      void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err)).catch(() => {})
+      void onTicketTurnEnded(_storage, surfaceTaskId, err instanceof Error ? err.message : String(err), binding?.id).catch(() => {})
     }
   })
 }
@@ -676,8 +682,8 @@ export function attachSpecCoordinator(specId: number, agentId: number): AgentBin
   if (!spec || spec.workspaceId == null || !storage.getWorkspace(spec.workspaceId)) return null
   const binding = ensureTaskBinding(storage, spec.id, spec.number, spec.projectId, agentId, spec.workspaceId)
   if (binding.workspaceId !== spec.workspaceId) storage.updateBinding(binding.id, { workspaceId: spec.workspaceId })
-  if (spec.bindingId !== binding.id) {
-    storage.taskUpdate(spec.id, { bindingId: binding.id }, { type: 'system', name: 'OperonSpec' })
+  if (spec.bindingId !== binding.id || spec.assignedAgentId !== agentId) {
+    storage.taskUpdate(spec.id, { bindingId: binding.id, assignedAgentId: agentId }, { type: 'system', name: 'OperonSpec' })
     broadcastTask(storage, spec.id)
   }
   return storage.getBinding(binding.id) ?? binding
@@ -704,12 +710,14 @@ export class SpecDesignChangedError extends Error {
   }
 }
 
-export async function dispatchProjectTask(taskId: number, assignedAgentId: number): Promise<void> {
+/** `note`: said to the agent after the task itself (a ticket handed over from another agent, say). */
+export async function dispatchProjectTask(taskId: number, assignedAgentId: number, note?: string): Promise<void> {
   const storage = _storage
   if (!storage) throw new Error('Orchestrator not initialised')
 
   const task = storage.taskGet(taskId)
   if (!task) throw new Error(`Task ${taskId} not found`)
+  if (task.specStage != null) throw new Error('Use the Spec controls to run this task')
   // A blocker builds what this task stands on; starting before it is done means
   // starting from a branch that does not have it yet.
   const blockers = (task.blockedBy ?? [])
@@ -812,7 +820,8 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     `Report progress with comment_project_task(task: ${task.number}, body: "...") as you go — ` +
     `when you start, hit a milestone, finish, or get blocked. When your work is ready for ` +
     `human review, call update_project_task(task: ${task.number}, status: "in_review"). ` +
-    `Use get_project_task(task: ${task.number}) anytime to re-read the spec and discussion.`
+    `Use get_project_task(task: ${task.number}) anytime to re-read the spec and discussion.` +
+    (note ? `\n\n${note}` : '')
 
   await deliverToBinding(
     storage,
@@ -1054,6 +1063,7 @@ export async function completeTaskAfterHumanReview(
     const landed = await landSpecTicket(taskId, actor)
     return landed.ok ? landed : { ok: false, reason: landed.reason }
   }
+  const specWorkspace = task.specStage != null && task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
   if (task.specStage != null) {
     const open = storage.taskListChildren(task.id).filter((c) => c.status !== 'done' && c.status !== 'cancelled')
     if (open.length > 0) {
@@ -1062,6 +1072,12 @@ export async function completeTaskAfterHumanReview(
     const run = storage.specRunGet(task.id)
     if (run?.stage === 'integrating') {
       return { ok: false, reason: 'The coordinator is still resolving the conflict from the last sign-off; sign off once it has been reviewed.', pending: true }
+    }
+    if (!specWorkspace) return { ok: false, reason: `Spec #${task.number} has lost its change worktree` }
+    try {
+      await restoreSpecFiles(storage, { taskId: task.id, taskNumber: task.number, worktreePath: specWorkspace.worktreePath })
+    } catch (error) {
+      return { ok: false, reason: `Could not restore the spec's files: ${error instanceof Error ? error.message : String(error)}` }
     }
     // What lands is what was reviewed: a commit since then would ride in unseen.
     if (run?.stage === 'awaiting_signoff') {
@@ -1076,11 +1092,14 @@ export async function completeTaskAfterHumanReview(
         }
       }
     }
-    // What the change leaves behind rides into the default branch with it.
-    const ws = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
-    if (ws) {
+    // Integrate the latest default branch before archiving the execution files.
+    if (specWorkspace) {
       try {
-        await recordDecisions(storage, task, { taskId: task.id, taskNumber: task.number, worktreePath: ws.worktreePath })
+        const project = storage.getProject(task.projectId)
+        if (project) {
+          const target = (await getDefaultLocalBranch(project.rootPath)) ?? (await getCurrentBranch(project.rootPath))
+          if (target) await mergeBranch(specWorkspace.worktreePath, target, `Merge ${target} into ${task.branchName} before sign-off`)
+        }
       } catch (err) {
         if (err instanceof MergeConflictError) {
           const files = err.files.join(', ') || 'some files'
@@ -1102,12 +1121,22 @@ export async function completeTaskAfterHumanReview(
               `like any ticket — then sign off again.`,
           }
         }
-        return { ok: false, reason: `Could not record the spec's decisions: ${err instanceof Error ? err.message : String(err)}` }
+        return { ok: false, reason: `Could not prepare the spec for sign-off: ${err instanceof Error ? err.message : String(err)}` }
       }
     }
   }
 
-  const merged = await mergeTaskBranchToDefault(taskId, actor)
+  let merged: CompletionResult
+  if (specWorkspace) {
+    const loc: SpecLocation = { taskId: task.id, taskNumber: task.number, worktreePath: specWorkspace.worktreePath }
+    try {
+      merged = await withSpecFilesArchived(storage, loc, () => mergeTaskBranchToDefault(taskId, actor))
+    } catch (error) {
+      return { ok: false, reason: `Could not archive the spec's files: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  } else {
+    merged = await mergeTaskBranchToDefault(taskId, actor)
+  }
   if (!merged.ok) return merged
   // Gate 2 signed: the spec's change is in the default branch.
   if (task.specStage != null) storage.specRunUpdate(taskId, { stage: 'done', error: null })
@@ -1192,6 +1221,33 @@ export async function resumeProjectTask(taskId: number): Promise<boolean> {
     broadcastTask(storage, taskId)
   }
   return woke
+}
+
+/** Stop a task's running turn; its session stays, to be woken again. False when nothing was running. */
+export function stopTaskSession(taskId: number): boolean {
+  const storage = _storage
+  const task = storage?.taskGet(taskId)
+  const binding = task?.bindingId != null ? storage?.getBinding(task.bindingId) : null
+  if (!storage || !binding?.activeChatId) return false
+  const stopped = abortChat(binding.activeChatId)
+  if (stopped) storage.updateBinding(binding.id, { status: 'idle' })
+  return stopped
+}
+
+/**
+ * Take a task off its session — to hand it to another agent. The turn is
+ * stopped, the session torn down and the task no longer points at it, so how
+ * that turn ends is not the task's business any more. The worktree stays: the
+ * next session picks up where this one left off.
+ */
+export async function detachTaskSession(taskId: number): Promise<void> {
+  const storage = _storage
+  const task = storage?.taskGet(taskId)
+  if (!storage || !task || task.bindingId == null) return
+  const binding = storage.getBinding(task.bindingId)
+  storage.taskUpdate(taskId, { bindingId: null }, { type: 'system', name: 'OperonSpec' })
+  if (binding) await resetBinding(storage, binding)
+  broadcastTask(storage, taskId)
 }
 
 export async function wakeTaskBinding(bindingId: number, notification: string): Promise<boolean> {

@@ -13,6 +13,8 @@ const replies = {
   triageQuestions: [] as { question: string; why: string }[],
   synthesisVerdict: 'synthesized' as 'synthesized' | 'diverged',
   failCandidates: 0,
+  invalidStructured: false,
+  invalidTickets: false,
 }
 const prompts: string[] = []
 
@@ -21,7 +23,7 @@ vi.mock('../workflow/dispatch.js', () => ({
     prompts.push(prompt)
     if (prompt.includes('You are one of several explorers')) return 'explorer findings'
     if (prompt.includes('Merge their findings')) return '## Overview\ngrounding'
-    if (prompt.includes('write the rubric')) return JSON.stringify({ criteria: ['a', 'b', 'c'] })
+    if (prompt.includes('write the rubric')) return JSON.stringify(replies.invalidStructured ? {} : { criteria: ['a', 'b', 'c'] })
     if (prompt.includes('ONE candidate design')) {
       if (replies.failCandidates > 0) {
         replies.failCandidates--
@@ -55,7 +57,7 @@ vi.mock('../workflow/dispatch.js', () => ({
         { key: 'T1', title: 'storage', delivers: 'd', acceptance: ['x'], blockedBy: [], interfaces: [] },
         { key: 'T2', title: 'ui', delivers: 'd', acceptance: ['y'], blockedBy: ['T1'], interfaces: [] },
       ]
-      return JSON.stringify({ tickets })
+      return JSON.stringify({ tickets: replies.invalidTickets ? [...tickets, tickets[0]] : tickets })
     }
     throw new Error(`unexpected prompt: ${prompt.slice(0, 80)}`)
   }),
@@ -102,6 +104,7 @@ vi.mock('../channel/agent-orchestrator.js', () => ({
   dispatchProjectTask: dispatchMock,
   landSpecTicket: vi.fn(),
   wakeTaskBinding: vi.fn(),
+  attachSpecCoordinator: vi.fn(() => null),
 }))
 // Never let a test reach the phone push relay.
 vi.mock('../notification-service.js', () => ({ notify: vi.fn() }))
@@ -109,7 +112,7 @@ vi.mock('../notification-service.js', () => ({ notify: vi.fn() }))
 const { startDesignRun, isDesignRunActive, validateTickets } = await import('./design-run.js')
 const { answerSpecQuestions, approveSpecDesign, getSpecView, reapproveSpecDesign, requestSpecChanges, specDesignChanged } =
   await import('./spec-service.js')
-const { readSpecFile, readSpecJson } = await import('./files.js')
+const { readSpecFile, readSpecJson, writeSpecFiles } = await import('./files.js')
 
 // ---- A minimal in-memory storage --------------------------------------------
 
@@ -124,10 +127,18 @@ const config: SpecRunConfig = {
 function makeStorage(worktreePath: string) {
   const task = { id: 1, number: 7, projectId: 1, title: 'Snooze', workspaceId: 9, sourceChatId: 42 } as Task
   let run: SpecRun = {
-    taskId: 1, stage: 'grounding', config, designSha: null, workflowRunId: null, runIds: [], build: [], rulings: [], error: null, createdAt: 0, updatedAt: 0,
+    taskId: 1, stage: 'grounding', config, designSha: null, workflowRunId: null, runIds: [], build: [], rulings: [], error: null, proposal: null, createdAt: 0, updatedAt: 0,
   }
   const created: Task[] = []
+  const artifacts: Record<string, string> = {}
   const storage = {
+    specArtifactsRead: () => ({ ...artifacts }),
+    specArtifactsWrite: (_taskId: number, files: Record<string, string | null>) => {
+      for (const [file, content] of Object.entries(files)) {
+        if (content === null) delete artifacts[file]
+        else artifacts[file] = content
+      }
+    },
     taskGet: (id: number) => (id === 1 ? task : created.find((t) => t.id === id) ?? null),
     specRunGet: () => run,
     specRunUpdate: (_: number, patch: Partial<SpecRun>) =>
@@ -141,6 +152,7 @@ function makeStorage(worktreePath: string) {
             : run.runIds,
       }),
     getWorkspace: () => ({ id: 9, worktreePath }),
+    getProject: () => ({ id: 1, rootPath: worktreePath }),
     taskAppendActivity: vi.fn(),
     taskListChildren: () => created,
     taskCreate: (input: { title: string; blockedBy?: number[] }) => {
@@ -175,7 +187,7 @@ beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spec-run-'))
   await fs.mkdir(path.join(dir, '.operon/changes/task-7'), { recursive: true })
   await fs.writeFile(path.join(dir, '.operon/changes/task-7/brief.md'), '## Intent\nsnooze')
-  Object.assign(replies, { builder: 'nothing important left', triageQuestions: [], synthesisVerdict: 'synthesized', failCandidates: 0 })
+  Object.assign(replies, { builder: 'nothing important left', triageQuestions: [], synthesisVerdict: 'synthesized', failCandidates: 0, invalidStructured: false, invalidTickets: false })
   prompts.length = 0
   delivered.length = 0
 })
@@ -258,6 +270,72 @@ describe('the design stage', () => {
     expect(prompts.filter((p) => p.includes('ONE candidate design'))).toHaveLength(3)
   })
 
+  it('does not fall back to existing workspace files for display', async () => {
+    const { storage } = makeStorage(dir)
+    const view = await getSpecView(storage, 1)
+    expect(await readSpecFile(loc(), 'brief.md')).toContain('snooze')
+    expect(view.brief).toBeNull()
+    expect(view.candidates).toEqual([])
+  })
+
+  it('keeps completed spec documents readable after its workspace is reclaimed', async () => {
+    const { storage, task, run } = makeStorage(dir)
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42 })
+    await settle(1)
+    await writeSpecFiles(storage, loc(), { 'brief.md': '## Intent\nsnooze', 'review.md': '# Review\nPassed' }, 'review')
+    await fs.rm(path.join(dir, '.operon'), { recursive: true, force: true })
+    Object.assign(task, { workspaceId: null })
+    Object.assign(run(), { stage: 'done' })
+    const view = await getSpecView(storage, 1)
+    expect(view.worktreePath).toBeNull()
+    expect(view.brief).toContain('snooze')
+    expect(view.design).toContain('design v1')
+    expect(view.candidates).toHaveLength(2)
+    expect(view.tickets).toHaveLength(2)
+    expect(view.review).toContain('Passed')
+  })
+
+  it('hands invalid structured output to the coordinator after one call', async () => {
+    replies.invalidStructured = true
+    const { storage, task, run } = makeStorage(dir)
+    const onFailed = vi.fn(async () => true)
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42, onFailed })
+    await settle(1)
+    await vi.waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.stringMatching(/invalid structured output/)))
+    expect(prompts.filter((p) => p.includes('write the rubric'))).toHaveLength(1)
+    expect(appendEventMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      kind: 'agent', patch: expect.objectContaining({ state: 'error', error: expect.stringContaining('invalid structured output') }),
+    }))
+  })
+
+  it('hands an invalid ticket breakdown to the coordinator without regenerating it', async () => {
+    replies.invalidTickets = true
+    const { storage, task, run } = makeStorage(dir)
+    const onFailed = vi.fn(async () => true)
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42, onFailed })
+    await settle(1)
+    await vi.waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.stringMatching(/ticket breakdown is invalid/)))
+    expect(prompts.filter((p) => p.includes('Break the design below into tickets'))).toHaveLength(1)
+    expect(await readSpecFile(loc(), 'tickets.json')).toBeNull()
+  })
+
+  it('hands a failure to the coordinator, which reports to the chat instead of the run', async () => {
+    replies.failCandidates = 1
+    const { storage, task, run } = makeStorage(dir)
+    const onFailed = vi.fn(async () => true)
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42, onFailed })
+    await settle(1)
+    await vi.waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.stringMatching(/at least two/)))
+    expect(delivered).toHaveLength(0)
+
+    // Without a coordinator to take it, the run reports the failure itself.
+    replies.failCandidates = 2
+    await fs.rm(path.join(dir, '.operon/changes/task-7/candidates'), { recursive: true, force: true })
+    startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42, onFailed: async () => false })
+    await settle(1)
+    await vi.waitFor(() => expect(delivered).toHaveLength(1))
+  })
+
   it('re-synthesizes with the user\'s feedback, keeping the candidates', async () => {
     const { storage, task, run } = makeStorage(dir)
     startDesignRun({ storage, task, run: run(), loc: loc(), chatId: 42 })
@@ -299,7 +377,7 @@ describe('the design stage', () => {
       ['T2', 'codex', 'grok', 'waiting'],
     ])
     expect(dispatchMock).toHaveBeenCalledTimes(1)
-    expect(dispatchMock).toHaveBeenCalledWith(created[0].id, 50)
+    expect(dispatchMock).toHaveBeenCalledWith(created[0].id, 50, undefined)
   })
 
   it('builds a ticket on the provider picked for it at gate 1', async () => {
@@ -326,7 +404,8 @@ describe('the design stage', () => {
 
     await fs.appendFile(path.join(dir, '.operon/changes/task-7/design.md'), '\nA late edit.')
     expect(await specDesignChanged(storage, 1)).toBe(true)
-    expect((await getSpecView(storage, 1)).designChanged).toBe(true)
+    // Display reads the database snapshot; the execution guard still sees manual file edits.
+    expect((await getSpecView(storage, 1)).designChanged).toBe(false)
 
     await reapproveSpecDesign(storage, 1, { type: 'human', id: null, name: 'You' })
     expect(await specDesignChanged(storage, 1)).toBe(false)

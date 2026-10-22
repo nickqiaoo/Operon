@@ -1,8 +1,9 @@
+import { TaskAssigneeAvatar, TaskExecutionIndicator } from './TaskExecutionIndicator'
 import { ListTodo, Archive } from 'lucide-react'
 import { FormattedMessage } from 'react-intl'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime, type TaskGroup } from './task-meta'
+import { PriorityIcon, LabelChip, TaskRef, relativeTime, type TaskGroup } from './task-meta'
 import type { TaskListItem } from '@/types/task'
 import { SpecCardBadge } from '@/components/spec/spec-shared'
 import type { Agent, AgentSession } from '@/types/channel'
@@ -66,7 +67,6 @@ export function TaskListView({ tasks, agents, sessions, groups, groupKeyOf, onOp
 function TaskRow({
   task,
   agents,
-  sessions,
   onClick,
 }: {
   task: TaskListItem
@@ -86,12 +86,15 @@ function TaskRow({
       <PriorityIcon priority={task.priority} />
       <TaskRef projectId={task.projectId} number={task.number} className="text-xs text-muted-foreground/50 min-w-12 max-w-32 shrink-0" />
       {archived && <Archive className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
-      <span className="flex-1 min-w-0 truncate text-sm text-foreground/90">{task.title}</span>
+      <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+        <span className="w-full truncate text-sm text-foreground/90">{task.title}</span>
+        <TaskExecutionIndicator task={task} />
+      </span>
       {/* A spec at a gate is waiting on the reader — on the phone this list is the only board. */}
-      <span className="shrink-0">
+      <span className="flex shrink-0 items-center justify-start md:w-28">
         <SpecCardBadge task={task} />
       </span>
-      <div className="hidden md:flex items-center gap-1.5 shrink-0">
+      <div className="hidden md:flex w-32 items-center gap-1.5 overflow-hidden shrink-0">
         {task.labels.slice(0, 3).map((l) => (
           <LabelChip key={l.id} label={l} />
         ))}
@@ -99,7 +102,9 @@ function TaskRow({
       <span className="text-[11px] text-muted-foreground/40 tabular-nums w-9 text-right shrink-0">
         {relativeTime(task.updatedAt)}
       </span>
-      <AssigneeAvatar agentId={task.assignedAgentId} agents={agents} sessions={sessions} projectId={task.projectId} />
+      <span className="flex w-6 shrink-0 items-center justify-center">
+        <TaskAssigneeAvatar task={task} agents={agents} />
+      </span>
     </button>
   )
 }

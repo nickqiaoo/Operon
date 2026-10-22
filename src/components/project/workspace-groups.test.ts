@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { Workspace } from "@/stores/project-store"
-import { groupSpecWorkspaces } from "./workspace-groups"
+import type { Project, Workspace } from "@/stores/project-store"
+import { groupSpecWorkspaces, sidebarSpecShortcuts } from "./workspace-groups"
 
 const ws = (id: number, task?: Workspace["task"]): Workspace => ({
   id,
@@ -37,5 +37,45 @@ describe("groupSpecWorkspaces", () => {
     const { top, tickets } = groupSpecWorkspaces([ws(1), orphan])
     expect(top.map((w) => w.id)).toEqual([1, 3])
     expect(tickets.size).toBe(0)
+  })
+  it("hides a spec and its tickets while preserving unrelated workspaces", () => {
+    const spec = ws(2, task(10, 7, { specStage: "building" }))
+    const ticket = ws(3, task(11, 8, { parentTaskId: 10 }))
+    const plain = ws(4, task(12, 9))
+    const workspaces = [ws(1), spec, ticket, plain]
+
+    const hidden = groupSpecWorkspaces(workspaces, [10])
+    expect(hidden.top.map((w) => w.id)).toEqual([1, 4])
+    expect(hidden.tickets.size).toBe(0)
+    // Showing the spec again brings back the same tree without changing tasks.
+    expect(groupSpecWorkspaces(workspaces).tickets.get(2)).toEqual([ticket])
+    expect(spec.task?.status).toBe("in_progress")
+  })
+
+  it("excludes archived specs on a fresh load and restores them when unarchived", () => {
+    const spec = ws(2, task(10, 7, { specStage: "stopped", archivedAt: 100 }))
+    const ticket = ws(3, task(11, 8, { parentTaskId: 10 }))
+    expect(groupSpecWorkspaces([ws(1), spec, ticket]).top.map((w) => w.id)).toEqual([1])
+    expect(groupSpecWorkspaces([ws(1), spec, ticket]).tickets.size).toBe(0)
+
+    const restored = { ...spec, task: { ...spec.task!, archivedAt: null } }
+    expect(groupSpecWorkspaces([ws(1), restored, ticket]).top.map((w) => w.id)).toEqual([1, 2])
+    // Unarchiving must respect a separate manual hide preference.
+    expect(groupSpecWorkspaces([ws(1), restored, ticket], [10]).top.map((w) => w.id)).toEqual([1])
+  })
+
+})
+
+
+describe("completed spec shortcuts", () => {
+  it("shows a completed spec without recreating a workspace, only when explicitly requested", () => {
+    const done = task(10, 7, { specStage: "done", status: "done" })
+    const project: Project = { id: 1, name: "Test", rootPath: "/repo", createdAt: 0, updatedAt: 0, workspaces: [], specs: [done] }
+    expect(sidebarSpecShortcuts(project, [], [])).toEqual([])
+    expect(sidebarSpecShortcuts(project, [10], [])).toEqual([done])
+    expect(sidebarSpecShortcuts(project, [10], [10])).toEqual([])
+    expect(sidebarSpecShortcuts({ ...project, specs: [{ ...done, archivedAt: 100 }] }, [10], [])).toEqual([])
+    expect(sidebarSpecShortcuts({ ...project, workspaces: [ws(2, done)] }, [10], [])).toEqual([])
+    expect(project.workspaces).toEqual([])
   })
 })

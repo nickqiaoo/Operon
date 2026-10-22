@@ -12,6 +12,14 @@ export type TaskPriority = 0 | 1 | 2 | 3 | 4
 
 export type TaskCreatedBy = 'human' | 'agent'
 
+/** Compact identity for hidden Spec agents as well as user-created agents. */
+export interface TaskAgentSummary {
+  id: number
+  name: string
+  provider: string
+  model: string
+}
+
 export interface Task {
   id: number
   projectId: number
@@ -21,6 +29,10 @@ export interface Task {
   status: TaskStatus
   priority: TaskPriority
   assignedAgentId: number | null
+  assignedAgent?: TaskAgentSummary | null
+  /** The task's own session, or an active ticket session for a Spec parent. */
+  executionStatus?: BindingStatus | null
+  executionAgent?: TaskAgentSummary | null
   parentTaskId: number | null
   sourceChannelId: number | null
   /** Started from a direct workspace chat (chats.id) — a spec reports back there; mutually exclusive with sourceChannelId. */

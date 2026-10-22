@@ -1,3 +1,5 @@
+import { ScopedFileReferences } from '@/components/ui/scoped-file-references'
+import { fileCitationsToText } from '@/lib/file-citation'
 import { useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import {
@@ -40,9 +42,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ProviderIcon } from './ModelSelectorPanel';
+import { ProviderIcon, ProviderLabel } from '@/components/icons/ProviderLabel';
 import { StructuredValue } from './StructuredValue';
-import { splitTrailingJson, summarizeStructured } from '@shared/json-reply';
+import { splitTrailingJson } from '@shared/json-reply';
 import { useEditorStore } from '@/stores/editor-store';
 
 /**
@@ -271,15 +273,6 @@ function openAgentChatTab(chatId: number, title: string, providerId?: string): v
 }
 
 /**
- * A row's one line. New spec rows already carry a summary; a whole JSON reply
- * stored as the preview (a short one, or an older run's) is summarised here.
- */
-function previewLine(preview: string): string {
-  const structured = splitTrailingJson(preview);
-  return structured ? summarizeStructured(structured.value) : preview;
-}
-
-/**
  * A run's final result as it should be read. A string that holds JSON is
  * parsed, and a lone wrapper key (`{ operonSpec: {…} }`) is looked through.
  */
@@ -310,7 +303,9 @@ export function AgentRow({
   agent,
   stream,
   onOpenChat,
+  referenceRootPath = null,
 }: {
+  referenceRootPath?: string | null;
   runId: string | undefined;
   agent: Omit<WorkflowAgentView, 'taskId'>;
   stream: AgentStreamState | undefined;
@@ -368,61 +363,55 @@ export function AgentRow({
     agent.startedAt != null ? (agent.endedAt ?? (agent.state === 'running' ? Date.now() : undefined)) : undefined;
   const duration = elapsed != null && agent.startedAt != null ? formatDuration(elapsed - agent.startedAt) : null;
 
+  const labelSuffix = agent.agentType ? ` · ${agent.agentType}` : '';
+  const label = labelSuffix && agent.label.endsWith(labelSuffix)
+    ? agent.label.slice(0, -labelSuffix.length)
+    : agent.label;
+
   return (
-    <div className="rounded-lg border border-border/40 bg-background/40">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-row-hover"
-      >
-        {open ? (
-          <ChevronDownIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-        ) : (
-          <ChevronRightIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-        )}
-        <AgentStateIcon state={agent.state} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate text-xs font-medium text-foreground/90">{agent.label}</span>
-            {agent.agentType && (
-              <span className="rounded border border-border/50 px-1.5 py-px font-mono text-[10px] text-muted-foreground">
-                {agent.agentType}
-              </span>
-            )}
-            {duration && (
-              <span className="flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground/70">
-                <ClockIcon className="h-3 w-3" />
-                {duration}
-              </span>
-            )}
-          </div>
-          {/* The one-line answer, so the common case needs no expanding at all. */}
-          {agent.error ? (
-            <div className="mt-1 line-clamp-2 text-[11px] text-status-error">{agent.error}</div>
-          ) : agent.resultPreview ? (
-            <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{previewLine(agent.resultPreview)}</div>
-          ) : null}
-        </div>
-      </button>
-      {open && (
-        <div className="border-t border-border/40 px-2.5 py-1.5">
-          {(agent.modelId || chatId != null) && (
-            <div className="flex items-center gap-2 pb-1">
+    <ScopedFileReferences rootPath={referenceRootPath}>
+    <div className="overflow-hidden rounded-lg border border-border/35 bg-background/40">
+      <div className={cn('flex items-stretch gap-1 pr-2', open && 'bg-muted/15')}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+        >
+          <AgentStateIcon state={agent.state} />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="min-w-0 truncate text-xs font-medium text-foreground/90">{fileCitationsToText(label)}</span>
+              {agent.agentType && <ProviderLabel id={agent.agentType} size={12} className="shrink-0 text-[11px] text-muted-foreground" />}
               {agent.modelId && (
-                <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">{agent.modelId}</span>
+                <span title={agent.modelId} className="max-w-40 truncate font-mono text-[10px] text-muted-foreground/70">{agent.modelId}</span>
               )}
-              {chatId != null && (
-                <button
-                  type="button"
-                  onClick={() => (onOpenChat ? onOpenChat(chatId) : openAgentChatTab(chatId, agent.label, agent.agentType))}
-                  className="ml-auto flex shrink-0 items-center gap-1 rounded px-1 text-[11px] text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
-                >
-                  <ChatIcon className="h-3 w-3" />
-                  <FormattedMessage id="editor.workflow.openConversation" defaultMessage="Open conversation" />
-                </button>
+              {duration && (
+                <span className="inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-muted-foreground/60">
+                  <ClockIcon className="h-3 w-3" />{duration}
+                </span>
               )}
             </div>
-          )}
+
+          </div>
+          {open ? <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" /> : <ChevronRightIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />}
+        </button>
+        {chatId != null && (
+          <button
+            type="button"
+            onClick={() => (onOpenChat ? onOpenChat(chatId) : openAgentChatTab(chatId, agent.label, agent.agentType))}
+            className="inline-flex h-7 shrink-0 self-center items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            title="Open conversation"
+            aria-label="Open conversation"
+          >
+            <ChatIcon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline"><FormattedMessage id="editor.workflow.openConversation" defaultMessage="Open conversation" /></span>
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="border-t border-border/30 px-3 py-2 sm:pl-9">
+          {agent.error && <div className="mb-2 text-xs leading-5 text-status-error">{fileCitationsToText(agent.error)}</div>}
           {/* `replay` outranks `loading`: once the transcript is in hand it is
               what the user wants to see, whatever the in-flight flag says. */}
           {stream ? (
@@ -458,6 +447,7 @@ export function AgentRow({
         </div>
       )}
     </div>
+    </ScopedFileReferences>
   );
 }
 
@@ -707,7 +697,7 @@ export function WorkflowRunDetail({
               e.stopPropagation()
               void api.aiWorkflowStop(run.runId)
             }}
-            className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground/50 transition-colors hover:bg-status-error/10 hover:text-status-error"
+            className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-status-error/10 hover:text-status-error"
             aria-label={intl.formatMessage({ id: 'editor.workflow.stop', defaultMessage: 'Stop' })}
           >
             <StopIcon className="h-3.5 w-3.5" />
@@ -719,7 +709,7 @@ export function WorkflowRunDetail({
             only mirrors its state. */}
         <div
           aria-hidden
-          className="mt-0.5 shrink-0 p-1 text-muted-foreground/50 transition-colors group-hover/head:text-foreground"
+          className="flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground/50 transition-colors group-hover/head:text-foreground"
         >
           <ChevronDownIcon
             className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')}
@@ -762,7 +752,7 @@ export function WorkflowRunDetail({
                   key={type}
                   className="rounded border border-border/50 px-1.5 py-px font-mono text-[10px] text-muted-foreground"
                 >
-                  {type}
+                  <ProviderLabel id={type} size={12} />
                 </span>
               ))}
             </div>
@@ -834,11 +824,13 @@ export function WorkflowRunDetail({
                 <FormattedMessage id="editor.workflow.result" defaultMessage="Result" />
               </div>
               <div className="max-h-80 overflow-y-auto rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
+                <ScopedFileReferences rootPath={null}>
                 {'text' in result ? (
                   <MarkdownRenderer content={result.text} className="text-xs" />
                 ) : (
                   <StructuredValue value={result.value} />
                 )}
+                </ScopedFileReferences>
               </div>
             </div>
           )}

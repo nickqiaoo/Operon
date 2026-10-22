@@ -107,3 +107,20 @@ describe("remarkFileCitations plugin", () => {
     expect(out[0].value).toBe("【F:src/app.ts†L42】")
   })
 })
+
+describe('compact citation text and source paths', () => {
+  it('shows file names and ranges without leaking markers or changing ordinary text', async () => {
+    const { fileCitationsToText } = await import('./file-citation')
+    expect(fileCitationsToText('See 【F:src/app.ts†L42-L60】 and 【F:a%20b.ts†L3】')).toBe('See app.ts:42-60 and a b.ts:3')
+    expect(fileCitationsToText('Use `src/app.ts` and 【https://example.com†L2】')).toBe('Use `src/app.ts` and 【https://example.com†L2】')
+  })
+
+  it('resolves against only the supplied directory and rejects escaped paths', async () => {
+    const { resolveCitationFile } = await import('./file-citation')
+    expect(resolveCitationFile('/source', './src/app.ts')).toBe('/source/src/app.ts')
+    expect(resolveCitationFile('/source', 'a/src/app.ts')).toBe('/source/src/app.ts')
+    expect(resolveCitationFile('/source', '../other/app.ts')).toBeNull()
+    expect(resolveCitationFile('/source', '/source-old/app.ts')).toBeNull()
+    expect(resolveCitationFile(null, '/source/app.ts')).toBeNull()
+  })
+})

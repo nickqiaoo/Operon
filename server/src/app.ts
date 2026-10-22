@@ -43,6 +43,8 @@ import { diffPreviewConfigRoutes } from './routes/diff-preview-config.js'
 import { initDiffPreviewConfigService, getDiffPreviewConfig } from './services/diff-preview-config.js'
 import { commitMessageConfigRoutes } from './routes/commit-message-config.js'
 import { initCommitMessageConfigService } from './services/commit-message-config.js'
+import { initSpecRoleSettings, setUsableProviderSource } from './services/spec/role-settings.js'
+import { getProviders } from './services/ai/providers.js'
 import { saasRoutes } from './routes/saas.js'
 import { integrationsRoutes } from './routes/integrations.js'
 import { initIntegrationConfigService } from './services/integration-config.js'
@@ -187,6 +189,12 @@ export async function createApp(deps: AppDeps) {
   initCliPathConfigService(deps.storage)
   initDiffPreviewConfigService(deps.storage)
   initCommitMessageConfigService(deps.storage)
+  initSpecRoleSettings(deps.storage)
+  setUsableProviderSource(() =>
+    getProviders()
+      .filter((p) => p.available)
+      .map((p) => p.id),
+  )
   initIntegrationConfigService(deps.storage)
   // Linear × GitHub surfaces: stream mirroring, status projection, and the
   // repo:label → local project lookup (docs/linear-github/design.md).

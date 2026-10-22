@@ -11,7 +11,7 @@ vi.mock('../workflow/dispatch.js', () => ({ runProviderAgent: vi.fn() }))
 vi.mock('operon-agents', () => ({ LocalEnvironment: class {}, createWorktree: vi.fn(), newAgentId: () => 'a', validateValue: vi.fn() }))
 vi.mock('../workflow/store.js', () => ({ appendEvent: vi.fn(), markExecuting: vi.fn(), unmarkExecuting: vi.fn(), readRunView: vi.fn() }))
 vi.mock('../workflow/registry.js', () => ({ registerWorkflowAbort: vi.fn(), unregisterWorkflowAbort: vi.fn() }))
-vi.mock('../workflow/completion.js', () => ({ deliverWorkflowResult: vi.fn() }))
+vi.mock('../workflow/completion.js', () => ({ deliverChatNotice: vi.fn(async () => true), deliverWorkflowResult: vi.fn() }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
 const orchestrator = vi.hoisted(() => ({
   attachSpecCoordinator: vi.fn(),
@@ -57,7 +57,15 @@ function makeStorage(entries: SpecTicketBuild[] = [], stage: SpecRun['stage'] = 
     error: null,
   } as unknown as SpecRun
   const activity: { taskId: number; body?: string }[] = []
+  const artifacts: Record<string, string> = {}
   const storage = {
+    specArtifactsRead: () => ({ ...artifacts }),
+    specArtifactsWrite: (_taskId: number, files: Record<string, string | null>) => {
+      for (const [file, content] of Object.entries(files)) {
+        if (content === null) delete artifacts[file]
+        else artifacts[file] = content
+      }
+    },
     taskGet: (id: number) => (id === 1 ? spec : tasks.get(id) ?? null),
     taskGetByNumber: (_p: number, n: number) => [spec, ...tasks.values()].find((t) => t.number === n) ?? null,
     taskUpdate: (id: number, patch: Partial<Task>) => Object.assign(id === 1 ? spec : (tasks.get(id) as Task), patch),

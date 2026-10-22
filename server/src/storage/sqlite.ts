@@ -1,3 +1,4 @@
+import { broadcastTask } from '../services/task-events.js'
 import fs from 'fs'
 import Database from 'better-sqlite3'
 import type {
@@ -116,7 +117,7 @@ import type {
   UnreadCounts,
 } from '../types/notification.js'
 import { runMigrations } from './migrate.js'
-import { isSpecStage, type CreateSpecRunInput, type SpecRun, type SpecRunConfig, type SpecProgress, type SpecRuling, type SpecStage, type SpecTicketBuild, type SpecTicketState, type UpdateSpecRunInput } from '../types/spec.js'
+import { isSpecStage, type CreateSpecRunInput, type SpecRun, type SpecRunConfig, type SpecProgress, type SpecRuling, type SpecStage, type SpecSwitchProposal, type SpecTicketBuild, type SpecTicketState, type UpdateSpecRunInput } from '../types/spec.js'
 
 /**
  * A task row plus the stage of its spec run, if it has one. Every query that
@@ -2024,8 +2025,6 @@ export class SqliteStorage
       activity: this.taskListActivity(id),
       surfaces: this.taskSurfaceList(id),
       children: childTasks.map((t) => ({ ...t, labels: childLabels.get(t.id) ?? [] })),
-      // Status of the task's own execution binding (null if never dispatched).
-      executionStatus: task.bindingId != null ? (this.getBinding(task.bindingId)?.status ?? null) : null,
     }
   }
 
@@ -2092,25 +2091,35 @@ export class SqliteStorage
   taskSetArchived(id: number, archived: boolean, actor?: TaskActor): Task | null {
     const before = this.taskGet(id)
     if (!before) return null
-    // Idempotent: archiving an archived task (or restoring an active one) is a no-op.
-    if (archived === (before.archivedAt != null)) return before
     const now = Date.now()
     const tx = this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE tasks SET archived_at = ?, updated_at = ? WHERE id = ?')
-        .run(archived ? now : null, now, id)
-      this.appendActivityInternal(
-        id,
-        {
-          kind: 'system',
-          actorType: actor?.type ?? 'human',
-          actorId: actor?.id ?? null,
-          actorName: actor?.name ?? 'You',
-          body: archived ? 'archived this task' : 'unarchived this task',
-          meta: { event: archived ? 'task.archived' : 'task.unarchived' },
-        },
-        now,
-      )
+      // Restoring is local; archiving follows the entire subtree atomically.
+      const targets = archived
+        ? this.db.prepare(`
+            WITH RECURSIVE subtree(id) AS (
+              SELECT id FROM tasks WHERE id = ?
+              UNION
+              SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+            )
+            SELECT id FROM tasks WHERE id IN (SELECT id FROM subtree) AND archived_at IS NULL
+          `).all(id) as Array<{ id: number }>
+        : before.archivedAt != null ? [{ id }] : []
+      const update = this.db.prepare('UPDATE tasks SET archived_at = ?, updated_at = ? WHERE id = ?')
+      for (const target of targets) {
+        update.run(archived ? now : null, now, target.id)
+        this.appendActivityInternal(
+          target.id,
+          {
+            kind: 'system',
+            actorType: actor?.type ?? 'human',
+            actorId: actor?.id ?? null,
+            actorName: actor?.name ?? 'You',
+            body: archived ? 'archived this task' : 'unarchived this task',
+            meta: { event: archived ? 'task.archived' : 'task.unarchived' },
+          },
+          now,
+        )
+      }
     })
     tx()
     return this.taskGet(id)
@@ -2302,6 +2311,24 @@ export class SqliteStorage
 
   // ---- OperonSpec runs ----
 
+  specArtifactsRead(taskId: number): Record<string, string> {
+    const rows = this.db.prepare('SELECT path, content FROM spec_artifacts WHERE task_id = ?').all(taskId) as { path: string; content: string }[]
+    return Object.fromEntries(rows.map((row) => [row.path, row.content]))
+  }
+
+  specArtifactsWrite(taskId: number, files: Record<string, string | null>): void {
+    const upsert = this.db.prepare(`INSERT INTO spec_artifacts (task_id, path, content, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(task_id, path) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`)
+    const remove = this.db.prepare('DELETE FROM spec_artifacts WHERE task_id = ? AND path = ?')
+    this.db.transaction(() => {
+      const now = Date.now()
+      for (const [file, content] of Object.entries(files)) {
+        if (content === null) remove.run(taskId, file)
+        else upsert.run(taskId, file, content, now)
+      }
+    })()
+  }
+
   specRunGet(taskId: number): SpecRun | null {
     const row = this.db.prepare('SELECT * FROM spec_runs WHERE task_id = ?').get(taskId) as
       | Record<string, unknown>
@@ -2335,6 +2362,10 @@ export class SqliteStorage
     if (updates.build !== undefined) { sets.push('build = ?'); values.push(JSON.stringify(updates.build)) }
     if (updates.rulings !== undefined) { sets.push('rulings = ?'); values.push(JSON.stringify(updates.rulings)) }
     if (updates.error !== undefined) { sets.push('error = ?'); values.push(updates.error) }
+    if (updates.proposal !== undefined) {
+      sets.push('proposal = ?')
+      values.push(updates.proposal === null ? null : JSON.stringify(updates.proposal))
+    }
     this.db.prepare(`UPDATE spec_runs SET ${sets.join(', ')} WHERE task_id = ?`).run(...values, taskId)
     return this.specRunGet(taskId)
   }
@@ -2361,6 +2392,7 @@ export class SqliteStorage
       build: JSON.parse((row.build as string | undefined) ?? '[]') as SpecTicketBuild[],
       rulings: JSON.parse((row.rulings as string | undefined) ?? '[]') as SpecRuling[],
       error: (row.error as string | null) ?? null,
+      proposal: row.proposal ? (JSON.parse(row.proposal as string) as SpecSwitchProposal) : null,
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
     }
@@ -2629,7 +2661,24 @@ export class SqliteStorage
   }
 
   private rowToTask(row: Record<string, unknown>): Task {
+    const binding = row.binding_id != null ? this.getBinding(row.binding_id as number) : null
+    const assignedAgent = row.assigned_agent_id != null ? this.getAgent(row.assigned_agent_id as number) : null
+    // A coordinator can be idle while its tickets are working. Prefer its own
+    // active session, then an active child; never use project-wide agent status.
+    const activeChild = isSpecStage(row.spec_stage) && binding?.status !== 'active'
+      ? this.db.prepare(`SELECT b.id FROM tasks t JOIN agent_bindings b ON b.id = t.binding_id
+          WHERE t.parent_task_id = ? AND t.status NOT IN ('done', 'cancelled') AND b.status = 'active'
+          ORDER BY t.number LIMIT 1`).get(row.id) as { id: number } | undefined
+      : undefined
+    const execution = activeChild ? this.getBinding(activeChild.id) : binding
+    const executionAgent = execution ? this.getAgent(execution.agentId) : null
+    const summary = (agent: typeof assignedAgent) => agent
+      ? { id: agent.id, name: agent.name, provider: agent.provider, model: agent.model }
+      : null
     return {
+      assignedAgent: summary(assignedAgent),
+      executionStatus: execution?.status ?? null,
+      executionAgent: summary(executionAgent),
       id: row.id as number,
       projectId: row.project_id as number,
       number: row.number as number,
@@ -3251,6 +3300,17 @@ export class SqliteStorage
     this.db
       .prepare(`UPDATE agent_bindings SET ${fields.join(', ')} WHERE id = ?`)
       .run(...values)
+    // Push persisted session transitions to the board, including the owning Spec.
+    if ('status' in updates) {
+      const binding = this.getBinding(id)
+      if (binding?.scopeKind === 'task') {
+        const task = this.taskGet(Number(binding.scopeKey))
+        if (task?.bindingId === id) {
+          broadcastTask(this, task.id)
+          if (task.parentTaskId != null) broadcastTask(this, task.parentTaskId)
+        }
+      }
+    }
   }
 
   deleteBinding(id: number): void {

@@ -28,8 +28,9 @@ let codexUsageInFlight: Promise<AccountRateLimitsReadResult | null> | null = nul
 
 export function handleSessionCleanup(chatId: number): boolean {
   const sessionManager = getSessionManager()
-  // Don't destroy sessions owned by channel agents — closing the UI tab should not kill the agent
-  if (getChatStorage()?.getChatMeta(chatId)?.metadata?.externalAgent || isAgentOwnedChat(chatId)) {
+  // A tab only observes these agents; their workflow or task owns their lifecycle.
+  const meta = getChatStorage()?.getChatMeta(chatId)
+  if (meta?.tp === 'workflow-agent' || meta?.metadata?.workflowAgent || meta?.metadata?.externalAgent || isAgentOwnedChat(chatId)) {
     console.log(`[Adapter] Skipping cleanup for agent-owned session chatId=${chatId}`)
     return true
   }

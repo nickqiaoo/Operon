@@ -93,6 +93,7 @@ import { useTabsStore } from '@/stores/tabs-store';
 import { useReviewTurnStore } from '@/stores/review-turn-store';
 import { useAppShellStore } from '@/stores/app-shell-store';
 import { WorkflowApprovalsBar } from './components/WorkflowRunsWatcher';
+import { SpecChatBar } from '@/components/spec/SpecChatBar';
 import { RewindConfirmDialog, RewindConflictDialog } from './components/RewindConfirmDialog';
 import { extractTodosFromPart, isTodoWriteTool } from './components/TodoWriteRenderer';
 import { CanvasChatBanner } from './components/CanvasChatBanner';
@@ -421,10 +422,10 @@ function ChatPanelContent({
       thinkingEffort;
     setThinkingEffort(nextEffort);
     rememberRecentOptions({ thinkingEffort: nextEffort });
-    // No live call: effort cannot take mid-stream on most runtimes. It rides the
-    // next message like any other param, and the session manager decides then
-    // whether the session can absorb it or has to be rebuilt.
-  }, [rememberRecentOptions, thinkingEffort, thinkingEffortOptions]);
+    if (canDynamicSwitch && tab?.isSubAgent !== true && dbChatIdRef.current) {
+      void api.aiCCDynamicSet({ chatId: dbChatIdRef.current, thinkingLevel: nextEffort });
+    }
+  }, [canDynamicSwitch, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffort, thinkingEffortOptions]);
 
   useEffect(() => {
     if (!thinkingEffortOptions.length) return;
@@ -483,10 +484,16 @@ function ChatPanelContent({
     const nextServiceTier = currentServiceTier === 'fast' ? fallbackServiceTier : 'fast';
     rememberRecentOptions({ serviceTier: nextServiceTier });
     toggleFastMode();
+    if (canDynamicSwitch && tab?.isSubAgent !== true && dbChatIdRef.current) {
+      void api.aiCCDynamicSet({ chatId: dbChatIdRef.current, serviceTier: nextServiceTier });
+    }
   }, [
+    canDynamicSwitch,
     currentServiceTier,
+    dbChatIdRef,
     rememberRecentOptions,
     serviceTierOptions,
+    tab?.isSubAgent,
     toggleFastMode,
   ]);
 
@@ -843,25 +850,30 @@ function ChatPanelContent({
 
   const submitSteerItem = useCallback(async (item: LiveSteerItem) => {
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
+    let failureStatus: 'failed' | 'unknown' = 'failed';
 
     try {
       if (!currentChatId) throw new Error('Chat is not ready');
 
+      // Once dispatched, a transport failure cannot tell us whether it arrived.
+      failureStatus = 'unknown';
       const result = await api.aiInject({
         chatId: currentChatId,
         content: item.text,
         turnMessageId: item.turnMessageId,
         messageId: item.messageId,
       });
-      if (!result.success) {
+      if (!result.success && result.delivery !== 'accepted') {
+        failureStatus = result.delivery === 'not-sent' ? 'failed' : 'unknown';
         throw new Error(result.error ?? 'Failed to steer');
       }
-      if (!result.message?.id) throw new Error('Steer response did not include a message id');
+      const messageId = result.message?.id ?? item.messageId;
+      if (!messageId) throw new Error('Steer response did not include a message id');
 
       setLiveSteers((current) =>
         current.map((entry) =>
           entry.localId === item.localId
-            ? { ...entry, messageId: result.message?.id, status: 'sent' }
+            ? { ...entry, messageId, status: 'sent' }
             : entry,
         ),
       );
@@ -869,7 +881,7 @@ function ChatPanelContent({
       console.error('[ChatPanel] Steer failed:', error);
       setLiveSteers((current) =>
         current.map((entry) =>
-          entry.localId === item.localId ? { ...entry, status: 'failed' } : entry,
+          entry.localId === item.localId ? { ...entry, status: failureStatus } : entry,
         ),
       );
     }
@@ -898,7 +910,7 @@ function ChatPanelContent({
     const item = liveSteers.find((entry) => entry.localId === localId);
     if (!item || item.status !== 'failed') return;
 
-    // A fresh id: the failed attempt may still have been saved under the old one.
+    // Only a known unsent attempt can be retried; uncertain deliveries keep their id.
     const retryItem = { ...item, messageId: crypto.randomUUID(), status: 'sending' as const };
     setLiveSteers((current) =>
       current.map((entry) => (entry.localId === localId ? retryItem : entry)),
@@ -1317,6 +1329,7 @@ function ChatPanelContent({
         <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
         <LineCommentTray workspaceId={currentWorkspaceId} />
         <WorkflowApprovalsBar chatId={tab?.chatId ?? dbChatIdRef.current} />
+        <SpecChatBar chatId={tab?.chatId ?? dbChatIdRef.current} />
         {goal && (
           <GoalBanner
             goal={goal}
@@ -1353,6 +1366,7 @@ function ChatPanelContent({
           cycleMode={handleCycleMode}
           modeButtonClass={modeButtonClass}
           supportsDynamicSwitch={canDynamicSwitch && tab?.isSubAgent !== true}
+          canEditTurnSettings={(supportsDynamicSwitch || (selectedModel?.providerId ?? providerId) === 'codex') && tab?.isSubAgent !== true}
           canSteer={isGenerating && supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)}
           steerPending={steerPending}
           onSteer={handleSteer}

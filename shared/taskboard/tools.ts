@@ -21,6 +21,11 @@ export const TASKBOARD_TOOLS = {
   specAddTicket: 'spec_add_ticket',
   specEscalate: 'spec_escalate',
   specIntegrationDone: 'spec_integration_done',
+  specProposeSwitch: 'spec_propose_switch',
+  // OperonSpec, from the chat the spec was started from: what the user says there.
+  specSwitchAgent: 'spec_switch_agent',
+  specDeclineSwitch: 'spec_decline_switch',
+  specMessageCoordinator: 'spec_message_coordinator',
 } as const
 
 export type TaskboardToolName = (typeof TASKBOARD_TOOLS)[keyof typeof TASKBOARD_TOOLS]

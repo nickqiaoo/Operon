@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { Workflow as WorkflowIcon, ChevronDownIcon, CheckIcon, XIcon } from 'lucide-react';
+import { Workflow as WorkflowIcon, ChevronDownIcon, CheckIcon, FolderKanban, XIcon } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
@@ -80,5 +80,28 @@ export function WorkflowResultMessage({ text }: { text: string }) {
         </CollapsibleContent>
       )}
     </Collapsible>
+  );
+}
+
+/**
+ * A spec telling the chat it was started from that it needs the user — a switch
+ * the coordinator asks for, a step that failed (see `specNoticeText` on the
+ * server). Like a workflow result it reaches the model as a user-role message;
+ * here it is one quiet line, since the agent's reply and the bar above the
+ * composer carry what to do about it.
+ */
+export function parseSpecNotice(text: string): { spec: string; body: string } | undefined {
+  const match = /<spec-notice spec="(\d+)">\s*([\s\S]*?)\s*<\/spec-notice>/.exec(text);
+  return match ? { spec: match[1], body: match[2] } : undefined;
+}
+
+export function SpecNoticeMessage({ notice }: { notice: { spec: string; body: string } }) {
+  return (
+    <div className="mt-1 flex items-start gap-2 px-1 text-xs text-muted-foreground">
+      <FolderKanban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0">
+        <span className="font-mono">#{notice.spec}</span> · {notice.body}
+      </span>
+    </div>
   );
 }

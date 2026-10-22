@@ -92,6 +92,8 @@ export const PromptInputTextarea = ({
   const composingRef = useRef(false);
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    // Apply the delayed IME guard to the caller's Enter action as well.
+    if (e.key === "Enter" && (composingRef.current || e.nativeEvent.isComposing)) return;
     onKeyDown?.(e);
     if (e.defaultPrevented) return;
 

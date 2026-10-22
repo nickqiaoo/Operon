@@ -56,13 +56,15 @@ export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onD
                   <FormattedMessage id="editor.steer.sending" defaultMessage="Sending…" />
                 ) : item.status === 'sent' ? (
                   <FormattedMessage id="editor.steer.sent" defaultMessage="Sent" />
+                ) : item.status === 'unknown' ? (
+                  <FormattedMessage id="editor.steer.unknown" defaultMessage="Delivery unknown" />
                 ) : (
                   <FormattedMessage id="editor.steer.failed" defaultMessage="Couldn't send" />
                 )}
               </span>
-              {item.status === 'failed' ? (
+              {item.status === 'failed' || item.status === 'unknown' ? (
                 <QueueItemActions className="gap-0.5">
-                  {canRetry ? (
+                  {canRetry && item.status === 'failed' ? (
                     <QueueItemAction
                       data-testid="steer-retry"
                       className="opacity-100"

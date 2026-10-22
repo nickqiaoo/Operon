@@ -2,17 +2,13 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SpecDecisions, SpecRun, SpecRunConfig, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
+import type { SpecRun, SpecRunConfig, SpecTicket, SpecTicketBuild } from '../../types/spec.js'
 import type { Task } from '../../types/task.js'
 
 /** What each agent answers, by the prompt it gets. */
 const replies = {
   branch: { findings: [] as unknown[], evidence: [{ criterion: 'T1.1', check: 'npm test', observed: 'green', result: 'PASS' }] },
   actOn: [] as unknown[],
-  decisions: {
-    adrs: [{ slug: 'Reminders Own Table', title: 'Reminders get their own table', context: 'c', decision: 'd', consequences: 'q', supersedes: null }],
-    glossary: [{ term: 'Snooze', definition: 'Hide a notification until a set time.' }],
-  },
 }
 const prompts: string[] = []
 const reviewItem = { title: 'Swallowed error', where: 'a.ts:9', detail: 'the catch drops it', highConfidence: true, raisedBy: ['codex', 'claude-code'] }
@@ -23,7 +19,6 @@ vi.mock('../workflow/dispatch.js', () => ({
     prompts.push(prompt)
     seats.push(providerId)
     if (prompt.includes('adversarial reviewer of a finished change')) return JSON.stringify(replies.branch)
-    if (prompt.includes('Decide what it should leave behind')) return JSON.stringify(replies.decisions)
     const review = {
       actOn: prompt.includes('Check the fix only') ? [] : replies.actOn,
       consider: [],
@@ -57,7 +52,7 @@ vi.mock('../git.js', () => ({
   filesChangedBeyondMerge: vi.fn(async () => ['a.ts']),
   diffBeyondMerge: vi.fn(async () => '-<<<<<<< ours\n+resolved'),
 }))
-const coordinator = vi.hoisted(() => ({ wakeCoordinator: vi.fn(async () => true) }))
+const coordinator = vi.hoisted(() => ({ wakeCoordinator: vi.fn(async () => true), onStepFailed: vi.fn(async () => undefined) }))
 vi.mock('./coordinator.js', () => coordinator)
 vi.mock('../workflow/store.js', () => ({
   appendEvent: vi.fn(),
@@ -67,7 +62,7 @@ vi.mock('../workflow/store.js', () => ({
 }))
 vi.mock('../workflow/registry.js', () => ({ registerWorkflowAbort: vi.fn(), unregisterWorkflowAbort: vi.fn() }))
 const delivered = vi.hoisted(() => [] as unknown[])
-vi.mock('../workflow/completion.js', () => ({ deliverWorkflowResult: vi.fn(async (v: unknown) => delivered.push(v)) }))
+vi.mock('../workflow/completion.js', () => ({ deliverChatNotice: vi.fn(async () => true), deliverWorkflowResult: vi.fn(async (v: unknown) => delivered.push(v)) }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
 const orchestrator = vi.hoisted(() => ({
   dispatchProjectTask: vi.fn(async () => undefined),
@@ -101,9 +96,17 @@ function makeStorage() {
   const merged: SpecTicketBuild = { key: 'T1', taskId: 101, implementer: 'codex', reviewer: 'claude-code', rounds: 0, state: 'merged' }
   let run: SpecRun = {
     taskId: 1, stage: 'building', config, designSha: 'signed', workflowRunId: 'spec-1', runIds: ['spec-1'],
-    build: [merged], rulings: [], error: null, createdAt: 0, updatedAt: 0,
+    build: [merged], rulings: [], error: null, proposal: null, createdAt: 0, updatedAt: 0,
   }
+  const artifacts: Record<string, string> = {}
   const storage = {
+    specArtifactsRead: () => ({ ...artifacts }),
+    specArtifactsWrite: (_taskId: number, files: Record<string, string | null>) => {
+      for (const [file, content] of Object.entries(files)) {
+        if (content === null) delete artifacts[file]
+        else artifacts[file] = content
+      }
+    },
     taskGet: (id: number) => (id === 1 ? spec : tasks.get(id) ?? null),
     taskUpdate: (id: number, patch: Partial<Task>) => Object.assign(id === 1 ? spec : (tasks.get(id) as Task), patch),
     taskCreate: (input: Partial<Task>) => {
@@ -180,11 +183,10 @@ describe('the whole-change review', () => {
     expect(notify).toHaveBeenCalledWith(storage, expect.objectContaining({ kind: 'spec_gate', sourceKey: 'spec:1' }))
     // Gate 2 is reported back to the chat.
     expect(delivered).toHaveLength(1)
-    // What the change will record is drafted for the user to see at gate 2.
-    const decisions = await readSpecJson<SpecDecisions>(loc(), 'decisions.json')
-    expect(decisions?.adrs).toMatchObject([{ slug: 'reminders-own-table', number: null }])
-    expect(decisions?.glossary).toEqual([{ term: 'Snooze', definition: 'Hide a notification until a set time.' }])
-    expect(decisions?.recorded).toBeNull()
+    expect(prompts).toHaveLength(3)
+    expect(await readSpecFile(loc(), 'decisions.json')).toBeNull()
+    await expect(fs.access(path.join(dir, 'docs/adr'))).rejects.toThrow()
+    await expect(fs.access(path.join(dir, 'GLOSSARY.md'))).rejects.toThrow()
   })
 
   it('sends act-on items through one fix ticket, then re-checks only the fix', async () => {
@@ -196,7 +198,7 @@ describe('the whole-change review', () => {
     expect(run().stage).toBe('building')
     const fix = run().build.find((b) => b.key === 'R1')
     expect(fix).toMatchObject({ implementer: 'codex', state: 'building' })
-    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(fix!.taskId, 50)
+    expect(orchestrator.dispatchProjectTask).toHaveBeenCalledWith(fix!.taskId, 50, undefined)
     expect((await readSpecJson<SpecTicket[]>(loc(), 'tickets.json'))?.map((t) => t.key)).toEqual(['T1', 'R1'])
     expect(await readSpecFile(loc(), 'review.md')).toBeNull()
     expect(delivered).toHaveLength(0)
@@ -208,10 +210,9 @@ describe('the whole-change review', () => {
     onAllTicketsMerged(storage, 1)
     await settled()
 
-    expect(prompts).toHaveLength(2)
+    expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('Check the fix only')
     expect(prompts[0]).toContain('diff h1..h2')
-    expect(prompts[1]).toContain('Decide what it should leave behind')
     expect(run().stage).toBe('awaiting_signoff')
     expect(await readSpecFile(loc(), 'review.md')).toContain('1 act-on item(s) were fixed')
   })
@@ -227,7 +228,6 @@ describe('the whole-change review', () => {
     expect(run().build.at(-1)).toMatchObject({ key: 'C1', taskId: child.id })
     expect(await readSpecFile(loc(), 'review.md')).toBeNull()
     expect(await readSpecFile(loc(), 'reviews/codex.json')).toBeNull()
-    // The changed change is drafted again.
     expect(await readSpecFile(loc(), 'decisions.json')).toBeNull()
   })
 })

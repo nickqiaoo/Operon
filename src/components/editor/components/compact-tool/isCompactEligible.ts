@@ -29,7 +29,7 @@ const EXIT_PLAN_NAMES = new Set([
  * - Any tool surfacing live sub-agent progress (Workflow fan-out, Gemini subagents) →
  *   SubAgentRenderer; the generic compact row would just dump the progress JSON.
  * - A Code Mode program (RunCode / OpenCode `execute`) → CodeProgramRenderer, which holds
- *   the calls it made; folded into a group, those calls would have nowhere to render.
+ *   the calls it made. Work groups use that renderer too, rather than a generic compact row.
  */
 const hasToolResult = (part: ToolPartLike) => {
   const record = part as { output?: unknown; result?: unknown };

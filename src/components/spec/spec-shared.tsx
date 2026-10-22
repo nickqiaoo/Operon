@@ -1,6 +1,8 @@
+import { fileCitationsToText } from '@/lib/file-citation'
 import { cloneElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
-import { AlertCircle, Bot, Check, ChevronRight, ExternalLink, GitMerge, Hammer, Loader2, MessageSquareText, Play, Send, Square } from 'lucide-react'
+import { AlertCircle, ArrowLeftRight, Bot, Check, ChevronRight, Clock, ExternalLink, GitMerge, Hammer, Loader2, MessageSquareText, Play, Send, Square, X } from 'lucide-react'
+import { ProviderLabel } from '@/components/icons/ProviderLabel'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -11,7 +13,8 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AgentRow, formatDuration } from '@/components/editor/components/WorkflowRunDetail'
-import type { SpecChatRef, SpecStage, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
+import type { SpecChatRef, SpecRole, SpecSeat, SpecSeatView, SpecStage, SpecSwitch, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
+import { SeatPicker, seatName } from './SeatPicker'
 import type { TaskListItem } from '@/types/task'
 
 /** Stages in which the server is working and the view changes on its own. */
@@ -29,7 +32,7 @@ const IDLE_POLL_MS = 15_000
 /** Every mounted view of a spec, so an action on one (chat card, task page) reloads the others. */
 const specViewers = new Map<number, Set<() => void>>()
 
-function notifySpecChanged(taskId: number): void {
+export function notifySpecChanged(taskId: number): void {
   for (const reload of specViewers.get(taskId) ?? []) reload()
 }
 
@@ -136,11 +139,11 @@ export function SpecStageBadge({ stage, running }: { stage: SpecStage; running?:
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide',
         STAGE_TONE[stage],
       )}
     >
-      {busy && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+      {busy && <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />}
       {stageLabel(intl, stage)}
     </span>
   )
@@ -150,14 +153,14 @@ export function SpecStageBadge({ stage, running }: { stage: SpecStage; running?:
 export function SpecSeatsLine({ spec }: { spec: SpecView }) {
   const { config } = spec.run
   return (
-    <span className="text-xs text-muted-foreground">
+    <span className="text-xs text-foreground/75">
       <FormattedMessage
         id="spec.seats"
         defaultMessage="Candidates {candidates} · judge {judge} · lead {lead}"
         values={{
-          candidates: config.candidates.map((c) => c.providerId).join(', '),
-          judge: config.judge.providerId,
-          lead: config.lead.providerId,
+          candidates: <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 align-middle">{config.candidates.map((c, i) => <ProviderLabel key={i} id={c.providerId} />)}</span>,
+          judge: <ProviderLabel id={config.judge.providerId} />,
+          lead: <ProviderLabel id={config.lead.providerId} />,
         }}
       />
     </span>
@@ -174,35 +177,45 @@ export function SpecAgentList({ spec, onOpenChat }: { spec: SpecView; onOpenChat
   if (spec.agents.length === 0) return null
   const working = spec.agents.filter((a) => a.state === 'running')
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground"
+        aria-expanded={open}
+        className="inline-flex max-w-full items-center gap-2 rounded-md py-1 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-90')} />
-        <span className="shrink-0 tabular-nums">
+        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform', open && 'rotate-90')} />
+        <span className="shrink-0 font-medium tabular-nums">
           <FormattedMessage
-            id="spec.agents.summary"
-            defaultMessage="{count, plural, one {# agent call} other {# agent calls}} · {duration}"
-            values={{ count: spec.agents.length, duration: formatDuration(spec.elapsedMs) }}
+            id="spec.agents.calls"
+            defaultMessage="{count, plural, one {# agent call} other {# agent calls}}"
+            values={{ count: spec.agents.length }}
           />
         </span>
-        {!open && working.length > 0 && (
-          <span className="min-w-0 truncate text-status-info">· {working.map((a) => a.label).join(', ')}</span>
+        <span aria-hidden className="h-3 w-px shrink-0 bg-border/60" />
+        <span className="inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-muted-foreground/70">
+          <Clock className="h-3 w-3" aria-hidden />
+          {formatDuration(spec.elapsedMs)}
+        </span>
+        {working.length > 0 && (
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-status-info">
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+            <span className="truncate">{working.map((a) => fileCitationsToText(a.label)).join(', ')}</span>
+          </span>
         )}
       </button>
       {open && (
-        <div className="scroll-fade-y max-h-80 space-y-1.5 overflow-y-auto">
+        <div className="scroll-fade-y max-h-[60vh] space-y-2 overflow-y-auto">
           {spec.agents.map((agent, i) => (
             <div key={`${agent.runId}:${agent.index}`} className="space-y-1.5">
               {agent.phase && agent.phase !== spec.agents[i - 1]?.phase && (
-                <div className="heading-section px-1 pt-1">{agent.phase}</div>
+                <div className={cn("heading-section px-1 pb-0.5", i > 0 && "pt-3")}>{agent.phase}</div>
               )}
               <AgentRow
                 runId={agent.runId}
                 agent={{ ...agent, chatIds: agent.chats?.map((c) => c.chatId) }}
                 stream={undefined}
+                referenceRootPath={agent.chats?.at(-1)?.cwd ?? null}
                 onOpenChat={
                   onOpenChat
                     ? (chatId) => {
@@ -265,8 +278,9 @@ export function SpecStopButton({ spec, className }: { spec: SpecView; className?
  * What the user can do with a spec right now — the same buttons on the chat card
  * and the task page, because both gates are one act wherever they are pressed.
  * `showStop` off: the caller shows `SpecStopButton` itself.
+ * `showSwitch` off: switching is hidden here or shown beside the coordinator.
  */
-export function SpecActions({ spec, showStop = true }: { spec: SpecView; showStop?: boolean }) {
+export function SpecActions({ spec, showStop = true, showSwitch = true, showResume = true }: { spec: SpecView; showStop?: boolean; showSwitch?: boolean; showResume?: boolean }) {
   const intl = useIntl()
   // On a phone the gates are thumb targets: taller buttons that share the row.
   const btn = useGateButtonClass()
@@ -292,20 +306,27 @@ export function SpecActions({ spec, showStop = true }: { spec: SpecView; showSto
   }
 
   if (stage === 'done') return null
+  const proposal = spec.run.proposal ? <SpecProposalBanner spec={spec} /> : null
   if ((stage === 'building' || stage === 'reviewing') && !spec.designChanged) {
-    if (!spec.running || !showStop) return null
+    if (!proposal && !showSwitch && !(spec.running && showStop) && !error) return null
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          className={btn}
-          disabled={busy != null}
-          onClick={() => void act('stop', () => api.specStop(spec.taskId))}
-        >
-          {busy === 'stop' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-          <FormattedMessage id="spec.action.stop" defaultMessage="Stop" />
-        </Button>
+      <div className="space-y-2">
+        {proposal}
+        <div className="flex flex-wrap items-center gap-2">
+          {showSwitch && <SpecSwitchButton spec={spec} />}
+          {spec.running && showStop && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className={btn}
+              disabled={busy != null}
+              onClick={() => void act('stop', () => api.specStop(spec.taskId))}
+            >
+              {busy === 'stop' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+              <FormattedMessage id="spec.action.stop" defaultMessage="Stop" />
+            </Button>
+          )}
+        </div>
         {error && <div className="flex items-center gap-2 text-xs text-destructive">{error}</div>}
       </div>
     )
@@ -314,6 +335,7 @@ export function SpecActions({ spec, showStop = true }: { spec: SpecView; showSto
   if (stage === 'integrating') {
     return (
       <div className="space-y-2">
+        {proposal}
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
           <GitMerge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-info" />
           <span>
@@ -375,6 +397,7 @@ export function SpecActions({ spec, showStop = true }: { spec: SpecView; showSto
 
   return (
     <div className="space-y-2">
+      {proposal}
       <div className="flex flex-wrap items-center gap-2">
         {stage === 'awaiting_design' && (
           <Button
@@ -430,7 +453,7 @@ export function SpecActions({ spec, showStop = true }: { spec: SpecView; showSto
             }
           />
         )}
-        {(stage === 'stopped' || stage === 'failed') && (
+        {showResume && (stage === 'stopped' || stage === 'failed') && (
           <Button
             size="sm"
             variant="secondary"
@@ -442,6 +465,8 @@ export function SpecActions({ spec, showStop = true }: { spec: SpecView; showSto
             <FormattedMessage id="spec.action.resume" defaultMessage="Resume" />
           </Button>
         )}
+        {/* What stopped it is usually the agent (quota, a login): put another on the role and carry on. */}
+        {showSwitch && (stage === 'stopped' || stage === 'failed') && <SpecSwitchButton spec={spec} />}
         {spec.running && showStop && (
           <Button
             size="sm"
@@ -484,6 +509,7 @@ export function SpecActions({ spec, showStop = true }: { spec: SpecView; showSto
  * there is nothing below the card's header to show.
  */
 export function specHasGate(spec: SpecView): boolean {
+  if (spec.run.proposal) return true
   const stage = spec.run.stage
   if (stage === 'building') return spec.designChanged
   return (
@@ -493,6 +519,180 @@ export function specHasGate(spec: SpecView): boolean {
     stage === 'integrating' ||
     stage === 'stopped' ||
     stage === 'failed'
+  )
+}
+
+/** 'Lead', 'Candidate B', 'Reviewer of T2'. */
+export function roleLabel(intl: IntlShape, seat: Pick<SpecSwitch, 'role' | 'index' | 'ticketKey'>): string {
+  const names: Record<SpecRole, string> = {
+    lead: intl.formatMessage({ id: 'spec.role.lead', defaultMessage: 'Lead' }),
+    explorer: intl.formatMessage({ id: 'spec.role.explorer', defaultMessage: 'Explorer' }),
+    candidate: intl.formatMessage(
+      { id: 'spec.role.candidate', defaultMessage: 'Candidate {letter}' },
+      { letter: String.fromCharCode(65 + (seat.index ?? 0)) },
+    ),
+    judge: intl.formatMessage({ id: 'spec.role.judge', defaultMessage: 'Judge' }),
+    builder: intl.formatMessage({ id: 'spec.role.builder', defaultMessage: 'Builder check' }),
+    implementer: intl.formatMessage({ id: 'spec.role.implementer', defaultMessage: 'Implementer' }),
+    reviewer: intl.formatMessage({ id: 'spec.role.reviewer', defaultMessage: 'Reviewer' }),
+    coordinator: intl.formatMessage({ id: 'spec.role.coordinator', defaultMessage: 'Coordinator' }),
+  }
+  const name = names[seat.role]
+  return seat.ticketKey
+    ? intl.formatMessage({ id: 'spec.role.ofTicket', defaultMessage: '{role} of {ticket}' }, { role: name, ticket: seat.ticketKey })
+    : name
+}
+
+function seatKey(seat: Pick<SpecSeatView, 'role' | 'index' | 'ticketKey'>): string {
+  return `${seat.role}:${seat.index ?? ''}:${seat.ticketKey ?? ''}`
+}
+
+/**
+ * Move a role to another agent or model — what to do when one runs out of
+ * quota, will not log in, keeps failing. With `ticketKey` it offers that
+ * ticket's implementer and reviewer; otherwise every seat of the spec.
+ */
+export function SpecSwitchButton({ spec, ticketKey, compact }: { spec: SpecView; ticketKey?: string; compact?: boolean }) {
+  const intl = useIntl()
+  const btn = useGateButtonClass()
+  const seats = spec.seats.filter((s) => (ticketKey ? s.ticketKey === ticketKey : !s.ticketKey))
+  const [open, setOpen] = useState(false)
+  const [picked, setPicked] = useState<string>(() => (seats[0] ? seatKey(seats[0]) : ''))
+  const [to, setTo] = useState<SpecSeat | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const current = seats.find((s) => seatKey(s) === picked) ?? seats[0]
+  if (!current) return null
+
+  const apply = async () => {
+    if (!to) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.specSwitch(spec.taskId, {
+        role: current.role,
+        ...(current.index != null ? { index: current.index } : {}),
+        ...(current.ticketKey ? { ticketKey: current.ticketKey } : {}),
+        providerId: to.providerId,
+        ...(to.modelId ? { modelId: to.modelId } : {}),
+      })
+      setOpen(false)
+      setTo(null)
+      notifySpecChanged(spec.taskId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <GateSheet
+      open={open}
+      onOpenChange={setOpen}
+      title={intl.formatMessage({ id: 'spec.switch.title', defaultMessage: 'Switch an agent' })}
+      className="w-96 space-y-3"
+      trigger={
+        <Button size="sm" variant="ghost" className={compact ? 'h-7 gap-1.5 text-xs' : btn}>
+          <ArrowLeftRight className="h-3.5 w-3.5" />
+          <FormattedMessage id="spec.switch.trigger" defaultMessage="Switch agent" />
+        </Button>
+      }
+    >
+      <div className="text-xs text-muted-foreground">
+        <FormattedMessage
+          id="spec.switch.hint"
+          defaultMessage="Out of quota, logged out, or failing? Put another agent on the role. What runs next uses it; a ticket's implementer hands its work over at once, and a stopped spec carries on."
+        />
+      </div>
+      <div className="space-y-1.5">
+        <div className="text-xs font-medium">
+          <FormattedMessage id="spec.switch.role" defaultMessage="Role" />
+        </div>
+        <Select value={seatKey(current)} onValueChange={(k) => { setPicked(k); setTo(null) }}>
+          <SelectTrigger size="sm" className="h-8 w-full border-border/50 bg-background/80 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {seats.map((s) => (
+              <SelectItem key={seatKey(s)} value={seatKey(s)} className="text-xs">
+                {roleLabel(intl, s)} · <ProviderLabel id={s.seat.providerId}>{seatName(s.seat)}</ProviderLabel>
+                {s.auto ? ` (${intl.formatMessage({ id: 'spec.switch.auto', defaultMessage: 'automatic' })})` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <div className="text-xs font-medium">
+          <FormattedMessage id="spec.switch.to" defaultMessage="Switch to" />
+        </div>
+        <SeatPicker value={to} providers={spec.availableProviders} onChange={setTo} />
+      </div>
+      {error && (
+        <div className="flex items-start gap-1.5 text-xs text-destructive">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {error}
+        </div>
+      )}
+      <div className="flex justify-end">
+        <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={!to || busy} onClick={() => void apply()}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowLeftRight className="h-3.5 w-3.5" />}
+          <FormattedMessage id="spec.switch.apply" defaultMessage="Switch" />
+        </Button>
+      </div>
+    </GateSheet>
+  )
+}
+
+/** The coordinator asks to move a role to another agent; nothing changes until the user says yes. */
+export function SpecProposalBanner({ spec }: { spec: SpecView }) {
+  const intl = useIntl()
+  const btn = useGateButtonClass()
+  const [busy, setBusy] = useState<'accept' | 'dismiss' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const proposal = spec.run.proposal
+  if (!proposal) return null
+  const act = async (name: 'accept' | 'dismiss') => {
+    setBusy(name)
+    setError(null)
+    try {
+      if (name === 'accept') await api.specAcceptProposal(spec.taskId)
+      else await api.specDismissProposal(spec.taskId)
+      notifySpecChanged(spec.taskId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <div className="space-y-2 rounded-lg border border-status-warn/30 bg-status-warn/5 px-3 py-2">
+      <div className="flex items-start gap-2 text-xs">
+        <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-warn" />
+        <div className="min-w-0 space-y-0.5">
+          <div className="font-medium text-foreground">
+            <FormattedMessage
+              id="spec.proposal.title"
+              defaultMessage="The coordinator suggests switching {role} from {from} to {to}"
+              values={{ role: roleLabel(intl, proposal), from: proposal.from ? <ProviderLabel id={proposal.from.providerId}>{seatName(proposal.from)}</ProviderLabel> : seatName(proposal.from), to: <ProviderLabel id={proposal.to.providerId}>{seatName(proposal.to)}</ProviderLabel> }}
+            />
+          </div>
+          <div className="text-muted-foreground">{proposal.reason}</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" className={btn} disabled={busy != null} onClick={() => void act('accept')}>
+          {busy === 'accept' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowLeftRight className="h-3.5 w-3.5" />}
+          <FormattedMessage id="spec.proposal.accept" defaultMessage="Switch" />
+        </Button>
+        <Button size="sm" variant="ghost" className={btn} disabled={busy != null} onClick={() => void act('dismiss')}>
+          {busy === 'dismiss' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+          <FormattedMessage id="spec.proposal.dismiss" defaultMessage="Don't switch" />
+        </Button>
+        {error && <span className="text-xs text-destructive">{error}</span>}
+      </div>
+    </div>
   )
 }
 
@@ -588,7 +788,7 @@ function BuildersPicker({
           <FormattedMessage
             id="spec.builders.trigger"
             defaultMessage="Built by {providers}"
-            values={{ providers: [...chosen].join(', ') }}
+            values={{ providers: <span className="inline-flex flex-wrap items-center gap-2">{[...chosen].filter((p): p is string => !!p).map((p) => <ProviderLabel key={p} id={p} />)}</span> }}
           />
         </Button>
       }
@@ -619,7 +819,7 @@ function BuildersPicker({
               <SelectContent>
                 {spec.providers.map((p) => (
                   <SelectItem key={p} value={p} className="text-xs">
-                    {p}
+                    <ProviderLabel id={p} />
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -773,10 +973,11 @@ function SpecQuestions({
 
 /** Markdown look for design documents — the same reading rhythm as the rest of the task page. */
 export const SPEC_MARKDOWN_CLASS = cn(
-  'text-[13px] text-foreground/85',
+  'text-[13px] text-foreground',
   'prose-headings:font-semibold prose-headings:tracking-normal prose-h1:mb-3 prose-h1:text-lg',
   'prose-h2:mt-6 prose-h2:mb-2 prose-h2:border-t prose-h2:border-border/40 prose-h2:pt-5 prose-h2:text-xs',
-  'prose-h2:uppercase prose-h2:tracking-[0.08em] prose-h2:text-muted-foreground',
+  'prose-h2:uppercase prose-h2:tracking-[0.08em] prose-h2:text-foreground',
+  '[&>:first-child]:mt-0 [&>h2:first-child]:border-t-0 [&>h2:first-child]:pt-0',
   'prose-h3:mt-4 prose-h3:mb-1.5 prose-h3:text-sm prose-h4:mt-4 prose-h4:mb-1.5 prose-h4:text-sm',
   'prose-p:my-1 prose-p:leading-6 prose-li:my-1 prose-li:leading-6 prose-ul:my-2 prose-ol:my-2',
   'prose-strong:text-foreground',
@@ -811,14 +1012,25 @@ function ticketStateLabel(intl: IntlShape, state: SpecTicketState): string {
  * session: once they get its implementer to hand it in, review picks it up again
  * with its rounds reset — so the way out is a link to that session.
  */
-export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBuild; onOpenSession?: () => void }) {
+export function TicketBuildLine({
+  build,
+  spec,
+  onOpenSession,
+}: {
+  build: SpecTicketBuild
+  /** Offers switching its implementer or reviewer while it is not merged. */
+  spec?: SpecView
+  onOpenSession?: () => void
+}) {
   const intl = useIntl()
   return (
     <div className="mt-1.5 space-y-1">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
         <span className={cn('font-medium', TICKET_TONE[build.state])}>{ticketStateLabel(intl, build.state)}</span>
-        <span className="text-muted-foreground">
-          {build.implementer} → {build.reviewer}
+        <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5 text-muted-foreground">
+          <ProviderLabel id={build.implementer}>{build.implementerModelId ? `${build.implementer} · ${build.implementerModelId}` : build.implementer}</ProviderLabel>
+          <span>→</span>
+          <ProviderLabel id={build.reviewer} />
         </span>
         {build.rounds > 0 && (
           <span className="text-muted-foreground">
@@ -828,6 +1040,17 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
               values={{ count: build.rounds }}
             />
           </span>
+        )}
+        {((onOpenSession && build.state !== 'waiting') || (spec && build.state !== 'merged')) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenSession && build.state !== 'waiting' && (
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-1.5 text-xs" onClick={onOpenSession}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                <FormattedMessage id="spec.ticket.openSession" defaultMessage="Open its session" />
+              </Button>
+            )}
+            {spec && build.state !== 'merged' && <SpecSwitchButton spec={spec} ticketKey={build.key} compact />}
+          </div>
         )}
       </div>
       {build.state === 'blocked' && build.blockedReason && (
@@ -842,58 +1065,39 @@ export function TicketBuildLine({ build, onOpenSession }: { build: SpecTicketBui
           <FormattedMessage id="spec.ticket.coordinatorAsked" defaultMessage="The coordinator is looking at it." />
         </div>
       )}
-      {onOpenSession && build.state !== 'waiting' && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
-          <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={onOpenSession}>
-            <ExternalLink className="h-3.5 w-3.5" />
-            <FormattedMessage id="spec.ticket.openSession" defaultMessage="Open its session" />
-          </Button>
-          {build.state === 'blocked' && (
-            <span className="text-xs text-muted-foreground">
-              <FormattedMessage
-                id="spec.ticket.blockedHint"
-                defaultMessage="Get its agent moving there; once it hands the ticket in, review picks it up again."
-              />
-            </span>
-          )}
-        </div>
+      {build.state === 'blocked' && (
+        <p className="text-xs text-muted-foreground">
+          <FormattedMessage
+            id="spec.ticket.blockedHint"
+            defaultMessage="Get its agent moving there, or switch it to another agent; once it hands the ticket in, review picks it up again."
+          />
+        </p>
       )}
     </div>
   )
 }
 
-/**
- * The spec's coordinator: who it is, whether it is at work, and the way into its
- * session. Talking to it is a comment on the spec — that wakes it.
- */
-export function SpecCoordinatorLine({ spec, onOpenSession }: { spec: SpecView; onOpenSession?: (workspaceId: number) => void }) {
+/** The coordinator's identity and live status in the Spec header. */
+export function SpecCoordinatorLine({ spec }: { spec: SpecView }) {
   const coordinator = spec.coordinator
   if (!coordinator) return null
   const active = coordinator.status === 'active'
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-0.5 text-xs text-muted-foreground">
-      <Bot className="h-3.5 w-3.5 shrink-0" />
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground/75">
       <span>
         <FormattedMessage
           id="spec.coordinator.line"
           defaultMessage="Coordinated by {provider}"
-          values={{ provider: coordinator.modelId ? `${coordinator.providerId} · ${coordinator.modelId}` : coordinator.providerId }}
+          values={{ provider: <ProviderLabel id={coordinator.providerId}>{coordinator.modelId ? `${coordinator.providerId} · ${coordinator.modelId}` : coordinator.providerId}</ProviderLabel> }}
         />
       </span>
-      <span className={cn('inline-flex items-center gap-1', active && 'text-status-info')}>
-        <span className={cn('h-1.5 w-1.5 rounded-full', active ? 'animate-pulse bg-status-info' : 'bg-muted-foreground/40')} />
-        {active ? (
+      {active && (
+        <span className="inline-flex items-center gap-1 text-status-info">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-status-info" />
           <FormattedMessage id="spec.coordinator.working" defaultMessage="working" />
-        ) : (
-          <FormattedMessage id="spec.coordinator.waiting" defaultMessage="comment on the spec to talk to it" />
-        )}
-      </span>
-      {onOpenSession && coordinator.chatId != null && coordinator.workspaceId != null && (
-        <Button size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-xs" onClick={() => onOpenSession(coordinator.workspaceId!)}>
-          <ExternalLink className="h-3 w-3" />
-          <FormattedMessage id="spec.coordinator.open" defaultMessage="Open its session" />
-        </Button>
+        </span>
       )}
+
     </div>
   )
 }
@@ -919,7 +1123,6 @@ export function SpecGateSummary({ spec }: { spec: SpecView }) {
   }
   if (stage !== 'awaiting_signoff' || !spec.reviewSummary) return null
   const r = spec.reviewSummary
-  const recorded = (spec.decisions?.adrs.length ?? 0) + (spec.decisions?.glossary.length ?? 0)
   return (
     <div className="space-y-0.5 text-xs text-muted-foreground">
       <div className="flex flex-wrap gap-x-1.5">
@@ -934,18 +1137,8 @@ export function SpecGateSummary({ spec }: { spec: SpecView }) {
         <span className={cn(r.notRun > 0 && 'text-status-warn')}>
           <FormattedMessage id="spec.gate.notRun" defaultMessage="{count} not verified" values={{ count: r.notRun }} />
         </span>
-        {recorded > 0 && (
-          <>
-            <span>·</span>
-            <FormattedMessage
-              id="spec.gate.decisions"
-              defaultMessage="{adrs, plural, one {# ADR} other {# ADRs}} and {terms, plural, one {# term} other {# terms}} to record"
-              values={{ adrs: spec.decisions?.adrs.length ?? 0, terms: spec.decisions?.glossary.length ?? 0 }}
-            />
-          </>
-        )}
       </div>
-      {r.summary && <div className="line-clamp-3 text-foreground/80">{r.summary}</div>}
+      {r.summary && <div className="line-clamp-3 text-foreground/80">{fileCitationsToText(r.summary)}</div>}
     </div>
   )
 }
@@ -957,7 +1150,7 @@ export function SpecBuildSummary({ spec }: { spec: SpecView }) {
   const merged = build.filter((b) => b.state === 'merged').length
   const blocked = build.filter((b) => b.state === 'blocked').length
   return (
-    <div className="text-xs text-muted-foreground">
+    <div className="text-xs text-foreground/75">
       <FormattedMessage
         id="spec.build.summary"
         defaultMessage="{merged} of {total} tickets merged"

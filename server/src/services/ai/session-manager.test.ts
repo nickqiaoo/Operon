@@ -114,6 +114,37 @@ describe('SessionManager reconfigure', () => {
     expect(created).toHaveLength(1)
   })
 
+  it('keeps the session across model, mode and effort updates and later turns', async () => {
+    const { manager, created } = stubProvider({ set: acceptAll })
+    const before = await manager.getOrCreate(1, 'stub', {
+      cwd: '/tmp', model: 'm1', mode: 'default', effort: 'low',
+    })
+    const next = { cwd: '/tmp', model: 'm2', mode: 'plan', effort: 'high' }
+
+    const after = await manager.getOrCreate(1, 'stub', next)
+    expect(after.runtime).toBe(before.runtime)
+    expect(acceptAll).toHaveBeenCalledWith({ model: 'm2', mode: 'plan', effort: 'high' })
+
+    await manager.getOrCreate(1, 'stub', next)
+    expect(acceptAll).toHaveBeenCalledTimes(1)
+    expect(created).toHaveLength(1)
+  })
+
+  it('does not repeat live updates or rebuild when the next message arrives', async () => {
+    const { manager, created } = stubProvider({ set: acceptAll })
+    const before = await manager.getOrCreate(1, 'stub', {
+      cwd: '/tmp', effort: 'low', serviceTier: 'fast',
+    })
+    const patch: SessionPatch = { effort: 'high', serviceTier: undefined }
+    const applied = await before.runtime.set!(patch)
+    manager.applyDynamicParams(1, patch, applied)
+
+    const after = await manager.getOrCreate(1, 'stub', { cwd: '/tmp', effort: 'high' })
+    expect(after.runtime).toBe(before.runtime)
+    expect(acceptAll).toHaveBeenCalledTimes(1)
+    expect(created).toHaveLength(1)
+  })
+
   it('rebuilds when the provider cannot take a fast-mode change', async () => {
     const refuse = vi.fn(async () => [] as SessionPatchApplied)
     const { manager, created } = stubProvider({ set: refuse })
