@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.4.9] - 2026-10-23
+
+### Changed
+
+- ACP agents use their advertised model, mode and reasoning effort options, with support for switching them during a chat.
+- Kimi discovers available settings when starting a session; Grok reads each model's supported reasoning effort levels.
+
+### Fixed
+
+- The reasoning effort picker updates when the model changes and clears options the agent no longer offers.
+- ACP sessions apply the selected reasoning effort before the first prompt and report unsupported values instead of silently ignoring them.
+
 ## [1.4.8] - 2026-10-22
 
 ### Changed

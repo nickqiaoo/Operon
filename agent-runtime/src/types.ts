@@ -412,7 +412,7 @@ export interface McpControl extends McpStatusControl {
 export type SessionState = Partial<
   Pick<
     ProviderDescriptor,
-    'currentModelId' | 'currentModeId' | 'currentThinkingLevel' | 'currentServiceTier' | 'slashCommands'
+    'currentModelId' | 'currentModeId' | 'currentThinkingLevel' | 'thinkingLevels' | 'currentServiceTier' | 'slashCommands'
   >
 >
 

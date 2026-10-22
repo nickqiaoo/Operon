@@ -6,7 +6,7 @@ import type {
   AgentInput,
   AgentSession,
   PermissionDecision,
-  ProviderDescriptor,
+  SessionState,
   RuntimeMcpServers,
   RuntimeStreamPart,
   SendOptions,
@@ -15,9 +15,11 @@ import type {
   SessionPatchApplied,
   SlashCommandItem,
 } from '../../types.js'
+import { UserFacingRuntimeError } from '../../types.js'
 import { toUserMessages } from '../../utils/agent-input.js'
 import { AsyncQueue } from './async-queue.js'
 import { toSlashCommands } from './commands.js'
+import { configValues, findConfigOption, thinkingConfig } from './config-options.js'
 import type { AcpConnection, AcpSessionCallbacks } from './connection.js'
 import { acquireAcpConnection, disposeAllAcpConnections } from './connection-registry.js'
 import { AcpEventMapper } from './event-mapper.js'
@@ -102,6 +104,8 @@ export class AcpRuntimeSession implements AgentSession {
   private readonly mcpServers: acp.McpServer[]
   private currentModelId: string
   private currentModeId: string
+  private configOptions: acp.SessionConfigOption[] | undefined
+  private readonly initialOptions: Pick<SessionOptions, 'model' | 'mode' | 'effort'>
   /** Session instructions (persona) from the host — prepended to the first prompt. */
   private readonly instructions: string | undefined
 
@@ -127,6 +131,7 @@ export class AcpRuntimeSession implements AgentSession {
     private readonly ctx: RuntimeContext,
   ) {
     this.logger = createRuntimeLogger(`${config.providerId}-runtime`)
+    this.initialOptions = { model: params.model, mode: params.mode, effort: params.effort }
     this.cwd = params.cwd
     const env = ctx.env(params.env)
     this.env = config.patchEnv ? config.patchEnv(env) : env
@@ -144,12 +149,11 @@ export class AcpRuntimeSession implements AgentSession {
     return this.sessionId
   }
 
-  state(): Partial<
-    Pick<ProviderDescriptor, 'currentModelId' | 'currentModeId' | 'slashCommands'>
-  > {
+  state(): SessionState {
     return {
+      ...(this.configOptions !== undefined ? thinkingConfig(this.configOptions) : {}),
       currentModelId: this.currentModelId,
-      currentModeId: this.activeMapper?.getCurrentModeId() ?? this.currentModeId,
+      currentModeId: findConfigOption(this.configOptions ?? [], 'mode')?.currentValue ?? this.activeMapper?.getCurrentModeId() ?? this.currentModeId,
       // Only override the descriptor's static list once the agent has actually
       // told us its commands; an empty patch would blank the menu.
       ...(this.slashCommands.length > 0 ? { slashCommands: this.slashCommands } : {}),
@@ -240,6 +244,7 @@ export class AcpRuntimeSession implements AgentSession {
   }
 
   private async ensureConnected(): Promise<void> {
+    if (this.initPromise) return this.initPromise
     if (this.connection && this.sessionId) return
     if (!this.initPromise) this.initPromise = this.connect()
     await this.initPromise
@@ -279,6 +284,10 @@ export class AcpRuntimeSession implements AgentSession {
             )
             return
           }
+          if (params.update.sessionUpdate === 'config_option_update') {
+            this.updateConfigOptions(params.update.configOptions)
+            return
+          }
           if (!this.activeMapper || !this.activeQueue) return
           for (const part of this.activeMapper.handleUpdate(params.update, params._meta ?? undefined)) {
             this.activeQueue.push(part)
@@ -304,15 +313,19 @@ export class AcpRuntimeSession implements AgentSession {
     if (!resumed) {
       const newSession = await connection.agent.newSession({ cwd: this.cwd, mcpServers: this.mcpServers })
       this.sessionId = newSession.sessionId
+      this.updateConfigOptions(newSession.configOptions)
       this.unregisterSession = connection.registerSession(this.sessionId, sessionCallbacks)
       this.logger.info(`${this.config.label} session created: ${this.sessionId}`)
     }
 
-    // A fresh session already starts on the agent's default model + mode, and
-    // re-setting the current selection makes some agents (Grok) reject it. Only
-    // push a selection that differs from the provider default.
-    if (this.currentModelId !== this.config.defaultModelId) await this.applyModel()
-    if (this.currentModeId !== this.config.defaultModeId) await this.applyMode()
+    // Apply explicit selections after reading the agent's actual defaults. A
+    // model change can replace the effort options, so effort always goes last.
+    const { model, mode, effort } = this.initialOptions
+    if (model && (model !== this.currentModelId || (!this.configOptions && model !== this.config.defaultModelId))) await this.applyModel(model)
+    if (mode && (mode !== this.currentModeId || (!this.configOptions && mode !== this.config.defaultModeId))) await this.applyMode(mode)
+    if (effort && !await this.applyEffort(effort)) {
+      throw new UserFacingRuntimeError(`${this.config.label} did not apply reasoning effort: ${effort}`)
+    }
   }
 
   /**
@@ -348,7 +361,8 @@ export class AcpRuntimeSession implements AgentSession {
 
     const unregister = connection.registerSession(sessionId, callbacks)
     try {
-      await connection.agent.loadSession({ sessionId, cwd: this.cwd, mcpServers: this.mcpServers })
+      const loaded = await connection.agent.loadSession({ sessionId, cwd: this.cwd, mcpServers: this.mcpServers })
+      this.updateConfigOptions(loaded?.configOptions)
       this.unregisterSession = unregister
       this.logger.info(`${this.config.label} session resumed: ${sessionId}`)
       return true
@@ -387,23 +401,67 @@ export class AcpRuntimeSession implements AgentSession {
     return windows
   }
 
-  private async applyModel(): Promise<void> {
-    if (!this.connection || !this.sessionId) return
+  private updateConfigOptions(options: acp.SessionConfigOption[] | null | undefined): void {
+    if (options == null) return
+    this.configOptions = options
+    const model = findConfigOption(options, 'model')
+    const mode = findConfigOption(options, 'mode')
+    if (model) this.currentModelId = model.currentValue
+    if (mode) this.currentModeId = mode.currentValue
+  }
+
+  private async applyConfig(category: string, value: string): Promise<boolean> {
+    const option = findConfigOption(this.configOptions ?? [], category)
+    if (!option || !this.connection || !this.sessionId) return false
+    if (!configValues(option).some((entry) => entry.value === value)) {
+      throw new UserFacingRuntimeError(`Unsupported ${option.name} value: ${value}`)
+    }
+    if (option.currentValue === value) return true
+    const response = await this.connection.agent.setSessionConfigOption({
+      sessionId: this.sessionId,
+      configId: option.id,
+      value,
+    })
+    this.updateConfigOptions(response.configOptions)
+    return findConfigOption(this.configOptions ?? [], category)?.currentValue === value
+  }
+
+  private async applyEffort(value: string): Promise<boolean> {
+    if (!findConfigOption(this.configOptions ?? [], 'thought_level')) {
+      throw new UserFacingRuntimeError(`${this.config.label} does not offer reasoning effort for this model`)
+    }
+    return this.applyConfig('thought_level', value)
+  }
+
+  private async applyModel(value: string): Promise<boolean> {
+    if (!this.connection || !this.sessionId) return false
+    const model = findConfigOption(this.configOptions ?? [], 'model')
+    // Some agents also expose legacy model variants with effort encoded in the
+    // id (Antigravity). Keep accepting those through the older endpoint.
+    if (model && configValues(model).some((entry) => entry.value === value)) {
+      return this.applyConfig('model', value)
+    }
     try {
-      // ACP 1.x replaced `session/set_model` with `session/set_config_option` and dropped it from
-      // the SDK; the agents we drive still answer it (see AcpSessionModelState).
-      await this.connection.agent.request('session/set_model', { sessionId: this.sessionId, modelId: this.currentModelId })
+      await this.connection.agent.request('session/set_model', { sessionId: this.sessionId, modelId: value })
+      this.currentModelId = value
+      return true
     } catch (error) {
-      this.logger.warn(`Failed to set ${this.config.label} model ${this.currentModelId}: ${describeError(error)}`)
+      this.logger.warn(`Failed to set ${this.config.label} model ${value}: ${describeError(error)}`)
+      return false
     }
   }
 
-  private async applyMode(): Promise<void> {
-    if (!this.connection || !this.sessionId) return
+  private async applyMode(value: string): Promise<boolean> {
+    if (!this.connection || !this.sessionId) return false
+    if (findConfigOption(this.configOptions ?? [], 'mode')) return this.applyConfig('mode', value)
     try {
-      await this.connection.agent.setSessionMode?.({ sessionId: this.sessionId, modeId: this.currentModeId })
+      if (!this.connection.agent.setSessionMode) return false
+      await this.connection.agent.setSessionMode({ sessionId: this.sessionId, modeId: value })
+      this.currentModeId = value
+      return true
     } catch (error) {
-      this.logger.warn(`Failed to set ${this.config.label} mode ${this.currentModeId}: ${describeError(error)}`)
+      this.logger.warn(`Failed to set ${this.config.label} mode ${value}: ${describeError(error)}`)
+      return false
     }
   }
 
@@ -457,19 +515,12 @@ export class AcpRuntimeSession implements AgentSession {
     })
   }
 
-  /** ACP's session/set_model and session/set_mode only cover these two. */
   async set(patch: SessionPatch): Promise<SessionPatchApplied> {
+    await this.ensureConnected()
     const applied: SessionPatchApplied = []
-    if (patch.model && patch.model !== this.currentModelId) {
-      this.currentModelId = patch.model
-      await this.applyModel()
-      applied.push('model')
-    }
-    if (patch.mode && patch.mode !== this.currentModeId) {
-      this.currentModeId = patch.mode
-      await this.applyMode()
-      applied.push('mode')
-    }
+    if (patch.model && await this.applyModel(patch.model)) applied.push('model')
+    if (patch.mode && await this.applyMode(patch.mode)) applied.push('mode')
+    if (patch.effort && await this.applyEffort(patch.effort)) applied.push('effort')
     return applied
   }
 

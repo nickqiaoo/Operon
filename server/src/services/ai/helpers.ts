@@ -43,7 +43,7 @@ export const findLastAssistantMessage = (messages: UIMessage[]): AssistantContin
 type ProviderDescriptorPatch = Partial<
   Pick<
     ProviderDescriptor,
-    'currentModelId' | 'currentModeId' | 'currentThinkingLevel' | 'currentServiceTier' | 'slashCommands'
+    'currentModelId' | 'currentModeId' | 'currentThinkingLevel' | 'thinkingLevels' | 'currentServiceTier' | 'slashCommands'
   >
 >
 

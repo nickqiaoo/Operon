@@ -1,5 +1,5 @@
 import type * as acp from '@agentclientprotocol/sdk'
-import type { Model } from '../../types.js'
+import type { EffortLevel, Model } from '../../types.js'
 import type { AcpDiscoveryContext, AcpModelDiscovery, AcpProviderConfig, AcpUsage } from '../acp/index.js'
 
 /**
@@ -30,7 +30,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Read Grok's advertised models from the `initialize` response `_meta.modelState`. */
 function extractGrokModels(ctx: AcpDiscoveryContext, preferredModelId?: string): AcpModelDiscovery {
   const initialize = ctx.initialize
-  const modelState = isRecord(initialize?._meta) ? initialize._meta.modelState : undefined
+  const modelState = ctx.session?.models ?? (isRecord(initialize?._meta) ? initialize._meta.modelState : undefined)
   const available = isRecord(modelState) && Array.isArray(modelState.availableModels)
     ? modelState.availableModels
     : []
@@ -42,6 +42,11 @@ function extractGrokModels(ctx: AcpDiscoveryContext, preferredModelId?: string):
       // (a few hundred K, varying by model).
       const entryMeta = isRecord(entry._meta) ? entry._meta : undefined
       const contextWindow = num(entryMeta?.totalContextTokens)
+      const efforts = Array.isArray(entryMeta?.reasoningEfforts)
+        ? entryMeta.reasoningEfforts.filter(isRecord).map((effort) => effort.value).filter(
+            (value): value is EffortLevel => value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max',
+          )
+        : undefined
       return {
         id: entry.modelId,
         name: typeof entry.name === 'string' ? entry.name : entry.modelId,
@@ -49,6 +54,7 @@ function extractGrokModels(ctx: AcpDiscoveryContext, preferredModelId?: string):
         providerId: 'grok',
         providerLabel: 'Grok',
         providerLogo: 'grok',
+        ...(efforts ? { supportedEffortLevels: efforts } : {}),
         ...(contextWindow > 0 ? { contextWindow } : {}),
       }
     })

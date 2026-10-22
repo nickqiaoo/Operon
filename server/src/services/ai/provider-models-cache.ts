@@ -59,7 +59,17 @@ function withDynamicState(
   const patch = getProviderDescriptorPatch(providerId)
   if (!patch) return base
 
-  const configOptions = base.configOptions.map((option) => {
+  const options = patch.thinkingLevels === undefined
+    ? base.configOptions
+    : [
+        ...base.configOptions.filter((option) => option.category !== 'thought_level'),
+        ...(patch.thinkingLevels.length > 0 ? [{
+          category: 'thought_level' as const,
+          currentValue: patch.currentThinkingLevel,
+          options: patch.thinkingLevels.map((level) => ({ value: level.id, name: level.name })),
+        }] : []),
+      ]
+  const configOptions = options.map((option) => {
     if (option.category === 'model' && patch.currentModelId !== undefined) {
       return { ...option, currentValue: patch.currentModelId }
     }

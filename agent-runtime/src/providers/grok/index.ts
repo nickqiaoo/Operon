@@ -41,7 +41,7 @@ export type GrokMode = 'default' | 'auto' | 'plan' | 'bypassPermissions' | (stri
 
 /** Grok, driven over ACP. */
 export const grok = () =>
-  defineProvider<'grok', { mode: GrokMode; effort: never }>({
+  defineProvider<'grok', { mode: GrokMode; effort: string }>({
     id: 'grok',
     info: GrokRuntimeProvider.providerInfo,
     create: (ctx) => new GrokRuntimeProvider(ctx),

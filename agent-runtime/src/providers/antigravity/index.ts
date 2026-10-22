@@ -41,7 +41,7 @@ export type AntigravityMode = 'default' | 'auto_edit' | 'yolo' | (string & {})
 
 /** Antigravity, driven over ACP (`agy_acp_server`). */
 export const antigravity = () =>
-  defineProvider<'antigravity', { mode: AntigravityMode; effort: never }>({
+  defineProvider<'antigravity', { mode: AntigravityMode; effort: string }>({
     id: 'antigravity',
     info: AntigravityRuntimeProvider.providerInfo,
     create: (ctx) => new AntigravityRuntimeProvider(ctx),

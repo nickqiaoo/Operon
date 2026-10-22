@@ -46,6 +46,6 @@ export const KIMI_CONFIG: AcpProviderConfig = {
     injection: false,
     sessionResume: true,
   },
-  modelProbe: 'none',
+  modelProbe: 'session',
   extractModels: extractKimiModels,
 }

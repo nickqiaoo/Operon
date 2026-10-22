@@ -84,6 +84,26 @@ describe('provider models cache', () => {
     expect(helpersMock.getProviderBaseDescriptor).toHaveBeenCalledTimes(1)
   })
 
+  it('replaces cached effort options with the live session choices and clears them when removed', async () => {
+    helpersMock.getProviderBaseDescriptor.mockResolvedValue({
+      ...descriptor('grok', ['grok-model']),
+      thinkingLevels: [{ id: 'high', name: 'High' }, { id: 'xhigh', name: 'Extra High' }],
+      currentThinkingLevel: 'high',
+    })
+    await getProviderModelsCached('grok')
+    helpersMock.getProviderDescriptorPatch.mockReturnValue({
+      thinkingLevels: [{ id: 'low', name: 'Low' }], currentThinkingLevel: 'low',
+    })
+    const changed = await getProviderModelsCached('grok')
+    expect(changed.configOptions.find(option => option.category === 'thought_level')).toEqual({
+      category: 'thought_level', currentValue: 'low', options: [{ value: 'low', name: 'Low' }],
+    })
+    helpersMock.getProviderDescriptorPatch.mockReturnValue({ thinkingLevels: [], currentThinkingLevel: undefined })
+    const removed = await getProviderModelsCached('grok')
+    expect(removed.configOptions.some(option => option.category === 'thought_level')).toBe(false)
+    expect(helpersMock.getProviderBaseDescriptor).toHaveBeenCalledTimes(1)
+  })
+
   it('returns stale data immediately and revalidates it in the background', async () => {
     helpersMock.getProviderBaseDescriptor
       .mockResolvedValueOnce(descriptor('copilot', ['old-model']))

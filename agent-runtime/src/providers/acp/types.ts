@@ -16,7 +16,7 @@ export interface AcpModelDiscovery {
  * send it, and `ClientSideConnection` hands that response back unparsed, so it arrives intact.
  */
 export interface AcpSessionModelState {
-  availableModels: Array<{ modelId: string; name: string; description?: string | null }>
+  availableModels: Array<{ modelId: string; name: string; description?: string | null; _meta?: Record<string, unknown> }>
   currentModelId: string
 }
 

@@ -3,6 +3,7 @@ import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type { ProviderDescriptor } from '../../types.js'
 import { toSlashCommands } from './commands.js'
+import { configValues, findConfigOption, thinkingConfig } from './config-options.js'
 import { ACP_PROTOCOL_VERSION, AcpConnection } from './connection.js'
 import type { AcpDiscoveryContext, AcpProviderConfig } from './types.js'
 
@@ -72,7 +73,7 @@ export async function probeAcpModels(ctx: RuntimeContext, config: AcpProviderCon
       8000,
       `${config.providerId} initialize`,
     )
-    let session = null
+    let session: AcpDiscoveryContext['session'] = null
     if (needsSession) {
       session = await withTimeout(
         connection.agent.newSession({ cwd: process.cwd(), mcpServers: [] }),
@@ -83,6 +84,10 @@ export async function probeAcpModels(ctx: RuntimeContext, config: AcpProviderCon
       // connection buffers those and replays them on registration.
       connection.registerSession(session.sessionId, {
         onSessionUpdate: (params) => {
+          if (params.update.sessionUpdate === 'config_option_update') {
+            if (session) session.configOptions = params.update.configOptions
+            return
+          }
           if (params.update.sessionUpdate !== 'available_commands_update') return
           commands = params.update.availableCommands
           onCommands?.()
@@ -126,16 +131,28 @@ export function buildAcpDescriptor(
   ctx?: AcpDiscoveryContext,
 ): ProviderDescriptor {
   const discovered = toSlashCommands(config, ctx?.commands)
+  const options = ctx?.session?.configOptions ?? []
+  const model = findConfigOption(options, 'model')
+  const mode = findConfigOption(options, 'mode')
   return {
     id: config.providerId,
     label: config.label,
     logo: config.logo,
-    models: resolved.models,
-    modes: config.modes,
+    models: model ? configValues(model).map((entry) => ({
+      ...resolved.models.find((candidate) => candidate.id === entry.value),
+      id: entry.value,
+      name: entry.name,
+      description: entry.description ?? undefined,
+      providerId: config.providerId,
+      providerLabel: config.label,
+      providerLogo: config.logo,
+    })) : resolved.models,
+    modes: mode ? configValues(mode).map((entry) => ({ id: entry.value, name: entry.name, description: entry.description ?? undefined })) : config.modes,
     commands: [],
     slashCommands: discovered.length > 0 ? discovered : FALLBACK_SLASH_COMMANDS,
-    currentModelId: resolved.currentModelId,
-    currentModeId: resolved.currentModeId,
-    features: config.features,
+    currentModelId: model?.currentValue ?? resolved.currentModelId,
+    currentModeId: mode?.currentValue ?? resolved.currentModeId,
+    ...thinkingConfig(ctx?.session?.configOptions ?? []),
+    features: { ...config.features, ...(options.length > 0 ? { dynamicSwitch: true } : {}) },
   }
 }

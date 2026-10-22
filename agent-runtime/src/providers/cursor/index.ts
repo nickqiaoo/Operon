@@ -41,7 +41,7 @@ export type CursorMode = 'agent' | 'ask' | 'plan' | (string & {})
 
 /** Cursor, driven over ACP (`cursor-agent acp`). */
 export const cursor = () =>
-  defineProvider<'cursor', { mode: CursorMode; effort: never }>({
+  defineProvider<'cursor', { mode: CursorMode; effort: string }>({
     id: 'cursor',
     info: CursorRuntimeProvider.providerInfo,
     create: (ctx) => new CursorRuntimeProvider(ctx),

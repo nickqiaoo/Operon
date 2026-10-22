@@ -80,6 +80,24 @@ describe('GROK_CONFIG.parseUsage', () => {
     ])
   })
 
+  it('reads per-model effort limits from the session response', () => {
+    const result = GROK_CONFIG.extractModels({
+      initialize: null,
+      session: {
+        sessionId: 's',
+        models: {
+          currentModelId: 'grok-4.7',
+          availableModels: [
+            { modelId: 'grok-4.7', name: 'Grok 4.7', _meta: { reasoningEfforts: [{ value: 'xhigh' }, { value: 'high' }] } },
+            { modelId: 'grok-4.5', name: 'Grok 4.5', _meta: { reasoningEfforts: [{ value: 'high' }, { value: 'low' }] } },
+          ],
+        },
+      },
+      commands: null,
+    })
+    expect(result.models.map(model => model.supportedEffortLevels)).toEqual([['xhigh', 'high'], ['high', 'low']])
+  })
+
   it('probes commands, since Grok only pushes them after newSession', () => {
     // Guards the cost/benefit decision: commands arrive as a post-session push,
     // so dropping this flag silently empties the `/` menu until the first reply.

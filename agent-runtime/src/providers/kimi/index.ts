@@ -41,7 +41,7 @@ export type KimiMode = 'default' | 'auto' | 'plan' | 'yolo' | (string & {})
 
 /** Kimi Code, driven over ACP. */
 export const kimi = () =>
-  defineProvider<'kimi', { mode: KimiMode; effort: never }>({
+  defineProvider<'kimi', { mode: KimiMode; effort: string }>({
     id: 'kimi',
     info: KimiRuntimeProvider.providerInfo,
     create: (ctx) => new KimiRuntimeProvider(ctx),
