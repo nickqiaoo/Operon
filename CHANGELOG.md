@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-10-22
+
+### Added
+
+- OperonSpec: take a change through grounding, competing designs, approval, implementation and review, with a coordinator for work that needs a decision.
+- Use a Spec's chat as its entry point, switch the agents assigned to its roles, and inspect each stage and agent call in the workflow view.
+- Open the conversations behind a Spec or workflow, including ticket chats after their workspaces have been removed.
+- The board shows each task's running state, provider and assignee as they change.
+
+### Changed
+
+- Projects fold independently in the sidebar; a Spec groups its chat, coordinator and tickets in one folder.
+- Spec documents remain available as saved snapshots after completion; execution files are removed before the change lands.
+- Archiving a task also archives its descendants, and archived Specs stay out of the sidebar.
+- Provider labels, Spec controls, Markdown headings and mobile layouts have a more consistent appearance.
+
+### Fixed
+
+- Messages sent during a running turn show where the agent consumed them, with clearer delivery state and support for changing Claude Code settings without restarting the session.
+- File references open against the conversation's original directory instead of the currently selected workspace.
+- Spec sign-off checks that the reviewed design is still current and preserves the full default-branch name during integration.
+- Workflow sub-agents keep their own conversations without inheriting app-only MCP servers.
+- Operon Code Mode reads structured MCP results and calls tools whose names contain a hyphen.
+- The model picker's search takes focus when it opens, and the assistant shows as working during its own turn.
+
 ## [1.4.6] - 2026-10-19
 
 ### Changed
