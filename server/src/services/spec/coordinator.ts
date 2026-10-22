@@ -48,7 +48,10 @@ export function coordinatorBinding(storage: BuildStorage, spec: Task): AgentBind
  */
 export async function ensureCoordinator(storage: BuildStorage, spec: Task): Promise<AgentBinding | null> {
   const existing = coordinatorBinding(storage, spec)
-  if (existing) return existing
+  if (existing) {
+    attachSpecCoordinator(spec.id, existing.agentId)
+    return existing
+  }
   const run = storage.specRunGet(spec.id)
   const ws = spec.workspaceId != null ? storage.getWorkspace(spec.workspaceId) : null
   if (!run || !ws) return null
@@ -361,7 +364,7 @@ export async function integrationDone(storage: BuildStorage, spec: Task, summary
   if (!(await isAncestor(loc.worktreePath, integration.target))) {
     throw new SpecError(`\`${integration.target}\` is not merged in yet (or moved on since): run git merge ${integration.target}, resolve, commit`)
   }
-  await writeSpecFiles(loc, { [SPEC_FILES.integration]: JSON.stringify({ ...integration, summary: summary.trim() || '(no summary)' }, null, 2) }, 'sign-off conflict resolved')
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.integration]: JSON.stringify({ ...integration, summary: summary.trim() || '(no summary)' }, null, 2) }, 'sign-off conflict resolved')
   storage.taskAppendActivity(spec.id, {
     kind: 'system',
     actorType: 'agent',

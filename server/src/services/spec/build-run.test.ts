@@ -113,7 +113,15 @@ function makeStorage() {
     updatedAt: 0,
   }
   const activity: { taskId: number; body: string; kind: string; actorType: string }[] = []
+  const artifacts: Record<string, string> = {}
   const storage = {
+    specArtifactsRead: () => ({ ...artifacts }),
+    specArtifactsWrite: (_taskId: number, files: Record<string, string | null>) => {
+      for (const [file, content] of Object.entries(files)) {
+        if (content === null) delete artifacts[file]
+        else artifacts[file] = content
+      }
+    },
     taskGet: (id: number) => (id === 1 ? spec : tasks.get(id) ?? null),
     taskUpdate: (id: number, patch: Partial<Task>) => {
       const t = id === 1 ? spec : tasks.get(id)
@@ -371,15 +379,11 @@ describe('a turn that ends without handing the ticket in', () => {
     return fixture
   }
 
-  it('gets one reminder, then blocks the ticket', async () => {
+  it('blocks immediately without automatically waking the implementer', async () => {
     const { storage, run } = building()
     await onTicketTurnEnded(storage, 101)
-    expect(orchestrator.wakeTaskBinding).toHaveBeenCalledWith(5, expect.stringContaining('still in progress'))
-    expect(run().build[0]).toMatchObject({ state: 'building', nudged: true })
-
-    await onTicketTurnEnded(storage, 101)
-    expect(run().build[0].state).toBe('blocked')
-    expect(orchestrator.wakeTaskBinding).toHaveBeenCalledTimes(1)
+    expect(run().build[0]).toMatchObject({ state: 'blocked', blockedReason: 'Its implementer stopped without handing the ticket in' })
+    expect(orchestrator.wakeTaskBinding).not.toHaveBeenCalled()
   })
 
   it('blocks at once when the session failed', async () => {

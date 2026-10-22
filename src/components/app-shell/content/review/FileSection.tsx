@@ -1,8 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useIntl } from "react-intl"
 import { useQuery } from "@tanstack/react-query"
-import { FileDiff, PatchDiff } from "@pierre/diffs/react"
+import { FileDiff } from "@pierre/diffs/react"
 import {
+  DEFAULT_VIRTUAL_FILE_METRICS,
+  getSingularPatch,
   parseDiffFromFile,
   type DiffLineAnnotation,
   type FileDiffMetadata,
@@ -101,6 +103,18 @@ export const FileSection = memo(function FileSection({
   loadFullFilesEnabled,
 }: FileSectionProps) {
   const patch = useMemo(() => normalizePatch(file.path, file.diff), [file])
+  const patchDiff = useMemo(() => getSingularPatch(patch), [patch])
+  // Match globals.css and DIFF_SCROLLBAR_CSS: virtual placeholders must have
+  // the same row, spacing and separator heights as the rendered diff.
+  const diffMetrics = useMemo(
+    () => ({
+      ...DEFAULT_VIRTUAL_FILE_METRICS,
+      lineHeight: 18,
+      spacing: 4,
+      ...(diffOptions.diffStyle === "unified" ? { hunkSeparatorHeight: 28 } : {}),
+    }),
+    [diffOptions.diffStyle],
+  )
   const sectionRef = useRef<HTMLElement | null>(null)
   const [isNearViewport, setIsNearViewport] = useState(false)
   useEffect(() => {
@@ -156,7 +170,7 @@ export const FileSection = memo(function FileSection({
 
   // Fetch the old + new file contents and feed Pierre's FileDiff (which knows
   // how to render the expand-unchanged chevrons). Without full contents, fall
-  // back to PatchDiff — that path only shows patch context, no expand UI.
+  // back to parsed patch metadata, which has no expand UI.
   // Expansion requires a non-partial diff, which `parseDiffFromFile` produces.
   const fullFileTooLarge =
     file.additions + file.deletions > FULL_FILE_CHANGED_LINE_THRESHOLD ||
@@ -191,25 +205,18 @@ export const FileSection = memo(function FileSection({
         <DiffStats additions={file.additions} deletions={file.deletions} />
       </header>
       <div className="text-sm">
-        {fullFileDiff != null ? (
-          <FileDiff
-            fileDiff={fullFileDiff}
-            className="pierre-diff-file-view"
-            options={commentDiffOptions}
-            lineAnnotations={lineAnnotations}
-            selectedLines={selectedLines}
-            renderAnnotation={(annotation) => renderCard(annotation.metadata)}
-          />
-        ) : (
-          <PatchDiff<CommentMeta>
-            patch={patch}
-            className="pierre-diff-file-view"
-            options={commentDiffOptions}
-            lineAnnotations={lineAnnotations}
-            selectedLines={selectedLines}
-            renderAnnotation={(annotation) => renderCard(annotation.metadata)}
-          />
-        )}
+        {/* Keep the renderer mounted when full contents arrive during scroll.
+            PatchDiff uses this same parser internally, so the fallback keeps
+            its existing patch semantics without replacing the DOM instance. */}
+        <FileDiff
+          fileDiff={fullFileDiff ?? patchDiff}
+          metrics={diffMetrics}
+          className="pierre-diff-file-view"
+          options={commentDiffOptions}
+          lineAnnotations={lineAnnotations}
+          selectedLines={selectedLines}
+          renderAnnotation={(annotation) => renderCard(annotation.metadata)}
+        />
       </div>
     </section>
   )
@@ -291,7 +298,7 @@ export function FileActionButtons({
  * full-file diff via Pierre's `parseDiffFromFile`. Because the metadata is
  * generated from complete contents (`isPartial: false`), Pierre's `FileDiff`
  * renders the click-to-expand chevrons over unchanged regions. Returns `null`
- * while loading, when disabled, or on error — callers fall back to `PatchDiff`.
+ * while loading, when disabled, or on error — callers use parsed patch metadata.
  *
  * (Pierre 1.2.x removed the old `parsePatchFiles` + `oldLines`/`newLines`
  * mutation path; `parseDiffFromFile` is the supported replacement.)
@@ -363,8 +370,7 @@ export function useFullFileDiff(
   })
 
   // Preserve already loaded metadata while the query is temporarily disabled
-  // for a collapsed file. This keeps the mounted renderer type stable across
-  // collapse/expand instead of falling back from FileDiff to PatchDiff.
+  // for a collapsed file, so expanding it retains full-file context.
   return query.data ?? null
 }
 

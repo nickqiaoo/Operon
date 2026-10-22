@@ -154,8 +154,8 @@ function buildQueryOptions(
     permissionMode: settings.permissionMode,
     effort: settings.thinkingLevel,
     // Fast mode lives in the settings (flag) layer, not as a top-level option.
-    // Only inject when enabled so we don't clobber the user's settings.json value.
-    settings: settings.fastMode ? { fastMode: true } : undefined,
+    // Unspecified respects user settings; an explicit off survives query restarts.
+    settings: settings.fastMode !== undefined ? { fastMode: settings.fastMode } : undefined,
     pathToClaudeCodeExecutable: settings.pathToClaudeCodeExecutable,
     settingSources: settings.settingSources,
     includePartialMessages: settings.includePartialMessages,
@@ -776,8 +776,8 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     await this.messageLoopPromise?.catch(() => {})
     this.messageLoopPromise = null
     this.mcpReadyPromise = null
-    // A 'rebuild' is the same conversation getting a fresh warm query (fast mode
-    // toggled, MCP map changed), so the fork has to outlive it — the new query
+    // A 'rebuild' is the same conversation getting a fresh warm query (e.g. its
+    // MCP map changed), so the fork has to outlive it — the new query
     // resumes it by id.
     if (reason === 'discard') await this.discardEphemeralFork()
   }
@@ -974,26 +974,39 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     }
   }
 
-  /**
-   * `thinkingLevel` is deliberately absent: `effort` is baked into the query options
-   * at `ensureWarmQuery`, and the SDK exposes no setter for it (only setModel /
-   * setPermissionMode / setMaxThinkingTokens, the last being a different knob). It
-   * would take tearing the warm query down — i.e. restarting the CLI subprocess —
-   * so we report it as not applied and let the caller rebuild the session instead.
-   */
+  /** Update the warm query in place; keep the same values if its process restarts. */
   async set(patch: SessionPatch): Promise<SessionPatchApplied> {
     const applied: SessionPatchApplied = []
+    const activeQuery = this.messageLoopDead ? null : this.activeQuery
     if (patch.model) {
       this.logger.info(`Switching model to ${patch.model}`)
+      await activeQuery?.setModel(patch.model)
       this.currentModelId = patch.model
-      await this.activeQuery?.setModel(patch.model)
       applied.push('model')
     }
     if (patch.mode) {
       this.logger.info(`Switching permission mode to ${patch.mode}`)
+      await activeQuery?.setPermissionMode(patch.mode as PermissionMode)
       this.currentModeId = patch.mode
-      await this.activeQuery?.setPermissionMode(patch.mode as PermissionMode)
       applied.push('mode')
+    }
+    const flagSettings: Parameters<Query['applyFlagSettings']>[0] = {}
+    if (patch.effort) {
+      flagSettings.effortLevel = patch.effort as ClaudeRuntimeSettings['thinkingLevel']
+    }
+    if ('serviceTier' in patch) {
+      flagSettings.fastMode = patch.serviceTier === 'fast'
+    }
+    if (Object.keys(flagSettings).length > 0) {
+      await activeQuery?.applyFlagSettings(flagSettings)
+      if (patch.effort) {
+        this.currentThinkingLevel = patch.effort
+        applied.push('effort')
+      }
+      if ('serviceTier' in patch) {
+        this.settings.fastMode = patch.serviceTier === 'fast'
+        applied.push('serviceTier')
+      }
     }
     return applied
   }

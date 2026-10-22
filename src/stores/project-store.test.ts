@@ -67,3 +67,37 @@ describe("loadProjects", () => {
     expect(useProjectStore.getState().projectsLoaded).toBe(true)
   })
 })
+
+
+describe("spec sidebar preferences", () => {
+  it("keeps a hidden spec hidden across tree refreshes without changing the selection", async () => {
+    projectListWithWorkspaces.mockResolvedValue({ projects: tree })
+    await useProjectStore.getState().loadProjects()
+    useProjectStore.getState().setSpecHidden(42, true)
+    useProjectStore.getState().setSpecHidden(42, true)
+    await useProjectStore.getState().loadProjects()
+
+    expect(useProjectStore.getState().hiddenSpecIds).toEqual([42])
+    expect(useProjectStore.getState().activeWorkspaceId).toBe(10)
+    expect(useProjectStore.getState().projects[0].workspaces).toEqual(tree[0].workspaces)
+    useProjectStore.getState().setSpecHidden(42, false)
+    expect(useProjectStore.getState().hiddenSpecIds).toEqual([])
+    expect(useProjectStore.getState().shownSpecIds).toEqual([42])
+  })
+
+  it("updates archive visibility without clearing manual hiding or removing workspaces", () => {
+    const spec = {
+      id: 42, number: 1, title: "Spec", status: "in_progress",
+      parentTaskId: null, specStage: "building", archivedAt: null,
+    }
+    useProjectStore.setState({ projects: [{ ...tree[0], workspaces: [{ ...tree[0].workspaces[1], task: spec }] }] })
+    useProjectStore.getState().setSpecHidden(42, true)
+    useProjectStore.getState().setWorkspaceTaskArchived(42, 100)
+    expect(useProjectStore.getState().projects[0].workspaces[0].task).toEqual({ ...spec, archivedAt: 100 })
+    useProjectStore.getState().setWorkspaceTaskArchived(42, null)
+    expect(useProjectStore.getState().projects[0].workspaces[0].task).toEqual(spec)
+    expect(useProjectStore.getState().hiddenSpecIds).toEqual([42])
+    useProjectStore.getState().resetProjects()
+    expect(useProjectStore.getState().hiddenSpecIds).toEqual([])
+  })
+})

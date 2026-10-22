@@ -35,7 +35,7 @@ export function collectInjectedInputIds(messages: readonly UIMessage[]): Set<str
   return ids;
 }
 
-export type LiveSteerStatus = 'sending' | 'sent' | 'failed';
+export type LiveSteerStatus = 'sending' | 'sent' | 'failed' | 'unknown';
 
 export type LiveSteerItem = {
   localId: string;

@@ -155,7 +155,7 @@ export async function addTicket(storage: BuildStorage, spec: Task, ticket: SpecT
   if (!run || !specWs) throw new Error(`spec #${spec.number} has no build to add a ticket to`)
   const loc: SpecLocation = { taskId: spec.id, taskNumber: spec.number, worktreePath: specWs.worktreePath }
   const tickets = (await readSpecJson<SpecTicket[]>(loc, SPEC_FILES.tickets)) ?? []
-  await writeSpecFiles(loc, { [SPEC_FILES.tickets]: JSON.stringify([...tickets, ticket], null, 2) }, `ticket ${ticket.key}`)
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.tickets]: JSON.stringify([...tickets, ticket], null, 2) }, `ticket ${ticket.key}`)
   const config = withBuildDefaults(run.config)
   const agent = getOrCreateSpecBuilder(storage, config.implementer)
   const blockedBy = ticket.blockedBy
@@ -539,8 +539,8 @@ export async function blockTicket(storage: BuildStorage, spec: Task, taskId: num
 /**
  * A ticket session's turn ended. Handing the ticket in (in_review) is how its
  * implementer says it is done; a turn that ends any other way would leave the
- * ticket "building" with nobody working on it. An error blocks it at once; a
- * quiet stop gets one reminder, and a second one blocks it.
+ * ticket "building" with nobody working on it. Block it at once so the
+ * coordinator can decide how to proceed, including whether to retry.
  */
 export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, error?: string, bindingId?: number): Promise<void> {
   // A session the task was taken off (handed to another agent) speaks for nobody.
@@ -549,7 +549,7 @@ export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, e
   // Not a ticket: the spec's own session is its coordinator's.
   if (!found) return storage.specRunGet(taskId) ? onCoordinatorTurnEnded(storage, taskId, error) : undefined
   if (found.run.stage !== 'building' || found.entry.state !== 'building') return
-  const { ticket, spec, entry } = found
+  const { ticket, spec } = found
   if (ticket.status !== 'in_progress') return
   const block = (reason: string) => blockTicket(storage, spec, taskId, reason, `Ticket #${ticket.number} stopped: ${reason}`)
   if (error) {
@@ -557,22 +557,8 @@ export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, e
     await advance(storage, spec.id)
     return
   }
-  if (entry.nudged) {
-    await block('Its implementer stopped twice without handing the ticket in')
-    await advance(storage, spec.id)
-    return
-  }
-  patchTicket(storage, spec.id, taskId, { nudged: true })
-  const woke =
-    ticket.bindingId != null &&
-    (await wakeTaskBinding(
-      ticket.bindingId,
-      `Your turn ended but ticket #${ticket.number} is still in progress. Nobody is watching this session to answer ` +
-        'questions — decide anything small yourself and record it as a ruling. If the ticket is done, commit, post your ' +
-        `report with comment_project_task and call update_project_task(task: ${ticket.number}, status: "in_review"). ` +
-        'If it truly cannot be finished, say why in a comment and stop.',
-    ))
-  if (!woke) await block('Its implementer session ended and could not be woken')
+  await block('Its implementer stopped without handing the ticket in')
+  await advance(storage, spec.id)
 }
 
 // ---------------------------------------------------------------------------

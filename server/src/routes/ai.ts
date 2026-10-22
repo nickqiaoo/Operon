@@ -375,16 +375,23 @@ export function aiRoutes(storage: AiRouteStorage) {
     return c.json(result, result.success ? 200 : 409)
   })
 
-  // POST /api/ai/cc/dynamic-set — switch model/mode/effort on a live session.
+  // POST /api/ai/cc/dynamic-set — update a live session's turn settings.
   // Path kept for compatibility; no longer Claude-only.
   router.post('/cc/dynamic-set', async (c) => {
-    const { chatId, modelId, modeId, thinkingLevel } = await c.req.json<{
+    const payload = await c.req.json<{
       chatId: number
       modelId?: string
       modeId?: string
       thinkingLevel?: string
+      serviceTier?: string
     }>()
-    const result = await aiService.handleCCDynamicSet(chatId, { model: modelId, mode: modeId, effort: thinkingLevel })
+    const { chatId, modelId, modeId, thinkingLevel } = payload
+    const result = await aiService.handleCCDynamicSet(chatId, {
+      model: modelId,
+      mode: modeId,
+      effort: thinkingLevel,
+      ...('serviceTier' in payload ? { serviceTier: payload.serviceTier === 'fast' ? 'fast' as const : undefined } : {}),
+    })
     return c.json(result)
   })
 

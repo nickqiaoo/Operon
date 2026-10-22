@@ -28,6 +28,9 @@ export async function updateTaskAsHuman(
   actorName: string,
 ): Promise<HumanTaskResult> {
   const id = existing.id
+  if (existing.specStage != null && updates.assignedAgentId !== undefined && updates.assignedAgentId !== existing.assignedAgentId) {
+    return { ok: false, status: 409, body: { error: 'Use Switch agent in the Spec to change its coordinator' } }
+  }
   if (updates.status !== undefined && !isValidTaskTransition(existing.status, updates.status)) {
     return { ok: false, status: 400, body: { error: `Invalid transition: ${existing.status} → ${updates.status}` } }
   }

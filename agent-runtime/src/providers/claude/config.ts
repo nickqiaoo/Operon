@@ -98,7 +98,7 @@ export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeC
     cwd: params.cwd,
     permissionMode,
     thinkingLevel,
-    fastMode: params.serviceTier === 'fast',
+    fastMode: params.serviceTier === 'fast' ? true : undefined,
     resume: params.resume,
     forkFrom: params.fork,
     ...(params.writableDirs?.length ? { additionalDirectories: [...params.writableDirs] } : {}),

@@ -19,6 +19,7 @@ export function specChatRef(storage: SpecChatStorage, chatId: number, fallbackWo
   const own = meta.workspaceId != null && storage.getWorkspace(meta.workspaceId) ? meta.workspaceId : null
   return {
     chatId,
+    cwd: meta.metadata?.workflowAgent?.cwd ?? (own != null ? storage.getWorkspace(own)?.worktreePath : null) ?? null,
     title: meta.title?.trim() || 'Chat',
     providerId: meta.providerId ?? null,
     workspaceId: own ?? fallbackWorkspaceId,

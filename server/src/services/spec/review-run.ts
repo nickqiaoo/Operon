@@ -7,9 +7,7 @@
  *                      verdict in four piles (act on / consider / noted / dismissed)
  *   (act on?)        — one "Review fixes" ticket, built and reviewed like any
  *                      other; once it lands the lead re-checks only the fix
- *   awaiting_signoff — the lead drafts the ADRs and glossary terms the change
- *                      will record (decisions.ts), review.md is written, and
- *                      gate 2 waits for the user
+ *   awaiting_signoff — review.md is written and gate 2 waits for the user
  *
  * Like the design stage, each step is idempotent on the change branch: a
  * reviewer whose `reviews/<provider>.json` exists is not run again, and
@@ -20,7 +18,6 @@
 
 import type { Task } from '../../types/task.js'
 import type {
-  SpecDecisions,
   SpecIntegration,
   SpecReviewSummary,
   SpecRunConfig,
@@ -43,9 +40,8 @@ import { broadcastTask } from '../task-events.js'
 import type { SpecAgents } from './agents.js'
 import { addTicket, advance, notifySpec, sessionFor, type BuildStorage } from './build-run.js'
 import { familyOf, seatFor } from './config.js'
-import { draftDecisions } from './decisions.js'
 import { onStepFailed, wakeCoordinator } from './coordinator.js'
-import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, specDir, writeSpecFiles, type SpecLocation } from './files.js'
+import { SPEC_FILES, branchReviewFile, readSpecFile, readSpecJson, restoreSpecFiles, specDir, writeSpecFiles, type SpecLocation } from './files.js'
 import {
   BRANCH_REVIEW_SCHEMA,
   SPEC_REVIEW_SCHEMA,
@@ -221,7 +217,7 @@ async function review(
         BRANCH_REVIEW_SCHEMA,
       )
       // Saved as each lands, so a failure elsewhere never costs a finished review.
-      await writeSpecFiles(loc, { [branchReviewFile(reviewer)]: JSON.stringify(result, null, 2) }, `review by ${reviewer}`)
+      await writeSpecFiles(storage, loc, { [branchReviewFile(reviewer)]: JSON.stringify(result, null, 2) }, `review by ${reviewer}`)
       return { reviewer, result }
     }),
   )
@@ -241,7 +237,7 @@ async function review(
     SPEC_REVIEW_SCHEMA,
   )
   const stored: StoredReview = { ...consolidated, head, base, actOnBefore: consolidated.actOn.length }
-  await writeSpecFiles(loc, { [SPEC_FILES.reviewJson]: JSON.stringify(stored, null, 2) }, 'review')
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.reviewJson]: JSON.stringify(stored, null, 2) }, 'review')
 
   // Real defects get one fix round before the user sees the change — one per
   // review: a review after the user's requested changes may have its own.
@@ -260,7 +256,7 @@ async function review(
     await advance(storage, spec.id)
     return null
   }
-  return finalize(storage, agents, spec, loc, stored)
+  return finalize(storage, spec, loc, stored)
 }
 
 async function recheck(
@@ -282,7 +278,7 @@ async function recheck(
     },
     SPEC_REVIEW_SCHEMA,
   )
-  return finalize(storage, agents, spec, loc, { ...rechecked, head, base: stored.base, actOnBefore: stored.actOnBefore })
+  return finalize(storage, spec, loc, { ...rechecked, head, base: stored.base, actOnBefore: stored.actOnBefore })
 }
 
 /** The coordinator resolved a sign-off conflict: another family checks the resolution, then gate 2 again. */
@@ -320,8 +316,8 @@ async function integrationReview(
     },
     SPEC_REVIEW_SCHEMA,
   )
-  const gate = await finalize(storage, agents, spec, loc, { ...checked, head, base: stored.base, actOnBefore: stored.actOnBefore })
-  await writeSpecFiles(loc, { [SPEC_FILES.integration]: null }, 'sign-off conflict reviewed')
+  const gate = await finalize(storage, spec, loc, { ...checked, head, base: stored.base, actOnBefore: stored.actOnBefore })
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.integration]: null }, 'sign-off conflict reviewed')
   return gate
 }
 
@@ -334,7 +330,7 @@ async function integrationReview(
 export async function startIntegration(storage: BuildStorage, spec: Task, target: string, files: string[]): Promise<boolean> {
   const loc = locate(storage, spec)
   const integration: SpecIntegration = { target, files, startedAt: Date.now() }
-  await writeSpecFiles(loc, { [SPEC_FILES.integration]: JSON.stringify(integration, null, 2) }, 'sign-off conflict')
+  await writeSpecFiles(storage, loc, { [SPEC_FILES.integration]: JSON.stringify(integration, null, 2) }, 'sign-off conflict')
   setStage(storage, spec.id, 'integrating')
   const woke = await wakeCoordinator(
     storage,
@@ -342,7 +338,7 @@ export async function startIntegration(storage: BuildStorage, spec: Task, target
     integrationMessage({ specNumber: spec.number, branch: spec.branchName ?? `operon/task-${spec.number}`, target, files }),
   )
   if (!woke) {
-    await writeSpecFiles(loc, { [SPEC_FILES.integration]: null }, 'no coordinator for the sign-off conflict')
+    await writeSpecFiles(storage, loc, { [SPEC_FILES.integration]: null }, 'no coordinator for the sign-off conflict')
     setStage(storage, spec.id, 'awaiting_signoff')
     return false
   }
@@ -360,15 +356,13 @@ export async function startIntegration(storage: BuildStorage, spec: Task, target
 
 async function finalize(
   storage: BuildStorage,
-  agents: SpecAgents,
   spec: Task,
   loc: SpecLocation,
   review: StoredReview,
 ): Promise<GateResult> {
-  // What the change will record goes in front of the user with the review, before review.md marks the gate.
-  await draftDecisions(storage, agents, spec, loc)
   const fixed = Math.max(0, review.actOnBefore - review.actOn.length)
   await writeSpecFiles(
+    storage,
     loc,
     {
       [SPEC_FILES.reviewJson]: JSON.stringify(review, null, 2),
@@ -395,8 +389,7 @@ async function finalize(
 }
 
 /** The gate 2 header's numbers, from review.json. */
-export async function reviewSummary(loc: SpecLocation): Promise<SpecReviewSummary | null> {
-  const review = await readSpecJson<StoredReview>(loc, SPEC_FILES.reviewJson)
+export function reviewSummary(review: SpecReview | null): SpecReviewSummary | null {
   if (!review) return null
   const count = (result: string) => review.evidence.filter((e) => e.result === result).length
   return {
@@ -413,7 +406,7 @@ export async function reviewSummary(loc: SpecLocation): Promise<SpecReviewSummar
 
 /**
  * What the change branch gained since the review gate 2 shows, beyond the
- * default branch merged in, the spec's own files and the decisions it recorded:
+ * default branch merged in and the spec's own files:
  * work nobody reviewed, such as a merge conflict settled by hand. Empty when the
  * branch is as reviewed, or there is no review to compare with.
  */
@@ -425,10 +418,8 @@ export async function unreviewedFiles(storage: BuildStorage, spec: Task): Promis
   const ref = (project ? await getDefaultLocalBranch(project.rootPath) : null) ?? stored.base
   const changed = await filesChangedBeyondMerge(loc.worktreePath, stored.head, ref)
   if (!changed) return []
-  const decisions = await readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions)
-  const recorded = new Set(decisions?.recorded?.files ?? [])
   const own = `${specDir(spec.number)}/`
-  return changed.filter((file) => !file.startsWith(own) && !recorded.has(file))
+  return changed.filter((file) => !file.startsWith(own))
 }
 
 /**
@@ -437,6 +428,7 @@ export async function unreviewedFiles(storage: BuildStorage, spec: Task): Promis
  */
 export async function requestSignoffChanges(storage: BuildStorage, spec: Task, comment: string): Promise<Task> {
   const loc = locate(storage, spec)
+  await restoreSpecFiles(storage, loc)
   const run = storage.specRunGet(spec.id)
   const n = (run?.build.filter((b) => b.key.startsWith('C')).length ?? 0) + 1
   const ticket: SpecTicket = {
@@ -447,17 +439,15 @@ export async function requestSignoffChanges(storage: BuildStorage, spec: Task, c
     blockedBy: [],
     interfaces: [],
   }
-  // The next review is of the changed change, from scratch — and so is what it
-  // records, unless an earlier sign-off attempt already wrote that into the repository.
+  // Review the updated change from scratch.
   const reviewers = run ? branchReviewers(run.config) : []
-  const decisions = await readSpecJson<SpecDecisions>(loc, SPEC_FILES.decisions)
   await writeSpecFiles(
+    storage,
     loc,
     {
       [SPEC_FILES.reviewJson]: null,
       [SPEC_FILES.review]: null,
       ...Object.fromEntries(reviewers.map((r) => [branchReviewFile(r), null])),
-      ...(decisions && !decisions.recorded ? { [SPEC_FILES.decisions]: null } : {}),
       [SPEC_FILES.integration]: null,
     },
     'changes requested at sign-off',

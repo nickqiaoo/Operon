@@ -88,3 +88,32 @@ export function formatLineLabel(line?: number, endLine?: number): string | null 
   if (endLine != null && endLine !== line) return `lines ${line}-${endLine}`
   return `line ${line}`
 }
+
+/** Compact display for titles and previews; the persisted output stays untouched. */
+export function fileCitationsToText(text: string): string {
+  return text.replace(new RegExp(CITATION_TOKEN_RE.source, 'g'), (token: string, rawPath: string, start: string, end?: string) => {
+    const path = parseCitationPath(rawPath)
+    if (!path) return token
+    const name = path.split(/[\\/]/).pop() ?? path
+    return `${name}:${start}${end ? `-${end}` : ''}`
+  })
+}
+
+/** Resolve only within the explicit source directory, never the active workspace. */
+export function resolveCitationFile(rootPath: string | null, filePath: string): string | null {
+  if (!rootPath) return null
+  const normalize = (path: string) => {
+    const parts: string[] = []
+    for (const part of path.replace(/\\/g, '/').split('/')) {
+      if (!part || part === '.') continue
+      if (part === '..') parts.pop()
+      else parts.push(part)
+    }
+    return '/' + parts.join('/')
+  }
+  if (!rootPath.startsWith('/')) return null
+  const root = normalize(rootPath)
+  const clean = filePath.replace(/^\.\//, '').replace(/^[ab]\//, '')
+  const absolute = normalize(clean.startsWith('/') ? clean : `${root}/${clean}`)
+  return absolute.startsWith(`${root}/`) ? absolute : null
+}

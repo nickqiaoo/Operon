@@ -1,3 +1,4 @@
+import { TaskAssigneeAvatar, TaskExecutionIndicator } from './TaskExecutionIndicator'
 import { useState } from 'react'
 import {
   DndContext,
@@ -15,7 +16,7 @@ import { Archive, Ban, CornerDownRight } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
 import { useTaskStore } from '@/stores/task-store'
-import { PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, type TaskGroup } from './task-meta'
+import { PriorityIcon, LabelChip, TaskRef, type TaskGroup } from './task-meta'
 import { SpecCardBadge } from '@/components/spec/spec-shared'
 import type { TaskListItem } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
@@ -160,7 +161,7 @@ interface CardBodyProps {
   dragging?: boolean
 }
 
-function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
+function CardBody({ task, agents, dragging }: CardBodyProps) {
   const intl = useIntl()
   const archived = task.archivedAt != null
   const tasks = useTaskStore((s) => s.tasks)
@@ -187,6 +188,7 @@ function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
       <div className="flex items-center gap-2">
         <PriorityIcon priority={task.priority} />
         <TaskRef projectId={task.projectId} number={task.number} className="text-[11px] text-muted-foreground/50" />
+        <TaskAssigneeAvatar task={task} agents={agents} />
         {parent && (
           <span
             className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground/50 tabular-nums"
@@ -211,14 +213,14 @@ function CardBody({ task, agents, sessions, dragging }: CardBodyProps) {
       </div>
       {/* anywhere: a path or file name in the title has no spaces to break at, and would run out of the card. */}
       <div className="text-sm text-foreground/90 leading-snug line-clamp-3 [overflow-wrap:anywhere]">{task.title}</div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 flex-wrap min-w-0">
+      <TaskExecutionIndicator task={task} className="flex w-full" />
+      {task.labels.length > 0 && (
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           {task.labels.slice(0, 2).map((l) => (
             <LabelChip key={l.id} label={l} />
           ))}
         </div>
-        <AssigneeAvatar agentId={task.assignedAgentId} agents={agents} sessions={sessions} projectId={task.projectId} />
-      </div>
+      )}
     </div>
   )
 }

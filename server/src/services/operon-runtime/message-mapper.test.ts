@@ -47,6 +47,31 @@ function parentTag(part: unknown): string | undefined {
 
 // ---------------------------------------------------------------------------
 
+describe('OperonStreamMapper injected input boundaries', () => {
+  it('closes text and reasoning before the receipt and starts fresh blocks afterwards', () => {
+    const m = new OperonStreamMapper(() => ({ id: 'client-1', text: 'adjust' }))
+    m.map(ev('main', { type: 'assistant.delta', delta: 'Before' }))
+    m.map(ev('main', { type: 'thinking.delta', delta: 'Before thinking' }))
+    expect(m.map(ev('main', {
+      type: 'message.appended',
+      origin: { kind: 'user', steerId: 'framework-1' },
+      message: { role: 'user', content: [], timestamp: 0 },
+    }))).toEqual([
+      { type: 'text-end', id: 't0' },
+      { type: 'reasoning-end', id: 'r0' },
+      { type: 'injected-input', id: 'client-1', text: 'adjust' },
+    ])
+    expect(m.map(ev('main', { type: 'assistant.delta', delta: 'After' }))).toEqual([
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', text: 'After' },
+    ])
+    expect(m.map(ev('main', { type: 'thinking.delta', delta: 'After thinking' }))).toEqual([
+      { type: 'reasoning-start', id: 'r1' },
+      { type: 'reasoning-delta', id: 'r1', text: 'After thinking' },
+    ])
+  })
+})
+
 describe('OperonStreamMapper sub-agent correlation', () => {
   it('tags a sub-agent tool step with the spawning Agent tool call id', () => {
     const m = new OperonStreamMapper()

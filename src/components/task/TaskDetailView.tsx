@@ -1,3 +1,4 @@
+import { TaskAssigneeAvatar } from './TaskExecutionIndicator'
 import { useMemo, useState } from 'react'
 import {
   ArrowLeft,
@@ -19,6 +20,8 @@ import {
   Hash,
   Play,
   Ban,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { LinearIcon } from '@/components/icons/LinearIcon'
 import { GithubIcon } from '@/components/icons/GithubIcon'
@@ -37,8 +40,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { useIntl, FormattedMessage, type IntlShape } from 'react-intl'
 import { useTaskStore } from '@/stores/task-store'
+import { useProjectStore } from '@/stores/project-store'
 import { useChannelStore } from '@/stores/channel-store'
-import { StatusIcon, PriorityIcon, LabelChip, AssigneeAvatar, TaskRef, relativeTime } from './task-meta'
+import { StatusIcon, PriorityIcon, LabelChip, TaskRef, relativeTime } from './task-meta'
 import { SpecPanel } from '@/components/spec/SpecPanel'
 import { STATUS_MESSAGES, ACTOR_MESSAGES, priorityMessage, activityEventMessage } from './task-i18n'
 import {
@@ -81,7 +85,6 @@ const MANAGE_AGENTS = '__manage_agents'
 export function TaskDetailView({
   detail,
   agents,
-  sessions,
   onClose,
   onOpenWorkspace,
   onOpenChat,
@@ -107,6 +110,11 @@ export function TaskDetailView({
     [detail.blockedBy, allTasks],
   )
   const setArchived = useTaskStore((s) => s.setArchived)
+  const specHidden = useProjectStore((s) => s.hiddenSpecIds.includes(detail.id) ||
+    (!s.shownSpecIds.includes(detail.id) && !s.projects.some((project) =>
+      project.workspaces.some((workspace) => workspace.task?.id === detail.id),
+    )))
+  const setSpecHidden = useProjectStore((s) => s.setSpecHidden)
 
 
   const [dispatching, setDispatching] = useState(false)
@@ -155,6 +163,10 @@ export function TaskDetailView({
   }
 
   const statusOptions = TASK_STATUSES.filter((s) => isValidTaskTransition(detail.status, s))
+  const assigneeName = detail.assignedAgentId
+    ? detail.assignedAgent?.name ?? agents.find((agent) => agent.id === detail.assignedAgentId)?.name ?? intl.formatMessage({ id: 'task.detail.unknownAgent', defaultMessage: 'Unknown' })
+    : intl.formatMessage({ id: 'task.unassigned', defaultMessage: 'Unassigned' })
+
 
   return (
     // Phones stack the panels into one vertical scroll; md+ keeps the two-column
@@ -205,7 +217,7 @@ export function TaskDetailView({
           )}
         </div>
 
-        <div className="min-w-0 md:flex-1 md:overflow-y-auto md:min-h-0 px-6 py-5">
+        <div className="min-w-0 md:flex-1 md:overflow-y-auto md:min-h-0 px-3 py-4 md:px-6 md:py-5">
           {/* Reading width, centered: the column keeps a text-friendly measure and splits leftover space evenly on wide windows. */}
           <div className="mx-auto w-full max-w-3xl space-y-6">
           {/* Title */}
@@ -238,7 +250,7 @@ export function TaskDetailView({
 
           {/* Description */}
           <div>
-            <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 mb-2">
+            <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70 mb-2">
               <FormattedMessage id="task.detail.description" defaultMessage="Description" />
             </div>
             {editingDesc ? (
@@ -265,7 +277,7 @@ export function TaskDetailView({
                 className={cn(
                   'text-sm cursor-text rounded-lg p-3 min-h-[44px] transition-colors',
                   detail.description
-                    ? 'text-foreground/80 -m-3 hover:bg-muted/20'
+                    ? 'text-foreground -m-3 hover:bg-muted/20'
                     : 'border border-dashed border-border/50 hover:border-border/60 hover:bg-muted/20'
                 )}
               >
@@ -286,7 +298,7 @@ export function TaskDetailView({
 
           {/* Activity — timeline, oldest first, composer pinned at the end */}
           <div>
-            <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 mb-3">
+            <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70 mb-3">
               <FormattedMessage id="task.detail.activity" defaultMessage="Activity" />
             </div>
             <div className="relative">
@@ -313,7 +325,8 @@ export function TaskDetailView({
                   ? intl.formatMessage({ id: 'task.detail.commentPlaceholderWake', defaultMessage: 'Leave a comment — wakes the agent… (⌘↵ to send)' })
                   : intl.formatMessage({ id: 'task.detail.commentPlaceholder', defaultMessage: 'Leave a comment… (⌘↵ to send)' })
               }
-              className="w-full min-h-[64px] text-sm bg-muted/30 border border-border/50 dark:border-border/35 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y"
+              aria-label={intl.formatMessage({ id: 'task.detail.comment', defaultMessage: 'Comment' })}
+              className="w-full min-h-[72px] resize-none rounded-xl border-0 bg-muted/25 px-3.5 py-3 text-sm shadow-none outline-none transition-colors placeholder:text-muted-foreground/60 focus:bg-muted/40 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
             />
             <div className="flex justify-end">
               <Button
@@ -332,7 +345,7 @@ export function TaskDetailView({
       </div>
 
       {/* Right: properties — sidebar at md+, full-width section below on phones */}
-      <div className="w-full md:w-72 shrink-0 border-border/40 border-t md:border-t-0 md:border-l md:overflow-y-auto">
+      <div className="w-full md:w-60 shrink-0 border-border/40 border-t md:border-t-0 md:border-l md:overflow-y-auto">
         <div className="p-4 space-y-5">
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.statusLabel', defaultMessage: 'Status' })}>
             <Select
@@ -384,6 +397,7 @@ export function TaskDetailView({
 
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.assigneeLabel', defaultMessage: 'Assignee' })}>
             <Select
+              disabled={detail.specStage != null}
               value={detail.assignedAgentId ? String(detail.assignedAgentId) : 'unassigned'}
               onValueChange={(v) => {
                 // The last item is a way to the agents, not one of them.
@@ -393,18 +407,11 @@ export function TaskDetailView({
                 })
               }}
             >
-              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-row-hover">
-                <span className="flex items-center gap-2">
-                  <AssigneeAvatar
-                    agentId={detail.assignedAgentId}
-                    agents={agents}
-                    sessions={sessions}
-                    projectId={detail.projectId}
-                  />
-                  <span className="text-sm truncate">
-                    {detail.assignedAgentId
-                      ? agents.find((a) => a.id === detail.assignedAgentId)?.name ?? intl.formatMessage({ id: 'task.detail.unknownAgent', defaultMessage: 'Unknown' })
-                      : intl.formatMessage({ id: 'task.unassigned', defaultMessage: 'Unassigned' })}
+              <SelectTrigger className="h-8 w-full min-w-0 max-w-full bg-muted/30 border-transparent hover:bg-row-hover disabled:opacity-100">
+                <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                  <TaskAssigneeAvatar task={detail} agents={agents} />
+                  <span className="min-w-0 truncate text-sm" title={assigneeName}>
+                    {assigneeName}
                   </span>
                 </span>
               </SelectTrigger>
@@ -517,6 +524,7 @@ export function TaskDetailView({
           {/* Resume — the agent has a session here but nothing is running: Operon
               restarted mid-turn, or the agent stopped before the task was done. */}
           {detail.status === 'in_progress' &&
+            detail.specStage == null &&
             detail.bindingId != null &&
             detail.executionStatus === 'idle' &&
             agents.some((a) => a.id === detail.assignedAgentId) && (
@@ -543,7 +551,7 @@ export function TaskDetailView({
 
           {/* Execution session status — the agent running IN the task worktree,
               not a channel session of the same agent. Absent until dispatched. */}
-          {detail.assignedAgentId && detail.executionStatus && (
+          {detail.specStage == null && detail.assignedAgentId && detail.executionStatus && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
               <Bot className="w-3.5 h-3.5" />
               <span>{agents.find((a) => a.id === detail.assignedAgentId)?.name}</span>
@@ -565,6 +573,18 @@ export function TaskDetailView({
                 {detail.executionStatus}
               </span>
             </div>
+          )}
+
+          {detail.specStage != null && !isArchived && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full gap-2 h-8 text-muted-foreground hover:text-foreground hover:bg-row-hover"
+              onClick={() => setSpecHidden(detail.id, !specHidden)}
+            >
+              {specHidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+              {specHidden ? 'Show in sidebar' : 'Hide from sidebar'}
+            </Button>
           )}
 
           {/* Archive — retire the task from the board (or restore it). */}
@@ -664,7 +684,7 @@ function RelationRows({ detail }: { detail: TaskDetail }) {
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">
+      <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70">
         {label}
       </div>
       {children}
@@ -794,7 +814,7 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">
+        <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70">
           <FormattedMessage id="task.detail.subtasks" defaultMessage="Sub-tasks" />
           {children.length > 0 && (
             <span className="ml-1.5 text-muted-foreground/40 tabular-nums">

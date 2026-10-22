@@ -3,6 +3,9 @@ import type { RuntimeUsageLimits } from '@operon/agent-runtime';
 
 const stateMock = vi.hoisted(() => ({
   getSession: vi.fn(),
+  destroySession: vi.fn(async () => undefined),
+  getChatMeta: vi.fn(),
+  isAgentOwnedChat: vi.fn(() => false),
 }));
 
 const runtimeMock = vi.hoisted(() => ({
@@ -20,7 +23,9 @@ const persistenceMock = vi.hoisted(() => ({
 vi.mock('./state.js', () => ({
   getSessionManager: () => ({
     get: stateMock.getSession,
+    destroy: stateMock.destroySession,
   }),
+  getChatStorage: () => ({ getChatMeta: stateMock.getChatMeta }),
   getRuntime: () => ({
     native: () => ({ accountUsage: runtimeMock.getClaudeAccountUsage, peekAccountUsage: () => null }),
   }),
@@ -35,7 +40,7 @@ vi.mock('./persistence.js', () => ({
 }));
 
 vi.mock('../channel/agent-orchestrator.js', () => ({
-  isAgentOwnedChat: () => false,
+  isAgentOwnedChat: stateMock.isAgentOwnedChat,
 }));
 
 const usage: RuntimeUsageLimits = {
@@ -198,5 +203,49 @@ describe('getClaudeUsageLimits', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+
+describe('handleSessionCleanup', () => {
+  beforeEach(() => {
+    stateMock.destroySession.mockClear();
+    stateMock.getChatMeta.mockReset();
+    stateMock.isAgentOwnedChat.mockReset().mockReturnValue(false);
+  });
+
+  it.each([
+    { tp: 'workflow-agent' },
+    { tp: 'chat', metadata: { workflowAgent: { runId: 'spec-1', index: 0 } } },
+    { tp: 'chat', metadata: { externalAgent: true } },
+  ])('leaves an orchestrated agent running when its viewing tab closes: %j', async (meta) => {
+    stateMock.getChatMeta.mockReturnValue(meta);
+    const { handleSessionCleanup } = await loadSessionOps();
+    expect(handleSessionCleanup(7)).toBe(true);
+    expect(stateMock.destroySession).not.toHaveBeenCalled();
+  });
+
+  it('leaves task-owned coordinator and implementer sessions running', async () => {
+    stateMock.isAgentOwnedChat.mockReturnValue(true);
+    const { handleSessionCleanup } = await loadSessionOps();
+    expect(handleSessionCleanup(7)).toBe(true);
+    expect(stateMock.isAgentOwnedChat).toHaveBeenCalledWith(7);
+    expect(stateMock.destroySession).not.toHaveBeenCalled();
+  });
+
+  it('still cleans up an ordinary chat when its last tab closes', async () => {
+    stateMock.getChatMeta.mockReturnValue({ tp: 'chat' });
+    const { handleSessionCleanup } = await loadSessionOps();
+    expect(handleSessionCleanup(7)).toBe(true);
+    expect(stateMock.destroySession).toHaveBeenCalledWith(7);
+  });
+
+  it('still allows an explicit Stop to abort an orchestrated session', async () => {
+    const abort = vi.fn();
+    stateMock.isAgentOwnedChat.mockReturnValue(true);
+    stateMock.getSession.mockReturnValue({ runtime: { abort } });
+    const { abortChat } = await loadSessionOps();
+    abortChat(7);
+    expect(abort).toHaveBeenCalledOnce();
   });
 });

@@ -4,7 +4,8 @@
  *
  * A spec is a parent task plus a `spec_runs` row. The row says where the change
  * stands; everything the agents produced lives as files on the task's change
- * branch under `.operon/changes/task-<N>/`.
+ * branch under `.operon/changes/task-<N>/` until sign-off. Final snapshots stay
+ * in `spec_artifacts`; the execution files are removed before the change lands.
  */
 
 export const SPEC_STAGES = [
@@ -311,8 +312,6 @@ export interface SpecView {
   review: string | null
   /** The same review, structured, for counts and the evidence table. */
   reviewSummary: SpecReviewSummary | null
-  /** The ADRs and glossary terms this change records at gate 2 (drafted when the review ends). */
-  decisions: SpecDecisions | null
   /** True while a design run or a ticket review for this spec is executing in this process. */
   running: boolean
   /** Providers this spec works with — the ones a ticket can be given to at gate 1. */
@@ -367,40 +366,6 @@ export interface SpecIntegration {
   summary?: string
 }
 
-/**
- * What a spec leaves behind for later work: architecture decision records under
- * `docs/adr/` and terms in `GLOSSARY.md`. The lead drafts them when the review
- * ends (`decisions.json` in the spec directory); signing gate 2 writes them into
- * the repository on the change branch, numbered after the ADRs the default
- * branch already has, so they merge in with the change.
- */
-export interface SpecDecisions {
-  adrs: SpecAdr[]
-  glossary: SpecGlossaryTerm[]
-  /** Set once gate 2 wrote them: the repository paths that were written. */
-  recorded: { at: number; files: string[] } | null
-}
-
-/** One architecture decision record. Never edited once written; a changed decision gets a new one that supersedes it. */
-export interface SpecAdr {
-  /** Short kebab-case file name part, e.g. 'reminders-own-table'. */
-  slug: string
-  title: string
-  context: string
-  decision: string
-  /** What follows from it, including the alternatives turned down and why. */
-  consequences: string
-  /** Number of an earlier ADR this one replaces, if any. */
-  supersedes: number | null
-  /** Assigned when written at gate 2. */
-  number: number | null
-}
-
-export interface SpecGlossaryTerm {
-  term: string
-  definition: string
-}
-
 /** What the gate 2 header says about the review at a glance. */
 export interface SpecReviewSummary {
   actOn: number
@@ -447,6 +412,8 @@ export interface SpecTicketTask {
 /** A conversation that belongs to a spec, as its panel links to it. */
 export interface SpecChatRef {
   chatId: number
+  /** Original execution directory; it may have been removed after the run. */
+  cwd?: string | null
   title: string
   providerId: string | null
   /** Where it opens: its own workspace, or the spec's once that one is gone (a landed ticket's). */

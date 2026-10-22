@@ -87,7 +87,6 @@ export default function App() {
   const clearCanvasNavRequest = useEditorStore((state) => state.clearCanvasNavigationRequest)
   const taskNavRequest = useEditorStore((state) => state.taskNavigationRequest)
   const clearTaskNavRequest = useEditorStore((state) => state.clearTaskNavigationRequest)
-  const requestOpenTask = useEditorStore((state) => state.requestOpenTask)
 
   const projects = useProjectStore((state) => state.projects)
   const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
@@ -445,7 +444,6 @@ export default function App() {
               boardActive={mainView === 'board'}
               channelsActive={mainView === 'channels'}
               onLeaveMainView={leaveMainView}
-              onOpenSpec={(taskId, projectId) => requestOpenTask({ projectId, taskId })}
               onOpenChat={openChat}
               onCollapse={handleToggleSidebar}
               collapsed={sidebarCollapsed}

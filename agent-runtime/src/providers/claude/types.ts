@@ -14,7 +14,7 @@ export interface ClaudeRuntimeSettings {
   cwd: string
   permissionMode: PermissionMode
   thinkingLevel: ClaudeThinkingLevel
-  fastMode: boolean
+  fastMode?: boolean
   resume?: string
   /** Set for a side chat: branch off this session instead of starting a new one. */
   forkFrom?: RuntimeForkSource

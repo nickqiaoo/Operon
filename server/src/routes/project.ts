@@ -12,7 +12,7 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
   // the sidebar can show a spec's ticket worktrees under the spec.
   const chatOf = (chatId: number | null | undefined, fallbackWorkspaceId: number | null): WorkspaceChat | null => {
     const ref = chatId != null ? specChatRef(storage, chatId, fallbackWorkspaceId) : null
-    return ref ? { chatId: ref.chatId, workspaceId: ref.workspaceId, title: ref.title } : null
+    return ref ? { chatId: ref.chatId, workspaceId: ref.workspaceId, title: ref.title, providerId: ref.providerId } : null
   }
 
   // What a spec's folder in the sidebar holds besides its live ticket worktrees:
@@ -37,6 +37,8 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     const owners = new Map<number, WorkspaceTask>()
     for (const t of storage.taskList({ projectId, includeArchived: true })) {
       if (t.workspaceId == null) continue
+      const binding = t.bindingId != null ? storage.getBinding(t.bindingId) : null
+      const chat = chatOf(binding?.activeChatId, t.workspaceId)
       owners.set(t.workspaceId, {
         id: t.id,
         number: t.number,
@@ -44,6 +46,8 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
         status: t.status,
         parentTaskId: t.parentTaskId ?? null,
         specStage: t.specStage ?? null,
+        archivedAt: t.archivedAt,
+        providerId: chat?.providerId ?? t.executionAgent?.provider ?? t.assignedAgent?.provider ?? null,
         ...(t.specStage != null ? specExtras(t) : {}),
       })
     }
@@ -65,6 +69,13 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
       projects: projects.map((project) => ({
         ...project,
         workspaces: workspacesOf(project.id),
+        // Keep specs discoverable after completion reclaims their workspaces.
+        specs: storage.taskList({ projectId: project.id, includeArchived: true })
+          .filter((task) => task.specStage != null)
+          .map((task) => ({
+            id: task.id, number: task.number, title: task.title, status: task.status,
+            parentTaskId: task.parentTaskId, specStage: task.specStage, archivedAt: task.archivedAt,
+          })),
       })),
     })
   })

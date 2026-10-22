@@ -20,3 +20,8 @@ export const FileOpenProvider = FileOpenContext.Provider
 export function useFileOpenHandler(): FileOpenHandler {
   return useContext(FileOpenContext)
 }
+
+// undefined preserves ordinary chat behavior; null explicitly disables unresolved citations.
+const CitationRootContext = createContext<string | null | undefined>(undefined)
+export const CitationRootProvider = CitationRootContext.Provider
+export function useCitationRoot() { return useContext(CitationRootContext) }

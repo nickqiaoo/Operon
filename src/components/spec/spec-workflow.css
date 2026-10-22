@@ -1,0 +1,70 @@
+.spec-workflow {
+  --wf-panel: color-mix(in srgb, var(--color-background) 97%, var(--color-foreground));
+  --wf-subtle: color-mix(in srgb, var(--color-background) 94%, var(--color-foreground));
+  --wf-text: var(--color-foreground);
+  --wf-muted: color-mix(in srgb, var(--color-foreground) 75%, var(--color-background));
+  --wf-line: color-mix(in srgb, var(--color-border) 70%, transparent);
+  --wf-accent: var(--color-status-info);
+  --wf-success: var(--color-status-ok);
+  --wf-alert: var(--color-status-warn);
+  min-width: 0;
+  color: var(--wf-text);
+  background: var(--wf-panel);
+  border: 1px solid var(--wf-line);
+  border-radius: 16px;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.spec-workflow button { cursor: pointer; font: inherit; }
+.spec-workflow button:focus-visible { outline: 2px solid var(--wf-accent); outline-offset: 2px; }
+.spec-workflow .wf-summary { display: flex; justify-content: flex-start; align-items: center; gap: 9px; padding: 14px 18px 12px; font-size: 11px; color: var(--wf-muted); }
+.spec-workflow .wf-summary b { margin: 0 7px; font-weight: 400; opacity: .5; }
+.spec-workflow .wf-state { display: inline-flex; flex: none; align-items: center; }
+.spec-workflow .done .wf-state, .spec-workflow .wf-state.done, .spec-workflow .wf-step.done svg { color: var(--wf-success); }
+.spec-workflow .running .wf-state, .spec-workflow .wf-state.running, .spec-workflow .wf-step.running svg { color: var(--wf-accent); }
+.spec-workflow .attention .wf-state, .spec-workflow .wf-state.attention, .spec-workflow .wf-step.attention svg { color: var(--wf-alert); }
+.spec-workflow .wf-open-artifact { display: flex; align-items: center; justify-content: center; margin-left: auto; padding: 4px; border: 0; background: transparent; color: var(--wf-muted); border-radius: 4px; }
+.spec-workflow .wf-open-artifact:hover { color: var(--wf-text); background: var(--wf-subtle); }
+.spec-workflow .wf-stages { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px; padding: 0 18px 16px; }
+.spec-workflow .wf-step-wrap { position: relative; min-width: 0; }
+.spec-workflow .wf-step { display: flex; flex-direction: column; gap: 6px; width: 100%; height: 62px; text-align: left; padding: 10px; border: 1px solid var(--wf-line); border-radius: 8px; background: transparent; color: var(--wf-text); }
+.spec-workflow .wf-step:hover { background: var(--wf-subtle); }
+.spec-workflow .wf-step.selected { background: var(--wf-subtle); border-color: color-mix(in srgb, var(--wf-accent) 50%, var(--wf-line)); }
+.spec-workflow .wf-step.selected.attention { border-color: color-mix(in srgb, var(--wf-alert) 50%, var(--wf-line)); }
+.spec-workflow .wf-step-top { display: flex; justify-content: space-between; align-items: center; gap: 5px; }
+.spec-workflow .wf-step strong { font-size: 12px; font-weight: 500; }
+.spec-workflow .wf-step > span:last-child { font-size: 11px; color: var(--wf-muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spec-workflow .wf-step.pending { opacity: .55; }
+.spec-workflow .wf-step-arrow { position: absolute; right: -15px; top: 40%; color: var(--wf-muted); opacity: .5; }
+.spec-workflow .wf-pending-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--wf-muted); }
+ .spec-workflow .wf-agent-canvas { border-top: 1px solid var(--wf-line); overflow: auto; max-height: 420px; }
+.spec-workflow .wf-graph { position: relative; }
+.spec-workflow .wf-edges { position: absolute; inset: 0; pointer-events: none; }
+.spec-workflow .wf-edge { fill: none; stroke: color-mix(in srgb, var(--wf-muted) 60%, var(--wf-line)); stroke-width: 1.5; }
+.spec-workflow .wf-edge.running { stroke: var(--wf-accent); stroke-dasharray: 5 4; animation: spec-workflow-edge 1s linear infinite; }
+.spec-workflow .wf-agent-position { position: absolute; }
+.spec-workflow .wf-agent-node { display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; padding: 12px; min-width: 0; border: 1px solid var(--wf-line); border-radius: 9px; background: var(--wf-panel); color: var(--wf-text); text-align: left; }
+.spec-workflow .wf-agent-node:hover { background: var(--wf-subtle); }
+.spec-workflow .wf-agent-node.running { border-color: color-mix(in srgb, var(--wf-accent) 50%, var(--wf-line)); box-shadow: 0 0 10px color-mix(in srgb, var(--wf-accent) 6%, transparent); }
+.spec-workflow .wf-agent-node.attention { border-color: color-mix(in srgb, var(--wf-alert) 45%, var(--wf-line)); }
+.spec-workflow .wf-agent-top { display: flex; align-items: center; gap: 10px; }
+.spec-workflow .wf-agent-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 500; }
+.spec-workflow .wf-agent-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--wf-muted); font-variant-numeric: tabular-nums; }
+.spec-workflow .wf-agent-meta > span:first-child { min-width: 0; }
+.spec-workflow .wf-agent-meta > span:last-child { flex-shrink: 0; }
+.spec-workflow .wf-agent-meta .wf-working { color: var(--wf-accent); }
+.spec-workflow .wf-empty { font-size: 11px; color: var(--wf-muted); padding: 24px; }
+.spec-workflow .wf-spin { animation: spec-workflow-spin 2s linear infinite; }
+@keyframes spec-workflow-spin { to { transform: rotate(360deg); } }
+@keyframes spec-workflow-edge { to { stroke-dashoffset: -9; } }
+@media (max-width: 800px) {
+  .spec-workflow .wf-stages { gap: 8px; }
+  .spec-workflow .wf-step { padding: 8px; }
+  .spec-workflow .wf-step-arrow { display: none; }
+}
+@media (max-width: 600px) {
+  .spec-workflow .wf-stages { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spec-workflow * { animation: none !important; }
+}

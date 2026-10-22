@@ -318,7 +318,7 @@ export interface TaskStorageAdapter {
   taskList(query: ListTasksQuery): TaskListItem[]
   taskDetail(id: number): TaskDetail | null
   taskUpdate(id: number, updates: UpdateProjectTaskInput, actor?: TaskActor): Task | null
-  /** Archive (archived=true) or restore (false) a task. Logs a system activity row. */
+  /** Archive a task and its descendants, or restore only this task. Logs each change. */
   taskSetArchived(id: number, archived: boolean, actor?: TaskActor): Task | null
 
   // Activity feed (events + comments)
@@ -347,7 +347,9 @@ export interface TaskStorageAdapter {
 
   taskListChildren(parentTaskId: number): Task[]
 
-  // OperonSpec runs (one per spec parent task; artifacts are change-branch files)
+  // OperonSpec runs and document snapshots (one run per spec parent task)
+  specArtifactsRead(taskId: number): Record<string, string>
+  specArtifactsWrite(taskId: number, files: Record<string, string | null>): void
   specRunGet(taskId: number): SpecRun | null
   specRunCreate(input: CreateSpecRunInput): SpecRun
   specRunUpdate(taskId: number, updates: UpdateSpecRunInput): SpecRun | null

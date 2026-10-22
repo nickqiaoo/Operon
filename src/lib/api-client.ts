@@ -664,7 +664,7 @@ export function taskList(projectId: number | null, filter: TaskListFilter = {}) 
 }
 
 export function taskSetArchived(taskId: number, archived: boolean) {
-  return request<{ task: TaskDetail }>(`/tasks/${taskId}/archive`, {
+  return request<{ task: TaskDetail; tasks?: TaskListItem[] }>(`/tasks/${taskId}/archive`, {
     method: 'POST',
     body: JSON.stringify({ archived }),
   })

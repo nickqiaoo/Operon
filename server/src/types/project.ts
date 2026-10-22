@@ -28,6 +28,9 @@ export interface WorkspaceTask {
   parentTaskId: number | null
   /** Set on a spec. */
   specStage: string | null
+  archivedAt: number | null
+  /** Provider of the task's current conversation, falling back to its assigned agent. */
+  providerId?: string | null
   /** A spec's conversation — the chat it was started from, where the user talks to it. */
   sourceChat?: WorkspaceChat | null
   /** A spec's coordinator session — its working log. */
@@ -41,6 +44,7 @@ export interface WorkspaceTask {
 
 /** A conversation the sidebar opens, in its own workspace (or the spec's, once that is gone). */
 export interface WorkspaceChat {
+  providerId?: string | null
   chatId: number
   workspaceId: number | null
   title: string

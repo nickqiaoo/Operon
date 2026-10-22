@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ProviderLabel } from '@/components/icons/ProviderLabel'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import type { SpecSeat } from '@shared/spec'
@@ -77,7 +78,7 @@ export function SeatPicker({
           )}
           {providerOptions.map((p) => (
             <SelectItem key={p} value={p} className="text-xs">
-              {p}
+              <ProviderLabel id={p} />
             </SelectItem>
           ))}
         </SelectContent>

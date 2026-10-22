@@ -17,6 +17,7 @@ import { resetBinding } from './binding-reset.js'
 import {
   commit,
   getDefaultLocalBranch,
+  getCurrentBranch,
   getStatus,
   mergeBranch,
   worktreeAdd,
@@ -27,9 +28,8 @@ import {
 } from '../git.js'
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
-import { SPEC_FILES, specDir } from '../spec/files.js'
+import { SPEC_FILES, restoreSpecFiles, specDir, withSpecFilesArchived, type SpecLocation } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
-import { recordDecisions } from '../spec/decisions.js'
 import { startIntegration, unreviewedFiles } from '../spec/review-run.js'
 import {
   isReviewedTicket,
@@ -72,17 +72,22 @@ let _storage: Storage | null = null
 
 // ---- Public helpers ----
 
-/** Returns true if the given chatId belongs to an app binding (should not be destroyed by tab close). */
+/** App and task agents are owned by orchestration, not by the tabs viewing them. */
 export function isAgentOwnedChat(chatId: number): boolean {
   if (!_storage) return false
   const binding = _storage.getBindingByActiveChatId(chatId)
-  return binding != null && binding.scopeKind === 'app'
+  return binding != null && (binding.scopeKind === 'app' || binding.scopeKind === 'task')
 }
 
 // ---- Public init ----
 
 export function initOrchestrator(storage: Storage): void {
   _storage = storage
+  // Repair existing Specs too; these agents are hidden from ordinary pickers.
+  for (const binding of storage.listBindings({ scopeKind: 'task' })) {
+    const task = storage.taskGet(Number(binding.scopeKey))
+    if (task?.specStage != null && task.bindingId === binding.id) attachSpecCoordinator(task.id, binding.agentId)
+  }
   registerBindingAdapter(channelAdapter)
   registerBindingAdapter(taskFinishAdapter)
   initBindingFinishDispatch(storage)
@@ -677,8 +682,8 @@ export function attachSpecCoordinator(specId: number, agentId: number): AgentBin
   if (!spec || spec.workspaceId == null || !storage.getWorkspace(spec.workspaceId)) return null
   const binding = ensureTaskBinding(storage, spec.id, spec.number, spec.projectId, agentId, spec.workspaceId)
   if (binding.workspaceId !== spec.workspaceId) storage.updateBinding(binding.id, { workspaceId: spec.workspaceId })
-  if (spec.bindingId !== binding.id) {
-    storage.taskUpdate(spec.id, { bindingId: binding.id }, { type: 'system', name: 'OperonSpec' })
+  if (spec.bindingId !== binding.id || spec.assignedAgentId !== agentId) {
+    storage.taskUpdate(spec.id, { bindingId: binding.id, assignedAgentId: agentId }, { type: 'system', name: 'OperonSpec' })
     broadcastTask(storage, spec.id)
   }
   return storage.getBinding(binding.id) ?? binding
@@ -712,6 +717,7 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
 
   const task = storage.taskGet(taskId)
   if (!task) throw new Error(`Task ${taskId} not found`)
+  if (task.specStage != null) throw new Error('Use the Spec controls to run this task')
   // A blocker builds what this task stands on; starting before it is done means
   // starting from a branch that does not have it yet.
   const blockers = (task.blockedBy ?? [])
@@ -1057,6 +1063,7 @@ export async function completeTaskAfterHumanReview(
     const landed = await landSpecTicket(taskId, actor)
     return landed.ok ? landed : { ok: false, reason: landed.reason }
   }
+  const specWorkspace = task.specStage != null && task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
   if (task.specStage != null) {
     const open = storage.taskListChildren(task.id).filter((c) => c.status !== 'done' && c.status !== 'cancelled')
     if (open.length > 0) {
@@ -1065,6 +1072,12 @@ export async function completeTaskAfterHumanReview(
     const run = storage.specRunGet(task.id)
     if (run?.stage === 'integrating') {
       return { ok: false, reason: 'The coordinator is still resolving the conflict from the last sign-off; sign off once it has been reviewed.', pending: true }
+    }
+    if (!specWorkspace) return { ok: false, reason: `Spec #${task.number} has lost its change worktree` }
+    try {
+      await restoreSpecFiles(storage, { taskId: task.id, taskNumber: task.number, worktreePath: specWorkspace.worktreePath })
+    } catch (error) {
+      return { ok: false, reason: `Could not restore the spec's files: ${error instanceof Error ? error.message : String(error)}` }
     }
     // What lands is what was reviewed: a commit since then would ride in unseen.
     if (run?.stage === 'awaiting_signoff') {
@@ -1079,11 +1092,14 @@ export async function completeTaskAfterHumanReview(
         }
       }
     }
-    // What the change leaves behind rides into the default branch with it.
-    const ws = task.workspaceId != null ? storage.getWorkspace(task.workspaceId) : null
-    if (ws) {
+    // Integrate the latest default branch before archiving the execution files.
+    if (specWorkspace) {
       try {
-        await recordDecisions(storage, task, { taskId: task.id, taskNumber: task.number, worktreePath: ws.worktreePath })
+        const project = storage.getProject(task.projectId)
+        if (project) {
+          const target = (await getDefaultLocalBranch(project.rootPath)) ?? (await getCurrentBranch(project.rootPath))
+          if (target) await mergeBranch(specWorkspace.worktreePath, target, `Merge ${target} into ${task.branchName} before sign-off`)
+        }
       } catch (err) {
         if (err instanceof MergeConflictError) {
           const files = err.files.join(', ') || 'some files'
@@ -1105,12 +1121,22 @@ export async function completeTaskAfterHumanReview(
               `like any ticket — then sign off again.`,
           }
         }
-        return { ok: false, reason: `Could not record the spec's decisions: ${err instanceof Error ? err.message : String(err)}` }
+        return { ok: false, reason: `Could not prepare the spec for sign-off: ${err instanceof Error ? err.message : String(err)}` }
       }
     }
   }
 
-  const merged = await mergeTaskBranchToDefault(taskId, actor)
+  let merged: CompletionResult
+  if (specWorkspace) {
+    const loc: SpecLocation = { taskId: task.id, taskNumber: task.number, worktreePath: specWorkspace.worktreePath }
+    try {
+      merged = await withSpecFilesArchived(storage, loc, () => mergeTaskBranchToDefault(taskId, actor))
+    } catch (error) {
+      return { ok: false, reason: `Could not archive the spec's files: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  } else {
+    merged = await mergeTaskBranchToDefault(taskId, actor)
+  }
   if (!merged.ok) return merged
   // Gate 2 signed: the spec's change is in the default branch.
   if (task.specStage != null) storage.specRunUpdate(taskId, { stage: 'done', error: null })

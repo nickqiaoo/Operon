@@ -61,8 +61,10 @@ interface ChatInputAreaProps {
   /** Toggle goal mode on/off (does not send). */
   onToggleGoal?: () => void;
   slashCommands: SlashCommandItem[];
-  /** When true, model/mode buttons remain clickable during generation (CC dynamic switch) */
+  /** Provider supports live model/mode updates. */
   supportsDynamicSwitch?: boolean;
+  /** Allow changing turn settings while a reply is running. */
+  canEditTurnSettings?: boolean;
   canSteer?: boolean;
   steerPending?: boolean;
   onSteer?: (text: string) => Promise<void> | void;
@@ -124,6 +126,7 @@ export function ChatInputArea({
   slashCommands,
   modeButtonClass,
   supportsDynamicSwitch,
+  canEditTurnSettings = false,
   canSteer = false,
   steerPending = false,
   onSteer,
@@ -168,6 +171,20 @@ export function ChatInputArea({
     onPendingSkillConsumed?.();
   }, [pendingSkill, addSkill, onPendingSkillConsumed]);
 
+  const handleSteer = useCallback(async () => {
+    if (!onSteer) return;
+    const text = input.trim();
+    if (!text) return;
+
+    const prefixedText = selectedSkills.length > 0
+      ? `${selectedSkills.map((s) => `[skill:${s.name}]`).join(' ')} ${text}`.trim()
+      : text;
+
+    setMobileActionExpanded(false);
+    await onSteer(prefixedText);
+    clearSkills();
+  }, [clearSkills, input, onSteer, selectedSkills]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Skip all custom key handling during IME composition (e.g. Chinese input)
     if (e.nativeEvent.isComposing) return;
@@ -205,7 +222,13 @@ export function ChatInputArea({
       }
     }
     handleMentionKeyDown(e);
-  }, [slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill]);
+    if (e.defaultPrevented || e.key !== 'Enter' || e.shiftKey || !isGenerating) return;
+
+    // While a turn is active, Enter follows the Steer button instead of submitting
+    // another turn. Empty drafts and unavailable/pending injection do nothing.
+    e.preventDefault();
+    if (canSteer && !steerPending) void handleSteer();
+  }, [slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCursorPos(e.target.selectionStart ?? e.target.value.length);
@@ -237,20 +260,6 @@ export function ChatInputArea({
       onSubmit(message);
     }
   }, [selectedSkills, onSubmit, clearSkills]);
-
-  const handleSteer = useCallback(async () => {
-    if (!onSteer) return;
-    const text = input.trim();
-    if (!text) return;
-
-    const prefixedText = selectedSkills.length > 0
-      ? `${selectedSkills.map((s) => `[skill:${s.name}]`).join(' ')} ${text}`.trim()
-      : text;
-
-    setMobileActionExpanded(false);
-    await onSteer(prefixedText);
-    clearSkills();
-  }, [clearSkills, input, onSteer, selectedSkills]);
 
   const handleComposerPointerDownCapture = useCallback((event: ReactPointerEvent<HTMLFormElement>) => {
     if (!compactWhenIdle) return;
@@ -521,14 +530,14 @@ export function ChatInputArea({
             model={model}
             setModel={setModel}
             buttonClassName={btnCn}
-            disabled={isGenerating && !supportsDynamicSwitch}
+            disabled={isGenerating && !supportsDynamicSwitch && !canEditTurnSettings}
           />
 
           {selectedModel?.hasThinking && thinkingEffortOptions.length > 0 && (
             <PromptInputButton
               data-testid="chat-thinking-toggle"
               onClick={cycleThinkingEffort}
-              disabled={isGenerating}
+              disabled={isGenerating && !canEditTurnSettings}
               aria-label={`Thinking level: ${thinkingLabel}`}
               className={btnCn}
               title={`Thinking level: ${thinkingLabel}`}
@@ -542,7 +551,7 @@ export function ChatInputArea({
             <PromptInputButton
               data-testid="chat-mode-toggle"
               onClick={cycleMode}
-              disabled={isGenerating && !supportsDynamicSwitch}
+              disabled={isGenerating && !supportsDynamicSwitch && !canEditTurnSettings}
               size="sm"
               className={cn(btnCn, modeButtonClass)}
               title={modeDescription}
@@ -555,7 +564,7 @@ export function ChatInputArea({
             <PromptInputButton
               data-testid="chat-fast-toggle"
               onClick={toggleFastMode}
-              disabled={isGenerating}
+              disabled={isGenerating && !canEditTurnSettings}
               size="sm"
               className={cn(
                 btnCn,

@@ -6,6 +6,7 @@ import {
   NodeTitle,
   NodeContent,
 } from "@/components/ai-elements/node"
+import { ProviderLabel } from "@/components/icons/ProviderLabel"
 import { cn } from "@/lib/utils"
 import type { CanvasAINodeData } from "@/types/canvas-workflow"
 import { NodeStatusBadge } from "../NodeStatusBadge"
@@ -48,7 +49,7 @@ export function AINodeComponent({ data, id, selected }: NodeProps) {
       </NodeHeader>
       <NodeContent>
         <div className="text-xs text-muted-foreground">
-          <span className="font-medium">{nodeData?.providerId || "No provider"}</span>
+          {nodeData?.providerId ? <ProviderLabel id={nodeData.providerId} className="font-medium" /> : <span className="font-medium">No provider</span>}
           {nodeData?.modelId && (
             <span className="text-muted-foreground/60"> / {nodeData.modelId}</span>
           )}

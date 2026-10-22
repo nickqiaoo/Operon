@@ -7,6 +7,8 @@ import { openPreviewFile, previewFilesOf } from "@/lib/workspace-preview-files"
 
 interface OpenWorkspaceFilePreviewOptions {
   line?: number
+  /** Explicit source directory; omitting it keeps the normal workspace behavior. */
+  rootPath?: string
 }
 
 const normalizePath = (path: string): string =>
@@ -16,12 +18,14 @@ const createWorkspaceTabId = (rootPath: string): string =>
   `workspace:${rootPath}:${crypto.randomUUID()}`
 
 const resolveActiveWorkspacePath = (
-  filePath: string
+  filePath: string,
+  sourceRoot?: string
 ): { rootPath: string; absolutePath: string } | null => {
   const activeWorkspace = useProjectStore.getState().getActiveWorkspace()
-  if (activeWorkspace == null || !activeWorkspace.worktreePath) return null
+  const source = sourceRoot ?? activeWorkspace?.worktreePath
+  if (!source) return null
 
-  const rootPath = normalizePath(activeWorkspace.worktreePath)
+  const rootPath = normalizePath(source)
   const absolutePath = normalizePath(
     filePath.startsWith("/") ? filePath : toAbsolutePath(rootPath, filePath)
   )
@@ -37,7 +41,7 @@ export function openWorkspaceFilePreview(
   filePath: string,
   options: OpenWorkspaceFilePreviewOptions = {}
 ): boolean {
-  const resolved = resolveActiveWorkspacePath(filePath)
+  const resolved = resolveActiveWorkspacePath(filePath, options.rootPath)
   if (resolved == null) return false
 
   const { rootPath, absolutePath } = resolved

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { ChevronDown, FolderKanban, Workflow } from 'lucide-react'
+import { ChevronUp, Loader2, Play, ScrollText, Workflow } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -16,6 +17,7 @@ import {
   SpecStopButton,
   specHasGate,
   useSpecView,
+  notifySpecChanged,
 } from './spec-shared'
 
 /** Fired when a spec card shows up in a conversation, so its bar picks the new spec up at once. */
@@ -86,6 +88,7 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
   const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const projectId = useEditorStore((s) => s.currentProjectId)
   const [expanded, setExpanded] = useState(false)
+  const [resuming, setResuming] = useState(false)
   const stage = spec?.run.stage ?? entry.stage
   const done = stage === 'done'
   useEffect(() => {
@@ -94,6 +97,20 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
   if (done) return null
 
   const needsYou = spec != null && specHasGate(spec)
+  const canResume = stage === 'stopped' || stage === 'failed'
+  const showGate = needsYou && (!canResume || spec?.run.proposal != null)
+  const resume = async () => {
+    if (!spec || resuming) return
+    setResuming(true)
+    try {
+      await api.specResume(spec.taskId)
+      notifySpecChanged(spec.taskId)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not resume the spec')
+    } finally {
+      setResuming(false)
+    }
+  }
   const progress = spec && spec.run.build.length > 0 ? `${spec.run.build.filter((b) => b.state === 'merged').length}/${spec.run.build.length}` : null
   const openSpec = () => projectId != null && requestOpenTask({ projectId, taskId: entry.taskId })
 
@@ -104,26 +121,39 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
         needsYou ? 'border-status-warn/40' : 'border-border/50',
       )}
     >
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <FolderKanban className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
+      <div className="flex h-10 flex-nowrap items-center gap-2 px-3 py-1.5">
         <button
           type="button"
           onClick={openSpec}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1 text-left text-xs transition-colors hover:bg-row-hover active:bg-row-selected focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           title={intl.formatMessage({ id: 'spec.bar.open', defaultMessage: 'Open the spec' })}
         >
           <span className="shrink-0 font-mono text-muted-foreground">#{entry.taskNumber}</span>
-          <span className="min-w-0 truncate font-medium text-foreground">{spec?.title ?? entry.title}</span>
+          <span className="min-w-0 flex-1 truncate font-medium text-foreground">{spec?.title ?? entry.title}</span>
+          <ScrollText className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
           <SpecStageBadge stage={stage} running={spec?.running} />
           {progress && <span className="shrink-0 tabular-nums text-muted-foreground">{progress}</span>}
         </button>
         {others > 0 && (
-          <button type="button" onClick={onNext} className="shrink-0 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-row-hover hover:text-foreground">
+          <button type="button" onClick={onNext} className="shrink-0 whitespace-nowrap rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-row-hover hover:text-foreground">
             <FormattedMessage id="spec.bar.others" defaultMessage="+{count} more" values={{ count: others }} />
           </button>
         )}
-        {spec?.running && <SpecStopButton spec={spec} />}
-        <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => openWorkflowPanel()}>
+        {spec && canResume && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 p-0"
+            disabled={resuming}
+            onClick={() => void resume()}
+            aria-label={intl.formatMessage({ id: 'spec.action.resume', defaultMessage: 'Resume' })}
+            title={intl.formatMessage({ id: 'spec.action.resume', defaultMessage: 'Resume' })}
+          >
+            {resuming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+          </Button>
+        )}
+        {spec?.running && <SpecStopButton spec={spec} className="shrink-0" />}
+        <Button size="sm" variant="ghost" className="h-7 shrink-0 gap-1.5 px-2 text-xs" onClick={() => openWorkflowPanel()}>
           <Workflow className="h-3.5 w-3.5" />
           <span className="@max-[480px]:sr-only">
             <FormattedMessage id="spec.card.watch" defaultMessage="Workflow" />
@@ -132,26 +162,26 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0"
+          className="h-7 w-7 shrink-0 p-0"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           aria-label={intl.formatMessage({ id: 'spec.bar.details', defaultMessage: 'Details' })}
         >
-          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
+          <ChevronUp className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
         </Button>
       </div>
       {/* What it waits on is shown without asking: that is what the bar is for. */}
-      {spec && needsYou && (
+      {spec && showGate && (
         <div className="scroll-fade-y max-h-72 space-y-2 overflow-y-auto border-t border-border/40 px-3 py-2">
           <SpecGateSummary spec={spec} />
-          <SpecActions spec={spec} showStop={false} />
+          <SpecActions spec={spec} showStop={false} showSwitch={false} showResume={false} />
         </div>
       )}
       {spec && expanded && (
         <div className="scroll-fade-y max-h-72 space-y-2 overflow-y-auto border-t border-border/40 px-3 py-2">
           {spec.agents.length > 0 && <SpecAgentList spec={spec} />}
           {spec.run.build.length > 0 && <SpecBuildSummary spec={spec} />}
-          {!needsYou && <SpecActions spec={spec} showStop={false} />}
+          {!showGate && <SpecActions spec={spec} showStop={false} showSwitch={false} showResume={false} />}
         </div>
       )}
     </div>

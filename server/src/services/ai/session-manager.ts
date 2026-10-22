@@ -75,13 +75,8 @@ const buildStructuralKey = (params: HostSessionOptions): string =>
   JSON.stringify({
     cwd: params.cwd,
     env: params.env ?? {},
-    // NOTE: serviceTier (fast mode) is NOT here — it moved up to the
-    // reconfigurable fields. It is baked in for Claude, whose warm query reads it
-    // at creation, but not for codex, which re-sends it with every `turn/start`.
-    // Deciding centrally that it forces a rebuild was wrong for codex: it threw
-    // away a live thread, restarted its SDK MCP servers, and released the shared
-    // app-server lease — which can take an ephemeral side-chat fork with it.
-    // `reconfigure` asks the provider instead, and rebuilds only if it says no.
+    // Model, mode, effort and service tier go through `set`, not this key.
+    // Claude applies live SDK controls; Codex includes them in `turn/start`.
     // MCP config is a session capability. In particular, node_repl contains the
     // conversation id in its URL; reusing a session with a different map would
     // silently leave the agent connected to the wrong persistent kernel.
@@ -239,7 +234,7 @@ export class SessionManager {
   /**
    * Fold a successful `set` back into the record's params.
    *
-   * The stored params ARE the reuse fingerprint (`buildParamsKey`). Switching model
+   * The stored params are the reuse fingerprint. Switching model
    * or mode on a live session without updating them leaves the record describing a
    * configuration the session no longer has, so the very next turn compares the new
    * request against a stale key, decides the session is incompatible, and destroys
@@ -248,9 +243,8 @@ export class SessionManager {
   applyDynamicParams(chatId: number, patch: SessionPatch, applied: SessionPatchApplied): void {
     const session = this.sessions.get(chatId)
     if (!session) return
-    // Only fold in what the session confirmed it changed. Recording a field the
-    // runtime rejected (Claude cannot re-effort a live query) would suppress the
-    // rebuild that is the only way to make that setting take.
+    // Only fold in what the session confirmed it changed. Recording a rejected
+    // field would suppress the fallback needed to apply that setting.
     for (const field of applied) {
       const value = patch[field]
       // `serviceTier: undefined` is fast mode being switched off — a real applied

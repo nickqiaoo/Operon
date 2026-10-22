@@ -28,7 +28,7 @@ export function SessionPanelToggle() {
       title={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
       aria-pressed={sessionPanelOpen}
     >
-      <Activity className="h-4 w-4" />
+      <Activity className="h-3.5 w-3.5" />
     </button>
   )
 }

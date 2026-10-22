@@ -1,5 +1,7 @@
+import { taskSubtreeIds } from '@shared/task-tree'
 import { create } from 'zustand'
 import { api } from '@/lib/api'
+import { useProjectStore } from '@/stores/project-store'
 import { trackEvent } from '@/lib/analytics'
 import type {
   CreateTaskInput,
@@ -131,16 +133,41 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const prev = get().tasks
     const prevDetail = get().detail
     const archivedAt = archived ? Date.now() : null
-    // Optimistic — archived tasks drop out of the default view immediately.
+    const affectedIds = archived ? taskSubtreeIds(prev, taskId) : new Set([taskId])
+    // Optimistic — the whole subtree leaves the default view immediately.
     set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, archivedAt } : t)),
-      detail: s.detail && s.detail.id === taskId ? { ...s.detail, archivedAt } : s.detail,
+      tasks: s.tasks.map((t) => affectedIds.has(t.id) && (!archived || t.archivedAt == null) ? { ...t, archivedAt } : t),
+      detail: s.detail && affectedIds.has(s.detail.id) && (!archived || s.detail.archivedAt == null)
+        ? { ...s.detail, archivedAt } : s.detail,
     }))
     try {
-      const { task } = await api.taskSetArchived(taskId, archived)
+      const result = await api.taskSetArchived(taskId, archived)
+      let task = result.task
+      let tasks = result.tasks
+      // A hot-reloaded frontend may still talk to a server without cascading
+      // archive responses. Read its full tree and finish the cascade there too.
+      if (!tasks) {
+        const snapshot = await api.taskList(task.projectId, { includeArchived: true })
+        const subtree = archived ? taskSubtreeIds(snapshot.tasks, taskId) : new Set([taskId])
+        const descendants = snapshot.tasks.filter((row) => subtree.has(row.id) && row.id !== taskId && row.archivedAt == null)
+        if (archived && descendants.length > 0) {
+          await Promise.all(descendants.map((row) => api.taskSetArchived(row.id, true)))
+          const [freshList, freshDetail] = await Promise.all([
+            api.taskList(task.projectId, { includeArchived: true }),
+            api.taskGet(taskId),
+          ])
+          tasks = freshList.tasks.filter((row) => subtree.has(row.id))
+          task = freshDetail.task
+        } else {
+          tasks = snapshot.tasks.filter((row) => subtree.has(row.id))
+        }
+      }
+      const updated = new Map(tasks.map((row) => [row.id, row]))
+      for (const row of tasks) useProjectStore.getState().setWorkspaceTaskArchived(row.id, row.archivedAt)
       set((s) => ({
-        tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
-        detail: s.detail && s.detail.id === taskId ? task : s.detail,
+        tasks: s.tasks.map((t) => updated.get(t.id) ?? t),
+        detail: s.detail?.id === taskId ? task : s.detail && updated.has(s.detail.id)
+          ? { ...s.detail, ...updated.get(s.detail.id) } : s.detail,
       }))
     } catch (e) {
       set({ tasks: prev, detail: prevDetail })
@@ -165,6 +192,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   applyUpsert: (task) => {
+    useProjectStore.getState().setWorkspaceTaskArchived(task.id, task.archivedAt)
     const scope = get().projectId
     if (scope != null && task.projectId !== scope) return
     set((s) => ({ tasks: upsertTask(s.tasks, task) }))

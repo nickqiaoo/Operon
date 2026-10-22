@@ -1,3 +1,4 @@
+import type { WorkspaceTask } from '@/stores/project-store'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import type { CustomProviderInfo } from '@shared/provider-config'
 import * as httpClient from './api-client.js'
@@ -507,12 +508,12 @@ export const api = {
     const query = since != null ? `?since=${since}` : ''
     return `${baseUrl}/ai/workflow/run/${encodeURIComponent(runId)}/feed${query}`
   },
-  aiCCDynamicSet: (payload: { chatId: number; modelId?: string; modeId?: string; thinkingLevel?: string }) =>
+  aiCCDynamicSet: (payload: { chatId: number; modelId?: string; modeId?: string; thinkingLevel?: string; serviceTier?: string }) =>
     softPost<{ success: boolean; error?: string }>('/ai/cc/dynamic-set', payload),
   aiCompact: (payload: { chatId: number; modelId: string; providerId?: string; workspaceId?: number }) =>
     softPost<{ success: boolean; originalMessageCount?: number; newMessageCount?: number; error?: string }>('/ai/compact', payload),
   aiInject: (payload: { chatId: number; content: string; turnMessageId?: string; messageId?: string }) =>
-    softPost<{ success: boolean; error?: string; message?: UIMessage }>('/ai/inject', payload),
+    softPost<{ success: boolean; delivery?: 'accepted' | 'not-sent' | 'unknown'; error?: string; message?: UIMessage }>('/ai/inject', payload),
   aiSessionCleanup: (chatId: number) =>
     post<{ success: boolean }>('/ai/session/cleanup', { chatId }),
   getProviders: () =>
@@ -769,7 +770,7 @@ export const api = {
    * blank for as long as the slowest workspace fetch took.
    */
   projectListWithWorkspaces: () =>
-    get<{ projects: (ProjectDTO & { workspaces: WorkspaceDTO[] })[] }>('/projects?include=workspaces'),
+    get<{ projects: (ProjectDTO & { workspaces: WorkspaceDTO[]; specs?: WorkspaceTask[] })[] }>('/projects?include=workspaces'),
   projectGet: (id: number) =>
     get<{ project: ProjectDTO }>(`/projects/${id}`),
   projectCreate: (input: { name: string; rootPath: string }) =>

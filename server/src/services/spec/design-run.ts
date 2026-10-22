@@ -28,7 +28,7 @@ import { deliverWorkflowResult } from '../workflow/completion.js'
 import { broadcastTask } from '../task-events.js'
 import { SpecAgents } from './agents.js'
 import { candidateKey } from './config.js'
-import { readRecorded } from './decisions.js'
+import { readRecorded } from './repository-context.js'
 import {
   SPEC_FILES,
   candidateFile,
@@ -258,7 +258,7 @@ async function designStage(
       seat: config.lead,
       prompt: explainerPrompt(brief, found),
     })
-    await writeSpecFiles(loc, { [SPEC_FILES.grounding]: grounding }, 'grounding')
+    await writeSpecFiles(input.storage, loc, { [SPEC_FILES.grounding]: grounding }, 'grounding')
   }
 
   setStage('designing')
@@ -281,7 +281,7 @@ async function designStage(
       { label: `rubric · ${leadName}`, phase: 'Design', seat: config.lead, prompt: rubricPrompt(brief, grounding) },
       RUBRIC_SCHEMA,
     )
-    await writeSpecFiles(loc, { [SPEC_FILES.rubric]: JSON.stringify(rubric, null, 2) }, 'rubric')
+    await writeSpecFiles(input.storage, loc, { [SPEC_FILES.rubric]: JSON.stringify(rubric, null, 2) }, 'rubric')
   }
 
   const present = new Set(await listCandidateKeys(loc))
@@ -299,7 +299,7 @@ async function designStage(
           prompt: candidatePrompt(brief, grounding as string, c.direction, recorded),
         })
         // Saved as each one lands, so a failure elsewhere never costs a finished candidate.
-        await writeSpecFiles(loc, { [candidateFile(c.key)]: text }, `candidate ${c.key}`)
+        await writeSpecFiles(input.storage, loc, { [candidateFile(c.key)]: text }, `candidate ${c.key}`)
       }),
     )
     signal.throwIfAborted()
@@ -311,7 +311,7 @@ async function designStage(
       )
     }
     // New candidates make any earlier judgement and synthesis stale.
-    await writeSpecFiles(loc, { [SPEC_FILES.judge]: null, [SPEC_FILES.design]: null }, 'new candidates')
+    await writeSpecFiles(input.storage, loc, { [SPEC_FILES.judge]: null, [SPEC_FILES.design]: null }, 'new candidates')
   }
 
   const candidates = await Promise.all(
@@ -331,7 +331,7 @@ async function designStage(
       seat: config.judge,
       prompt: judgePrompt(brief, rubric.criteria, candidates),
     })
-    await writeSpecFiles(loc, { [SPEC_FILES.judge]: judge }, 'judge')
+    await writeSpecFiles(input.storage, loc, { [SPEC_FILES.judge]: judge }, 'judge')
   }
 
   // Synthesis ---------------------------------------------------------------
@@ -359,6 +359,7 @@ async function designStage(
         })),
       }
       await writeSpecFiles(
+        input.storage,
         loc,
         { [SPEC_FILES.questions]: JSON.stringify(pending, null, 2), [SPEC_FILES.synthesis]: synthesis.synthesis },
         'candidates diverged — questions for the user',
@@ -367,6 +368,7 @@ async function designStage(
     }
     design = synthesis.design
     await writeSpecFiles(
+      input.storage,
       loc,
       {
         [SPEC_FILES.design]: design,
@@ -396,6 +398,7 @@ async function designStage(
     )
     design = revised.design
     await writeSpecFiles(
+      input.storage,
       loc,
       {
         [SPEC_FILES.design]: design,
@@ -414,7 +417,7 @@ async function designStage(
       seat: config.builder,
       prompt: builderCheckPrompt(design),
     })
-    await writeSpecFiles(loc, { [BUILDER_FILE]: builderQuestions }, 'builder check')
+    await writeSpecFiles(input.storage, loc, { [BUILDER_FILE]: builderQuestions }, 'builder check')
     if (!builderFoundNothing(builderQuestions)) {
       const triage = await agents.json<TriageResult>(
         {
@@ -434,7 +437,7 @@ async function designStage(
         pending = { kind: 'builder', questions: triage.questions }
         files[SPEC_FILES.questions] = JSON.stringify(pending, null, 2)
       }
-      await writeSpecFiles(loc, files, 'design checked by a builder')
+      await writeSpecFiles(input.storage, loc, files, 'design checked by a builder')
       if (pending) return askUser(task, pending, setStage)
     }
   }
@@ -442,25 +445,18 @@ async function designStage(
   // ④-6 Tickets -------------------------------------------------------------
   if (!(await readSpecFile(loc, SPEC_FILES.tickets))) {
     phase('Tickets')
-    let problem = ''
-    let tickets: SpecTicket[] | null = null
-    for (let attempt = 1; attempt <= 2 && !tickets; attempt++) {
-      const reply = await agents.json<{ tickets: SpecTicket[] }>(
-        {
-          label: `tickets · ${leadName}`,
-          phase: 'Tickets',
-          seat: config.lead,
-          prompt:
-            ticketsPrompt(design, grounding) +
-            (problem ? `\n\nYour previous breakdown was rejected: ${problem}. Fix it.` : ''),
-        },
-        TICKETS_SCHEMA,
-      )
-      problem = validateTickets(reply.tickets) ?? ''
-      if (!problem) tickets = reply.tickets
-    }
-    if (!tickets) throw new Error(`The ticket breakdown is invalid: ${problem}`)
-    await writeSpecFiles(loc, { [SPEC_FILES.tickets]: JSON.stringify(tickets, null, 2) }, `${tickets.length} tickets`)
+    const { tickets } = await agents.json<{ tickets: SpecTicket[] }>(
+      {
+        label: `tickets · ${leadName}`,
+        phase: 'Tickets',
+        seat: config.lead,
+        prompt: ticketsPrompt(design, grounding),
+      },
+      TICKETS_SCHEMA,
+    )
+    const problem = validateTickets(tickets)
+    if (problem) throw new Error(`The ticket breakdown is invalid: ${problem}`)
+    await writeSpecFiles(input.storage, loc, { [SPEC_FILES.tickets]: JSON.stringify(tickets, null, 2) }, `${tickets.length} tickets`)
   }
 
   setStage('awaiting_design')

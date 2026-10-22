@@ -6,6 +6,8 @@ import { isCodeProgramTool, programToolCallIdOf } from './codeProgram';
 import { isCompactEligible } from './compact-tool/isCompactEligible';
 import { MessagePartRenderer } from './MessagePartRenderer';
 import type { ToolPartLike } from './toolName';
+import { segmentMessageParts } from './compact-tool/segmentParts';
+import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 
 type Part = UIMessage['parts'][number];
 
@@ -25,6 +27,43 @@ describe('Code Mode program parts', () => {
     expect(programToolCallIdOf(nested('a', { toolName: 'Read' }))).toBe('run-1');
     expect(programToolCallIdOf(tool({ toolCallId: 'b', callProviderMetadata: { opencode: { programToolCallId: 'execute-1' } } }))).toBe('execute-1');
     expect(programToolCallIdOf(tool({ toolCallId: 'c', callProviderMetadata: { opencode: { parentToolCallId: 'task-1' } } }))).toBeNull();
+  });
+
+  it('groups programs with reasoning and tools without duplicating their nested calls', () => {
+    const parts = [
+      { type: 'reasoning', text: 'Checking the layout' },
+      tool({ toolCallId: 'run-1', toolName: 'RunCode', state: 'output-available', input: { code: 'return 1' } }),
+      nested('read-1', { toolName: 'Read', state: 'output-available' }),
+      tool({ toolCallId: 'run-2', toolName: 'execute', state: 'output-available', input: { code: 'return 2' } }),
+      tool({ toolCallId: 'shell-1', toolName: 'Bash', state: 'output-available' }),
+      { type: 'text', text: 'Done' },
+    ] as Part[];
+    expect(segmentMessageParts(parts, new Set([2]))).toEqual([
+      { type: 'tool-group', partIndices: [0, 1, 3, 4] },
+      { type: 'single', partIndex: 5 },
+    ]);
+    // The live tail retains the existing standalone rendering behavior.
+    expect(segmentMessageParts(parts.slice(0, 2), new Set(), 1)).toEqual([
+      { type: 'tool-group', partIndices: [0] },
+      { type: 'single', partIndex: 1 },
+    ]);
+  });
+
+  it('folds even a single program, and reveals its dedicated renderer for nested approvals', () => {
+    const program = tool({ toolCallId: 'run-1', toolName: 'RunCode', state: 'output-available', input: { code: 'return 1' } });
+    const renderGroup = (hasPendingApproval: boolean) => renderToStaticMarkup(
+      <ToolCallGroup
+        parts={[program]}
+        partIndices={[3]}
+        messageId="m1"
+        onPermissionDecide={async () => true}
+        hasPendingApproval={hasPendingApproval}
+        renderProgram={(index) => <span>Program details at {index}</span>}
+      />,
+    );
+    expect(renderGroup(false)).toContain('1 Tool call');
+    expect(renderGroup(false)).not.toContain('Program details');
+    expect(renderGroup(true)).toContain('Program details at 3');
   });
 
   it('keeps cards and pending approvals in sight while the program card is folded', () => {

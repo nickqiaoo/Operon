@@ -1,3 +1,4 @@
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useIntl } from 'react-intl';
 import { ArrowRightLeftIcon, CheckIcon, CornerDownRightIcon, LoaderIcon, WrenchIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -181,7 +182,7 @@ export function AgentStreamView({ state }: { state: AgentStreamState }) {
               key={`text-${i}`}
               text={item.text}
               fallback={(text) => (
-                <div className="whitespace-pre-wrap break-words text-xs text-foreground/75">{text}</div>
+                <MarkdownRenderer content={text} className="text-xs text-foreground/75" />
               )}
             />
           );

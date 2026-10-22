@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
 import type { ModelMessage } from 'ai'
 import type { AgentInput, ApprovalResponse, HarnessSession, ImageContent, Message, PermissionMode, QuestionResult, TextContent, ThinkingLevel as EngineThinkingLevel } from 'operon-agents'
 import type {
@@ -7,6 +8,7 @@ import type {
   DetailedContextUsage,
   DetailedContextUsageCategory,
   GoalControl,
+  InjectOptions,
   PermissionDecision,
   RuntimeGoal,
   RuntimeStreamPart,
@@ -232,6 +234,13 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   private readonly harness: HarnessSession
   private currentModelId: string
   private currentModeId: string
+  /** Framework steer id → the caller's id; retained across turns until consumed. */
+  private readonly pendingInjections = new Map<string, { id: string; text: string }>()
+  private readonly takeInjection = (steerId: string): { id: string; text: string } | undefined => {
+    const pending = this.pendingInjections.get(steerId)
+    this.pendingInjections.delete(steerId)
+    return pending
+  }
   /** Approval promises awaiting `resolvePermission(approvalId, …)`. */
   private readonly pendingApprovals = new Map<string, (response: ApprovalResponse) => void>()
   /**
@@ -280,7 +289,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     }
 
     const queue = new PartQueue()
-    const mapper = new OperonStreamMapper()
+    const mapper = new OperonStreamMapper(this.takeInjection)
 
     // This turn is ours: the passive observer (peer-woken turns) must stay out of it.
     markDriven(this.harness.id)
@@ -462,9 +471,21 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     return true
   }
 
-  async inject(content: string): Promise<void> {
+  async inject(content: string, options?: InjectOptions): Promise<void> {
     const trimmed = content.trim()
-    if (trimmed) this.harness.steer(trimmed)
+    if (!trimmed) return
+    if (this.harness.status.state !== 'running') {
+      throw new RuntimeInjectionUnavailableError('No active Operon turn to inject into')
+    }
+    const receipt = this.harness.steer(trimmed)
+    // Register before yielding: consumption can arrive before /inject responds.
+    if (options?.id) this.pendingInjections.set(receipt.steerId, { id: options.id, text: trimmed })
+    try {
+      await receipt.journaled
+    } catch (error) {
+      this.pendingInjections.delete(receipt.steerId)
+      throw error
+    }
   }
 
   /**
@@ -561,6 +582,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   async close(): Promise<void> {
     this.abort()
     await this.harness.close()
+    this.pendingInjections.clear()
   }
 
   private rejectPending(): void {

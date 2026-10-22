@@ -1,3 +1,7 @@
+import { taskSubtreeIds } from '../../../shared/task-tree.js'
+import { SPEC_STAGES } from '../../../shared/spec.js'
+import { withTaskExecution } from '../services/task-execution.js'
+import { subscribeWorkflowEvents } from '../services/workflow/hub.js'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
@@ -62,12 +66,33 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
       })
       const unsub = onTaskEvent(projectId, (event) => {
         if (closed) return
-        stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {})
+        stream.writeSSE({ data: JSON.stringify({ ...event, task: withTaskExecution(storage, event.task) }) }).catch(() => {})
       })
-      while (!closed) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 1000))
+      const unsubWorkflow = subscribeWorkflowEvents(null, (event) => {
+        if (closed || !['agent', 'started', 'settled'].includes(event.event.kind)) return
+        for (const run of storage.specRunList(SPEC_STAGES)) {
+          if (run.workflowRunId !== event.runId) continue
+          const task = storage.taskGet(run.taskId)
+          if (task && (projectId == null || task.projectId === projectId)) {
+            const item = withTaskExecution(storage, { ...task, labels: storage.taskGetLabels(task.id) })
+            stream.writeSSE({ data: JSON.stringify({ type: 'task_upsert', task: item }) }).catch(() => {})
+          }
+        }
+      })
+      try {
+        // A reconnect gets a fresh snapshot so missed stop/start events cannot
+        // leave a stale running animation on screen.
+        for (const task of storage.taskList({ projectId: projectId ?? undefined, includeArchived: true })) {
+          if (closed) break
+          await stream.writeSSE({ data: JSON.stringify({ type: 'task_upsert', task: withTaskExecution(storage, task) }) })
+        }
+        while (!closed) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 1000))
+        }
+      } finally {
+        unsub()
+        unsubWorkflow()
       }
-      unsub()
     })
   })
 
@@ -85,7 +110,7 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     if (priority) query.priority = parseInt(priority, 10) as TaskPriority
     const includeArchived = c.req.query('includeArchived')
     if (includeArchived === '1' || includeArchived === 'true') query.includeArchived = true
-    return c.json({ tasks: storage.taskList(query) })
+    return c.json({ tasks: storage.taskList(query).map((task) => withTaskExecution(storage, task)) })
   })
 
   router.post('/', async (c) => {
@@ -113,7 +138,7 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     const id = parseInt(c.req.param('id'), 10)
     const detail = storage.taskDetail(id)
     if (!detail) return c.json({ error: 'Not found' }, 404)
-    return c.json({ task: detail })
+    return c.json({ task: withTaskExecution(storage, detail) })
   })
 
   router.patch('/:id', async (c) => {
@@ -124,19 +149,23 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     const { actorName, ...updates } = body
     const res = await updateTaskAsHuman(storage, existing, updates, actorName?.trim() || 'You')
     if (!res.ok) return c.json(res.body as Record<string, unknown>, res.status)
-    return c.json({ task: storage.taskDetail(id) })
+    return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)) })
   })
 
   router.post('/:id/archive', async (c) => {
     const id = parseInt(c.req.param('id'), 10)
-    if (!storage.taskGet(id)) return c.json({ error: 'Not found' }, 404)
+    const existing = storage.taskGet(id)
+    if (!existing) return c.json({ error: 'Not found' }, 404)
     const body = await c.req
       .json<{ archived?: boolean; actorName?: string }>()
       .catch(() => ({}) as { archived?: boolean; actorName?: string })
     const archived = body.archived !== false // default to archiving
     storage.taskSetArchived(id, archived, { type: 'human', name: body.actorName?.trim() || 'You' })
-    broadcastTask(storage, id)
-    return c.json({ task: storage.taskDetail(id) })
+    const projectTasks = storage.taskList({ projectId: existing.projectId, includeArchived: true })
+    const affectedIds = archived ? taskSubtreeIds(projectTasks, id) : new Set([id])
+    const tasks = projectTasks.filter((task) => affectedIds.has(task.id))
+    for (const task of tasks) broadcastTask(storage, task.id)
+    return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)), tasks })
   })
 
   router.post('/:id/dispatch', async (c) => {
@@ -156,7 +185,7 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
       if (e instanceof TaskBlockedError || e instanceof SpecDesignChangedError) return c.json({ error: e.message }, 409)
       return c.json({ error: e instanceof Error ? e.message : 'dispatch failed' }, 500)
     }
-    return c.json({ task: storage.taskDetail(id) })
+    return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)) })
   })
 
   // Pick a dispatched task back up in its own session (after a restart killed
@@ -166,7 +195,7 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     if (!storage.taskGet(id)) return c.json({ error: 'Not found' }, 404)
     try {
       const woke = await resumeProjectTask(id)
-      return c.json({ woke, task: storage.taskDetail(id) })
+      return c.json({ woke, task: withTaskExecution(storage, storage.taskDetail(id)) })
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : 'resume failed' }, 409)
     }
