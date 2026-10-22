@@ -28,7 +28,7 @@ export function useSlashCommand({ input, setInput, cursorPos, slashCommands }: U
 
   const rawSlashMatch = useMemo(() => {
     const textBeforeCursor = input.slice(0, cursorPos);
-    const match = textBeforeCursor.match(/(^|\s)\/([\w-]*)$/);
+    const match = textBeforeCursor.match(/(^|\s)\/([\w:/-]*)$/);
     if (!match) return null;
     const triggerIndex = match.index! + match[1].length;
     const query = match[2];

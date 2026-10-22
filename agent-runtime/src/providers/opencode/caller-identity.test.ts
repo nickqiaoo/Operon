@@ -19,21 +19,26 @@ async function loadPlugin(parents: Record<string, string | undefined>, failing =
   const file = path.join(dir, 'plugin.mjs')
   writeFileSync(file, OPENCODE_CALLER_PLUGIN_SOURCE)
   const mod = (await import(pathToFileURL(file).href)) as Record<string, unknown>
-  // OpenCode's legacy loader calls every export, so there must be exactly one function.
-  expect(Object.keys(mod)).toEqual(['OperonCallerIdentity'])
-  const server = mod.OperonCallerIdentity as (input: unknown) => Promise<Record<string, BeforeHook>>
+  expect(Object.keys(mod)).toEqual(['default'])
+  const plugin = mod.default as { id: string; setup: (ctx: unknown) => Promise<void> }
+  expect(plugin.id).toBe('operon.caller-identity')
   const lookups: string[] = []
-  const client = {
+  type HookEvent = { tool: string; sessionID: string; id: string; input: Record<string, unknown> }
+  const hooks = new Map<string, (event: HookEvent) => Promise<void>>()
+  await plugin.setup({
     session: {
-      get: async ({ path: { id } }: { path: { id: string } }) => {
-        lookups.push(id)
-        if (failing.has(id)) throw new Error('unavailable')
-        return { data: { id, parentID: parents[id] } }
+      get: async ({ sessionID }: { sessionID: string }) => {
+        lookups.push(sessionID)
+        if (failing.has(sessionID)) throw new Error('unavailable')
+        return { id: sessionID, parentID: parents[sessionID] }
       },
     },
-  }
-  const hooks = await server({ client })
-  return { before: hooks['tool.execute.before'], lookups }
+    tool: { hook: async (name: string, callback: (event: HookEvent) => Promise<void>) => { hooks.set(name, callback) } },
+  })
+  const before: BeforeHook = (input, output) => hooks.get('execute.before')!({
+    tool: input.tool, sessionID: input.sessionID, id: input.callID, input: output.args,
+  })
+  return { before, lookups }
 }
 
 describe('OpenCode caller identity plugin', () => {
@@ -88,9 +93,9 @@ describe('OpenCode caller identity plugin', () => {
     await before({ tool: 'execute', sessionID: 'ses_child', callID: 'execute-1' }, execute)
     expect(execute.args).not.toHaveProperty(OPENCODE_CALLER_ARG)
 
-    // Code Mode invokes the hook again with the original MCP key and a nested call id.
+    // V2 invokes the hook again with the MCP key and the outer execute id.
     const nested = { args: { code: '1 + 1' } as Record<string, unknown> }
-    await before({ tool: 'node_repl_js', sessionID: 'ses_child', callID: 'execute-1/1' }, nested)
+    await before({ tool: 'node_repl_js', sessionID: 'ses_child', callID: 'execute-1' }, nested)
     expect(nested.args[OPENCODE_CALLER_ARG]).toBe('ses_root')
   })
 })

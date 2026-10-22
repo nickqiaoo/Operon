@@ -1,6 +1,6 @@
 {
   "name": "operon",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "author": "nickqiao",
   "description": "AI Vibe Coding Tool",
   "main": "dist-electron/main.js",
@@ -80,7 +80,7 @@
     "@noble/ciphers": "^1.0.0",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
-    "@opencode-ai/sdk": "^1.19.2",
+    "@opencode/client": "^2.1.2",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/resources": "^2.11.0",

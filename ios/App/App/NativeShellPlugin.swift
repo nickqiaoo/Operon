@@ -370,20 +370,26 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Project → workspace picker as a system sheet. Resolves when the sheet
-    /// is up; the pick arrives as `contextPicked { projectId, workspaceId? }`
+    /// is up; the pick arrives as `contextPicked { projectId, workspaceId?, specId? }`
     /// and every dismissal (pick or swipe) as `contextSheetDismissed`.
     @objc func presentContextSheet(_ call: CAPPluginCall) {
         let title = call.getString("title") ?? "Switch project"
         let emptyText = call.getString("emptyText") ?? "No projects yet."
         let activeProjectId = call.getInt("activeProjectId")
         let activeWorkspaceId = call.getInt("activeWorkspaceId")
+        let activeSpecId = call.getInt("activeSpecId")
         let projects: [ContextSheetProject] = (call.getArray("projects", JSObject.self) ?? []).compactMap { raw in
             guard let id = raw["id"] as? Int, let name = raw["name"] as? String else { return nil }
             let workspaces: [ContextSheetProject.Workspace] = ((raw["workspaces"] as? JSArray) ?? []).compactMap { entry in
                 guard let ws = entry as? JSObject, let wid = ws["id"] as? Int, let wname = ws["name"] as? String else { return nil }
                 return .init(id: wid, name: wname)
             }
-            return ContextSheetProject(id: id, name: name, workspaces: workspaces)
+            let specs: [ContextSheetProject.Spec] = ((raw["specs"] as? JSArray) ?? []).compactMap { entry in
+                guard let spec = entry as? JSObject,
+                      let sid = spec["id"] as? Int, let name = spec["name"] as? String else { return nil }
+                return .init(id: sid, name: name)
+            }
+            return ContextSheetProject(id: id, name: name, workspaces: workspaces, specs: specs)
         }
         DispatchQueue.main.async { [weak self] in
             guard let presenter = self?.bridge?.viewController?.parent else {
@@ -397,9 +403,11 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
                 projects: projects,
                 activeProjectId: activeProjectId,
                 activeWorkspaceId: activeWorkspaceId,
-                onPick: { projectId, workspaceId in
+                activeSpecId: activeSpecId,
+                onPick: { projectId, workspaceId, specId in
                     var data: [String: Any] = ["projectId": projectId]
                     if let workspaceId { data["workspaceId"] = workspaceId }
+                    if let specId { data["specId"] = specId }
                     self?.notifyListeners("contextPicked", data: data)
                 },
                 onDismiss: {

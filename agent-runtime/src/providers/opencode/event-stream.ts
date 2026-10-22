@@ -398,7 +398,7 @@ export function mapOpencodeFinishReason(message: Message | undefined): { unified
   if (message.error?.name === 'MessageAbortedError') return { unified: 'stop', raw: message.error.name }
   if (message.error?.name === 'MessageOutputLengthError') return { unified: 'length', raw: message.error.name }
   if (message.error) return { unified: 'error', raw: message.error.name }
-  const finish = message.finish?.toLowerCase()
+  const finish = message.finish?.toLowerCase().replaceAll('-', '_')
   if (!finish) return { unified: 'stop', raw: undefined }
   if (finish === 'end_turn' || finish === 'stop' || finish === 'end') return { unified: 'stop', raw: message.finish }
   if (finish === 'max_tokens' || finish === 'length') return { unified: 'length', raw: message.finish }
@@ -459,7 +459,7 @@ function buildStepProviderMetadata(
 }
 
 function mapStepFinishReason(reason: string | undefined): { unified: FinishReason; raw: string | undefined } {
-  const normalized = reason?.toLowerCase()
+  const normalized = reason?.toLowerCase().replaceAll('-', '_')
   if (!normalized) return { unified: 'stop', raw: reason }
   if (normalized === 'end_turn' || normalized === 'stop' || normalized === 'end') return { unified: 'stop', raw: reason }
   if (normalized === 'max_tokens' || normalized === 'length') return { unified: 'length', raw: reason }
@@ -626,7 +626,7 @@ export function tryRegisterChildFromSessionEvent(
     if (
       !toolState.resultEmitted &&
       !assignedParents.has(callId) &&
-      (toolState.toolName === 'task' || toolState.toolName === 'Subtask')
+      (toolState.toolName === 'task' || toolState.toolName === 'Subtask' || toolState.toolName === 'subagent')
     ) {
       latestCallId = callId
     }
@@ -800,7 +800,7 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
       }
       if (part.state.metadata?.sessionId) {
         state.childSessions.set(part.state.metadata.sessionId, part.callID)
-      } else if ((part.tool === 'task' || part.tool === 'Subtask') && !state.pendingTaskCallIds.includes(part.callID)) {
+      } else if ((part.tool === 'task' || part.tool === 'Subtask' || part.tool === 'subagent') && !state.pendingTaskCallIds.includes(part.callID)) {
         state.pendingTaskCallIds.push(part.callID)
       }
       if (part.tool === OPENCODE_CODE_MODE_TOOL) parts.push(...handleCodeModeProgress(part, part.state.metadata, streamState, state))

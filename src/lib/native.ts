@@ -34,6 +34,16 @@ export const NATIVE_URL_SCHEME = 'operon'
 /** Where the broker sends the browser back to after a native sign-in. */
 export const NATIVE_REDIRECT_URI = `${NATIVE_URL_SCHEME}://auth/callback`
 
+export interface NativeContextProject {
+  id: number
+  name: string
+  workspaces: { id: number; name: string }[]
+  specs?: {
+    id: number
+    name: string
+  }[]
+}
+
 // ---- keychain ----
 
 /**
@@ -186,13 +196,14 @@ export interface NativeShellPlugin {
   presentContextSheet(options: {
     title: string
     emptyText: string
-    projects: { id: number; name: string; workspaces: { id: number; name: string }[] }[]
+    projects: NativeContextProject[]
     activeProjectId?: number
     activeWorkspaceId?: number
+    activeSpecId?: number
   }): Promise<void>
   addListener(
     eventName: 'contextPicked',
-    listener: (event: { projectId: number; workspaceId?: number }) => void,
+    listener: (event: { projectId: number; workspaceId?: number; specId?: number; chatId?: number; title?: string }) => void,
   ): Promise<PluginListenerHandle>
   addListener(eventName: 'contextSheetDismissed', listener: () => void): Promise<PluginListenerHandle>
   /**

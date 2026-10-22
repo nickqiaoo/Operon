@@ -1,40 +1,32 @@
-import { Check, Layers } from "lucide-react"
+import { ScrollText, Check, Layers } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { useProjectStore } from "@/stores/project-store"
 import { MobileSheet } from "./MobileSheet"
+import { contextProjectGroups } from "./context-projects"
 
 interface MobileContextSwitcherProps {
+  selectedSpecId: number | null
+  onSelectSpec: (projectId: number, specId: number) => void
+  onSelectWorkspace: (projectId: number, workspaceId: number | null) => void
   open: boolean
   onClose: () => void
 }
 
 /**
- * Project → workspace picker. Reuses {@link useProjectStore} (the same data the
- * desktop left sidebar renders) and writes the active context back into it, so
- * every mobile screen scoped by `activeProjectId` / `activeWorkspaceId` follows
- * along. Selecting a workspace also activates its project; selecting a project
- * row activates the project and its first workspace.
+ * Selects a project, workspace or Spec context. Conversation rows belong on
+ * the Chats page, so opening this picker never loads Spec sessions.
  */
-export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherProps) {
+export function MobileContextSwitcher({ open, onClose, selectedSpecId, onSelectSpec, onSelectWorkspace }: MobileContextSwitcherProps) {
+  const hiddenSpecIds = useProjectStore((s) => s.hiddenSpecIds)
+  const shownSpecIds = useProjectStore((s) => s.shownSpecIds)
   const intl = useIntl()
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
-  const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
-  const setActiveProject = useProjectStore((s) => s.setActiveProject)
 
-  const pickWorkspace = (workspaceId: number, projectId: number) => {
-    setActiveWorkspace(workspaceId, projectId)
-    onClose()
-  }
-
-  const pickProject = (projectId: number, firstWorkspaceId: number | null) => {
-    if (firstWorkspaceId != null) {
-      setActiveWorkspace(firstWorkspaceId, projectId)
-    } else {
-      setActiveProject(projectId)
-    }
+  const pickWorkspace = (workspaceId: number | null, projectId: number) => {
+    onSelectWorkspace(projectId, workspaceId)
     onClose()
   }
 
@@ -52,11 +44,12 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
         <div className="space-y-3">
           {projects.map((project) => {
             const projectActive = project.id === activeProjectId
+            const groups = contextProjectGroups(project, hiddenSpecIds, shownSpecIds)
             return (
               <div key={project.id} className="space-y-0.5">
                 <button
                   type="button"
-                  onClick={() => pickProject(project.id, project.workspaces[0]?.id ?? null)}
+                  onClick={() => pickWorkspace(groups.workspaces[0]?.id ?? null, project.id)}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-row-hover"
                 >
                   <Layers className="size-4 shrink-0 text-muted-foreground/70" />
@@ -69,10 +62,10 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                     {project.name}
                   </span>
                 </button>
-                {project.workspaces.length > 0 && (
+                {(groups.workspaces.length > 0 || groups.specs.length > 0) && (
                   <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
-                    {project.workspaces.map((workspace) => {
-                      const isActive = workspace.id === activeWorkspaceId
+                    {groups.workspaces.map((workspace) => {
+                      const isActive = selectedSpecId == null && workspace.id === activeWorkspaceId
                       return (
                         <button
                           key={workspace.id}
@@ -95,6 +88,19 @@ export function MobileContextSwitcher({ open, onClose }: MobileContextSwitcherPr
                         </button>
                       )
                     })}
+                    {groups.specs.map((spec) => (
+                      <button
+                        key={`spec:${spec.id}`}
+                        type="button"
+                        aria-pressed={selectedSpecId === spec.id}
+                        onClick={() => { onSelectSpec(project.id, spec.id); onClose() }}
+                        className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-row-hover", selectedSpecId === spec.id && "bg-muted/40")}
+                      >
+                        <ScrollText className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate text-base">{spec.title}</span>
+                        {selectedSpecId === spec.id && <Check className="size-4 shrink-0 text-foreground/70" />}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>

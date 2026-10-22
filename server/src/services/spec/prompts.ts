@@ -36,19 +36,13 @@ function decisionsSince(answers: string | null): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Standing hint for a direct workspace chat. Kept short: it carries only the
- * sizing rule and when to start; the full alignment discipline lives in the
+ * Standing hint for a direct workspace chat. Spec is opt-in; the alignment workflow lives in the
  * `operon-spec` skill, and the brief format in the `start_spec` tool itself.
  */
 export const SPEC_CHAT_HINT = `## Project Taskboard and OperonSpec
 Project tasks are durable, shared Taskboard records. Built-in task or todo tools belong only to the agent runtime's private execution plan; never use them to create, read, update, or track project tasks.
 
-Size every request before you act, and say the size in one plain line (the user can override it):
-- **quick** — everything that matters is in the request: just do it.
-- **small** — one or two places, obvious approach: agree it in chat, then do it.
-- **project** — crosses modules, moves ownership, or has more than one reasonable shape: run it as an OperonSpec. Load the \`operon-spec\` skill and follow it: align with the user first, then call \`start_spec\`. Several agents from different families then design it in parallel and the user signs the design once.
-
-If the user says "just do it", skip the spec. If they invoke /operon-spec, run it as a spec whatever the size.`
+Use the \`operon-spec\` skill only when the user invokes /operon-spec or explicitly asks to use OperonSpec. Otherwise, handle the request normally without size labels or a Spec workflow.`
 
 /** The `start_spec` tool's description — also where the brief format is defined. */
 export const START_SPEC_DESCRIPTION = [

@@ -122,15 +122,16 @@ export interface InitialModelOptions {
 }
 
 /**
- * Merge items that share a colon-delimited prefix into a single entry.
+ * Merge skills that share a colon-delimited prefix into a single entry.
  * e.g. "build-ios-apps:ios-debugger-agent" and "build-ios-apps:swiftui-liquid-glass"
  * become one entry named "build-ios-apps".
  */
-function dedupeByPrefix<T extends { name: string }>(items: T[]): T[] {
+export function dedupeByPrefix<T extends { name: string; type?: 'skill' | 'command' }>(items: T[]): T[] {
   const seen = new Set<string>();
   const result: T[] = [];
   for (const item of items) {
-    const colonIdx = item.name.indexOf(':');
+    // Command namespaces (e.g. MCP prompts) are part of their executable name.
+    const colonIdx = item.type === 'command' ? -1 : item.name.indexOf(':');
     const key = colonIdx !== -1 ? item.name.slice(0, colonIdx) : item.name;
     if (seen.has(key)) continue;
     seen.add(key);

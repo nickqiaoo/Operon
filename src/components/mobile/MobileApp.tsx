@@ -1,3 +1,4 @@
+import { contextProjectGroups } from './context-projects'
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
@@ -69,6 +70,7 @@ export function MobileApp() {
     }
   }, [tab])
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [selectedSpec, setSelectedSpec] = useState<{ id: number; projectId: number } | null>(null)
   // The Board tab spans every project; its header menu narrows it to one
   // instead of switching the workspace. Same filter as the desktop board.
   const [boardFilter, setBoardFilter] = useProjectFilter("operon.boardProjectFilter")
@@ -83,6 +85,7 @@ export function MobileApp() {
   const [deepLink, setDeepLink] = useState<{ chatId?: number; taskId?: number; title?: string; subAgent?: boolean } | null>(null)
 
   const projects = useProjectStore((s) => s.projects)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
   const loadProjects = useProjectStore((s) => s.loadProjects)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
@@ -124,30 +127,47 @@ export function MobileApp() {
     }
   }, [nativeTabBar, intl])
 
-  // The picker is a system sheet in the packaged apps (ContextSheet.swift /
-  // ContextSheet.kt); the web MobileContextSwitcher stays for the browser
-  // and as the fallback. Data is read at
-  // tap time, not mirrored continuously — a sheet lives for a few seconds.
+  const selectWorkspace = useCallback((projectId: number, workspaceId: number | null) => {
+    setSelectedSpec(null)
+    setActiveWorkspace(workspaceId, projectId)
+  }, [setActiveWorkspace])
+
+  const selectSpec = useCallback((projectId: number, specId: number) => {
+    const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+    const workspace = project?.workspaces.find((w) => w.task?.id === specId)
+    setActiveWorkspace(workspace?.id ?? null, projectId)
+    setSelectedSpec({ id: specId, projectId })
+    setDeepLink(null)
+    setTab("chats")
+  }, [setActiveWorkspace])
+
+  // The picker only selects context; sessions load on the Chats page.
   const openNativeContextSheet = useCallback(async () => {
     const store = useProjectStore.getState()
     try {
       await NativeShell.presentContextSheet({
         title: intl.formatMessage({ id: "mobile.context.title", defaultMessage: "Switch project" }),
         emptyText: intl.formatMessage({ id: "mobile.context.empty", defaultMessage: "No projects yet." }),
-        projects: store.projects.map((p) => ({
-          id: p.id,
-          name: p.name,
-          workspaces: p.workspaces.map((w) => ({ id: w.id, name: w.name })),
-        })),
-        activeProjectId: store.activeProjectId ?? undefined,
-        activeWorkspaceId: store.activeWorkspaceId ?? undefined,
+        projects: store.projects.map((project) => {
+          if (nativePlatform() !== 'ios') return {
+            id: project.id, name: project.name,
+            workspaces: project.workspaces.map(({ id, name }) => ({ id, name })),
+          }
+          const groups = contextProjectGroups(project, store.hiddenSpecIds, store.shownSpecIds)
+          return {
+            id: project.id, name: project.name,
+            workspaces: groups.workspaces.map(({ id, name }) => ({ id, name })),
+            specs: groups.specs.map((task) => ({ id: task.id, name: task.title })),
+          }
+        }),
+        activeProjectId: selectedSpec?.projectId ?? store.activeProjectId ?? undefined,
+        activeWorkspaceId: selectedSpec ? undefined : store.activeWorkspaceId ?? undefined,
+        activeSpecId: selectedSpec?.id,
       })
     } catch {
-      // Older shell without the sheet: fall back to the web one.
       setSwitcherOpen(true)
     }
-  }, [intl])
-
+  }, [intl, selectedSpec])
 
 
   // JS-initiated switches (deep links, Android back, notification taps) show
@@ -196,6 +216,7 @@ export function MobileApp() {
   // same routing serves two arrivals: an in-app inbox tap (a real Notification)
   // and a tapped APNs push (only the ids survive the payload round-trip).
   const handleOpenNotification = useCallback((n: NotificationTarget) => {
+    setSelectedSpec(null)
     if (n.kind === "assistant_message" || n.kind === "assistant_approval") {
       setTab("assistant")
     } else if (n.taskId != null) {
@@ -211,6 +232,19 @@ export function MobileApp() {
       setDeepLink({ chatId: n.chatId, title: n.title, subAgent: n.subAgent })
     }
   }, [projects, setActiveProject, setActiveWorkspace])
+
+  const openContextChat = useCallback((target: { chatId: number; workspaceId?: number; title?: string; subAgent?: boolean }) => {
+    const store = useProjectStore.getState()
+    const project = target.workspaceId != null
+      ? store.projects.find((p) => p.workspaces.some((w) => w.id === target.workspaceId))
+      : store.projects.find((p) => p.id === selectedSpec?.projectId)
+    const workspaceId = target.workspaceId ?? null
+    store.setActiveWorkspace(workspaceId, project?.id)
+    // Open in the destination bucket before the screen consumes the deep link.
+    setWorkspace(workspaceId, project?.id ?? null)
+    setTab("chats")
+    setDeepLink({ chatId: target.chatId, title: target.title, subAgent: target.subAgent })
+  }, [setWorkspace, selectedSpec?.projectId])
 
   const openNativeInbox = useNativeInboxSheet(handleOpenNotification)
 
@@ -242,16 +276,18 @@ export function MobileApp() {
       }),
       // Same rules as MobileContextSwitcher: a workspace activates its project
       // too; a project with no workspaces is activated on its own.
-      NativeShell.addListener("contextPicked", ({ projectId, workspaceId }) => {
-        const store = useProjectStore.getState()
-        if (workspaceId != null) store.setActiveWorkspace(workspaceId, projectId)
-        else store.setActiveProject(projectId)
+      NativeShell.addListener("contextPicked", ({ projectId, workspaceId, specId, chatId, title }) => {
+        if (specId != null) {
+          selectSpec(projectId, specId)
+        } else if (chatId != null) {
+          openContextChat({ chatId, workspaceId, title })
+        } else selectWorkspace(projectId, workspaceId ?? null)
       }),
     ]
     return () => {
       for (const handle of handles) void handle.then((h) => h.remove()).catch(() => {})
     }
-  }, [nativeTabBar, openNativeContextSheet, openNativeInbox])
+  }, [nativeTabBar, openNativeContextSheet, openNativeInbox, openContextChat, selectSpec, selectWorkspace])
 
   // Tapping a push lands on exactly the same surface as tapping its inbox row.
   useNativePushNotifications(handleOpenNotification)
@@ -534,8 +570,13 @@ export function MobileApp() {
     setHeaderKey(null)
   }, [])
   const inboxUnread = useInboxStore((s) => s.counts.total > 0)
-  const topBarTitle = activeInfo?.project.name ?? "operon"
-  const topBarSubtitle = activeInfo?.workspace.name
+  const specProject = selectedSpec ? projects.find((p) => p.id === selectedSpec.projectId) : undefined
+  const specTitle = selectedSpec
+    ? specProject?.specs?.find((s) => s.id === selectedSpec.id)?.title
+      ?? specProject?.workspaces.find((w) => w.task?.id === selectedSpec.id)?.task?.title
+    : undefined
+  const topBarTitle = specProject?.name ?? activeInfo?.project.name ?? "operon"
+  const topBarSubtitle = specTitle ?? activeInfo?.workspace.name
   useEffect(() => {
     if (!nativeTabBar) return
     if (tab === "assistant") {
@@ -558,14 +599,16 @@ export function MobileApp() {
     }
     const spec = nativeHeader && !immersive && headerKey != null ? headerRef.current?.spec ?? null : null
     let header: NativeTopBarHeader | undefined
-    if (spec) {
+    // A list keeps its context/inbox controls while the page header registers
+    // after a context switch. Only immersive pages hide the native header.
+    if (nativeHeader && !immersive) {
       header = {
-        leading: spec.segments
+        leading: spec?.segments
           ? { kind: "segments", items: spec.segments.items.map((i) => ({ id: i.id, title: i.label })), selected: spec.segments.selected }
           : { kind: "context", title: topBarTitle, subtitle: topBarSubtitle },
         // A system pull-down, picked in place.
-        menu: spec.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: toNativeMenu(spec.menu.nodes) },
-        actions: spec.actions?.map((a) => ({ id: a.id, symbol: a.symbol, label: a.label })) ?? [],
+        menu: spec?.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: toNativeMenu(spec.menu.nodes) },
+        actions: spec?.actions?.map((a) => ({ id: a.id, symbol: a.symbol, label: a.label })) ?? [],
       }
     }
     void NativeShell.setTopBar({
@@ -604,8 +647,8 @@ export function MobileApp() {
   }, [openNativeInbox])
   const headerShell: MobileHeaderShell = {
     topInset: headerInset,
-    projectName: activeInfo?.project.name ?? null,
-    workspaceName: activeInfo?.workspace.name ?? null,
+    projectName: specProject?.name ?? activeInfo?.project.name ?? null,
+    workspaceName: specTitle ?? activeInfo?.workspace.name ?? null,
     openContext: () => (nativeTabBar ? void openNativeContextSheet() : setSwitcherOpen(true)),
     bell: (
       <InboxButton
@@ -628,8 +671,8 @@ export function MobileApp() {
   }, [activeWorkspaceId])
 
   useEffect(() => {
-    setWorkspace(activeWorkspaceId, activeInfo?.project.id ?? null)
-  }, [activeWorkspaceId, activeInfo, setWorkspace])
+    setWorkspace(activeWorkspaceId, activeProjectId)
+  }, [activeWorkspaceId, activeProjectId, setWorkspace])
 
   return (
     <div
@@ -661,6 +704,9 @@ export function MobileApp() {
       >
         {tab === "chats" && (
           <MobileChatsScreen
+            key={selectedSpec ? `spec:${selectedSpec.id}` : `workspace:${activeWorkspaceId}`}
+            specId={selectedSpec?.id}
+            onOpenSpecChat={openContextChat}
             keyboardOpen={keyboardOpen}
             openChatId={deepLink?.chatId ?? null}
             openChatTitle={deepLink?.title}
@@ -701,7 +747,13 @@ export function MobileApp() {
 
       {!nativeTabBar && tabBarVisible && <MobileTabBar active={tab} onChange={setTab} />}
 
-      <MobileContextSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+      <MobileContextSwitcher
+        selectedSpecId={selectedSpec?.id ?? null}
+        onSelectSpec={selectSpec}
+        onSelectWorkspace={selectWorkspace}
+        open={switcherOpen}
+        onClose={() => setSwitcherOpen(false)}
+      />
       {nativeTabBar && (
         <MobileInboxSheet
           open={nativeInboxOpen}

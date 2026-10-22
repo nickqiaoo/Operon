@@ -126,16 +126,18 @@ export function MobileHeader(spec: MobileHeaderSpec) {
   const shell = useContext(MobileHeaderContext)
   const native = shell?.native ?? false
   const owner = useRef({}).current
+  const publishHeader = shell?.publishHeader
+  const clearHeader = shell?.clearHeader
 
   // Re-published every render so the native bar's taps reach this render's
   // callbacks; the shell only redraws the bar when what it shows changes.
   useEffect(() => {
-    if (native) shell?.publishHeader(owner, spec)
+    if (native) publishHeader?.(owner, spec)
   })
   useEffect(() => {
     if (!native) return
-    return () => shell?.clearHeader(owner)
-  }, [native, shell, owner])
+    return () => clearHeader?.(owner)
+  }, [native, clearHeader, owner])
 
   // Android's native bar sits above the web view: nothing to draw or reserve.
   if (native && nativeTopBarTakesSpace()) return null

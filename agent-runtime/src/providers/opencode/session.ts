@@ -1,6 +1,11 @@
+import type { McpServer, OpenCodeEvent } from '@opencode/client'
+import { NativeEventAdapter } from './native-events.js'
 import type { RuntimeContext } from '../../context.js'
 import type {
   AgentInput,
+  DetailedContextUsage,
+  Model,
+  EffortLevel,
   AgentSession,
   InjectOptions,
   McpControl,
@@ -41,12 +46,11 @@ import type {
   OpencodePartInput,
   OpencodeSettings,
   ParsedModelId,
-  ProviderListResponse,
 } from './types.js'
 import { isRuntimeVerbose } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
 import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
-import type { McpStatus } from '@opencode-ai/sdk/v2'
+type McpStatus = McpServer['status']
 
 const AGENTS_MAP: Record<string, string> = {
   build: 'build',
@@ -60,14 +64,12 @@ type OpencodeClient = Awaited<ReturnType<OpencodeClientManager['getClient']>>
 type OpencodeMcpApi = OpencodeClient['mcp']
 
 type SessionMcpStatus =
+  | 'pending'
   | 'connected'
   | 'disabled'
   | 'failed'
   | 'needs-auth'
   | 'needs-client-registration'
-
-
-
 function mapMcpStatus(status: McpStatus): {
   status: SessionMcpStatus
   error?: string
@@ -75,8 +77,6 @@ function mapMcpStatus(status: McpStatus): {
   switch (status.status) {
     case 'needs_auth':
       return { status: 'needs-auth' }
-    case 'needs_client_registration':
-      return { status: 'needs-client-registration', error: status.error }
     case 'failed':
       return { status: 'failed', error: status.error }
     default:
@@ -92,12 +92,8 @@ function parseModelId(modelId: string): ParsedModelId {
   if (!trimmed.includes('/')) {
     return { providerID: '', modelID: trimmed }
   }
-  const parts = trimmed.split('/')
-  const modelName = parts.pop() ?? trimmed
-  return {
-    providerID: parts.join('/'),
-    modelID: modelName,
-  }
+  const slash = trimmed.indexOf('/')
+  return { providerID: trimmed.slice(0, slash), modelID: trimmed.slice(slash + 1) }
 }
 
 /** The host's session instructions (persona / collab rules). */
@@ -117,48 +113,14 @@ async function registerMcpServers(
   }
   logger.info(`[MCP] Registering MCP servers: ${Object.keys(mcpServers).join(', ')}`)
 
-  const mcp = (client as { mcp?: OpencodeMcpApi }).mcp
-  if (!mcp?.add) {
-    logger.warn('[MCP] client.mcp.add not available')
-    return
-  }
-
-  let existingStatus: Record<string, { status: string }> = {}
-  try {
-    existingStatus = (await mcp.status({ directory: cwd })).data ?? {}
-  } catch {}
-
+  const location = { directory: cwd }
+  const existing = await client.mcp.list({ location })
   for (const [name, entry] of Object.entries(mcpServers)) {
-    if (existingStatus[name]?.status === 'connected') continue
-    try {
-      const config = !entry.type || entry.type === 'stdio'
-          ? {
-            type: 'local' as const,
-            command: [entry.command, ...(entry.args ?? [])],
-            environment: entry.env,
-            enabled: true,
-          }
-        : (() => {
-            const remoteEntry = entry as Extract<OpencodeMcpServerEntry, { type: 'http' | 'sse' }>
-            return {
-              type: 'remote' as const,
-              url: remoteEntry.url,
-              headers: remoteEntry.headers,
-              enabled: true,
-            }
-          })()
-
-      const addResult = await mcp.add({ name, config, directory: cwd })
-      const serverStatus = addResult.data?.[name]?.status
-      logger.info(`[MCP] Added "${name}", status: ${serverStatus ?? 'unknown'}`)
-      if (serverStatus && serverStatus !== 'connected') {
-        await mcp.connect({ name, directory: cwd }).catch((error) => {
-          logger.warn(`[MCP] Failed to connect server "${name}": ${extractErrorMessage(error)}`)
-        })
-      }
-    } catch (error) {
-      logger.warn(`[MCP] Failed to register server "${name}": ${extractErrorMessage(error)}`)
-    }
+    if (existing.data.some((server) => server.name === name && server.status.status === 'connected')) continue
+    const config = 'command' in entry
+      ? { type: 'local' as const, command: [entry.command, ...(entry.args ?? [])], environment: entry.env }
+      : { type: 'remote' as const, url: entry.url, headers: entry.headers }
+    await client.mcp.add({ server: name, config, location })
   }
 }
 
@@ -184,6 +146,8 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
   private readonly cwd: string
   private currentModelId: string
   private currentModeId: string
+  private currentThinkingLevel: string | undefined
+  private initialized = false
   private readonly clientManager: OpencodeClientManager
   private readonly logger: OpencodeLogger
   private readonly settings: OpencodeSettings
@@ -205,6 +169,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     this.cwd = params.cwd
     this.currentModelId = params.model ?? 'opencode/big-pickle'
     this.currentModeId = params.mode ?? 'build'
+    this.currentThinkingLevel = params.effort
     this.sessionId = params.resume
     this.hostConversationId = params.opencode?.callerTag
     this.boundaryPending = params.fork != null && !params.resume
@@ -262,56 +227,31 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     }
     this.logger.info(`Starting stream for session ${sessionId} with model ${this.currentModelId} in mode ${this.currentModeId}`)
 
-    const parsedModelId = parseModelId(this.currentModelId)
+    const parts = converted.parts
+    const skills: Array<{ id: string }> = []
+    const text = parts.filter((part) => part.type === 'text').map((part) => part.text).join('\n')
+      .replace(/\[skill:([^\]]+)\]/g, (_marker, id: string) => { skills.push({ id }); return '' }).trim()
+    const slash = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/)
+    const command = slash && (await this.clientManager.listCommands(this.cwd)).some((entry) => entry.name === slash[1])
+      ? { name: slash[1], text: slash[2] ?? '' } : undefined
+    const boundary = this.takeBoundaryParts().flatMap((part) => part.type === 'text' ? [part.text] : [])
     const requestBody = {
-      model: parsedModelId.providerID
-        ? {
-            providerID: parsedModelId.providerID,
-            modelID: parsedModelId.modelID,
-          }
-        : undefined,
-      agent: AGENTS_MAP[this.currentModeId] ?? 'build',
-      system: this.settings.systemPrompt,
-      // A side chat's first prompt opens with the boundary marker: the fork
-      // carries the parent's whole transcript, and without this the model reads
-      // it as its own unfinished task. OpenCode has no API for appending a
-      // standalone item to a session's history, so it rides at the head of the
-      // first prompt — the same place relative to the inherited history, after
-      // the cached prefix the fork shares with its parent.
-      parts: this.takeBoundaryParts().concat(converted.parts),
-      tools: this.settings.tools,
+      sessionID: sessionId,
+      text: [...boundary, command?.text ?? text].filter(Boolean).join('\n'),
+      files: parts.flatMap((part) => part.type === 'file' ? [{ uri: part.url, name: part.filename }] : []),
+      ...(skills.length ? { skills } : {}),
     }
-
     const abortController = new AbortController()
     this.abortController = abortController
-    if (signal) {
-      signal.addEventListener('abort', () => abortController.abort(), { once: true })
-    }
-
+    const onAbort = () => abortController.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) abortController.abort()
     yield { type: 'start' }
 
-    const eventStreamResult = await client.event.subscribe({ directory: this.settings.cwd })
-    const eventStream = eventStreamResult.stream
-    if (!eventStream) {
-      yield { type: 'error', error: new Error('Failed to subscribe to OpenCode events') }
-      return
-    }
-    this.logger.debug?.(`Subscribed to event stream for session ${sessionId}`)
-
+    const adapter = new NativeEventAdapter()
+    const nativeEvents = client.event.subscribe({ signal: abortController.signal })[Symbol.asyncIterator]()
+    // Subscriptions connect lazily. Wait for server.connected before admitting input.
     let promptError: string | undefined
-    this.logger.debug?.(`[prompt] Sending prompt to session ${sessionId}, parts=${JSON.stringify(requestBody.parts).slice(0, 500)}`)
-    void client.session.prompt({
-      sessionID: sessionId,
-      directory: this.settings.cwd,
-      ...requestBody,
-    }).then(() => {
-      this.logger.debug?.(`[prompt] session.prompt returned for session ${sessionId}`)
-    }).catch((error) => {
-      promptError = extractErrorMessage(error)
-      this.logger.error(`Prompt error: ${promptError}`)
-      // Abort the event loop so the error gets surfaced
-      abortController.abort()
-    })
 
     const state = createStreamState({
       initialStepRequest: { body: requestBody },
@@ -322,121 +262,192 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     let lastMessageInfo: Message | undefined
     const messageErrorEmitted = new Set<string>()
     const bufferedChildEvents = new Map<string, OpencodeEvent[]>()
+    let streamFailed = false
+    const turnUsage = { ...state.usage }
+    let measuredSteps = 0
 
     try {
-      for await (const rawEvent of eventStream as AsyncIterable<OpencodeEvent>) {
-        logProviderRaw('opencode', rawEvent)
-        if (abortController.signal.aborted) {
-          if (promptError) {
-            yield { type: 'error', error: new Error(promptError) }
-            for (const part of createFinishParts(state, { unified: 'error', raw: 'prompt-error' }, sessionId, this.currentModelId)) {
-              yield part
-            }
-          } else {
-            await client.session.abort({ sessionID: sessionId }).catch(() => {})
-            yield { type: 'abort' }
-          }
+      const connected = await nativeEvents.next()
+      if (connected.done) throw new Error('OpenCode event stream did not connect')
+      const admitted = command
+        ? client.session.command({ ...requestBody, name: command.name })
+        : client.session.prompt(requestBody)
+      void admitted.catch((error: unknown) => {
+        promptError = extractErrorMessage(error)
+        abortController.abort()
+      })
+      nativeLoop: while (true) {
+        const next = await nativeEvents.next()
+        if (next.done) throw new Error('OpenCode event stream disconnected before the turn completed')
+        const native = next.value
+        logProviderRaw('opencode', native)
+        if (native.type === 'session.execution.interrupted' && native.data.sessionID === sessionId) {
+          yield { type: 'abort' }
           break
         }
-
-        // Detailed event logging for debugging compact/context issues
-        const eventSessionId = getEventSessionId(rawEvent)
-        if (eventSessionId === sessionId || !eventSessionId) {
-          this.logger.debug?.(`[stream-event] type=${rawEvent.type} props=${JSON.stringify(rawEvent.properties).slice(0, 500)}`)
+        if (native.type === 'session.status' && native.data.sessionID === sessionId && native.data.status.type === 'retry' && native.data.status.action) {
+          // Quota/auth actions require user intervention; an endless hidden retry cannot recover.
+          yield { type: 'error', error: new Error(native.data.status.action.message) }
+          await client.session.interrupt({ sessionID: sessionId }).catch(() => {})
+          yield* createFinishParts(state, { unified: 'error', raw: 'provider-action-required' }, sessionId, this.currentModelId)
+          break
         }
+        if (native.type === 'session.step.started' && native.data.sessionID === sessionId) {
+          state.modelId = `${native.data.model.providerID}/${native.data.model.id}`
+        }
+        if (native.type === 'session.step.ended' && native.data.sessionID === sessionId) {
+          const { tokens, cost } = native.data
+          turnUsage.inputTokens += tokens.input
+          turnUsage.outputTokens += tokens.output
+          turnUsage.reasoningTokens += tokens.reasoning
+          turnUsage.cachedInputTokens += tokens.cache.read
+          turnUsage.cachedWriteTokens += tokens.cache.write
+          turnUsage.totalCost += cost
+          measuredSteps++
+        }
+        if (native.type === 'session.inbox.delivered' && native.data.sessionID === sessionId) {
+          const pending = this.pendingInjections.get(native.data.inboxID)
+          if (pending) {
+            this.pendingInjections.delete(native.data.inboxID)
+            yield { type: 'injected-input', ...pending }
+          }
+        }
+        if (native.type === 'form.created' && native.data.form.sessionID === sessionId) {
+          const form = native.data.form
+          this.pendingForms.set(form.id, form)
+          this.pendingApprovalIds.add(form.id)
+          yield this.formApproval(form)
+        }
+        if (native.type === 'permission.asked') this.approvalSessions.set(native.data.id, native.data.sessionID)
+        for (const rawEvent of adapter.convert(native)) {
+          if (abortController.signal.aborted) {
+            if (promptError) {
+              yield { type: 'error', error: new Error(promptError) }
+              for (const part of createFinishParts(state, { unified: 'error', raw: 'prompt-error' }, sessionId, this.currentModelId)) {
+                yield part
+              }
+            } else {
+              await client.session.interrupt({ sessionID: sessionId }).catch(() => {})
+              yield { type: 'abort' }
+            }
+            break nativeLoop
+          }
 
-        const sessionForEvent = eventSessionId
-        if (rawEvent.type === 'session.created' || rawEvent.type === 'session.updated') {
-          const lifecycleEvent = rawEvent as Extract<OpencodeEvent, { type: 'session.created' | 'session.updated' }>
-          const info = lifecycleEvent.properties.info
-          if (info?.parentID === sessionId && info.id) {
-            const parentCallId = tryRegisterChildFromSessionEvent(info.id, state)
-            if (parentCallId) {
-              const buffered = bufferedChildEvents.get(info.id)
-              if (buffered) {
-                bufferedChildEvents.delete(info.id)
-                for (const bufferedEvent of buffered) {
-                  for (const part of convertChildEventToStreamParts(bufferedEvent, parentCallId, state, this.logger)) {
-                    yield part
+          // Detailed event logging for debugging compact/context issues
+          const eventSessionId = getEventSessionId(rawEvent)
+          if (eventSessionId === sessionId || !eventSessionId) {
+            this.logger.debug?.(`[stream-event] type=${rawEvent.type} props=${JSON.stringify(rawEvent.properties).slice(0, 500)}`)
+          }
+
+          const sessionForEvent = eventSessionId
+          if (rawEvent.type === 'session.created' || rawEvent.type === 'session.updated') {
+            const lifecycleEvent = rawEvent as Extract<OpencodeEvent, { type: 'session.created' | 'session.updated' }>
+            const info = lifecycleEvent.properties.info
+            if (info?.parentID === sessionId && info.id) {
+              const parentCallId = tryRegisterChildFromSessionEvent(info.id, state)
+              if (parentCallId) {
+                const buffered = bufferedChildEvents.get(info.id)
+                if (buffered) {
+                  bufferedChildEvents.delete(info.id)
+                  for (const bufferedEvent of buffered) {
+                    for (const part of convertChildEventToStreamParts(bufferedEvent, parentCallId, state, this.logger)) {
+                      yield part
+                    }
                   }
                 }
               }
             }
           }
-        }
 
-        const parentCallId = sessionForEvent
-          ? state.childSessions.get(sessionForEvent)
-          : undefined
+          const parentCallId = sessionForEvent
+            ? state.childSessions.get(sessionForEvent)
+            : undefined
 
-        if (sessionForEvent && !isEventForSession(rawEvent, sessionId) && !parentCallId) {
-          if (sessionForEvent !== sessionId) {
-            const buffered = bufferedChildEvents.get(sessionForEvent) ?? []
-            buffered.push(rawEvent)
-            bufferedChildEvents.set(sessionForEvent, buffered)
-          }
-          continue
-        }
-
-        if (rawEvent.type === 'message.updated') {
-          const messageEvent = rawEvent as Extract<OpencodeEvent, { type: 'message.updated' }>
-          const info = messageEvent.properties.info
-          if (!parentCallId && info.role === 'assistant') {
-            // Successful checkpoints must not replace the visible reply's finish
-            // reason. Failures still need to reach the user.
-            if (!isOpencodeInternalMessage(info) || info.error) lastMessageInfo = info
-            if (info.error && !messageErrorEmitted.has(info.id)) {
-              messageErrorEmitted.add(info.id)
-              const errorData = info.error.data as { message?: string } | undefined
-              const errorMessage = errorData?.message ?? info.error.name ?? 'Unknown message error'
-              this.logger.error(`[message-error] ${info.error.name}: ${errorMessage}`)
-              yield { type: 'error', error: new Error(errorMessage) }
+          if (sessionForEvent && !isEventForSession(rawEvent, sessionId) && !parentCallId) {
+            if (sessionForEvent !== sessionId) {
+              const buffered = bufferedChildEvents.get(sessionForEvent) ?? []
+              buffered.push(rawEvent)
+              bufferedChildEvents.set(sessionForEvent, buffered)
             }
+            continue
           }
-        }
+          if (!parentCallId && rawEvent.type === 'session.error') streamFailed = true
 
-        const streamParts = parentCallId
-          ? convertChildEventToStreamParts(rawEvent, parentCallId, state, this.logger)
-          : convertEventToStreamParts(rawEvent, state, this.logger)
-
-        for (const part of streamParts) {
-          this.trackApproval(part)
-          yield part
-        }
-
-        if (!parentCallId && bufferedChildEvents.size > 0) {
-          for (const [bufferedSessionId, bufferedEvents] of bufferedChildEvents) {
-            const newParentCallId = state.childSessions.get(bufferedSessionId)
-            if (!newParentCallId) continue
-            bufferedChildEvents.delete(bufferedSessionId)
-            for (const bufferedEvent of bufferedEvents) {
-              for (const part of convertChildEventToStreamParts(bufferedEvent, newParentCallId, state, this.logger)) {
-                this.trackApproval(part)
-                yield part
+          if (rawEvent.type === 'message.updated') {
+            const messageEvent = rawEvent as Extract<OpencodeEvent, { type: 'message.updated' }>
+            const info = messageEvent.properties.info
+            if (!parentCallId && info.role === 'assistant') {
+              // Successful checkpoints must not replace the visible reply's finish
+              // reason. Failures still need to reach the user.
+              if (!isOpencodeInternalMessage(info) || info.error) lastMessageInfo = info
+              if (info.error && !messageErrorEmitted.has(info.id)) {
+                messageErrorEmitted.add(info.id)
+                const errorData = info.error.data as { message?: string } | undefined
+                const errorMessage = errorData?.message ?? info.error.name ?? 'Unknown message error'
+                this.logger.error(`[message-error] ${info.error.name}: ${errorMessage}`)
+                yield { type: 'error', error: new Error(errorMessage) }
               }
             }
           }
-        }
 
-        if (isSessionComplete(rawEvent, sessionId)) {
-          const finishReason = mapOpencodeFinishReason(lastMessageInfo)
-          this.logger.info(`Session ${sessionId} completed with finish reason ${finishReason.unified}`)
-          // If session ended without producing a message, surface the prompt error if available
-          if (!lastMessageInfo && promptError) {
-            this.logger.error(`Session ${sessionId} ended with no output. Provider error: ${promptError}`)
-            yield { type: 'error', error: new Error(promptError) }
-          }
-          for (const part of createFinishParts(state, finishReason, sessionId, this.currentModelId)) {
+          const streamParts = parentCallId
+            ? convertChildEventToStreamParts(rawEvent, parentCallId, state, this.logger)
+            : convertEventToStreamParts(rawEvent, state, this.logger)
+
+          for (const part of streamParts) {
+            this.trackApproval(part)
             yield part
           }
-          break
+
+          if (!parentCallId && bufferedChildEvents.size > 0) {
+            for (const [bufferedSessionId, bufferedEvents] of bufferedChildEvents) {
+              const newParentCallId = state.childSessions.get(bufferedSessionId)
+              if (!newParentCallId) continue
+              bufferedChildEvents.delete(bufferedSessionId)
+              for (const bufferedEvent of bufferedEvents) {
+                for (const part of convertChildEventToStreamParts(bufferedEvent, newParentCallId, state, this.logger)) {
+                  this.trackApproval(part)
+                  yield part
+                }
+              }
+            }
+          }
+
+          if (isSessionComplete(rawEvent, sessionId)) {
+            if (measuredSteps > 0) {
+              state.messageUsage = turnUsage
+              state.usage.totalCost = turnUsage.totalCost
+            }
+            const finishReason = streamFailed ? { unified: 'error' as const, raw: 'error' } : mapOpencodeFinishReason(lastMessageInfo)
+            this.logger.info(`Session ${sessionId} completed with finish reason ${finishReason.unified}`)
+            // If session ended without producing a message, surface the prompt error if available
+            if (!lastMessageInfo && promptError) {
+              this.logger.error(`Session ${sessionId} ended with no output. Provider error: ${promptError}`)
+              yield { type: 'error', error: new Error(promptError) }
+            }
+            for (const part of createFinishParts(state, finishReason, sessionId, this.currentModelId)) {
+              yield part
+            }
+            break nativeLoop
+          }
         }
       }
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (promptError) {
+        yield { type: 'error', error: new Error(promptError) }
+      } else if (abortController.signal.aborted) {
+        await client.session.interrupt({ sessionID: sessionId }).catch(() => {})
+        yield { type: 'abort' }
+      } else if (!isAbortError(error)) {
+        await client.session.interrupt({ sessionID: sessionId }).catch(() => {})
         yield { type: 'error', error }
       }
+      if (promptError || !abortController.signal.aborted) {
+        yield* createFinishParts(state, { unified: 'error', raw: 'stream-error' }, sessionId, this.currentModelId)
+      }
     } finally {
+      signal?.removeEventListener('abort', onAbort)
+      await nativeEvents.return?.()
       this.abortController = null
     }
   }
@@ -463,8 +474,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     if (reason === 'discard' && this.sessionId && this.hostConversationId) {
       unbindOpencodeCaller(this.sessionId, this.hostConversationId)
     }
-    // A 'rebuild' is the same conversation getting a fresh session (fast mode
-    // toggled, MCP map changed), so the fork has to outlive it — the new session
+    // A rebuild keeps the conversation and its fork while replacing host state.
     // resumes it by id.
     if (reason === 'discard') await this.discardEphemeralFork()
   }
@@ -488,19 +498,14 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     this.sessionId = undefined
     try {
       const client = await this.clientManager.getClient()
-      await client.session.delete({ sessionID: forkedId, directory: this.settings.cwd })
+      await client.session.remove({ sessionID: forkedId })
       this.logger.info(`Deleted side chat fork ${forkedId}`)
     } catch (error) {
       this.logger.warn(`Failed to delete side chat fork ${forkedId}: ${extractErrorMessage(error)}`)
     }
   }
 
-  /**
-   * Compact is a blocking API call (session.summarize) that resolves normally
-   * even when compaction fails due to context overflow — opencode stores the
-   * error on the last assistant message instead of rejecting the promise.
-   * So after summarize returns, we fetch the latest message and check its error field.
-   */
+  /** Admission is asynchronous; wait for compaction and inspect its persisted result. */
   private async *streamCompact(): AsyncIterable<RuntimeStreamPart> {
     if (!this.sessionId) {
       this.logger.warn('No active session to compact')
@@ -508,8 +513,6 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     }
     this.logger.info(`Running compact for session ${this.sessionId}`)
     const client = await this.clientManager.getClient()
-    const parsedModelId = parseModelId(this.currentModelId)
-
     yield { type: 'start' }
     const state = createStreamState({ modelId: this.currentModelId })
     state.stepStarted = true
@@ -517,35 +520,12 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
 
     let compactError: Error | undefined
     try {
-      this.logger.debug?.(`[compact] Calling session.summarize with sessionID=${this.sessionId}, providerID=${parsedModelId.providerID}, modelID=${parsedModelId.modelID}`)
-      const summarizeResult = await client.session.summarize({
-        sessionID: this.sessionId,
-        providerID: parsedModelId.providerID,
-        modelID: parsedModelId.modelID,
-      })
-      this.logger.debug?.(`[compact] session.summarize returned: ${JSON.stringify(summarizeResult, null, 2)}`)
-
-      // summarize() resolves normally even on ContextOverflowError.
-      // Check the latest assistant message for an error field.
-      try {
-        const messagesResult = await (client as unknown as {
-          session: { messages: (params: { sessionID: string; directory?: string }) => Promise<{ data?: Array<{ info: Message }> }> }
-        }).session.messages({ sessionID: this.sessionId, directory: this.settings.cwd })
-        const messages = messagesResult.data ?? []
-        for (let i = messages.length - 1; i >= 0; i--) {
-          const info = messages[i]?.info
-          if (info?.role === 'assistant') {
-            if (info.error) {
-              const errorData = info.error.data as { message?: string } | undefined
-              const errorMessage = errorData?.message ?? info.error.name ?? 'Compact failed'
-              compactError = new Error(errorMessage)
-              this.logger.error(`[compact] Detected error on latest message: ${info.error.name}: ${errorMessage}`)
-            }
-            break
-          }
-        }
-      } catch (fetchError) {
-        this.logger.warn(`[compact] Failed to fetch messages for error check: ${extractErrorMessage(fetchError)}`)
+      await client.session.compact({ sessionID: this.sessionId })
+      await client.session.wait({ sessionID: this.sessionId })
+      const messages = await client.session.context({ sessionID: this.sessionId })
+      const latest = messages.at(-1)
+      if (latest?.type === 'compaction' && latest.status === 'failed') {
+        compactError = new Error(latest.error.message)
       }
 
       if (compactError) {
@@ -554,7 +534,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
         this.logger.info(`Compact completed for session ${this.sessionId}`)
       }
     } catch (error) {
-      this.logger.error(`[compact] session.summarize FAILED: ${extractErrorMessage(error)}`)
+      this.logger.error(`[compact] session.compact failed: ${extractErrorMessage(error)}`)
       this.logger.debug?.(`[compact] Full error: ${JSON.stringify(error)}`)
       yield { type: 'error', error: error instanceof Error ? error : new Error(extractErrorMessage(error)) }
       compactError = error instanceof Error ? error : new Error(extractErrorMessage(error))
@@ -602,12 +582,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     const messageID = createAscendingMessageId()
     if (options?.id) this.pendingInjections.set(messageID, { id: options.id, text: content })
     try {
-      await client.session.promptAsync({
-        sessionID: sessionId,
-        directory: this.settings.cwd,
-        messageID,
-        parts: [{ type: 'text', text: content }],
-      })
+      await client.session.prompt({ sessionID: sessionId, id: messageID, text: content, delivery: 'steer' })
     } catch (error) {
       this.pendingInjections.delete(messageID)
       throw error
@@ -620,17 +595,17 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       reconnect: (name) =>
         this.runMcpMutation(name, async () => {
           const mcp = (await this.clientManager.getClient()).mcp
-          await mcp.connect({ name, directory: this.cwd }, { throwOnError: true })
+          await mcp.connect({ server: name, location: { directory: this.cwd } })
           await this.waitForMcpStatus(mcp, name, 'connected')
         }),
       toggle: (name, enabled) =>
         this.runMcpMutation(name, async () => {
           const mcp = (await this.clientManager.getClient()).mcp
           if (enabled) {
-            await mcp.connect({ name, directory: this.cwd }, { throwOnError: true })
+            await mcp.connect({ server: name, location: { directory: this.cwd } })
             await this.waitForMcpStatus(mcp, name, 'connected')
           } else {
-            await mcp.disconnect({ name, directory: this.cwd }, { throwOnError: true })
+            await mcp.disconnect({ server: name, location: { directory: this.cwd } })
             await this.waitForMcpStatus(mcp, name, 'disabled')
           }
         }),
@@ -639,9 +614,9 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
 
   private async listMcpServers(): Promise<McpServerInfo[]> {
     const client = await this.clientManager.getClient()
-    const result = await client.mcp.status({ directory: this.cwd }, { throwOnError: true })
+    const result = await client.mcp.list({ location: { directory: this.cwd } })
     const configured = this.settings.mcpServers
-    return Object.entries(result.data).map(([name, rawStatus]) => {
+    return result.data.map(({ name, status: rawStatus }) => {
       const mapped = mapMcpStatus(rawStatus)
       const entry = configured?.[name]
       const transport = !entry?.type || entry.type === 'stdio' ? 'stdio' : entry.type
@@ -679,8 +654,8 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
   ): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const result = await mcp.status({ directory: this.cwd }, { throwOnError: true })
-      const status = result.data[name]
+      const result = await mcp.list({ location: { directory: this.cwd } })
+      const status = result.data.find((server) => server.name === name)?.status
       if (status?.status === expected) return
       if (status?.status === 'failed') {
         throw new Error(status.error)
@@ -688,22 +663,37 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       if (status?.status === 'needs_auth') {
         throw new Error(`MCP server "${name}" needs authentication`)
       }
-      if (status?.status === 'needs_client_registration') {
-        throw new Error(status.error)
-      }
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
     throw new Error(`MCP server "${name}" did not become ${expected} within ${timeoutMs}ms`)
   }
 
-  /** Both are read fresh when the next request body is built, so storing them is enough. */
+  /** V2 switches apply to subsequent provider requests, including an active loop. */
   async set(patch: SessionPatch): Promise<SessionPatchApplied> {
     const applied: SessionPatchApplied = []
-    if (patch.model) {
-      this.currentModelId = patch.model
-      applied.push('model')
+    const client = this.sessionId ? await this.clientManager.getClient() : undefined
+    if (patch.model || patch.effort) {
+      const model = parseModelId(patch.model ?? this.currentModelId)
+      let effort = patch.effort ?? this.currentThinkingLevel
+      if (client && patch.model && patch.model !== this.currentModelId && !patch.effort && effort) {
+        const models = await client.model.list({ location: { directory: this.cwd } })
+        const target = models.data.find((entry) => entry.providerID === model.providerID && entry.id === model.modelID)
+        if (target && !target.variants.some((variant) => variant.id === effort)) effort = undefined
+      }
+      if (!model.providerID) throw new Error('OpenCode models must include their provider ID')
+      if (client && this.sessionId) await client.session.switchModel({
+        sessionID: this.sessionId,
+        model: { id: model.modelID, providerID: model.providerID, variant: effort },
+      })
+      if (patch.model) { this.currentModelId = patch.model; applied.push('model') }
+      this.currentThinkingLevel = effort
+      if (patch.effort) applied.push('effort')
     }
     if (patch.mode) {
+      if (client && this.sessionId) {
+        await client.session.switchAgent({ sessionID: this.sessionId, agent: AGENTS_MAP[patch.mode] ?? patch.mode })
+        await client.session.update({ sessionID: this.sessionId, permissions: patch.mode === 'fullAccess' ? [{ action: '*', resource: '*', effect: 'allow' }] : [] })
+      }
       this.currentModeId = patch.mode
       applied.push('mode')
     }
@@ -712,9 +702,13 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
 
   private async getOrCreateSession(): Promise<string> {
     const sessionId = await this.resolveSession()
-    // Every turn, not only on creation: a resumed session gets its binding back
-    // after an app restart, before the model can call a tool.
     if (this.hostConversationId) bindOpencodeCaller(sessionId, this.hostConversationId)
+    if (!this.initialized) {
+      await this.set({ model: this.currentModelId, mode: this.currentModeId, effort: this.currentThinkingLevel })
+      const client = await this.clientManager.getClient()
+      if (this.settings.systemPrompt) await client.session.instructions.entry.put({ sessionID: sessionId, key: 'operon', value: this.settings.systemPrompt })
+      this.initialized = true
+    }
     return sessionId
   }
 
@@ -745,9 +739,8 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       this.logger.info(`Forking session ${source.from} for a side chat`)
       const forked = await client.session.fork({
         sessionID: source.from,
-        directory: this.settings.cwd,
       })
-      const forkedId = (forked.data as { id?: string } | undefined)?.id
+      const forkedId = forked.id
       if (!forkedId) {
         throw new Error('Failed to fork OpenCode session')
       }
@@ -757,10 +750,10 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     }
 
     const result = await client.session.create({
-      title: this.settings.sessionTitle ?? 'XUI Session',
-      directory: this.settings.cwd,
+      title: this.settings.sessionTitle ?? 'Operon',
+      location: { directory: this.cwd },
     })
-    const data = result.data as { id?: string } | undefined
+    const data = result
     if (!data?.id) {
       throw new Error('Failed to create OpenCode session')
     }
@@ -776,129 +769,100 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       decision.type === 'allow' || decision.type === 'allow-always'
         ? decision.updatedInput
         : undefined
-    const isQuestionResponse =
-      this.questionApprovalIds.has(approvalId) ||
-      (
-        !!updatedInput &&
-        'questions' in updatedInput &&
-        Array.isArray(updatedInput.questions) &&
-        'answers' in updatedInput
-      )
-
-    if (isQuestionResponse) {
-      const questionClient = (client as unknown as {
-        question?: {
-          reply: (opts: { requestID: string; directory?: string; answers: string[][] }) => Promise<unknown>
-          reject?: (opts: { requestID: string; directory?: string }) => Promise<unknown>
-        }
-      }).question
-
-      if (!questionClient) {
-        this.logger.warn(`Question API not available for approval ${approvalId}`)
-        return
-      }
-
+    const form = this.pendingForms.get(approvalId)
+    if (form) {
+      this.pendingForms.delete(approvalId)
       if (decision.type === 'deny') {
-        this.logger.info(`Rejecting question ${approvalId}`)
-        this.questionApprovalIds.delete(approvalId)
-        await questionClient.reject?.({
-          requestID: approvalId,
-          directory: this.settings.cwd,
-        }).catch((error) => {
-          this.logger.error(`Failed to reject question ${approvalId}: ${extractErrorMessage(error)}`)
-        })
-        return
+        await client.session.form.cancel({ sessionID: form.sessionID, formID: form.id, message: decision.reason })
+      } else {
+        const raw = (updatedInput?.answers ?? {}) as Record<string, string>
+        const answer: Record<string, string | string[] | number | boolean> = {}
+        for (const field of form.fields) {
+          if ('hidden' in field && field.hidden) continue
+          const value = raw[field.title ?? field.key] ?? raw[field.key] ?? ''
+          const optionValue = (label: string): string => 'options' in field
+            ? field.options?.find((option) => option.label === label)?.value ?? label : label
+          answer[field.key] = field.type === 'multiselect' ? value.split(',').map((part) => optionValue(part.trim())).filter(Boolean)
+            : field.type === 'number' || field.type === 'integer' ? Number(value)
+              : field.type === 'boolean' ? value === 'true' || value === 'Yes' : optionValue(value)
+        }
+        await client.session.form.reply({ sessionID: form.sessionID, formID: form.id, answer })
       }
-
-      const rawAnswers = (updatedInput?.answers ?? {}) as Record<string, string>
-      const questions = (updatedInput?.questions ?? []) as Array<{ question: string }>
-      const answers = questions.map((question) => {
-        const answer = rawAnswers[question.question] ?? ''
-        return answer ? [answer] : []
-      })
-
-      this.logger.info(`Replying to question ${approvalId}`)
-      this.questionApprovalIds.delete(approvalId)
-      await questionClient.reply({
-        requestID: approvalId,
-        directory: this.settings.cwd,
-        answers,
-      }).catch((error) => {
-        this.logger.error(`Failed to reply to question ${approvalId}: ${extractErrorMessage(error)}`)
-      })
       return
     }
-
-    const permissionReply = decision.type === 'deny' ? 'reject' : decision.type === 'allow-always' ? 'always' : 'once'
     await client.permission.reply({
+      sessionID: this.approvalSessions.get(approvalId) ?? this.sessionId,
       requestID: approvalId,
-      directory: this.settings.cwd,
-      reply: permissionReply,
+      decision: decision.type === 'deny' ? 'reject' : decision.type === 'allow-always' ? 'always' : 'once',
       message: decision.type === 'deny' ? decision.reason : undefined,
-    }).catch((error) => {
-      this.logger.error(`Failed to respond to permission ${approvalId}: ${extractErrorMessage(error)}`)
     })
+    this.approvalSessions.delete(approvalId)
+  }
+
+  private readonly pendingForms = new Map<string, Extract<OpenCodeEvent, { type: 'form.created' }>['data']['form']>()
+  private readonly approvalSessions = new Map<string, string>()
+
+  private formApproval(form: Extract<OpenCodeEvent, { type: 'form.created' }>['data']['form']): Extract<RuntimeStreamPart, { type: 'tool-approval-request' }> {
+    const questions = form.fields.filter((field) => !('hidden' in field && field.hidden)).map((field) => ({
+      question: field.title ?? field.key, header: field.title ?? field.key,
+      options: 'options' in field ? (field.options ?? []).map((option) => ({ label: option.label ?? String(option.value), description: option.description ?? '' })) : [],
+      multiSelect: field.type === 'multiselect', custom: true,
+    }))
+    return { type: 'tool-approval-request', approvalId: form.id, toolCall: {
+      type: 'tool-call', toolCallId: form.id, toolName: 'AskUserQuestion', input: JSON.stringify({ questions }),
+      providerExecuted: true, dynamic: true,
+    } }
+  }
+
+  async contextUsage(): Promise<DetailedContextUsage | null> {
+    if (!this.sessionId) return null
+    const client = await this.clientManager.getClient()
+    const [messages, models, config] = await Promise.all([
+      client.session.context({ sessionID: this.sessionId }), client.model.list({ location: { directory: this.cwd } }),
+      client.config.get({ location: { directory: this.cwd } }),
+    ])
+    const latest = [...messages].reverse().find((message) => message.type === 'assistant' && message.tokens)
+    if (latest?.type !== 'assistant' || !latest.tokens) return null
+    const tokens = latest.tokens
+    const model = models.data.find((model) => `${model.providerID}/${model.id}` === this.currentModelId)
+    if (!model) return null
+    const used = tokens.input + tokens.cache.read + tokens.cache.write
+    const max = model.limit.context
+    const autoCompact = config.reduce((enabled, entry) => entry.type === 'document' ? entry.info.compaction?.auto ?? enabled : enabled, true)
+    return {
+      categories: [{ name: 'Context', tokens: used, color: 'messages', kind: 'used' }, { name: 'Free', tokens: Math.max(0, max - used), color: 'free', kind: 'free' }],
+      totalTokens: used, maxTokens: max, rawMaxTokens: max, percentage: max > 0 ? Math.min(100, used / max * 100) : 0,
+      model: this.currentModelId, memoryFiles: [], isAutoCompactEnabled: autoCompact,
+      apiUsage: { input_tokens: tokens.input, output_tokens: tokens.output, cache_creation_input_tokens: tokens.cache.write, cache_read_input_tokens: tokens.cache.read },
+    }
   }
 
   state(): {
     currentModelId: string
     currentModeId: string
+    currentThinkingLevel: string | undefined
   } {
     return {
       currentModelId: this.currentModelId,
       currentModeId: this.currentModeId,
+      currentThinkingLevel: this.currentThinkingLevel,
     }
   }
 }
 
-export async function listOpencodeDescriptorModels(ctx: RuntimeContext, cwd: string, currentModelId: string): Promise<{ models: Array<{ id: string; name: string; description?: string }>; currentModelId: string }> {
-  const clientManager = OpencodeClientManager.getInstance(ctx, {
-    autoStartServer: true,
-    cwd,
-  })
-  const client = await clientManager.getClient()
-  const result = await (client as unknown as { provider: { list: () => Promise<ProviderListResponse> } }).provider.list()
-  const allProviders = result.data?.all ?? []
-  const connected = new Set(result.data?.connected ?? [])
-  const models: Array<{ id: string; name: string; description?: string }> = []
-  const aliases = new Map<string, string>()
-  const seenModelIds = new Set<string>()
-
-  const rememberAlias = (alias: string, fullModelId: string): void => {
-    const normalizedAlias = alias.trim()
-    if (!normalizedAlias) return
-    aliases.set(normalizedAlias, fullModelId)
-    const slashIndex = normalizedAlias.indexOf('/')
-    if (slashIndex > 0 && slashIndex < normalizedAlias.length - 1) {
-      aliases.set(normalizedAlias.slice(slashIndex + 1), fullModelId)
-    }
-  }
-
-  for (const provider of allProviders) {
-    if (!connected.has(provider.id)) continue
-    for (const [modelKey, model] of Object.entries(provider.models ?? {})) {
-      const rawModelId = model.id?.trim() || modelKey.trim()
-      if (!rawModelId) continue
-      const qualifiedId = rawModelId.includes('/') ? rawModelId : `${provider.id}/${rawModelId}`
-      if (seenModelIds.has(qualifiedId)) continue
-      seenModelIds.add(qualifiedId)
-      models.push({
-        id: qualifiedId,
-        name: model.name?.trim() || rawModelId,
-        description: `${provider.name} - ${model.status ?? ''}`.trim(),
-      })
-      rememberAlias(qualifiedId, qualifiedId)
-      rememberAlias(rawModelId, qualifiedId)
-      rememberAlias(modelKey, qualifiedId)
-    }
-  }
-
-  if (models.length === 0) {
-    return { models: [], currentModelId }
-  }
-
-  const normalizedCurrent = aliases.get(currentModelId.trim()) ?? (
-    models.some((model) => model.id === currentModelId) ? currentModelId : models[0].id
-  )
-  return { models, currentModelId: normalizedCurrent }
+export async function listOpencodeDescriptorModels(ctx: RuntimeContext, cwd: string, currentModelId: string): Promise<{ models: Model[]; currentModelId: string }> {
+  const client = await OpencodeClientManager.getInstance(ctx, { autoStartServer: true, cwd }).getClient()
+  const location = { directory: cwd }
+  // Model discovery initializes the native provider catalog on a cold V2 server.
+  const result = await client.model.list({ location })
+  const providers = await client.provider.list({ location }).catch(() => ({ data: [] }))
+  const providerById = new Map(providers.data.map((provider) => [provider.id, provider]))
+  const levels: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+  const models: Model[] = result.data.filter((model) => model.enabled).map((model) => ({
+    id: `${model.providerID}/${model.id}`, name: model.name, contextWindow: model.limit.context,
+    providerLabel: providerById.get(model.providerID)?.name ?? model.providerID,
+    providerLogo: providerById.get(model.providerID)?.canonical ?? model.providerID,
+    supportedEffortLevels: levels.filter((level) => model.variants.some((variant) => variant.id === level)),
+  }))
+  return { models, currentModelId: models.some((model) => model.id === currentModelId) ? currentModelId : models[0]?.id ?? currentModelId }
 }

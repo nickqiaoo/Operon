@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-10-22
+
+### Changed
+
+- OpenCode runs on version 2. Pick a thinking level, attach files, switch models during a chat, and see how much context is in use. Its commands show up in the slash menu.
+- OperonSpec starts only when you run /operon-spec or ask for it.
+- On the phone, the project picker lists Specs. Choosing one opens that Spec's conversations on Chats.
+
+### Fixed
+
+- A long Spec title on iPhone no longer hides the project switcher and the inbox button in the overflow menu.
+- Slash commands that share a prefix, such as MCP prompts, stay separate entries.
+
 ## [1.4.7] - 2026-10-22
 
 ### Added

@@ -1,7 +1,7 @@
 /**
  * OpenCode Code Mode, seen from the host.
  *
- * With `OPENCODE_EXPERIMENTAL_CODE_MODE` the model no longer calls MCP tools directly: it writes a
+ * With V2's default Code Mode the model no longer calls MCP tools directly: it writes a
  * program for the `execute` tool, and the program calls them. The event stream then shows one
  * `execute` part, while the calls that matter to the UI — an external agent run, a schedule, a
  * call that needs approval — happen inside it. This module turns them back into tool parts of

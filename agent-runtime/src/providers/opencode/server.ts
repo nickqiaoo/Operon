@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 
 export interface OpencodeServer {
   url: string
+  headers: Record<string, string>
   close(): void
 }
 
@@ -16,17 +18,12 @@ export interface StartOpencodeServerOptions {
   config: Record<string, unknown>
 }
 
-/**
- * `opencode serve`, started the way `@opencode-ai/sdk`'s `createOpencodeServer`
- * does it, but with the executable and environment supplied by the caller. The
- * SDK's version always spawns the bare `opencode` with `process.env`, which left
- * us patching the global PATH and env before every call — wrong for a library,
- * where the embedding app's process environment is not ours to rewrite.
- */
+/** Own an isolated V2 server and authenticate the client without logging its password. */
 export function startOpencodeServer(options: StartOpencodeServerOptions): Promise<OpencodeServer> {
   const args = ['serve', `--hostname=${options.hostname}`, `--port=${options.port}`]
+  const password = options.env.OPENCODE_PASSWORD || options.env.OPENCODE_SERVER_PASSWORD || randomBytes(32).toString('base64url')
   const proc = spawn(options.binary, args, {
-    env: { ...options.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(options.config) },
+    env: { ...options.env, OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: JSON.stringify(options.config) },
   })
   const stop = (): void => {
     if (proc.exitCode !== null || proc.signalCode !== null) return
@@ -36,6 +33,7 @@ export function startOpencodeServer(options: StartOpencodeServerOptions): Promis
   return new Promise<OpencodeServer>((resolve, reject) => {
     let output = ''
     let settled = false
+    let url: string | undefined
     const fail = (error: Error): void => {
       if (settled) return
       settled = true
@@ -51,15 +49,11 @@ export function startOpencodeServer(options: StartOpencodeServerOptions): Promis
       if (settled) return
       output += chunk.toString()
       for (const line of output.split('\n')) {
-        if (!line.startsWith('opencode server listening')) continue
-        const match = line.match(/on\s+(https?:\/\/[^\s]+)/)
-        if (!match) {
-          fail(new Error(`Failed to parse server url from output: ${line}`))
-          return
-        }
+        url ??= line.match(/^server listening on\s+(https?:\/\/[^\s]+)/)?.[1]
+        if (!url) continue
         settled = true
         clearTimeout(timer)
-        resolve({ url: match[1], close: stop })
+        resolve({ url, headers: { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` }, close: stop })
         return
       }
     })
@@ -67,7 +61,8 @@ export function startOpencodeServer(options: StartOpencodeServerOptions): Promis
       output += chunk.toString()
     })
     proc.on('exit', (code) => {
-      fail(new Error(`Server exited with code ${code}${output.trim() ? `\nServer output: ${output}` : ''}`))
+      const safeOutput = output.replace(/server password .*/g, 'server password [redacted]')
+      fail(new Error(`Server exited with code ${code}${safeOutput.trim() ? `\nServer output: ${safeOutput}` : ''}`))
     })
     proc.on('error', (error) => fail(error))
   })

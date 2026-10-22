@@ -14,6 +14,7 @@ import { ProviderIcon } from "@/components/editor/components/ModelSelectorPanel"
 import { providerLogoName } from "@/lib/provider-logos"
 import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import { MobileSheet } from "./MobileSheet"
+import { MobileSpecChatsList, type MobileSpecChatTarget } from "./MobileSpecChatsList"
 
 interface Provider {
   id: string
@@ -23,6 +24,8 @@ interface Provider {
 type ChatHistoryItem = ChatHistoryListItem
 
 interface MobileChatsScreenProps {
+  specId?: number
+  onOpenSpecChat: (target: MobileSpecChatTarget) => void
   keyboardOpen?: boolean
   /** Inbox deep-link: open this DB chat directly. Cleared via onDeepLinkConsumed. */
   openChatId?: number | null
@@ -62,7 +65,7 @@ const formatRelativeTime = (timestamp: number): string => {
  * the active workspace — otherwise switching workspace or reloading the web app
  * would show "No chats yet" even though past conversations exist.
  */
-export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
+export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
   const intl = useIntl()
   const contentOffset = useMobileContentOffset()
   const contentBottom = useMobileContentBottom()
@@ -96,12 +99,12 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
     workspaceId: currentWorkspaceId,
     tp: "chat",
     pageSize: CHATS_PAGE_SIZE,
-    enabled: openId === null,
+    enabled: specId == null && openId === null,
     staleTime: 0,
   })
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (!hasMore || loadingMore) return
+    if (specId != null || !hasMore || loadingMore) return
     const el = e.currentTarget
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) loadMore()
   }
@@ -266,12 +269,12 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
     )
   }
 
-  const isEmpty = !loading && liveTabs.length === 0 && history.length === 0
+  const isEmpty = specId == null && !loading && liveTabs.length === 0 && history.length === 0
 
   return (
     <div className="flex h-full flex-col">
       <MobileHeader
-        actions={[{
+        actions={specId != null ? [] : [{
           id: "new",
           label: intl.formatMessage({ id: "common.new", defaultMessage: "New" }),
           icon: <SquarePen className="size-[18px]" />,
@@ -284,6 +287,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
         <EmptyChats onNew={openPicker} topOffset={contentOffset} />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }} onScroll={handleScroll}>
+          {specId != null ? <MobileSpecChatsList key={specId} specId={specId} onOpenChat={onOpenSpecChat} /> : <>
           {liveTabs.map((tab) => (
             <button
               key={tab.id}
@@ -332,6 +336,7 @@ export function MobileChatsScreen({ keyboardOpen = false, openChatId, openChatTi
               ))}
             </>
           )}
+          </>}
         </div>
       )}
 

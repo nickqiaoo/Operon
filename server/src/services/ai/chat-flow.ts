@@ -158,8 +158,8 @@ export async function startChat(
   // was a chat: the app's servers would let it start workflows, delegate and
   // schedule from inside a run.
   const mcpServers = workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
-  // OperonSpec hint for a direct workspace chat (sourceChatId set): a light,
-  // always-on sizing rule and when to start a spec, delivered as session
+  // OperonSpec hint for a direct workspace chat (sourceChatId set): opt-in
+  // guidance delivered as session
   // instructions layered once onto the provider's system prompt. It used to ride every user message
   // as a <system-reminder>; that block was journaled with the message by every
   // stateful provider, so a long chat carried one copy per turn. sourceChatId

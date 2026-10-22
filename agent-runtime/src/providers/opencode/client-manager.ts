@@ -6,7 +6,7 @@ import type { OpencodeLogger } from './types.js'
 import type { RuntimeContext } from '../../context.js'
 import { startOpencodeServer, type OpencodeServer } from './server.js'
 
-type OpencodeClient = Awaited<ReturnType<typeof import('@opencode-ai/sdk/v2').createOpencodeClient>>
+export type OpencodeClient = import('@opencode/client').OpenCodeClient
 
 export interface ClientManagerOptions {
   hostname?: string
@@ -74,14 +74,20 @@ export class OpencodeClientManager {
   async listSkills(cwd?: string): Promise<Array<{ name: string; description: string }>> {
     const client = await this.getClient()
     try {
-      const result = await (
-        client as unknown as {
-          app: { skills: (payload: { directory?: string }) => Promise<{ data?: Array<{ name: string; description: string }> }> }
-        }
-      ).app.skills({ directory: cwd })
-      return result.data ?? []
+      const result = await client.skill.list({ location: { directory: cwd } })
+      return result.data.map((skill) => ({ name: skill.id, description: skill.description ?? '' }))
     } catch (error) {
       this.logger.warn(`Failed to list skills: ${extractErrorMessage(error)}`)
+      return []
+    }
+  }
+
+  async listCommands(cwd?: string): Promise<Array<{ name: string; description?: string }>> {
+    const client = await this.getClient()
+    try {
+      return (await client.command.list({ location: { directory: cwd } })).data
+    } catch (error) {
+      this.logger.warn(`Failed to list commands: ${extractErrorMessage(error)}`)
       return []
     }
   }
@@ -99,12 +105,11 @@ export class OpencodeClientManager {
   }
 
   private async initializeClient(): Promise<OpencodeClient> {
-    const { createOpencodeClient } = await import('@opencode-ai/sdk/v2')
+    const { OpenCode } = await import('@opencode/client')
 
     if (this.options.baseUrl) {
-      return createOpencodeClient({
+      return OpenCode.make({
         baseUrl: this.options.baseUrl,
-        directory: this.options.cwd,
       })
     }
 
@@ -124,24 +129,23 @@ export class OpencodeClientManager {
     try {
       this.server = await startOpencodeServer({
         binary: this.ctx.resolveBinary('opencode') ?? 'opencode',
-        // Keep large MCP catalogs behind OpenCode's execute/search interface.
-        // An explicit host setting can still opt out of this experiment.
-        env: { OPENCODE_EXPERIMENTAL_CODE_MODE: 'true', ...this.ctx.env() },
+        // V2 exposes MCP tools through Code Mode by default.
+        env: this.ctx.env(),
         hostname: this.options.hostname,
         port: this.options.port,
         timeout: this.options.serverTimeout,
         // Tags first-party MCP calls with the calling session (caller-identity.ts).
         // A server this process did not start lacks it, and those calls fail
         // with a clear error instead of reaching the wrong conversation.
-        config: { plugin: [writeOpencodeCallerPlugin()] },
+        config: { plugins: [writeOpencodeCallerPlugin()] },
       })
       // Recorded with this process as its owner, so a later launch can stop it
       // if we die without closing it, and leaves it alone while we run.
       this.serverPid = pidListeningOn(Number(new URL(this.server.url).port))
       recordServer(this.serverPid)
-      return createOpencodeClient({
+      return OpenCode.make({
         baseUrl: this.server.url,
-        directory: this.options.cwd,
+        headers: this.server.headers,
       })
     } catch (error) {
       const message = extractErrorMessage(error)

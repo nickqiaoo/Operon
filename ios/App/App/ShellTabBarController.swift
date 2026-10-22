@@ -1,6 +1,38 @@
 import UIKit
 import Capacitor
 
+/// Navigation bars decide overflow from `systemLayoutSizeFitting`, before any
+/// width constraint is applied. A `UIButton` reports its full title there, so a
+/// long Spec name measures at hundreds of points and UIKit folds the whole bar
+/// into the "…" menu. Cap every measurement the bar reads.
+private final class ContextSwitcherButton: UIButton {
+    private let maximumWidth: CGFloat = 220
+
+    override var intrinsicContentSize: CGSize {
+        capped(super.intrinsicContentSize)
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        capped(super.sizeThatFits(size))
+    }
+
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority
+    ) -> CGSize {
+        capped(super.systemLayoutSizeFitting(
+            targetSize,
+            withHorizontalFittingPriority: horizontalFittingPriority,
+            verticalFittingPriority: verticalFittingPriority
+        ))
+    }
+
+    private func capped(_ size: CGSize) -> CGSize {
+        CGSize(width: min(size.width, maximumWidth), height: size.height)
+    }
+}
+
 /// Root of the iOS app: the Capacitor web view filling the screen, with the
 /// system tab bar and navigation bar floating over it as a transparent
 /// overlay (`ShellChromeController`).
@@ -247,7 +279,7 @@ final class ShellChromeController: UINavigationController {
         config.image = UIImage(systemName: "chevron.down")
         config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 10)
         config.titleLineBreakMode = .byTruncatingTail
-        let button = UIButton(configuration: config)
+        let button = ContextSwitcherButton(configuration: config)
         button.titleLabel?.numberOfLines = 1
         button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
@@ -308,6 +340,7 @@ final class ShellChromeController: UINavigationController {
                 config.attributedTitle = name
             }
             leadingContextButton.configuration = config
+            leadingContextButton.accessibilityLabel = subtitle.map { "\(title) › \($0)" } ?? title
             item.leftBarButtonItem = UIBarButtonItem(customView: leadingContextButton)
         case let .segments(items, selected):
             if segmentIds != items.map(\.id) || segmentedControl.numberOfSegments != items.count {

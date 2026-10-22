@@ -121,13 +121,22 @@ describe('OpenCode Code Mode results plugin', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'operon-codemode-plugin-'))
     const file = path.join(dir, 'plugin.mjs')
     writeFileSync(file, OPENCODE_CALLER_PLUGIN_SOURCE)
-    const mod = (await import(pathToFileURL(file).href)) as { OperonCallerIdentity: (input: unknown) => Promise<Record<string, (input: unknown, output: unknown) => Promise<void>>> }
-    const hooks = await mod.OperonCallerIdentity({ client: { session: { get: async () => ({ data: {} }) } } })
-    const after = hooks['tool.execute.after']!
+    type Hook = (event: unknown) => Promise<void>
+    const mod = (await import(pathToFileURL(file).href)) as { default: { setup: (ctx: unknown) => Promise<void> } }
+    const hooks = new Map<string, Hook>()
+    await mod.default.setup({
+      session: { get: async () => ({}) },
+      tool: { hook: async (name: string, callback: Hook) => { hooks.set(name, callback) } },
+    })
+    const after = (input: { tool: string; sessionID: string; callID: string; args: unknown }, result: unknown) =>
+      hooks.get('execute.after')!({ tool: input.tool, sessionID: input.sessionID, id: input.callID, input: input.args, result })
 
     await after({ tool: 'read', sessionID: 's', callID: 'toolu_1', args: {} }, { title: '', output: 'direct', metadata: {} })
-    await after({ tool: 'github_list_issues', sessionID: 's', callID: 'call/1', args: { repo: 'x' } }, { content: [{ type: 'text', text: 'one' }, { type: 'image', data: '' }, { type: 'text', text: 'two' }] })
-    await after({ tool: 'github_get', sessionID: 's', callID: 'call/2', args: {} }, { content: [], structuredContent: { ok: true } })
+    await hooks.get('execute.before')!({ tool: 'execute', sessionID: 's', id: 'call', input: {} })
+    await after({ tool: 'github_list_issues', sessionID: 's', callID: 'call', args: { repo: 'x' } }, { content: [{ type: 'text', text: 'one' }, { type: 'image', data: '' }, { type: 'text', text: 'two' }] })
+    await after({ tool: 'github_get', sessionID: 's', callID: 'call', args: {} }, { content: [], structuredContent: { ok: true } })
+    await after({ tool: 'execute', sessionID: 's', callID: 'call', args: {} }, {})
+    await after({ tool: 'read', sessionID: 's', callID: 'call', args: {} }, { output: 'not nested' })
 
     const lines = readFileSync(path.join(dir, 'nested', 'call.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as NestedResult)
     expect(lines).toEqual([

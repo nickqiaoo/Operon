@@ -3,19 +3,7 @@ import UIKit
 
 /// The project → workspace picker as a system sheet (`UISheetPresentationController`,
 /// sized to its content, grabber; a floating glass card on iOS 26).
-///
-/// This is the one web bottom sheet redone natively, as the pilot: its content
-/// is a plain two-level list with no inputs and no async state, so the SwiftUI
-/// copy is small. The web `MobileContextSwitcher` stays for Android and the
-/// browser; both write the pick back through the same store action.
-///
-/// Layout: grouped grey ground, one white card per project. The card's first
-/// row is the project (folder glyph on a brand-tinted tile, bold name), the
-/// workspaces follow as indented rows; the active one is the only row in
-/// primary text and carries a brand-colored check. Deliberately not the stock
-/// `List`: with a single project the "Settings" look (section header + one
-/// grey inset row on a white ground) had no depth, and `Button` labels came
-/// out link-blue.
+/// Spec rows select a context; conversations appear on the Chats page.
 ///
 /// Data comes in over the plugin (`presentContextSheet`), the pick goes back
 /// as a `contextPicked` event. See `src/lib/native.ts`.
@@ -26,7 +14,12 @@ struct ContextSheetProject: Identifiable {
     }
     let id: Int
     let name: String
+    struct Spec: Identifiable {
+        let id: Int
+        let name: String
+    }
     let workspaces: [Workspace]
+    let specs: [Spec]
 }
 
 /// `--color-brand` from globals.css (light / dark).
@@ -42,8 +35,9 @@ struct ContextSheetView: View {
     let projects: [ContextSheetProject]
     let activeProjectId: Int?
     let activeWorkspaceId: Int?
-    /// `(projectId, workspaceId)`; `workspaceId` is nil for a project with no workspaces.
-    let onPick: (Int, Int?) -> Void
+    let activeSpecId: Int?
+    /// `(projectId, workspaceId, specId)`; selecting a Spec opens its Chats list.
+    let onPick: (Int, Int?, Int?) -> Void
 
     var body: some View {
         ScrollView {
@@ -75,7 +69,7 @@ struct ContextSheetView: View {
     private func projectCard(_ project: ContextSheetProject) -> some View {
         VStack(spacing: 0) {
             Button {
-                onPick(project.id, project.workspaces.first?.id)
+                onPick(project.id, project.workspaces.first?.id, nil)
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "folder.fill")
@@ -88,7 +82,7 @@ struct ContextSheetView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    if project.workspaces.isEmpty, project.id == activeProjectId {
+                    if activeSpecId == nil, project.workspaces.isEmpty, project.id == activeProjectId {
                         check
                     }
                 }
@@ -99,10 +93,10 @@ struct ContextSheetView: View {
             .buttonStyle(RowButtonStyle())
 
             ForEach(project.workspaces) { workspace in
-                let active = workspace.id == activeWorkspaceId
+                let active = activeSpecId == nil && workspace.id == activeWorkspaceId
                 Divider().padding(.leading, 54)
                 Button {
-                    onPick(project.id, workspace.id)
+                    onPick(project.id, workspace.id, nil)
                 } label: {
                     HStack(spacing: 12) {
                         Text(workspace.name)
@@ -118,6 +112,28 @@ struct ContextSheetView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(RowButtonStyle())
+            }
+            ForEach(project.specs) { spec in
+                Divider().padding(.leading, 54)
+                Button {
+                    onPick(project.id, nil, spec.id)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.text")
+                            .foregroundStyle(brand)
+                        Text(spec.name)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        Spacer(minLength: 0)
+                        if activeSpecId == spec.id { check }
+                    }
+                    .padding(.leading, 30)
+                    .padding(.trailing, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(RowButtonStyle())
+                .accessibilityAddTraits(activeSpecId == spec.id ? .isSelected : [])
             }
         }
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -148,7 +164,8 @@ extension ContextSheetView {
         projects: [ContextSheetProject],
         activeProjectId: Int?,
         activeWorkspaceId: Int?,
-        onPick: @escaping (Int, Int?) -> Void,
+        activeSpecId: Int?,
+        onPick: @escaping (Int, Int?, Int?) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         let dismisser = SheetDismisser()
@@ -158,13 +175,14 @@ extension ContextSheetView {
             projects: projects,
             activeProjectId: activeProjectId,
             activeWorkspaceId: activeWorkspaceId,
-            onPick: { projectId, workspaceId in
-                onPick(projectId, workspaceId)
+            activeSpecId: activeSpecId,
+            onPick: { projectId, workspaceId, specId in
+                onPick(projectId, workspaceId, specId)
                 dismisser.dismiss()
             }
         )
         // Title + per-project card (row + workspaces), plus paddings.
-        let rows = projects.reduce(0) { $0 + 1 + $1.workspaces.count }
+        let rows = projects.reduce(0) { $0 + 1 + $1.workspaces.count + $1.specs.count }
         let height = NativeSheet.titleHeight + CGFloat(rows) * NativeSheet.rowHeight
             + CGFloat(max(projects.count - 1, 0)) * 12 + (projects.isEmpty ? 76 : 0)
         NativeSheet.present(from: presenter, content: view, contentHeight: height, dismisser: dismisser, onDismiss: onDismiss)

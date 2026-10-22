@@ -58,20 +58,21 @@ export function resolveOpencodeCaller(sessionId: string): string | undefined {
  * conversation. A failed lookup is not cached, so a transient error does not pin
  * a child to itself.
  *
- * Written as a named function export, the original plugin shape: OpenCode
- * releases before the `export default { id, server }` form (2026-03) reject that
- * form, and newer ones still load a module with no default export this way.
+ * V2's plugin context exposes the session API and scoped tool hooks directly.
  */
 export const OPENCODE_CALLER_PLUGIN_SOURCE = `import { appendFile, mkdir } from "node:fs/promises"
 
 const ARG = ${JSON.stringify(OPENCODE_CALLER_ARG)}
-const PREFIXES = ${JSON.stringify(CALLER_ROUTED_SERVERS.map((name) => `${name}_`))}
+const PREFIXES = ${JSON.stringify(CALLER_ROUTED_SERVERS.flatMap((name) => [`${name}_`, `${name}.`]))}
 // Code Mode results, one JSON line per nested call, in a file per program ("execute" call).
 const NESTED_DIR = new URL("./nested/", import.meta.url)
 const MAX_RESULT = ${String(NESTED_RESULT_MAX_CHARS)}
 
-export const OperonCallerIdentity = async ({ client }) => {
+export default {
+  id: "operon.caller-identity",
+  async setup(ctx) {
   const roots = new Map()
+  const programs = new Set()
   const rootOf = async (sessionID) => {
     const walked = []
     let current = sessionID
@@ -84,8 +85,8 @@ export const OperonCallerIdentity = async ({ client }) => {
       walked.push(current)
       let parentID
       try {
-        const result = await client.session.get({ path: { id: current } })
-        parentID = result && result.data ? result.data.parentID : undefined
+        const result = await ctx.session.get({ sessionID: current })
+        parentID = result.parentID
       } catch {
         return current
       }
@@ -95,34 +96,38 @@ export const OperonCallerIdentity = async ({ client }) => {
     for (const id of walked) roots.set(id, current)
     return current
   }
-  return {
-    "tool.execute.before": async (input, output) => {
-      if (!PREFIXES.some((prefix) => input.tool.startsWith(prefix))) return
-      if (!output.args || typeof output.args !== "object") return
-      // Mutate in place: the same object is what the MCP call sends.
-      output.args[ARG] = await rootOf(input.sessionID)
-    },
-    // Code Mode runs MCP tools inside its execute tool, under call ids "<execute call>/<n>".
-    // Their results never reach the event stream; leave them where the host can read them.
-    "tool.execute.after": async (input, output) => {
-      const callID = typeof input.callID === "string" ? input.callID : ""
-      const slash = callID.lastIndexOf("/")
-      if (slash <= 0) return
-      const record = { tool: input.tool, args: input.args ?? {}, output: resultText(output) }
-      try {
-        await mkdir(NESTED_DIR, { recursive: true })
-        await appendFile(new URL(encodeURIComponent(callID.slice(0, slash)) + ".jsonl", NESTED_DIR), JSON.stringify(record) + "\\n")
-      } catch {
-        // The card falls back to no output; the program's own result still has it.
-      }
-    },
-  }
+  await ctx.tool.hook("execute.before", async (event) => {
+    if (event.tool === "execute") {
+      programs.add(event.sessionID + ":" + event.id)
+      return
+    }
+    if (!PREFIXES.some((prefix) => event.tool.startsWith(prefix))) return
+    if (!event.input || typeof event.input !== "object") return
+    event.input[ARG] = await rootOf(event.sessionID)
+  })
+  await ctx.tool.hook("execute.after", async (event) => {
+    const callID = typeof event.id === "string" ? event.id : ""
+    const key = event.sessionID + ":" + callID
+    if (event.tool === "execute") {
+      programs.delete(key)
+      return
+    }
+    // V2's nested hooks carry the outer execute id, rather than an id per child.
+    if (!callID || !programs.has(key)) return
+    const record = { tool: event.tool, args: event.input ?? {}, output: resultText(event.result) }
+    try {
+      await mkdir(NESTED_DIR, { recursive: true })
+      await appendFile(new URL(encodeURIComponent(callID) + ".jsonl", NESTED_DIR), JSON.stringify(record) + "\\n")
+    } catch {}
+  })
+  },
 }
 
 // An MCP result's text, or its structured content when it has no text.
 function resultText(output) {
   if (!output || typeof output !== "object") return ""
   if (typeof output.output === "string") return output.output.slice(0, MAX_RESULT)
+  if (typeof output.content === "string") return output.content.slice(0, MAX_RESULT)
   const texts = Array.isArray(output.content)
     ? output.content.filter((part) => part && part.type === "text" && typeof part.text === "string").map((part) => part.text)
     : []
@@ -140,9 +145,10 @@ export function opencodePluginDir(): string {
 export function writeOpencodeCallerPlugin(): string {
   const dir = opencodePluginDir()
   mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, 'operon-caller-identity.mjs')
+  const file = path.join(dir, 'index.js')
   writeFileSync(file, OPENCODE_CALLER_PLUGIN_SOURCE, 'utf8')
-  return pathToFileURL(file).href
+  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'operon-caller-identity', type: 'module', exports: './index.js' }), 'utf8')
+  return pathToFileURL(dir).href
 }
 
 /** Hide the injected argument from the tool input shown in the transcript. */

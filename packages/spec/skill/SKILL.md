@@ -1,6 +1,6 @@
 ---
 name: operon-spec
-description: Run a project-sized change as an OperonSpec — align with the user, then several agents from different model families design it in parallel, are judged and synthesized, and the user signs the design once. Use when a request crosses modules, moves ownership, or has more than one reasonable shape, or when the user invokes /operon-spec.
+description: Use only when the user invokes /operon-spec or explicitly asks to use OperonSpec. Align on the request, then start a background design workflow for the user to review and approve.
 ---
 
 <!-- OPERON_MANAGED_SPEC_SKILL -->
@@ -15,21 +15,7 @@ families design it, a judge on another family scores them, a lead synthesizes
 one design, a fresh "builder" checks it for gaps, and it is split into tickets.
 The user approves the design on the spec card.
 
-## 1. Size it first
-
-Before anything else, say the size in one plain line. The user can override it.
-
-| Size | When | Then |
-|---|---|---|
-| quick | everything that matters is already in the request | just do it |
-| small | one or two places, the approach is obvious | agree it in chat, then do it |
-| project | crosses modules, moves ownership, several reasonable shapes | this skill |
-
-If the user invoked /operon-spec, it is a project whatever it looks like. If they
-say "just do it", stop here and do it. If a small change grows mid-way, say so and
-step up.
-
-## 2. Align — interview until nothing is silently assumed
+## 1. Align — interview until nothing is silently assumed
 
 Your first message: one line saying they can skip the questions if they would
 rather you just start, and ONE open question about a concrete moment — "what's
@@ -60,7 +46,7 @@ You are done when the frontier is empty and the user confirms you understand.
 Then tell them what happens next — agents will design it in the background,
 roughly how long, and that they sign the design at the end — and ask to start.
 
-## 3. Start the spec
+## 2. Start the spec
 
 Call `start_spec(title, brief)` once they agree. The brief is the ONLY thing the
 designers will know about this conversation, so write it as if for a capable
@@ -88,7 +74,7 @@ agents from different families plus a judge from a third.
 `start_spec` returns immediately. Tell the user it has started and that they can
 watch every agent in the Workflow tab — then stop. Do not poll and do not wait.
 
-## 4. When the run reports back
+## 3. When the run reports back
 
 The run's result arrives in this chat as a `<workflow-result>` whose result has
 an `operonSpec` object. Do what its `next` says:

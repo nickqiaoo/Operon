@@ -61,29 +61,6 @@ export interface ToolStreamState {
   lastInput?: string
 }
 
-export interface ProviderListModel {
-  id?: string
-  name?: string
-  status?: string
-}
-
-export interface ProviderListItem {
-  id: string
-  name: string
-  models?: Record<string, ProviderListModel>
-}
-
-export interface ProviderListResponse {
-  data?: {
-    all?: ProviderListItem[]
-    connected?: string[]
-  }
-}
-
-export interface SkillListResponse {
-  data?: Array<{ name: string; description: string }>
-}
-
 export interface PermissionRequestInfo {
   id: string
   sessionID: string
