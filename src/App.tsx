@@ -25,6 +25,7 @@ import { SettingsPage } from "@/components/settings/SettingsPage"
 import { CronjobPage } from "@/components/cronjob/CronjobPage"
 import { PluginsPage } from "@/components/plugins/PluginsPage"
 import { BoardPage, type BoardPageView } from "@/components/channel/BoardPage"
+import { SpecPage } from "@/components/spec/SpecPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
@@ -40,6 +41,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
+import type { SpecChatRef } from '@shared/spec'
 import { OPEN_PLUGINS_PAGE_EVENT, OPEN_SCHEDULE_PAGE_EVENT, OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
 
 export default function App() {
@@ -53,9 +55,16 @@ export default function App() {
   // Deep-link target when a task notification opens the board: forwarded to
   // BoardPage → TasksPage to open that task's detail. Cleared once consumed.
   const [boardInitialTaskId, setBoardInitialTaskId] = useState<number | null>(null)
-  // The Assistant, the Inbox, and every project's Board / Channels take over center + right,
-  // next to the sidebar; null = the editor.
-  const [mainView, setMainView] = useState<'assistant' | 'inbox' | BoardPageView | null>(null)
+  // These pages take over the workbench; Spec keeps its panels and chat surface.
+  const [mainView, setMainView] = useState<'assistant' | 'inbox' | 'spec' | BoardPageView | null>(null)
+  const [activeSpec, setActiveSpec] = useState<{ taskId: number; projectId: number } | null>(null)
+  const [specChatIds, setSpecChatIds] = useState<ReadonlySet<string>>(() => new Set())
+  const openSpec = useCallback((taskId: number, projectId: number) => {
+    const currentTabId = useEditorStore.getState().activeTabId
+    if (currentTabId) setSpecChatIds((previous) => previous.has(currentTabId) ? previous : new Set([...previous, currentTabId]))
+    setActiveSpec({ taskId, projectId })
+    setMainView('spec')
+  }, [])
   const assistantOpen = mainView === 'assistant'
   const inboxOpen = mainView === 'inbox'
   const boardView = mainView === 'board' || mainView === 'channels' ? mainView : null
@@ -101,14 +110,37 @@ export default function App() {
   const handleToggleSidebar = useAppShellStore((s) => s.toggleSidebar)
 
   const leaveMainView = useCallback(() => setMainView(null), [])
+  const specFocusedTabId = useRef<string | null>(null)
+  const openWorkspace = useCallback((workspaceId: number) => {
+    void (async () => {
+      await loadProjects()
+      const project = useProjectStore.getState().projects.find((item) => item.workspaces.some((workspace) => workspace.id === workspaceId))
+      if (!project) return
+      setActiveWorkspace(workspaceId, project.id)
+      setWorkspace(workspaceId, project.id)
+      setMainView(null)
+    })().catch((error: unknown) => console.error('Could not open workspace:', error))
+  }, [loadProjects, setActiveWorkspace, setWorkspace])
+  const focusSpecWorkspace = useCallback((workspaceId: number | null, projectId: number) => {
+    setActiveWorkspace(workspaceId, projectId)
+    setWorkspace(workspaceId, projectId)
+    specFocusedTabId.current = useEditorStore.getState().activeTabId
+  }, [setActiveWorkspace, setWorkspace])
+  const focusSpecChat = useCallback((chat: SpecChatRef, projectId: number) => {
+    focusSpecWorkspace(chat.workspaceId, projectId)
+    const tabId = openChatTab(`chat:${chat.chatId}`, chat.title, undefined, chat.providerId ?? undefined, chat.subAgent || undefined)
+    setTabChatId(tabId, chat.chatId)
+    specFocusedTabId.current = tabId
+    setSpecChatIds((previous) => previous.has(tabId) ? previous : new Set([...previous, tabId]))
+  }, [focusSpecWorkspace, openChatTab, setTabChatId])
   // Switching to a tab from anywhere (Inbox, a card, a shortcut) means the
   // editor is wanted back, so it replaces the Assistant / Inbox view.
   const lastActiveTabIdRef = useRef(activeTabId)
   useEffect(() => {
     if (lastActiveTabIdRef.current === activeTabId) return
     lastActiveTabIdRef.current = activeTabId
-    setMainView(null)
-  }, [activeTabId])
+    if (mainView !== 'spec' || activeTabId !== specFocusedTabId.current) setMainView(null)
+  }, [activeTabId, mainView])
 
   // Keep the global inbox stream live for the whole session so the bell badge
   // updates even when the relevant chat/task tab is unmounted.
@@ -129,8 +161,7 @@ export default function App() {
         setActiveWorkspace(target.workspaceId, project?.id)
         setWorkspace(target.workspaceId, project?.id ?? null)
       }
-      const tabId = `chat:${target.chatId}`
-      openChatTab(tabId, target.title, undefined, undefined, target.subAgent || undefined)
+      const tabId = openChatTab(`chat:${target.chatId}`, target.title, undefined, undefined, target.subAgent || undefined)
       setTabChatId(tabId, target.chatId)
     },
     [projects, setActiveWorkspace, setWorkspace, openChatTab, setTabChatId],
@@ -244,9 +275,8 @@ export default function App() {
   // tab that opened them.
   const editorStripTabs = useMemo(() => tabs.filter((tab) => !tab.isSideChat), [tabs])
 
-  // Collect chat tabs from current workspace + actively streaming tabs from other workspaces.
-  // Only streaming inactive tabs stay mounted to preserve their SSE connections.
-  // Non-streaming inactive tabs are unmounted and reload history from DB when revisited.
+  // Keep Spec conversations mounted across workspace switches so the original
+  // chat, draft and live stream remain the same surface through both entrances.
   const allChatTabs = useMemo(() => {
     const currentKey = String(currentWorkspaceId ?? 'global')
     // Side chats render inside their right-panel tab, not here.
@@ -257,14 +287,14 @@ export default function App() {
     for (const [key, state] of Object.entries(workspaceStates)) {
       if (key === currentKey) continue
       for (const tab of state.tabs) {
-        if (tab.type === 'chat' && !tab.isSideChat && !currentIds.has(tab.id) && streamingTabIds.has(tab.id)) {
+        if (tab.type === 'chat' && !tab.isSideChat && !currentIds.has(tab.id) && (streamingTabIds.has(tab.id) || specChatIds.has(tab.id))) {
           inactiveTabs.push(tab)
         }
       }
     }
 
     return [...currentChatTabs, ...inactiveTabs]
-  }, [tabs, workspaceStates, currentWorkspaceId, streamingTabIds])
+  }, [tabs, workspaceStates, currentWorkspaceId, streamingTabIds, specChatIds])
 
   useEffect(() => {
     void loadProjects().catch((error) => {
@@ -350,6 +380,7 @@ export default function App() {
     : cronjobOpen ? 'cronjob'
     : inboxOpen ? 'inbox'
     : assistantOpen ? 'assistant'
+    : mainView === 'spec' ? 'spec'
     : boardView ? boardView
     : activeTab?.type ?? 'home'
   useEffect(() => { setAnalyticsScreen(analyticsScreen) }, [analyticsScreen])
@@ -444,7 +475,8 @@ export default function App() {
               boardActive={mainView === 'board'}
               channelsActive={mainView === 'channels'}
               onLeaveMainView={leaveMainView}
-              onOpenChat={openChat}
+              activeSpecId={mainView === 'spec' ? activeSpec?.taskId : null}
+              onOpenSpec={openSpec}
               onCollapse={handleToggleSidebar}
               collapsed={sidebarCollapsed}
             />
@@ -510,9 +542,17 @@ export default function App() {
                 </PageVisibleContext>
               </div>
             )}
-            <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && "hidden")}>
+            <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && mainView !== 'spec' && "hidden")}>
+            <PageVisibleContext value={!isPageOpen && (mainView === null || mainView === 'spec')}>
             <AppShell>
-              <div className="flex h-full min-h-0 flex-col">
+              <SpecPage
+                target={mainView === 'spec' ? activeSpec : null}
+                sidebarCollapsed={sidebarCollapsed}
+                onExpandSidebar={handleToggleSidebar}
+                onOpenWorkspace={openWorkspace}
+                onFocusWorkspace={focusSpecWorkspace}
+                onFocusChat={focusSpecChat}
+                workspaceHeader={<>
                 {/* Center header (workspace breadcrumbs). The whole row is a
                     drag-region so its empty space drags the window; the inline
                     TopBarControls are `no-drag` children (macOS honors that for
@@ -572,6 +612,8 @@ export default function App() {
                   onNewTerminal={handleNewTerminal}
                   onOpenChat={openChatTab}
                 />
+                </>}
+              >
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                   {/* Render chat tabs from ALL workspaces to keep streaming
                       alive across workspace switches */}
@@ -582,6 +624,7 @@ export default function App() {
                         key={tab.id}
                         className="absolute inset-0 bg-background"
                         aria-hidden={!isActive}
+                        inert={!isActive}
                         style={{
                           opacity: isActive ? 1 : 0,
                           zIndex: isActive ? 1 : 0,
@@ -591,7 +634,7 @@ export default function App() {
                         <ChatPanel
                           chatId={tab.id}
                           providerId={tab.providerId}
-                          visible={isActive && !isPageOpen && mainView === null}
+                          visible={isActive && !isPageOpen}
                         />
                       </div>
                     );
@@ -632,8 +675,9 @@ export default function App() {
                     </ConversationEmptyState>
                   )}
                 </div>
-              </div>
+              </SpecPage>
             </AppShell>
+            </PageVisibleContext>
             </div>
           </div>
         </div>

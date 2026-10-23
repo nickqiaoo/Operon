@@ -243,10 +243,15 @@ export const useEditorStore = create<EditorStore>()(
           (persistedChatId !== undefined && tab.chatId === persistedChatId))
     )
     if (existing) {
-      if (options) {
+      if (options || providerId !== undefined || isSubAgent !== undefined) {
         set({
-          tabs: state.tabs.map((t) => (t.id === existing.id ? { ...t, options: { ...t.options, ...options } } : t)),
-          activeTabId: options.background ? state.activeTabId : existing.id,
+          tabs: state.tabs.map((tab) => tab.id === existing.id ? {
+            ...tab,
+            ...(options ? { options: { ...tab.options, ...options } } : {}),
+            ...(providerId !== undefined ? { providerId } : {}),
+            ...(isSubAgent !== undefined ? { isSubAgent } : {}),
+          } : tab),
+          activeTabId: options?.background ? state.activeTabId : existing.id,
         })
       } else {
         set({ activeTabId: existing.id })

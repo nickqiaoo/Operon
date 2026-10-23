@@ -22,6 +22,7 @@ import { MobileTabBar, MOBILE_TABS, MOBILE_TAB_LABELS, isMobileTab, type MobileT
 import { MobileContextSwitcher } from "./MobileContextSwitcher"
 import { useProjectFilter } from "@/components/project/ProjectFilterSelect"
 import { MobileChatsScreen } from "./MobileChatsScreen"
+import { MobileSpecScreen } from "./MobileSpecScreen"
 import { MobileChannelScreen } from "./MobileChannelScreen"
 import { MobileReviewScreen } from "./MobileReviewScreen"
 import { MobileMoreScreen } from "./MobileMoreScreen"
@@ -70,7 +71,7 @@ export function MobileApp() {
     }
   }, [tab])
   const [switcherOpen, setSwitcherOpen] = useState(false)
-  const [selectedSpec, setSelectedSpec] = useState<{ id: number; projectId: number } | null>(null)
+  const [selectedSpec, setSelectedSpec] = useState<{ id: number; projectId: number; returnWorkspaceId: number | null; returnProjectId: number | null } | null>(null)
   // The Board tab spans every project; its header menu narrows it to one
   // instead of switching the workspace. Same filter as the desktop board.
   const [boardFilter, setBoardFilter] = useProjectFilter("operon.boardProjectFilter")
@@ -135,24 +136,24 @@ export function MobileApp() {
   const selectSpec = useCallback((projectId: number, specId: number) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     const workspace = project?.workspaces.find((w) => w.task?.id === specId)
+    const store = useProjectStore.getState()
+    setSelectedSpec((previous) => ({ id: specId, projectId, returnWorkspaceId: previous?.returnWorkspaceId ?? store.activeWorkspaceId, returnProjectId: previous?.returnProjectId ?? store.activeProjectId }))
     setActiveWorkspace(workspace?.id ?? null, projectId)
-    setSelectedSpec({ id: specId, projectId })
     setDeepLink(null)
     setTab("chats")
   }, [setActiveWorkspace])
 
   // The picker only selects context; sessions load on the Chats page.
   const openNativeContextSheet = useCallback(async () => {
+    // Android's current context sheet only supports workspaces. The shared
+    // sheet also exposes Specs, so use it until the native picker does too.
+    if (nativePlatform() === 'android') { setSwitcherOpen(true); return }
     const store = useProjectStore.getState()
     try {
       await NativeShell.presentContextSheet({
         title: intl.formatMessage({ id: "mobile.context.title", defaultMessage: "Switch project" }),
         emptyText: intl.formatMessage({ id: "mobile.context.empty", defaultMessage: "No projects yet." }),
         projects: store.projects.map((project) => {
-          if (nativePlatform() !== 'ios') return {
-            id: project.id, name: project.name,
-            workspaces: project.workspaces.map(({ id, name }) => ({ id, name })),
-          }
           const groups = contextProjectGroups(project, store.hiddenSpecIds, store.shownSpecIds)
           return {
             id: project.id, name: project.name,
@@ -260,7 +261,10 @@ export function MobileApp() {
         if (action.startsWith("segment:")) spec?.segments?.onSelect(action.slice("segment:".length))
         else if (action.startsWith("action:")) spec?.actions?.find((a) => a.id === action.slice("action:".length))?.onClick()
         else if (action.startsWith("menu:")) spec?.menu?.onSelect(action.slice("menu:".length))
-        else if (action === "context") void openNativeContextSheet()
+        else if (action === "context") {
+          if (spec?.navigation) spec.navigation.onTitlePress()
+          else void openNativeContextSheet()
+        }
         else if (action === "inbox") void openNativeInbox().then((ok) => { if (!ok) setNativeInboxOpen(true) })
         // Back closes whatever registered most recently (the open conversation,
         // or a sheet over it) — same stack the Android hardware button uses.
@@ -559,6 +563,7 @@ export function MobileApp() {
   const publishHeader = useCallback((owner: object, spec: MobileHeaderSpec) => {
     headerRef.current = { owner, spec }
     setHeaderKey(JSON.stringify({
+      navigation: spec.navigation && { title: spec.navigation.title, subtitle: spec.navigation.subtitle },
       segments: spec.segments && { items: spec.segments.items, selected: spec.segments.selected },
       menu: spec.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: spec.menu.nodes },
       actions: spec.actions?.map((a) => [a.id, a.symbol, a.label]) ?? [],
@@ -597,13 +602,14 @@ export function MobileApp() {
       ).catch(() => {})
       return
     }
-    const spec = nativeHeader && !immersive && headerKey != null ? headerRef.current?.spec ?? null : null
+    const spec = nativeHeader && headerKey != null ? headerRef.current?.spec ?? null : null
     let header: NativeTopBarHeader | undefined
     // A list keeps its context/inbox controls while the page header registers
     // after a context switch. Only immersive pages hide the native header.
-    if (nativeHeader && !immersive) {
+    if (nativeHeader && (!immersive || spec?.navigation)) {
       header = {
-        leading: spec?.segments
+        back: spec?.navigation != null,
+        leading: spec?.navigation ? { kind: "context", title: spec.navigation.title, subtitle: spec.navigation.subtitle } : spec?.segments
           ? { kind: "segments", items: spec.segments.items.map((i) => ({ id: i.id, title: i.label })), selected: spec.segments.selected }
           : { kind: "context", title: topBarTitle, subtitle: topBarSubtitle },
         // A system pull-down, picked in place.
@@ -612,7 +618,7 @@ export function MobileApp() {
       }
     }
     void NativeShell.setTopBar({
-      mode: immersive && tab === "chats" ? "back" : header ? "header" : "hidden",
+      mode: header ? "header" : immersive && tab === "chats" ? "back" : "hidden",
       title: topBarTitle,
       subtitle: topBarSubtitle,
       unread: inboxUnread,
@@ -702,10 +708,21 @@ export function MobileApp() {
           paddingBottom: nativeTabBar && tabBarVisible && (!tabBarFloats || tab === "assistant") ? `${nativeTabBarHeight}px` : undefined,
         }}
       >
-        {tab === "chats" && (
+        {tab === "chats" && selectedSpec && <MobileSpecScreen
+          key={selectedSpec.id}
+          taskId={selectedSpec.id}
+          projectId={selectedSpec.projectId}
+          keyboardOpen={keyboardOpen}
+          onImmersiveChange={setImmersive}
+          onExit={() => {
+            setActiveWorkspace(selectedSpec.returnWorkspaceId, selectedSpec.returnProjectId)
+            setSelectedSpec(null)
+          }}
+          onOpenWorkspace={(workspaceId) => selectWorkspace(selectedSpec.projectId, workspaceId)}
+        />}
+        {tab === "chats" && !selectedSpec && (
           <MobileChatsScreen
-            key={selectedSpec ? `spec:${selectedSpec.id}` : `workspace:${activeWorkspaceId}`}
-            specId={selectedSpec?.id}
+            key={`workspace:${activeWorkspaceId}`}
             onOpenSpecChat={openContextChat}
             keyboardOpen={keyboardOpen}
             openChatId={deepLink?.chatId ?? null}

@@ -74,7 +74,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
      * start; a pop-up menu, the page's actions and the bell at the end. Taps
      * come back as `context`, `segment:<id>`, `menu:<id>`, `action:<id>`, `inbox`.
      */
-    data class HeaderSpec(val leading: Leading, val menu: Menu?, val actions: List<Action>) {
+    data class HeaderSpec(val leading: Leading, val menu: Menu?, val actions: List<Action>, val back: Boolean = false) {
         sealed class Leading {
             data class Context(val title: String, val subtitle: String?) : Leading()
             data class Segments(val items: List<Pair<String, String>>, val selected: String) : Leading()
@@ -440,6 +440,10 @@ class ShellChrome(private val activity: AppCompatActivity) {
                 topBarDivider?.visibility = View.VISIBLE
                 bar.navigationIcon = null
                 val header = topBarHeader
+                if (header?.back == true) {
+                    bar.navigationIcon = tinted(R.drawable.ic_arrow_left)
+                    bar.navigationContentDescription = activity.getString(R.string.operon_back)
+                }
                 when (val leading = header?.leading) {
                     is HeaderSpec.Leading.Context -> {
                         button.visibility = View.VISIBLE
@@ -459,7 +463,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
                 header?.actions?.forEach { action ->
                     addItem(bar, actions, "action:${action.id}", action.label, tinted(iconFor(action.symbol)))
                 }
-                addBell(bar, actions)
+                if (header?.back != true) addBell(bar, actions)
             }
         }
         menuActions = actions

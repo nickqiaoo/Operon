@@ -51,3 +51,25 @@ export function sidebarSpecShortcuts(project: Project, shownIds: readonly number
     !project.workspaces.some((workspace) => workspace.task?.id === spec.id),
   )
 }
+
+/** Directory navigation and task navigation have separate identities. */
+export function projectSidebarEntries(project: Project, shownIds: readonly number[], hiddenIds: readonly number[]) {
+  const specsById = new Map((project.specs ?? []).map((spec) => [spec.id, spec]))
+  const withWorkspace = new Set<number>()
+  for (const workspace of project.workspaces) {
+    if (workspace.task?.specStage != null) {
+      specsById.set(workspace.task.id, workspace.task)
+      withWorkspace.add(workspace.task.id)
+    }
+  }
+  return {
+    workspaces: project.workspaces.filter((workspace) =>
+      workspace.task?.specStage == null &&
+      (workspace.task?.parentTaskId == null || !specsById.has(workspace.task.parentTaskId)),
+    ),
+    specs: [...specsById.values()].filter((spec) =>
+      !hiddenIds.includes(spec.id) && spec.archivedAt == null &&
+      (withWorkspace.has(spec.id) || shownIds.includes(spec.id)),
+    ),
+  }
+}

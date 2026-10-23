@@ -265,6 +265,7 @@ final class ShellChromeController: UINavigationController {
         let leading: Leading
         let menu: Menu?
         let actions: [Action]
+        var back = false
     }
 
     /// The leading project › workspace switcher: left-aligned, as wide as its text.
@@ -325,6 +326,7 @@ final class ShellChromeController: UINavigationController {
 
     private func applyHeader(_ spec: HeaderSpec, unread: Bool, to item: UINavigationItem) {
         item.titleView = nil
+        item.leftBarButtonItems = nil
         switch spec.leading {
         case let .context(title, subtitle):
             var config = leadingContextButton.configuration ?? .plain()
@@ -359,13 +361,22 @@ final class ShellChromeController: UINavigationController {
             item.leftBarButtonItem = segmentsItem
         }
 
+        if spec.back {
+            // Reuse the context capsule as the conversation switcher. Keeping
+            // it in titleView lets UIKit truncate it between the back/action items.
+            item.titleView = leadingContextButton
+            let back = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("back") })
+            back.accessibilityLabel = "Back"
+            item.leftBarButtonItem = back
+        }
+
         // Right to left: the bell outermost, then the page's actions, then the menu.
         let bell = UIBarButtonItem(
             image: UIImage(systemName: unread ? "bell.badge" : "bell"),
             primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("inbox") }
         )
         bell.accessibilityLabel = "Inbox"
-        var trailing: [UIBarButtonItem] = [bell]
+        var trailing: [UIBarButtonItem] = spec.back ? [] : [bell]
         trailing.append(contentsOf: spec.actions.reversed().map(actionItem))
         if let menu = spec.menu, !menu.nodes.isEmpty {
             // A system pull-down: picked in place, the current choices ticked.

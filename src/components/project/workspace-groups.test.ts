@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Project, Workspace } from "@/stores/project-store"
-import { groupSpecWorkspaces, sidebarSpecShortcuts } from "./workspace-groups"
+import { groupSpecWorkspaces, sidebarSpecShortcuts, projectSidebarEntries } from "./workspace-groups"
 
 const ws = (id: number, task?: Workspace["task"]): Workspace => ({
   id,
@@ -77,5 +77,35 @@ describe("completed spec shortcuts", () => {
     expect(sidebarSpecShortcuts({ ...project, specs: [{ ...done, archivedAt: 100 }] }, [10], [])).toEqual([])
     expect(sidebarSpecShortcuts({ ...project, workspaces: [ws(2, done)] }, [10], [])).toEqual([])
     expect(project.workspaces).toEqual([])
+  })
+})
+
+describe('project navigation', () => {
+  const project = (workspaces: Workspace[], specs: NonNullable<Project['specs']> = []): Project => ({
+    id: 1, name: 'Test', rootPath: '/repo', createdAt: 0, updatedAt: 0, workspaces, specs,
+  })
+
+  it('separates directories from specs and their execution worktrees', () => {
+    const spec = task(10, 7, { specStage: 'building' })
+    const entries = projectSidebarEntries(project([ws(1), ws(2, spec), ws(3, task(11, 8, { parentTaskId: 10 })), ws(4, task(12, 9))], [spec]), [], [])
+    expect(entries.workspaces.map((workspace) => workspace.id)).toEqual([1, 4])
+    expect(entries.specs).toEqual([spec])
+  })
+
+  it('keeps execution worktrees out of directory navigation after the spec workspace is reclaimed or hidden', () => {
+    const spec = task(10, 7, { specStage: 'stopped' })
+    const data = project([ws(1), ws(3, task(11, 8, { parentTaskId: 10 }))], [spec])
+    expect(projectSidebarEntries(data, [10], []).specs).toEqual([spec])
+    const hidden = projectSidebarEntries(data, [10], [10])
+    expect(hidden.specs).toEqual([])
+    expect(hidden.workspaces.map((workspace) => workspace.id)).toEqual([1])
+  })
+
+  it('restores an explicitly shown completed spec without requiring a worktree', () => {
+    const spec = task(10, 7, { specStage: 'done', status: 'done' })
+    const data = project([ws(1)], [spec])
+    expect(projectSidebarEntries(data, [], []).specs).toEqual([])
+    expect(projectSidebarEntries(data, [10], []).specs).toEqual([spec])
+    expect(projectSidebarEntries(project([ws(1)], [{ ...spec, archivedAt: 100 }]), [10], []).specs).toEqual([])
   })
 })

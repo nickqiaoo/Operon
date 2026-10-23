@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-10-23
+
+### Changed
+
+- The sidebar separates Workspaces and Specs. Specs open a dedicated page with Overview, Discussion, Sessions and Changes; Board entries keep their task detail view.
+- Discussion opens the conversation that created the Spec, while Sessions supports continuing agent conversations with the normal chat, file and diff tools.
+- Spec sessions are grouped by phase, show provider avatars and label the coordinating conversation as Coordinator.
+- On mobile, open Specs from the project picker, switch conversations from the title and return to the session list. iOS and Android use the native back button and conversation title.
+
+### Fixed
+
+- Discussion drafts survive switching between Spec sections and conversations.
+- Spec chats, file reviews and annotations use their own workspace context, including conversations whose execution workspaces have been removed.
+- Hidden conversations no longer consume annotation requests or clear unread state, and switching Specs does not show the previous Spec's response.
+
 ## [1.4.9] - 2026-10-23
 
 ### Changed

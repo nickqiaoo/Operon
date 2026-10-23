@@ -64,6 +64,15 @@ describe("editor chat tab identity", () => {
     expect(useEditorStore.getState().openChatTab("chat:42", "History row")).toBe("chat:42")
   })
 
+  it('keeps the original tab and marks a reused Spec agent conversation with its provider and role', () => {
+    useEditorStore.setState({ tabs: [chatTab('chat:original-agent', 42)], activeTabId: 'chat:original-agent' })
+    const id = useEditorStore.getState().openChatTab('chat:42', 'Spec session', undefined, 'codex', true)
+    expect(id).toBe('chat:original-agent')
+    expect(useEditorStore.getState().tabs).toEqual([
+      expect.objectContaining({ id, chatId: 42, providerId: 'codex', isSubAgent: true, title: 'Conversation' }),
+    ])
+  })
+
   it("records the persisted chat id when opening a history-style tab id", () => {
     useEditorStore.getState().openChatTab("chat:42", "Inbox notification")
 

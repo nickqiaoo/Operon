@@ -1,9 +1,7 @@
 import { fileCitationsToText } from '@/lib/file-citation'
-import { ProviderIcon } from '@/components/icons/ProviderLabel'
-import { providerLogoSrc } from '@/lib/provider-logos'
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, ChevronRight, CircleHelp, Folder, FolderOpen, GitBranch, ScrollText, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, ScrollText, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
@@ -20,8 +18,7 @@ import { useStreamingStore } from "@/stores/streaming-store"
 import { useInboxStore } from "@/stores/inbox-store"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
-import { groupSpecWorkspaces, sidebarSpecShortcuts } from "./workspace-groups"
-import { SpecSidebarSessions } from "./SpecSidebarSessions"
+import { projectSidebarEntries } from "./workspace-groups"
 
 type GitWorktreeEntry = {
   path: string
@@ -40,8 +37,8 @@ interface ProjectItemProps {
   workspaceDiffStats?: Record<string, WorkspaceDiffStat>
   streamingCounts?: Record<number, number>
   unseenCounts?: Record<number, number>
-  /** Opens a conversation in its own workspace — a spec's chat. */
-  onOpenChat?: (target: { chatId: number; workspaceId?: number; title?: string }) => void
+  activeSpecId?: number | null
+  onOpenSpec?: (taskId: number, projectId: number) => void
 }
 
 const getBasename = (filePath: string) => {
@@ -93,20 +90,18 @@ function ProjectItem({
   workspaceDiffStats,
   streamingCounts,
   unseenCounts,
-  onOpenChat,
+  activeSpecId,
+  onOpenSpec,
 }: ProjectItemProps) {
   const pinned = project.pinnedAt != null
   const collapsed = useProjectStore((s) => s.collapsedProjectIds.includes(project.id))
   const ProjectIcon = collapsed ? Folder : FolderOpen
   const setProjectCollapsed = useProjectStore((s) => s.setProjectCollapsed)
-  const containsActiveWorkspace = project.workspaces.some((workspace) => workspace.id === activeWorkspaceId)
+  const containsActiveWorkspace = project.workspaces.some((workspace) => workspace.id === activeWorkspaceId) || project.specs?.some((spec) => spec.id === activeSpecId) || project.workspaces.some((workspace) => workspace.task?.id === activeSpecId)
   const pinLabel = pinned ? "Unpin" : "Pin to top"
   const hiddenSpecIds = useProjectStore((s) => s.hiddenSpecIds)
   const shownSpecIds = useProjectStore((s) => s.shownSpecIds)
-  const groups = useMemo(() => groupSpecWorkspaces(project.workspaces, hiddenSpecIds), [project.workspaces, hiddenSpecIds])
-  const shortcuts = sidebarSpecShortcuts(project, shownSpecIds, hiddenSpecIds)
-  // Specs the user unfolded; folded by default, so a project with specs stays a short list.
-  const [openSpecs, setOpenSpecs] = useState<ReadonlySet<number>>(() => new Set())
+  const entries = projectSidebarEntries(project, shownSpecIds, hiddenSpecIds)
   return (
     <Collapsible
       open={!collapsed}
@@ -179,130 +174,65 @@ function ProjectItem({
         </div>
       )}
       <CollapsibleContent>
-        {project.workspaces.length === 0 && shortcuts.length === 0 ? (
-          <div className="rounded-xl bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
-            No workspaces yet.
+        {entries.workspaces.length > 0 && (
+          <div className="pb-1">
+            <div className="px-6 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/65">Workspaces</div>
+            {[...entries.workspaces]
+              .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
+              .map((workspace) => (
+                <WorkspaceRow
+                  key={workspace.id}
+                  label={workspace.name}
+                  title={workspace.worktreePath}
+                  isActive={activeWorkspaceId === workspace.id}
+                  stats={workspaceDiffStats?.[workspace.worktreePath]}
+                  streaming={streamingCounts?.[workspace.id] ?? 0}
+                  unseen={unseenCounts?.[workspace.id] ?? 0}
+                  onSelect={() => onSelectWorkspace(workspace.id, project.id)}
+                />
+              ))}
           </div>
-        ) : (
-          // The project folder's own checkout goes first; the rest are worktrees
-          // operon placed under ~/.operon/worktrees. Every row is a branch, so
-          // the icon is a branch — the folder icon belongs to the project. A
-          // spec's ticket worktrees sit under the spec's own row.
-          [...groups.top]
-            .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
-            .map((workspace) => {
-              const tickets = groups.tickets.get(workspace.id) ?? []
-              const spec = workspace.task?.specStage != null ? workspace.task : null
-              const rowProps = (w: Workspace) => ({
-                isActive: activeWorkspaceId === w.id,
-                stats: workspaceDiffStats?.[w.worktreePath],
-                streaming: streamingCounts?.[w.id] ?? 0,
-                unseen: unseenCounts?.[w.id] ?? 0,
-                onSelect: () => onSelectWorkspace(w.id, project.id),
-              })
-              const children = tickets.length
-              const open = openSpecs.has(workspace.id)
-              const toggleSpec = () =>
-                setOpenSpecs((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(workspace.id)) next.delete(workspace.id)
-                  else next.add(workspace.id)
-                  return next
-                })
-              const own = rowProps(workspace)
-              // Folded, the spec's row carries what its tickets have going on.
-              const folded = open ? [] : tickets.map(rowProps)
-              return (
-                <Fragment key={workspace.id}>
-                  <WorkspaceRow
-                    {...own}
-                    onSelect={spec ? toggleSpec : own.onSelect}
-                    streaming={own.streaming + folded.reduce((n, r) => n + r.streaming, 0)}
-                    unseen={own.unseen + folded.reduce((n, r) => n + r.unseen, 0)}
-                    label={spec ? spec.title : workspace.name}
-                    title={spec ? `#${spec.number} · ${workspace.name}` : workspace.name}
-                    spec={spec != null}
-                    toggle={
-                      spec || children > 0
-                        ? {
-                            open,
-                            count: spec ? undefined : children,
-                            onToggle: toggleSpec,
-                          }
-                        : undefined
-                    }
-                  />
-                  {open && spec && onOpenChat ? (
-                    <SpecSidebarSessions taskId={spec.id} onOpenChat={onOpenChat} />
-                  ) : open ? (
-                    tickets.map((ticket) => (
-                      <WorkspaceRow
-                        key={ticket.id}
-                        {...rowProps(ticket)}
-                        nested
-                        dot={TICKET_DOT[ticket.task?.status ?? ""]}
-                        providerId={ticket.task?.providerId}
-                        label={ticket.task ? `#${ticket.task.number} ${ticket.task.title}` : ticket.name}
-                        title={ticket.name}
-                      />
-                    ))
-                  ) : null}
-                </Fragment>
-              )
-            })
         )}
-        {shortcuts.map((spec) => <SpecShortcut key={spec.id} spec={spec} onOpenChat={onOpenChat} />)}
+        {entries.specs.length > 0 && (
+          <div className="pb-1">
+            <div className="px-6 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/65">Specs</div>
+            {entries.specs.map((spec) => (
+              <SpecRow key={spec.id} spec={spec} active={activeSpecId === spec.id} onSelect={() => onOpenSpec?.(spec.id, project.id)} />
+            ))}
+          </div>
+        )}
+        {entries.workspaces.length === 0 && entries.specs.length === 0 && (
+          <div className="px-6 py-3 text-xs text-muted-foreground">No workspaces yet.</div>
+        )}
       </CollapsibleContent>
     </Collapsible>
   )
 }
 
-/** A history shortcut needs no workspace and never reopens execution. */
-function SpecShortcut({ spec, onOpenChat }: { spec: WorkspaceTask; onOpenChat?: ProjectItemProps['onOpenChat'] }) {
-  const [open, setOpen] = useState(false)
-  const toggle = () => setOpen((value) => !value)
+function SpecRow({ spec, active, onSelect }: { spec: WorkspaceTask; active: boolean; onSelect: () => void }) {
+  const needsInput = ['awaiting_answers', 'awaiting_design', 'awaiting_signoff'].includes(spec.specStage ?? '')
+  const running = ['grounding', 'designing', 'building', 'reviewing', 'integrating'].includes(spec.specStage ?? '')
+  const status = spec.specStage === 'awaiting_answers' ? 'Needs input' : needsInput ? 'Needs review' : running ? 'Running' : spec.specStage === 'done' ? 'Done' : spec.specStage === 'failed' ? 'Failed' : 'Stopped'
   return (
-    <>
-      <WorkspaceRow
-        label={spec.title}
-        title={`#${spec.number} · ${spec.title}`}
-        spec
-        isActive={false}
-        streaming={0}
-        unseen={0}
-        onSelect={toggle}
-        toggle={{ open, onToggle: toggle }}
-      />
-      {open && onOpenChat && <SpecSidebarSessions taskId={spec.id} onOpenChat={onOpenChat} />}
-    </>
+    <button
+      type="button"
+      data-testid={`sidebar-spec-${spec.id}`}
+      aria-current={active ? 'page' : undefined}
+      onClick={onSelect}
+      title={`Spec #${spec.number} · ${spec.title} · ${status}`}
+      className={cn(
+        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
+        active && 'bg-row-selected hover:bg-row-selected',
+      )}
+    >
+      <ScrollText className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+      <span className={cn('min-w-0 flex-1 truncate text-sm', active ? 'font-semibold text-foreground' : 'font-medium text-foreground/70')}>{fileCitationsToText(spec.title)}</span>
+      <span className={cn('shrink-0 text-[10px]', needsInput ? 'text-status-warn' : 'text-muted-foreground')}>{status}</span>
+    </button>
   )
 }
 
-/** A ticket's dot by its status; anything else (waiting) is grey. */
-const TICKET_DOT: Record<string, string> = {
-  in_progress: "bg-status-info",
-  in_review: "bg-status-warn",
-  done: "bg-status-ok",
-}
-/**
- * One workspace in the project's list. A spec's row shows the spec's title and
- * can fold its tickets away; a ticket's row sits indented under it.
- */
-function WorkspaceRow({
-  label,
-  title,
-  isActive,
-  stats,
-  streaming,
-  unseen,
-  onSelect,
-  spec,
-  nested,
-  dot,
-  providerId,
-  finished,
-  toggle,
-}: {
+function WorkspaceRow({ label, title, isActive, stats, streaming, unseen, onSelect }: {
   label: string
   title: string
   isActive: boolean
@@ -310,87 +240,29 @@ function WorkspaceRow({
   streaming: number
   unseen: number
   onSelect: () => void
-  spec?: boolean
-  nested?: boolean
-  /** A nested row's dot colour class; grey when unset. */
-  dot?: string
-  providerId?: string | null
-  /** A ticket that already landed: dimmed, it opens its last session. */
-  finished?: boolean
-  toggle?: { open: boolean; count?: number; onToggle: () => void }
 }) {
-  const badge = streaming + unseen
-  const Icon = spec ? ScrollText : GitBranch
   return (
-    <div
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={isActive ? 'page' : undefined}
+      title={title}
       className={cn(
-        "group/ws relative flex w-full items-center overflow-hidden rounded-lg transition-colors duration-150 hover:bg-row-hover hover:text-foreground",
-        // Selection is a plain fill — no border, no tint. `tint-muted`
-        // only cleared the sidebar by ~9 levels and skewed blue, so the
-        // block read as a smudge; a neutral 7% of the foreground lands
-        // ~15 levels down and stays right in dark mode and under every
-        // UI theme, since it composites against whatever the surface is.
-        isActive && "bg-row-selected text-foreground shadow-none hover:bg-row-selected",
-        streaming > 0 && "animate-shimmer-sweep"
+        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
+        isActive && 'bg-row-selected hover:bg-row-selected',
+        streaming > 0 && 'animate-shimmer-sweep',
       )}
     >
-      <button
-        type="button"
-        onClick={toggle ? toggle.onToggle : onSelect}
-        aria-expanded={toggle?.open}
-        title={title}
-        className={cn(
-          // Align the branch icon with the project name; keep the fill full width.
-          "relative z-[1] flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg bg-transparent py-1 pr-3 text-left [@media(pointer:coarse)]:py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
-          nested ? "pl-11" : "pl-6"
-        )}
-      >
-        {nested ? (
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            {providerId && providerLogoSrc(providerId) ? (
-              <ProviderIcon id={providerId} size={14} />
-            ) : (
-              <span className={cn("size-1.5 rounded-full", dot ?? "bg-muted-foreground/40")} />
-            )}
-          </span>
-        ) : (
-          <Icon className={cn("size-4 shrink-0 text-muted-foreground", isActive && "text-tint")} strokeWidth={isActive ? 2 : 1.5} />
-        )}
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate",
-            nested ? "text-[13px]" : "text-sm",
-            isActive ? "font-semibold text-foreground" : finished ? "font-medium text-muted-foreground" : "font-medium text-foreground/70"
-          )}
-        >
-          {fileCitationsToText(label)}
-        </span>
-
-        {stats && (stats.additions > 0 || stats.deletions > 0) && (
-          <span className="shrink-0 text-[11px] font-mono tabular-nums font-normal opacity-80">
-            {stats.additions > 0 && <span className="text-diff-add">+{stats.additions}</span>}
-            {stats.deletions > 0 && <span className="text-diff-remove ml-0.5">-{stats.deletions}</span>}
-          </span>
-        )}
-        {toggle && !spec && (
-          <span aria-hidden className="flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-muted-foreground">
-            {!toggle.open && toggle.count}
-            <ChevronRight className={cn("size-3 transition-transform duration-150", toggle.open && "rotate-90")} strokeWidth={1.5} />
-          </span>
-        )}
-      </button>
-      {/* Keep the unread badge at the row's right edge. */}
-      {badge > 0 && (
-        <span
-          className={cn(
-            "flex h-5 shrink-0 items-center pl-1 pr-4 text-[11px] font-medium tabular-nums leading-none",
-            streaming > 0 ? "text-status-info" : "text-status-warn"
-          )}
-        >
-          {badge}
+      <GitBranch className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+      <span className={cn('min-w-0 flex-1 truncate text-sm', isActive ? 'font-semibold text-foreground' : 'font-medium text-foreground/70')}>{fileCitationsToText(label)}</span>
+      {stats && (stats.additions > 0 || stats.deletions > 0) && (
+        <span className="shrink-0 font-mono text-[11px] tabular-nums opacity-80">
+          {stats.additions > 0 && <span className="text-diff-add">+{stats.additions}</span>}
+          {stats.deletions > 0 && <span className="ml-0.5 text-diff-remove">-{stats.deletions}</span>}
         </span>
       )}
-    </div>
+      {streaming + unseen > 0 && <span className="shrink-0 text-[11px] tabular-nums text-status-info">{streaming + unseen}</span>}
+    </button>
   )
 }
 
@@ -435,13 +307,13 @@ interface ProjectSidebarProps {
   channelsActive?: boolean
   /** Picking a workspace leaves the Assistant / Inbox view. */
   onLeaveMainView?: () => void
-  /** Opens a conversation in its workspace — a spec's chat. */
-  onOpenChat?: (target: { chatId: number; workspaceId?: number; title?: string }) => void
+  activeSpecId?: number | null
+  onOpenSpec?: (taskId: number, projectId: number) => void
   onCollapse?: () => void
   collapsed?: boolean
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, onOpenChat, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, activeSpecId, onOpenSpec, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
@@ -677,7 +549,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       {/* Secondary Header */}
       <div className="h-9 px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 heading-section">
-          <span><FormattedMessage id="sidebar.workspaces" defaultMessage="Workspaces" /></span>
+          <span>Projects</span>
         </div>
         {canAddProject && (
           <Button
@@ -714,14 +586,15 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                   project={project}
                   onSelectWorkspace={handleSelectWorkspace}
                   // Only one place is "current": while the Assistant is showing, no workspace is.
-                  activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive ? null : activeWorkspaceId}
+                  activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
                   onAddWorkspace={handleOpenAddWorkspace}
                   onTogglePin={handleTogglePin}
                   error={projectErrors[String(project.id)] ?? null}
                   workspaceDiffStats={workspaceDiffStats}
                   streamingCounts={streamingCounts}
                   unseenCounts={unseenCounts}
-                  onOpenChat={onOpenChat}
+                  activeSpecId={activeSpecId}
+                  onOpenSpec={onOpenSpec}
                 />
               </Fragment>
             ))

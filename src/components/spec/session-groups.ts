@@ -66,7 +66,7 @@ export function listSpecSessions(spec: Pick<SpecView, 'sourceChat' | 'coordinato
   const rows: SessionEntry[] = []
   if (spec.sourceChat) rows.push({ key: String(spec.sourceChat.chatId), label: spec.sourceChat.title, chat: spec.sourceChat })
   if (spec.coordinator?.chat) rows.push({
-    key: String(spec.coordinator.chat.chatId), label: spec.coordinator.chat.title,
+    key: String(spec.coordinator.chat.chatId), label: 'Coordinator',
     state: spec.coordinator.status === 'active' ? 'running' : undefined, chat: spec.coordinator.chat,
   })
   rows.push(...groupSpecSessions(spec).phases.flatMap((phase) => phase.rows.map((row) => ({ ...row, phase: phase.title }))))

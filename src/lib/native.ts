@@ -299,6 +299,8 @@ export type NativeTopBarAction =
  * ticks), the page's actions (SF Symbol names) and the bell trailing.
  */
 export interface NativeTopBarHeader {
+  /** A pushed Spec page: back on the leading edge, no inbox button. */
+  back?: boolean
   leading:
     | { kind: 'context'; title: string; subtitle?: string }
     | { kind: 'segments'; items: { id: string; title: string }[]; selected: string }

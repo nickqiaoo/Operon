@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react"
-import { Check, ChevronDown } from "lucide-react"
+import { ArrowLeft, Check, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { MobileSheet } from "./MobileSheet"
 import { hasNativeTabBar, nativeTopBarTakesSpace } from "@/lib/native"
@@ -46,6 +46,7 @@ export interface MobileHeaderMenu {
  * inbox bell, which every header has.
  */
 export interface MobileHeaderSpec {
+  navigation?: { title: string; subtitle?: string; onBack: () => void; onTitlePress: () => void }
   segments?: MobileHeaderSegments
   menu?: MobileHeaderMenu
   actions?: MobileHeaderAction[]
@@ -161,8 +162,11 @@ export function MobileHeader(spec: MobileHeaderSpec) {
   return (
     <header className="shrink-0 border-b border-border/40 bg-background" style={{ paddingTop: shell?.topInset ?? FALLBACK_INSET }}>
       <div className="flex h-12 items-center gap-1 pl-2 pr-1.5">
+        {spec.navigation && <button type="button" aria-label="Back" onClick={spec.navigation.onBack} className="grid size-11 shrink-0 place-items-center rounded-lg active:bg-row-hover"><ArrowLeft className="size-5" /></button>}
         <div className="flex min-w-0 flex-1 items-center">
-          {spec.segments ? <Segments {...spec.segments} /> : <MobileContextChip />}
+          {spec.navigation ? <button type="button" onClick={spec.navigation.onTitlePress} className="flex h-11 min-w-0 items-center gap-2 text-left">
+            <span className="min-w-0"><span className="block truncate text-sm font-semibold">{spec.navigation.title}</span>{spec.navigation.subtitle && <span className="block truncate text-xs text-muted-foreground">{spec.navigation.subtitle}</span>}</span><ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          </button> : spec.segments ? <Segments {...spec.segments} /> : <MobileContextChip />}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {spec.menu && <MenuButton {...spec.menu} />}
@@ -177,7 +181,7 @@ export function MobileHeader(spec: MobileHeaderSpec) {
               {action.icon}
             </button>
           ))}
-          {shell?.bell}
+          {!spec.navigation && shell?.bell}
         </div>
       </div>
     </header>

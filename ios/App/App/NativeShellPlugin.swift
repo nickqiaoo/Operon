@@ -151,7 +151,9 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let entry = entry as? JSObject, let id = entry["id"] as? String, let symbol = entry["symbol"] as? String else { return nil }
             return .init(id: id, symbol: symbol, label: entry["label"] as? String ?? id)
         }
-        return .init(leading: leading, menu: menu, actions: actions)
+        var header = ShellChromeController.HeaderSpec(leading: leading, menu: menu, actions: actions)
+        header.back = raw["back"] as? Bool ?? false
+        return header
     }
 
     /// `[{ kind: 'item', id, title, selected } | { kind: 'group', id, title, inline, detail?, children }]`

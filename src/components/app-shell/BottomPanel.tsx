@@ -50,13 +50,14 @@ export function BottomPanel({ className }: BottomPanelProps) {
   })
 
   // Auto-close when the last tab is removed; see RightPanel for the rationale.
-  const prevTabCountRef = useRef(panel.tabs.length)
+  const workspaceId = useTabsStore((state) => state.currentWorkspaceId)
+  const previousPanel = useRef({ workspaceId, count: panel.tabs.length })
   useEffect(() => {
-    if (prevTabCountRef.current > 0 && panel.tabs.length === 0 && isOpen) {
+    if (previousPanel.current.workspaceId === workspaceId && previousPanel.current.count > 0 && panel.tabs.length === 0 && isOpen) {
       setOpen(false)
     }
-    prevTabCountRef.current = panel.tabs.length
-  }, [panel.tabs.length, isOpen, setOpen])
+    previousPanel.current = { workspaceId, count: panel.tabs.length }
+  }, [workspaceId, panel.tabs.length, isOpen, setOpen])
 
   if (!isMounted && !isOpen) return null
 

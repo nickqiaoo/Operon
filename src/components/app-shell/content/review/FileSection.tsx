@@ -26,6 +26,7 @@ import { joinPath, normalizePatch } from "./diff-utils"
 import { DiffStats } from "./DiffStats"
 
 export interface CappedDiffProps {
+  workspaceId?: number
   files: FileChange[]
   activePath: string | null
   diffOptions: FileDiffOptions<CommentMeta>
@@ -39,6 +40,7 @@ export interface CappedDiffProps {
 }
 
 export function CappedDiff({
+  workspaceId,
   files,
   activePath,
   diffOptions,
@@ -55,6 +57,7 @@ export function CappedDiff({
   return (
     <div className="pb-2 pt-0">
       <FileSection
+        workspaceId={workspaceId}
         file={file}
         diffOptions={diffOptions}
         rootPath={rootPath}
@@ -78,6 +81,7 @@ export function CappedDiff({
  */
 
 export interface FileSectionProps {
+  workspaceId?: number
   file: FileChange
   diffOptions: FileDiffOptions<CommentMeta>
   rootPath: string
@@ -91,6 +95,7 @@ export interface FileSectionProps {
 }
 
 export const FileSection = memo(function FileSection({
+  workspaceId: scopedWorkspaceId,
   file,
   diffOptions,
   rootPath,
@@ -136,7 +141,7 @@ export const FileSection = memo(function FileSection({
     observer.observe(section)
     return () => observer.disconnect()
   }, [isNearViewport])
-  const workspaceId = useEditorStore((s) => s.currentWorkspaceId)
+  const workspaceId = useEditorStore((s) => scopedWorkspaceId ?? s.currentWorkspaceId)
   const { entries, renderCard, selectedLines, onGutterUtilityClick } = useLineComments({
     workspaceId,
     path: file.path,

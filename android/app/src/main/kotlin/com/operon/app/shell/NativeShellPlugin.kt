@@ -197,7 +197,7 @@ class NativeShellPlugin : Plugin() {
             val a = actionsRaw?.optJSONObject(i) ?: return@mapNotNull null
             ShellChrome.HeaderSpec.Action(a.optString("id"), a.optString("symbol"), a.optString("label"))
         }
-        return ShellChrome.HeaderSpec(leading, menu, actions)
+        return ShellChrome.HeaderSpec(leading, menu, actions, raw.optBoolean("back", false))
     }
 
     private fun parseMenuNodes(raw: JSONArray?): List<ShellChrome.HeaderSpec.MenuNode> =

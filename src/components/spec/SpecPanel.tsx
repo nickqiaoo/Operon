@@ -54,8 +54,6 @@ export function SpecPanel({
   onOpenChat?: (chat: SpecChatRef) => void
 }) {
   const { spec, error } = useSpecView(taskId, stage)
-  const [selectedTab, setSelectedTab] = useState<WorkflowArtifact | null>(null)
-
   if (!spec) {
     return (
       <section className="border-y border-border/40 py-5">
@@ -69,6 +67,17 @@ export function SpecPanel({
       </section>
     )
   }
+
+  return <SpecOverview spec={spec} onOpenWorkspace={onOpenWorkspace} onOpenChat={onOpenChat} />
+}
+
+/** Shared by the board detail and the dedicated Spec page. */
+export function SpecOverview({ spec, onOpenWorkspace, onOpenChat }: {
+  spec: SpecView
+  onOpenWorkspace?: (workspaceId: number) => void
+  onOpenChat?: (chat: SpecChatRef) => void
+}) {
+  const [selectedTab, setSelectedTab] = useState<WorkflowArtifact | null>(null)
 
   const switchInHeader = spec.coordinator != null && (
     ((spec.run.stage === 'building' || spec.run.stage === 'reviewing') && !spec.designChanged) ||

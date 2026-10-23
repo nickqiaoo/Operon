@@ -40,11 +40,13 @@ import { EmptyState } from "./review/ReviewEmptyState"
 interface ReviewTabProps {
   tabId: string
   rootPath: string
+  initialScope?: DiffScope
+  workspaceId?: number
 }
 
-export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
+export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspaceId }: ReviewTabProps) {
   const intl = useIntl()
-  const [scope, setScope] = useState<DiffScope>("unstaged")
+  const [scope, setScope] = useState<DiffScope>(initialScope)
   // Set by the chat panel's "Review" action: which chat's latest turn to show.
   const turnTarget = useReviewTurnStore((s) => s.byRoot[rootPath])
   const turnChatId = turnTarget?.chatId ?? null
@@ -569,6 +571,7 @@ export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
           ) : isCapped ? (
             <div className="code-scrollbar min-h-0 flex-1 overflow-auto">
               <CappedDiff
+                workspaceId={workspaceId}
                 files={files}
                 activePath={activePath}
                 diffOptions={diffOptions}
@@ -592,6 +595,7 @@ export function ReviewTab({ tabId, rootPath }: ReviewTabProps) {
             >
               {files.map((file) => (
                 <FileSection
+                  workspaceId={workspaceId}
                   key={`${file.status}:${file.path}`}
                   file={file}
                   diffOptions={diffOptions}

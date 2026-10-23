@@ -65,13 +65,14 @@ export function RightPanel({ className }: RightPanelProps) {
 
   // When the user closes the last tab, also collapse the panel itself.
   // Only fires on the > 0 → 0 transition so opening an empty panel stays open.
-  const prevTabCountRef = useRef(panel.tabs.length)
+  const workspaceId = useTabsStore((state) => state.currentWorkspaceId)
+  const previousPanel = useRef({ workspaceId, count: panel.tabs.length })
   useEffect(() => {
-    if (prevTabCountRef.current > 0 && panel.tabs.length === 0 && isOpen) {
+    if (previousPanel.current.workspaceId === workspaceId && previousPanel.current.count > 0 && panel.tabs.length === 0 && isOpen) {
       setOpen(false)
     }
-    prevTabCountRef.current = panel.tabs.length
-  }, [panel.tabs.length, isOpen, setOpen])
+    previousPanel.current = { workspaceId, count: panel.tabs.length }
+  }, [workspaceId, panel.tabs.length, isOpen, setOpen])
 
   const handleResize = useCallback((next: number) => {
     if (next < RIGHT_PANEL_AUTO_CLOSE_BELOW) {

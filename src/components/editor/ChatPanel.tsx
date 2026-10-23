@@ -106,6 +106,7 @@ import { ClaudeRateLimitsButton, MobileClaudeRateLimits } from './components/Cla
 import { useChatNotifications } from '@/hooks/useNotification';
 import { useVisibleChatInboxRead } from '@/hooks/useVisibleChatInboxRead';
 import { cn } from '@/lib/utils';
+import { usePageVisible } from '@/lib/page-visibility';
 import { useSessionPanelStore } from '@/stores/session-panel-store';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import {
@@ -128,9 +129,10 @@ interface ChatPanelProps {
 }
 
 export const ChatPanel = memo(function ChatPanel(props: ChatPanelProps) {
+  const pageVisible = usePageVisible();
   return (
     <PromptInputProvider>
-      <ChatPanelContent {...props} />
+      <ChatPanelContent {...props} visible={props.visible !== false && pageVisible} />
     </PromptInputProvider>
   );
 });
@@ -178,7 +180,13 @@ function ChatPanelContent({
       root.style.removeProperty("--composer-height");
     };
   }, [isMobile]);
-  const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId);
+  const currentWorkspaceId = useEditorStore((state) => {
+    if (state.tabs.some((tab) => tab.id === chatId)) return state.currentWorkspaceId;
+    for (const [workspaceId, workspace] of Object.entries(state.workspaceStates)) {
+      if (workspace.tabs.some((tab) => tab.id === chatId)) return workspaceId === 'global' ? null : Number(workspaceId);
+    }
+    return null;
+  });
   const pendingAnnotationCount = useAnnotationsStore(
     (state) => annotationsForWorkspace(state.items, currentWorkspaceId).length,
   );
@@ -360,7 +368,6 @@ function ChatPanelContent({
 
   const setStreaming = useStreamingStore((s) => s.setStreaming);
   const clearUnseen = useStreamingStore((s) => s.clearUnseen);
-  const activeTabId = useEditorStore((s) => s.activeTabId);
   const isClaudeCode = providerId === 'claude-code' || selectedModel?.providerId === 'claude-code';
   // Quota pushed onto the live stream by `rate_limit_event`, which lands the
   // moment usage steps 1% instead of on the next poll.
@@ -388,7 +395,7 @@ function ChatPanelContent({
     chatId: dbChatId,
     isClaudeCode,
     supportsContextUsage,
-    isActive: activeTabId === chatId,
+    isActive: visible,
     isGenerating,
     pushedRateLimits: livePushedClaudeRateLimits,
   });
@@ -396,11 +403,11 @@ function ChatPanelContent({
     setStreaming(chatId, isGenerating);
     // All ChatPanels stay mounted across workspaces. Only clear the unseen
     // badge if this tab is the one the user is actually viewing.
-    if (!isGenerating && activeTabId === chatId) {
+    if (!isGenerating && visible) {
       clearUnseen([chatId]);
     }
     return () => setStreaming(chatId, false);
-  }, [chatId, isGenerating, setStreaming, clearUnseen, activeTabId]);
+  }, [chatId, isGenerating, setStreaming, clearUnseen, visible]);
 
   useAttachmentLoader(tab?.options?.inputAttachment, chatId, attachments.add, clearTabInputAttachment);
 
@@ -644,7 +651,7 @@ function ChatPanelContent({
 
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
-  const reviewCwd = useProjectStore((s) => s.getActiveWorkspace()?.worktreePath ?? null);
+  const reviewCwd = useProjectStore((s) => s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
   const [turnDiffs, setTurnDiffs] = useState<{
@@ -836,17 +843,16 @@ function ChatPanelContent({
   handleSubmitRef.current = handleSubmit;
   const sendNonce = useAnnotationSendStore((s) => s.nonce);
   useEffect(() => {
-    if (sendNonce === 0) return;
+    if (sendNonce === 0 || !visible) return;
     const { workspaceId: reqWs, consume } = useAnnotationSendStore.getState();
-    // Browser-send leaves the browser tab active (no focused chat), so we can't
-    // gate on activeTabId. Only the active workspace's chats are mounted; match
-    // the workspace and consume-once so a single panel handles it.
+    // Browser-send leaves the browser panel focused. The visible conversation
+    // in the matching workspace consumes the request once.
     if (reqWs !== currentWorkspaceId) return;
     const anns = annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId);
     if (anns.length === 0) { consume(); return; }
     consume();
     handleSubmitRef.current({ text: input.trim(), files: [] });
-  }, [sendNonce, currentWorkspaceId, input]);
+  }, [sendNonce, currentWorkspaceId, input, visible]);
 
   const submitSteerItem = useCallback(async (item: LiveSteerItem) => {
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
