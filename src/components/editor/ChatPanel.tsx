@@ -3,8 +3,8 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
-import { Layers } from 'lucide-react';
-import { AgentPanel, SESSION_PANEL_PAD_CLASS } from './agent/AgentPanel';
+import { ChartPie, Gauge } from 'lucide-react';
+import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
 import { skillsList } from './agent/agentControl';
 import {
   Queue,
@@ -28,7 +28,6 @@ import {
   PromptInputProvider,
   usePromptInputController,
 } from '@/components/ai-elements/prompt-input';
-import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useEditorStore } from '@/stores/editor-store';
 import { useExternalAgentsStore } from '@/stores/external-agents-store';
@@ -101,8 +100,8 @@ import { isCanvasChatId } from '@/lib/canvas-utils';
 import { trackEvent } from '@/lib/analytics';
 import { AutoScrollManager } from './components/AutoScrollManager';
 import { ChatWaitingIndicator } from './components/ChatWaitingIndicator';
-import { CodexRateLimitsButton, MobileCodexRateLimits } from './components/CodexRateLimitsButton';
-import { ClaudeRateLimitsButton, MobileClaudeRateLimits } from './components/ClaudeRateLimitsButton';
+import { CodexRateLimitsDetails } from './components/CodexRateLimitsButton';
+import { ClaudeRateLimitsDetails } from './components/ClaudeRateLimitsButton';
 import { useChatNotifications } from '@/hooks/useNotification';
 import { useVisibleChatInboxRead } from '@/hooks/useVisibleChatInboxRead';
 import { cn } from '@/lib/utils';
@@ -561,6 +560,8 @@ function ChatPanelContent({
       (displayedContextUsage.usage?.outputTokens ?? 0) > 0);
   // One source on screen: the poll's cache, which the push above is folded into.
   const displayedClaudeRateLimits = isClaudeCode ? polledClaudeRateLimits : null;
+  const showCodexRateLimits = (providerId === 'codex' || selectedModel?.providerId === 'codex') && !!codexUsageDetails;
+  const showContextUsage = !!displayedContextUsage && hasContextUsageData;
 
   const {
     externalAgentNotificationsByTaskId,
@@ -602,6 +603,44 @@ function ChatPanelContent({
     claim(chatId);
     return () => release(chatId);
   }, [visible, sessionPanelProviderId, chatId]);
+
+  // Where there is a Session panel, the context and quota read-outs live in it,
+  // laid out in full, instead of as pills floating over the transcript — any fill
+  // there covered the last message. It opens from the window's top bar (desktop)
+  // or the conversation's native bar (phone). Only a provider without a panel
+  // keeps its context pill; every quota-reporting provider has one.
+  const metricsInSessionPanel = sessionPanelProviderId != null;
+  const sessionUsageCards: SessionUsageCard[] = [];
+  if (metricsInSessionPanel) {
+    if (showContextUsage && displayedContextUsage) {
+      sessionUsageCards.push({
+        key: 'context',
+        icon: ChartPie,
+        title: <FormattedMessage id="editor.context.title" defaultMessage="Context window" />,
+        content: (
+          <Context chatId={dbChatId} detailedContextUsage={displayedContextUsage.detailedContextUsage} maxTokens={displayedContextUsage.maxTokens} usage={displayedContextUsage.usage} usedTokens={displayedContextUsage.usedTokens}>
+            <ContextDetailedContent className="p-0" />
+          </Context>
+        ),
+      });
+    }
+    if (displayedClaudeRateLimits) {
+      sessionUsageCards.push({
+        key: 'claude-quota',
+        icon: Gauge,
+        title: <FormattedMessage id="editor.claude.title" defaultMessage="Subscription usage" />,
+        content: <ClaudeRateLimitsDetails rateLimits={displayedClaudeRateLimits} />,
+      });
+    }
+    if (showCodexRateLimits && codexUsageDetails) {
+      sessionUsageCards.push({
+        key: 'codex-quota',
+        icon: Gauge,
+        title: <FormattedMessage id="editor.codex.title" defaultMessage="Rate limits" />,
+        content: <CodexRateLimitsDetails account={codexUsageDetails.account} rateLimits={codexUsageDetails.rateLimits} />,
+      });
+    }
+  }
 
   // Reset the skill cache when switching chats or away from operon.
   useEffect(() => {
@@ -1112,12 +1151,12 @@ function ChatPanelContent({
         {/* Rendered after the transcript so it paints over the left gutter. */}
         <ChatNavigator entries={navigatorEntries} />
         {/*
-          On phones the metrics pills float in the bottom-right of this same
-          band, and they sit above this button. Lift it clear of that row so the
-          two never overlap.
+          Frosted so the transcript shows through it. On phones the metrics pills
+          float in the bottom-right of this same band, and they sit above this
+          button. Lift it clear of that row so the two never overlap.
         */}
         <ConversationScrollButton
-          glass={isMobile}
+          glass
           style={isMobile ? { bottom: "calc(var(--composer-height, 0px) + 12px + var(--keyboard-height, 0px))" } : undefined}
         />
       </Conversation>
@@ -1125,7 +1164,7 @@ function ChatPanelContent({
       <div
         ref={composerRef}
         className={cn(
-          "w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-4 pt-0",
+          "relative w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-4 pt-0",
           // Phone: floats over the bottom of the transcript, which scrolls on
           // under its glass (the card itself is frosted; around it, nothing).
           // `absolute` also anchors the floating metrics row (see below).
@@ -1215,10 +1254,13 @@ function ChatPanelContent({
           );
         })() : null}
         {/*
-          Session / rate-limit / context pills. On phones they float just above
-          the composer instead of sitting in the layout, so they cost no height
-          in an already cramped viewport. The row is sized to its content and
-          right-aligned, leaving the rest of the transcript clickable underneath.
+          Session / rate-limit / context pills. They float just above the
+          composer, over the bottom of the transcript, instead of sitting in the
+          layout, so they cost no height. The row lets clicks through to the
+          transcript underneath; only the pills themselves take them.
+
+          Desktop pills are translucent + blurred so the text scrolling under
+          them stays legible as a smudge rather than colliding with the labels.
 
           No `backdrop-blur` here: with the keyboard up this row's parent turns
           into a blurred surface and becomes the backdrop root, so a blur on the
@@ -1226,58 +1268,19 @@ function ChatPanelContent({
           silently does nothing and they read as plain translucent. Dropping it
           keeps them looking the same whether the keyboard is up or not.
         */}
+        {!metricsInSessionPanel && (
         <div
           ref={pillsRef}
           className={cn(
             "flex items-start gap-2",
             isMobile
               ? "pointer-events-none absolute bottom-full right-3 z-20 mb-1 max-w-[calc(100%-1.5rem)] flex-wrap justify-end [&>*]:pointer-events-auto"
-              // Right-aligned on its own now that the PR button no longer sits
-              // on the left as a flex-1 spacer.
-              : "@container mb-2 min-w-0 flex-nowrap items-center justify-end"
+              // Spans the composer's width (not sized to content) so the
+              // `@container` queries below still have a width to measure.
+              : "@container pointer-events-none absolute inset-x-4 bottom-full z-10 mb-2 min-w-0 flex-nowrap items-center justify-end [&>*]:pointer-events-auto"
           )}
         >
-          {/* Phones keep the pill above the composer; desktop opens it from the window's top bar. */}
-          {isMobile && sessionPanelProviderId ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setSessionPanelOpen(true)}
-              className="h-8 shrink-0 gap-1.5 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-accent-hover @max-[560px]:size-8 @max-[560px]:gap-0 @max-[560px]:px-0"
-              aria-label={intl.formatMessage({ id: 'editor.agentPanel.open', defaultMessage: 'Session panel' })}
-            >
-              <Layers aria-hidden="true" className="size-3.5" />
-              <span className="@max-[560px]:hidden">
-                <FormattedMessage id="editor.agentPanel.trigger" defaultMessage="Session" />
-              </span>
-            </Button>
-          ) : null}
-          {(providerId === 'codex' || selectedModel?.providerId === 'codex') && codexUsageDetails ? (
-            isMobile ? (
-              <MobileCodexRateLimits
-                account={codexUsageDetails.account}
-                rateLimits={codexUsageDetails.rateLimits}
-              />
-            ) : (
-              <CodexRateLimitsButton
-                account={codexUsageDetails.account}
-                rateLimits={codexUsageDetails.rateLimits}
-                className="shrink-0 @max-[460px]:gap-1 @max-[460px]:px-2"
-              />
-            )
-          ) : null}
-          {isClaudeCode && displayedClaudeRateLimits ? (
-            isMobile ? (
-              <MobileClaudeRateLimits rateLimits={displayedClaudeRateLimits} />
-            ) : (
-              <ClaudeRateLimitsButton
-                rateLimits={displayedClaudeRateLimits}
-                className="shrink-0 @max-[460px]:gap-1 @max-[460px]:px-2"
-              />
-            )
-          ) : null}
-          {displayedContextUsage && hasContextUsageData ? (
+          {showContextUsage && displayedContextUsage ? (
             isMobile ? (
               <MobileContextUsage
                 chatId={dbChatId}
@@ -1288,7 +1291,7 @@ function ChatPanelContent({
               />
             ) : (
               <Context chatId={dbChatId} detailedContextUsage={displayedContextUsage.detailedContextUsage} maxTokens={displayedContextUsage.maxTokens} usage={displayedContextUsage.usage} usedTokens={displayedContextUsage.usedTokens}>
-                <ContextTrigger className="shrink-0 @max-[460px]:gap-1 @max-[460px]:px-2" />
+                <ContextTrigger className={floatingPillClassName} />
                 <ContextContent>
                   <ContextDetailedContent />
                 </ContextContent>
@@ -1296,6 +1299,7 @@ function ChatPanelContent({
             )
           ) : null}
         </div>
+        )}
         {latestTodos.length > 0 ? (() => {
           const completedCount = latestTodos.filter((e) => e.status === 'completed').length;
           const inProgressCount = latestTodos.filter((e) => e.status === 'in_progress').length;
@@ -1408,6 +1412,7 @@ function ChatPanelContent({
         chatId={tab?.chatId ?? dbChatIdRef.current}
         providerId={sessionPanelProviderId}
         variant={isMobile ? 'overlay' : 'inline'}
+        usageCards={sessionUsageCards}
         onClose={() => setSessionPanelOpen(false)}
         // A skill picked in the panel arrives as a chip in the composer — the same state a
         // `/` pick produces — rather than as text or as a message sent on your behalf.
@@ -1477,6 +1482,14 @@ function ScrollTopLoader({
 
   return null;
 }
+
+// Desktop metrics pills float over the transcript. Keep the blur small: at 24px
+// the black text underneath averaged out into a flat grey slab; at 8px with a
+// 75% fill the pill reads white with only a faint hint of what's behind it.
+// `!`: the triggers' own `shadow-none` survives cn(), which can't tell that
+// the custom `shadow-card` replaces it.
+const floatingPillClassName =
+  "shrink-0 border-border/50 bg-popover/75 shadow-card! backdrop-blur-sm backdrop-saturate-[1.8] dark:border-border/35 @max-[460px]:gap-1 @max-[460px]:px-2";
 
 /**
  * Phone: a notice above the floating composer sits over the transcript, and its

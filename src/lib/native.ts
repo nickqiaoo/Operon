@@ -182,6 +182,8 @@ export interface NativeShellPlugin {
     busy?: boolean
     /** `header`: what the row holds. */
     header?: NativeTopBarHeader
+    /** `back`: buttons on the trailing edge; a tap comes back as `action:<id>`. */
+    actions?: NativeTopBarHeader["actions"]
   }): Promise<void>
   addListener(eventName: 'tabSelected', listener: (event: { tab: string }) => void): Promise<PluginListenerHandle>
   addListener(eventName: 'layout', listener: (event: { tabBarInset: number }) => void): Promise<PluginListenerHandle>

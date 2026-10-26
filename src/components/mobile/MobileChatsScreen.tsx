@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
+import { Activity, ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
+import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { MobileHeader, useMobileContentBottom, useMobileContentOffset } from "./MobileHeader"
 import { ChatPanel } from "@/components/editor/ChatPanel"
@@ -67,6 +68,8 @@ const formatRelativeTime = (timestamp: number): string => {
  */
 export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
   const intl = useIntl()
+  const sessionPanelOffered = useSessionPanelStore((s) => s.owner != null && !s.open)
+  const setSessionPanelOpen = useSessionPanelStore((s) => s.setOpen)
   const contentOffset = useMobileContentOffset()
   const contentBottom = useMobileContentBottom()
   const tabs = useEditorStore((s) => s.tabs)
@@ -231,6 +234,8 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // floating back button at the top and under the floating composer at the
   // bottom, which clears the home indicator (or the keyboard) itself (ChatPanel).
   if (openTab) {
+    const floatingButton =
+      "absolute z-30 grid size-9 place-items-center rounded-full border border-border/50 bg-background/70 text-muted-foreground active:bg-muted/60"
     return (
       <div className="relative flex h-full flex-col">
         {/* Dim, don't cover: the transcript stays visible under the status
@@ -256,10 +261,23 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
           // Same translucent treatment as the metrics pills above the composer:
           // `bg-background/70`, no backdrop blur, so every floating control in
           // the conversation reads the same way over the transcript.
-          className="absolute left-2 z-30 grid size-9 place-items-center rounded-full border border-border/50 bg-background/70 text-muted-foreground active:bg-muted/60"
+          className={cn(floatingButton, "left-2")}
           style={{ top: "calc(env(safe-area-inset-top) + 0.25rem)" }}
         >
           <ArrowLeft className="size-5" />
+        </button>
+        )}
+        {/* Its partner on the right: the Session panel, which holds the context
+            and quota read-outs too. The apps put this in the native bar. */}
+        {!hasNativeTabBar() && sessionPanelOffered && (
+        <button
+          type="button"
+          onClick={() => setSessionPanelOpen(true)}
+          aria-label={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
+          className={cn(floatingButton, "right-2")}
+          style={{ top: "calc(env(safe-area-inset-top) + 0.25rem)" }}
+        >
+          <Activity className="size-[18px]" />
         </button>
         )}
         <div className="min-h-0 flex-1">

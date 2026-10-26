@@ -160,8 +160,10 @@ class NativeShellPlugin : Plugin() {
             call.reject("header mode needs a header")
             return
         }
+        // `back`: buttons at the end of the bar (an open conversation's Session panel).
+        val actions = parseActions(call.data.optJSONArray("actions"))
         onMain(call) { chrome ->
-            chrome.setTopBar(mode, title, subtitle, unread, interactive, header)
+            chrome.setTopBar(mode, title, subtitle, unread, interactive, header, actions)
             call.resolve()
         }
     }
@@ -192,13 +194,15 @@ class NativeShellPlugin : Plugin() {
         val menu = raw.optJSONObject("menu")?.let { m ->
             ShellChrome.HeaderSpec.Menu(m.optString("symbol"), m.optString("label"), parseMenuNodes(m.optJSONArray("nodes")))
         }
-        val actionsRaw = raw.optJSONArray("actions")
-        val actions = (0 until (actionsRaw?.length() ?: 0)).mapNotNull { i ->
-            val a = actionsRaw?.optJSONObject(i) ?: return@mapNotNull null
+        return ShellChrome.HeaderSpec(leading, menu, parseActions(raw.optJSONArray("actions")), raw.optBoolean("back", false))
+    }
+
+    /** `[{id, symbol, label}]` */
+    private fun parseActions(raw: JSONArray?): List<ShellChrome.HeaderSpec.Action> =
+        (0 until (raw?.length() ?: 0)).mapNotNull { i ->
+            val a = raw?.optJSONObject(i) ?: return@mapNotNull null
             ShellChrome.HeaderSpec.Action(a.optString("id"), a.optString("symbol"), a.optString("label"))
         }
-        return ShellChrome.HeaderSpec(leading, menu, actions, raw.optBoolean("back", false))
-    }
 
     private fun parseMenuNodes(raw: JSONArray?): List<ShellChrome.HeaderSpec.MenuNode> =
         (0 until (raw?.length() ?: 0)).mapNotNull { i ->

@@ -121,6 +121,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
     private var topBarUnread = false
     private var topBarInteractive = true
     private var topBarHeader: HeaderSpec? = null
+    private var topBarActions: List<HeaderSpec.Action> = emptyList()
     private var dark = false
     /** Toolbar menu item id → what a tap on it reports. Rebuilt with the menu. */
     private var menuActions: Map<Int, String> = emptyMap()
@@ -377,13 +378,22 @@ class ShellChrome(private val activity: AppCompatActivity) {
      * outside the web view's box entirely, so there is nothing for the scrim
      * to be under; not taking taps is the whole of it.
      */
-    fun setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Boolean, interactive: Boolean, header: HeaderSpec? = null) {
+    fun setTopBar(
+        mode: TopBarMode,
+        title: String,
+        subtitle: String?,
+        unread: Boolean,
+        interactive: Boolean,
+        header: HeaderSpec? = null,
+        actions: List<HeaderSpec.Action> = emptyList(),
+    ) {
         topBarMode = mode
         topBarTitle = title
         topBarSubtitle = subtitle
         topBarUnread = unread
         topBarInteractive = interactive
         topBarHeader = header
+        topBarActions = actions
         applyTopBar()
     }
 
@@ -434,6 +444,9 @@ class ShellChrome(private val activity: AppCompatActivity) {
                 bar.navigationIcon = tinted(R.drawable.ic_arrow_left)
                 bar.navigationContentDescription = activity.getString(R.string.operon_back)
                 button.visibility = View.GONE
+                topBarActions.forEach { action ->
+                    addItem(bar, actions, "action:${action.id}", action.label, tinted(iconFor(action.symbol)))
+                }
             }
             TopBarMode.HEADER -> {
                 bar.visibility = View.VISIBLE
@@ -594,6 +607,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
         "arrow.up.left.and.arrow.down.right" -> R.drawable.ic_maximize
         "arrow.down.right.and.arrow.up.left" -> R.drawable.ic_minimize
         "line.3.horizontal.decrease.circle" -> R.drawable.ic_list_filter
+        "waveform.path.ecg" -> R.drawable.ic_activity
         else -> R.drawable.ic_menu
     }
 

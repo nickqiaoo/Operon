@@ -1463,6 +1463,7 @@
   "editor.session.notInTeam": "（不在此队）",
   "editor.session.loading": "正在加载会话…",
   "editor.session.now": "当前",
+  "editor.session.usage": "用量",
   "editor.session.open": "打开",
   "editor.session.pluginCounts": "{skills} 个技能 · {enabled}/{total} MCP",
   "editor.session.plugins": "插件",

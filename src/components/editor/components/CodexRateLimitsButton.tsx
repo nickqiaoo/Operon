@@ -190,6 +190,13 @@ function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] 
 const triggerClassName =
   'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs text-muted-foreground shadow-none hover:bg-accent-hover hover:text-foreground';
 
+/** Desktop Session panel: the same breakdown as the hover card, laid out in place. */
+export function CodexRateLimitsDetails({ account, rateLimits }: Omit<CodexRateLimitsButtonProps, 'className'>) {
+  const snapshots = useMemo(() => collectSnapshots(rateLimits), [rateLimits]);
+  if (!account && snapshots.length === 0) return null;
+  return <CodexRateLimitsContent snapshots={snapshots} />;
+}
+
 function TriggerContent({ usedPercent }: { usedPercent: number | null }) {
   return (
     <>

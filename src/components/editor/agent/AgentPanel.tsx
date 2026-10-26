@@ -60,6 +60,19 @@ interface AgentPanelProps {
    * the chat, closed by the shell's back button (or its own close in a browser).
    */
   variant?: 'inline' | 'overlay'
+  /**
+   * Read-outs the chat already holds — its context window, the plan's quota — shown
+   * as open cards under the overview. On desktop this is where they live; the chat
+   * no longer floats them over the transcript.
+   */
+  usageCards?: SessionUsageCard[]
+}
+
+export interface SessionUsageCard {
+  key: string
+  icon: React.ComponentType<{ className?: string }>
+  title: React.ReactNode
+  content: React.ReactNode
 }
 
 /** The inline column's width — ChatPanel pads the chat by the same amount to make room. */
@@ -102,7 +115,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
  * meant to keep it up while the agent works. Everything goes through
  * `POST /api/ai/agent-control` via `agentControl.ts`.
  */
-export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline' }: AgentPanelProps) {
+export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = [] }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -274,9 +287,28 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
     </section>
   )
 
+  // Not behind `noSession`: the quota is the account's, and is worth reading before
+  // the first message too.
+  const usage = !skillDetail && usageCards.length > 0 && (
+    <>
+      <GroupHeader label={<FormattedMessage id="editor.session.usage" defaultMessage="Usage" />} />
+      {usageCards.map(({ key, icon: Icon, title, content }) => (
+        <section key={key} className={cn(CARD, 'shrink-0')}>
+          {/* The Section header without its chevron: these are read-outs, always open. */}
+          <div className="flex h-9 items-center gap-1.5 px-3">
+            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+            <span className="flex-1 truncate text-[13px] font-semibold text-foreground/85">{title}</span>
+          </div>
+          <div className="px-3 pb-3">{content}</div>
+        </section>
+      ))}
+    </>
+  )
+
   const cards = (
     <>
       {overview}
+      {usage}
       {skillDetail ? (
         // The skill's file gets the rest of the column as one card of its own.
         <section className={cn(CARD, 'flex min-h-0 flex-1 flex-col overflow-hidden')}>

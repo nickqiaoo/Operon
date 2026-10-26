@@ -158,6 +158,13 @@ function TriggerContent({ windows }: { windows: DisplayWindow[] }) {
 const triggerClassName =
   'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-accent-hover';
 
+/** Desktop Session panel: the same breakdown as the hover card, laid out in place. */
+export function ClaudeRateLimitsDetails({ rateLimits }: Pick<ClaudeRateLimitsButtonProps, 'rateLimits'>) {
+  const windows = useMemo(() => collectWindows(rateLimits), [rateLimits]);
+  if (windows.length === 0) return null;
+  return <ClaudeRateLimitsContent windows={windows} subscriptionType={rateLimits?.subscriptionType} />;
+}
+
 /** Desktop: quota summary on hover, like the context usage chip beside it. */
 export function ClaudeRateLimitsButton({ rateLimits, className }: ClaudeRateLimitsButtonProps) {
   const intl = useIntl();

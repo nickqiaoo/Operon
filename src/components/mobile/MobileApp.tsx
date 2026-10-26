@@ -11,6 +11,7 @@ import { useNativeStatusBar } from "@/hooks/useNativeStatusBar"
 import { useNativePushNotifications } from "@/hooks/useNativePushNotifications"
 import { InboxButton, MobileInboxSheet } from "@/components/inbox/InboxButton"
 import { useInboxStore } from "@/stores/inbox-store"
+import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import type { Notification } from "@/types/notification"
 import { useProjectStore } from "@/stores/project-store"
@@ -29,6 +30,9 @@ import { MobileMoreScreen } from "./MobileMoreScreen"
 import { MobileAssistantScreen, type AssistantHeader } from "./MobileAssistantScreen"
 import { InstallPrompt } from "@/components/web/InstallPrompt"
 import { setAnalyticsScreen } from "@/lib/analytics"
+
+/** The open conversation's native-bar button (`action:session`) that opens its Session panel. */
+const SESSION_PANEL_ACTION = "session"
 
 type NotificationTarget = Partial<
   Pick<Notification, "chatId" | "taskId" | "projectId" | "workspaceId" | "title">
@@ -259,6 +263,8 @@ export function MobileApp() {
         // A `header` bar's contents act on the page that described them.
         const spec = headerRef.current?.spec
         if (action.startsWith("segment:")) spec?.segments?.onSelect(action.slice("segment:".length))
+        // An open conversation's bar (`back` mode) has the one button, no page spec behind it.
+        else if (action === `action:${SESSION_PANEL_ACTION}`) useSessionPanelStore.getState().setOpen(true)
         else if (action.startsWith("action:")) spec?.actions?.find((a) => a.id === action.slice("action:".length))?.onClick()
         else if (action.startsWith("menu:")) spec?.menu?.onSelect(action.slice("menu:".length))
         else if (action === "context") {
@@ -575,6 +581,9 @@ export function MobileApp() {
     setHeaderKey(null)
   }, [])
   const inboxUnread = useInboxStore((s) => s.counts.total > 0)
+  // The open conversation can show its Session panel (context, quota, MCP…): offer
+  // it from the bar, and drop the button while the panel is up over the chat.
+  const sessionPanelOffered = useSessionPanelStore((s) => s.owner != null && !s.open)
   const specProject = selectedSpec ? projects.find((p) => p.id === selectedSpec.projectId) : undefined
   const specTitle = selectedSpec
     ? specProject?.specs?.find((s) => s.id === selectedSpec.id)?.title
@@ -620,15 +629,19 @@ export function MobileApp() {
         actions: spec?.actions?.map((a) => ({ id: a.id, symbol: a.symbol, label: a.label })) ?? [],
       }
     }
+    const mode = header ? "header" : immersive && tab === "chats" ? "back" : "hidden"
     void NativeShell.setTopBar({
-      mode: header ? "header" : immersive && tab === "chats" ? "back" : "hidden",
+      mode,
       title: topBarTitle,
       subtitle: topBarSubtitle,
       unread: inboxUnread,
       interactive: overlayCount === 0,
       header,
+      actions: mode === "back" && sessionPanelOffered
+        ? [{ id: SESSION_PANEL_ACTION, symbol: "waveform.path.ecg", label: intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" }) }]
+        : [],
     }).catch(() => {})
-  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, headerKey])
+  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, headerKey, sessionPanelOffered, intl])
 
   // On iOS the top safe-area inset already includes the native navigation
   // bar, so list screens just pad by it; immersive screens carry their own

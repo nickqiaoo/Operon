@@ -464,7 +464,7 @@ final class ShellChromeController: UINavigationController {
     /// drawn inside the web view, under the bar, so the bar must at least stop
     /// taking taps. Hiding it instead would shrink the safe area and shift the
     /// page under the scrim.
-    func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool, busy: Bool = false, header: HeaderSpec? = nil) {
+    func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool, busy: Bool = false, header: HeaderSpec? = nil, actions: [HeaderSpec.Action] = []) {
         topBarMode = mode
         setNavigationBarHidden(mode == .hidden, animated: true)
         navigationBar.isUserInteractionEnabled = interactive
@@ -525,7 +525,8 @@ final class ShellChromeController: UINavigationController {
             item.rightBarButtonItem = nil
         case .back:
             item.titleView = nil
-            item.rightBarButtonItem = nil
+            // Right to left, as in `header`.
+            item.rightBarButtonItems = actions.reversed().map(actionItem)
             let back = UIBarButtonItem(
                 image: UIImage(systemName: "chevron.left"),
                 primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("back") }

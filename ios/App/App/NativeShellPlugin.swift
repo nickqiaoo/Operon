@@ -116,8 +116,10 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("header mode needs a header")
             return
         }
+        // `back`: buttons on the trailing edge (an open conversation's Session panel).
+        let actions = Self.parseActions(call.getArray("actions") ?? [])
         onMain(call) { shell in
-            shell.setTopBar(mode: mode, title: title, subtitle: subtitle, unread: unread, interactive: interactive, busy: busy, header: header)
+            shell.setTopBar(mode: mode, title: title, subtitle: subtitle, unread: unread, interactive: interactive, busy: busy, header: header, actions: actions)
             call.resolve()
         }
     }
@@ -147,13 +149,17 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
                 nodes: parseMenuNodes(menuRaw["nodes"] as? JSArray ?? [])
             )
         }
-        let actions: [ShellChromeController.HeaderSpec.Action] = (raw["actions"] as? JSArray ?? []).compactMap { entry in
+        var header = ShellChromeController.HeaderSpec(leading: leading, menu: menu, actions: parseActions(raw["actions"] as? JSArray ?? []))
+        header.back = raw["back"] as? Bool ?? false
+        return header
+    }
+
+    /// `[{ id, symbol, label }]`
+    private static func parseActions(_ raw: JSArray) -> [ShellChromeController.HeaderSpec.Action] {
+        raw.compactMap { entry in
             guard let entry = entry as? JSObject, let id = entry["id"] as? String, let symbol = entry["symbol"] as? String else { return nil }
             return .init(id: id, symbol: symbol, label: entry["label"] as? String ?? id)
         }
-        var header = ShellChromeController.HeaderSpec(leading: leading, menu: menu, actions: actions)
-        header.back = raw["back"] as? Bool ?? false
-        return header
     }
 
     /// `[{ kind: 'item', id, title, selected } | { kind: 'group', id, title, inline, detail?, children }]`
