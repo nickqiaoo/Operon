@@ -51,11 +51,13 @@ export async function resolveDefaultBase(root: string): Promise<string> {
 export type GitStatus = Awaited<ReturnType<typeof api.gitStatus>>
 
 /** Working-tree status summary (branch + staged/unstaged/untracked entries). */
-export function useGitStatus(root: string) {
+export function useGitStatus(root: string, options?: { enabled?: boolean; refetchInterval?: number }) {
   return useQuery({
     queryKey: gitKeys.status(root),
     queryFn: () => api.gitStatus(root),
     staleTime: FIVE_SECONDS,
+    enabled: options?.enabled,
+    refetchInterval: options?.refetchInterval,
   })
 }
 

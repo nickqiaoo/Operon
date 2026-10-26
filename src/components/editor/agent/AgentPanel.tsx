@@ -3,7 +3,10 @@ import {
   AlertTriangle,
   ChevronRight,
   Clock,
+  Cpu,
   ExternalLink,
+  Folder,
+  GitBranch,
   Loader2,
   MessageSquare,
   Plug,
@@ -28,6 +31,7 @@ import { cn } from '@/lib/utils'
 import { openExternalUrl } from '@/lib/open-external'
 import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
 import { api } from '@/lib/api'
+import { useGitStatus } from '@/lib/git-queries'
 import { useEditorStore } from '@/stores/editor-store'
 import { hasNativeTabBar } from '@/lib/native'
 import { useBackHandler } from '@/hooks/useAndroidBackButton'
@@ -66,6 +70,15 @@ interface AgentPanelProps {
    * no longer floats them over the transcript.
    */
   usageCards?: SessionUsageCard[]
+  /** Where and with what the chat runs — read out at the top of the overview. */
+  facts?: SessionFacts
+}
+
+export interface SessionFacts {
+  /** The workspace's worktree; its live branch is read from git, not the name it was created with. */
+  cwd?: string | null
+  model?: string
+  effort?: string
 }
 
 export interface SessionUsageCard {
@@ -91,6 +104,9 @@ const PANEL_TRANSITION_MS = 300
 // refresh. Anything shown here is a *state* readout, so a stale snapshot with a
 // pulsing dot on it would be a lie.
 const LIVE_POLL_MS = 4000
+// The branch line: a checkout is rare and `git status` costs more than a poll of
+// the runtime, so it refreshes slower (and on the panel's refresh button).
+const GIT_POLL_MS = 15000
 
 // `agentControl` answers this when the chat has no runtime session yet — every
 // section would show the same error, so we swap the whole body for one message.
@@ -115,7 +131,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
  * meant to keep it up while the agent works. Everything goes through
  * `POST /api/ai/agent-control` via `agentControl.ts`.
  */
-export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = [] }: AgentPanelProps) {
+export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = [], facts }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -200,7 +216,13 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
   const blockedMembers = teamMembers.filter((m) => m.pendingApprovals > 0 || m.status === 'error').length
   const teamPaused = peers.data?.stats?.exceeded != null
 
+  // The branch can change under the chat (a checkout in the terminal), so read it
+  // from git while the panel is up instead of trusting the workspace record.
+  const cwd = facts?.cwd ?? null
+  const git = useGitStatus(cwd ?? '', { enabled: open && cwd != null, refetchInterval: open ? GIT_POLL_MS : undefined })
+
   const reloadAll = useCallback(() => {
+    if (cwd != null) void git.refetch()
     mcp.reload()
     if (fullSessionInspector) {
       tasks.reload()
@@ -211,7 +233,7 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
       extensions.reload()
       peers.reload()
     }
-  }, [fullSessionInspector, mcp, tasks, subagents, skills, cron, plugins, extensions, peers])
+  }, [cwd, git, fullSessionInspector, mcp, tasks, subagents, skills, cron, plugins, extensions, peers])
 
   const refreshing =
     mcp.loading ||
@@ -242,6 +264,8 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
           </IconButton>
         )}
       </div>
+      {/* Workspace facts first: they hold before the first message, too. */}
+      <SessionFactRows cwd={cwd} git={git.data} model={facts?.model} effort={facts?.effort} />
       {noSession ? (
         <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
           <div className="font-medium text-foreground/80"><FormattedMessage id="editor.session.none" defaultMessage="No active session" /></div>
@@ -500,6 +524,64 @@ function RowDot({ className }: { className: string | null }) {
     <span className="relative -mr-2 w-0 shrink-0" aria-hidden>
       {className && <span className={cn('absolute -left-3.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full', className)} />}
     </span>
+  )
+}
+
+/** Last few segments of a long path — the full one is in the tooltip. */
+function shortPath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : path
+}
+
+function SessionFactRows({
+  cwd,
+  git,
+  model,
+  effort,
+}: {
+  cwd: string | null
+  git?: { current: string | null; ahead: number; behind: number; files: unknown[] }
+  model?: string
+  effort?: string
+}) {
+  if (!cwd && !model) return null
+  const row = 'flex min-w-0 items-center gap-1.5'
+  const icon = 'h-3 w-3 shrink-0 text-muted-foreground/70'
+  return (
+    <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+      {git && (
+        <div className={row}>
+          <GitBranch className={icon} />
+          <span className="truncate font-mono text-foreground/85">
+            {git.current ?? <FormattedMessage id="editor.session.detached" defaultMessage="detached HEAD" />}
+          </span>
+          {(git.ahead > 0 || git.behind > 0) && (
+            <span className="shrink-0 font-mono tabular-nums">
+              {git.ahead > 0 && `↑${git.ahead}`}
+              {git.ahead > 0 && git.behind > 0 && ' '}
+              {git.behind > 0 && `↓${git.behind}`}
+            </span>
+          )}
+          {git.files.length > 0 && (
+            <span className="shrink-0 tabular-nums">
+              · <FormattedMessage id="editor.session.uncommitted" defaultMessage="{count} uncommitted" values={{ count: git.files.length }} />
+            </span>
+          )}
+        </div>
+      )}
+      {cwd && (
+        <div className={row} title={cwd}>
+          <Folder className={icon} />
+          <span className="truncate font-mono">{shortPath(cwd)}</span>
+        </div>
+      )}
+      {model && (
+        <div className={row}>
+          <Cpu className={icon} />
+          <span className="truncate">{effort ? `${model} · ${effort}` : model}</span>
+        </div>
+      )}
+    </div>
   )
 }
 

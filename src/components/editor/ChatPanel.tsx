@@ -1413,6 +1413,11 @@ function ChatPanelContent({
         providerId={sessionPanelProviderId}
         variant={isMobile ? 'overlay' : 'inline'}
         usageCards={sessionUsageCards}
+        facts={{
+          cwd: reviewCwd,
+          model: selectedModel?.label,
+          effort: thinkingEffortOptions.find((option) => option.value === thinkingEffort)?.label,
+        }}
         onClose={() => setSessionPanelOpen(false)}
         // A skill picked in the panel arrives as a chip in the composer — the same state a
         // `/` pick produces — rather than as text or as a message sent on your behalf.
