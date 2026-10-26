@@ -1,4 +1,4 @@
-import type { ModelMessage, StreamTextResult } from 'ai'
+import type { ModelMessage, OutputInterface, StreamTextResult, ToolSet } from 'ai'
 
 // ---- Basic Types ----
 
@@ -126,7 +126,7 @@ export interface ProviderAdapter {
   dispose(): Promise<void>
 
   // ---- Chat ----
-  chat(params: ChatParams): StreamTextResult<any, any> | Promise<StreamTextResult<any, any>>
+  chat(params: ChatParams): StreamTextResult<ToolSet, Record<string, unknown>, OutputInterface> | Promise<StreamTextResult<ToolSet, Record<string, unknown>, OutputInterface>>
   abort(): void
 
   // ---- Session resume ----
