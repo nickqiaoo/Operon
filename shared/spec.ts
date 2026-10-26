@@ -296,6 +296,8 @@ export interface SpecView {
   run: SpecRun
   /** Absolute path of the change worktree, for "open in editor". */
   worktreePath: string | null
+  /** The change branch — still named once its worktree is removed, as a finished spec's is. */
+  branchName: string | null
   /** Path of the spec directory inside the worktree. */
   specDir: string
   brief: string | null

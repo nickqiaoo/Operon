@@ -8,7 +8,7 @@ const ticket = (key: string, state: SpecView['run']['build'][number]['state']): 
 function fixture(): SpecView {
   const seat = { providerId: 'codex' }
   return {
-    taskId: 1, taskNumber: 1, title: 'Test spec', worktreePath: null, specDir: '', brief: '', grounding: '', candidates: [], judge: '', design: '', synthesis: '', tickets: [
+    taskId: 1, taskNumber: 1, title: 'Test spec', worktreePath: null, branchName: null, specDir: '', brief: '', grounding: '', candidates: [], judge: '', design: '', synthesis: '', tickets: [
       { key: 'T1', title: 'Data index', delivers: '', acceptance: [], blockedBy: [], interfaces: [] },
       { key: 'T2', title: 'Navigation', delivers: '', acceptance: [], blockedBy: [], interfaces: [] },
     ], questions: null, feedback: null, review: null, reviewSummary: null, running: true, providers: [], availableProviders: [], seats: [], designChanged: false, ticketTasks: {}, sourceChat: null, elapsedMs: 5000, coordinator: null, integration: null,

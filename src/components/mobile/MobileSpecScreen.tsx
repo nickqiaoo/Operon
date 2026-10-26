@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { SpecChatRef } from '@shared/spec'
 import { ChatPanel } from '@/components/editor/ChatPanel'
@@ -10,6 +10,7 @@ import { useBackHandler } from '@/hooks/useAndroidBackButton'
 import { useEditorStore } from '@/stores/editor-store'
 import { useProjectStore, type Workspace } from '@/stores/project-store'
 import { PageVisibleContext } from '@/lib/page-visibility'
+import { ChatReadOnlyContext } from '@/lib/chat-read-only'
 import { fileCitationsToText } from '@/lib/file-citation'
 import { resolveDefaultBase } from '@/lib/git-queries'
 import { loadReview } from '@/components/app-shell/content/review/load-review'
@@ -45,6 +46,16 @@ export function MobileSpecScreen({ taskId, projectId, keyboardOpen, onExit, onOp
   const sessions = spec ? listSpecSessions(spec).filter((row) => row.chat.chatId !== spec.sourceChat?.chatId) : []
   const conversation = section === 'Discussion' ? spec?.sourceChat : section === 'Sessions' ? sessions.find((row) => row.chat.chatId === sessionId)?.chat : null
   const chatting = conversation != null
+  // Its worktree gone, the conversation is history and can't be continued.
+  const removed = project != null && conversation != null && specSessionWorkspace(project, conversation) == null
+  const readOnly = useMemo(() => removed && conversation
+    ? {
+        chatId: conversation.chatId,
+        reason: section === 'Discussion'
+          ? 'The workspace this discussion ran in has been removed.'
+          : "This session's worktree has been removed. Follow up in Discussion.",
+      }
+    : null, [removed, conversation?.chatId, section])
   const focusedId = useRef<number | null>(null)
 
   const openChat = (chat: SpecChatRef | MobileSpecChatTarget) => {
@@ -60,7 +71,7 @@ export function MobileSpecScreen({ taskId, projectId, keyboardOpen, onExit, onOp
   useEffect(() => {
     if (!conversation || !project || focusedId.current === conversation.chatId) return
     focusedId.current = conversation.chatId
-    const workspace = specSessionWorkspace(project, conversation, spec?.sourceChat)
+    const workspace = specSessionWorkspace(project, conversation)
     useProjectStore.getState().setActiveWorkspace(workspace?.id ?? null, project.id)
     const editor = useEditorStore.getState()
     editor.setWorkspace(workspace?.id ?? null, project.id)
@@ -70,7 +81,7 @@ export function MobileSpecScreen({ taskId, projectId, keyboardOpen, onExit, onOp
     const next = { tabId, chatId: conversation.chatId, providerId: conversation.providerId ?? undefined }
     setCurrent(next)
     setVisited((previous) => previous.some((item) => item.tabId === tabId) ? previous : [...previous, next])
-  }, [conversation, project, spec?.sourceChat])
+  }, [conversation, project])
 
   const back = () => {
     if (pickerOpen) setPickerOpen(false)
@@ -110,12 +121,14 @@ export function MobileSpecScreen({ taskId, projectId, keyboardOpen, onExit, onOp
       </>}
     </div>
     {chatting && current?.chatId !== conversation.chatId && <div role="status" className="grid flex-1 place-items-center text-sm text-muted-foreground">Loading conversation…</div>}
-    {visited.map((chat) => {
-      const visible = chatting && current?.tabId === chat.tabId && current.chatId === conversation.chatId
-      return <PageVisibleContext key={chat.tabId} value={visible}><div className={cn('min-h-0 flex-1', !visible && 'hidden')}>
-        <ChatPanel chatId={chat.tabId} providerId={chat.providerId} mobileKeyboardOpen={keyboardOpen} />
-      </div></PageVisibleContext>
-    })}
+    <ChatReadOnlyContext value={readOnly}>
+      {visited.map((chat) => {
+        const visible = chatting && current?.tabId === chat.tabId && current.chatId === conversation.chatId
+        return <PageVisibleContext key={chat.tabId} value={visible}><div className={cn('min-h-0 flex-1', !visible && 'hidden')}>
+          <ChatPanel chatId={chat.tabId} providerId={chat.providerId} mobileKeyboardOpen={keyboardOpen} />
+        </div></PageVisibleContext>
+      })}
+    </ChatReadOnlyContext>
     <MobileSheet open={pickerOpen} onClose={() => setPickerOpen(false)} title="Switch conversation">
       {spec && <MobileSpecChatsList specId={taskId} view={spec} selectedChatId={conversation?.chatId} onOpenChat={openChat} />}
     </MobileSheet>

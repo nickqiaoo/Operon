@@ -434,6 +434,7 @@ export async function getSpecView(storage: SpecViewStorage, taskId: number): Pro
     availableProviders: usableProviders(),
     seats: specSeats(config, run.build),
     worktreePath: workspace?.worktreePath ?? null,
+    branchName: task.branchName ?? workspace?.branchName ?? null,
     specDir: specDir(task.number),
     running: isDesignRunActive(task.id) || isBuildActive(task.id) || isReviewActive(task.id),
     coordinator: withChat(storage, coordinatorView(storage, task), task.workspaceId ?? null),

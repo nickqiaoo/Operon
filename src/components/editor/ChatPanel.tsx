@@ -107,6 +107,7 @@ import { useChatNotifications } from '@/hooks/useNotification';
 import { useVisibleChatInboxRead } from '@/hooks/useVisibleChatInboxRead';
 import { cn } from '@/lib/utils';
 import { usePageVisible } from '@/lib/page-visibility';
+import { useChatReadOnlyReason } from '@/lib/chat-read-only';
 import { useSessionPanelStore } from '@/stores/session-panel-store';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import {
@@ -211,6 +212,7 @@ function ChatPanelContent({
     return undefined;
   });
   const dbChatId = tab?.chatId;
+  const readOnlyReason = useChatReadOnlyReason(dbChatId);
 
   // Selection toolbar over the transcript. The container is the whole panel and
   // the targetSelector is what actually narrows it to assistant messages, so a
@@ -1350,7 +1352,17 @@ function ChatPanelContent({
           onRetry={handleRetrySteer}
           onDismiss={handleDismissSteer}
         />
-        <ChatInputArea
+        {readOnlyReason != null ? (
+          <div
+            role="status"
+            className={cn(
+              "rounded-xl px-4 py-3 text-xs text-muted-foreground",
+              isMobile ? "liquid-glass" : "border border-border/50 bg-muted/20 dark:border-border/35",
+            )}
+          >
+            {readOnlyReason}
+          </div>
+        ) : <ChatInputArea
           input={input}
           setInput={setInput}
           attachments={attachments}
@@ -1389,7 +1401,7 @@ function ChatPanelContent({
           hasPendingContext={pendingAnnotationCount > 0 || pendingLineCommentCount > 0}
           pendingSkill={pendingSkill}
           onPendingSkillConsumed={() => setPendingSkill(null)}
-        />
+        />}
       </div>
       <AgentPanel
         open={agentPanelOpen}

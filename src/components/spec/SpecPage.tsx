@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowUpRight, GitBranch, Loader2, MessageSquareText, PanelLeft } from 'lucide-react'
 import { SpecIcon } from '@/components/icons/SpecIcon'
 import type { SpecChatRef } from '@shared/spec'
@@ -13,6 +13,7 @@ import { ReviewTab } from '@/components/app-shell/content/ReviewTab'
 import type { Workspace } from '@/stores/project-store'
 import { useProjectStore } from '@/stores/project-store'
 import { PageVisibleContext, usePageVisible } from '@/lib/page-visibility'
+import { ChatReadOnlyContext } from '@/lib/chat-read-only'
 import { fileCitationsToText } from '@/lib/file-citation'
 import { cn } from '@/lib/utils'
 import { listSpecSessions } from './session-groups'
@@ -39,8 +40,6 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
   const taskId = target?.taskId ?? 0
   const { spec, error } = useSpecView(taskId, undefined, visible && target != null)
   const project = useProjectStore((state) => state.projects.find((item) => item.id === target?.projectId))
-  const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
-  const currentWorkspace = project?.workspaces.find((item) => item.id === activeWorkspaceId)
   const rightPanelOpen = useAppShellStore((state) => state.rightPanelOpen)
   const [navigation, setNavigation] = useState<Record<number, { section: Section; sessionId: number | null }>>({})
   const { section, sessionId } = navigation[taskId] ?? { section: 'overview', sessionId: null }
@@ -60,11 +59,22 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
   const conversation = section === 'discussion' ? spec?.sourceChat : section === 'sessions' ? selectedSession?.chat : null
   const activeChatId = useEditorStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId)?.chatId)
   const showConversation = target == null || (conversation != null && conversation.chatId === activeChatId)
+  // Where the open conversation ran. Once that worktree is gone the
+  // conversation is history: it opens in no workspace and can't be continued.
+  const conversationWorkspace = project && conversation ? specSessionWorkspace(project, conversation) : null
+  const conversationRemoved = project != null && conversation != null && conversationWorkspace == null
+  const readOnly = useMemo(() => conversationRemoved && conversation
+    ? {
+        chatId: conversation.chatId,
+        reason: section === 'discussion'
+          ? 'The workspace this discussion ran in has been removed.'
+          : "This session's worktree has been removed. Follow up in Discussion.",
+      }
+    : null, [conversationRemoved, conversation?.chatId, section])
   useEffect(() => {
     if (!visible || !project || !spec || target == null) return
-    const selectedWorkspace = specSessionWorkspace(project, conversation, spec.sourceChat)
-    if (conversation) onFocusChat({ ...conversation, workspaceId: selectedWorkspace?.id ?? null }, project.id)
-    else onFocusWorkspace(selectedWorkspace?.id ?? null, project.id)
+    if (conversation) onFocusChat({ ...conversation, workspaceId: specSessionWorkspace(project, conversation)?.id ?? null }, project.id)
+    else onFocusWorkspace(specSessionWorkspace(project, spec.sourceChat)?.id ?? null, project.id)
   }, [visible, target?.taskId, project?.id, spec?.taskId, conversation?.chatId, conversation?.workspaceId, workspace?.id, onFocusChat, onFocusWorkspace])
 
   return (
@@ -125,7 +135,9 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
               {sessions.map((entry) => <option key={entry.chat.chatId} value={entry.chat.chatId}>{fileCitationsToText(entry.label)}</option>)}
             </select>}
             <span className={cn('min-w-0 truncate', section === 'sessions' && '@max-[680px]/spec:hidden')}>{fileCitationsToText(conversation.title)}</span>
-            {currentWorkspace && <span className="ml-auto flex shrink-0 items-center gap-1" title={currentWorkspace.worktreePath}><GitBranch className="size-3" />{currentWorkspace.name}</span>}
+            {conversationWorkspace
+              ? <span className="ml-auto flex shrink-0 items-center gap-1" title={conversationWorkspace.worktreePath}><GitBranch className="size-3" />{conversationWorkspace.branchName}</span>
+              : conversationRemoved && <span className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground/60" title={conversation.cwd ? `Worktree removed: ${conversation.cwd}` : 'Worktree removed'}><GitBranch className="size-3" />{section === 'sessions' && spec?.branchName ? `${spec.branchName} · removed` : 'Worktree removed'}</span>}
           </div>}
           {target && !spec && <EmptyState>{error ?? 'Loading Spec…'}</EmptyState>}
           {target && spec && section === 'overview' && (
@@ -140,7 +152,9 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
           {target && spec && section === 'discussion' && !conversation && <EmptyState>No discussion is linked to this Spec.</EmptyState>}
           {target && spec && section === 'sessions' && !conversation && <EmptyState>No agent sessions yet.</EmptyState>}
           <PageVisibleContext value={visible && showConversation}>
-            <div className={cn('relative flex min-h-0 flex-1 flex-col', !showConversation && 'hidden')}>{children}</div>
+            <ChatReadOnlyContext value={readOnly}>
+              <div className={cn('relative flex min-h-0 flex-1 flex-col', !showConversation && 'hidden')}>{children}</div>
+            </ChatReadOnlyContext>
           </PageVisibleContext>
         </div>
       </div>

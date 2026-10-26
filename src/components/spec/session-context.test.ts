@@ -16,13 +16,13 @@ const chat = (workspaceId: number | null, cwd: string | null = null): SpecChatRe
 })
 
 describe('Spec session workspaces', () => {
-  it('uses the conversation workspace before any source or project fallback', () => {
-    expect(specSessionWorkspace(project, chat(3), chat(2))?.id).toBe(3)
-    expect(specSessionWorkspace(project, chat(null, '/ticket'), chat(2))?.id).toBe(3)
+  it('opens a conversation in its own workspace, by id or by directory', () => {
+    expect(specSessionWorkspace(project, chat(3))?.id).toBe(3)
+    expect(specSessionWorkspace(project, chat(null, '/ticket'))?.id).toBe(3)
   })
-  it('continues a reclaimed session in the source workspace or project checkout', () => {
-    expect(specSessionWorkspace(project, chat(99, '/removed'), chat(2))?.id).toBe(2)
-    expect(specSessionWorkspace(project, chat(null), chat(null))?.id).toBe(1)
-    expect(specSessionWorkspace({ ...project, workspaces: [] }, chat(null))).toBeNull()
+  it('has no workspace once that one is removed, rather than borrowing another', () => {
+    expect(specSessionWorkspace(project, chat(99, '/removed'))).toBeNull()
+    expect(specSessionWorkspace(project, chat(null))).toBeNull()
+    expect(specSessionWorkspace(project, null)).toBeNull()
   })
 })
