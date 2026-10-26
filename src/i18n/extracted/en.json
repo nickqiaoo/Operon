@@ -701,6 +701,7 @@
   "editor.toolInput.replaceAll": "Replace All",
   "editor.toolInput.writeFile": "Write File",
   "editor.turnDiff.edited": "{count, plural, one {Edited # file} other {Edited # files}}",
+  "editor.turnDiff.overlapped": "Another chat was editing this workspace during this turn, so some of these changes may be from it.",
   "editor.turnDiff.showLess": "Show less",
   "editor.turnDiff.showMore": "Show {count, plural, one {# more file} other {# more files}}",
   "editor.workflow.awaitingApproval": "waiting for your approval",

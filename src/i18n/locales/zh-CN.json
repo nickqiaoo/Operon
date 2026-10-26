@@ -806,6 +806,7 @@
   "editor.schedule.updated": "已更新定时任务",
   "editor.external.tabTitle": "Agent：{desc}",
   "editor.turnDiff.edited": "{count, plural, other {已编辑 # 个文件}}",
+  "editor.turnDiff.overlapped": "这一轮进行期间，有其他对话也在修改这个工作区，以下改动可能有一部分来自它。",
   "editor.turnDiff.showLess": "收起",
   "editor.turnDiff.showMore": "显示另外 {count, plural, other {# 个文件}}",
   "editor.annotation.region": "区域",

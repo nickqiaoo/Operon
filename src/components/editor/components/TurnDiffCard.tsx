@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { ChevronDown, ChevronUp, SquarePen, Undo2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, SquarePen, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +13,12 @@ export interface TurnDiffFile {
 
 interface TurnDiffCardProps {
   files: TurnDiffFile[];
+  /**
+   * Another chat wrote to the same workspace while this turn ran. The list
+   * comes from workspace snapshots, which can't tell whose a change was, so
+   * some of these files may be the other chat's.
+   */
+  overlapped?: boolean;
   /**
    * Only offered on the newest turn that changed files, where rewinding to the
    * start of the turn is exactly "undo this turn". Older turns rewind from the
@@ -29,7 +35,7 @@ const INITIAL_VISIBLE = 3;
  * Per-turn diff summary card (Codex-style): "Edited N files" with totals, a
  * collapsible per-file list, and Undo (rewind) + Review actions.
  */
-export function TurnDiffCard({ files, onUndo, onReview, className }: TurnDiffCardProps) {
+export function TurnDiffCard({ files, overlapped, onUndo, onReview, className }: TurnDiffCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   if (files.length === 0) return null;
@@ -71,6 +77,16 @@ export function TurnDiffCard({ files, onUndo, onReview, className }: TurnDiffCar
           ) : null}
         </div>
       </div>
+
+      {overlapped ? (
+        <div className="flex items-start gap-2 border-t border-border/40 px-4 py-2 text-xs text-muted-foreground">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-status-warn" />
+          <FormattedMessage
+            id="editor.turnDiff.overlapped"
+            defaultMessage="Another chat was editing this workspace during this turn, so some of these changes may be from it."
+          />
+        </div>
+      ) : null}
 
       {/* File list */}
       <div className="border-t border-border/40">

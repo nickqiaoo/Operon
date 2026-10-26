@@ -696,7 +696,7 @@ function ChatPanelContent({
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
   const [turnDiffs, setTurnDiffs] = useState<{
-    turns: Array<{ messageUid: string; snapshotId: string; files: TurnDiffFile[] }>;
+    turns: Array<{ messageUid: string; snapshotId: string; files: TurnDiffFile[]; overlapped?: boolean }>;
   } | null>(null);
   const [mobileReviewMessageUid, setMobileReviewMessageUid] = useState<string | null>(null);
   useEffect(() => {

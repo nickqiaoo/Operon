@@ -371,6 +371,11 @@ export interface TurnDiffEntry {
   messageUid: string
   snapshotId: string
   files: RewindService.TurnFileChange[]
+  /**
+   * Another chat wrote to the workspace while this turn ran, so `files` may
+   * include its edits — a snapshot can't tell whose a change was.
+   */
+  overlapped?: boolean
 }
 
 /**
@@ -393,7 +398,12 @@ export async function getTurnDiffs(chatId: number, cwd: string): Promise<{ turns
       ? await RewindService.changedFilesBetween(cwd, base.snapshotId, end.snapshotId)
       : await RewindService.changedFiles(cwd, base.snapshotId)
     if (files.length > 0) {
-      turns.push({ messageUid: base.messageUid, snapshotId: base.snapshotId, files })
+      turns.push({
+        messageUid: base.messageUid,
+        snapshotId: base.snapshotId,
+        files,
+        ...(base.overlapped ? { overlapped: true } : {}),
+      })
     }
   }
   return { turns }

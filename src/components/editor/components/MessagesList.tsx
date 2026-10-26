@@ -120,7 +120,7 @@ interface MessagesListProps {
    * affordance falls back to showing.
    */
   /** Per-turn file diffs (keyed by the round's user message); one card per turn. */
-  turnDiffs?: { turns: Array<{ messageUid: string; snapshotId: string; files: TurnDiffFile[] }> } | null;
+  turnDiffs?: { turns: Array<{ messageUid: string; snapshotId: string; files: TurnDiffFile[]; overlapped?: boolean }> } | null;
   /** Open the Review tab focused on the given turn (the round's user-message id). */
   onReviewTurn?: (messageUid: string) => void;
   externalAgentNotificationsByTaskId?: ReadonlyMap<string, ExternalAgentResultMetadata>;
@@ -144,6 +144,8 @@ interface MessageItemProps {
   canRewindHere: boolean;
   /** This turn's changed files; rendered as a card at the end of the round. */
   turnDiffFiles?: TurnDiffFile[];
+  /** Another chat edited the workspace during this turn, so its files may not all be this turn's. */
+  turnDiffOverlapped?: boolean;
   onReviewTurn?: (messageUid: string) => void;
   externalAgentNotificationsByTaskId?: ReadonlyMap<string, ExternalAgentResultMetadata>;
   onPermissionDecide: (id: string, outcome: 'allow' | 'deny' | 'allowAlways', updatedInput?: Record<string, unknown>) => Promise<boolean>;
@@ -198,6 +200,7 @@ const MessageItem = memo(function MessageItem({
   isLatestChangedTurn,
   canRewindHere,
   turnDiffFiles,
+  turnDiffOverlapped,
   onReviewTurn,
   externalAgentNotificationsByTaskId,
   onPermissionDecide,
@@ -283,6 +286,7 @@ const MessageItem = memo(function MessageItem({
       ) : turnDiffFiles != null && turnDiffFiles.length > 0 ? (
         <TurnDiffCard
           files={turnDiffFiles}
+          overlapped={turnDiffOverlapped}
           onUndo={isLatestChangedTurn ? () => onRewindToCheckpoint(precedingUserMessageId, 'undo') : undefined}
           onReview={onReviewTurn ? () => onReviewTurn(precedingUserMessageId) : undefined}
           // mb-3 separates the turn's diff card from the next turn's user message
@@ -517,6 +521,15 @@ export const MessagesList = memo(function MessagesList({
     return map;
   }, [turnDiffs]);
 
+  // Rounds whose turn ran alongside another chat in the same workspace.
+  const overlappedTurnIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const turn of turnDiffs?.turns ?? []) {
+      if (turn.overlapped) ids.add(turn.messageUid);
+    }
+    return ids;
+  }, [turnDiffs]);
+
   // The newest round (in message order) whose turn changed files.
   const latestChangedTurnId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -556,6 +569,9 @@ export const MessagesList = memo(function MessagesList({
             precedingUserMessageIds[index] != null
               ? turnFilesByMessageId.get(precedingUserMessageIds[index]!)
               : undefined
+          }
+          turnDiffOverlapped={
+            precedingUserMessageIds[index] != null && overlappedTurnIds.has(precedingUserMessageIds[index]!)
           }
           onReviewTurn={onReviewTurn}
           externalAgentNotificationsByTaskId={externalAgentNotificationsByMessageId.get(message.id)}

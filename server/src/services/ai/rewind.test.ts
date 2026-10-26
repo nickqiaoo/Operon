@@ -27,9 +27,11 @@ class InMemoryCheckpointStorage implements CheckpointStorageAdapter {
     chat.set(messageUid, entry)
   }
 
-  setCheckpointEnd(chatId: number, messageUid: string, endSnapshotId: string): void {
+  setCheckpointEnd(chatId: number, messageUid: string, endSnapshotId: string, overlapped?: boolean): void {
     const entry = this.data.get(chatId)?.get(messageUid)
-    if (entry) entry.endSnapshotId = endSnapshotId
+    if (!entry) return
+    entry.endSnapshotId = endSnapshotId
+    if (overlapped) entry.overlapped = true
   }
 
   getCheckpoint(chatId: number, messageUid: string): CheckpointRecord | undefined {
@@ -81,6 +83,20 @@ describe('per-turn diff intervals', () => {
     expect(turns).toHaveLength(1)
     expect(RewindService.changedFilesBetween).toHaveBeenCalledWith(CWD, 'start-1', 'end-1')
     expect(RewindService.changedFiles).not.toHaveBeenCalled()
+  })
+
+  it('flags only the turns that ran alongside another chat', async () => {
+    CheckpointStore.save(CHAT, 'msg-1', { snapshotId: 'start-1', createdAt: NOW - 20 * MINUTE })
+    CheckpointStore.setEnd(CHAT, 'msg-1', 'end-1')
+    CheckpointStore.save(CHAT, 'msg-2', { snapshotId: 'start-2', createdAt: NOW - 10 * MINUTE })
+    CheckpointStore.setEnd(CHAT, 'msg-2', 'end-2', true)
+
+    const { turns } = await getTurnDiffs(CHAT, CWD)
+
+    expect(turns.map((turn) => [turn.messageUid, turn.overlapped])).toEqual([
+      ['msg-1', undefined],
+      ['msg-2', true],
+    ])
   })
 
   it('excludes edits made between turns from the earlier turn', async () => {

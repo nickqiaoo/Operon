@@ -544,6 +544,8 @@ export const api = {
         messageUid: string
         snapshotId: string
         files: Array<{ path: string; status: string; additions: number; deletions: number }>
+        /** Another chat wrote to the workspace during this turn; `files` may include its edits. */
+        overlapped?: boolean
       }>
     }>(`/ai/turn-diffs/${chatId}?cwd=${encodeURIComponent(cwd)}`),
   aiGetTurnFileDiffs: (chatId: number, cwd: string, messageUid?: string) =>
