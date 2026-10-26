@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.4.12] - 2026-10-26
+
+### Changed
+
+- Context and quota usage moved from the pills above the composer into the Session panel, which phones now open from the conversation's top bar.
+- The Session panel shows the current branch, working directory, model and effort.
+
+### Fixed
+
+- Installed plugins no longer lose their skills and MCP servers after the marketplace refreshes.
+- The top bar's buttons are evenly spaced.
+- Codex usage in the top bar no longer shows 100% when only 1% is used.
+
 ## [1.4.11] - 2026-10-26
 
 ### Changed
