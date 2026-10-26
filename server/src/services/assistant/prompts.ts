@@ -25,6 +25,12 @@ function fileBlock(name: string, content: string): string {
   return `<${name}.md>\n${content.trim() || '(empty)'}\n</${name}.md>`
 }
 
+/** File placement is the same for the main assistant, workers and heartbeat checks. */
+const FILE_RULES = `## Files
+- ${ASSISTANT_OUTPUTS} is the user-visible delivery folder. Put only finished files intended for the user there, such as the document, plan, report or spreadsheet the task was for. Do not create a file just to record that a check ran.
+- Keep intermediate files — scripts, code, downloads, raw API responses, monitoring data, evidence dumps, logs, scratch notes and test output — elsewhere in ${ASSISTANT_WORKSPACE}, for example in a task-specific folder. Supporting an analysis does not make raw evidence a deliverable; include it in outputs only when the user explicitly asks for that data.
+- Apply these rules when assigning or continuing work too: distinguish the requested deliverables from working files. The user's explicit choice of another destination takes precedence.`
+
 /**
  * What goes into the assistant's memory and how it is written — the same for every session that
  * keeps it (main agent, worker, wrap-up), so they don't pull it in different directions.
@@ -86,6 +92,8 @@ export function buildMainInstructions(files: Files, uiLocale?: string, seed?: st
     fileBlock('identity', files.identity.content),
     fileBlock('soul', files.soul.content),
     fileBlock('memory', files.memory.content),
+    '',
+    FILE_RULES,
     '',
     `## How you work
 You are the one the user talks to. You never do tool work yourself — you hand it to a helper that works in the background, so you can keep talking while it runs. The one exception is your own memory files (below), which you read and edit yourself.
@@ -173,6 +181,7 @@ ${seed}`,
  */
 export const MAIN_PROMPT_REVISION = createHash('sha256')
   .update(buildMainInstructions.toString())
+  .update(FILE_RULES)
   .update(ONBOARDING)
   .digest('hex')
   .slice(0, 12)
@@ -258,12 +267,13 @@ ${info.unattended
 - You cannot ask the user anything. If you are blocked (missing access, needs a decision), stop and say exactly what is needed.
 - If you receive a new instruction while working, fold it into the same task.
 - Your last action is always finish_task — even for a one-step task — with a short title, a one-line summary of the outcome (the answer itself, not "here is the content:") and a status (done / partial / failed). The user sees this summary in their activity list. Put the full result in your reply before it.
-- What the task was for — the document, plan, report or spreadsheet the user wants — goes in ${ASSISTANT_OUTPUTS}: the user sees that folder and nothing else of your directory. Everything you make along the way (scripts, code, downloads, scratch notes, test output) stays out of it.
 - ${languageRule(info.locale)}
 
 ## Today's note
 Write what you observe into today's note, ${DAYS_DIR}/${localDate()}.md, with your file tools: what you found that the user may ask about later (amounts, names, times, links), and anything about the user worth remembering (an account they use, a person, a preference), saying where it came from. In ${languageName(info.locale) ?? "the user's language"}. A new file starts with a "# YYYY-MM-DD (Weekday)" line; add a "## HH:MM" section under it, never rewrite what is there. Only what the task actually turned up — not how you went about it.
 - Never edit memory.md, heartbeat.md, identity.md or soul.md. memory.md is the assistant's curated long-term memory: it decides what goes in, from the notes.`,
+    '',
+    FILE_RULES,
     ...(surfaceGuide(surfaces) ? ['', surfaceGuide(surfaces)] : []),
   ].join('\n')
 }
@@ -278,6 +288,8 @@ export function buildHeartbeatInstructions(files: Files, connectors: readonly st
   return [
     `You are the background check of ${identity.name ?? 'a personal assistant'}${identity.userName ? `, who works for ${identity.userName}` : ''}. Every ${HEARTBEAT_MINUTES} minutes you work through a fixed checklist for anything the user would want to hear about now. You never talk to the user: you hand what you find to the assistant, who decides how to say it.`,
     `It is ${nowLine()}.`,
+    '',
+    FILE_RULES,
     '',
     'Your checklist — do these checks and nothing else:',
     fileBlock('heartbeat', files.heartbeat.content),
