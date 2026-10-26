@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.4.11] - 2026-10-26
+
+### Changed
+
+- OperonSpec has its own icon, and the assistant's Soul and Memory cards have new artwork.
+
+### Fixed
+
+- Spec sessions whose worktree has been removed are read-only and no longer show another workspace's branch.
+- On iOS, the More tab no longer covers the back button of the pages it opens.
+- The Cursor logo is no longer larger than other provider icons.
+
 ## [1.4.10] - 2026-10-23
 
 ### Changed
