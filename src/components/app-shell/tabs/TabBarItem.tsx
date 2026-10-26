@@ -20,13 +20,17 @@ import type { Tab, TabPayload } from "./types"
  * A panel tab's look, shared with the file browser's strip of open files so
  * the two rows of tabs read as one family (same size, type, selected and hover
  * states) rather than two near-misses.
+ *
+ * Selected is a plain fill, not a raised tab (ring + shadow): the two rows
+ * stack right on top of each other, and raised tabs in both read as a pile of
+ * outlines.
  */
 export function panelTabClass(isActive: boolean) {
   return cn(
     "group inline-flex h-7 max-w-50 shrink-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1.5 text-[13px] transition-colors",
     isActive
-      ? "bg-foreground/4 text-foreground shadow-tab dark:bg-white/6"
-      : "text-muted-foreground hover:bg-foreground/3 hover:text-foreground dark:hover:bg-white/4"
+      ? "bg-row-selected text-foreground"
+      : "text-muted-foreground hover:bg-row-hover hover:text-foreground"
   )
 }
 
