@@ -62,6 +62,8 @@ function buildMcpConfigOverrides(servers?: Record<string, McpServerConfigOrSdk>)
     if (server.enabledTools !== undefined) overrides[`${prefix}.enabled_tools`] = server.enabledTools;
     if (server.disabledTools !== undefined)
       overrides[`${prefix}.disabled_tools`] = server.disabledTools;
+    if (server.defaultToolsApprovalMode !== undefined)
+      overrides[`${prefix}.default_tools_approval_mode`] = server.defaultToolsApprovalMode;
 
     if (server.transport === 'stdio') {
       const stdio = server as McpServerStdio;

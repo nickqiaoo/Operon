@@ -67,7 +67,7 @@ export function MobileChannelScreen({
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
   const loadTasks = useTaskStore((s) => s.load)
   const openDetail = useTaskStore((s) => s.openDetail)
-  const taskDetailOpen = useTaskStore((s) => s.detail != null)
+  const taskDetailOpen = useTaskStore((s) => s.detail != null || s.detailPending != null)
   // The tasks' grouping and filters: the desktop toolbar's, kept in the header's menu here.
   const [controls, setControls] = useState<TaskViewControls>(DEFAULT_CONTROLS)
 

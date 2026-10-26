@@ -279,6 +279,7 @@
   "task.new.create": "创建任务",
   "task.new.creating": "创建中…",
   "task.detail.back": "任务",
+  "task.detail.loadError": "无法加载该任务：{error}",
   "task.detail.archivedBadge": "已归档",
   "task.detail.description": "描述",
   "task.detail.addDescription": "添加描述…",

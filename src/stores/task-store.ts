@@ -18,6 +18,11 @@ interface TaskStore {
   tasks: TaskListItem[]
   labels: TaskLabel[]
   detail: TaskDetail | null
+  /**
+   * The task being opened, from the tap until its detail arrives (or fails), so
+   * the page can switch at once instead of sitting on the list over a slow link.
+   */
+  detailPending: { id: number; error: string | null } | null
   loading: boolean
 
   load: (projectId: number | null) => Promise<void>
@@ -61,6 +66,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   labels: [],
   detail: null,
+  detailPending: null,
   loading: false,
 
   load: async (projectId) => {
@@ -87,11 +93,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   openDetail: async (taskId) => {
-    const { task } = await api.taskGet(taskId)
-    set({ detail: task })
+    set({ detailPending: { id: taskId, error: null } })
+    // Closed, or another task opened, while this one was on its way: drop it.
+    const stillWanted = () => get().detailPending?.id === taskId
+    try {
+      const { task } = await api.taskGet(taskId)
+      if (stillWanted()) set({ detail: task, detailPending: null })
+    } catch (e) {
+      if (stillWanted()) set({ detailPending: { id: taskId, error: e instanceof Error ? e.message : String(e) } })
+    }
   },
 
-  closeDetail: () => set({ detail: null }),
+  closeDetail: () => set({ detail: null, detailPending: null }),
 
   create: async (input) => {
     const pid = input.projectId ?? get().projectId

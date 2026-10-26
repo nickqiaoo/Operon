@@ -78,6 +78,14 @@ export interface CodexOptions {
    * the user's copy would let the model route around it. Names only.
    */
   disabledMcpServers?: string[]
+  /**
+   * Servers among `mcpServers` whose tools run without an approval step — the
+   * host's own, which carry its own policy. Under `approveForMe` Codex's
+   * reviewer otherwise judges each call, and it can't tell the host from an
+   * outside destination: it turned down a heartbeat's report to the host as
+   * "sending private data to an unverified recipient". Names only.
+   */
+  approvedMcpServers?: string[]
 }
 
 /** Codex's options block on `createSession`. */

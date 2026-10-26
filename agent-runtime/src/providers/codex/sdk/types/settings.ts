@@ -78,6 +78,8 @@ interface McpServerBase {
   toolTimeoutSec?: number;
   enabledTools?: string[];
   disabledTools?: string[];
+  /** `default_tools_approval_mode`: `approve` runs the server's tools without an approval step. */
+  defaultToolsApprovalMode?: 'auto' | 'prompt' | 'writes' | 'approve';
 }
 
 /**

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.4.13] - 2026-10-26
+
+### Fixed
+
+- Opening a task shows its title and loading state immediately, with an error message if loading fails. Closing the page or switching tasks ignores late responses.
+- On iOS, the native top bar no longer covers the back button when opening task details or file diffs.
+- Codex assistant sessions approve Operon's own MCP tools under the host's policy, avoiding rejected heartbeat reports while leaving other servers' approval settings unchanged.
+
 ## [1.4.12] - 2026-10-26
 
 ### Changed

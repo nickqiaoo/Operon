@@ -15,7 +15,7 @@ import { useTaskStore } from '@/stores/task-store'
 import { useChannelStore } from '@/stores/channel-store'
 import { TaskListView } from './TaskListView'
 import { TaskBoardView } from './TaskBoardView'
-import { TaskDetailView } from './TaskDetailView'
+import { TaskDetailPlaceholder, TaskDetailView } from './TaskDetailView'
 import { NewTaskDialog } from './NewTaskDialog'
 import { StatusIcon, PriorityIcon, AssigneeAvatar, TaskScopeContext, type TaskGroup } from './task-meta'
 import { useProjectStore } from '@/stores/project-store'
@@ -85,6 +85,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
     return allTasks.filter((t) => live.has(t.projectId))
   }, [allTasks, mixed, projectFilter, projects, projectsLoaded])
   const detail = useTaskStore((s) => s.detail)
+  const detailPending = useTaskStore((s) => s.detailPending)
   const loading = useTaskStore((s) => s.loading)
   const openDetail = useTaskStore((s) => s.openDetail)
   const closeDetail = useTaskStore((s) => s.closeDetail)
@@ -218,6 +219,18 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
         toastTaskError(error, 'Task update failed'),
       )
     }
+  }
+
+  // A tap opens the page at once; the detail fills in when it arrives. Not for a
+  // refresh of the task already showing (a live update), which would flash.
+  if (detailPending && detailPending.id !== detail?.id) {
+    return (
+      <TaskDetailPlaceholder
+        task={allTasks.find((t) => t.id === detailPending.id)}
+        error={detailPending.error}
+        onClose={closeDetail}
+      />
+    )
   }
 
   if (detail) {

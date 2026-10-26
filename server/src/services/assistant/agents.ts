@@ -165,6 +165,9 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
   await ensurePluginsLoaded().catch((error) => console.error('[assistant] plugin load failed:', error))
   const mcpServers = sessionMcpServers(params.caller, params.nodeRepl ?? false, params.providerId)
   const disabled = disabledMcpServers(params.providerId, mcpServers)
+  // Our own tools carry our own policy. Left to Codex's reviewer, a heartbeat's report back to
+  // us was turned down as private data sent to an unverified destination.
+  const own = toolServerName(params.caller)
   const runtimeParams: HostSessionOptions = {
     cwd: params.cwd,
     ...(params.modelId ? { model: params.modelId } : {}),
@@ -175,7 +178,10 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
         ? `${params.instructions}\n\nHere the node_repl MCP server is named "${nodeReplServerName(params.providerId)}": wherever a skill says node_repl, use its js tool.`
         : params.instructions,
     mcpServers,
-    ...(disabled.length > 0 ? { codex: { disabledMcpServers: disabled } } : {}),
+    codex: {
+      ...(disabled.length > 0 ? { disabledMcpServers: disabled } : {}),
+      ...(own in mcpServers ? { approvedMcpServers: [own] } : {}),
+    },
     interactive: params.caller.role === 'main',
     ...(params.writableDirs?.length ? { writableDirs: params.writableDirs } : {}),
     opencode: { callerTag: assistantConversationId(params.caller) },

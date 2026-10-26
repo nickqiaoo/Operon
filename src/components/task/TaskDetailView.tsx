@@ -82,6 +82,53 @@ const INLINE_INPUT =
 /** The assignee picker's last item: opens the agents instead of picking one. */
 const MANAGE_AGENTS = '__manage_agents'
 
+/**
+ * The detail page while its task is on its way: the same back row and column,
+ * with what the list already knows (key and title), so the page does not jump
+ * when the rest arrives.
+ */
+export function TaskDetailPlaceholder({
+  task,
+  error,
+  onClose,
+}: {
+  task?: TaskListItem
+  error: string | null
+  onClose: () => void
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="h-11 flex items-center gap-2 px-4 border-b border-border/40 shrink-0 bg-background">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-muted-foreground hover:text-foreground rounded-full h-7 px-2.5"
+          onClick={onClose}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <FormattedMessage id="task.detail.back" defaultMessage="Tasks" />
+        </Button>
+        {task && <TaskRef projectId={task.projectId} number={task.number} className="text-xs text-muted-foreground/50" />}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
+        <div className="mx-auto w-full max-w-3xl space-y-6">
+          {task && <h1 className="text-xl font-semibold leading-snug [overflow-wrap:anywhere]">{task.title}</h1>}
+          {error ? (
+            <div className="flex items-center gap-2 text-xs text-destructive">
+              <FormattedMessage id="task.detail.loadError" defaultMessage="Couldn't load this task: {error}" values={{ error }} />
+            </div>
+          ) : (
+            <div role="status" className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <FormattedMessage id="common.loading" defaultMessage="Loading…" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function TaskDetailView({
   detail,
   agents,

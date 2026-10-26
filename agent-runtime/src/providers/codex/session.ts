@@ -164,6 +164,20 @@ export function toCodexMcpServers(
   return result
 }
 
+/** `approvedMcpServers`: those servers' tools skip Codex's approval step. */
+export function withApprovedTools(
+  servers: Record<string, CodexSdkMcpServerConfig> | undefined,
+  approved: readonly string[] | undefined,
+): Record<string, CodexSdkMcpServerConfig> | undefined {
+  if (!servers || !approved?.length) return servers
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => [
+      name,
+      approved.includes(name) ? { ...server, defaultToolsApprovalMode: 'approve' as const } : server,
+    ]),
+  )
+}
+
 /**
  * Config overrides switching off `requested` servers — only those `defined` (the effective
  * `mcp_servers`) has. Overriding a name that isn't there leaves an entry with no transport,
@@ -228,8 +242,8 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     this.env = withLocalMcpNoProxy(ctx.env(params.env))
     this.currentServiceTier = params.serviceTier
     this.threadId = params.resume
-    this.codexMcpServers = toCodexMcpServers(params.mcpServers)
     this.nativeOptions = params.codex ?? {}
+    this.codexMcpServers = withApprovedTools(toCodexMcpServers(params.mcpServers), this.nativeOptions.approvedMcpServers)
     this.disabledMcpServers = this.nativeOptions.disabledMcpServers ?? []
     this.instructions = params.instructions?.trim() || undefined
     this.forkFrom = params.fork

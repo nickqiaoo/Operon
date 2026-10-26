@@ -144,6 +144,25 @@ describe('Codex disabled MCP servers', () => {
   })
 })
 
+describe('Codex approved MCP servers', () => {
+  // Measured with codex-cli 0.162.1: `approve` is accepted (`auto | prompt | writes | approve`).
+  it('marks only the named servers to run their tools without an approval step', () => {
+    const session = new CodexRuntimeSession(
+      {
+        cwd: '/tmp',
+        mcpServers: { assistant_heartbeat: { type: 'http', url: 'http://127.0.0.1/a' }, playwright: { command: '/x' } },
+        codex: { approvedMcpServers: ['assistant_heartbeat'] },
+      },
+      createRuntimeContext({ resolveBinary: () => '/mock/codex' }),
+    )
+    const settings = (session as unknown as { buildSettings(): Parameters<typeof buildConfigOverrides>[0] }).buildSettings()
+    const keys = buildConfigOverrides(settings) ?? {}
+    expect(keys['mcp_servers.assistant_heartbeat.default_tools_approval_mode']).toBe('approve')
+    // Dotted keys are flat here — check the key list, not a property path.
+    expect(Object.keys(keys)).not.toContain('mcp_servers.playwright.default_tools_approval_mode')
+  })
+})
+
 describe('Codex MCP status', () => {
   it('lists every app-server status page and maps it to the Session panel shape', async () => {
     const session = new CodexRuntimeSession({

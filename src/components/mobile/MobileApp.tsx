@@ -613,20 +613,21 @@ export function MobileApp() {
     }
     const spec = nativeHeader && headerKey != null ? headerRef.current?.spec ?? null : null
     let header: NativeTopBarHeader | undefined
-    // A list keeps its context/inbox controls while the page header registers
-    // after a context switch. Only immersive pages hide the native header —
-    // and More, which has none: its rows aren't about the current project, and
-    // the full-screen pages it opens (Settings, Files…) put their own back
-    // button where the bar would sit.
-    if (nativeHeader && tab !== "more" && (!immersive || spec?.navigation)) {
+    // Only a page that mounts a MobileHeader gets one: every list screen does,
+    // and a page pushed over a list (an open task, a file's diff…) unmounts it
+    // and draws its own back row where the bar would sit. Filling in a default
+    // header there covered that row. More has none either: its rows aren't
+    // about the current project, and the full-screen pages it opens (Settings,
+    // Files…) put their own back button there too.
+    if (spec && tab !== "more" && (!immersive || spec.navigation)) {
       header = {
-        back: spec?.navigation != null,
-        leading: spec?.navigation ? { kind: "context", title: spec.navigation.title, subtitle: spec.navigation.subtitle } : spec?.segments
+        back: spec.navigation != null,
+        leading: spec.navigation ? { kind: "context", title: spec.navigation.title, subtitle: spec.navigation.subtitle } : spec.segments
           ? { kind: "segments", items: spec.segments.items.map((i) => ({ id: i.id, title: i.label })), selected: spec.segments.selected }
           : { kind: "context", title: topBarTitle, subtitle: topBarSubtitle },
         // A system pull-down, picked in place.
-        menu: spec?.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: toNativeMenu(spec.menu.nodes) },
-        actions: spec?.actions?.map((a) => ({ id: a.id, symbol: a.symbol, label: a.label })) ?? [],
+        menu: spec.menu && { symbol: spec.menu.symbol, label: spec.menu.label, nodes: toNativeMenu(spec.menu.nodes) },
+        actions: spec.actions?.map((a) => ({ id: a.id, symbol: a.symbol, label: a.label })) ?? [],
       }
     }
     const mode = header ? "header" : immersive && tab === "chats" ? "back" : "hidden"
