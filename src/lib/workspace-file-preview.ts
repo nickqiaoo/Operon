@@ -2,17 +2,21 @@ import type { Tab } from "@/components/app-shell/tabs/types"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useTabsStore } from "@/stores/tabs-store"
-import { basename, toAbsolutePath } from "@/lib/workspace-files"
+import { basename } from "@/lib/workspace-files"
+import { resolveCitationFile } from "@/lib/file-citation"
 import { openPreviewFile, previewFilesOf } from "@/lib/workspace-preview-files"
 
 interface OpenWorkspaceFilePreviewOptions {
   line?: number
-  /** Explicit source directory; omitting it keeps the normal workspace behavior. */
+  /** Source directory for relative references and the preferred file tree root. */
   rootPath?: string
 }
 
 const normalizePath = (path: string): string =>
-  path.replace(/\\/g, "/").replace(/\/+$/, "")
+  path.replace(/\\/g, "/").replace(/\/+$/, "") || "/"
+
+const containsFile = (rootPath: string, filePath: string): boolean =>
+  filePath !== rootPath && filePath.startsWith(rootPath === "/" ? "/" : `${rootPath}/`)
 
 const createWorkspaceTabId = (rootPath: string): string =>
   `workspace:${rootPath}:${crypto.randomUUID()}`
@@ -21,18 +25,26 @@ const resolveActiveWorkspacePath = (
   filePath: string,
   sourceRoot?: string
 ): { rootPath: string; absolutePath: string } | null => {
-  const activeWorkspace = useProjectStore.getState().getActiveWorkspace()
+  const projectStore = useProjectStore.getState()
+  const activeWorkspace = projectStore.getActiveWorkspace()
   const source = sourceRoot ?? activeWorkspace?.worktreePath
-  if (!source) return null
+  const absolutePath = resolveCitationFile(source ?? null, filePath)
+  if (!absolutePath || absolutePath === "/") return null
 
-  const rootPath = normalizePath(source)
-  const absolutePath = normalizePath(
-    filePath.startsWith("/") ? filePath : toAbsolutePath(rootPath, filePath)
-  )
-
-  if (absolutePath === rootPath || !absolutePath.startsWith(`${rootPath}/`)) {
-    return null
+  if (source) {
+    const rootPath = normalizePath(source)
+    if (absolutePath === rootPath) return null
+    if (containsFile(rootPath, absolutePath)) return { rootPath, absolutePath }
   }
+
+  // Cross-project references use the owning tree without changing the active workspace.
+  const roots = projectStore.projects.flatMap((project) => [
+    project.rootPath,
+    ...project.workspaces.map((workspace) => workspace.worktreePath),
+  ]).map(normalizePath)
+  const rootPath = roots.filter((root) => containsFile(root, absolutePath))
+    .sort((a, b) => b.length - a.length)[0]
+    ?? (absolutePath.slice(0, absolutePath.lastIndexOf("/")) || "/")
 
   return { rootPath, absolutePath }
 }
@@ -86,6 +98,7 @@ export function openWorkspaceFilePreview(
       isClosable: true,
       payload,
     }
+    useAppShellStore.getState().toggleWorkspaceTree(tab.tabId)
     tabs.openTab("right", tab)
   }
 

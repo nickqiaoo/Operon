@@ -12,8 +12,8 @@ const FileOpenContext = createContext<FileOpenHandler>(openInWorkspace)
 
 /**
  * Where file references inside it open. Outside any provider they resolve
- * against the active workspace and open in its side file viewer; a surface
- * that isn't a workspace (the assistant) provides its own.
+ * relative paths against the active workspace. Absolute paths can open their
+ * own file tree; other surfaces (the assistant) provide their own handler.
  */
 export const FileOpenProvider = FileOpenContext.Provider
 
@@ -21,7 +21,7 @@ export function useFileOpenHandler(): FileOpenHandler {
   return useContext(FileOpenContext)
 }
 
-// undefined preserves ordinary chat behavior; null explicitly disables unresolved citations.
+// undefined preserves ordinary chat behavior; null disables relative references without a source.
 const CitationRootContext = createContext<string | null | undefined>(undefined)
 export const CitationRootProvider = CitationRootContext.Provider
 export function useCitationRoot() { return useContext(CitationRootContext) }

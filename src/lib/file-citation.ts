@@ -99,9 +99,8 @@ export function fileCitationsToText(text: string): string {
   })
 }
 
-/** Resolve only within the explicit source directory, never the active workspace. */
+/** Absolute references stand alone; legacy relative paths stay within their source. */
 export function resolveCitationFile(rootPath: string | null, filePath: string): string | null {
-  if (!rootPath) return null
   const normalize = (path: string) => {
     const parts: string[] = []
     for (const part of path.replace(/\\/g, '/').split('/')) {
@@ -111,9 +110,10 @@ export function resolveCitationFile(rootPath: string | null, filePath: string): 
     }
     return '/' + parts.join('/')
   }
-  if (!rootPath.startsWith('/')) return null
-  const root = normalize(rootPath)
   const clean = filePath.replace(/^\.\//, '').replace(/^[ab]\//, '')
-  const absolute = normalize(clean.startsWith('/') ? clean : `${root}/${clean}`)
-  return absolute.startsWith(`${root}/`) ? absolute : null
+  if (clean.startsWith('/')) return normalize(clean)
+  if (!rootPath?.startsWith('/')) return null
+  const root = normalize(rootPath)
+  const absolute = normalize(`${root}/${clean}`)
+  return absolute !== root && absolute.startsWith(root === '/' ? '/' : `${root}/`) ? absolute : null
 }

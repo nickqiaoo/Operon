@@ -8,10 +8,10 @@ import { openWorkspaceFilePreview } from '@/lib/workspace-file-preview'
 export function ScopedFileReferences({ rootPath, children }: { rootPath: string | null; children: ReactNode }) {
   const openFile = useCallback<FileOpenHandler>((path, options) => {
     const absolute = resolveCitationFile(rootPath, path)
-    if (!absolute || !rootPath) return
+    if (!absolute) return
     // Recheck on click: cleanup may have happened since the citation was rendered.
     void api.stat(absolute).then((stat) => {
-      if (stat.isFile) openWorkspaceFilePreview(absolute, { ...options, rootPath })
+      if (stat.isFile) openWorkspaceFilePreview(absolute, { ...options, rootPath: rootPath ?? undefined })
     }).catch(() => undefined)
   }, [rootPath])
   return (

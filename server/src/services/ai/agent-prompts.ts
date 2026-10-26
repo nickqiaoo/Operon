@@ -17,11 +17,12 @@ import type { AnyProviderDefinition } from '@operon/agent-runtime'
  */
 export const FILE_REFERENCE_PROMPT = `## File references
 
-When you reference a real file in the project, cite it so the user can click to open it:
+When you reference a real local file, cite it so the user can click to open it:
 
-- Use the citation form \`【F:<path>†L<line>】\`, where <path> is the file's path relative to the workspace root and <line> is a 1-based line number. Example: 【F:src/app.ts†L42】.
-- For a range of lines, use 【F:src/app.ts†L42-L60】. A citation must always include at least one line — use L1 when referring to a file as a whole.
-- Always write the FULL workspace-relative path. Never cite a bare filename (\`app.ts\`) or a directory/package name — if you only know a bare name, don't cite it.
+- Use the citation form \`【F:<path>†L<line>】\`, where <path> is the file's full absolute filesystem path and <line> is a 1-based line number. Example: 【F:/Users/alice/project/src/app.ts†L42】.
+- For a range of lines, use 【F:/Users/alice/project/src/app.ts†L42-L60】. A citation must always include at least one line — use L1 when referring to a file as a whole.
+- Use full absolute paths even for files outside the current workspace. Cite only paths you know; never guess.
+- Prefer inline citations near the relevant text; use other layouts when they make the answer clearer.
 - Cite only real files. Never wrap directories, packages, code identifiers, commands, or URLs as citations, and do not use \`file://\`, \`vscode://\`, or \`https://\` for local files.
 `
 

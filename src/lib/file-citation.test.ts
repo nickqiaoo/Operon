@@ -66,6 +66,12 @@ describe("remarkFileCitations plugin", () => {
     expect(out[2].value).toBe(" now")
   })
 
+  it("preserves an absolute path and line range in a cross-project citation", () => {
+    const path = '/Volumes/data/project/xui/server/src/services/assistant/schedule.test.ts'
+    const out = runPlugin([{ type: 'text', value: `【F:${path}†L110-L121】` }])
+    expect(decodeCitation(out[0].value!)).toEqual({ path, line: 110, endLine: 121 })
+  })
+
   it("handles a line range (both -L20 and -20 forms)", () => {
     expect(decodeCitation(runPlugin([{ type: "text", value: "【F:a/b.ts†L1-L20】" }])[0].value!))
       .toEqual({ path: "a/b.ts", line: 1, endLine: 20 })
@@ -120,7 +126,15 @@ describe('compact citation text and source paths', () => {
     expect(resolveCitationFile('/source', './src/app.ts')).toBe('/source/src/app.ts')
     expect(resolveCitationFile('/source', 'a/src/app.ts')).toBe('/source/src/app.ts')
     expect(resolveCitationFile('/source', '../other/app.ts')).toBeNull()
-    expect(resolveCitationFile('/source', '/source-old/app.ts')).toBeNull()
-    expect(resolveCitationFile(null, '/source/app.ts')).toBeNull()
+    expect(resolveCitationFile(null, 'src/app.ts')).toBeNull()
+  })
+
+  it('keeps absolute references independent of their source directory', async () => {
+    const { resolveCitationFile } = await import('./file-citation')
+    expect(resolveCitationFile('/blog', '/xui/src/app.ts')).toBe('/xui/src/app.ts')
+    expect(resolveCitationFile(null, '/xui/src/app.ts')).toBe('/xui/src/app.ts')
+    expect(resolveCitationFile('/blog', '/xui/src/../app.ts')).toBe('/xui/app.ts')
+    expect(resolveCitationFile('/blog', '/xui/a%20b.ts')).toBe('/xui/a%20b.ts')
+    expect(resolveCitationFile('/', 'app.ts')).toBe('/app.ts')
   })
 })
