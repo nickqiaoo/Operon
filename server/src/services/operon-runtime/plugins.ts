@@ -11,9 +11,9 @@ import {
   type PluginSummary,
 } from 'operon-agents'
 import { mcpOAuthSettings, serverFromConfig, type MCPTool, type McpOAuthClientSettings } from 'operon-agents/mcp'
-import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'os'
-import { basename, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { HARNESS_HOME_DIR } from './paths.js'
 import { beginMcpAuth, cancelMcpAuth, disconnectMcp, hasMcpTokens, mcpAuthPending, mcpOAuthService, type BeginMcpAuthResult } from './mcp-oauth.js'
 import { resolvePluginApp } from '../connectors/registry.js'
@@ -27,6 +27,10 @@ import { pluginSkillConflicts, syncPluginSkills } from './plugin-skill-sync.js'
 
 // Cached github-repo marketplaces live here: one extracted repo per source, shared by browse+install.
 const MARKETPLACE_CACHE_ROOT = join(HARNESS_HOME_DIR, 'marketplace-cache')
+// Installed plugins' own copies, one dir per `<marketplace cache key>/<plugin dir>`. A marketplace
+// entry's source is a dir inside the cache, and the framework installs a local path in place, so a
+// plugin installed straight from there lost all its files once a refresh pruned that cache version.
+const PLUGIN_STORE_ROOT = join(HARNESS_HOME_DIR, 'plugins', 'store')
 
 const APP_NAME = 'operon'
 
@@ -49,8 +53,68 @@ let loadOnce: Promise<void> | undefined
  * clears links left behind by a plugin that vanished while Operon wasn't running.
  */
 export async function ensurePluginsLoaded(): Promise<void> {
-  loadOnce ??= pluginManager.load().then(() => resyncPluginSkills())
+  loadOnce ??= pluginManager
+    .load()
+    .then(() => moveInstallsOutOfCache())
+    .then(() => resyncPluginSkills())
   await loadOnce
+}
+
+/**
+ * Plugins installed before installs were copied into the store still point into the marketplace
+ * cache — some at a version already pruned, which leaves them with no skills and no MCP servers.
+ * Copy each into the store (from the same path inside the current cache when its own dir is gone)
+ * and reinstall from there; the record keeps its enabled state, MCP toggles and install date.
+ */
+async function moveInstallsOutOfCache(): Promise<void> {
+  for (const record of pluginManager.list()) {
+    if (!isInMarketplaceCache(record.root)) continue
+    try {
+      const src = (await isFile(record.root)) ? record.root : await locateInCurrentCache(record.root)
+      if (src === null) {
+        console.warn(`[plugins] "${record.id}" points at a pruned marketplace cache and is no longer in the marketplace`)
+        continue
+      }
+      await pluginManager.install(await copyIntoStore(src))
+    } catch (error) {
+      console.warn(`[plugins] could not move "${record.id}" out of the marketplace cache:`, error)
+    }
+  }
+}
+
+/** The same plugin dir inside the marketplace's current cache version, if it is still there. */
+async function locateInCurrentCache(staleRoot: string): Promise<string | null> {
+  const [key, ...rest] = relative(MARKETPLACE_CACHE_ROOT, staleRoot).split(sep)
+  // `<key>/<timestamp>/<repo>/<path>` since the cache was versioned; `<key>/<repo>/<path>` before.
+  const inRepo = /^\d+$/.test(rest[0] ?? '') ? rest.slice(2) : rest.slice(1)
+  const gh = (await configuredMarketplaces())
+    .map((source) => parseGithubMarketplaceSource(source))
+    .find((candidate) => candidate !== undefined && marketplaceCacheKey(candidate) === key)
+  if (gh === undefined || inRepo.length === 0) return null
+  const candidate = join(await ensureMarketplaceRepo(gh), ...inRepo)
+  return (await isFile(candidate)) ? candidate : null
+}
+
+function isInMarketplaceCache(path: string): boolean {
+  return resolve(path).startsWith(resolve(MARKETPLACE_CACHE_ROOT) + sep)
+}
+
+/** Copy a plugin dir out of the marketplace cache into the store, replacing an older copy. */
+async function copyIntoStore(src: string): Promise<string> {
+  const key = relative(MARKETPLACE_CACHE_ROOT, src).split(sep)[0]!
+  const dest = join(PLUGIN_STORE_ROOT, key, basename(src))
+  const staging = `${dest}.staging-${Date.now()}`
+  await mkdir(dirname(dest), { recursive: true })
+  try {
+    // Dereference: a symlink copied as-is would still point back into the cache.
+    await cp(src, staging, { recursive: true, dereference: true })
+    await rm(dest, { recursive: true, force: true })
+    await rename(staging, dest)
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true })
+    throw error
+  }
+  return dest
 }
 
 /** Re-land plugin skills after the enabled set changed. A failure is logged, never thrown: the
@@ -486,7 +550,7 @@ function skillDisplayName(p: string): string {
 
 export async function installPlugin(source: string): Promise<OperonPluginDTO> {
   await ensurePluginsLoaded()
-  const record = await pluginManager.install(source)
+  const record = await pluginManager.install(isInMarketplaceCache(source) ? await copyIntoStore(source) : source)
   await resyncPluginSkills()
   const summary = pluginManager.summaries().find((p) => p.id === record.id)
   if (!summary) throw new Error(`Plugin "${record.id}" installed but missing from summaries`)
@@ -506,7 +570,12 @@ export async function setPluginMcpEnabled(id: string, server: string, enabled: b
 
 export async function removePlugin(id: string): Promise<void> {
   await ensurePluginsLoaded()
+  const root = pluginManager.get(id)?.root
   await pluginManager.remove(id)
+  // The store copy is ours; a plugin installed from any other local path is left alone.
+  if (root !== undefined && resolve(root).startsWith(resolve(PLUGIN_STORE_ROOT) + sep)) {
+    await rm(root, { recursive: true, force: true })
+  }
   await resyncPluginSkills()
 }
 
@@ -647,9 +716,12 @@ const REPO_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 // used to each wipe the directory the other was extracting into.
 const repoRefreshes = new Map<string, Promise<string>>()
 
+function marketplaceCacheKey(gh: { owner: string; repo: string; ref?: string }): string {
+  return `${gh.owner}-${gh.repo}-${gh.ref ?? 'HEAD'}`.replace(/[^\w.-]/g, '_')
+}
+
 async function ensureMarketplaceRepo(gh: { owner: string; repo: string; ref?: string }): Promise<string> {
-  const refVal = gh.ref ?? 'HEAD'
-  const key = `${gh.owner}-${gh.repo}-${refVal}`.replace(/[^\w.-]/g, '_')
+  const key = marketplaceCacheKey(gh)
   let cached: { root: string; at: number } | undefined
   try {
     const meta = JSON.parse(await readFile(join(MARKETPLACE_CACHE_ROOT, `${key}.json`), 'utf8')) as { root: string; at: number }
