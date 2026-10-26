@@ -249,7 +249,7 @@ function WorkspaceRow({ label, title, isActive, stats, streaming, unseen, onSele
       className={cn(
         'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
         isActive && 'bg-row-selected hover:bg-row-selected',
-        streaming > 0 && 'animate-shimmer-sweep',
+        isActive && streaming > 0 && 'animate-shimmer-sweep',
       )}
     >
       <GitBranch className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />

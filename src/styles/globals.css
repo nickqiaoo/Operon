@@ -1193,6 +1193,11 @@ body > div > button[title="Exit fullscreen"] {
   animation: request-progress 1100ms ease-in-out infinite;
 }
 
+.animate-shimmer-sweep {
+  position: relative;
+  overflow: hidden;
+}
+
 .animate-shimmer-sweep::after {
   content: "";
   position: absolute;
