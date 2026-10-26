@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { ChevronUp, Loader2, Play, ScrollText, Workflow } from 'lucide-react'
+import { ChevronUp, Loader2, Play, Workflow } from 'lucide-react'
+import { SpecIcon } from '@/components/icons/SpecIcon'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
@@ -130,7 +131,7 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
         >
           <span className="shrink-0 font-mono text-muted-foreground">#{entry.taskNumber}</span>
           <span className="min-w-0 flex-1 truncate font-medium text-foreground">{spec?.title ?? entry.title}</span>
-          <ScrollText className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
+          <SpecIcon className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
           <SpecStageBadge stage={stage} running={spec?.running} />
           {progress && <span className="shrink-0 tabular-nums text-muted-foreground">{progress}</span>}
         </button>

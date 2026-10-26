@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { Workflow as WorkflowIcon, ChevronDownIcon, CheckIcon, ScrollText, XIcon } from 'lucide-react';
+import { Workflow as WorkflowIcon, ChevronDownIcon, CheckIcon, XIcon } from 'lucide-react';
+import { SpecIcon } from '@/components/icons/SpecIcon';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
@@ -98,7 +99,7 @@ export function parseSpecNotice(text: string): { spec: string; body: string } | 
 export function SpecNoticeMessage({ notice }: { notice: { spec: string; body: string } }) {
   return (
     <div className="mt-1 flex items-start gap-2 px-1 text-xs text-muted-foreground">
-      <ScrollText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <SpecIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0">
         <span className="font-mono">#{notice.spec}</span> · {notice.body}
       </span>

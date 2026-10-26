@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowUpRight, GitBranch, Loader2, MessageSquareText, PanelLeft, ScrollText } from 'lucide-react'
+import { ArrowUpRight, GitBranch, Loader2, MessageSquareText, PanelLeft } from 'lucide-react'
+import { SpecIcon } from '@/components/icons/SpecIcon'
 import type { SpecChatRef } from '@shared/spec'
 import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/icons/ProviderLabel'
@@ -75,7 +76,7 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
         )}
         <span className="shrink-0">{project?.name ?? 'Project'}</span>
         <span className="text-muted-foreground/40">/</span>
-        <ScrollText className="size-3.5 shrink-0" />
+        <SpecIcon className="size-3.5 shrink-0" />
         <span className="shrink-0">Spec {spec ? `#${spec.taskNumber}` : ''}</span>
         {spec && <span className="min-w-0 truncate text-foreground/80">{fileCitationsToText(spec.title)}</span>}
         <div className="flex-1" />

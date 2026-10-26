@@ -1,7 +1,8 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, ScrollText, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
 import { Fragment, useCallback, useMemo, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
@@ -176,7 +177,6 @@ function ProjectItem({
       <CollapsibleContent>
         {entries.workspaces.length > 0 && (
           <div className="pb-1">
-            <div className="px-6 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/65">Workspaces</div>
             {[...entries.workspaces]
               .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
               .map((workspace) => (
@@ -195,7 +195,6 @@ function ProjectItem({
         )}
         {entries.specs.length > 0 && (
           <div className="pb-1">
-            <div className="px-6 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/65">Specs</div>
             {entries.specs.map((spec) => (
               <SpecRow key={spec.id} spec={spec} active={activeSpecId === spec.id} onSelect={() => onOpenSpec?.(spec.id, project.id)} />
             ))}
@@ -225,7 +224,7 @@ function SpecRow({ spec, active, onSelect }: { spec: WorkspaceTask; active: bool
         active && 'bg-row-selected hover:bg-row-selected',
       )}
     >
-      <ScrollText className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+      <SpecIcon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
       <span className={cn('min-w-0 flex-1 truncate text-sm', active ? 'font-semibold text-foreground' : 'font-medium text-foreground/70')}>{fileCitationsToText(spec.title)}</span>
       <span className={cn('shrink-0 text-[10px]', needsInput ? 'text-status-warn' : 'text-muted-foreground')}>{status}</span>
     </button>

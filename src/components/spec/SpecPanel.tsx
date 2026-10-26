@@ -4,7 +4,8 @@ import { SpecWorkflow } from './SpecWorkflow'
 import type { WorkflowArtifact } from './spec-workflow-data'
 import { useState, type ReactNode } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { ScrollText, Loader2, MessageSquareText } from 'lucide-react'
+import { Loader2, MessageSquareText } from 'lucide-react'
+import { SpecIcon } from '@/components/icons/SpecIcon'
 import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -88,7 +89,7 @@ export function SpecOverview({ spec, onOpenWorkspace, onOpenChat }: {
     <ScopedFileReferences rootPath={spec.worktreePath}>
     <section className="space-y-4 border-y border-border/40 py-5">
       <div className="flex items-start gap-3 px-0.5">
-        <ScrollText className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        <SpecIcon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold">OperonSpec</span>

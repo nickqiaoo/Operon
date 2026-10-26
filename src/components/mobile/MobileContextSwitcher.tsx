@@ -1,4 +1,5 @@
-import { ScrollText, Check, Layers } from "lucide-react"
+import { Check, Layers } from "lucide-react"
+import { SpecIcon } from "@/components/icons/SpecIcon"
 import { FormattedMessage, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { useProjectStore } from "@/stores/project-store"
@@ -96,7 +97,7 @@ export function MobileContextSwitcher({ open, onClose, selectedSpecId, onSelectS
                         onClick={() => { onSelectSpec(project.id, spec.id); onClose() }}
                         className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-row-hover", selectedSpecId === spec.id && "bg-muted/40")}
                       >
-                        <ScrollText className="size-4 shrink-0 text-muted-foreground" />
+                        <SpecIcon className="size-4 shrink-0 text-muted-foreground" />
                         <span className="min-w-0 flex-1 truncate text-base">{spec.title}</span>
                         {selectedSpecId === spec.id && <Check className="size-4 shrink-0 text-foreground/70" />}
                       </button>
