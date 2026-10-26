@@ -27,15 +27,10 @@ interface CodexRateLimitsButtonProps {
   className?: string;
 }
 
-const formatPercent = (value: number): string => {
-  const normalized = value < 1 ? value * 100 : value;
-  return `${normalized.toFixed(normalized >= 10 ? 0 : 1)}%`;
-};
+const formatPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 
-const normalizePercentValue = (value: number): number => {
-  const normalized = value < 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, normalized));
-};
+/** `usedPercent` is already 0-100 — a value under 1 is under 1%, not a fraction. */
+const normalizePercentValue = (value: number): number => Math.max(0, Math.min(100, value));
 
 const formatWindowLabel = (value: number | null | undefined, intl: IntlShape): string => {
   if (!value) return intl.formatMessage({ id: 'editor.codex.window', defaultMessage: 'Window' });

@@ -28,11 +28,14 @@ export interface ProviderUsage {
   longPercent?: number;
 }
 
-/** Percentages arrive as 0-1 from some sources and 0-100 from others. */
+/**
+ * Both sources already report 0-100: Codex's `usedPercent` is a percentage, and
+ * the runtime brings Claude's pushed 0-1 fractions onto the poll's 0-100 scale.
+ * Don't guess a fraction from the size: `<= 1` turned Codex's 1% into 100%.
+ */
 const toPercent = (value: number | undefined): number | undefined => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
-  const normalized = value <= 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, normalized));
+  return Math.max(0, Math.min(100, value));
 };
 
 const claudeUsage = (limits: ClaudeRateLimits | null): ProviderUsage | null => {

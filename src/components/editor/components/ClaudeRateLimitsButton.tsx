@@ -35,10 +35,8 @@ const WINDOW_ORDER: Array<{ key: string; label: string }> = [
 
 type DisplayWindow = { key: string; label: string; window: ClaudeRateLimitWindow; used: number };
 
-const normalizePercent = (value: number): number => {
-  const normalized = value < 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, normalized));
-};
+/** The runtime already reports 0-100 — a value under 1 is under 1%, not a fraction. */
+const normalizePercent = (value: number): number => Math.max(0, Math.min(100, value));
 
 const formatPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 
