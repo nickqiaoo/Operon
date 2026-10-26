@@ -1,5 +1,5 @@
-import type { CSSProperties } from "react"
-import { Heart, Pencil } from "lucide-react"
+import type { ReactNode } from "react"
+import { Pencil } from "lucide-react"
 import { defineMessages, FormattedMessage, type MessageDescriptor } from "react-intl"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -7,22 +7,42 @@ import type { ProfileFile, ProfileFileName } from "./types"
 
 /**
  * Card artwork. These are illustrations, not UI state colours — like a logo they
- * look the same in light and dark, so they are literal gradients rather than
- * theme tokens. A grain layer on top keeps the flat gradient from banding.
+ * look the same in light and dark, so they are literal colours rather than theme
+ * tokens. A flat ground with a line drawing on it: Soul's ripples spreading from
+ * a corner (a temperament carried outward), Memory's dot field with a few points
+ * joined into a constellation (facts it has linked up).
  */
-const ART: Record<"soul" | "memory", CSSProperties> = {
+const ART: Record<"soul" | "memory", { ground: string; motif: ReactNode }> = {
   soul: {
-    background:
-      "radial-gradient(120% 90% at 90% 110%, #f43f5e 0%, transparent 55%), radial-gradient(90% 80% at 25% 30%, #9f1239 0%, transparent 70%), linear-gradient(140deg, #be123c 0%, #7f1d1d 100%)",
+    ground: "#4338a0",
+    motif: (
+      <g fill="none" stroke="white" strokeWidth="1">
+        {[40, 56, 72, 88, 104, 120].map((r, i) => (
+          <circle key={r} cx="180" cy="175" r={r} strokeOpacity={0.45 - i * 0.06} />
+        ))}
+      </g>
+    ),
   },
   memory: {
-    background:
-      "radial-gradient(110% 90% at 15% 110%, #7dd3fc 0%, transparent 50%), radial-gradient(90% 90% at 80% 20%, #312e81 0%, transparent 70%), linear-gradient(140deg, #2563eb 0%, #1e1b4b 100%)",
+    ground: "#2f3a4a",
+    motif: (
+      <>
+        <g fill="white" fillOpacity="0.16">
+          {Array.from({ length: 8 }, (_, row) =>
+            Array.from({ length: 8 }, (_, col) => <circle key={`${row}-${col}`} cx={10 + col * 20} cy={10 + row * 20} r="1" />),
+          )}
+        </g>
+        <polyline points="102,34 128,20 148,50 122,74 142,98 116,124 146,144" fill="none" stroke="white" strokeOpacity="0.45" strokeWidth="1" />
+        <line x1="128" y1="20" x2="122" y2="74" stroke="white" strokeOpacity="0.25" strokeWidth="1" />
+        <g fill="white">
+          {[[102, 34], [128, 20], [148, 50], [122, 74], [142, 98], [116, 124], [146, 144]].map(([cx, cy]) => (
+            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="2.5" fillOpacity="0.85" />
+          ))}
+        </g>
+      </>
+    ),
   },
 }
-
-const GRAIN =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"
 
 /** Title and one-line purpose of each definition file, for its card and its editor. */
 /**
@@ -116,14 +136,21 @@ function FileCard({
     <button
       type="button"
       onClick={onOpen}
-      style={ART[card.name]}
+      style={{ background: ART[card.name].ground }}
       className={cn(
         "group relative flex w-full flex-col justify-between overflow-hidden rounded-xl p-4 text-left text-white shadow-card transition-[filter,transform] duration-200",
         "hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "aspect-[1.1]",
       )}
     >
-      <span className="pointer-events-none absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: GRAIN }} />
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 160 160"
+        preserveAspectRatio="xMaxYMax slice"
+        className="pointer-events-none absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-[1.03]"
+      >
+        {ART[card.name].motif}
+      </svg>
       <span className="relative">
         <span className="block text-lg font-semibold uppercase tracking-wide">
           <FormattedMessage {...PROFILE_FILE_META[card.name].title} />
@@ -132,10 +159,7 @@ function FileCard({
           <FormattedMessage {...card.tagline} />
         </span>
       </span>
-      <span className="relative flex items-end justify-between">
-        <span className="text-sm tabular-nums text-white/85">{formatCardDate(updatedAt)}</span>
-        <Heart className="h-5 w-5 fill-white/70 text-white/0" />
-      </span>
+      <span className="relative text-sm tabular-nums text-white/85">{formatCardDate(updatedAt)}</span>
     </button>
   )
 }
