@@ -28,7 +28,20 @@ export interface DiffBase {
  */
 export function useDiffBase(rootPath: string | null | undefined, enabled: boolean): DiffBase {
   const root = rootPath ?? ""
-  const chosen = useFilePreviewDiffStore((s) => (rootPath ? s.baseByRoot[rootPath] : undefined))
+  const remembered = useFilePreviewDiffStore((s) => (rootPath ? s.baseByRoot[rootPath] : undefined))
+  // Same key as `mergeQuery` below once it settles on this base, so no extra request.
+  const rememberedQuery = useQuery({
+    queryKey: gitKeys.mergeBase(root, remembered ?? ""),
+    queryFn: () => api.gitMergeBase(root, remembered ?? ""),
+    enabled: enabled && root !== "" && remembered != null,
+    staleTime: 5_000,
+  })
+  // A picked base that no longer shares history with HEAD (deleted, or the
+  // history was rewritten) falls back to the default. Otherwise the diff toggle
+  // and the base pill both hide, leaving no way to pick another one.
+  const rememberedStale =
+    rememberedQuery.isError || (rememberedQuery.isSuccess && rememberedQuery.data == null)
+  const chosen = rememberedStale ? undefined : remembered
   const defaultQuery = useQuery({
     queryKey: gitKeys.defaultBase(root),
     queryFn: () => resolveDefaultBase(root),
