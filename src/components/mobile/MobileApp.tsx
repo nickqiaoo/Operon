@@ -605,8 +605,11 @@ export function MobileApp() {
     const spec = nativeHeader && headerKey != null ? headerRef.current?.spec ?? null : null
     let header: NativeTopBarHeader | undefined
     // A list keeps its context/inbox controls while the page header registers
-    // after a context switch. Only immersive pages hide the native header.
-    if (nativeHeader && (!immersive || spec?.navigation)) {
+    // after a context switch. Only immersive pages hide the native header —
+    // and More, which has none: its rows aren't about the current project, and
+    // the full-screen pages it opens (Settings, Files…) put their own back
+    // button where the bar would sit.
+    if (nativeHeader && tab !== "more" && (!immersive || spec?.navigation)) {
       header = {
         back: spec?.navigation != null,
         leading: spec?.navigation ? { kind: "context", title: spec.navigation.title, subtitle: spec.navigation.subtitle } : spec?.segments
