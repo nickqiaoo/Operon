@@ -1,7 +1,7 @@
 /**
- * The right panel's tab toolbars (file browser, review) are a row of capsules
- * floating over the content (Codex's layout) rather than a bordered bar. Every
- * control in them comes from these, so switching tabs doesn't make the row jump.
+ * The right panel's tab toolbars (file browser, review) use capsule controls
+ * in a compact row aligned with the chat tabs. Every control in them comes
+ * from these, so switching tabs doesn't make the row jump.
  *
  * Their menus and popovers pass `onCloseAutoFocus={(e) => e.preventDefault()}`:
  * Radix hands focus back to the trigger on close, Chrome counts that

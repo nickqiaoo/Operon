@@ -401,14 +401,17 @@ export function FilePreviewPane({
   ) : null
 
   // The desktop browser's toolbar row, portaled there while this pane is the
-  // one on screen. Left: what the content shows (rendered / source, the
-  // comparison). No breadcrumb: the panel tab and the open-files strip already
-  // name the file, and a third copy was just noise.
+  // one on screen. Left: the file's directory breadcrumb and view / diff controls.
   const onToolbar = active && selectedPath != null
   const toolbarControls =
     toolbarSlot != null && onToolbar
       ? createPortal(
           <>
+            {displayPath != null && (
+              <div className={cn(TOOLBAR_PILL, "min-w-0 shrink px-3")}>
+                <PathBreadcrumb path={displayPath} title={selectedPath} />
+              </div>
+            )}
             {diffApplies && diffChanges != null && diffChanges.length > 0 && (
               <ChangeNavigator
                 count={diffChanges.length}

@@ -242,7 +242,7 @@ export function FileFilterInput({ value, onChange }: { value: string; onChange: 
   const intl = useIntl()
   const label = intl.formatMessage({ id: "workspaceBrowser.filterFiles", defaultMessage: "Filter files…" })
   return (
-    <div className="shrink-0 px-2 pb-1.5 pt-2">
+    <div className="shrink-0 px-2 pb-1.5 pt-1">
       <div className="flex h-8 items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 pl-2 pr-1 focus-within:border-border dark:border-border/35">
         <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <input

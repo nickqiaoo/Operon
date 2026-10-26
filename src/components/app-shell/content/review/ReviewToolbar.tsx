@@ -111,7 +111,7 @@ export function ReviewToolbar({
 }: ReviewToolbarProps) {
   const intl = useIntl()
   return (
-    <div className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 px-2 text-xs">
+    <div className="grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 border-b border-border/50 px-2 text-xs">
       <div className="flex min-w-0 items-center gap-1.5">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

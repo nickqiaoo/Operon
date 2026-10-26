@@ -45,9 +45,9 @@ interface WorkspaceBrowserTabProps {
 
 /**
  * Single tab combining file tree (right) and file preview (left), matching
- * Codex's design: one row of capsules across the top (left: the shown file's
- * view — preview / source, change navigation, comparison base; right: find,
- * outline, back/forward, refresh, the diff and tree toggles and "Open"), the preview and
+ * Codex's design: one row of capsules across the top (left: file breadcrumb
+ * and view / change controls; right: navigation, find, refresh, diff / tree
+ * toggles and "Open"), the preview and
  * tree side by side below it. Selecting a file in the tree opens it in the preview strip
  * next to the files already open (evicting the least recently viewed past
  * `MAX_PREVIEW_FILES`) and makes it `payload.selectedPath`. The tree and
@@ -78,9 +78,9 @@ export function WorkspaceBrowserTab({
   const [fileTreeWidth, setFileTreeWidth] = useState(
     SIDE_FILE_TREE_DEFAULT_WIDTH
   )
-  // The toolbar's left part, filled by whichever preview pane is on screen.
+  // Breadcrumb and view controls, filled by the active preview pane.
   const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null)
-  // Its right part's head: the shown file's find / outline buttons.
+  // Find / outline buttons alongside the right-hand toolbar actions.
   const [toolbarEndSlot, setToolbarEndSlot] = useState<HTMLDivElement | null>(null)
   // Git badges in the tree, against the same base as the preview's diff. The
   // repo watcher keeps them (and the diffs) current as files change on disk.
@@ -217,7 +217,7 @@ export function WorkspaceBrowserTab({
           onClose={closeFile}
         />
       )}
-      <div className="flex h-12 shrink-0 items-center gap-1.5 px-2">
+      <div className="flex h-10 shrink-0 items-center gap-1.5 px-2">
         <div ref={setToolbarSlot} className="flex min-w-0 flex-1 items-center gap-1.5" />
         <div className="flex shrink-0 items-center gap-0.5">
           <div ref={setToolbarEndSlot} className="flex items-center gap-0.5 empty:hidden" />
