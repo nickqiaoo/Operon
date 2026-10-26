@@ -112,7 +112,7 @@ export function AccountUsageBar({ className }: { className?: string }) {
         className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
         title={intl.formatMessage({ id: 'usageBar.refresh', defaultMessage: 'Refresh usage' })}
       >
-        <RefreshCw className={cn('h-3 w-3', isRefreshing && 'animate-spin')} />
+        <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
       </button>
     </div>
   );

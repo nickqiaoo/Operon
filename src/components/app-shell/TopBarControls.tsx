@@ -5,8 +5,11 @@ import { useAppShellStore } from "@/stores/app-shell-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { toggleBottomPanelWithTerminal } from "./tabs/tab-entries"
 
-/** The chat's Session cards toggle stays in the center header. */
-export function SessionPanelToggle() {
+/**
+ * The chat's Session cards toggle stays in the center header. The caller spaces
+ * it: 2px when the panel toggles follow it, as they sit 2px from each other.
+ */
+export function SessionPanelToggle({ className }: { className?: string }) {
   const intl = useIntl()
   const sessionAvailable = useSessionPanelStore((s) => s.owner != null)
   const sessionPanelOpen = useSessionPanelStore((s) => s.open)
@@ -20,7 +23,8 @@ export function SessionPanelToggle() {
       data-testid="toggle-session-panel"
       onClick={toggleSessionPanel}
       className={cn(
-        "no-drag mr-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
+        "no-drag flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
+        className,
         sessionPanelOpen
           ? "bg-muted/70 text-foreground"
           : "text-muted-foreground hover:bg-row-hover hover:text-foreground"

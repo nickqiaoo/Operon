@@ -90,8 +90,8 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
         <span className="shrink-0">Spec {spec ? `#${spec.taskNumber}` : ''}</span>
         {spec && <span className="min-w-0 truncate text-foreground/80">{fileCitationsToText(spec.title)}</span>}
         <div className="flex-1" />
-        <AccountUsageBar className="shrink-0 pr-2" />
-        <SessionPanelToggle />
+        <AccountUsageBar className="shrink-0 pr-0.5" />
+        <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
         {!rightPanelOpen && <TopBarControls />}
       </div>
 

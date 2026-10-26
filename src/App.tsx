@@ -591,8 +591,10 @@ export default function App() {
                       of the drag row (not a floating overlay) so macOS honors
                       its `no-drag`; it sits before the panel toggles because it
                       is read, not operated. */}
-                  <AccountUsageBar className="shrink-0 pr-3" />
-                  <SessionPanelToggle />
+                  {/* Refresh, Session and the panel toggles read as one row of
+                      24px buttons 2px apart (as in the right panel's strip). */}
+                  <AccountUsageBar className="shrink-0 pr-0.5" />
+                  <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
                   {/* When the right panel is closed this row is the window's
                       top-right, so the controls live here; when it's open they
                       move into the right panel's tab strip instead. */}
