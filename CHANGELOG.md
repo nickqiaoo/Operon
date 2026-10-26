@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.4.14] - 2026-10-26
+
+### Changed
+
+- Selected tabs in the side panel and the open-files strip show a plain highlight instead of a raised outline.
+- A turn's change card notes when another chat was editing the same workspace at the time, since some of the listed changes may be from it.
+- File references in replies can point to files outside the current workspace, and open in that file's own folder.
+- The file browser shows the open file's path again, and its toolbar and Review's line up with the chat tabs.
+
+### Fixed
+
+- The assistant's heartbeat no longer piles up repeated "Already told" sections, and no longer reports that something has ended unless the checklist asks for it.
+- The assistant keeps scripts, downloads and other working files out of the outputs folder, leaving only finished deliverables there.
+- A comparison base that no longer exists falls back to the default, so the diff toggle doesn't disappear.
+- The running animation in the sidebar shows only on the selected workspace and stays inside its row.
+
 ## [1.4.13] - 2026-10-26
 
 ### Fixed
