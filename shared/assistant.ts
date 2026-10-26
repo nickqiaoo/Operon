@@ -180,29 +180,49 @@ export function heartbeatChecks(heartbeat: string): string[] {
     .filter((h): h is string => Boolean(h) && !TOLD_HEADING_RE.test(`## ${h}`))
 }
 
-/** Where the "Already told" section sits in heartbeat.md's lines: from its heading up to the next "## " or the end. */
-function toldRange(lines: string[]): [number, number] | null {
-  const start = lines.findIndex((l) => TOLD_HEADING_RE.test(l.trim()))
-  if (start < 0) return null
-  let end = start + 1
-  while (end < lines.length && !/^##\s/.test(lines[end]!.trim())) end++
-  return [start, end]
+/**
+ * Where the "Already told" sections sit in heartbeat.md's lines, each from its heading up to the next
+ * "## " or the end. Normally one; a `told` handed back with its own heading used to leave a second,
+ * and every one after it stacked up below.
+ */
+function toldRanges(lines: string[]): [number, number][] {
+  const ranges: [number, number][] = []
+  for (let start = 0; start < lines.length; start++) {
+    if (!TOLD_HEADING_RE.test(lines[start]!.trim())) continue
+    let end = start + 1
+    while (end < lines.length && !/^##\s/.test(lines[end]!.trim())) end++
+    ranges.push([start, end])
+    start = end - 1
+  }
+  return ranges
 }
 
-/** What is under "## Already told" now, without the heading; empty when there is no such section. */
+/** What is under "## Already told" now, without the heading (all such sections, when there are several); empty when there is none. */
 export function heartbeatTold(heartbeat: string): string {
   const lines = heartbeat.split('\n')
-  const range = toldRange(lines)
-  return range ? lines.slice(range[0] + 1, range[1]).join('\n').trim() : ''
+  return toldRanges(lines)
+    .map(([start, end]) => lines.slice(start + 1, end).join('\n').trim())
+    .filter(Boolean)
+    .join('\n\n')
 }
 
-/** heartbeat.md with its "Already told" section replaced by `told` (added at the end when missing; dropped when `told` is empty). The checklist above is left as it is. */
+/**
+ * heartbeat.md with its "Already told" section replaced by `told` (added at the end when missing;
+ * dropped when `told` is empty). Any further "Already told" sections go, and so does the heading when
+ * `told` carries it, so there is only ever one. The checklist above is left as it is.
+ */
 export function withHeartbeatTold(heartbeat: string, told: string): string {
   const lines = heartbeat.split('\n')
-  const range = toldRange(lines)
-  const body = told.trim()
+  const ranges = toldRanges(lines)
+  const body = told
+    .split('\n')
+    .filter((l) => !TOLD_HEADING_RE.test(l.trim()))
+    .join('\n')
+    .trim()
   const section = body ? [`## ${HEARTBEAT_TOLD_HEADING}`, '', body, ''] : []
-  if (range) lines.splice(range[0], range[1] - range[0], ...section)
+  for (const [start, end] of ranges.slice(1).reverse()) lines.splice(start, end - start)
+  const first = ranges[0]
+  if (first) lines.splice(first[0], first[1] - first[0], ...section)
   else if (body) lines.push(...(lines.at(-1)?.trim() ? [''] : []), ...section)
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
 }

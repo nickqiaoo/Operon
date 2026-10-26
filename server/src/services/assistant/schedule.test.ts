@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROFILE_FILES } from './defaults.js'
 import { heartbeatChecks, heartbeatTold, withHeartbeatTold } from '../../../../shared/assistant.js'
 import { cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
-import { buildHeartbeatPrompt } from './prompts.js'
+import { buildHeartbeatInstructions, buildHeartbeatPrompt } from './prompts.js'
 
 const daily = (time: string, days: number[]) => ({ type: 'daily' as const, time, days })
 
@@ -79,6 +79,22 @@ describe('the heartbeat\'s "Already told" section', () => {
     expect(withHeartbeatTold(withHeartbeatTold(checklist, '- x'), '')).toBe(checklist)
     expect(heartbeatTold(checklist)).toBe('')
   })
+
+  it('stays one section when told comes back with its own heading', () => {
+    const once = withHeartbeatTold(checklist, '## Already told\n\n- Saturation critical on broker-host')
+    expect(once).toBe('# Heartbeat\n\n## Grafana\n- list alerts\n\n## Already told\n\n- Saturation critical on broker-host\n')
+    expect(heartbeatTold(once)).toBe('- Saturation critical on broker-host')
+  })
+
+  it('reads every stacked-up section, and writes them back as one in place of the first', () => {
+    const stacked = `${checklist}\n## Already told\n\n## Already told\n- 11:30 still firing\n\n## Already told\n\n- 10:30 still firing\n\n## PostHog\n- errors\n`
+    expect(heartbeatTold(stacked)).toBe('- 11:30 still firing\n\n- 10:30 still firing')
+    expect(heartbeatChecks(stacked)).toEqual(['Grafana', 'PostHog'])
+
+    const merged = withHeartbeatTold(stacked, '- 12:00 still firing')
+    expect(merged).toBe('# Heartbeat\n\n## Grafana\n- list alerts\n\n## Already told\n\n- 12:00 still firing\n\n## PostHog\n- errors\n')
+    expect(withHeartbeatTold(stacked, '')).toBe(`${checklist}\n## PostHog\n- errors\n`)
+  })
 })
 
 describe('buildHeartbeatPrompt', () => {
@@ -88,5 +104,18 @@ describe('buildHeartbeatPrompt', () => {
     expect(quiet).toContain('quiet hours (23:00–08:00)')
     expect(buildHeartbeatPrompt(undefined)).toContain('none — this is the first one')
     expect(buildHeartbeatPrompt(undefined)).toContain('not quiet hours')
+  })
+})
+
+describe('buildHeartbeatInstructions', () => {
+  const files = Object.fromEntries(
+    Object.entries(DEFAULT_PROFILE_FILES).map(([name, content]) => [name, { name, content, updatedAt: 0, updatedBy: 'user' }]),
+  ) as Parameters<typeof buildHeartbeatInstructions>[0]
+
+  it('keeps an ending quiet unless the checklist asks to hear it, and then says it once', () => {
+    const instructions = buildHeartbeatInstructions(files, [])
+    expect(instructions).toContain('Something ending is not news')
+    expect(instructions).toContain('dropped from told, not reported')
+    expect(instructions).toContain('only when its checklist section explicitly asks to hear it, and only once')
   })
 })
