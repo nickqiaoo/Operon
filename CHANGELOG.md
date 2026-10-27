@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.4.15] - 2026-10-27
+
+### Added
+
+- Qoder is now a coding agent: install its CLI and sign in, then start a Qoder chat from the New Chat menu.
+
+### Changed
+
+- The New Chat menu lists agents in a new order: Claude Code, Codex, OpenCode, Operon, Antigravity, Grok, Cursor, Copilot, Kimi, Qoder.
+- Claude chats can switch to Bypass mode mid-conversation, not just before the first message.
+- Publishing a task to Linear also publishes its subtasks as sub-issues, and subtasks added later follow automatically.
+
+### Fixed
+
+- A long workspace name in the top bar no longer pushes the usage bar out of view.
+- Restoring an archived task also restores the subtasks that were archived with it.
+- In the task list, spec badges and labels sit next to the timestamp instead of floating mid-row, and finished specs no longer show a badge.
+
 ## [1.4.14] - 2026-10-26
 
 ### Changed
