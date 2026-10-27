@@ -20,6 +20,7 @@ const AGENT_NAMES: Record<string, string> = {
   grok: "Grok",
   copilot: "GitHub Copilot",
   antigravity: "Antigravity",
+  qoder: "Qoder",
 }
 
 export function codingAgentName(providerId: string): string {

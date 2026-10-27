@@ -23,6 +23,7 @@ const ADAPTER_COMMANDS: Record<CliAdapterId, readonly [string, ...string[]]> = {
   opencode: ['opencode'],
   kimi: ['kimi'],
   grok: ['grok'],
+  qoder: ['qodercli'],
   // Matches CURSOR_BIN in agent-runtime/src/providers/cursor/config.ts.
   cursor: ['cursor-agent'],
   copilot: ['copilot'],
@@ -41,6 +42,10 @@ const ADAPTER_COMMANDS: Record<CliAdapterId, readonly [string, ...string[]]> = {
  * still wins, and anything installed elsewhere is reachable that way.
  */
 const ADAPTER_PATH_CANDIDATES: Partial<Record<CliAdapterId, readonly string[]>> = {
+  // The official installer (qoder.com/install) links qodercli into ~/.local/bin
+  // and asks the user to restart their shell; until they do, or if their login
+  // shell never adds that dir, PATH alone misses it.
+  qoder: [join(homedir(), '.local', 'bin', 'qodercli')],
   antigravity: [
     join(homedir(), '.operon', 'acp-agents', 'antigravity', 'agy_acp_server.par'),
     join(homedir(), '.operon', 'acp-agents', 'antigravity', 'agy_acp_server.exe'),
@@ -226,6 +231,13 @@ export function getKimiCliPath(): string | undefined {
  */
 export function getGrokCliPath(): string | undefined {
   return getCliPathInfo('grok').resolvedPath
+}
+
+/**
+ * Resolve the Qoder CLI binary path (`qodercli`).
+ */
+export function getQoderCliPath(): string | undefined {
+  return getCliPathInfo('qoder').resolvedPath
 }
 
 /**

@@ -38,6 +38,7 @@ import type { ModelMessage } from 'ai'
 import { toUserMessages } from '../../utils/agent-input.js'
 import { RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
+import { PersistentInputQueue } from '../../utils/persistent-input-queue.js'
 import { buildClaudeRuntimeSettings } from './config.js'
 import type { RuntimeContext } from '../../context.js'
 import { convertToClaudeMessages } from './message-mapper.js'
@@ -58,50 +59,6 @@ function isAbortError(error: unknown): boolean {
     if (typeof candidate.code === 'string' && candidate.code.toUpperCase() === 'ABORT_ERR') return true
   }
   return false
-}
-
-// ---------------------------------------------------------------------------
-// PersistentInputQueue — stays open across turns, like Desktop's AsyncMessageQueue
-// ---------------------------------------------------------------------------
-
-class PersistentInputQueue implements AsyncIterable<SDKUserMessage> {
-  private queue: SDKUserMessage[] = []
-  private resolver: ((msg: SDKUserMessage | null) => void) | null = null
-  private closed = false
-
-  enqueue(msg: SDKUserMessage): void {
-    if (this.closed) return
-    if (this.resolver) {
-      const r = this.resolver
-      this.resolver = null
-      r(msg)
-    } else {
-      this.queue.push(msg)
-    }
-  }
-
-  close(): void {
-    this.closed = true
-    if (this.resolver) {
-      const r = this.resolver
-      this.resolver = null
-      r(null)
-    }
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-    while (!this.closed) {
-      if (this.queue.length > 0) {
-        yield this.queue.shift()!
-      } else {
-        const msg = await new Promise<SDKUserMessage | null>((resolve) => {
-          this.resolver = resolve
-        })
-        if (msg === null) break
-        yield msg
-      }
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +151,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
 
   // Warm session state — lives across all turns
   private activeQuery: Query | null = null
-  private inputQueue: PersistentInputQueue | null = null
+  private inputQueue: PersistentInputQueue<SDKUserMessage> | null = null
   private abortController: AbortController | null = null
   private messageLoopPromise: Promise<void> | null = null
   private messageLoopDead = false
@@ -242,7 +199,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
   private ensureWarmQuery(): void {
     if (this.activeQuery && !this.messageLoopDead) return
 
-    this.inputQueue = new PersistentInputQueue()
+    this.inputQueue = new PersistentInputQueue<SDKUserMessage>()
     // Whatever the last CLI process never took in died with it.
     this.pendingInjections.clear()
     this.abortController = new AbortController()

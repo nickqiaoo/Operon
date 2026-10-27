@@ -11,6 +11,7 @@ export const CLI_ADAPTER_IDS = [
   'opencode',
   'kimi',
   'grok',
+  'qoder',
   'cursor',
   'copilot',
   'antigravity',

@@ -357,7 +357,8 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
             key={sessionKey}
             chatId={id}
             res={mcp}
-            canReconnect={providerId !== 'codex'}
+            // Codex and Qoder report MCP status only; neither exposes a reconnect.
+            canReconnect={providerId !== 'codex' && providerId !== 'qoder'}
             canToggle={providerId === 'claude-code' || providerId === 'opencode'}
           />
           {fullSessionInspector ? (

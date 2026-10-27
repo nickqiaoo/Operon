@@ -42,6 +42,8 @@ const SUBAGENT_MODE: Record<string, string> = {
   copilot: 'autopilot',
   // default | plan | auto | bypassPermissions                 (providers/grok/config.ts)
   grok: 'bypassPermissions',
+  // default | auto | acceptEdits | plan | bypassPermissions   (providers/qoder/config.ts)
+  qoder: 'bypassPermissions',
   // default | auto_edit | yolo                                (providers/antigravity/config.ts)
   antigravity: 'yolo',
 }
@@ -86,6 +88,7 @@ const ASSISTANT_AGENT_MODE: Record<string, string> = {
   codex: 'approveForMe',
   kimi: 'auto',
   grok: 'auto',
+  qoder: 'auto',
   // Edits go ahead, commands ask: its nearest to an auto tier.
   antigravity: 'auto_edit',
   // No auto tier: ask, answered on the card.

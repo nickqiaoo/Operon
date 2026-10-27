@@ -25,7 +25,7 @@ import { SkillsSettings } from "@/components/skill/SkillsSettings"
 import { ExtensionsSettings } from "./ExtensionsSettings"
 import { NotificationTab } from "./NotificationTab"
 import { KeyboardShortcutsSettings } from "./KeyboardShortcutsSettings"
-import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon, KimiIcon, GrokIcon, CopilotIcon, AntigravityIcon, OperonIcon } from "./ProviderIcons"
+import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon, KimiIcon, GrokIcon, QoderIcon, CopilotIcon, AntigravityIcon, OperonIcon } from "./ProviderIcons"
 import { Button } from "@/components/ui/button"
 import { FormattedMessage } from "react-intl"
 import { useProjectStore } from "@/stores/project-store"
@@ -41,7 +41,7 @@ interface SettingsPageProps {
     initialTab?: SettingsTab
 }
 
-type SettingsTab = "appearance" | "notifications" | "logs" | "memory" | "mcp" | "env" | "code" | "codex" | "opencode" | "kimi" | "grok" | "providers" | "gateway" | "linear" | "github" | string
+type SettingsTab = "appearance" | "notifications" | "logs" | "memory" | "mcp" | "env" | "code" | "codex" | "opencode" | "kimi" | "grok" | "qoder" | "providers" | "gateway" | "linear" | "github" | string
 
 const CLAUDE_CODE_FILES: ConfigFileDefinition[] = [
     { id: "settings", label: <FormattedMessage id="settings.config.labelSettings" defaultMessage="Settings" />, filename: "settings.json", icon: FileJson, validation: "json", placeholder: "{}", description: <FormattedMessage id="settings.config.claudeSettingsDesc" defaultMessage="Global Claude Code settings" /> },
@@ -65,6 +65,10 @@ const KIMI_FILES: ConfigFileDefinition[] = [
 
 const GROK_FILES: ConfigFileDefinition[] = [
     { id: "config", label: <FormattedMessage id="settings.config.labelConfig" defaultMessage="Config" />, filename: "config.toml", icon: FileJson, validation: "toml", placeholder: "", description: <FormattedMessage id="settings.config.grokSettingsDesc" defaultMessage="Global Grok Build settings" /> },
+]
+
+const QODER_FILES: ConfigFileDefinition[] = [
+    { id: "settings", label: <FormattedMessage id="settings.config.labelSettings" defaultMessage="Settings" />, filename: "settings.json", icon: FileJson, validation: "json", placeholder: "{}", description: <FormattedMessage id="settings.config.qoderSettingsDesc" defaultMessage="Global Qoder CLI settings" /> },
 ]
 
 const OPERON_FILES: ConfigFileDefinition[] = [
@@ -97,6 +101,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
         { id: "opencode", label: <FormattedMessage id="settings.tab.opencode" defaultMessage="OpenCode" />, icon: OpenCodeIcon },
         { id: "kimi", label: <FormattedMessage id="settings.tab.kimi" defaultMessage="Kimi Code" />, icon: KimiIcon },
         { id: "grok", label: <FormattedMessage id="settings.tab.grok" defaultMessage="Grok" />, icon: GrokIcon },
+        { id: "qoder", label: <FormattedMessage id="settings.tab.qoder" defaultMessage="Qoder" />, icon: QoderIcon },
         { id: "copilot", label: <FormattedMessage id="settings.tab.copilot" defaultMessage="Copilot" />, icon: CopilotIcon },
         { id: "antigravity", label: <FormattedMessage id="settings.tab.antigravity" defaultMessage="Antigravity" />, icon: AntigravityIcon },
         { id: "custom", label: <FormattedMessage id="settings.tab.custom" defaultMessage="Operon" />, icon: OperonIcon },
@@ -295,6 +300,17 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                         placeholder="/usr/local/bin/grok"
                                     />
                                     <ConfigEditor configDir=".grok" files={GROK_FILES} />
+                                </div>
+                            )}
+                            {activeTab === "qoder" && (
+                                <div className="space-y-6">
+                                    <CliPathSetting
+                                        adapterId="qoder"
+                                        label={<FormattedMessage id="settings.cli.pathLabel" defaultMessage="{name} CLI Path" values={{ name: "Qoder" }} />}
+                                        description={<FormattedMessage id="settings.cli.pathDesc" defaultMessage="Automatically detected from your shell PATH. Add an override only when needed." />}
+                                        placeholder="~/.local/bin/qodercli"
+                                    />
+                                    <ConfigEditor configDir=".qoder" files={QODER_FILES} />
                                 </div>
                             )}
                             {activeTab === "copilot" && (

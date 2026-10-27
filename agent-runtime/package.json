@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "description": "Drive Claude Code, Codex, OpenCode, Copilot, Cursor, Grok, Kimi and Antigravity from TypeScript: one session lifecycle, every native capability, typed.",
+  "description": "Drive Claude Code, Codex, OpenCode, Copilot, Qoder, Cursor, Grok, Kimi and Antigravity from TypeScript: one session lifecycle, every native capability, typed.",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
@@ -12,6 +12,7 @@
     "./opencode": "./src/opencode.ts",
     "./copilot": "./src/copilot.ts",
     "./acp": "./src/acp.ts",
+    "./qoder": "./src/qoder.ts",
     "./ai-sdk": "./src/ai-sdk/index.ts",
     "./testing": "./src/testing.ts"
   },
@@ -22,6 +23,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.301",
     "@github/copilot-sdk": "^1.0.22",
     "@opencode/client": "^2.1.2",
+    "@qoder-ai/qoder-agent-sdk": "^1.0.56",
     "ai": "^7.0.85",
     "smol-toml": "^1.6.0",
     "zod": "^4.3.5"

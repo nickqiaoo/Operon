@@ -15,6 +15,7 @@ export const TERMINAL_CLI_LAUNCH: Record<string, string> = {
   opencode: 'opencode',
   kimi: 'kimi',
   grok: 'grok',
+  qoder: 'qodercli',
 }
 
 /** Whether the given provider can be opened as a terminal. */

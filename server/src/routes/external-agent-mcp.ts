@@ -8,7 +8,7 @@ import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalA
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import { resolveMcpCallerChat } from './mcp-caller.js'
 
-export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity'] as const
+export const SUPPORTED_EXTERNAL_AGENT_IDS = ['codex', 'claude-code', 'opencode', 'kimi', 'cursor', 'grok', 'copilot', 'antigravity', 'qoder'] as const
 
 const MODEL_TOOL = 'external_agent_list_models'
 const requiredText = (args: Record<string, unknown>, key: string): string => {

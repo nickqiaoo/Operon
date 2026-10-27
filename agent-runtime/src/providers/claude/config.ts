@@ -74,6 +74,47 @@ function resolveThinkingLevel(level?: string): ClaudeThinkingLevel {
   }
 }
 
+/**
+ * Operon's own infrastructure tools (memory, external agents, chat, task board,
+ * agent messaging): auto-approved so the host's plumbing never raises a prompt.
+ * Shared with the other Claude-SDK-shaped providers (Qoder), which name MCP
+ * tools the same way.
+ */
+export const OPERON_INFRA_ALLOWED_TOOLS = [
+  'mcp__memory__memory_search',
+  'mcp__memory__memory_upsert',
+  'mcp__external_agent__external_agent_run',
+  'mcp__external_agent__external_agent_list_models',
+  'mcp__external_agent__external_agent_send',
+  'mcp__external_agent__external_agent_status',
+  'mcp__external_agent__external_agent_stop',
+  'mcp__workspace_chat__send_message',
+  'mcp__workspace_chat__check_messages',
+  'mcp__workspace_chat__read_history',
+  'mcp__workspace_chat__list_server',
+  'mcp__workspace_chat__upload_file',
+  'mcp__workspace_chat__view_file',
+  'mcp__taskboard__list_project_tasks',
+  'mcp__taskboard__get_project_task',
+  'mcp__taskboard__create_project_task',
+  'mcp__taskboard__dispatch_project_task',
+  'mcp__taskboard__update_project_task',
+  'mcp__taskboard__comment_project_task',
+  // im_chat is the mate agent's reply channel to humans; treat it as
+  // infra (like memory), not a user-decision point. Without this, every
+  // message the agent sends back would raise an approval prompt.
+  'mcp__im_chat__send_message',
+  'mcp__im_chat__check_messages',
+  'mcp__im_chat__read_history',
+  // team_inbox is point-to-point agent-to-agent messaging. Treat as infra
+  // so collaboration does not require user approval on every message.
+  'mcp__team_inbox__send_to_agent',
+  'mcp__team_inbox__inbox_check',
+  'mcp__team_inbox__inbox_read_history',
+  'mcp__team_inbox__list_team_peers',
+  'mcp__team_inbox__list_agents',
+]
+
 export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeContext): ClaudeRuntimeSettings {
   const cliPath = ctx.resolveBinary('claude-code')
   if (!cliPath) {
@@ -110,40 +151,7 @@ export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeC
     // bypass *reachable* (the active mode still comes from `permissionMode`).
     // Without it a live session can't be switched into bypass mid-conversation.
     allowDangerouslySkipPermissions: true,
-    allowedTools: [
-      'mcp__memory__memory_search',
-      'mcp__memory__memory_upsert',
-      'mcp__external_agent__external_agent_run',
-      'mcp__external_agent__external_agent_list_models',
-      'mcp__external_agent__external_agent_send',
-      'mcp__external_agent__external_agent_status',
-      'mcp__external_agent__external_agent_stop',
-      'mcp__workspace_chat__send_message',
-      'mcp__workspace_chat__check_messages',
-      'mcp__workspace_chat__read_history',
-      'mcp__workspace_chat__list_server',
-      'mcp__workspace_chat__upload_file',
-      'mcp__workspace_chat__view_file',
-      'mcp__taskboard__list_project_tasks',
-      'mcp__taskboard__get_project_task',
-      'mcp__taskboard__create_project_task',
-      'mcp__taskboard__dispatch_project_task',
-      'mcp__taskboard__update_project_task',
-      'mcp__taskboard__comment_project_task',
-      // im_chat is the mate agent's reply channel to humans; treat it as
-      // infra (like memory), not a user-decision point. Without this, every
-      // message the agent sends back would raise an approval prompt.
-      'mcp__im_chat__send_message',
-      'mcp__im_chat__check_messages',
-      'mcp__im_chat__read_history',
-      // team_inbox is point-to-point agent-to-agent messaging. Treat as infra
-      // so collaboration does not require user approval on every message.
-      'mcp__team_inbox__send_to_agent',
-      'mcp__team_inbox__inbox_check',
-      'mcp__team_inbox__inbox_read_history',
-      'mcp__team_inbox__list_team_peers',
-      'mcp__team_inbox__list_agents',
-    ],
+    allowedTools: [...OPERON_INFRA_ALLOWED_TOOLS],
     disallowedTools: permissionMode === 'bypassPermissions' ? ['EnterPlanMode'] : [],
     mcpServers: params.mcpServers as Record<string, McpServerConfig> | undefined,
     env,

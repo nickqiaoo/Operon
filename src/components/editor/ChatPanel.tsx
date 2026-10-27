@@ -582,6 +582,7 @@ function ChatPanelContent({
   const isOperonProvider = providerId === 'custom' || selectedModel?.providerId === 'custom';
   const isCodexProvider = providerId === 'codex' || selectedModel?.providerId === 'codex';
   const isOpencodeProvider = providerId === 'opencode' || selectedModel?.providerId === 'opencode';
+  const isQoderProvider = providerId === 'qoder' || selectedModel?.providerId === 'qoder';
   const sessionPanelProviderId = isClaudeCode
     ? 'claude-code'
     : isOperonProvider
@@ -590,7 +591,9 @@ function ChatPanelContent({
         ? 'codex'
         : isOpencodeProvider
           ? 'opencode'
-          : undefined;
+          : isQoderProvider
+            ? 'qoder'
+            : undefined;
 
   // The Session cards are toggled from the window's top bar (TopBarControls), which
   // only offers the button while the visible chat has claimed it.

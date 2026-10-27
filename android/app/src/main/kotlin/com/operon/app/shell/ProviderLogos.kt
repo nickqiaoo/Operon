@@ -27,6 +27,7 @@ object ProviderLogos {
         "openai" to R.drawable.ic_provider_openai,
         "opencode" to R.drawable.ic_provider_opencode,
         "openrouter" to R.drawable.ic_provider_openrouter,
+        "qoder" to R.drawable.ic_provider_qoder,
         "vercel" to R.drawable.ic_provider_vercel,
         "zhipuai" to R.drawable.ic_provider_zhipuai,
     )

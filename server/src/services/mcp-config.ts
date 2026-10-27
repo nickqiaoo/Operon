@@ -311,6 +311,7 @@ const MCP_CLI_NAME_BY_PROVIDER: Record<string, string> = {
   opencode: 'opencode',
   cursor: 'cursor',
   grok: 'grok',
+  qoder: 'qoder',
   copilot: 'copilot',
   custom: 'operon',
 }

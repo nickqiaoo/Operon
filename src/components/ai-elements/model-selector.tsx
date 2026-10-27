@@ -3,6 +3,7 @@ import openaiLogo from "@/assets/logos/openai.svg";
 import anthropicLogo from "@/assets/logos/claude.svg";
 import opencodeLogo from "@/assets/logos/opencode.svg";
 import grokLogo from "@/assets/logos/grok.svg";
+import qoderLogo from "@/assets/logos/qoder.svg";
 import kimiLogo from "@/assets/logos/kimi.svg";
 import vercelLogo from "@/assets/logos/vercel.svg";
 import customLogo from "@/assets/logos/custom.svg";
@@ -195,6 +196,7 @@ const localLogos: Record<string, string> = {
   opencode: opencodeLogo,
   grok: grokLogo,
   xai: grokLogo,
+  qoder: qoderLogo,
   vercel: vercelLogo,
   custom: customLogo,
   endpoint: endpointLogo,

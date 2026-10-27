@@ -7,6 +7,7 @@ import {
   getOpencodeBinaryPath,
   getKimiCliPath,
   getGrokCliPath,
+  getQoderCliPath,
   getShellEnv,
 } from '../adapter/bundled-cli-paths.js'
 import { getEnvVars } from '../env-config.js'
@@ -17,6 +18,7 @@ const CLI_RESOLVERS: Record<string, () => string | undefined> = {
   opencode: getOpencodeBinaryPath,
   kimi: getKimiCliPath,
   grok: getGrokCliPath,
+  qoder: getQoderCliPath,
   copilot: getCopilotCliPath,
   antigravity: getAntigravityCliPath,
 }

@@ -21,6 +21,7 @@ import {
   getCodexBinaryPath,
   getKimiCliPath,
   getGrokCliPath,
+  getQoderCliPath,
   getOpencodeBinaryPath,
 } from '../services/adapter/bundled-cli-paths.js'
 
@@ -31,6 +32,7 @@ function resolveLaunchCommand(launch: string | undefined): string | undefined {
     case 'opencode': return getOpencodeBinaryPath() ?? 'opencode'
     case 'kimi': return getKimiCliPath() ?? 'kimi'
     case 'grok': return getGrokCliPath() ?? 'grok'
+    case 'qodercli': return getQoderCliPath() ?? 'qodercli'
     case 'cursor-agent':
     case 'copilot':
     // Resolved from PATH on purpose: the configured antigravity path points at

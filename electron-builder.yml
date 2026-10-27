@@ -39,6 +39,10 @@ files:
   # Only the platform packages are excluded; the SDK's JS (sdk.mjs, bridge.mjs)
   # stays in the asar and is what we actually import.
   - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+  # Qoder likewise: the provider spawns the user's own qodercli through the SDK's
+  # ProcessTransport, so the Worker runtime its postinstall downloads into
+  # dist/_worker is never loaded. Only the SDK's JS ships.
+  - "!node_modules/@qoder-ai/qoder-agent-sdk/dist/_worker/**"
   # Same deal for Copilot: resolveCopilotCliPath() takes the CLI off the user's
   # PATH, so these 289M platform packages (a 148M native binary, an 87M
   # runtime.node, and a pile of tree-sitter wasm) are never spawned.

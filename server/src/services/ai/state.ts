@@ -5,6 +5,7 @@ import { claudeCode } from '@operon/agent-runtime/claude-code'
 import { codex } from '@operon/agent-runtime/codex'
 import { copilot } from '@operon/agent-runtime/copilot'
 import { opencode } from '@operon/agent-runtime/opencode'
+import { qoder } from '@operon/agent-runtime/qoder'
 import { fakeAgent } from '@operon/agent-runtime/testing'
 import { ChatHistoryService } from '../chat-history.js'
 import { startNotificationPruning } from '../notification-service.js'
@@ -49,6 +50,7 @@ const appProviders = () => [
   withAgentPrompts(opencode()),
   withAgentPrompts(cursor()),
   withAgentPrompts(antigravity()),
+  withAgentPrompts(qoder()),
   // Copilot never got the standing prompts; kept as it was.
   copilot(),
   ...(process.env.OPERON_ENABLE_FAKE_RUNTIME === '1' ? [fakeAgent()] : []),

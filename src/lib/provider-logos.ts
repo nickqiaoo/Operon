@@ -6,6 +6,7 @@ import kimiLogo from '@/assets/logos/kimi.svg';
 import glmLogo from '@/assets/logos/zhipuai.svg';
 import minimaxLogo from '@/assets/logos/minimax.svg';
 import grokLogo from '@/assets/logos/grok.svg';
+import qoderLogo from '@/assets/logos/qoder.svg';
 import opencodeLogo from '@/assets/logos/opencode.svg';
 import vercelLogo from '@/assets/logos/vercel.svg';
 import openrouterLogo from '@/assets/logos/openrouter.svg';
@@ -29,6 +30,7 @@ const PROVIDER_LOGO_NAMES: Record<string, string> = {
   minimax: 'minimax',
   grok: 'grok',
   xai: 'grok',
+  qoder: 'qoder',
   claude: 'claude',
   opencode: 'opencode',
   vercel: 'vercel',
@@ -54,6 +56,7 @@ const LOGO_FILES: Record<string, string> = {
   zhipuai: glmLogo,
   minimax: minimaxLogo,
   grok: grokLogo,
+  qoder: qoderLogo,
   opencode: opencodeLogo,
   vercel: vercelLogo,
   openrouter: openrouterLogo,

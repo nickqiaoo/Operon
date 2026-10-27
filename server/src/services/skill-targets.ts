@@ -87,6 +87,17 @@ export const SKILL_TARGETS: SkillTarget[] = [
     detectProject: '.grok',
   },
   {
+    id: 'qoder',
+    label: 'Qoder',
+    agents: ['qoder'],
+    // Verified on-device: qodercli lists skills symlinked in here as `user` skills.
+    globalDir: (home) => path.join(home, '.qoder', 'skills'),
+    projectDir: path.join('.qoder', 'skills'),
+    strategy: 'symlink',
+    detectGlobal: (home) => path.join(home, '.qoder'),
+    detectProject: '.qoder',
+  },
+  {
     id: 'codex',
     label: 'Codex',
     agents: ['codex'],

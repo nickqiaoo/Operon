@@ -141,6 +141,8 @@ export default defineConfig({
                   'better-sqlite3',
                   'sharp',
                   '@anthropic-ai/claude-agent-sdk',
+                  // Locates its own files through import.meta.url.
+                  '@qoder-ai/qoder-agent-sdk',
                   '@grpc/grpc-js',
                   'keytar',
                   'node-llama-cpp',

@@ -22,6 +22,7 @@ const AGENT_LABELS: Record<string, string> = {
   kimi: "Kimi",
   opencode: "OpenCode",
   grok: "Grok",
+  qoder: "Qoder",
 }
 
 export function agentLabel(id: string): string {

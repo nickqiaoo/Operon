@@ -3,6 +3,7 @@ import openaiLogo from "@/assets/logos/openai.svg"
 import opencodeLogo from "@/assets/logos/opencode.svg"
 import kimiLogo from "@/assets/logos/kimi.svg"
 import grokLogo from "@/assets/logos/grok.svg"
+import qoderLogo from "@/assets/logos/qoder.svg"
 import copilotLogo from "@/assets/logos/copilot.svg"
 import antigravityLogo from "@/assets/logos/antigravity.svg"
 import operonLogo from "@/assets/logos/custom.svg"
@@ -26,6 +27,10 @@ export function KimiIcon({ className }: { className?: string }) {
 
 export function GrokIcon({ className }: { className?: string }) {
     return <img src={grokLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+}
+
+export function QoderIcon({ className }: { className?: string }) {
+    return <img src={qoderLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function CopilotIcon({ className }: { className?: string }) {

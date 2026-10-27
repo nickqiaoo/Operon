@@ -10,7 +10,7 @@ import { delimiter } from 'node:path'
 export interface RuntimeHost {
   /**
    * Executable for an agent CLI, by CLI id (`'claude-code'`, `'codex'`,
-   * `'opencode'`, `'copilot'`, `'cursor'`, `'grok'`, `'kimi'`, `'antigravity'`).
+   * `'opencode'`, `'copilot'`, `'qoder'`, `'cursor'`, `'grok'`, `'kimi'`, `'antigravity'`).
    * Undefined lets the provider fall back to the bare command name on PATH.
    */
   resolveBinary?(cliId: string): string | undefined
