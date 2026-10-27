@@ -927,6 +927,7 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
  * Linear issue can be published from here.
  */
 function SurfacesBlock({ detail }: { detail: TaskDetail }) {
+  const intl = useIntl()
   const [open, setOpen] = useState(false)
   const [options, setOptions] = useState<LinearPublishOptions | null>(null)
   const [loading, setLoading] = useState(false)
@@ -952,13 +953,22 @@ function SurfacesBlock({ detail }: { detail: TaskDetail }) {
     try {
       const res = await api.integrationLinearPublishTask({ taskId: detail.id, teamId })
       const url = res.issue.url
+      const subtasks = res.issue.subtasks ?? { published: 0, failed: 0 }
       toast.success(
         <span className="flex items-center gap-2">
-          <FormattedMessage
-            id="task.surfaces.published"
-            defaultMessage="Published to Linear as {identifier}"
-            values={{ identifier: res.issue.identifier }}
-          />
+          {subtasks.published > 0 ? (
+            <FormattedMessage
+              id="task.surfaces.publishedWithSubtasks"
+              defaultMessage="Published to Linear as {identifier} with {count, plural, one {# sub-issue} other {# sub-issues}}"
+              values={{ identifier: res.issue.identifier, count: subtasks.published }}
+            />
+          ) : (
+            <FormattedMessage
+              id="task.surfaces.published"
+              defaultMessage="Published to Linear as {identifier}"
+              values={{ identifier: res.issue.identifier }}
+            />
+          )}
           {url && (
             <button type="button" className="underline" onClick={() => openExternalUrl(url)}>
               <FormattedMessage id="task.surfaces.open" defaultMessage="Open" />
@@ -966,6 +976,17 @@ function SurfacesBlock({ detail }: { detail: TaskDetail }) {
           )}
         </span>,
       )
+      if (subtasks.failed > 0) {
+        toast.warning(
+          intl.formatMessage(
+            {
+              id: 'task.surfaces.subtasksFailed',
+              defaultMessage: '{count, plural, one {# subtask} other {# subtasks}} could not be published; they will be retried later.',
+            },
+            { count: subtasks.failed },
+          ),
+        )
+      }
       setOpen(false)
     } catch (error) {
       toastTaskError(error, 'Publish to Linear failed')

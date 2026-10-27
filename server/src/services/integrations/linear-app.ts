@@ -47,6 +47,8 @@ export interface CreateLinearIssueInput {
   assigneeId?: string
   /** Shown as the author instead of the app (IssueCreateInput.createAsUser). */
   createAsUser?: string
+  /** Makes the new issue a sub-issue of this one. */
+  parentId?: string
 }
 
 export async function fetchLinearTeams(orgId: string): Promise<LinearTeam[]> {
@@ -151,6 +153,7 @@ export async function createLinearIssue(
         labelIds: input.labelIds,
         assigneeId: input.assigneeId,
         createAsUser: input.createAsUser,
+        parentId: input.parentId,
       },
     },
   )

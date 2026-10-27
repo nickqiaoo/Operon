@@ -1019,7 +1019,16 @@ export const api = {
   integrationLinearPublishOptions: (projectId: number) =>
     get<LinearPublishOptions>(`/integrations/linear/publish-options?projectId=${projectId}`),
   integrationLinearPublishTask: (input: { taskId: number; teamId?: string; projectId?: string }) =>
-    post<{ issue: { id: string; identifier: string; url: string; title: string }; alreadyPublished?: boolean }>(
+    post<{
+      issue: {
+        id: string
+        identifier: string
+        url: string
+        title: string
+        subtasks?: { published: number; failed: number }
+      }
+      alreadyPublished?: boolean
+    }>(
       '/integrations/linear/publish-task',
       input,
     ),

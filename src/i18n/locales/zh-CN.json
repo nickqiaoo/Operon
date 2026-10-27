@@ -1696,6 +1696,8 @@
   "task.surfaces.pickTeam": "发布到哪个 Linear team？",
   "task.surfaces.noTeams": "这个 workspace 里没有 team。",
   "task.surfaces.published": "已发布到 Linear：{identifier}",
+  "task.surfaces.publishedWithSubtasks": "已发布到 Linear：{identifier}，含 {count} 个子 issue",
+  "task.surfaces.subtasksFailed": "{count} 个子任务发布失败，稍后会自动重试。",
   "task.surfaces.open": "打开",
   "task.surfaces.linearIssue": "Linear issue",
   "task.surfaces.state.merged": "已合并",

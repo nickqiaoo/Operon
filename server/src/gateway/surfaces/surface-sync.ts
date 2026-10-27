@@ -35,9 +35,12 @@ export { fromLinearPriority, pickLinearState, statusOfLinearState, toLinearPrior
 // is our own echo and is dropped; anything else is newer and lands on the task.
 // Outbound, the task is diffed against the same snapshot after every broadcast.
 //
+// Subtasks are not a field: each one is published as a sub-issue of its
+// parent's issue and then syncs on its own surface like any other task.
+//
 // Not in the set: the assignee (on Linear it is always the workspace agent; on
 // operon it is an agent, not a person), agent-session activities,
-// spec files, subtasks.
+// spec files.
 
 type Storage = TaskStorageAdapter & ChannelStorageAdapter & ProjectStorageAdapter & NotificationStorageAdapter
 
@@ -110,7 +113,17 @@ function orgOf(surface: TaskSurface): string | undefined {
 
 async function onTaskBroadcast(task: Task): Promise<void> {
   const surface = issueSurface(task.id)
-  if (!surface) return
+  if (!surface) {
+    // A subtask follows its published parent onto Linear (e.g. tickets a
+    // spec adds after the parent was published).
+    if (task.parentTaskId != null && issueSurface(task.parentTaskId)) await publishSubtasks(task.parentTaskId)
+    return
+  }
+  if (hasUnpublishedSubtasks(task.id)) {
+    void publishSubtasks(task.id).catch((err) => {
+      console.warn('[Surfaces] subtask publish failed:', err instanceof Error ? err.message : err)
+    })
+  }
   if (inFlight.has(task.id)) return
   const orgId = orgOf(surface)
   const teamId = surface.meta?.teamId as string | undefined
@@ -311,27 +324,106 @@ export interface PublishedIssue {
   url: string
   title: string
   alreadyPublished?: boolean
+  /** Subtasks that went to Linear as sub-issues in this call. */
+  subtasks?: { published: number; failed: number }
 }
+
+interface PublishOpts {
+  teamId?: string
+  projectId?: string
+  /** Linear issue id of the parent: the new issue becomes its sub-issue. */
+  parentIssueId?: string
+}
+
+/** Publishes in flight, so a broadcast racing the button doesn't open a second issue. */
+const publishing = new Map<number, Promise<PublishedIssue>>()
+/** Subtasks whose publish failed, and when: broadcasts don't retry them until the cooldown passes. */
+const publishFailedAt = new Map<number, number>()
+const PUBLISH_RETRY_MS = 5 * 60 * 1000
 
 /**
  * Create the Linear issue for a task and attach it as a surface (design
- * §11.1). Idempotent: an already-published task returns its issue.
+ * §11.1), then do the same for its subtasks, as sub-issues. Idempotent: an
+ * already-published task returns its issue and only publishes what is missing
+ * below it.
  */
-export async function publishTaskToLinear(
-  task: Task,
-  opts: { teamId?: string; projectId?: string } = {},
-): Promise<PublishedIssue> {
-  const st = storage()
+export async function publishTaskToLinear(task: Task, opts: PublishOpts = {}): Promise<PublishedIssue> {
+  const issue = await publishOne(task, opts)
+  const subtasks = await publishSubtasks(task.id, true)
+  return { ...issue, subtasks }
+}
+
+function publishOne(task: Task, opts: PublishOpts): Promise<PublishedIssue> {
   const existing = issueSurface(task.id)
   if (existing) {
-    return {
+    return Promise.resolve({
       id: existing.externalId,
       identifier: String(existing.meta?.identifier ?? ''),
       url: existing.url ?? '',
       title: task.title,
       alreadyPublished: true,
-    }
+    })
   }
+  const pending = publishing.get(task.id)
+  if (pending) return pending
+  const run = createIssueFor(task, opts).finally(() => publishing.delete(task.id))
+  publishing.set(task.id, run)
+  return run
+}
+
+/** Cancelled or archived subtasks that never made it to Linear stay off it. */
+function shouldFollowParent(task: Task): boolean {
+  return task.status !== 'cancelled' && task.archivedAt == null
+}
+
+/**
+ * Publish every subtask (recursively) of a published task that has no issue
+ * yet. Failures are logged and counted; one bad subtask doesn't stop the rest.
+ * `retryFailed` (the button) ignores the cooldown broadcasts respect.
+ */
+async function publishSubtasks(
+  parentTaskId: number,
+  retryFailed = false,
+): Promise<{ published: number; failed: number }> {
+  const totals = { published: 0, failed: 0 }
+  const parent = issueSurface(parentTaskId)
+  if (!parent) return totals
+  for (const child of storage().taskListChildren(parentTaskId)) {
+    if (!issueSurface(child.id)) {
+      if (!shouldFollowParent(child)) continue
+      const failedAt = publishFailedAt.get(child.id)
+      if (!retryFailed && failedAt != null && Date.now() - failedAt < PUBLISH_RETRY_MS) continue
+      try {
+        await publishOne(child, {
+          teamId: parent.meta?.teamId as string | undefined,
+          projectId: parent.meta?.projectId as string | undefined,
+          parentIssueId: parent.externalId,
+        })
+        publishFailedAt.delete(child.id)
+        totals.published += 1
+      } catch (err) {
+        publishFailedAt.set(child.id, Date.now())
+        totals.failed += 1
+        console.warn(`[Surfaces] could not publish subtask #${child.number}:`, err instanceof Error ? err.message : err)
+        continue
+      }
+    }
+    const below = await publishSubtasks(child.id, retryFailed)
+    totals.published += below.published
+    totals.failed += below.failed
+  }
+  return totals
+}
+
+/** A published task with subtasks not on Linear yet (created later, or before this existed). */
+function hasUnpublishedSubtasks(taskId: number): boolean {
+  return storage()
+    .taskListChildren(taskId)
+    .some((c) => shouldFollowParent(c) && !issueSurface(c.id))
+}
+
+async function createIssueFor(task: Task, opts: PublishOpts): Promise<PublishedIssue> {
+  const st = storage()
   const local = getLinearAppConfig()
   if (!local) throw new Error('Linear is not connected')
   const teamId = opts.teamId || getLinearPublishTeam(task.projectId)
@@ -346,6 +438,7 @@ export async function publishTaskToLinear(
     priority: toLinearPriority(task.priority),
     assigneeId: local.appUserId,
     createAsUser: local.linearUserName,
+    parentId: opts.parentIssueId,
   })
   st.taskSurfaceUpsert({
     taskId: task.id,
