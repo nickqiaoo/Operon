@@ -99,7 +99,7 @@ export function AccountUsageBar({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'no-drag flex items-center gap-3 @max-[540px]/topbar:hidden',
+        'no-drag flex items-center gap-3 @max-[400px]/topbar:hidden',
         className,
       )}
     >

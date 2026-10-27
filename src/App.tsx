@@ -574,14 +574,19 @@ export default function App() {
                     {/* Both names truncate: without it the workspace pill wraps
                         onto a second line, outgrows the h-10 row and collides with
                         whatever sits to its right. The project name gives way first
-                        — the workspace is the more specific half of the crumb. */}
+                        — the workspace is the more specific half of the crumb.
+                        The workspace pill is also capped (max-w-44): a long branch-
+                        style name would otherwise eat the room the usage bar needs. */}
                     <span className="min-w-0 shrink truncate hover:text-tint transition-colors cursor-pointer no-drag">
                       {activeWorkspaceInfo ? activeWorkspaceInfo.project.name : "OPERON"}
                     </span>
                     {activeWorkspaceInfo && (
                       <>
                         <span className="shrink-0 text-muted-foreground/40">›</span>
-                        <span className="min-w-0 shrink-[0.5] truncate hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs">
+                        <span
+                          className="min-w-0 max-w-44 shrink-[0.5] truncate hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs"
+                          title={activeWorkspaceInfo.workspace.name}
+                        >
                           {activeWorkspaceInfo.workspace.name}
                         </span>
                       </>
