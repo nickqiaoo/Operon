@@ -27,8 +27,7 @@ export const CLAUDE_MODES: ProviderDescriptor['modes'] = [
   // 'auto' — Claude decides per action whether to run it or ask. Whether a
   // given model supports it is advertised by the CLI as ModelInfo.supportsAutoMode
   // (via query.supportedModels()); we don't query that and expose 'auto' for all
-  // models. Passes straight through as a PermissionMode — unlike bypass it must
-  // NOT set allowDangerouslySkipPermissions.
+  // models. Passes straight through as a PermissionMode.
   { id: 'auto', name: 'Auto', description: 'Claude auto-approves safe actions, asks when risky' },
   { id: 'acceptEdits', name: 'Accept Edits', description: 'Auto-accept file edits' },
   { id: 'plan', name: 'Plan', description: 'Plan without writing code' },
@@ -107,7 +106,10 @@ export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeC
     persistSession: true,
     includePartialMessages: true,
     enableFileCheckpointing: true,
-    allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
+    // Always on: maps to `--allow-dangerously-skip-permissions`, which only makes
+    // bypass *reachable* (the active mode still comes from `permissionMode`).
+    // Without it a live session can't be switched into bypass mid-conversation.
+    allowDangerouslySkipPermissions: true,
     allowedTools: [
       'mcp__memory__memory_search',
       'mcp__memory__memory_upsert',

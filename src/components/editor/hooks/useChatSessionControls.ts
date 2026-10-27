@@ -113,13 +113,7 @@ export function useChatSessionControls({
     }
 
     const currentIndex = modeOptions.findIndex((option) => option.value === currentMode)
-    let nextIndex = (currentIndex + 1) % modeOptions.length
-
-    while (modeOptions[nextIndex]?.value === 'bypassPermissions' && nextIndex !== currentIndex) {
-      nextIndex = (nextIndex + 1) % modeOptions.length
-    }
-
-    const nextMode = modeOptions[nextIndex]
+    const nextMode = modeOptions[(currentIndex + 1) % modeOptions.length]
     if (!nextMode || nextMode.value === currentMode) return
 
     setMode(nextMode.value)
