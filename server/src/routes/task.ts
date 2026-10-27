@@ -162,8 +162,10 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     const archived = body.archived !== false // default to archiving
     storage.taskSetArchived(id, archived, { type: 'human', name: body.actorName?.trim() || 'You' })
     const projectTasks = storage.taskList({ projectId: existing.projectId, includeArchived: true })
-    const affectedIds = archived ? taskSubtreeIds(projectTasks, id) : new Set([id])
-    const tasks = projectTasks.filter((task) => affectedIds.has(task.id))
+    const subtreeIds = taskSubtreeIds(projectTasks, id)
+    // Restoring brings back only the descendants archived along with the task;
+    // the ones still archived didn't change.
+    const tasks = projectTasks.filter((task) => subtreeIds.has(task.id) && (archived || task.archivedAt == null))
     for (const task of tasks) broadcastTask(storage, task.id)
     return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)), tasks })
   })

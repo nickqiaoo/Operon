@@ -146,8 +146,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const prev = get().tasks
     const prevDetail = get().detail
     const archivedAt = archived ? Date.now() : null
-    const affectedIds = archived ? taskSubtreeIds(prev, taskId) : new Set([taskId])
-    // Optimistic — the whole subtree leaves the default view immediately.
+    // Restoring brings back the descendants archived together with the task
+    // (same stamp); ones archived on their own earlier stay archived.
+    const stampOf = new Map(prev.map((t) => [t.id, t.archivedAt]))
+    const ownStamp = stampOf.get(taskId)
+    const affectedIds = archived
+      ? taskSubtreeIds(prev, taskId)
+      : new Set([...taskSubtreeIds(prev, taskId)].filter((id) => id === taskId || (ownStamp != null && stampOf.get(id) === ownStamp)))
+    // Optimistic — the whole subtree leaves (or returns to) the default view immediately.
     set((s) => ({
       tasks: s.tasks.map((t) => affectedIds.has(t.id) && (!archived || t.archivedAt == null) ? { ...t, archivedAt } : t),
       detail: s.detail && affectedIds.has(s.detail.id) && (!archived || s.detail.archivedAt == null)

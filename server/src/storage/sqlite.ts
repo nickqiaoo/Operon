@@ -2093,17 +2093,22 @@ export class SqliteStorage
     if (!before) return null
     const now = Date.now()
     const tx = this.db.transaction(() => {
-      // Restoring is local; archiving follows the entire subtree atomically.
+      // Both follow the subtree atomically. Archiving stamps every not-yet-archived
+      // descendant with the same time; restoring brings back exactly the ones
+      // carrying the task's own stamp, so a descendant archived on its own
+      // before (a different stamp) stays archived.
+      const subtree = `
+        WITH RECURSIVE subtree(id) AS (
+          SELECT id FROM tasks WHERE id = ?
+          UNION
+          SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+        )
+        SELECT id FROM tasks WHERE id IN (SELECT id FROM subtree)`
       const targets = archived
-        ? this.db.prepare(`
-            WITH RECURSIVE subtree(id) AS (
-              SELECT id FROM tasks WHERE id = ?
-              UNION
-              SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
-            )
-            SELECT id FROM tasks WHERE id IN (SELECT id FROM subtree) AND archived_at IS NULL
-          `).all(id) as Array<{ id: number }>
-        : before.archivedAt != null ? [{ id }] : []
+        ? this.db.prepare(`${subtree} AND archived_at IS NULL`).all(id) as Array<{ id: number }>
+        : before.archivedAt != null
+          ? this.db.prepare(`${subtree} AND archived_at = ?`).all(id, before.archivedAt) as Array<{ id: number }>
+          : []
       const update = this.db.prepare('UPDATE tasks SET archived_at = ?, updated_at = ? WHERE id = ?')
       for (const target of targets) {
         update.run(archived ? now : null, now, target.id)
