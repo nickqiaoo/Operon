@@ -39,22 +39,26 @@ process.on('uncaughtException', (err: Error & { code?: string; syscall?: string 
 // transitively from inside one of those providers (e.g. via custom-provider).
 /**
  * The app's agent providers: the external CLIs (with Operon's standing
- * prompts), the scripted fake agent when the test server asks for it, and
- * Operon's own agent.
+ * prompts), Operon's own agent, and the scripted fake agent when the test
+ * server asks for it.
+ *
+ * The order is the order the UI offers them in (the New Chat menu and every
+ * other list built from `getProviders()`), so it is a product choice, not an
+ * implementation detail.
  */
 const appProviders = () => [
   withAgentPrompts(claudeCode()),
   withAgentPrompts(codex()),
-  withAgentPrompts(grok()),
-  withAgentPrompts(kimi()),
   withAgentPrompts(opencode()),
-  withAgentPrompts(cursor()),
+  operonAgent(),
   withAgentPrompts(antigravity()),
-  withAgentPrompts(qoder()),
+  withAgentPrompts(grok()),
+  withAgentPrompts(cursor()),
   // Copilot never got the standing prompts; kept as it was.
   copilot(),
+  withAgentPrompts(kimi()),
+  withAgentPrompts(qoder()),
   ...(process.env.OPERON_ENABLE_FAKE_RUNTIME === '1' ? [fakeAgent()] : []),
-  operonAgent(),
 ]
 
 export type AppRuntime = Runtime<ReturnType<typeof appProviders>>
