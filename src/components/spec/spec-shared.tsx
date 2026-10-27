@@ -1193,7 +1193,8 @@ export function SpecCardBadge({ task }: { task: Pick<TaskListItem, 'specStage' |
       </span>
     )
   }
-  if (task.specStage == null) return null
+  // A finished spec says nothing its task status doesn't already say.
+  if (task.specStage == null || task.specStage === 'done') return null
   // Approved before the build stage existed: nothing is being built by it.
   if (task.specStage === 'building' && !task.specProgress) return null
   const progress =

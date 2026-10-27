@@ -90,14 +90,16 @@ function TaskRow({
         <span className="w-full truncate text-sm text-foreground/90">{task.title}</span>
         <TaskExecutionIndicator task={task} />
       </span>
-      {/* A spec at a gate is waiting on the reader — on the phone this list is the only board. */}
-      <span className="flex shrink-0 items-center justify-start md:w-28">
+      {/* Badges hug the timestamp: a fixed column of its own left the spec
+          badge floating mid-row whenever the row had no labels. A spec at a
+          gate is waiting on the reader — on the phone this list is the only board. */}
+      <div className="flex shrink-0 items-center justify-end gap-1.5 overflow-hidden md:w-60">
         <SpecCardBadge task={task} />
-      </span>
-      <div className="hidden md:flex w-32 items-center gap-1.5 overflow-hidden shrink-0">
-        {task.labels.slice(0, 3).map((l) => (
-          <LabelChip key={l.id} label={l} />
-        ))}
+        <span className="hidden md:contents">
+          {task.labels.slice(0, 3).map((l) => (
+            <LabelChip key={l.id} label={l} />
+          ))}
+        </span>
       </div>
       <span className="text-[11px] text-muted-foreground/40 tabular-nums w-9 text-right shrink-0">
         {relativeTime(task.updatedAt)}
