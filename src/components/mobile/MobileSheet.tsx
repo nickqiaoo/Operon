@@ -1,5 +1,6 @@
-import type { ReactNode, Ref } from "react"
-import { createPortal } from "react-dom"
+import { useRef, type ReactNode, type Ref } from "react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { X } from "lucide-react"
 import { useIntl } from "react-intl"
 import { AnimatePresence, motion, useDragControls, type PanInfo } from "motion/react"
 import { cn } from "@/lib/utils"
@@ -15,17 +16,12 @@ interface MobileSheetProps {
   contentRef?: Ref<HTMLDivElement>
 }
 
-/**
- * Minimal bottom sheet — the project lacks a `ui/sheet` primitive and full
- * dialogs/popovers are positioned for a mouse. Slides up from the bottom with a
- * dimmed backdrop; tapping the backdrop closes it, as does dragging the grab
- * handle down past a threshold (or flicking it). The drag is bound to the handle
- * (via {@link useDragControls}) so the scrollable body still scrolls normally.
- * Portals to body so it sits above the tab bar and any screen content.
- */
+/** Radix owns modal focus, dismissal and scroll locking; Motion owns the drag gesture. */
 export function MobileSheet({ open, onClose, title, children, sheetClassName, bodyClassName, contentRef }: MobileSheetProps) {
   const intl = useIntl()
   const dragControls = useDragControls()
+  const openerRef = useRef<HTMLElement | null>(null)
+  const sheetRef = useRef<HTMLDivElement | null>(null)
   // The iOS tab bar is a native view above the web page; it must step aside
   // for the sheet or it would float over it.
   useNativeShellOverlay(open)
@@ -37,26 +33,45 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
     }
   }
 
-  return createPortal(
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
+    <DialogPrimitive.Portal forceMount>
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end overflow-hidden">
-          <motion.button
-            type="button"
-            aria-label={intl.formatMessage({ id: "mobile.sheet.close", defaultMessage: "Close" })}
-            onClick={onClose}
+          <DialogPrimitive.Overlay forceMount asChild>
+          <motion.div
             className="absolute inset-0 bg-scrim backdrop-blur-[1px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           />
+          </DialogPrimitive.Overlay>
+          <DialogPrimitive.Content forceMount asChild aria-describedby={undefined}
+            onOpenAutoFocus={(event) => {
+              const active = document.activeElement
+              if (active instanceof HTMLElement && !sheetRef.current?.contains(active)) openerRef.current = active
+              // Focusing the sheet keeps the mobile keyboard closed until the user chooses an input.
+              if (window.matchMedia('(pointer: coarse)').matches && !sheetRef.current?.contains(active)) {
+                event.preventDefault()
+                sheetRef.current?.focus({ preventScroll: true })
+              }
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              if (openerRef.current?.isConnected) openerRef.current.focus({ preventScroll: true })
+            }}>
           <motion.div
-            ref={contentRef}
+            ref={(node) => {
+              sheetRef.current = node
+              if (typeof contentRef === 'function') return contentRef(node)
+              if (contentRef) contentRef.current = node
+            }}
             data-slot="mobile-sheet-content"
             onClick={(event) => event.stopPropagation()}
             className={cn(
-              "relative box-border max-h-[80vh] w-full min-w-0 max-w-[100vw] self-center overflow-hidden rounded-t-2xl border-t border-border/50 bg-background shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.4)]",
+              "relative box-border max-h-[80vh] w-full min-w-0 max-w-[100vw] self-center overflow-hidden rounded-t-2xl border-t border-border/50 bg-background shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.4)] outline-none",
               sheetClassName
             )}
             // A sheet with an input in it (e.g. "New channel") opens the keyboard
@@ -74,6 +89,10 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
             dragElastic={{ top: 0, bottom: 0.6 }}
             onDragEnd={handleDragEnd}
           >
+            <DialogPrimitive.Close aria-label={intl.formatMessage({ id: "mobile.sheet.close", defaultMessage: "Close" })}
+              className="absolute right-3 top-3 z-10 flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-row-hover focus-visible:ring-2 focus-visible:ring-ring">
+              <X className="size-4" />
+            </DialogPrimitive.Close>
             <div
               onPointerDown={(event) => dragControls.start(event)}
               className="flex cursor-grab touch-none flex-col items-center pt-2.5 active:cursor-grabbing"
@@ -81,10 +100,11 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
               <div className="h-1 w-9 rounded-full bg-muted-foreground/25" />
               {title && (
                 <div className="w-full px-5 pb-2 pt-3">
-                  <h2 className="text-base font-semibold text-foreground/90">{title}</h2>
+                  <DialogPrimitive.Title className="text-base font-semibold text-foreground/90">{title}</DialogPrimitive.Title>
                 </div>
               )}
             </div>
+            {!title && <DialogPrimitive.Title className="sr-only">Options</DialogPrimitive.Title>}
             <div
               data-slot="mobile-sheet-body"
               className={cn(
@@ -95,9 +115,11 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
               {children}
             </div>
           </motion.div>
+          </DialogPrimitive.Content>
         </div>
       )}
-    </AnimatePresence>,
-    document.body
+    </AnimatePresence>
+    </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }

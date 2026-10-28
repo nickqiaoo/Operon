@@ -9,9 +9,9 @@ import {
     type TerminalTheme,
 } from "@/lib/terminal-themes"
 import { cn } from "@/lib/utils"
-import { Check, ChevronDown, Palette, SquareTerminal } from "lucide-react"
+import { Palette, SquareTerminal } from "lucide-react"
 import { SettingsRow, SettingsSection } from "./SettingsSection"
-import { useState, useRef, useEffect } from "react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Literal-id labels keyed by enum value — kept as discrete <FormattedMessage>
 // nodes so @formatjs/cli can statically extract each id/defaultMessage.
@@ -180,61 +180,27 @@ interface ThemeDropdownProps {
 }
 
 function ThemeDropdown({ themes, value, onChange, selectedName, selectedPreview }: ThemeDropdownProps) {
-    const [open, setOpen] = useState(false)
-    const ref = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (!open) return
-        const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) {
-                setOpen(false)
-            }
-        }
-        document.addEventListener('mousedown', handler)
-        return () => document.removeEventListener('mousedown', handler)
-    }, [open])
-
     return (
-        <div ref={ref} className="relative">
-            <button
-                onClick={() => setOpen(!open)}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-muted/30 rounded-lg border border-border/50 hover:bg-row-hover transition-colors min-w-[200px]"
-            >
-                <span
-                    className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                    style={{ backgroundColor: selectedPreview }}
-                >
-                    Aa
-                </span>
-                <span className="text-sm font-medium flex-1 text-left">{selectedName}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-            </button>
-
-            {open && (
-                <div className="absolute right-0 top-full mt-1 w-[200px] bg-popover border border-border/60 rounded-xl shadow-float z-50 py-1 max-h-[320px] overflow-y-auto code-scrollbar">
-                    {themes.map((t) => (
-                        <button
-                            key={t.id}
-                            onClick={() => { onChange(t.id); setOpen(false) }}
-                            className={cn(
-                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-row-hover transition-colors text-left",
-                                value === t.id && "bg-row-selected"
-                            )}
-                        >
-                            <span
-                                className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                                style={{ backgroundColor: t.preview }}
-                            >
-                                Aa
-                            </span>
-                            <span className="flex-1">{t.name}</span>
-                            {value === t.id && <Check className="w-3.5 h-3.5 text-brand" />}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
+        <Select value={value} onValueChange={onChange}>
+            <SelectTrigger aria-label="UI theme preset" className="min-w-[200px] bg-muted/30 shadow-none">
+                <SelectValue>
+                    <ThemeSwatch preview={selectedPreview} />
+                    <span>{selectedName}</span>
+                </SelectValue>
+            </SelectTrigger>
+            <SelectContent position="popper" align="end" className="max-h-80 min-w-[200px]">
+                {themes.map((theme) => (
+                    <SelectItem key={theme.id} value={theme.id} textValue={theme.name}>
+                        <ThemeSwatch preview={theme.preview} />{theme.name}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     )
+}
+
+function ThemeSwatch({ preview }: { preview: string }) {
+    return <span aria-hidden="true" className="flex size-5 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white" style={{ backgroundColor: preview }}>Aa</span>
 }
 
 // ── Terminal theme dropdown ──
@@ -263,51 +229,22 @@ interface TerminalThemeDropdownProps {
 }
 
 function TerminalThemeDropdown({ themes, value, onChange }: TerminalThemeDropdownProps) {
-    const [open, setOpen] = useState(false)
-    const ref = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (!open) return
-        const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) {
-                setOpen(false)
-            }
-        }
-        document.addEventListener('mousedown', handler)
-        return () => document.removeEventListener('mousedown', handler)
-    }, [open])
-
-    const selected = themes.find((t) => t.id === value) ?? themes[0]
-
+    const selected = themes.find((theme) => theme.id === value) ?? themes[0]
     return (
-        <div ref={ref} className="relative">
-            <button
-                onClick={() => setOpen(!open)}
-                className="flex items-center gap-2.5 px-3 py-1.5 bg-muted/30 rounded-lg border border-border/50 hover:bg-row-hover transition-colors min-w-[200px]"
-            >
-                {selected && <TerminalSwatch theme={selected} />}
-                <span className="text-sm font-medium flex-1 text-left">{selected?.name ?? 'Default'}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-            </button>
-
-            {open && (
-                <div className="absolute right-0 top-full mt-1 w-[240px] bg-popover border border-border/60 rounded-xl shadow-float z-50 py-1 max-h-[320px] overflow-y-auto code-scrollbar">
-                    {themes.map((t) => (
-                        <button
-                            key={t.id}
-                            onClick={() => { onChange(t.id); setOpen(false) }}
-                            className={cn(
-                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-row-hover transition-colors text-left",
-                                value === t.id && "bg-row-selected"
-                            )}
-                        >
-                            <TerminalSwatch theme={t} />
-                            <span className="flex-1">{t.name}</span>
-                            {value === t.id && <Check className="w-3.5 h-3.5 text-brand" />}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
+        <Select value={value} onValueChange={onChange}>
+            <SelectTrigger aria-label="Terminal theme preset" className="min-w-[200px] bg-muted/30 shadow-none">
+                <SelectValue>
+                    {selected && <TerminalSwatch theme={selected} />}
+                    <span>{selected?.name ?? 'Default'}</span>
+                </SelectValue>
+            </SelectTrigger>
+            <SelectContent position="popper" align="end" className="max-h-80 min-w-[240px]">
+                {themes.map((theme) => (
+                    <SelectItem key={theme.id} value={theme.id} textValue={theme.name}>
+                        <TerminalSwatch theme={theme} />{theme.name}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     )
 }
