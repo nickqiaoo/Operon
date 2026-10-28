@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.4.16] - 2026-10-28
+
+### Added
+
+- The assistant can run on Qoder.
+- Each workspace in the sidebar shows its uncommitted +N / -N line counts.
+
+### Changed
+
+- Menus, popovers and dialogs open with a short animation; a menu closes at once when you pick an item.
+- Code blocks in replies use a built-in copy button that sits level with the language label.
+- The theme pickers in Settings → Appearance and the model picker support keyboard navigation and search like the other menus.
+- On phones, bottom sheets no longer pop up the keyboard until you tap a field, and return focus when closed.
+
+### Fixed
+
+- The assistant's notifications are no longer marked read while its page is hidden behind another view.
+
 ## [1.4.15] - 2026-10-27
 
 ### Added
