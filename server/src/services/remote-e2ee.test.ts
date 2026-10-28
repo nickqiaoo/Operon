@@ -6,10 +6,12 @@ import {
   E2EE_HEADER,
   E2EE_INNER_CONTENT_TYPE_HEADER,
   E2EE_KEY_HEADER,
+  E2EE_PROOF_HEADER,
   REMOTE_TUNNEL_HEADER,
   base64ToBytes,
   bytesToBase64,
   decodeStreamFrame,
+  encodeEnvelope,
   pairingAad,
   requestAad,
   responseContext,
@@ -123,6 +125,57 @@ describe('remote E2EE middleware', () => {
     }
     const decoded = new TextDecoder().decode(concat(plaintext))
     expect(JSON.parse(decoded)).toEqual({ received: { secret: 'broker cannot read this' } })
+  })
+
+  it("drops the route's own length and cache headers instead of carrying them onto the ciphertext", async () => {
+    initRemoteE2EE({ storage, mode: 'required' })
+    const app = new Hono()
+    app.use('/api/*', createRemoteE2EEMiddleware())
+    // Shaped like the attachment route: explicit length, immutable caching.
+    const bytes = new Uint8Array(4096).map((_, i) => i % 251)
+    app.get('/api/blob', (c) => c.body(bytes.buffer, 200, {
+      'Content-Type': 'image/png',
+      'Content-Length': String(bytes.byteLength),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    }))
+
+    const keys = deriveRemoteDirectionKeys(pairing)
+    const apiPath = '/api/blob'
+    const envelope = seal(new Uint8Array(), keys.request, requestAad({
+      method: 'GET',
+      apiPath,
+      deviceId: pairing.deviceId,
+      keyId: pairing.keyId,
+      innerContentType: '',
+    }))
+    const context = responseContext({ method: 'GET', apiPath, requestNonce: envelope.nonce })
+    const response = await app.request(`http://localhost${apiPath}`, {
+      headers: {
+        [REMOTE_TUNNEL_HEADER]: '1',
+        [E2EE_HEADER]: 'v1',
+        [E2EE_DEVICE_HEADER]: pairing.deviceId,
+        [E2EE_KEY_HEADER]: pairing.keyId,
+        [E2EE_PROOF_HEADER]: encodeEnvelope(envelope),
+      },
+    })
+
+    // A plaintext Content-Length truncates the longer ciphertext; immutable
+    // caching lets a client replay a response bound to another request's nonce.
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    const frames = (await response.text()).trim().split('\n').map(decodeStreamFrame)
+    expect(frames.at(-1)?.final).toBe(true)
+    const plaintext = concat(frames.map((frame) => open(frame, keys.response, responseFrameAad({
+      deviceId: pairing.deviceId,
+      keyId: pairing.keyId,
+      context,
+      status: 200,
+      framing: 'ndjson',
+      innerContentType: 'image/png',
+      seq: frame.seq,
+      final: frame.final,
+    }))))
+    expect(plaintext).toEqual(bytes)
   })
 
   it('rejects plaintext remote requests in required mode but permits them in developer off mode', async () => {

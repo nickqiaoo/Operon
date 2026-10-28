@@ -414,11 +414,18 @@ export function createRemoteE2EEMiddleware(): MiddlewareHandler {
       }, 500)
     }
     requireState().storage.touchMobilePairingLastSeen(desktopId, deviceId, Date.now())
-    c.res = encryptResponse(c.res, keys.response, {
+    const encrypted = encryptResponse(c.res, keys.response, {
       deviceId,
       keyId,
       context: responseBinding,
     })
+    // Hono's `res` setter copies every header of the response it replaces onto
+    // the new one. That put back what encryptResponse removed: a route's own
+    // Content-Length (the attachment route sets one) cut the longer ciphertext
+    // short, and its immutable Cache-Control let the webview replay a response
+    // bound to an earlier request's nonce. Clearing first skips the merge.
+    c.res = undefined
+    c.res = encrypted
   }
 }
 

@@ -60,7 +60,10 @@ export async function secureBrokerFetch(
     headers,
     body: hasBody ? encodeEnvelope(envelope) : undefined,
     credentials: request.credentials,
-    cache: request.cache,
+    // Ciphertext is bound to this request's nonce, so a cached response can
+    // never decrypt. The node says no-store, but nodes before that fix leaked a
+    // route's immutable Cache-Control, and webviews still hold those copies.
+    cache: 'no-store',
     redirect: request.redirect,
     referrer: request.referrer,
     referrerPolicy: request.referrerPolicy,
