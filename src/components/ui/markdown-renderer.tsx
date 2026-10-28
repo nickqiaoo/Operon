@@ -1,5 +1,5 @@
 
-import { memo, useCallback, useEffect, useMemo, type AnchorHTMLAttributes } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, type AnchorHTMLAttributes } from "react";
 import { safeCode } from "@/lib/streamdown-code";
 import { openExternalUrl } from "@/lib/open-external";
 import { cjk } from "@streamdown/cjk";
@@ -12,7 +12,6 @@ import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 import { cn } from "@/lib/utils";
 import { useFileOpenHandler } from "@/lib/file-open-context";
-import { useCodeBlockCopy } from "@/hooks/useCodeBlockCopy";
 import { useResolvedMode } from "@/hooks/useResolvedMode";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
 import { InlineFileCode } from "@/components/editor/FileCitationChip";
@@ -91,7 +90,7 @@ export interface MarkdownRendererProps {
 }
 
 export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRendererProps) => {
-    const codeBlockCopyRef = useCodeBlockCopy();
+    const containerRef = useRef<HTMLDivElement>(null);
     const mode = useResolvedMode();
 
     // Streamdown's mermaid pan-zoom hijacks every wheel event (preventDefault +
@@ -100,7 +99,7 @@ export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRe
     // the page scrolls normally; ctrl+wheel (and trackpad pinch, which the
     // browser reports with ctrlKey) still reaches it and zooms.
     useEffect(() => {
-        const container = codeBlockCopyRef.current;
+        const container = containerRef.current;
         if (!container) return;
         const handleWheel = (e: WheelEvent) => {
             if (e.ctrlKey) return;
@@ -110,7 +109,7 @@ export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRe
         };
         container.addEventListener("wheel", handleWheel, { capture: true, passive: true });
         return () => container.removeEventListener("wheel", handleWheel, { capture: true });
-    }, [codeBlockCopyRef]);
+    }, []);
 
     const remarkPlugins = useMemo<PluggableList>(
         () => (breaks ? remarkPluginsWithBreaks : remarkPluginsBase),
@@ -118,11 +117,11 @@ export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRe
     );
 
     return (
-        <div ref={codeBlockCopyRef}>
+        <div ref={containerRef}>
             <Streamdown
                 className={cn(
-                    // Phone: system body size (16px); desktop keeps the denser 14px.
-                    "prose prose-sm max-md:prose-base dark:prose-invert max-w-none w-full",
+                    // Body typography inherits from the surrounding surface.
+                    "prose max-w-none w-full",
                     "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",
                     // Conversational heading scale: chat output is a reply, not a
                     // document — headings differ from body by one step + weight,
@@ -134,7 +133,7 @@ export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRe
                 )}
                 plugins={{ code, mermaid, math, cjk }}
                 mermaid={mermaidOptions[mode]}
-                controls={{ table: false, code: false }}
+                controls={{ table: false, code: { copy: true, download: false } }}
                 rehypePlugins={rehypePlugins}
                 remarkPlugins={remarkPlugins}
                 urlTransform={urlTransform}

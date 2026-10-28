@@ -24,7 +24,6 @@ import type { AnchorHTMLAttributes, ComponentProps, HTMLAttributes, ReactElement
 import { createContext, memo, useCallback, useContext, useEffect, useState } from "react";
 import { Streamdown, defaultUrlTransform } from "streamdown";
 import remarkGfm from "remark-gfm";
-import { useCodeBlockCopy } from "@/hooks/useCodeBlockCopy";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
 import { InlineFileCode } from "@/components/editor/FileCitationChip";
 import type { PluggableList } from "unified";
@@ -389,10 +388,9 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const MessageResponseInner = ({ className, children, ...props }: MessageResponseProps) => {
-  const codeBlockCopyRef = useCodeBlockCopy();
 
   return (
-    <div ref={codeBlockCopyRef}>
+    <div>
       <Streamdown
         className={cn(
           // Heading sizes are relative to the body so callers that change the body size
@@ -401,7 +399,7 @@ const MessageResponseInner = ({ className, children, ...props }: MessageResponse
           className
         )}
         plugins={{ code, mermaid, math, cjk }}
-        controls={{ table: false, code: false }}
+        controls={{ table: false, code: { copy: true, download: false } }}
         remarkPlugins={messageRemarkPlugins}
         urlTransform={messageUrlTransform}
         components={messageComponents}

@@ -204,7 +204,7 @@ export const ConfirmationAction = ({
   return (
     <Button
       className={cn(
-        "h-8 px-3 text-sm transition-[transform,box-shadow,background-color,color] active:translate-y-px active:scale-[0.98] active:shadow-inner disabled:active:translate-y-0 disabled:active:scale-100",
+        "h-8 px-3 text-sm transition-[transform,box-shadow,background-color,color] active:translate-y-px active:scale-[0.98] active:shadow-none disabled:active:translate-y-0 disabled:active:scale-100",
         toneClassName,
         className
       )}

@@ -220,7 +220,7 @@ export function ExtensionsSettings() {
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-4 px-1">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-accent-purple" />
+            <Sparkles className="h-4 w-4 text-brand" />
             <div>
               <h3 className="text-sm font-semibold">
                 <FormattedMessage id="settings.extensions.marketplaceTitle" defaultMessage="Marketplace" />
@@ -399,7 +399,7 @@ function MarketplaceCard({ entry, busy, onInstall }: { entry: ExtensionMarketpla
   return (
     <article className="flex min-h-44 flex-col rounded-xl border border-border/40 bg-muted/10 p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-purple/10 text-accent-purple"><Puzzle className="h-5 w-5" /></div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand"><Puzzle className="h-5 w-5" /></div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold">{name}</h4>

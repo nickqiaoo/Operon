@@ -199,7 +199,7 @@ function ImageViewerContent({ src, filename }: ImageViewerProps) {
           alt={filename || "Image preview"}
           src={src}
           draggable={false}
-          className="pointer-events-none absolute top-1/2 left-1/2 max-w-none rounded-sm shadow-sm"
+          className="pointer-events-none absolute top-1/2 left-1/2 max-w-none rounded-sm shadow-card"
           style={{
             width: dimensions?.width,
             height: dimensions?.height,
@@ -235,7 +235,7 @@ export function ImageViewer(props: ImageViewerProps) {
   return (
     <DialogContent
       aria-describedby={undefined}
-      className="block h-[94dvh] w-[96vw] max-w-none overflow-hidden rounded-2xl border-border/40 bg-background p-0 shadow-2xl sm:max-w-none"
+      className="block h-[94dvh] w-[96vw] max-w-none overflow-hidden rounded-2xl border-border/40 bg-background p-0 shadow-modal sm:max-w-none"
       overlayClassName="bg-background/65 backdrop-blur-md"
       showCloseButton={false}
     >

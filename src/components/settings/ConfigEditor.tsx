@@ -36,7 +36,7 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
                         className={cn(
                             "flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 ease-out",
                             activeFile === id
-                                ? "bg-background text-foreground shadow-premium"
+                                ? "bg-background text-foreground shadow-card"
                                 : "text-muted-foreground hover:text-foreground hover:bg-row-hover"
                         )}
                     >
@@ -73,7 +73,7 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
                             className={cn(
                                 "w-full h-96 p-6 bg-transparent rounded-xl border border-border/60 code-scrollbar relative z-10",
                                 "font-mono text-sm resize-none shadow-card transition-all duration-300",
-                                "focus:outline-none focus:ring-1 focus:ring-tint/10 focus:border-tint/40 focus:bg-background/50 focus:shadow-premium",
+                                "focus:outline-none focus:ring-1 focus:ring-tint/10 focus:border-tint/40 focus:bg-background/50 focus:shadow-input",
                                 "placeholder:text-muted-foreground/40",
                                 currentFile.validationError
                                     ? "border-destructive/30 focus:ring-destructive/10"

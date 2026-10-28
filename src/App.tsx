@@ -677,7 +677,7 @@ export default function App() {
                             OPERON
                           </span>
                         </h1>
-                        <div className="absolute inset-0 bg-grid-black/[0.02] dark:bg-grid-white/[0.02] z-0 pointer-events-none [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]"></div>
+                        <div className="absolute inset-0 bg-grid z-0 pointer-events-none [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]"></div>
                       </div>
                     </ConversationEmptyState>
                   )}

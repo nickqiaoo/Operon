@@ -1,4 +1,18 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "streamdown/styles.css";
+
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+@source "../../node_modules/@streamdown/mermaid/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
+@source "../../node_modules/@streamdown/cjk/dist/*.js";
+
+/* Keep element specificity so prose modifiers override Streamdown utilities. */
+@plugin "@tailwindcss/typography" {
+  target: "legacy";
+}
+@config "./typography.config.js";
 
 @font-face {
   font-family: 'General Sans';
@@ -16,25 +30,8 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* `prose-h2:` / `prose-p:` … element modifiers. @tailwindcss/typography is not
-   installed (`.prose` is our own, further down), so these generated nothing and
-   every markdown surface fell back to streamdown's own classes (h2 = text-2xl).
-   `:is()` keeps the element in the specificity, so `.x h2` outranks the single
-   class streamdown puts on the element itself. Declaration order is variant
-   order: `prose-headings` first so `prose-h1:` etc. win over it. */
+/* Typography includes `th` in headings; keep table headers independent. */
 @custom-variant prose-headings (& :is(h1, h2, h3, h4, h5, h6));
-@custom-variant prose-h1 (& :is(h1));
-@custom-variant prose-h2 (& :is(h2));
-@custom-variant prose-h3 (& :is(h3));
-@custom-variant prose-h4 (& :is(h4));
-@custom-variant prose-p (& :is(p));
-@custom-variant prose-ul (& :is(ul));
-@custom-variant prose-ol (& :is(ol));
-@custom-variant prose-li (& :is(li));
-@custom-variant prose-strong (& :is(strong));
-@custom-variant prose-code (& :is(code));
-@custom-variant prose-pre (& :is(pre));
-@custom-variant prose-blockquote (& :is(blockquote));
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -200,6 +197,8 @@
    Runtime values live in --elevation-* (:root and .dark below) so light and
    dark get separately tuned shadows through a single class. */
 @theme inline {
+  --color-card: var(--color-background);
+  --color-card-foreground: var(--color-foreground);
   --shadow-card: var(--elevation-card);
   --shadow-input: var(--elevation-input);
   --shadow-float: var(--elevation-float);
@@ -830,20 +829,6 @@ body > div > button[title="Exit fullscreen"] {
   background-clip: padding-box;
 }
 
-/* Streamdown (Shiki) code blocks: light theme token colors. streamdown 2.x puts
-   each token's color in `--sdm-c` and applies it with the Tailwind class
-   `text-[var(--sdm-c,inherit)]`, but that class lives in node_modules, which
-   Tailwind does not scan — so it never gets generated and every token falls
-   back to plain foreground. */
-[data-streamdown="code-block-body"] span[style*="--sdm-c"] {
-  color: var(--sdm-c, inherit);
-}
-
-/* Streamdown (Shiki) code blocks: ensure dark theme tokens use dark colors */
-.dark [data-streamdown="code-block-body"] span {
-  color: var(--shiki-dark, currentColor) !important;
-}
-
 /* Streamdown code block: clean single-container look */
 [data-streamdown="code-block"] {
   padding: 0 !important;
@@ -876,70 +861,32 @@ body > div > button[title="Exit fullscreen"] {
   border-radius: 0 !important;
 }
 
-/* Code block actions: soften border and reduce whitespace */
-[data-streamdown="code-block-actions"] {
-  border-color: var(--color-border) !important;
-  background-color: color-mix(in srgb, var(--color-muted) 80%, transparent) !important;
-}
-
-/* Fix actions overlay position with the new compact header */
+/* Lay the actions row exactly over the compact header (1.5rem + its 1px bottom
+   border) so the copy button centres on the language label. The row is sticky
+   and the block clips overflow, so `top` acts as a floor inside the block: any
+   value above 0 pushes the button below the header's centre line. */
 [data-streamdown="code-block"] > div:has([data-streamdown="code-block-actions"]) {
-  margin-top: -1.75rem !important;
-  height: 1.75rem !important;
-  top: 0.25rem !important;
+  margin-top: calc(-1.5rem - 1px) !important;
+  height: 1.5rem !important;
+  top: 0 !important;
   padding-right: 0.5rem;
 }
 
-/* Code block header: flex layout to accommodate copy button */
-[data-streamdown="code-block-header"] {
-  display: flex !important;
-  align-items: center;
-  justify-content: space-between;
+/* Keep Streamdown's native copy control compact and visible to keyboard/touch users. */
+[data-streamdown="code-block-actions"] {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
 }
 
-/* Code block copy button */
-[data-code-copy-btn] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+[data-streamdown="code-block-actions"] button {
   padding: 0.125rem;
-  border-radius: 0.375rem;
   color: var(--color-muted-foreground);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
 }
 
-[data-streamdown="code-block"]:hover [data-code-copy-btn] {
-  opacity: 1;
-}
-
-[data-code-copy-btn]:hover {
+[data-streamdown="code-block-actions"] button:hover {
   color: var(--color-foreground);
-  background-color: color-mix(in srgb, var(--color-foreground) 10%, transparent);
-}
-
-[data-code-copy-btn] .check-icon {
-  display: none;
-  color: var(--color-success, #22c55e);
-}
-
-[data-code-copy-btn] .copy-icon {
-  display: block;
-}
-
-[data-code-copy-btn][data-copied] .copy-icon {
-  display: none;
-}
-
-[data-code-copy-btn][data-copied] .check-icon {
-  display: block;
-}
-
-[data-code-copy-btn][data-copied] {
-  opacity: 1;
+  background-color: var(--color-row-hover);
 }
 
 /* Find-in-file matches in the rendered markdown preview. The source view is in
@@ -951,13 +898,7 @@ body > div > button[title="Exit fullscreen"] {
   background-color: var(--find-match-current);
 }
 
-/*
- * Streamdown mermaid block: same compact single-container look as code blocks.
- * Streamdown's own utility classes (e.g. -mt-10, border-sidebar, bg-sidebar/80)
- * are not scanned by Tailwind here, so its action overlay falls out of the
- * header into its own row and its frame degrades to a currentColor (black)
- * border. Lay the pieces out explicitly instead.
- */
+/* Project-specific Mermaid skin: match the compact code block container. */
 [data-streamdown="mermaid-block"] {
   padding: 0 !important;
   gap: 0 !important;
@@ -977,21 +918,13 @@ body > div > button[title="Exit fullscreen"] {
 [data-streamdown="mermaid-block"] > div:has([data-streamdown="mermaid-block-actions"]) {
   position: relative;
   top: 0 !important;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
   height: 1.75rem !important;
   margin-top: -1.75rem !important;
   padding-right: 0.5rem;
-  pointer-events: none;
 }
 
 /* Actions cluster: no frame, no fill — plain icon buttons like the code copy button */
 [data-streamdown="mermaid-block-actions"] {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
   gap: 0.125rem;
   padding: 0 !important;
   border: none !important;
@@ -1033,13 +966,8 @@ body > div > button[title="Exit fullscreen"] {
   background-color: var(--color-background) !important;
 }
 
-/*
- * Pan/zoom stage: streamdown's min-h-28 isn't generated either, so a short
- * diagram collapses below the height of the zoom controls (three stacked
- * buttons, ~100px) and the controls get clipped by the block's overflow.
- */
+/* Extra diagram spacing. min-h-28 now comes from Streamdown. */
 [data-streamdown="mermaid"] > div {
-  min-height: 7rem;
   padding: 0.5rem 0;
 }
 
@@ -1089,6 +1017,13 @@ body > div > button[title="Exit fullscreen"] {
 @keyframes scroll-fade-bottom {
   from { --scroll-fade-bottom: var(--scroll-fade-size); }
   to { --scroll-fade-bottom: 0px; }
+}
+
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-foreground) 2%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-foreground) 2%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 @utility scroll-fade-y {
