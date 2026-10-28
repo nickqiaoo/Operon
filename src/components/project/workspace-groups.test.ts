@@ -92,6 +92,13 @@ describe('project navigation', () => {
     expect(entries.specs).toEqual([spec])
   })
 
+  it('excludes archived directory rows and restores them when unarchived', () => {
+    const archived = ws(2, task(20, 1, { archivedAt: 100 }))
+    expect(projectSidebarEntries(project([ws(1), archived]), [], []).workspaces.map((w) => w.id)).toEqual([1])
+    const restored = { ...archived, task: { ...archived.task!, archivedAt: null } }
+    expect(projectSidebarEntries(project([ws(1), restored]), [], []).workspaces.map((w) => w.id)).toEqual([1, 2])
+  })
+
   it('keeps execution worktrees out of directory navigation after the spec workspace is reclaimed or hidden', () => {
     const spec = task(10, 7, { specStage: 'stopped' })
     const data = project([ws(1), ws(3, task(11, 8, { parentTaskId: 10 }))], [spec])

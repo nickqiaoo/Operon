@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   MergeConflictError,
+  WorkspaceUnavailableError,
+  getDiffRange,
   commit,
   diffBeyondMerge,
   filesChangedBeyondMerge,
@@ -16,6 +18,39 @@ import {
 
 const run = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+
+describe('unavailable workspaces', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(path.join(tmpdir(), 'operon-missing-')) })
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  const initRepo = (repo: string) => {
+    mkdirSync(repo)
+    run(repo, 'init', '-q', '-b', 'main')
+    run(repo, 'config', 'user.email', 'test@example.com')
+    run(repo, 'config', 'user.name', 'test')
+    run(repo, 'commit', '--allow-empty', '-qm', 'base')
+  }
+
+  it('reports missing directories without treating them as zero changes', async () => {
+    await expect(getDiffRange(path.join(root, 'missing'), 'HEAD')).rejects.toBeInstanceOf(WorkspaceUnavailableError)
+    writeFileSync(path.join(root, 'file'), '')
+    await expect(getDiffRange(path.join(root, 'file'), 'HEAD')).rejects.toBeInstanceOf(WorkspaceUnavailableError)
+  })
+
+  it('detects removal after caching and recovers when the directory is recreated', async () => {
+    const repo = path.join(root, 'repo')
+    initRepo(repo)
+    expect(await getDiffRange(repo, 'HEAD')).toEqual([])
+    rmSync(repo, { recursive: true })
+    await expect(getDiffRange(repo, 'HEAD')).rejects.toBeInstanceOf(WorkspaceUnavailableError)
+    initRepo(repo)
+    writeFileSync(path.join(repo, 'a.txt'), 'one\n')
+    run(repo, 'add', '.')
+    expect(await getDiffRange(repo, 'HEAD')).toMatchObject([{ path: 'a.txt', additions: 1 }])
+    await expect(getDiffRange(repo, 'missing-ref')).rejects.not.toBeInstanceOf(WorkspaceUnavailableError)
+  })
+})
 
 describe('mergeBranch', () => {
   let repo: string

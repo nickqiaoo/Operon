@@ -132,7 +132,29 @@ const parseWorktreeList = (output: string): GitWorktreeEntry[] => {
 const gitCache = new Map<string, ReturnType<typeof simpleGit>>()
 const gitVerified = new Set<string>()
 
+export class WorkspaceUnavailableError extends Error {
+  constructor() {
+    super('Workspace directory is unavailable')
+    this.name = 'WorkspaceUnavailableError'
+  }
+}
+
 function getGit(repoPath: string) {
+  // Check even cached instances: a worktree may have been reclaimed since use.
+  let isDirectory: boolean
+  try {
+    isDirectory = statSync(repoPath).isDirectory()
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error
+    isDirectory = false
+  }
+  if (!isDirectory) {
+    gitCache.delete(repoPath)
+    gitVerified.delete(repoPath)
+    nonRepoCache.delete(repoPath)
+    throw new WorkspaceUnavailableError()
+  }
   let git = gitCache.get(repoPath)
   if (!git) {
     // `core.quotepath=false`: emit non-ASCII paths (e.g. Chinese filenames) as raw UTF-8
@@ -147,8 +169,8 @@ function getGit(repoPath: string) {
 const nonRepoCache = new Set<string>()
 
 async function ensureRepo(repoPath: string) {
-  if (nonRepoCache.has(repoPath)) return null
   const git = getGit(repoPath)
+  if (nonRepoCache.has(repoPath)) return null
   if (!gitVerified.has(repoPath)) {
     const isRepo = await git.checkIsRepo()
     if (!isRepo) {

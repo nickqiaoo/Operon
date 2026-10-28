@@ -254,14 +254,16 @@ function WorkspaceRow({ label, title, isActive, stats, streaming, unseen, onSele
       )}
     >
       <GitBranch className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-      <span className={cn('min-w-0 flex-1 truncate text-sm', isActive ? 'font-semibold text-foreground' : 'font-medium text-foreground/70')}>{fileCitationsToText(label)}</span>
-      {stats && (stats.additions > 0 || stats.deletions > 0) && (
-        <span className="shrink-0 font-mono text-[11px] tabular-nums opacity-80">
-          {stats.additions > 0 && <span className="text-diff-add">+{stats.additions}</span>}
-          {stats.deletions > 0 && <span className="ml-0.5 text-diff-remove">-{stats.deletions}</span>}
-        </span>
-      )}
-      {streaming + unseen > 0 && <span className="shrink-0 text-[11px] tabular-nums text-status-info">{streaming + unseen}</span>}
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        <span className={cn('min-w-0 flex-1 truncate text-sm', isActive ? 'font-semibold text-foreground' : 'font-medium text-foreground/70')}>{fileCitationsToText(label)}</span>
+        {stats && (stats.additions > 0 || stats.deletions > 0) && (
+          <span className="shrink-0 text-[11px] tabular-nums opacity-80">
+            {stats.additions > 0 && <span className="text-diff-add">+{stats.additions}</span>}
+            {stats.deletions > 0 && <span className="ml-0.5 text-diff-remove">-{stats.deletions}</span>}
+          </span>
+        )}
+        {streaming + unseen > 0 && <span className="shrink-0 text-[11px] tabular-nums text-status-info">{streaming + unseen}</span>}
+      </span>
     </button>
   )
 }

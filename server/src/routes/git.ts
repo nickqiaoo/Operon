@@ -9,6 +9,13 @@ import { worktreePathFor } from '../services/worktree-paths.js'
 export function gitRoutes() {
   const router = new Hono()
 
+  router.onError((error, c) => {
+    if (error instanceof gitService.WorkspaceUnavailableError) {
+      return c.json({ error: error.message, code: 'WORKSPACE_UNAVAILABLE' }, 404)
+    }
+    throw error
+  })
+
   router.post('/status', async (c) => {
     const { repoPath } = await c.req.json<{ repoPath: string }>()
     const result = await gitService.getStatus(repoPath)

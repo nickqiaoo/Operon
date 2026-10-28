@@ -64,6 +64,7 @@ export function projectSidebarEntries(project: Project, shownIds: readonly numbe
   }
   return {
     workspaces: project.workspaces.filter((workspace) =>
+      workspace.task?.archivedAt == null &&
       workspace.task?.specStage == null &&
       (workspace.task?.parentTaskId == null || !specsById.has(workspace.task.parentTaskId)),
     ),

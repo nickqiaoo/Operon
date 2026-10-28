@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react"
 import { gitDiffRange } from "@/lib/api-client"
 import { useProjectStore, type WorkspaceDiffStat } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
+import { projectSidebarEntries } from "@/components/project/workspace-groups"
 
 /** Enough to keep a long sidebar from firing one git process per row all at once. */
 const CONCURRENCY = 4
@@ -21,7 +22,7 @@ async function loadStat(worktreePath: string): Promise<WorkspaceDiffStat | null>
 }
 
 /**
- * Keeps the sidebar's per-workspace +N/-N current: loads it for every worktree once
+ * Keeps the sidebar's per-workspace +N/-N current: loads it for visible directory rows once
  * the list is known, again whenever a turn ends (that is when an agent's edits land),
  * and when the window comes back into focus (edits made outside the app).
  */
@@ -31,12 +32,16 @@ export function useWorkspaceDiffStats(): void {
   const streamingCount = useStreamingStore((s) => s.streamingTabIds.size)
 
   const pathsKey = useMemo(
-    () => [...new Set(projects.flatMap((p) => p.workspaces.map((w) => w.worktreePath)).filter(Boolean))].sort().join("\n"),
+    // Spec rows have no diff badge; their execution worktrees need no request.
+    () => [...new Set(projects.flatMap((p) => projectSidebarEntries(p, [], []).workspaces.map((w) => w.worktreePath)).filter(Boolean))].sort().join("\n"),
     [projects],
   )
 
   useEffect(() => {
-    if (!pathsKey) return
+    if (!pathsKey) {
+      setWorkspaceDiffStats({})
+      return
+    }
     const paths = pathsKey.split("\n")
     let cancelled = false
 
