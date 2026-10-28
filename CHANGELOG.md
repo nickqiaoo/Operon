@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.4.18] - 2026-10-28
+
+### Added
+
+- Agents can show interactive pages — diagrams, charts, explainers — right in the conversation; collapse one when you're done, save it as HTML, or open it full screen on desktop.
+
+### Changed
+
+- Side panels and the project sidebar keep their contents when closed, so reopening a large file or a tab no longer reloads it.
+
+### Fixed
+
+- Images and other attachments load again in the mobile and web apps.
+- Expanding a card near the end of a conversation keeps your place instead of jumping to the bottom.
+- Sidebar +N / -N counts skip archived tasks and workspaces whose folder was removed.
+
 ## [1.4.17] - 2026-10-28
 
 ### Changed
