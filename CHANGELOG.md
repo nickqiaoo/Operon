@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.4.19] - 2026-10-28
+
+### Fixed
+
+- Interactive pages from Claude show up in the conversation instead of staying folded into the tool calls.
+- Opening the left sidebar no longer makes the right panel jump past the window edge and back.
+
 ## [1.4.18] - 2026-10-28
 
 ### Added
