@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { motion } from "motion/react"
 import { Maximize2, Minimize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -101,7 +102,10 @@ export function RightPanel({ className }: RightPanelProps) {
 
     measureAvailableWidth()
 
-    const observer = new ResizeObserver(measureAvailableWidth)
+    // Commit inside the observer callback, before paint. A plain setState lands a
+    // frame late, so while the left sidebar animates open the panel is still the
+    // old width every frame and its right edge pokes past the window, then snaps back.
+    const observer = new ResizeObserver(() => flushSync(measureAvailableWidth))
     observer.observe(parent)
     window.addEventListener("resize", measureAvailableWidth)
 
