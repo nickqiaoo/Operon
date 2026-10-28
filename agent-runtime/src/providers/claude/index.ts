@@ -9,6 +9,7 @@ import type { SDKControlInitializeResponse } from '@anthropic-ai/claude-agent-sd
 import type { ProviderDescriptor, RuntimeProviderFactory, SessionOptions } from '../../types.js'
 import type { ProviderInfo } from '../../types.js'
 import {
+  buildClaudeEnv,
   CLAUDE_MODES,
   CLAUDE_SERVICE_TIERS,
   CLAUDE_SLASH_COMMANDS,
@@ -48,6 +49,7 @@ async function doFetchInitInfo(ctx: RuntimeContext): Promise<void> {
       prompt: '',
       options: {
         pathToClaudeCodeExecutable: cliPath,
+        env: buildClaudeEnv(ctx),
         persistSession: false,
         settingSources: ['user', 'project'],
       },

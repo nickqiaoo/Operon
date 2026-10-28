@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.4.17] - 2026-10-28
+
+### Changed
+
+- Claude sessions, initialization and usage queries identify as Operon, overriding inherited SDK entrypoint labels as a workaround for reported subscription metering differences.
+
+### Fixed
+
+- Dual-architecture Mac builds restore native binaries for the local machine on completion, failure or interruption, so the Intel build no longer leaves ARM development using incompatible modules.
+- Development startup rebuilds Vite's dependency cache to avoid stale code-highlighting chunks when opening file previews.
+
 ## [1.4.16] - 2026-10-28
 
 ### Added

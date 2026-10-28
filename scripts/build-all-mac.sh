@@ -42,6 +42,37 @@ echo "=== Cleaning previous build artifacts ==="
 npm run clean:build
 
 echo "=== Building ARM version (with Memory) ==="
+# Both builds overwrite the working tree's native binaries. Restore the host
+# versions on every exit so the Intel build cannot leave DEV using x86_64 addons
+# on an ARM Mac (or vice versa). Packaged files in release/ stay untouched.
+dev_arch="$(node -p 'process.arch')"
+restore_dev_binaries() {
+  local build_status=$?
+  local restore_status=0
+  trap - EXIT INT TERM
+  set +e
+  echo "=== Restoring native binaries for local development ($dev_arch) ==="
+  for task in rebuild:native build:native-addons fetch:cua-driver; do
+    TARGET_ARCH="$dev_arch" npm_config_arch="$dev_arch" SKIP_ELECTRON_REBUILD=0 npm run "$task"
+    if [ $? -ne 0 ]; then
+      echo "Error: failed to restore $task for $dev_arch." >&2
+      restore_status=1
+    fi
+  done
+  if [ "$restore_status" -eq 0 ]; then
+    echo "=== Local development binaries restored ($dev_arch) ==="
+  fi
+  # Preserve the original build failure; fail successful builds if restoration
+  # failed, rather than silently leaving a broken development environment.
+  if [ "$build_status" -ne 0 ]; then
+    exit "$build_status"
+  fi
+  exit "$restore_status"
+}
+trap restore_dev_binaries EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 TARGET_ARCH=arm64 npm run rebuild:native
 # clean:build wiped dist-operon-runtime; rebuild the runtime JS bundles + the native
 # addons that electron-builder packages as the `operon-runtime` extraResource.

@@ -7,6 +7,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import type { RuntimeUsageLimits, RuntimeUsageLimitWindow } from '../../types.js'
 import type { RuntimeContext } from '../../context.js'
+import { buildClaudeEnv } from './config.js'
 import { createRuntimeLogger } from '../../logger.js'
 
 const logger = createRuntimeLogger('claude-usage')
@@ -353,6 +354,7 @@ export class ClaudeUsageProbe {
         prompt: silentInput,
         options: {
           pathToClaudeCodeExecutable: cliPath,
+          env: buildClaudeEnv(this.ctx),
           persistSession: false,
           // Nothing here runs a turn, so skip user/project settings entirely —
           // that keeps MCP servers, hooks and workspace config out of the probe.

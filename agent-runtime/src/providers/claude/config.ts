@@ -115,6 +115,13 @@ export const OPERON_INFRA_ALLOWED_TOOLS = [
   'mcp__team_inbox__list_agents',
 ]
 
+export function buildClaudeEnv(ctx: RuntimeContext, sessionEnv?: Record<string, string | undefined>): Record<string, string> {
+  // Identify our own client and override inherited sdk-* labels. Community
+  // measurements report higher subscription usage for those labels:
+  // https://github.com/anthropics/claude-code/issues/97074#issuecomment-6426128541
+  return { ...ctx.env(sessionEnv), CLAUDE_CODE_ENTRYPOINT: 'operon' }
+}
+
 export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeContext): ClaudeRuntimeSettings {
   const cliPath = ctx.resolveBinary('claude-code')
   if (!cliPath) {
@@ -124,14 +131,7 @@ export function buildClaudeRuntimeSettings(params: SessionOptions, ctx: RuntimeC
   const systemPromptAppend = buildSystemPromptAppend(params.instructions)
   const permissionMode = resolvePermissionMode(params.mode)
   const thinkingLevel = resolveThinkingLevel(params.effort)
-  const env = ctx.env(params.env)
-  // Tag SDK-spawned sessions with the `cli` entrypoint so Claude Code's
-  // interactive `/resume` picker lists them — it hides `sdk-ts` sessions by
-  // default. The SDK only fills CLAUDE_CODE_ENTRYPOINT when unset, so setting
-  // it here wins; respect an explicit override from the session env.
-  if (!env.CLAUDE_CODE_ENTRYPOINT) {
-    env.CLAUDE_CODE_ENTRYPOINT = 'cli'
-  }
+  const env = buildClaudeEnv(ctx, params.env)
 
   return {
     modelId: normalizeModelId(params.model),

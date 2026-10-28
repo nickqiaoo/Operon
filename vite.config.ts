@@ -208,6 +208,8 @@ export default defineConfig({
   // bundled vendor chunk's optional, uninstalled imports (e.g. @emotion/is-prop-valid).
   optimizeDeps: {
     entries: 'index.html',
+    // Rebuild dependencies at startup instead of reusing a stale optimizer graph.
+    force: true,
   },
   base: isWeb ? '/' : './',
   // Pierre's diff highlighter runs in a web worker (@pierre/diffs worker pool)
