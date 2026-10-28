@@ -36,6 +36,7 @@ import { getSubagentProgress, convertSubagentToChildParts, mapSubagentState } fr
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
 import { ScheduleTaskRenderer, isScheduleTaskResult } from './ScheduleTaskRenderer';
+import { HtmlRenderRenderer, isHtmlRenderResult } from './HtmlRenderFrame';
 import { CodeProgramRenderer } from './CodeProgramRenderer';
 import { isCodeProgramTool } from './codeProgram';
 import { UserMessageText } from './UserMessageText';
@@ -231,6 +232,12 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     // Schedule page on it. Same gating as the task card above.
     if (isScheduleTaskResult(toolPart)) {
       return <ScheduleTaskRenderer toolPart={toolPart} />;
+    }
+
+    // A visual reply (html_render) draws its page in place of the call. Same gating:
+    // only once the page was published, so a streaming or failed call stays a tool row.
+    if (isHtmlRenderResult(toolPart)) {
+      return <HtmlRenderRenderer toolPart={toolPart} />;
     }
 
     // Render Workflow tool with dedicated card (phases skeleton + highlighted script +

@@ -1,8 +1,8 @@
 import type { UIMessage } from 'ai';
 import { isToolPart } from '../toolParentUtils';
-import { isCompactEligible } from './isCompactEligible';
+import { isCompactEligible, standsOutOfProgram } from './isCompactEligible';
 import type { ToolPartLike } from '../toolName';
-import { isCodeProgramTool } from '../codeProgram';
+import { isCodeProgramTool, programToolCallIdOf } from '../codeProgram';
 
 type MessagePart = UIMessage['parts'][number];
 
@@ -22,7 +22,10 @@ const isBlankTextPart = (part: MessagePart) =>
  * tool calls, Code Mode programs AND reasoning ("thinking") parts — so that everything between two
  * prose text blocks collapses into a single foldable block. What breaks a run:
  * prose text, attachments, and tools that own a dedicated renderer
- * (Agent / Workflow / plan review / pending questions).
+ * (Agent / Workflow / plan review / pending questions). A program joins the run
+ * only while every call it holds is routine: one that ran an agent or waits on
+ * an approval shows that under its header, which a folded group would hide.
+ * (A page it published is not held: MessagesList leaves it top-level.)
  *
  * `activeIndex` (the actively-streaming tail part, or -1 when not streaming) is
  * always kept as its own `single` segment, so the live tool/thought render and
@@ -43,6 +46,22 @@ export function segmentMessageParts(
     }
   };
 
+  // Only calls the program holds count: a published page the caller left
+  // top-level shows on its own, so the program can still fold.
+  const prominentPrograms = new Set<string>();
+  for (const [index, part] of parts.entries()) {
+    if (!childIndices.has(index)) continue;
+    const programId = programToolCallIdOf(part);
+    if (programId && isToolPart(part) && standsOutOfProgram(part as ToolPartLike & { state?: string })) {
+      prominentPrograms.add(programId);
+    }
+  }
+  const isRoutineProgram = (part: MessagePart) => {
+    if (!isCodeProgramTool(part as ToolPartLike)) return false;
+    const callId = (part as { toolCallId?: string }).toolCallId;
+    return !callId || !prominentPrograms.has(callId);
+  };
+
   for (let i = 0; i < parts.length; i++) {
     if (childIndices.has(i)) continue;
 
@@ -54,7 +73,7 @@ export function segmentMessageParts(
 
     const isWork =
       i !== activeIndex &&
-      ((isToolPart(part) && (isCodeProgramTool(part as ToolPartLike) || isCompactEligible(part as ToolPartLike & { state?: string }))) ||
+      ((isToolPart(part) && (isRoutineProgram(part) || isCompactEligible(part as ToolPartLike & { state?: string }))) ||
         isReasoningPart(part));
 
     if (isWork) {

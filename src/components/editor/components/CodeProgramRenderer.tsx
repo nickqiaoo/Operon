@@ -8,7 +8,7 @@ import { CodeBlock, CodeBlockCopyButton, CodeBlockHeader, CodeBlockFilename } fr
 import { ToolOutput } from '@/components/ai-elements/tool';
 import type { ToolPart } from '@/components/ai-elements/tool';
 import { cn } from '@/lib/utils';
-import { isCompactEligible } from './compact-tool/isCompactEligible';
+import { standsOutOfProgram } from './compact-tool/isCompactEligible';
 import type { ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
 
@@ -51,10 +51,8 @@ export function CodeProgramRenderer<TChild extends ProgramPart>({ toolPart, chil
     ? input.description
     : intl.formatMessage({ id: 'editor.codeProgram.untitled', defaultMessage: 'Run a program' });
 
-  const standsOut = (child: TChild) =>
-    normalizeToolState(child.state) === 'approval-requested' || !isCompactEligible(child);
-  const prominent = childParts.filter(standsOut);
-  const routine = childParts.filter((child) => !standsOut(child));
+  const prominent = childParts.filter(standsOutOfProgram);
+  const routine = childParts.filter((child) => !standsOutOfProgram(child));
   const needsApproval = childParts.some((child) => normalizeToolState(child.state) === 'approval-requested');
   const output = toolPart.result ?? toolPart.output;
   const codeLines = code ? code.split('\n').length : 0;

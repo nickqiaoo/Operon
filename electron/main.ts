@@ -20,6 +20,7 @@ import { stopComputerUseEngine } from '../server/src/services/computer-use-lifec
 import { ensureComputerUseService } from '../server/src/routes/node-repl-mcp.js'
 import { registerComputerUsePermissions } from './computer-use-permissions.js'
 import { isUserAtDesktop, setDesktopPresenceProbe } from '../server/src/services/desktop-presence.js'
+import { registerHtmlSnapshotter } from './html-snapshot.js'
 import { disposeRuntime } from '../server/src/services/ai/state.js'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
 import { registerBrowserUseIpc, startIabBackend, stopIabBackend } from './browser-use-driver.js'
@@ -827,6 +828,9 @@ app.whenReady().then(async () => {
       idleState: powerMonitor.getSystemIdleState(DESKTOP_IDLE_THRESHOLD_S),
     })
   )
+
+  // html_preview renders agents' pages offscreen here; headless nodes have no such host.
+  registerHtmlSnapshotter()
 
   // SqliteVecStore is lazily initialized on first embedding call (auto-detects dimensions)
 

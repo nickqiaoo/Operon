@@ -2,6 +2,7 @@ import { isAskUserQuestionTool } from '../AskUserQuestionRenderer';
 import { isExternalAgentTool } from '../ExternalAgentRenderer';
 import { createdTaskNumber } from '../TaskCreatedRenderer';
 import { isScheduleTaskResult } from '../ScheduleTaskRenderer';
+import { isHtmlRenderResult } from '../HtmlRenderFrame';
 import { getSubagentProgress } from '../gemini-subagent-utils';
 import { getToolDisplayName, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
@@ -24,6 +25,7 @@ const EXIT_PLAN_NAMES = new Set([
  * - ExitPlanMode (has plan review UI)
  * - A task-creating call that succeeded (renders as a card linking to the task)
  * - A schedule create/update that succeeded (card linking to the Schedule page)
+ * - An html_render that published a page (the page itself, inline)
  * - An external agent run/send that returned (agent card with status and approvals)
  * - AskUserQuestion when awaiting approval (needs interactive question UI)
  * - Any tool surfacing live sub-agent progress (Workflow fan-out, Gemini subagents) →
@@ -50,9 +52,21 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   // pulled out of the group with nothing to render would vanish entirely.
   if (createdTaskNumber(part) !== null) return false;
   if (isScheduleTaskResult(part)) return false;
+  if (isHtmlRenderResult(part)) return false;
   // Same condition MessagePartRenderer uses to draw the agent card. Without it
   // the card only showed while the call was the streaming tail; once the parent
   // said anything after it, the run folded into "Ran N commands" as a raw row.
   if (isExternalAgentTool(part) && hasToolResult(part)) return false;
   return true;
+}
+
+/**
+ * A call a Code Mode program made that has to stay in view: it would get its own card
+ * (an agent run, a created task) or it waits on the user. A published page never
+ * reaches here: MessagesList keeps it out of the program altogether. CodeProgramRenderer
+ * shows these under the program's header, and segmentMessageParts keeps such a program
+ * out of the work group, since folding the group would fold them away with it.
+ */
+export function standsOutOfProgram(child: ToolPartLike & { state?: string }): boolean {
+  return normalizeToolState(child.state) === 'approval-requested' || !isCompactEligible(child);
 }

@@ -56,6 +56,12 @@ export function attachmentRoutes() {
         'Content-Type': stored.meta.mediaType,
         'Content-Length': String(stored.data.byteLength),
         'Cache-Control': 'public, max-age=31536000, immutable',
+        // Visual replies are stored here as HTML, and SVG can carry script. Opened
+        // directly, either would run on the API's own origin with the token in the
+        // URL; the sandbox gives it an opaque origin instead. fetch() is unaffected.
+        ...(/^(?:text\/html|image\/svg\+xml)\b/i.test(stored.meta.mediaType)
+          ? { 'Content-Security-Policy': 'sandbox' }
+          : {}),
         ...(stored.meta.filename
           ? { 'Content-Disposition': `inline; filename="${encodeURIComponent(stored.meta.filename)}"` }
           : {}),

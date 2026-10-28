@@ -250,6 +250,13 @@ export function buildMcpServersForCli(
     url: withApiToken(`http://127.0.0.1:${appPort}/api/schedule-mcp?chatId=${urlChatId}`),
   }
 
+  // visual = html_render, a page shown inline where the call appears. It needs no
+  // caller: the page is stored as an attachment and the tool result points at it.
+  servers['visual'] = {
+    type: 'http',
+    url: withApiToken(`http://127.0.0.1:${appPort}/api/visual-mcp`),
+  }
+
   // Server names use underscores (not hyphens): some MCP clients / tool-name
   // regexes treat `-` as the server↔tool separator and silently drop tools
   // whose namespace contains it. Keep names in [a-zA-Z0-9_].

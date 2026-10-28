@@ -19,6 +19,7 @@ import {
 } from './ExternalAgentRenderer';
 import { getParentToolCallId, getToolCallId, isToolPart } from './toolParentUtils';
 import { isCodeProgramTool, programToolCallIdOf } from './codeProgram';
+import { isHtmlRenderResult } from './HtmlRenderFrame';
 import type { ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
 import type { SendToModel } from '../SendToButton';
@@ -242,8 +243,11 @@ const MessageItem = memo(function MessageItem({
     if (!isToolPart(part)) continue;
 
     // A program's call stays top-level unless its program is here to hold it.
+    // A published page stays top-level regardless: it is what the reader came
+    // for, so it shows on its own while the program folds with the other work.
     const programId = programToolCallIdOf(part);
-    const parentId = getParentToolCallId(part) ?? (programId && programIds.has(programId) ? programId : null);
+    const heldByProgram = programId !== null && programIds.has(programId) && !isHtmlRenderResult(part as ToolPartLike);
+    const parentId = getParentToolCallId(part) ?? (heldByProgram ? programId : null);
     if (!parentId) continue;
 
     const existing = childPartsMap.get(parentId);

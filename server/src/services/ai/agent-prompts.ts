@@ -1,8 +1,8 @@
 import type { AnyProviderDefinition } from '@operon/agent-runtime'
 
 /**
- * Operon's standing rules for the external agents: memory use and file
- * citations. They ride on the session's `instructions` — see
+ * Operon's standing rules for the external agents: memory use, file
+ * citations and visual replies. They ride on the session's `instructions` — see
  * `withAgentPrompts` below, applied once where the providers are registered.
  *
  * No file IO at runtime. Update this file + rebuild to change the rules.
@@ -24,6 +24,29 @@ When you reference a real local file, cite it so the user can click to open it:
 - Use full absolute paths even for files outside the current workspace. Cite only paths you know; never guess.
 - Prefer inline citations near the relevant text; use other layouts when they make the answer clearer.
 - Cite only real files. Never wrap directories, packages, code identifiers, commands, or URLs as citations, and do not use \`file://\`, \`vscode://\`, or \`https://\` for local files.
+`
+
+/**
+ * When to answer with a page (`html_render`, server/src/routes/visual-mcp.ts).
+ * Lives here and not only in the tool description: Claude defers MCP tools and
+ * shows just their names, so the description is never read until the model
+ * already decided to look the tool up. Layout and theme rules stay in the
+ * description, loaded only when the tool is about to be used.
+ */
+export const VISUAL_REPLY_PROMPT = `## Visual replies
+
+Some answers are clearer seen than read. When a page would explain better than
+text, show one with the \`html_render\` tool (\`mcp__visual__html_render\` under
+Claude runtime): how parts connect or a process flows, a step-by-step or
+interactive walkthrough, side-by-side comparisons, data with a trend, UI mockups
+or live examples of a visual effect. When \`html_preview\` is available, check
+the page with it first and fix what it shows (empty or misplaced boxes,
+overlapping text, console errors) before calling \`html_render\`. Only draw what
+you have confirmed from the code or sources.
+
+Keep explanations that read well as text, code, lists and simple tables in
+markdown; code the user may copy stays in code blocks. A .png the user wants to
+send elsewhere is a file, not \`html_render\`.
 `
 
 export const MEMORY_RESOLVER_PROMPT = `## Memory
@@ -113,7 +136,7 @@ export function withAgentPrompts<D extends AnyProviderDefinition>(definition: D)
       provider.createSession = (params) =>
         createSession({
           ...params,
-          instructions: [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, params.instructions?.trim()]
+          instructions: [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, VISUAL_REPLY_PROMPT, params.instructions?.trim()]
             .filter(Boolean)
             .join('\n\n'),
         })

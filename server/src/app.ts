@@ -28,6 +28,7 @@ import { mcpRoutes } from './routes/mcp.js'
 import { externalAgentRoutes } from './routes/external-agent.js'
 import { externalAgentMcpRoutes } from './routes/external-agent-mcp.js'
 import { scheduleMcpRoutes } from './routes/schedule-mcp.js'
+import { visualMcpRoutes } from './routes/visual-mcp.js'
 import { assistantRoutes } from './routes/assistant.js'
 import { assistantMcpRoutes } from './routes/assistant-mcp.js'
 import { workflowMcpRoutes } from './routes/workflow-mcp.js'
@@ -325,6 +326,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/mcp', mcpRoutes())
   app.route('/api/external-agent-mcp', externalAgentMcpRoutes())
   app.route('/api/schedule-mcp', scheduleMcpRoutes(deps.storage))
+  app.route('/api/visual-mcp', visualMcpRoutes())
   app.route('/api/assistant', assistantRoutes(deps.storage))
   app.route('/api/assistant-mcp', assistantMcpRoutes())
   app.route('/api/external-agents', externalAgentRoutes())
