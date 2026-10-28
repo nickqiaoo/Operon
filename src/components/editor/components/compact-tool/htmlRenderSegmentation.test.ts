@@ -34,6 +34,12 @@ describe('html_render', () => {
     }
   });
 
+  it('reads the structured output Claude Code stores in place of the text', () => {
+    const part = { ...render(JSON.parse(published)), toolName: 'mcp__visual__html_render' } as ToolPartLike;
+    expect(isHtmlRenderResult(part)).toBe(true);
+    expect(isCompactEligible(part)).toBe(false);
+  });
+
   it('stays a compact row while it has no page', () => {
     for (const output of [undefined, 'These image paths are not readable image files: /x.png']) {
       const part = render(output) as ToolPartLike;

@@ -31,11 +31,21 @@ import type { ToolPartLike } from './toolName'
 export function htmlRenderRefOf(toolPart: ToolPartLike): HtmlRenderRef | null {
   // Suffix match: `mcp__visual__html_render`, OpenCode's `visual_html_render`.
   if (!toolNameOf(toolPart).endsWith(HTML_RENDER_TOOL_NAME)) return null
+  // Claude Code surfaces the MCP `structuredContent` as the output itself; the
+  // other providers keep only the JSON text.
+  const output = (toolPart as { output?: unknown; result?: unknown }).output ?? (toolPart as { result?: unknown }).result
+  const structured = visualOf(output) ?? visualOf((output as { structuredContent?: unknown } | null | undefined)?.structuredContent)
+  if (structured) return structured
   try {
-    return readHtmlRenderRef((JSON.parse(resultText(toolPart)) as { visual?: unknown }).visual)
+    return visualOf(JSON.parse(resultText(toolPart)))
   } catch {
     return null
   }
+}
+
+function visualOf(value: unknown): HtmlRenderRef | null {
+  if (!value || typeof value !== 'object' || !('visual' in value)) return null
+  return readHtmlRenderRef(value.visual)
 }
 
 /** Asked by both MessagePartRenderer and isCompactEligible, so the call leaves the work group only when there is a page to draw. */
