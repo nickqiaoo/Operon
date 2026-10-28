@@ -13,6 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
+import { useWorkspaceDiffStats } from "@/hooks/useWorkspaceDiffStats"
 import { useEditorStore } from "@/stores/editor-store"
 import type { EditorTab } from "@/types/editor"
 import { useStreamingStore } from "@/stores/streaming-store"
@@ -324,6 +325,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
   const setProjectWorkspaces = useProjectStore((s) => s.setProjectWorkspaces)
   const setProjectPinned = useProjectStore((s) => s.setProjectPinned)
   const workspaceDiffStats = useProjectStore((s) => s.workspaceDiffStats)
+  useWorkspaceDiffStats()
   const [projectErrors, setProjectErrors] = useState<Record<string, string | null>>({})
 
   // Compute per-workspace streaming & unseen counts
