@@ -55,17 +55,10 @@ interface EditorStore extends EditorState {
    * only way in. Returns the editor tab id to hand to ChatPanel.
    */
   openSideChatTab: (dbChatId: number, title: string, providerId?: string) => string
-  openDiff: (path: string, content: string) => void
   updateTabTitle: (id: string, title: string) => void
   updateTabProvider: (id: string, provider: string) => void
   updateTabProviderId: (id: string, providerId: string) => void
   clearTabInputAttachment: (id: string) => void
-}
-
-const getBasename = (filePath: string) => {
-  const normalized = filePath.replace(/[\\/]+$/, "")
-  const parts = normalized.split(/[/\\]/)
-  return parts[parts.length - 1] || normalized
 }
 
 const persistedChatIdFromTabId = (tabId: string): number | undefined => {
@@ -300,37 +293,6 @@ export const useEditorStore = create<EditorStore>()(
     set((state) => ({
       tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, chatId } : tab)),
     }))
-  },
-
-  openDiff: (path, content) => {
-    const state = get()
-    const id = `diff:${path}`
-    const title = `${getBasename(path)} (diff)`
-    const existing = state.tabs.find((tab) => tab.id === id)
-    if (existing) {
-      set({
-        tabs: state.tabs.map((tab) =>
-          tab.id === id
-            ? { ...tab, content, title, filePath: path, type: "diff" }
-            : tab
-        ),
-        activeTabId: id,
-      })
-      return
-    }
-
-    const newTab: EditorTab = {
-      id,
-      title,
-      type: "diff",
-      filePath: path,
-      content,
-    }
-    set({
-      tabs: [...state.tabs, newTab],
-      activeTabId: id,
-    })
-    trackEvent('diff_opened', { extension: path.split('.').pop() })
   },
 
   updateTabTitle: (id, title) => {

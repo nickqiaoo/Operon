@@ -41,7 +41,6 @@ import { useStreamingStore } from "@/stores/streaming-store"
 import { useChatPendingInputStore } from "@/stores/chat-pending-input-store"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { FileIcon } from "@/components/FileIcon"
 import { useChatHistoryList } from "@/lib/chat-queries"
 import { WorkspaceTaskButton } from "./WorkspaceTaskButton"
 
@@ -194,8 +193,6 @@ export function EditorTabs({
                 alt={tab.title}
                 className="absolute left-2 size-3.5 shrink-0 dark:invert"
               />
-            ) : tab.type === "diff" ? (
-              <FileIcon name={tab.title.replace(" (diff)", "")} className="absolute left-2 size-3.5 shrink-0" />
             ) : tab.isSubAgent ? (
               <Bot className="absolute left-2 size-3.5 shrink-0 text-status-info" />
             ) : (

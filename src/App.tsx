@@ -16,7 +16,6 @@ import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
 import { ProjectSidebar } from "@/components/project/ProjectSidebar"
 import { EditorTabs } from "@/components/editor/EditorTabs"
 import { ChatPanel } from "@/components/editor/ChatPanel"
-import { DiffPreview } from "@/components/editor/DiffPreview"
 import { TerminalTab } from "@/components/app-shell/content/TerminalTab"
 import { ConversationEmptyState } from "@/components/ai-elements/conversation"
 import { AppShell } from "@/components/app-shell/AppShell"
@@ -646,14 +645,6 @@ export default function App() {
                       </div>
                     );
                   })}
-                  {activeTab?.type === "diff" && activeTab.filePath && (
-                    <div className="absolute inset-0 z-10 bg-background">
-                      <DiffPreview
-                        path={activeTab.filePath}
-                        content={activeTab.content ?? ""}
-                      />
-                    </div>
-                  )}
                   {activeTab?.type === "terminal" && activeTab.terminalId && (
                     <div className="absolute inset-0 z-10 bg-background">
                       <TerminalTab

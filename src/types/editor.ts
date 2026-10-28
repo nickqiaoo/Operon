@@ -1,6 +1,6 @@
 import type { FileUIPart } from "ai"
 
-export type EditorTabType = "chat" | "diff" | "terminal"
+export type EditorTabType = "chat" | "terminal"
 
 export type InputAttachment = FileUIPart & {
   id: string  // Unique identifier to ensure effect triggers on each new attachment
