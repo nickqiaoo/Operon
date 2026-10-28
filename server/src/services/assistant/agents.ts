@@ -25,13 +25,13 @@ import {
 /**
  * The agents the assistant runs on, and how each of its sessions is opened on them
  * (docs/assistant/design.md §2.1, §7). The main agent and the workers each run on whichever
- * agent the user picked in Settings — operon (`custom`), Codex, Claude Code or OpenCode — through
+ * agent the user picked in Settings — operon (`custom`), Codex, Claude Code, OpenCode or Qoder — through
  * the same runtime the coding chats use. Everything the assistant needs from that runtime lives
  * here: the per-role permission mode, the URLs of its own tools, and `AgentChannel`, which drives
  * one session a turn at a time.
  */
 
-export const ASSISTANT_PROVIDERS = ['custom', 'claude-code', 'codex', 'opencode'] as const
+export const ASSISTANT_PROVIDERS = ['custom', 'claude-code', 'codex', 'opencode', 'qoder'] as const
 export type AssistantProviderId = (typeof ASSISTANT_PROVIDERS)[number]
 
 export function isAssistantProvider(id: string): id is AssistantProviderId {
@@ -57,6 +57,8 @@ const MODES: Record<AssistantProviderId, Record<SessionKind, string>> = {
   codex: { main: 'requestApproval', worker: 'approveForMe', unattended: 'approveForMe' },
   // build | plan | fullAccess                            (providers/opencode/index.ts)
   opencode: { main: 'build', worker: 'build', unattended: 'build' },
+  // default | auto | acceptEdits | plan | bypassPermissions | dontAsk   (providers/qoder/config.ts)
+  qoder: { main: 'acceptEdits', worker: 'auto', unattended: 'auto' },
 }
 
 export function modeFor(providerId: AssistantProviderId, kind: SessionKind): string {
@@ -68,6 +70,7 @@ export const PROVIDER_LABEL: Record<AssistantProviderId, string> = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
   opencode: 'OpenCode',
+  qoder: 'Qoder',
 }
 
 function apiBase(): string {
@@ -89,6 +92,24 @@ function toolServerName(caller: AssistantCaller): string {
  */
 export function nodeReplServerName(providerId: AssistantProviderId): string {
   return providerId === 'codex' ? 'operon_node_repl' : 'node_repl'
+}
+
+/** node_repl's tools (packages/computer-use/adapters/mcp.ts). */
+const NODE_REPL_TOOLS = ['js', 'js_reset'] as const
+
+/**
+ * Qoder loads MCP lazily: the model sees mcp_list / mcp_get / mcp_call and has to look a tool up
+ * before calling it. Our own tools and node_repl stay in the request as tools of their own — a
+ * report-back the model never finds (finish_task, heartbeat_done) loses the work. The user's
+ * services stay lazy: with every plugin's tools spelled out the window was full before the first
+ * message.
+ */
+function qoderAlwaysLoad(caller: AssistantCaller, servers: RuntimeMcpServers): Record<string, readonly string[]> {
+  const own = toolServerName(caller)
+  return {
+    ...(own in servers ? { [own]: toolsFor(caller.role).map((tool) => tool.name) } : {}),
+    ...('node_repl' in servers ? { node_repl: NODE_REPL_TOOLS } : {}),
+  }
 }
 
 /** The agent's own servers this session must not load (see {@link nodeReplServerName}). */
@@ -185,6 +206,7 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
     interactive: params.caller.role === 'main',
     ...(params.writableDirs?.length ? { writableDirs: params.writableDirs } : {}),
     opencode: { callerTag: assistantConversationId(params.caller) },
+    qoder: { alwaysLoadTools: qoderAlwaysLoad(params.caller, mcpServers) },
     ...(params.sessionId ? { resume: params.sessionId } : {}),
   }
   return getSessionManager().createStandaloneSession(params.providerId, runtimeParams)

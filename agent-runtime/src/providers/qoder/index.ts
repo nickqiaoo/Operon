@@ -16,6 +16,7 @@ import {
   QODER_THINKING_LEVELS,
   resolveQoderEffort,
   resolveQoderMode,
+  type QoderSessionOptions,
 } from './config.js'
 import { defaultQoderModelId, fetchQoderInitInfo, peekQoderInitInfo, usableQoderModels } from './init-info.js'
 import { QoderRuntimeSession, type QoderSessionNative } from './session.js'
@@ -23,7 +24,7 @@ import type { QoderEffort, QoderMode } from './types.js'
 
 const EFFORT_LEVELS = new Set<string>(QODER_THINKING_LEVELS?.map((level) => level.id))
 
-export class QoderRuntimeProvider implements RuntimeProviderFactory<SessionOptions, QoderSessionNative> {
+export class QoderRuntimeProvider implements RuntimeProviderFactory<SessionOptions & QoderSessionOptions, QoderSessionNative> {
   static readonly providerInfo: ProviderInfo = {
     id: 'qoder',
     label: 'Qoder',
@@ -102,7 +103,7 @@ export class QoderRuntimeProvider implements RuntimeProviderFactory<SessionOptio
     }
   }
 
-  async createSession(params: SessionOptions): Promise<QoderRuntimeSession> {
+  async createSession(params: SessionOptions & QoderSessionOptions): Promise<QoderRuntimeSession> {
     if (params.model) this.currentModelId = params.model
     if (params.mode) this.currentModeId = resolveQoderMode(params.mode)
     if (params.effort) this.currentEffort = resolveQoderEffort(params.effort)

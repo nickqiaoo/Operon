@@ -176,7 +176,7 @@ export function blockerText(intl: IntlShape, blocker: string, reason: AssistantB
       return intl.formatMessage(
         {
           id: "assistant.blocker.unknownAgent",
-          defaultMessage: "The assistant can't run on \"{agent}\". Pick Operon, Claude Code, Codex or OpenCode in Settings → Assistant.",
+          defaultMessage: "The assistant can't run on \"{agent}\". Pick Operon, Claude Code, Codex, OpenCode or Qoder in Settings → Assistant.",
         },
         { agent: reason.agent },
       )

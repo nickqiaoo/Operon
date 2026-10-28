@@ -212,7 +212,7 @@ function sameChoice(a: AssistantAgentChoice | null | undefined, b: AssistantAgen
 /**
  * The personal assistant: one long-lived session for the main agent (the one the user talks to),
  * plus a session per worker, folded into a single on-screen thread and an Activity list. Each runs
- * on the agent the user picked for it — operon, Codex, Claude Code or OpenCode — through the same
+ * on the agent the user picked for it — operon, Codex, Claude Code, OpenCode or Qoder — through the same
  * runtime the coding chats use. See docs/assistant/design.md.
  */
 export class AssistantRuntime {
@@ -543,7 +543,7 @@ export class AssistantRuntime {
     const { providerId } = choice
     if (!isAssistantProvider(providerId)) {
       return {
-        blocker: `The assistant can't run on "${providerId}". Pick Operon, Claude Code, Codex or OpenCode in Settings → Assistant.`,
+        blocker: `The assistant can't run on "${providerId}". Pick Operon, Claude Code, Codex, OpenCode or Qoder in Settings → Assistant.`,
         reason: { kind: 'unknown-agent', agent: providerId },
       }
     }

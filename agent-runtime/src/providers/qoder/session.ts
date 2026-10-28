@@ -40,7 +40,7 @@ import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
 // shapes), so the Claude stream builder and prompt mapper are reused as-is.
 import { ClaudeTextStreamBuilder } from '../claude/text-stream-builder.js'
 import { convertToClaudeMessages } from '../claude/message-mapper.js'
-import { buildQoderRuntimeSettings, resolveQoderEffort, resolveQoderMode } from './config.js'
+import { buildQoderRuntimeSettings, resolveQoderEffort, resolveQoderMode, type QoderSessionOptions } from './config.js'
 import { asClaudeAssistant, asClaudeResult, asClaudeStreamEvent, asClaudeUser, asQoderContent } from './claude-wire.js'
 import { defaultQoderModelId, findQoderModel, peekQoderInitInfo } from './init-info.js'
 import { McpCallStreamUnwrapper, parseMcpCall, unwrapAssistantMcpCalls, wrapMcpCall } from './mcp-call.js'
@@ -118,7 +118,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
   /** True only until a side chat's first user message carries the boundary marker. */
   private boundaryPending: boolean
 
-  constructor(params: SessionOptions, private readonly ctx: RuntimeContext) {
+  constructor(params: SessionOptions & QoderSessionOptions, private readonly ctx: RuntimeContext) {
     this.settings = buildQoderRuntimeSettings(params, ctx)
     // No choice means the account's default; name it, so the session reports the
     // same model the descriptor shows instead of an empty id.

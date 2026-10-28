@@ -31,6 +31,19 @@ export const QODER_SLASH_COMMANDS: ProviderDescriptor['slashCommands'] = [
   { name: 'compact', description: 'Compact conversation history', type: 'command' },
 ]
 
+/** Qoder's options block on `createSession`. */
+export interface QoderSessionOptions {
+  qoder?: {
+    /**
+     * Server name → tool names to keep in the request as tools of their own.
+     * MCP loads lazily here (session.ts): a tool the model has to find through
+     * mcp_list / mcp_get first is one a weak model may never call, which for a
+     * host's report-back tool means the work is lost.
+     */
+    alwaysLoadTools?: Record<string, readonly string[]>
+  }
+}
+
 const QODER_MODE_IDS = new Set<string>(QODER_MODES.map((mode) => mode.id))
 
 export function resolveQoderMode(modeId?: string): QoderMode {
@@ -50,7 +63,20 @@ export function resolveQoderEffort(level?: string): QoderEffort {
   }
 }
 
-export function buildQoderRuntimeSettings(params: SessionOptions, ctx: RuntimeContext): QoderRuntimeSettings {
+function withAlwaysLoad(
+  servers: SessionOptions['mcpServers'],
+  alwaysLoad: Record<string, readonly string[]> | undefined,
+): Record<string, McpServerConfig> | undefined {
+  if (!servers || !alwaysLoad) return servers as Record<string, McpServerConfig> | undefined
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => {
+      const tools = alwaysLoad[name]
+      return [name, tools?.length ? { ...server, tools: tools.map((tool) => ({ name: tool, alwaysLoad: true })) } : server]
+    }),
+  ) as Record<string, McpServerConfig>
+}
+
+export function buildQoderRuntimeSettings(params: SessionOptions & QoderSessionOptions, ctx: RuntimeContext): QoderRuntimeSettings {
   const cliPath = ctx.resolveBinary(QODER_CLI_ID)
   if (!cliPath) {
     throw new Error('Qoder CLI not configured. Install it from qoder.com or set the path in Settings.')
@@ -71,7 +97,7 @@ export function buildQoderRuntimeSettings(params: SessionOptions, ctx: RuntimeCo
     ...(params.writableDirs?.length ? { additionalDirectories: [...params.writableDirs] } : {}),
     pathToQoderCLIExecutable: cliPath,
     allowedTools: [...OPERON_INFRA_ALLOWED_TOOLS],
-    mcpServers: params.mcpServers as Record<string, McpServerConfig> | undefined,
+    mcpServers: withAlwaysLoad(params.mcpServers, params.qoder?.alwaysLoadTools),
     env: ctx.env(params.env),
     systemPrompt: append ? { type: 'preset', preset: 'qodercli', append } : undefined,
   }

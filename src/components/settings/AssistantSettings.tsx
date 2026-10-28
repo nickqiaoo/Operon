@@ -14,6 +14,7 @@ const AGENTS: Array<{ id: string; label: string }> = [
   { id: "claude-code", label: "Claude Code" },
   { id: "codex", label: "Codex" },
   { id: "opencode", label: "OpenCode" },
+  { id: "qoder", label: "Qoder" },
 ]
 
 /** Radix Select reserves the empty value; this stands for "the agent's own default". */
@@ -39,7 +40,7 @@ function sameChoice(a: AssistantAgentChoice | null, b: AssistantAgentChoice | nu
 /**
  * Settings → Assistant: which agent and model talks to you (the main agent), which one does the
  * work, which one runs the checks nobody watches — and when the heartbeat keeps quiet. Any of
- * them can be operon, Claude Code, Codex or OpenCode, so a subscription the user already has can
+ * them can be operon, Claude Code, Codex, OpenCode or Qoder, so a subscription the user already has can
  * do the work.
  */
 export function AssistantSettings() {
@@ -108,7 +109,7 @@ export function AssistantSettings() {
             <div className="text-xs text-muted-foreground">
               <FormattedMessage
                 id="assistant.settings.agentsHint"
-                defaultMessage="Each part of the assistant can run on Operon or on an agent you already use — Claude Code, Codex or OpenCode — with your own subscription. Work done on them counts toward that subscription's limits."
+                defaultMessage="Each part of the assistant can run on Operon or on an agent you already use — Claude Code, Codex, OpenCode or Qoder — with your own subscription. Work done on them counts toward that subscription's limits."
               />
             </div>
           </div>
