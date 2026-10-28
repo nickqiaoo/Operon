@@ -58,7 +58,7 @@ export function RightPanel({ className }: RightPanelProps) {
   // vanish the moment you switch to a conversation that has no browser tabs.
   const { tabs: visibleTabs, activeTabId: visibleActiveTabId } = useVisiblePanelTabs("right")
 
-  const { isMounted, opacity, animatedSize } = usePanelAnimation({
+  const { hasOpened, collapsed, opacity, animatedSize } = usePanelAnimation({
     size: width,
     isVisible: isOpen,
   })
@@ -111,15 +111,20 @@ export function RightPanel({ className }: RightPanelProps) {
     }
   }, [expanded, isOpen])
 
-  if (!isMounted && !isOpen) return null
+  if (!hasOpened) return null
 
   return (
     <motion.aside
       ref={containerRef}
       data-app-shell-focus-area="right-panel"
+      // Kept mounted while closed: inert drops focus out of it and blocks the
+      // resize handle; visibility skips painting the zero-width content.
+      inert={collapsed}
+      aria-hidden={collapsed}
       className={cn(
         "relative ml-auto h-full min-h-0 min-w-0 overflow-visible",
         expanded ? "w-full flex-1" : "shrink-0",
+        collapsed && "invisible",
         className
       )}
       style={
@@ -190,7 +195,9 @@ export function RightPanel({ className }: RightPanelProps) {
                   }}
                   aria-hidden={!isActive}
                 >
-                  <TabContent panelId="right" tab={tab} isActive={isActive} />
+                  {/* Browser / terminal overlays hide on !isActive, which is
+                      what unmounting used to do for them on close. */}
+                  <TabContent panelId="right" tab={tab} isActive={isActive && !collapsed} />
                 </div>
               )
             })}

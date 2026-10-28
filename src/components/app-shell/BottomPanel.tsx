@@ -44,7 +44,7 @@ export function BottomPanel({ className }: BottomPanelProps) {
   // vanish the moment you switch to a conversation that has no browser tabs.
   const { tabs: visibleTabs, activeTabId: visibleActiveTabId } = useVisiblePanelTabs("bottom")
 
-  const { isMounted, opacity, animatedSize } = usePanelAnimation({
+  const { hasOpened, collapsed, opacity, animatedSize } = usePanelAnimation({
     size: height,
     isVisible: isOpen,
   })
@@ -59,7 +59,7 @@ export function BottomPanel({ className }: BottomPanelProps) {
     previousPanel.current = { workspaceId, count: panel.tabs.length }
   }, [workspaceId, panel.tabs.length, isOpen, setOpen])
 
-  if (!isMounted && !isOpen) return null
+  if (!hasOpened) return null
 
   const handleResize = (next: number) => {
     if (next < BOTTOM_PANEL_AUTO_CLOSE_BELOW) {
@@ -73,8 +73,12 @@ export function BottomPanel({ className }: BottomPanelProps) {
     <motion.div
       ref={containerRef}
       data-app-shell-focus-area="bottom-panel"
+      // Kept mounted while closed; see RightPanel.
+      inert={collapsed}
+      aria-hidden={collapsed}
       className={cn(
         "relative z-30 min-h-0 w-full shrink-0 overflow-visible",
+        collapsed && "invisible",
         className
       )}
       style={{ opacity, height: animatedSize }}
@@ -122,7 +126,7 @@ export function BottomPanel({ className }: BottomPanelProps) {
                   }}
                   aria-hidden={!isActive}
                 >
-                  <TabContent panelId="bottom" tab={tab} isActive={isActive} />
+                  <TabContent panelId="bottom" tab={tab} isActive={isActive && !collapsed} />
                 </div>
               )
             })}

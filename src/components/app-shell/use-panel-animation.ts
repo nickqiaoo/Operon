@@ -21,6 +21,18 @@ interface PanelAnimationResult {
    * animation is in flight (so we can animate to 0 before unmounting).
    */
   isMounted: boolean
+  /**
+   * Whether the panel has ever been open. Panels render from first open on and
+   * stay mounted while closed — unmounting threw away their content (file
+   * tree, loaded preview, rendered markdown, terminals…), so every reopen
+   * re-fetched and re-rendered it.
+   */
+  hasOpened: boolean
+  /**
+   * Fully closed (close animation finished) — what used to mean "unmounted".
+   * Bind to `inert` / `invisible` on the panel root, and treat tabs as inactive.
+   */
+  collapsed: boolean
   /** 0..1 opacity tied to progress; bind to style.opacity. */
   opacity: MotionValue<number>
   /** 0..size px; bind to style.width or style.height. */
@@ -62,5 +74,15 @@ export function usePanelAnimation({
     setIsMounted((prev) => (prev === nextMounted ? prev : nextMounted))
   })
 
-  return { isMounted, opacity: progress, animatedSize, progress }
+  const [hasOpened, setHasOpened] = useState(isVisible)
+  if (isVisible && !hasOpened) setHasOpened(true)
+
+  return {
+    isMounted,
+    hasOpened,
+    collapsed: !isVisible && !isMounted,
+    opacity: progress,
+    animatedSize,
+    progress,
+  }
 }

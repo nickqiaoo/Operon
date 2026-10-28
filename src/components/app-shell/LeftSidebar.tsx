@@ -41,7 +41,7 @@ export function LeftSidebar({
   className,
 }: LeftSidebarProps) {
   const containerRef = useRef<HTMLElement | null>(null)
-  const { isMounted, opacity, animatedSize } = usePanelAnimation({
+  const { hasOpened, collapsed, opacity, animatedSize } = usePanelAnimation({
     size: width,
     isVisible: isOpen,
   })
@@ -57,13 +57,17 @@ export function LeftSidebar({
     [onClose, onWidthChange]
   )
 
-  if (!isMounted && !isOpen) return null
+  if (!hasOpened) return null
 
   return (
     <motion.aside
       ref={containerRef}
+      // Kept mounted while closed; see RightPanel.
+      inert={collapsed}
+      aria-hidden={collapsed}
       className={cn(
         "relative h-full min-h-0 min-w-0 shrink-0 overflow-visible",
+        collapsed && "invisible",
         className
       )}
       style={{ opacity, width: animatedSize }}
