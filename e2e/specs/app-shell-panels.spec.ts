@@ -54,6 +54,55 @@ test('right panel opens and closes from the top-bar toggle', async ({ page }) =>
   await expect.poll(async () => (await panels(page))?.right.open).toBe(false)
 })
 
+test('project sidebar space goes to the right panel without it overshooting the edge', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  // Narrow enough that the default right panel is clamped while the sidebar is open.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByTestId('toggle-right-panel').first().click()
+  await expect.poll(async () => (await panels(page))?.right.open).toBe(true)
+  await page.waitForTimeout(400)
+
+  const collapse = page.getByRole('button', { name: /^(Collapse sidebar|收起侧栏)$/ })
+  const measure = () => page.evaluate(() => {
+    const right = document.querySelector('[data-app-shell-focus-area="right-panel"]')!
+    const row = right.parentElement!
+    const center = row.firstElementChild!
+    return {
+      center: center.getBoundingClientRect().width,
+      right: right.getBoundingClientRect().width,
+      row: row.getBoundingClientRect().width,
+    }
+  })
+
+  const withSidebar = await measure()
+  await collapse.click()
+  await page.waitForTimeout(400)
+  const withoutSidebar = await measure()
+  // The freed width widens the right panel instead of only the conversation.
+  expect(withoutSidebar.right).toBeGreaterThan(withSidebar.right + 10)
+
+  // Expanding again must squeeze the right panel in step with the sidebar, never
+  // letting it stick out past the window edge for a frame.
+  const overshoot = await page.evaluate(async () => {
+    const right = document.querySelector('[data-app-shell-focus-area="right-panel"]')!
+    const row = right.parentElement!
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[title]'))
+      .find((b) => /^(Expand sidebar|展开侧栏)$/.test(b.title))!
+    const values: number[] = []
+    button.click()
+    const started = performance.now()
+    while (performance.now() - started < 500) {
+      values.push(right.getBoundingClientRect().right - row.getBoundingClientRect().right)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    }
+    return Math.max(...values)
+  })
+  expect(overshoot).toBeLessThanOrEqual(1)
+  await expect(collapse).toBeVisible()
+  const restored = await measure()
+  expect(Math.abs(restored.right - withSidebar.right)).toBeLessThan(2)
+})
+
 test('bottom panel toggles with the keyboard shortcut', async ({ page }) => {
   const mod = await primaryModifier(page)
 
