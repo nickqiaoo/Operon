@@ -37,7 +37,7 @@ export const ConversationContent = ({
   ...props
 }: ConversationContentProps) => {
   const context = useStickToBottomContext();
-  const { scrollRef, contentRef, state, scrollToBottom } = context;
+  const { scrollRef, contentRef, state, scrollToBottom, stopScroll } = context;
   const content = typeof children === "function" ? children(context) : children;
 
   // When the scroller itself changes size the library doesn't follow at all
@@ -112,6 +112,34 @@ export const ConversationContent = ({
     observer.observe(content);
     return () => observer.disconnect();
   }, [scrollRef, contentRef, state, scrollToBottom]);
+
+  // The library can't tell content streaming in from a section the reader just
+  // opened: at the bottom both are growth, and it follows both down, so opening
+  // a card near the end jumped the view to the last line. A click on a
+  // disclosure (anything with aria-expanded) lets go of the bottom first. If
+  // nothing grew after all (a menu trigger, say), take the bottom back.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    let restoreTimer: ReturnType<typeof setTimeout> | undefined;
+    const onClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest("[aria-expanded]")) return;
+      if (!state.isAtBottom || state.escapedFromLock) return;
+      stopScroll();
+      clearTimeout(restoreTimer);
+      // Long enough for a collapsible's open animation to have started growing.
+      restoreTimer = setTimeout(() => {
+        if (scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2) {
+          void scrollToBottom({ animation: "instant" });
+        }
+      }, 400);
+    };
+    scroller.addEventListener("click", onClick, true);
+    return () => {
+      scroller.removeEventListener("click", onClick, true);
+      clearTimeout(restoreTimer);
+    };
+  }, [scrollRef, state, stopScroll, scrollToBottom]);
 
   return (
     <div ref={scrollRef} data-conversation-scroller className={cn("h-full w-full overflow-y-auto code-scrollbar", scrollClassName)}>
