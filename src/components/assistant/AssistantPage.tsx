@@ -22,6 +22,7 @@ import { parseIdentity } from "./shared"
 import { blockerText } from "./assistant-i18n"
 import type { ActivitySummary, ProfileFileName } from "./types"
 import { useVisibleAssistantInboxRead } from "@/hooks/useVisibleAssistantInboxRead"
+import { usePageVisible } from "@/lib/page-visibility"
 
 /** A conversation in one of the user's workspaces, to open in its tab. */
 export interface ChatTarget {
@@ -55,8 +56,8 @@ function reportError(error: unknown): void {
  * right. State lives on the server (`/api/assistant`) and streams in live.
  */
 export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }: AssistantPageProps) {
-  // Mounted only while open (App.tsx), so being here means it is the page on screen.
-  useVisibleAssistantInboxRead(true)
+  // Stays mounted (display:none) once opened, so ask whether it is the page on screen.
+  useVisibleAssistantInboxRead(usePageVisible())
   const open = useAssistantStore((s) => s.open)
   const loaded = useAssistantStore((s) => s.loaded)
   const loadError = useAssistantStore((s) => s.error)

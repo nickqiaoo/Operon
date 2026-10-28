@@ -490,7 +490,7 @@ export default function App() {
                 placeholder has no size. */}
             {assistantMounted && (
               <div className={cn("flex min-h-0 flex-1 flex-col", !assistantOpen && "hidden")}>
-                <PageVisibleContext value={assistantOpen}>
+                <PageVisibleContext value={assistantOpen && !isPageOpen}>
                   <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
                 </PageVisibleContext>
               </div>
