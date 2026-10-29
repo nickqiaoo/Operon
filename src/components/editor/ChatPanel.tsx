@@ -1122,11 +1122,6 @@ function ChatPanelContent({
             isMobile && !nativeTopBarTakesSpace() && "pt-[calc(env(safe-area-inset-top)+3rem)]"
           )}
         >
-          {chatLoadingMore && (
-            <div className="flex items-center justify-center py-3 text-xs text-muted-foreground/50">
-              <FormattedMessage id="editor.chat.loadingOlder" defaultMessage="Loading older messages..." />
-            </div>
-          )}
           {messages.length === 0 ? (
             historyDbChatId && !historyLoaded ? null : null
           ) : (
@@ -1151,6 +1146,11 @@ function ChatPanelContent({
           )}
           <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} />
         </ConversationContent>
+        {chatLoadingMore && (
+          <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">
+            <FormattedMessage id="editor.chat.loadingOlder" defaultMessage="Loading older messages..." />
+          </div>
+        )}
         {/* Rendered after the transcript so it paints over the left gutter. */}
         <ChatNavigator entries={navigatorEntries} />
         {/*

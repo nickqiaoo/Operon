@@ -25,7 +25,7 @@ import { normalizeToolState } from './toolState';
 import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
-import { groupArchivedSteers } from './steer-message';
+import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
 import type { RewindMode } from '../hooks/useRewindController';
 
 type MessagePart = UIMessage['parts'][number];
@@ -160,6 +160,7 @@ interface MessagesListProps {
 
 interface MessageItemProps {
   message: UIMessage;
+  scrollAnchor: boolean;
   archivedSteers?: readonly UIMessage[];
   isStreamingMessage: boolean;
   isLastAssistantInRound: boolean;
@@ -224,6 +225,7 @@ function ArchivedSteers({ messages }: { messages: readonly UIMessage[] }) {
 
 const MessageItem = memo(function MessageItem({
   message,
+  scrollAnchor,
   archivedSteers = [],
   isStreamingMessage,
   isLastAssistantInRound,
@@ -265,6 +267,7 @@ const MessageItem = memo(function MessageItem({
     return (
       <ConversationItem
         messageId={message.id}
+        scrollAnchor={scrollAnchor}
         data-message-item-role={message.role}
         data-message-id={message.id}
         style={PENDING_MOUNT_STYLE}
@@ -393,6 +396,7 @@ const MessageItem = memo(function MessageItem({
   return (
     <ConversationItem
       messageId={message.id}
+      scrollAnchor={scrollAnchor}
       data-message-item-role={message.role}
       // Anchor for the left-hand turn rail (ChatNavigator), which locates each
       // prompt by id to compute its scroll offset.
@@ -507,6 +511,9 @@ export const MessagesList = memo(function MessagesList({
     [dedupedMessages],
   );
   const messages = archivedPresentation.messages;
+  // Only the latest turn anchors: older rows may appear during history loading
+  // or windowing, and must not be mistaken for a newly sent prompt.
+  const scrollAnchorId = useMemo(() => findLatestTurnMessageId(messages), [messages]);
 
   const externalAgentNotificationsByMessageId = useMemo(() => {
     const notifications = new Map<string, ReadonlyMap<string, ExternalAgentResultMetadata>>();
@@ -629,6 +636,7 @@ export const MessagesList = memo(function MessagesList({
         <MessageItem
           key={message.id}
           message={message}
+          scrollAnchor={message.id === scrollAnchorId}
           archivedSteers={archivedPresentation.steersByUserMessageId.get(message.id)}
           isStreamingMessage={status === 'streaming' && index === lastMessageIndex}
           isLastAssistantInRound={lastAssistantInRoundIds.has(message.id)}

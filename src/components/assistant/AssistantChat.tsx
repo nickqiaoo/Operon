@@ -125,6 +125,12 @@ export function AssistantChat({
       return m.activityId != null && codingById.has(m.activityId) && latestCard.get(m.activityId) === m.id
     })
   }, [messages, codingById])
+  const scrollAnchorId = useMemo(() => {
+    for (let i = shown.length - 1; i >= 0; i--) {
+      if (shown[i].role === "user") return shown[i].id
+    }
+    return undefined
+  }, [shown])
   // Where the rendered part starts: `null` follows the tail (the newest RENDER_BATCH); a time pins
   // the top while the reader is up the thread, so what arrives below shifts nothing above.
   // By time, not id: an answered approval leaves `shown`, and the store trims the oldest.
@@ -172,14 +178,6 @@ export function AssistantChat({
           className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}
           style={insetTop ? { paddingTop: insetTop + 8 + (compact ? 0 : 16) } : undefined}
         >
-          {/* Held open while anything is left above, so "Loading…" coming and going doesn't
-              push the thread around; it leaves in the same commit as the last batch, which
-              the scroll make-up already counts. */}
-          {(hasMore || loadingOlder || start > 0) && (
-            <div className="flex h-6 shrink-0 items-center justify-center text-[11px] text-muted-foreground">
-              {loadingOlder && <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />}
-            </div>
-          )}
           {rendered.map((m, j) => {
             const i = start + j
             const prev = shown[i - 1]
@@ -189,9 +187,17 @@ export function AssistantChat({
               <ConversationItem
                 key={m.id}
                 messageId={m.id}
+                scrollAnchor={m.id === scrollAnchorId}
                 className="flex flex-col gap-3"
                 style={!compact && i < shown.length - LIVE_TAIL_SIZE ? OFFSCREEN_DEFER_STYLE : undefined}
               >
+                {/* Keep the scroller's first direct child a message, so prepending
+                    history remains identifiable when the loading hint disappears. */}
+                {j === 0 && (hasMore || loadingOlder || start > 0) && (
+                  <div className="flex h-6 shrink-0 items-center justify-center text-[11px] text-muted-foreground">
+                    {loadingOlder && <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />}
+                  </div>
+                )}
                 {newDay && <Separator label={dayLabel(intl, m.createdAt)} />}
                 {gap && <Separator label={formatClock(m.createdAt)} />}
                 {m.role === "user" ? (

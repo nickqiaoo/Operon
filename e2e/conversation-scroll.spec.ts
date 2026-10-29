@@ -9,6 +9,7 @@ type ScrollHarness = {
   prepend: () => void
   trim: () => void
   append: () => void
+  reply: () => void
   cleanup: () => void
 }
 declare global {
@@ -24,6 +25,21 @@ async function readEarlier(page: Page) {
   await page.mouse.wheel(0, -650)
   await expect.poll(() => gap(page)).toBeGreaterThan(300)
   await frames(page)
+}
+
+async function expectTurnNearTop(page: Page, id: string) {
+  const row = page.locator(`#conversation-scroll-test [data-message-id="${id}"]`)
+  await expect(row).toBeAttached()
+  await expect.poll(async () => {
+    const rowTop = await row.evaluate(el => el.getBoundingClientRect().top)
+    const viewTop = await viewport(page).evaluate(el => el.getBoundingClientRect().top)
+    return rowTop - viewTop
+  }).toBeGreaterThanOrEqual(0)
+  await expect.poll(async () => {
+    const rowTop = await row.evaluate(el => el.getBoundingClientRect().top)
+    const viewTop = await viewport(page).evaluate(el => el.getBoundingClientRect().top)
+    return rowTop - viewTop
+  }).toBeLessThanOrEqual(128)
 }
 
 test.describe('Conversation scroll regression', () => {
@@ -150,15 +166,14 @@ test.describe('Assistant history integration', () => {
     }
   })
 
-  test('sending while reading history returns to the newest reply', async ({ appPage: page }) => {
+  test('sending while reading history anchors the new turn near the top', async ({ appPage: page }) => {
     await viewport(page).hover()
     await page.mouse.wheel(0, -1200)
     await expect.poll(() => gap(page)).toBeGreaterThan(400)
     const input = page.locator('#conversation-scroll-test textarea')
     await input.fill('Return to latest')
     await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
-    await expect(page.locator('#conversation-scroll-test [data-message-id="assistant-row-121"]')).toBeAttached()
-    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    await expectTurnNearTop(page, 'assistant-row-120')
   })
 })
 
@@ -169,6 +184,13 @@ test.describe('Main transcript integration', () => {
   })
   test.afterEach(async ({ appPage: page }) => {
     await page.evaluate(() => window.__conversationScrollTest?.cleanup())
+  })
+
+  test('sending at the bottom anchors the new turn near the top', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.append())
+    await expectTurnNearTop(page, 'main-row-50')
+    await page.evaluate(() => window.__conversationScrollTest!.reply())
+    await expectTurnNearTop(page, 'main-row-50')
   })
 
   test('turn navigator jumps to a registered row and releases streaming follow', async ({ appPage: page }) => {

@@ -24,7 +24,8 @@
       grow: () => setMessages(current => current.map((m, i) => i === current.length - 1 ? { ...m, parts: [{ type: 'text', text: m.parts[0].text + '\n\n' + 'Streamed paragraph. '.repeat(300) }] } : m)),
       prepend: () => setMessages(current => [...Array.from({ length: 8 }, (_, i) => message(i - 8)), ...current]),
       trim: () => setMessages(current => current.slice(8)),
-      append: () => setMessages(current => [...current, message(50), message(51)]),
+      append: () => setMessages(current => [...current, message(50)]),
+      reply: () => setMessages(current => [...current, message(51)]),
       cleanup: () => { root.unmount(); host.remove(); delete window.__conversationScrollTest; },
     };
     return h(IntlProvider, { locale: 'en', messages: {} }, h(Conversation, null,
