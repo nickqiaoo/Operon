@@ -336,7 +336,7 @@ const MessageItem = memo(function MessageItem({
       isRewindedCheckpoint ? (
         <Checkpoint className="mt-1">
           <CheckpointIcon />
-          <span className="text-xs text-muted-foreground"><FormattedMessage id="editor.rewind.rewound" defaultMessage="Rewound" /></span>
+          <span><FormattedMessage id="editor.rewind.rewound" defaultMessage="Rewound" /></span>
           <CheckpointTrigger tooltip={intl.formatMessage({ id: 'editor.rewind.undoTooltip', defaultMessage: 'Undo rewind' })} onClick={onUndoRewind}>
             <FormattedMessage id="editor.rewind.undo" defaultMessage="Undo" />
           </CheckpointTrigger>

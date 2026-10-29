@@ -1,6 +1,6 @@
-import { CalendarClock, ExternalLink } from 'lucide-react'
+import { CalendarClock, ChevronRightIcon } from 'lucide-react'
 import { FormattedMessage } from 'react-intl'
-import { cn } from '@/lib/utils'
+import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import { openSchedulePage } from '@/lib/open-settings'
 import { resultText, toolNameOf } from './TaskCreatedRenderer'
 import type { ToolPartLike } from './toolName'
@@ -45,47 +45,38 @@ export function isScheduleTaskResult(toolPart: ToolPartLike): boolean {
   return scheduledTask(toolPart) !== null
 }
 
-/** Card for a `schedule_create` / `schedule_update` call; opens the Schedule page on that task. */
+/**
+ * A `schedule_create` / `schedule_update` call, as a Trace line that links out:
+ * it opens the Schedule page on that task.
+ */
 export function ScheduleTaskRenderer({ toolPart }: { toolPart: ToolPartLike }) {
   const task = scheduledTask(toolPart)
   const action = scheduleAction(toolPart)
   if (!task || !action) return null
 
+  const details = [task.when, task.provider_id].filter(Boolean).join(' · ')
+
   return (
-    <div className="my-2">
-      <button
-        type="button"
-        onClick={() => openSchedulePage(task.id)}
-        className={cn(
-          'group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-background/60 px-3 py-2.5 text-left',
-          'shadow-card transition-colors hover:bg-row-hover hover:border-border',
-        )}
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/40 bg-muted/40">
-          <CalendarClock className="h-4 w-4 text-muted-foreground" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+    <Trace>
+      <button type="button" onClick={() => openSchedulePage(task.id)}>
+        <TraceLine>
+          <TraceIcon><CalendarClock /></TraceIcon>
+          <TraceTitle>
             {action === 'created' ? (
-              <FormattedMessage id="editor.schedule.created" defaultMessage="Scheduled task created" />
+              <FormattedMessage id="editor.schedule.createdLine" defaultMessage="Scheduled {name}" values={{ name: task.name }} />
             ) : (
-              <FormattedMessage id="editor.schedule.updated" defaultMessage="Scheduled task updated" />
+              <FormattedMessage id="editor.schedule.updatedLine" defaultMessage="Updated schedule {name}" values={{ name: task.name }} />
             )}
-            {!task.enabled && (
-              <span className="normal-case tracking-normal">
-                · <FormattedMessage id="editor.schedule.paused" defaultMessage="paused" />
-              </span>
-            )}
-          </span>
-          <span className="mt-0.5 block truncate text-sm font-medium text-foreground">{task.name}</span>
-          {(task.when || task.provider_id) && (
-            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-              {[task.when, task.provider_id].filter(Boolean).join(' · ')}
-            </span>
+          </TraceTitle>
+          {details && <TraceDescription className="min-w-0 shrink truncate">{details}</TraceDescription>}
+          {!task.enabled && (
+            <TraceDescription>
+              <FormattedMessage id="editor.schedule.paused" defaultMessage="paused" />
+            </TraceDescription>
           )}
-        </span>
-        <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+          <TraceIcon><ChevronRightIcon /></TraceIcon>
+        </TraceLine>
       </button>
-    </div>
+    </Trace>
   )
 }

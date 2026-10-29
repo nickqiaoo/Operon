@@ -7,8 +7,8 @@ test.beforeEach(async () => {
 })
 
 // AskUserQuestionRenderer triggers when toolName is `AskUserQuestion` (Claude)
-// or `ask_user` (Gemini). It shows multi-question option lists with submit/
-// cancel buttons. Selecting an option + submitting flows back as
+// or `ask_user` (Gemini). It shows the questions as a Questionnaire (one at a
+// time, options as radios/checkboxes) with submit/cancel buttons. Selecting an option + submitting flows back as
 // `addToolApprovalResponse` with answers, then the script emits its closing
 // text quoting the picked answer.
 
@@ -22,9 +22,8 @@ test('AskUserQuestion: select option + submit echoes answer in reply', async ({ 
   await expect(page.getByText('Blue')).toBeVisible()
   await expect(page.getByText('Green')).toBeVisible()
 
-  // Submit is initially disabled; clicking Blue enables it.
   const submit = page.getByTestId('ask-user-question-submit')
-  await page.getByRole('button', { name: /^Blue/ }).click()
+  await page.getByRole('radio', { name: /^Blue/ }).check()
   await expect(submit).toBeEnabled()
   await submit.click()
 

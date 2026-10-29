@@ -1,11 +1,6 @@
 import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { CheckIcon, XIcon, ChevronRightIcon } from 'lucide-react';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+import { CheckIcon, XIcon } from 'lucide-react';
 import {
   Confirmation,
   ConfirmationAccepted,
@@ -16,9 +11,9 @@ import {
   ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
 import type { ConfirmationProps } from '@/components/ai-elements/confirmation';
-import { ToolDescription, ToolInput, ToolOutput, ToolStatusIcon } from '@/components/ai-elements/tool';
+import { Tool, ToolContent, ToolInput, ToolLine, ToolOutput, toolTraceStatus } from '@/components/ai-elements/tool';
 import type { ToolPart } from '@/components/ai-elements/tool';
-import { cn } from '@/lib/utils';
+import { TraceCollapsibleTrigger, TraceDescription } from '@/components/ui/trace';
 import { ToolIcon } from './ToolIcon';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
@@ -94,98 +89,79 @@ export function CompactToolCall({
 
   const commandDescription = getToolDescription(lowerToolName, displayInput);
 
+  const line = (
+    <ToolLine
+      icon={<ToolIcon toolName={toolName} />}
+      name={formatToolDisplayName(toolName)}
+      description={commandDescription}
+      status={toolTraceStatus(state)}
+      trailing={state === 'output-denied' ? (
+        <TraceDescription><FormattedMessage id="editor.confirm.denied" defaultMessage="Denied" /></TraceDescription>
+      ) : undefined}
+    />
+  );
+
   return (
-    <Collapsible
-      {...(needsApproval ? { open: true } : {})}
-      className={cn(
-        'group/compact',
-        state === 'output-error' && 'text-status-error',
-      )}
-    >
-      <CollapsibleTrigger
-        data-testid="tool-invocation"
-        data-tool-state={state}
-        className="flex w-full items-center gap-1.5 text-left"
-      >
-        <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/compact:rotate-90" />
-        <ToolIcon toolName={toolName} />
-        {/* The name identifies the row, so it truncates last. Flex distributes
-            shrinkage by basis, so leaving it shrinkable clipped even a 4-char
-            "Bash" down to "Ba…" whenever the command beside it was long. With a
-            description present the name is unshrinkable and the command absorbs
-            all of it; `max-w` is the escape hatch for providers that hand us the
-            whole shell command AS the name — an unshrinkable 1200px label would
-            otherwise blow the row past the window edge. With no description the
-            name is the only thing that can give, so it shrinks as before. */}
-        <span
-          data-testid="tool-name"
-          className={cn(
-            'truncate text-sm font-medium text-muted-foreground',
-            commandDescription ? 'shrink-0 max-w-[60%]' : 'min-w-0',
+    <div className="flex min-w-0 flex-col gap-2">
+      <Tool data-tool-state={state}>
+        <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
+        <ToolContent>
+          {shouldUseDiffView ? (
+            <ToolInputDiff toolName={toolName} input={displayInput} />
+          ) : (
+            <ToolInput input={displayInput} />
           )}
-        >
-          {formatToolDisplayName(toolName)}
-        </span>
-        {commandDescription && (
-          <ToolDescription value={commandDescription} className="text-muted-foreground/70" />
-        )}
-        <span className="ml-auto shrink-0">
-          <ToolStatusIcon state={state} />
-        </span>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pl-[18px] pb-1">
-        {shouldUseDiffView ? (
-          <ToolInputDiff toolName={toolName} input={displayInput} />
-        ) : (
-          <ToolInput input={displayInput} className="p-0 [&_h4]:hidden" />
-        )}
+          {(hasOutput || toolPart.errorText) && (
+            <ToolOutput output={output} errorText={toolPart.errorText} />
+          )}
+        </ToolContent>
+      </Tool>
 
-        {needsApproval && (
-          <Confirmation approval={approval} state={state}>
-            <ConfirmationTitle>
-              <ConfirmationRequest>
-                <FormattedMessage id="editor.confirm.requestTool" defaultMessage="The assistant requests permission to execute this tool." />
-              </ConfirmationRequest>
-              <ConfirmationAccepted>
-                <CheckIcon className="size-4 text-status-ok" />
-                <span><FormattedMessage id="editor.confirm.accepted" defaultMessage="Accepted" /></span>
-              </ConfirmationAccepted>
-              <ConfirmationRejected>
-                <XIcon className="size-4 text-status-error" />
-                <span><FormattedMessage id="editor.confirm.rejected" defaultMessage="Rejected" /></span>
-              </ConfirmationRejected>
-            </ConfirmationTitle>
-            <ConfirmationActions data-testid="permission-dialog">
-              {options.filter(o => o.tone === 'reject').map((opt, i) => (
-                <ConfirmationAction
-                  key={`reject-${i}`}
-                  data-testid={`permission-reject-${opt.outcome}`}
-                  tone="reject"
-                  variant="outline"
-                  onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
-                >
-                  {opt.label}
-                </ConfirmationAction>
-              ))}
-              {options.filter(o => o.tone === 'allow').map((opt, i) => (
-                <ConfirmationAction
-                  key={`allow-${i}`}
-                  data-testid={`permission-allow-${opt.outcome}`}
-                  tone="allow"
-                  variant="default"
-                  onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
-                >
-                  {opt.label}
-                </ConfirmationAction>
-              ))}
-            </ConfirmationActions>
-          </Confirmation>
-        )}
-
-        {(hasOutput || toolPart.errorText) && (
-          <ToolOutput output={output} errorText={toolPart.errorText} className="p-0 pt-1 [&_h4]:hidden [&_.max-h-80]:max-h-40 [&_[data-slot=scroll-area-viewport]]:!max-h-40" />
-        )}
-      </CollapsibleContent>
-    </Collapsible>
+      {/* A pending approval is a question for the person, not a step, so it sits
+          under the line as an Item rather than inside the collapsible. */}
+      {needsApproval && (
+        <Confirmation approval={approval} state={state} icon={<ToolIcon toolName={toolName} className="size-4 text-muted-foreground" />}>
+          <ConfirmationTitle>
+            <ConfirmationRequest>
+              <FormattedMessage id="editor.confirm.requestTool" defaultMessage="The assistant requests permission to execute this tool." />
+            </ConfirmationRequest>
+            <ConfirmationAccepted>
+              <CheckIcon className="size-4 text-status-ok" />
+              <span><FormattedMessage id="editor.confirm.accepted" defaultMessage="Accepted" /></span>
+            </ConfirmationAccepted>
+            <ConfirmationRejected>
+              <XIcon className="size-4 text-status-error" />
+              <span><FormattedMessage id="editor.confirm.rejected" defaultMessage="Rejected" /></span>
+            </ConfirmationRejected>
+          </ConfirmationTitle>
+          <ConfirmationActions data-testid="permission-dialog">
+            {options.filter(o => o.tone === 'reject').map((opt, i) => (
+              <ConfirmationAction
+                key={`reject-${i}`}
+                data-testid={`permission-reject-${opt.outcome}`}
+                tone="reject"
+                variant="outline"
+                onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
+              >
+                {opt.label}
+              </ConfirmationAction>
+            ))}
+            {options.filter(o => o.tone === 'allow').map((opt, i) => (
+              <ConfirmationAction
+                key={`allow-${i}`}
+                data-testid={`permission-allow-${opt.outcome}`}
+                tone="allow"
+                // One solid button: the plain allow. "Allow always" and the like
+                // sit beside it as secondary so the default choice reads first.
+                variant={i === 0 ? 'default' : 'secondary'}
+                onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
+              >
+                {opt.label}
+              </ConfirmationAction>
+            ))}
+          </ConfirmationActions>
+        </Confirmation>
+      )}
+    </div>
   );
 }

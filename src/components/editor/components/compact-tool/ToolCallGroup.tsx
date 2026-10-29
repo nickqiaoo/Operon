@@ -1,15 +1,19 @@
-import { ChevronRightIcon, LoaderIcon, CheckIcon, XIcon } from 'lucide-react';
 import type { UIMessage } from 'ai';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { ListTreeIcon } from 'lucide-react';
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import type { ConfirmationProps } from '@/components/ai-elements/confirmation';
 import type { ToolPart } from '@/components/ai-elements/tool';
-import { cn } from '@/lib/utils';
 import { isToolPart } from '../toolParentUtils';
 import type { ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
@@ -17,6 +21,7 @@ import { buildToolGroupSummary } from './buildToolGroupSummary';
 import { CompactToolCall } from './CompactToolCall';
 import type { PermissionOutcome } from '../permission-utils';
 import { isCodeProgramTool } from '../codeProgram';
+import { TodoWriteRenderer, isTodoWriteTool } from '../TodoWriteRenderer';
 
 type MessagePart = UIMessage['parts'][number];
 
@@ -49,19 +54,6 @@ function buildGroupSummary(toolParts: ToolInvocationPart[], reasoningCount: numb
   return chunks.join(' · ') || 'Worked';
 }
 
-function GroupStatusIndicator({ toolParts, hasPendingApproval }: { toolParts: ToolInvocationPart[]; hasPendingApproval: boolean }) {
-  if (toolParts.length === 0) return null;
-  const states = toolParts.map((p) => normalizeToolState(p.state));
-  const hasRunning = states.some((s) => s === 'input-streaming' || s === 'input-available');
-  const hasError = states.some((s) => s === 'output-error' || s === 'output-denied');
-  const hasApproval = hasPendingApproval || states.some((s) => s === 'approval-requested');
-
-  if (hasApproval) return <span className="block size-2 rounded-full bg-status-warn animate-pulse" />;
-  if (hasRunning) return <LoaderIcon className="size-3.5 animate-spin text-muted-foreground" />;
-  if (hasError) return <XIcon className="size-3.5 text-status-error" />;
-  return <CheckIcon className="size-3.5 text-status-ok" />;
-}
-
 /** Renders one part inside a work group: a compact tool row, or a foldable thought. */
 function GroupItem({
   part,
@@ -79,9 +71,13 @@ function GroupItem({
   if (isToolPart(part) && isCodeProgramTool(part as ToolPartLike)) {
     return renderProgram(partIndex);
   }
+  // A todo update reads as the list it set, here as when it stands alone.
+  if (isToolPart(part) && isTodoWriteTool(part as ToolPartLike)) {
+    return <TodoWriteRenderer toolPart={part as ToolInvocationPart} messageId={messageId} partIndex={partIndex} />;
+  }
   if (isReasoningPart(part)) {
     return (
-      <Reasoning className="w-full" defaultOpen={false}>
+      <Reasoning empty={!part.text.trim()}>
         <ReasoningTrigger />
         <ReasoningContent>{part.text}</ReasoningContent>
       </Reasoning>
@@ -120,35 +116,61 @@ export function ToolCallGroup({
 
   const toolParts = parts.filter(isToolPart) as ToolInvocationPart[];
   const reasoningCount = parts.filter(isReasoningPart).length;
-  const hasApproval = hasPendingApproval || toolParts.some((p) => normalizeToolState(p.state) === 'approval-requested');
+  const states = toolParts.map((p) => normalizeToolState(p.state));
+  const running = states.some((s) => s === 'input-streaming' || s === 'input-available');
+  const failed = states.filter((s) => s === 'output-error').length;
+  const hasApproval = hasPendingApproval || states.includes('approval-requested');
   const summary = buildGroupSummary(toolParts, reasoningCount);
 
   return (
-    <Collapsible
-      {...(hasApproval ? { open: true } : {})}
-      className={cn('group/tool-group')}
-    >
-      <CollapsibleTrigger className="flex w-full items-center gap-1.5 text-left">
-        <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/tool-group:rotate-90" />
-        <span className="text-sm text-muted-foreground">
-          {summary}
-        </span>
-        <span className="ml-auto shrink-0">
-          <GroupStatusIndicator toolParts={toolParts} hasPendingApproval={hasPendingApproval} />
-        </span>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pl-2 border-l border-border/40 ml-1.5 space-y-0">
-        {parts.map((part, i) => (
-          <GroupItem
-            key={`${messageId}-${partIndices[i]}`}
-            part={part}
-            partIndex={partIndices[i]}
-            messageId={messageId}
-            onPermissionDecide={onPermissionDecide}
-            renderProgram={renderProgram}
-          />
-        ))}
-      </CollapsibleContent>
-    </Collapsible>
+    <ToolGroupCollapsible running={running} forceOpen={hasApproval}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={running ? 'running' : undefined}>
+          <TraceIcon><ListTreeIcon /></TraceIcon>
+          <TraceTitle>{summary}</TraceTitle>
+          {failed > 0 && !running && (
+            <TraceDescription className="text-status-error">{failed} failed</TraceDescription>
+          )}
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <Trace>
+          {parts.map((part, i) => (
+            <GroupItem
+              key={`${messageId}-${partIndices[i]}`}
+              part={part}
+              partIndex={partIndices[i]}
+              messageId={messageId}
+              onPermissionDecide={onPermissionDecide}
+              renderProgram={renderProgram}
+            />
+          ))}
+        </Trace>
+      </TraceCollapsibleContent>
+    </ToolGroupCollapsible>
+  );
+}
+
+/**
+ * The group's open state, as in shadcn's Chain of Thought: open while its steps
+ * run (and while one waits on an approval, so the question is in view), closed
+ * once they finish — unless the person opened or closed it themselves.
+ */
+function ToolGroupCollapsible({
+  running,
+  forceOpen,
+  children,
+}: {
+  running: boolean;
+  forceOpen: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState<boolean>();
+  return (
+    <Trace>
+      <TraceCollapsible open={forceOpen || (open ?? running)} onOpenChange={setOpen}>
+        {children}
+      </TraceCollapsible>
+    </Trace>
   );
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader } from '@/components/ai-elements/loader';
+import { FormattedMessage } from 'react-intl';
+import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
+import { Spinner } from '@/components/ui/spinner';
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -36,10 +38,14 @@ export function ChatWaitingIndicator({ active }: { active: boolean }) {
 
   if (!active) return null;
 
+  // shadcn's live-status Marker: a spinner and shimmering text while the agent works.
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <Loader size={14} />
-      <span className="tabular-nums">{formatElapsed(elapsedMs)}</span>
-    </div>
+    <Marker role="status" className="text-xs">
+      <MarkerIcon className="size-3.5"><Spinner className="size-3.5" /></MarkerIcon>
+      <MarkerContent className="shimmer">
+        <FormattedMessage id="editor.waiting.working" defaultMessage="Working" />
+      </MarkerContent>
+      <span className="tabular-nums text-muted-foreground/70">{formatElapsed(elapsedMs)}</span>
+    </Marker>
   );
 }

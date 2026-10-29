@@ -1,7 +1,7 @@
 import { useIntl } from 'react-intl';
 import { EditDiffViewer, WriteDiffViewer } from './FileDiffViewer';
 import { DiffPreview } from '@/components/editor/DiffPreview';
-import { CodeBlock } from '@/components/ai-elements/code-block';
+import { ToolInput } from '@/components/ai-elements/tool';
 import { cn } from '@/lib/utils';
 
 interface FileChange {
@@ -46,8 +46,9 @@ function normalizeWriteInput(input: Record<string, unknown>): Partial<FileWriteI
 }
 
 /**
- * Specialized renderer for tool inputs that shows diff view for Edit and Write tools
- * Falls back to standard JSON display for other tools
+ * Specialized renderer for tool inputs that shows diff view for Edit and Write tools.
+ * Falls back to the generic ToolInput for other tools. It sits inside a Tool
+ * line's content, and that line already names the file, so there is no header.
  */
 export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps) {
   const intl = useIntl()
@@ -59,22 +60,12 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
 
     if (editInput.file_path && editInput.old_string && editInput.new_string) {
       return (
-        <div className={cn('space-y-2 overflow-hidden p-4', className)}>
-          <div className="flex items-center justify-between">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-              {intl.formatMessage({ id: "editor.toolInput.editFile", defaultMessage: "Edit File" })}
-            </h4>
-            {editInput.replace_all && (
-              <span className="text-xs text-status-warn font-medium">
-                {intl.formatMessage({ id: "editor.toolInput.replaceAll", defaultMessage: "Replace All" })}
-              </span>
-            )}
-          </div>
-
-          <div className="text-xs text-muted-foreground mb-2 font-mono">
-            {editInput.file_path}
-          </div>
-
+        <div className={cn('space-y-2 overflow-hidden', className)}>
+          {editInput.replace_all && (
+            <span className="text-xs text-status-warn font-medium">
+              {intl.formatMessage({ id: "editor.toolInput.replaceAll", defaultMessage: "Replace All" })}
+            </span>
+          )}
           <EditDiffViewer
             filePath={editInput.file_path}
             oldString={editInput.old_string}
@@ -91,22 +82,14 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
 
     if (writeInput.file_path && writeInput.content) {
       return (
-        <div className={cn('space-y-2 overflow-hidden p-4', className)}>
-          <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-            {intl.formatMessage({ id: "editor.toolInput.writeFile", defaultMessage: "Write File" })}
-          </h4>
-
-          <div className="text-xs text-muted-foreground mb-2 font-mono">
-            {writeInput.file_path}
-          </div>
-
+        <div className={cn('space-y-2 overflow-hidden', className)}>
           <WriteDiffViewer
             filePath={writeInput.file_path}
             oldContent=""
             newContent={writeInput.content}
           />
 
-          <div className="text-xs text-muted-foreground pt-2">
+          <div className="text-xs text-muted-foreground">
             {intl.formatMessage({ id: "editor.toolInput.linesChars", defaultMessage: "{lines} lines • {chars} characters" }, { lines: writeInput.content.split('\n').length, chars: writeInput.content.length })}
           </div>
         </div>
@@ -120,10 +103,7 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
     if (Array.isArray(changes) && changes.length > 0) {
       const hasDiffs = changes.some((c) => c.diff);
       return (
-        <div className={cn('space-y-3 overflow-hidden p-4', className)}>
-          <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-            {intl.formatMessage({ id: "editor.toolInput.fileChanges", defaultMessage: "File Changes" })}
-          </h4>
+        <div className={cn('space-y-3 overflow-hidden', className)}>
           {hasDiffs ? (
             <div className="space-y-4">
               {changes.map((change, i) => (
@@ -158,15 +138,5 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
     }
   }
 
-  // Fallback: Standard JSON display for other tools
-  return (
-    <div className={cn('space-y-2 overflow-hidden p-4', className)}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {intl.formatMessage({ id: "editor.toolInput.parameters", defaultMessage: "Parameters" })}
-      </h4>
-      <div className="rounded-xl bg-muted/50">
-        <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
-      </div>
-    </div>
-  );
+  return <ToolInput input={input} className={className} />;
 }

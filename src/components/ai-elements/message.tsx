@@ -1,10 +1,12 @@
 "use client";
 
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import {
-  ButtonGroup,
-  ButtonGroupText,
-} from "@/components/ui/button-group";
+  Message as MessageRoot,
+  MessageContent as MessageBody,
+  MessageFooter,
+} from "@/components/ui/message";
 import {
   Tooltip,
   TooltipContent,
@@ -19,9 +21,8 @@ import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import { useFileOpenHandler } from "@/lib/file-open-context";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import type { AnchorHTMLAttributes, ComponentProps, HTMLAttributes, ReactElement } from "react";
-import { createContext, memo, useCallback, useContext, useEffect, useState } from "react";
+import type { AnchorHTMLAttributes, ComponentProps } from "react";
+import { createContext, memo, useCallback, useContext } from "react";
 import { Streamdown, defaultUrlTransform } from "streamdown";
 import remarkGfm from "remark-gfm";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
@@ -100,55 +101,89 @@ function closeUnterminatedCodeFence(content: string): string {
   return `${content}${suffix}${openFence}`;
 }
 
-export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage["role"];
+/**
+ * Message, rebuilt on shadcn/ui Message + Bubble (https://ui.shadcn.com/docs/ai-elements/radix/message):
+ * the person's turn is a bubble on the right, the agent's reply runs full width
+ * with no bubble. Its parts stack (content, then the action footer) rather than
+ * sitting beside an avatar, so the row is a column here.
+ */
+
+type MessageFrom = UIMessage["role"];
+
+const MessageFromContext = createContext<MessageFrom>("assistant");
+
+export type MessageProps = ComponentProps<typeof MessageRoot> & {
+  from: MessageFrom;
 };
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
-  <div
-    data-testid={`message-${from}`}
-    className={cn(
-      "group flex w-full flex-col gap-2",
-      // Only the user bubble is capped short of the column. An assistant reply
-      // runs the full width so its right edge lines up with the turn's diff
-      // card and the composer, which sit outside <Message>.
-      from === "user" ? "is-user ml-auto max-w-[95%] items-end" : "is-assistant max-w-full",
-      className
-    )}
-    {...props}
-  />
+  <MessageFromContext.Provider value={from}>
+    <MessageRoot
+      data-testid={`message-${from}`}
+      align={from === "user" ? "end" : "start"}
+      className={cn(
+        "flex-col data-[align=end]:flex-col",
+        // Only the user bubble is capped short of the column. An assistant reply
+        // runs the full width so its right edge lines up with the turn's diff
+        // card and the composer, which sit outside <Message>.
+        from === "user" ? "ml-auto max-w-[95%] items-end" : "max-w-full",
+        className
+      )}
+      {...props}
+    />
+  </MessageFromContext.Provider>
 );
 
-export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
+type BubbleVariant = NonNullable<ComponentProps<typeof Bubble>["variant"]>;
+
+export type MessageContentProps = ComponentProps<typeof MessageBody> & {
+  /**
+   * The bubble around the content: `secondary` for the person's turn by
+   * default, none for the agent's. `none` drops the bubble.
+   */
+  variant?: BubbleVariant | "none";
+};
 
 export const MessageContent = ({
   children,
   className,
+  variant,
   ...props
-}: MessageContentProps) => (
-  <div
-    className={cn(
-      "is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-1 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-xl group-[.is-user]:bg-secondary group-[.is-user]:px-3 group-[.is-user]:py-2 group-[.is-user]:text-secondary-foreground group-[.is-user]:shadow-card",
-      "group-[.is-assistant]:text-foreground",
-      className
-    )}
-    {...props}
-  >
-    {children}
-  </div>
-);
+}: MessageContentProps) => {
+  const from = useContext(MessageFromContext);
+  const bubble = variant ?? (from === "user" ? "secondary" : "none");
 
-export type MessageActionsProps = ComponentProps<"div">;
+  if (bubble === "none") {
+    return (
+      <MessageBody className={cn("w-full gap-1 text-foreground", className)} {...props}>
+        {children}
+      </MessageBody>
+    );
+  }
+
+  return (
+    <MessageBody className="w-fit max-w-full gap-1" {...props}>
+      <Bubble
+        align={from === "user" ? "end" : "start"}
+        variant={bubble}
+        className="max-w-full"
+      >
+        <BubbleContent className={cn("flex flex-col gap-1", className)}>{children}</BubbleContent>
+      </Bubble>
+    </MessageBody>
+  );
+};
+
+export type MessageActionsProps = ComponentProps<typeof MessageFooter>;
 
 export const MessageActions = ({
   className,
   children,
   ...props
 }: MessageActionsProps) => (
-  <div className={cn("flex items-center gap-1", className)} {...props}>
+  <MessageFooter className={cn("gap-1 px-0", className)} {...props}>
     {children}
-  </div>
+  </MessageFooter>
 );
 
 export type MessageActionProps = ComponentProps<typeof Button> & {
@@ -165,9 +200,8 @@ export const MessageAction = ({
   ...props
 }: MessageActionProps) => {
   const button = (
-    <Button size={size} type="button" variant={variant} {...props}>
+    <Button aria-label={label || tooltip} size={size} type="button" variant={variant} {...props}>
       {children}
-      <span className="sr-only">{label || tooltip}</span>
     </Button>
   );
 
@@ -185,204 +219,6 @@ export const MessageAction = ({
   }
 
   return button;
-};
-
-interface MessageBranchContextType {
-  currentBranch: number;
-  totalBranches: number;
-  goToPrevious: () => void;
-  goToNext: () => void;
-  branches: ReactElement[];
-  setBranches: (branches: ReactElement[]) => void;
-}
-
-const MessageBranchContext = createContext<MessageBranchContextType | null>(
-  null
-);
-
-const useMessageBranch = () => {
-  const context = useContext(MessageBranchContext);
-
-  if (!context) {
-    throw new Error(
-      "MessageBranch components must be used within MessageBranch"
-    );
-  }
-
-  return context;
-};
-
-export type MessageBranchProps = HTMLAttributes<HTMLDivElement> & {
-  defaultBranch?: number;
-  onBranchChange?: (branchIndex: number) => void;
-};
-
-export const MessageBranch = ({
-  defaultBranch = 0,
-  onBranchChange,
-  className,
-  ...props
-}: MessageBranchProps) => {
-  const [currentBranch, setCurrentBranch] = useState(defaultBranch);
-  const [branches, setBranches] = useState<ReactElement[]>([]);
-
-  const handleBranchChange = (newBranch: number) => {
-    setCurrentBranch(newBranch);
-    onBranchChange?.(newBranch);
-  };
-
-  const goToPrevious = () => {
-    const newBranch =
-      currentBranch > 0 ? currentBranch - 1 : branches.length - 1;
-    handleBranchChange(newBranch);
-  };
-
-  const goToNext = () => {
-    const newBranch =
-      currentBranch < branches.length - 1 ? currentBranch + 1 : 0;
-    handleBranchChange(newBranch);
-  };
-
-  const contextValue: MessageBranchContextType = {
-    currentBranch,
-    totalBranches: branches.length,
-    goToPrevious,
-    goToNext,
-    branches,
-    setBranches,
-  };
-
-  return (
-    <MessageBranchContext.Provider value={contextValue}>
-      <div
-        className={cn("grid w-full gap-2 [&>div]:pb-0", className)}
-        {...props}
-      />
-    </MessageBranchContext.Provider>
-  );
-};
-
-export type MessageBranchContentProps = HTMLAttributes<HTMLDivElement>;
-
-export const MessageBranchContent = ({
-  children,
-  ...props
-}: MessageBranchContentProps) => {
-  const { currentBranch, setBranches, branches } = useMessageBranch();
-  const childrenArray = Array.isArray(children) ? children : [children];
-
-  // Use useEffect to update branches when they change
-  useEffect(() => {
-    if (branches.length !== childrenArray.length) {
-      setBranches(childrenArray);
-    }
-  }, [childrenArray, branches, setBranches]);
-
-  return childrenArray.map((branch, index) => (
-    <div
-      className={cn(
-        "grid gap-2 overflow-hidden [&>div]:pb-0",
-        index === currentBranch ? "block" : "hidden"
-      )}
-      key={branch.key}
-      {...props}
-    >
-      {branch}
-    </div>
-  ));
-};
-
-export type MessageBranchSelectorProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage["role"];
-};
-
-export const MessageBranchSelector = ({
-  className,
-  from,
-  ...props
-}: MessageBranchSelectorProps) => {
-  const { totalBranches } = useMessageBranch();
-
-  // Don't render if there's only one branch
-  if (totalBranches <= 1) {
-    return null;
-  }
-
-  return (
-    <ButtonGroup
-      className="[&>*:not(:first-child)]:rounded-l-md [&>*:not(:last-child)]:rounded-r-md"
-      orientation="horizontal"
-      {...props}
-    />
-  );
-};
-
-export type MessageBranchPreviousProps = ComponentProps<typeof Button>;
-
-export const MessageBranchPrevious = ({
-  children,
-  ...props
-}: MessageBranchPreviousProps) => {
-  const { goToPrevious, totalBranches } = useMessageBranch();
-
-  return (
-    <Button
-      aria-label="Previous branch"
-      disabled={totalBranches <= 1}
-      onClick={goToPrevious}
-      size="icon-sm"
-      type="button"
-      variant="ghost"
-      {...props}
-    >
-      {children ?? <ChevronLeftIcon size={14} />}
-    </Button>
-  );
-};
-
-export type MessageBranchNextProps = ComponentProps<typeof Button>;
-
-export const MessageBranchNext = ({
-  children,
-  className,
-  ...props
-}: MessageBranchNextProps) => {
-  const { goToNext, totalBranches } = useMessageBranch();
-
-  return (
-    <Button
-      aria-label="Next branch"
-      disabled={totalBranches <= 1}
-      onClick={goToNext}
-      size="icon-sm"
-      type="button"
-      variant="ghost"
-      {...props}
-    >
-      {children ?? <ChevronRightIcon size={14} />}
-    </Button>
-  );
-};
-
-export type MessageBranchPageProps = HTMLAttributes<HTMLSpanElement>;
-
-export const MessageBranchPage = ({
-  className,
-  ...props
-}: MessageBranchPageProps) => {
-  const { currentBranch, totalBranches } = useMessageBranch();
-
-  return (
-    <ButtonGroupText
-      className={cn(
-        "border-none bg-transparent text-muted-foreground shadow-none",
-        className
-      )}
-      {...props}
-    >
-      {currentBranch + 1} of {totalBranches}
-    </ButtonGroupText>
-  );
 };
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
@@ -413,21 +249,3 @@ const MessageResponseInner = ({ className, children, ...props }: MessageResponse
 export const MessageResponse = memo(MessageResponseInner);
 
 MessageResponse.displayName = "MessageResponse";
-
-export type MessageToolbarProps = ComponentProps<"div">;
-
-export const MessageToolbar = ({
-  className,
-  children,
-  ...props
-}: MessageToolbarProps) => (
-  <div
-    className={cn(
-      "mt-4 flex w-full items-center justify-between gap-4",
-      className
-    )}
-    {...props}
-  >
-    {children}
-  </div>
-);

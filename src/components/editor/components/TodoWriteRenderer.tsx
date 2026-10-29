@@ -1,9 +1,11 @@
-import { ListTodoIcon } from 'lucide-react';
+import { ListChecksIcon, ListTodoIcon } from 'lucide-react';
+import { useIntl } from 'react-intl';
 import {
   Queue,
   QueueItem,
   QueueItemContent,
   QueueItemIndicator,
+  QueueList,
   QueueSection,
   QueueSectionContent,
   QueueSectionLabel,
@@ -184,6 +186,81 @@ export function extractTodosFromPart(toolPart: ToolPartLike): TodoEntry[] {
   return extractTaskRecordTodos(toolPart);
 }
 
+/**
+ * A todo list as shadcn's Queue: what is left (open), then what is done
+ * (closed), each item a line. The in-progress item reads its `activeForm`.
+ * Shared by the TodoWrite tool line and the composer's live list.
+ */
+export function TodoQueue({
+  todos,
+  live = false,
+  className,
+}: {
+  /**
+   * The composer's current list: its in-progress item shimmers. A TodoWrite in
+   * the transcript is a snapshot of an earlier moment, so it keeps the
+   * in-progress mark without the "working now" shimmer.
+   */
+  live?: boolean;
+  /** `status` loosely typed: the composer's list comes from chat-derived, which keeps it a string. */
+  todos: Array<Omit<TodoEntry, 'status'> & { status: TodoEntry['status'] | (string & {}) }>;
+  className?: string;
+}) {
+  const intl = useIntl();
+  const left = todos.filter((t) => t.status !== 'completed');
+  const done = todos.filter((t) => t.status === 'completed');
+
+  const item = (entry: (typeof todos)[number], k: number) => {
+    const completed = entry.status === 'completed';
+    const inProgress = entry.status === 'in_progress';
+    return (
+      <QueueItem key={entry.id ?? k} completed={completed} inProgress={live && inProgress}>
+        <QueueItemIndicator completed={completed} inProgress={inProgress} />
+        <QueueItemContent completed={completed}>
+          {inProgress && entry.activeForm ? entry.activeForm : entry.content}
+        </QueueItemContent>
+      </QueueItem>
+    );
+  };
+
+  return (
+    <Queue className={className}>
+      {left.length > 0 && (
+        <QueueSection>
+          <QueueSectionTrigger>
+            <QueueSectionLabel
+              icon={<ListTodoIcon />}
+              label={intl.formatMessage(
+                { id: 'editor.todos.toDo', defaultMessage: '{count} to do' },
+                { count: left.length },
+              )}
+            />
+          </QueueSectionTrigger>
+          <QueueSectionContent>
+            <QueueList>{left.map(item)}</QueueList>
+          </QueueSectionContent>
+        </QueueSection>
+      )}
+      {done.length > 0 && (
+        <QueueSection defaultOpen={left.length === 0 ? false : undefined}>
+          <QueueSectionTrigger>
+            <QueueSectionLabel
+              icon={<ListChecksIcon />}
+              label={intl.formatMessage(
+                { id: 'editor.todos.completedCount', defaultMessage: '{count} completed' },
+                { count: done.length },
+              )}
+            />
+          </QueueSectionTrigger>
+          <QueueSectionContent>
+            <QueueList>{done.map(item)}</QueueList>
+          </QueueSectionContent>
+        </QueueSection>
+      )}
+    </Queue>
+  );
+}
+
 export function TodoWriteRenderer({
   toolPart,
   messageId,
@@ -193,64 +270,14 @@ export function TodoWriteRenderer({
   const toolName = getToolDisplayName(toolPart);
   const todos = extractTodosFromPart(toolPart);
 
-  if (todos.length === 0) {
-    return (
-      <Tool key={`${messageId}-${partIndex}`}>
-        <ToolHeader icon={<ListTodoIcon className="size-3.5 shrink-0 text-muted-foreground/70" />} type="dynamic-tool" toolName={toolName} state={state} />
-      </Tool>
-    );
-  }
-
-  const completedCount = todos.filter((t) => t.status === 'completed').length;
-  const inProgressCount = todos.filter((t) => t.status === 'in_progress').length;
-  const allCompleted = completedCount === todos.length;
-
-  const label = allCompleted
-    ? 'tasks completed'
-    : inProgressCount > 0
-      ? `tasks (${completedCount}/${todos.length} done)`
-      : 'tasks';
-
   return (
     <Tool key={`${messageId}-${partIndex}`}>
-      <ToolHeader icon={<ListTodoIcon className="size-3.5 shrink-0 text-muted-foreground/70" />} type="dynamic-tool" toolName={toolName} state={state} />
-      <ToolContent>
-        <Queue className="border-0 shadow-none px-0 pt-0 pb-0">
-          <QueueSection defaultOpen={!allCompleted}>
-            <QueueSectionTrigger>
-              <QueueSectionLabel
-                count={allCompleted ? completedCount : todos.length}
-                label={label}
-              />
-            </QueueSectionTrigger>
-            <QueueSectionContent>
-              <div>
-                {todos.map((entry, k) => {
-                  const isCompleted = entry.status === 'completed';
-                  const isInProgress = entry.status === 'in_progress';
-                  const displayText = isInProgress && entry.activeForm
-                    ? entry.activeForm
-                    : entry.content;
-
-                  return (
-                    <QueueItem key={k}>
-                      <div className="flex items-center gap-2">
-                        <QueueItemIndicator
-                          completed={isCompleted}
-                          inProgress={isInProgress}
-                        />
-                        <QueueItemContent completed={isCompleted}>
-                          {displayText}
-                        </QueueItemContent>
-                      </div>
-                    </QueueItem>
-                  );
-                })}
-              </div>
-            </QueueSectionContent>
-          </QueueSection>
-        </Queue>
-      </ToolContent>
+      <ToolHeader icon={<ListTodoIcon />} type="dynamic-tool" toolName={toolName} state={state} />
+      {todos.length > 0 && (
+        <ToolContent>
+          <TodoQueue todos={todos} />
+        </ToolContent>
+      )}
     </Tool>
   );
 }

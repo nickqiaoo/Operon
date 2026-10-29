@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ClipboardList, ExternalLink, Loader2, AlertCircle } from 'lucide-react'
+import { ClipboardList, ChevronRightIcon, Loader2, AlertCircle } from 'lucide-react'
 import { useEditorStore } from '@/stores/editor-store'
 import { api } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import {
   TASK_CREATING_TOOLS,
   asCreatedTaskRef,
@@ -195,39 +195,21 @@ export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
   }
 
   return (
-    <div className="my-2">
-      <button
-        type="button"
-        onClick={() => void open()}
-        disabled={projectId == null || busy}
-        className={cn(
-          'group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-background/60 px-3 py-2.5 text-left',
-          'shadow-card transition-colors hover:bg-row-hover hover:border-border',
-          'disabled:cursor-not-allowed disabled:opacity-60',
-        )}
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/40 bg-muted/40">
-          <ClipboardList className="h-4 w-4 text-muted-foreground" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {isSpec ? 'Spec-driven task created' : 'Task created'}
-            <span className="font-mono normal-case tracking-normal">#{number}</span>
-          </span>
-          <span className="mt-0.5 block truncate text-sm font-medium text-foreground">{title}</span>
-        </span>
-        {busy ? (
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-        ) : (
-          <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
-        )}
+    <Trace>
+      <button type="button" onClick={() => void open()} disabled={projectId == null || busy} className="disabled:cursor-not-allowed">
+        <TraceLine status={busy ? 'running' : undefined}>
+          <TraceIcon><ClipboardList /></TraceIcon>
+          <TraceTitle>{isSpec ? 'Created spec-driven task' : 'Created task'} {title}</TraceTitle>
+          <TraceDescription className="font-mono">#{number}</TraceDescription>
+          <TraceIcon>{busy ? <Loader2 className="animate-spin" /> : <ChevronRightIcon />}</TraceIcon>
+        </TraceLine>
       </button>
       {error && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-destructive">
+        <div className="flex items-center gap-1.5 text-xs text-status-error">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {error}
         </div>
       )}
-    </div>
+    </Trace>
   )
 }

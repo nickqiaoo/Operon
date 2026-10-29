@@ -1,9 +1,16 @@
-import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { Workflow as WorkflowIcon, ChevronDownIcon, CheckIcon, XIcon } from 'lucide-react';
+import { Workflow as WorkflowIcon } from 'lucide-react';
 import { SpecIcon } from '@/components/icons/SpecIcon';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { cn } from '@/lib/utils';
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 
 /**
@@ -11,8 +18,8 @@ import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
  *
  * The node delivers the result by starting a turn with a user-role message (see
  * `services/workflow/completion.ts`) — that is what puts it in front of the model.
- * Rendering it as a user bubble would be a lie though: nobody typed it. So it gets
- * its own quiet, collapsed card, closer to a system notice than to a message.
+ * Rendering it as a user bubble would be a lie though: nobody typed it. So it is
+ * one more step line in the turn (Trace), closed, opening onto the result.
  */
 
 const WORKFLOW_RESULT_TAG = '<workflow-result>';
@@ -36,7 +43,6 @@ function tagValue(text: string, tag: string): string | undefined {
 }
 
 export function WorkflowResultMessage({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
   const name = tagValue(text, 'name') ?? 'workflow';
   const status = tagValue(text, 'status') ?? 'completed';
   const result = tagValue(text, 'result');
@@ -44,43 +50,33 @@ export function WorkflowResultMessage({ text }: { text: string }) {
   const ok = status === 'completed';
   const body = result ?? error;
 
+  const line = (
+    <TraceLine status={ok ? undefined : 'error'}>
+      <TraceIcon><WorkflowIcon /></TraceIcon>
+      <TraceTitle>{name}</TraceTitle>
+      <TraceDescription className={ok ? 'text-status-ok' : 'text-status-error'}>
+        {ok ? (
+          <FormattedMessage id="editor.workflowResult.completed" defaultMessage="workflow finished" />
+        ) : (
+          <FormattedMessage id="editor.workflowResult.ended" defaultMessage="workflow ended: {status}" values={{ status }} />
+        )}
+      </TraceDescription>
+    </TraceLine>
+  );
+
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="mt-1 rounded-xl border border-border/40 bg-muted/10"
-    >
-      <CollapsibleTrigger asChild>
-        <button type="button" className="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-left">
-          <WorkflowIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">{name}</span>
-          {ok ? (
-            <span className="flex items-center gap-1 text-xs text-status-ok">
-              <CheckIcon className="h-3.5 w-3.5" />
-              <FormattedMessage id="editor.workflowResult.completed" defaultMessage="workflow finished" />
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-xs text-status-error">
-              <XIcon className="h-3.5 w-3.5" />
-              <FormattedMessage id="editor.workflowResult.ended" defaultMessage="workflow ended: {status}" values={{ status }} />
-            </span>
-          )}
-          {body && (
-            <ChevronDownIcon
-              className={cn(
-                'ml-auto h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform',
-                open && 'rotate-180',
-              )}
-            />
-          )}
-        </button>
-      </CollapsibleTrigger>
-      {body && (
-        <CollapsibleContent className="border-t border-border/40 px-4 py-3">
-          <MarkdownRenderer content={body} className="text-sm" />
-        </CollapsibleContent>
+    <Trace className="mt-1">
+      {body ? (
+        <TraceCollapsible>
+          <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
+          <TraceCollapsibleContent className="text-foreground">
+            <MarkdownRenderer content={body} className="text-sm" />
+          </TraceCollapsibleContent>
+        </TraceCollapsible>
+      ) : (
+        line
       )}
-    </Collapsible>
+    </Trace>
   );
 }
 
@@ -98,11 +94,14 @@ export function parseSpecNotice(text: string): { spec: string; body: string } | 
 
 export function SpecNoticeMessage({ notice }: { notice: { spec: string; body: string } }) {
   return (
-    <div className="mt-1 flex items-start gap-2 px-1 text-xs text-muted-foreground">
-      <SpecIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0">
-        <span className="font-mono">#{notice.spec}</span> · {notice.body}
-      </span>
-    </div>
+    <Trace className="mt-1">
+      <TraceLine className="items-start">
+        <TraceIcon className="mt-0.5"><SpecIcon /></TraceIcon>
+        {/* Wraps rather than truncating: the notice is the whole message. */}
+        <span className="min-w-0">
+          <span className="font-mono">#{notice.spec}</span> · {notice.body}
+        </span>
+      </TraceLine>
+    </Trace>
   );
 }

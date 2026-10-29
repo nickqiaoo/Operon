@@ -232,15 +232,18 @@ export const ConversationScrollButton = ({
 
   return (
     !isAtBottom && (
+      // shadcn MessageScrollerButton's look: a small round button with a hairline
+      // border on the background, lifted by the card shadow.
       <Button
+        aria-label="Scroll to bottom"
         className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full shadow-card",
+          "absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-border/60 bg-background text-foreground shadow-card hover:bg-accent-hover dark:border-border/35",
           className
         )}
         onClick={handleScrollToBottom}
-        size="icon"
+        size="icon-sm"
         type="button"
-        variant="secondary"
+        variant="ghost"
         {...props}
       >
         <ArrowDownIcon className="size-4" />

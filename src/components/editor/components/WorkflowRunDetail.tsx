@@ -18,14 +18,15 @@ import {
   ArrowRightLeft as ReplaceIcon,
   MessageSquareText as ChatIcon,
 } from 'lucide-react';
-import type { BundledLanguage } from 'shiki';
 import { cn } from '@/lib/utils';
 import {
   CodeBlock,
-  CodeBlockHeader,
-  CodeBlockFilename,
+  CodeBlockActions,
   CodeBlockCopyButton,
-} from '@/components/ai-elements/code-block';
+  CodeBlockHeader,
+  CodeBlockHighlightedContent,
+  CodeBlockTitle,
+} from '@/components/ui/code-block';
 import { api, type WorkflowRunView, type WorkflowAgentView } from '@/lib/api';
 import {
   AgentStreamView,
@@ -246,11 +247,14 @@ function ScriptSection({ runId }: { runId: string }) {
             <FormattedMessage id="editor.workflow.loadingScript" defaultMessage="loading script…" />
           </div>
         ) : script ? (
-          <CodeBlock code={script} language={'javascript' as BundledLanguage}>
+          <CodeBlock size="sm">
             <CodeBlockHeader>
-              <CodeBlockFilename>workflow.js</CodeBlockFilename>
-              <CodeBlockCopyButton />
+              <CodeBlockTitle>workflow.js</CodeBlockTitle>
+              <CodeBlockActions>
+                <CodeBlockCopyButton value={script} />
+              </CodeBlockActions>
             </CodeBlockHeader>
+            <CodeBlockHighlightedContent code={script} language="javascript" className="max-h-96" />
           </CodeBlock>
         ) : (
           <div className="text-[11px] text-muted-foreground/60">

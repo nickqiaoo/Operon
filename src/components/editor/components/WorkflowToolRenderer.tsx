@@ -2,26 +2,34 @@ import { useEffect, useRef, useState } from 'react';
 import { FormattedMessage } from 'react-intl';
 import {
   Workflow as WorkflowIcon,
-  ChevronDownIcon,
-  Loader2,
-  CheckIcon,
-  XIcon,
+  CircleDotIcon,
+  CircleCheckIcon,
+  CircleXIcon,
+  CircleSlashIcon,
   FileCode2,
-  ShieldQuestion as ShieldQuestionIcon,
   PanelRight as PanelRightIcon,
+  XIcon,
 } from 'lucide-react';
-import type { BundledLanguage } from 'shiki';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+import { Button } from '@/components/ui/button';
 import {
   CodeBlock,
-  CodeBlockHeader,
-  CodeBlockFilename,
+  CodeBlockActions,
+  CodeBlockContent,
   CodeBlockCopyButton,
-} from '@/components/ai-elements/code-block';
+  CodeBlockHeader,
+  CodeBlockHighlightedContent,
+  CodeBlockTitle,
+} from '@/components/ui/code-block';
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
 import {
   Confirmation,
   ConfirmationAction,
@@ -31,7 +39,6 @@ import {
   ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
 import type { ConfirmationProps } from '@/components/ai-elements/confirmation';
-import { cn } from '@/lib/utils';
 import { normalizeToolState } from './toolState';
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { isOperonWorkflowTool, isWorkflowToolName } from './workflowToolName';
@@ -85,78 +92,60 @@ export function isWorkflowTool(toolPart: ToolPartLike): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge
+// Status, as the line's description
 // ---------------------------------------------------------------------------
 
-function StatusBadge({ status }: { status: WorkflowRunStatus }) {
-  // Not a spinner: nothing is happening and nothing will until the user acts.
-  // Showing this as "launching" is what made a workflow look hung for minutes.
+function StatusLabel({ status }: { status: WorkflowRunStatus }) {
+  // Not "launching": nothing is happening and nothing will until the user acts.
+  // Showing this as launching is what made a workflow look hung for minutes.
   if (status === 'awaiting-approval') {
     return (
-      <span className="flex items-center gap-1 text-xs text-status-warn">
-        <ShieldQuestionIcon className="h-3.5 w-3.5" />
+      <TraceDescription className="text-status-warn">
         <FormattedMessage id="editor.workflow.awaitingApproval" defaultMessage="waiting for your approval" />
-      </span>
-    );
-  }
-  if (status === 'launching' || status === 'running') {
-    return (
-      <span className="flex items-center gap-1 text-xs text-status-info">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        {status === 'running'
-          ? <FormattedMessage id="editor.workflow.running" defaultMessage="running" />
-          : <FormattedMessage id="editor.workflow.launching" defaultMessage="launching" />}
-      </span>
-    );
-  }
-  if (status === 'error') {
-    return (
-      <span className="flex items-center gap-1 text-xs text-destructive">
-        <XIcon className="h-3.5 w-3.5" />
-        <FormattedMessage id="editor.workflow.failed" defaultMessage="failed" />
-      </span>
+      </TraceDescription>
     );
   }
   return (
-    <span className="flex items-center gap-1 text-xs text-status-ok">
-      <CheckIcon className="h-3.5 w-3.5" />
-      <FormattedMessage id="editor.workflow.launched" defaultMessage="launched" />
-    </span>
+    <TraceDescription>
+      {status === 'running' ? <FormattedMessage id="editor.workflow.running" defaultMessage="running" />
+        : status === 'launching' ? <FormattedMessage id="editor.workflow.launching" defaultMessage="launching" />
+          : status === 'error' ? <FormattedMessage id="editor.workflow.failed" defaultMessage="failed" />
+            : <FormattedMessage id="editor.workflow.launched" defaultMessage="launched" />}
+    </TraceDescription>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Live activity row (one accumulated workflow progress item)
+// Live activity line (one accumulated workflow progress item)
 // ---------------------------------------------------------------------------
 
-function ActivityStatusIcon({ status }: { status: ProgressActivity['status'] }) {
-  if (status === 'running') return <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-status-info" />;
-  if (status === 'error') return <XIcon className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />;
-  if (status === 'cancelled') return <XIcon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />;
-  return <CheckIcon className="mt-0.5 h-3 w-3 shrink-0 text-status-ok" />;
+function ActivityIcon({ status }: { status: ProgressActivity['status'] }) {
+  // Running reads from the line's shimmer; the turn's one spinner is the Working marker.
+  if (status === 'running') return <CircleDotIcon />;
+  if (status === 'error') return <CircleXIcon />;
+  if (status === 'cancelled') return <CircleSlashIcon />;
+  return <CircleCheckIcon />;
 }
 
-function ActivityRow({ activity }: { activity: ProgressActivity }) {
-  const label = activity.displayName || activity.content;
+function ActivityLine({ activity }: { activity: ProgressActivity }) {
+  const line = (
+    <TraceLine status={activity.status === 'running' ? 'running' : activity.status === 'error' ? 'error' : undefined}>
+      <TraceIcon><ActivityIcon status={activity.status} /></TraceIcon>
+      <TraceTitle className={activity.type === 'tool_call' ? undefined : 'whitespace-normal'}>
+        {activity.displayName || activity.content}
+      </TraceTitle>
+    </TraceLine>
+  );
+  if (!activity.output) return line;
   return (
-    <div className="flex items-start gap-2 text-xs">
-      <ActivityStatusIcon status={activity.status} />
-      <div className="min-w-0 flex-1">
-        <span
-          className={cn(
-            'whitespace-pre-wrap break-words',
-            activity.type === 'tool_call' ? 'font-medium text-foreground/90' : 'text-muted-foreground',
-          )}
-        >
-          {label}
-        </span>
-        {activity.output && (
-          <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground/70">
-            {activity.output}
-          </pre>
-        )}
-      </div>
-    </div>
+    <TraceCollapsible>
+      <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <CodeBlock size="sm">
+          <CodeBlockContent wrap className="max-h-40">{activity.output}</CodeBlockContent>
+        </CodeBlock>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 }
 
@@ -284,68 +273,164 @@ export function WorkflowToolRenderer({ toolPart, messageId, partIndex, childPart
   const bodyOpen = open || hasPendingApproval || awaitingApproval;
 
   return (
-    <Collapsible
-      open={bodyOpen}
-      onOpenChange={setOpen}
-      key={`${messageId}-${partIndex}`}
-      className="mt-1 rounded-xl border border-border/40 bg-muted/10"
-    >
-      {/* Header — click to expand/collapse */}
-      <CollapsibleTrigger asChild>
-        {/* Padding matches WorkflowResultMessage's header: the launch card and the
-            result card are the same family and usually sit next to each other, so
-            a taller header on one reads as a mistake. */}
-        <button
-          type="button"
-          className="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-left"
-        >
-          <WorkflowIcon
-            className={cn(
-              'h-4 w-4 shrink-0',
-              status === 'launching' && 'text-status-info',
-              status === 'launched' && 'text-status-ok',
-              status === 'error' && 'text-destructive',
+    <div key={`${messageId}-${partIndex}`} className="flex min-w-0 flex-col gap-2">
+      <Trace>
+        <TraceCollapsible open={bodyOpen} onOpenChange={setOpen}>
+          <TraceCollapsibleTrigger>
+            <TraceLine status={isRunning ? 'running' : status === 'error' ? 'error' : undefined}>
+              <TraceIcon><WorkflowIcon /></TraceIcon>
+              <TraceTitle>{title}</TraceTitle>
+              <StatusLabel status={status} />
+              {counts && (counts.done > 0 || counts.running > 0 || counts.failed > 0) && (
+                <TraceDescription>
+                  <FormattedMessage
+                    id="editor.workflow.stepCounts"
+                    defaultMessage="{done} done · {running} running"
+                    values={{ done: counts.done, running: counts.running }}
+                  />
+                  {counts.failed > 0 && (
+                    <span className="text-status-error">
+                      {' · '}
+                      <FormattedMessage id="editor.workflow.failedCount" defaultMessage="{count} failed" values={{ count: counts.failed }} />
+                    </span>
+                  )}
+                </TraceDescription>
+              )}
+              {isHostBuiltIn && (
+                <TraceDescription title="This agent's own workflow tool — it does not appear in Operon's Workflows panel.">
+                  <FormattedMessage id="editor.workflow.hostBuiltIn" defaultMessage="agent's own" />
+                </TraceDescription>
+              )}
+            </TraceLine>
+          </TraceCollapsibleTrigger>
+
+          <TraceCollapsibleContent className="flex flex-col gap-3">
+            {description && <p className="text-xs">{description}</p>}
+
+            {/* Phase skeleton (extracted from meta.phases) */}
+            {meta.phases.length > 0 && (
+              <Trace>
+                {meta.phases.map((phase, i) => (
+                  <TraceLine key={`phase-${i}`}>
+                    <TraceIcon><span className="font-mono text-xs tabular-nums">{i + 1}</span></TraceIcon>
+                    <TraceTitle>{phase.title}</TraceTitle>
+                    {phase.detail && <TraceDescription className="min-w-0 shrink truncate">{phase.detail}</TraceDescription>}
+                  </TraceLine>
+                ))}
+              </Trace>
             )}
-          />
-          <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-xs"><FormattedMessage id="editor.workflow.badge" defaultMessage="Workflow" /></span>
-          {isHostBuiltIn && (
-            <span
-              className="rounded border border-border/50 px-1.5 py-0.5 text-[11px] text-muted-foreground"
-              title="This agent's own workflow tool — it does not appear in Operon's Workflows panel."
-            >
-              <FormattedMessage id="editor.workflow.hostBuiltIn" defaultMessage="agent's own" />
-            </span>
-          )}
-          <span className="truncate text-sm font-semibold">{title}</span>
-          <StatusBadge status={status} />
-          {counts && (counts.done > 0 || counts.running > 0 || counts.failed > 0) && (
-            <span className="text-xs text-muted-foreground/60">
-              {counts.done}✓ {counts.running}⟳{counts.failed > 0 ? ` ${counts.failed}✗` : ''}
-            </span>
-          )}
-          <ChevronDownIcon
-            className={cn(
-              'ml-auto h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform',
-              bodyOpen && 'rotate-180',
+
+            {/* Live sub-agent activity (foreground workflow progress: phases ▸ / agents / logs / result) */}
+            {progress && progress.recentActivity.length > 0 && (
+              <Trace>
+                {progress.recentActivity
+                  .filter((a) => !(meta.phases.length > 0 && a.id.startsWith('phase-')))
+                  .map((a) => (
+                    <ActivityLine key={a.id} activity={a} />
+                  ))}
+              </Trace>
             )}
-          />
-        </button>
-      </CollapsibleTrigger>
 
-      <CollapsibleContent className="space-y-3 px-4 pb-4">
-      {/* Description */}
-      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+            {/* Sub-agent tool steps (bound to this workflow via parentToolCallId): the
+                actual tool calls, and where the user approves a sub-agent's tool. */}
+            {childParts && childParts.length > 0 && onPermissionDecide && (
+              <Trace>
+                <SubAgentChildList childParts={childParts} onPermissionDecide={onPermissionDecide} />
+              </Trace>
+            )}
 
-      {/* This call's own approval. FIRST in the body: while it is pending nothing
-          below it is happening yet, and the run cannot start until it is answered.
+            {/* args / named-workflow info */}
+            {(argsSummary || rawInput.scriptPath || rawInput.resumeFromRunId) && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                {argsSummary && (
+                  <span>
+                    <span className="text-muted-foreground/60">args:</span> {argsSummary}
+                  </span>
+                )}
+                {rawInput.scriptPath && (
+                  <span className="font-mono">
+                    <span className="font-sans text-muted-foreground/60">scriptPath:</span>{' '}
+                    {rawInput.scriptPath}
+                  </span>
+                )}
+                {rawInput.resumeFromRunId && (
+                  <span className="font-mono">
+                    <span className="font-sans text-muted-foreground/60">resume:</span>{' '}
+                    {rawInput.resumeFromRunId}
+                  </span>
+                )}
+              </div>
+            )}
 
-          Shown only while it is pending, or if it was REJECTED. An accepted one
-          has nothing left to say — `ConfirmationRequest` and `ConfirmationActions`
-          both go null once answered, leaving a padded box holding the word
-          "Accepted", which the header already says (✓ launched) and says better.
-          A rejection stays: without it a denied workflow just looks stuck. */}
+            {/* Script — collapsed, syntax-highlighted */}
+            {script && (
+              <Trace>
+                <TraceCollapsible open={scriptOpen} onOpenChange={setScriptOpen}>
+                  <TraceCollapsibleTrigger>
+                    <TraceLine>
+                      <TraceIcon><FileCode2 /></TraceIcon>
+                      <TraceTitle><FormattedMessage id="editor.workflow.viewScript" defaultMessage="View script" /></TraceTitle>
+                      <TraceDescription>
+                        <FormattedMessage id="editor.workflow.scriptLineCount" defaultMessage="{count, plural, one {# line} other {# lines}}" values={{ count: scriptLines }} />
+                      </TraceDescription>
+                    </TraceLine>
+                  </TraceCollapsibleTrigger>
+                  <TraceCollapsibleContent>
+                    <CodeBlock size="sm">
+                      <CodeBlockHeader>
+                        <CodeBlockTitle>{meta.name ? `${meta.name}.js` : 'workflow.js'}</CodeBlockTitle>
+                        <CodeBlockActions>
+                          <CodeBlockCopyButton value={script} />
+                        </CodeBlockActions>
+                      </CodeBlockHeader>
+                      <CodeBlockHighlightedContent code={script} language="javascript" className="max-h-96" />
+                    </CodeBlock>
+                  </TraceCollapsibleContent>
+                </TraceCollapsible>
+              </Trace>
+            )}
+
+            {/* Footer — launch identifiers / error (from the tool result, if present) */}
+            {errorText && (
+              <CodeBlock size="sm" variant="destructive">
+                <CodeBlockContent wrap className="max-h-40">{errorText}</CodeBlockContent>
+              </CodeBlock>
+            )}
+            {(output?.taskId || output?.runId) && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground/70">
+                {output?.runId && <span>runId: {output.runId}</span>}
+                {output?.taskId && <span>taskId: {output.taskId}</span>}
+                {/* The panel auto-opens once per run and stays closed after the user
+                    closes it, so this is how a run is reached again later — including
+                    long after it finished, which the panel now backfills from SQLite. */}
+                {!isHostBuiltIn && output?.runId && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    className="ml-auto font-sans"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openWorkflowPanel();
+                    }}
+                  >
+                    <PanelRightIcon />
+                    <FormattedMessage id="editor.workflow.openPanel" defaultMessage="Open panel" />
+                  </Button>
+                )}
+              </div>
+            )}
+          </TraceCollapsibleContent>
+        </TraceCollapsible>
+      </Trace>
+
+      {/* This call's own approval, under the line: while it is pending nothing in
+          the run is happening yet. Shown only while pending, or if it was
+          REJECTED — an accepted one has nothing left to say (the line already
+          reads "launched"), but without the rejection a denied workflow just
+          looks stuck. */}
       {onPermissionDecide && approvalId && (awaitingApproval || approval?.approved === false) && (
-        <Confirmation approval={approval} state={state}>
+        <Confirmation approval={approval} state={state} icon={<WorkflowIcon className="text-muted-foreground" />}>
           <ConfirmationTitle>
             <ConfirmationRequest>
               <FormattedMessage
@@ -354,7 +439,7 @@ export function WorkflowToolRenderer({ toolPart, messageId, partIndex, childPart
               />
             </ConfirmationRequest>
             <ConfirmationRejected>
-              <XIcon className="size-4 text-destructive" />
+              <XIcon className="size-4 text-status-error" />
               <span><FormattedMessage id="editor.confirm.rejected" defaultMessage="Rejected" /></span>
             </ConfirmationRejected>
           </ConfirmationTitle>
@@ -375,7 +460,7 @@ export function WorkflowToolRenderer({ toolPart, messageId, partIndex, childPart
                 key={`allow-${i}`}
                 data-testid={`permission-allow-${opt.outcome}`}
                 tone="allow"
-                variant="default"
+                variant={i === 0 ? 'default' : 'secondary'}
                 onClick={() => decide(opt.outcome, opt.updatedInput)}
               >
                 {opt.label}
@@ -384,126 +469,6 @@ export function WorkflowToolRenderer({ toolPart, messageId, partIndex, childPart
           </ConfirmationActions>
         </Confirmation>
       )}
-
-      {/* Phase skeleton (extracted from meta.phases) */}
-      {meta.phases.length > 0 && (
-        <div className="space-y-1">
-          {meta.phases.map((phase, i) => (
-            <div key={`phase-${i}`} className="flex items-baseline gap-2 text-xs">
-              <span className="font-mono text-muted-foreground/70">{i + 1}.</span>
-              <span className="font-medium text-foreground/90">{phase.title}</span>
-              {phase.detail && <span className="text-muted-foreground">— {phase.detail}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Live sub-agent activity (foreground workflow progress: phases ▸ / agents / logs / result) */}
-      {progress && progress.recentActivity.length > 0 && (
-        <div className="space-y-1.5 border-t border-border/40 pt-3">
-          {progress.recentActivity
-            .filter((a) => !(meta.phases.length > 0 && a.id.startsWith('phase-')))
-            .map((a) => (
-              <ActivityRow key={a.id} activity={a} />
-            ))}
-        </div>
-      )}
-
-      {/* Sub-agent tool steps (bound to this workflow via parentToolCallId) — collapsible,
-          with inline approval prompts. The progress rows above summarize; these are the
-          actual tool calls (and where the user approves a sub-agent's tool). */}
-      {childParts && childParts.length > 0 && onPermissionDecide && (
-        <div className="space-y-1 border-t border-border/40 pt-3">
-          <SubAgentChildList childParts={childParts} onPermissionDecide={onPermissionDecide} />
-        </div>
-      )}
-
-      {/* args / named-workflow info */}
-      {(argsSummary || rawInput.scriptPath || rawInput.resumeFromRunId) && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {argsSummary && (
-            <span>
-              <span className="text-muted-foreground/60">args:</span> {argsSummary}
-            </span>
-          )}
-          {rawInput.scriptPath && (
-            <span className="font-mono">
-              <span className="font-sans text-muted-foreground/60">scriptPath:</span>{' '}
-              {rawInput.scriptPath}
-            </span>
-          )}
-          {rawInput.resumeFromRunId && (
-            <span className="font-mono">
-              <span className="font-sans text-muted-foreground/60">resume:</span>{' '}
-              {rawInput.resumeFromRunId}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Script — collapsed, syntax-highlighted */}
-      {script && (
-        <Collapsible open={scriptOpen} onOpenChange={setScriptOpen}>
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <FileCode2 className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                {scriptOpen
-                  ? <FormattedMessage id="editor.workflow.hideScript" defaultMessage="Hide script" />
-                  : <FormattedMessage id="editor.workflow.viewScript" defaultMessage="View script" />}
-                <span className="text-muted-foreground/50"> <FormattedMessage id="editor.workflow.scriptLines" defaultMessage="({count, plural, one {# line} other {# lines}})" values={{ count: scriptLines }} /></span>
-              </span>
-              <ChevronDownIcon
-                className={cn(
-                  'ml-auto h-3.5 w-3.5 shrink-0 transition-transform',
-                  scriptOpen && 'rotate-180',
-                )}
-              />
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <CodeBlock code={script} language={'javascript' as BundledLanguage}>
-              <CodeBlockHeader>
-                <CodeBlockFilename>{meta.name ? `${meta.name}.js` : 'workflow.js'}</CodeBlockFilename>
-                <CodeBlockCopyButton />
-              </CodeBlockHeader>
-            </CodeBlock>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* Footer — launch identifiers / error (from the tool result, if present) */}
-      {(output?.taskId || output?.runId || errorText) && (
-        <div className="space-y-1 border-t border-border/40 pt-2 text-xs">
-          {errorText && <div className="text-destructive">{errorText}</div>}
-          {(output?.taskId || output?.runId) && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground/70 font-mono">
-              {output?.runId && <span>runId: {output.runId}</span>}
-              {output?.taskId && <span>taskId: {output.taskId}</span>}
-              {/* The panel auto-opens once per run and stays closed after the user
-                  closes it, so this is how a run is reached again later — including
-                  long after it finished, which the panel now backfills from SQLite. */}
-              {!isHostBuiltIn && output?.runId && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openWorkflowPanel();
-                  }}
-                  className="ml-auto flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-sans text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <PanelRightIcon className="h-3.5 w-3.5" />
-                  <FormattedMessage id="editor.workflow.openPanel" defaultMessage="Open panel" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-      </CollapsibleContent>
-    </Collapsible>
+    </div>
   );
 }

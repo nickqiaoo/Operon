@@ -17,6 +17,7 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { InputGroupAddon } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
 import type { ActivitySummary, AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
@@ -460,7 +461,7 @@ function ComposerAttachments() {
   const attachments = usePromptInputAttachments()
   if (attachments.files.length === 0) return null
   return (
-    <Attachments className="ml-0 w-full px-3 pt-3" variant="grid">
+    <Attachments className="ml-0 w-full px-3 pt-3">
       {attachments.files.map((file) => (
         <Attachment key={file.id} data={file} onRemove={() => attachments.remove(file.id)}>
           <AttachmentPreview />
@@ -471,15 +472,15 @@ function ComposerAttachments() {
   )
 }
 
-/** Attachments sit above the text in a bubble of their own, as in chats (MessagePartRenderer). */
+/** Attachment cards sit above the text, outside the bubble, as in chats (MessagePartRenderer). */
 const UserMessage = memo(function UserMessage({ message, compact }: { message: AssistantMessage; compact: boolean }) {
   const files = message.attachments ?? []
   return (
     <>
       {files.length > 0 && (
         <Message from="user">
-          <MessageContent>
-            <Attachments variant="grid">
+          <MessageContent variant="none">
+            <Attachments>
               {files.map((file, i) => (
                 <Attachment
                   key={`${message.id}-${i}`}
@@ -496,10 +497,8 @@ const UserMessage = memo(function UserMessage({ message, compact }: { message: A
         <Message from="user" className={cn(compact && "max-w-[85%]")}>
           {/* Phone: the brand colour, so the two sides of the thread tell apart at a glance. */}
           <MessageContent
-            className={cn(
-              compact &&
-                "text-[17px] leading-[1.4] group-[.is-user]:bg-brand-fill group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-brand-fg group-[.is-user]:shadow-none",
-            )}
+            variant={compact ? "brand" : undefined}
+            className={cn(compact && "px-3.5 py-2.5 text-[17px] leading-[1.4]")}
           >
             <span className="whitespace-pre-wrap">{message.text}</span>
           </MessageContent>
@@ -532,13 +531,7 @@ const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecid
     <Message from="assistant" className={cn("gap-1", compact ? "max-w-[92%]" : "max-w-[85%]")}>
       {/* An approval card is a message with nothing to say besides the card. */}
       {message.text && (
-        <MessageContent
-          className={cn(
-            "rounded-xl px-3.5 py-2.5 transition-shadow",
-            // Phone: a solid surface so the reply reads as a bubble against the canvas.
-            compact ? "bg-muted" : "bg-muted/50 dark:bg-muted/40",
-          )}
-        >
+        <MessageContent variant="muted" className="px-3.5 py-2.5">
           {/* Phone: 17px at 1.4, the system's own reading size — the desktop's
               0.9rem at prose's loose leading reads small and airy at arm's length. */}
           <MessageResponse className={cn(compact && "text-[17px] leading-[1.4] [&_li]:leading-[1.4] [&_p]:leading-[1.4]")}>
@@ -579,6 +572,10 @@ const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecid
   )
 })
 
+/**
+ * A tool call waiting on the person, as in the main chat's Confirmation: an Item
+ * (icon, what it wants to do, actions), with the raw arguments one click away.
+ */
 function ApprovalCard({
   approval,
   compact,
@@ -592,25 +589,24 @@ function ApprovalCard({
   const [showArgs, setShowArgs] = useState(false)
 
   return (
-    <div
-      className={cn(
-        "w-full space-y-3 rounded-xl border border-border/60 bg-popover p-4 shadow-card dark:border-border/35",
-        !compact && "min-w-[360px]",
-      )}
+    <Item
+      variant="outline"
+      size="sm"
+      className={cn("w-full flex-wrap rounded-xl bg-popover shadow-card", !compact && "min-w-[360px]")}
     >
-      <div className="flex items-start gap-3">
+      <ItemMedia>
         <AuditIconTile icon={approval.icon} />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">{approval.title}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{auditDetail(intl, approval.detail)}</div>
-        </div>
-      </div>
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle>{approval.title}</ItemTitle>
+        <ItemDescription>{auditDetail(intl, approval.detail)}</ItemDescription>
+      </ItemContent>
       {showArgs && approval.args && (
-        <pre className="max-h-40 overflow-auto rounded-lg border border-border/40 bg-background/40 p-3 text-[11px] leading-relaxed text-muted-foreground">
+        <pre className="code-scrollbar order-last max-h-40 basis-full overflow-auto rounded-lg border border-border/40 bg-background/40 p-3 text-[11px] leading-relaxed text-muted-foreground dark:border-border/35">
           {JSON.stringify(approval.args, null, 2)}
         </pre>
       )}
-      <div className="flex flex-wrap items-center gap-1.5">
+      <ItemActions className="basis-full flex-wrap gap-1.5">
         <Button size="sm" variant="secondary" className="h-8" onClick={() => onDecide("allowed_once")}>
           <FormattedMessage id="assistant.approval.allowOnce" defaultMessage="Allow once" />
         </Button>
@@ -618,20 +614,22 @@ function ApprovalCard({
           <FormattedMessage id="assistant.approval.deny" defaultMessage="Deny" />
         </Button>
         {approval.args && (
-          <button
+          <Button
             type="button"
+            size="xs"
+            variant="ghost"
             onClick={() => setShowArgs((v) => !v)}
-            className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            className="ml-auto text-muted-foreground"
           >
             {showArgs ? (
               <FormattedMessage id="assistant.approval.hideDetails" defaultMessage="Hide details" />
             ) : (
               <FormattedMessage id="assistant.approval.details" defaultMessage="Details" />
             )}
-          </button>
+          </Button>
         )}
-      </div>
-    </div>
+      </ItemActions>
+    </Item>
   )
 }
 

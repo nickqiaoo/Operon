@@ -1,17 +1,28 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { CheckIcon, XIcon, MessageCircleQuestionIcon } from 'lucide-react';
-import {
-  Confirmation,
-  ConfirmationAccepted,
-  ConfirmationRejected,
-  ConfirmationTitle,
-} from '@/components/ai-elements/confirmation';
+import { MessageCircleQuestionIcon } from 'lucide-react';
 import type { ConfirmationProps } from '@/components/ai-elements/confirmation';
-import { Tool, ToolHeader, ToolContent, ToolOutput } from '@/components/ai-elements/tool';
+import { Tool, ToolContent, ToolLine, ToolOutput, toolTraceStatus } from '@/components/ai-elements/tool';
 import type { ToolPart } from '@/components/ai-elements/tool';
+import { Button } from '@/components/ui/button';
+import {
+  Questionnaire,
+  QuestionnaireActions,
+  QuestionnaireChoice,
+  QuestionnaireChoiceDescription,
+  QuestionnaireChoices,
+  QuestionnaireDescription,
+  QuestionnaireError,
+  QuestionnaireInput,
+  QuestionnaireItem,
+  QuestionnaireNext,
+  QuestionnairePrevious,
+  QuestionnaireProgress,
+  QuestionnaireSubmit,
+  QuestionnaireTitle,
+} from '@/components/ui/questionnaire';
+import { TraceCollapsibleTrigger, TraceDescription } from '@/components/ui/trace';
 import { normalizeToolState } from './toolState';
-import { cn } from '@/lib/utils';
 import type { ToolPartLike } from './toolName';
 
 interface QuestionOption {
@@ -58,6 +69,14 @@ export type ToolInvocationPart = ToolPartLike & {
   toolCallId?: string;
 };
 
+/**
+ * AskUserQuestion (Claude Code) / ask_user (Gemini) / OpenCode's question tool.
+ *
+ * While it waits, the questions are a shadcn Questionnaire — one at a time, each
+ * with its options plus a free-text answer — sitting under the tool line the way
+ * an approval does: a question for the person, not a step. Once answered (or
+ * cancelled) it is just the line, which opens onto what was asked and answered.
+ */
 export function AskUserQuestionRenderer({
   toolPart,
   messageId,
@@ -92,94 +111,29 @@ export function AskUserQuestionRenderer({
   });
   const output = toolPart.result ?? toolPart.output;
   const hasOutput = output !== undefined && output !== null;
-
-  // State for answers
-  const [answers, setAnswers] = useState<Record<string, string[]>>(() => {
-    const initial: Record<string, string[]> = {};
-    questions.forEach((q) => {
-      initial[qKey(q)] = [];
-    });
-    return initial;
-  });
-
-  // State for custom "Other" text inputs
-  const [otherTexts, setOtherTexts] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    questions.forEach((q) => {
-      initial[qKey(q)] = '';
-    });
-    return initial;
-  });
-
-  // State for showing custom input for each question
-  const [showOther, setShowOther] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    questions.forEach((q) => {
-      initial[qKey(q)] = false;
-    });
-    return initial;
-  });
-
   const approvalId = toolPart.approval?.id ?? toolPart.toolCallId;
-  const baseApproval: ConfirmationProps['approval'] =
-    toolPart.approval ?? (approvalId ? { id: approvalId } : undefined);
-  const approval = optimisticOutcome && baseApproval
-    ? { ...baseApproval, approved: optimisticOutcome !== 'deny' }
-    : baseApproval;
+  const awaiting = state === 'approval-requested';
+  const answered = optimisticOutcome === 'allow' || toolPart.approval?.approved === true;
+  const cancelled = optimisticOutcome === 'deny' || toolPart.approval?.approved === false;
 
-  const shouldExpand = state === 'approval-requested';
+  // Questionnaire items are form fields; their names are positional so any
+  // question text (quotes, newlines) is safe as a key.
+  const fieldName = (index: number) => `q${index}`;
 
-  const handleOptionSelect = (key: string, optionLabel: string, multiSelect: boolean) => {
-    setAnswers((prev) => {
-      const current = prev[key] ?? [];
-      if (multiSelect) {
-        if (current.includes(optionLabel)) {
-          return { ...prev, [key]: current.filter((l) => l !== optionLabel) };
-        }
-        return { ...prev, [key]: [...current, optionLabel] };
-      }
-      return { ...prev, [key]: [optionLabel] };
-    });
-    // Single-select: picking a normal option always deselects "Other"
-    if (!multiSelect) {
-      setShowOther((prev) => ({ ...prev, [key]: false }));
-    }
-  };
-
-  const handleOtherToggle = (key: string, multiSelect: boolean) => {
-    const willShowOther = !showOther[key];
-    setShowOther((prev) => ({ ...prev, [key]: willShowOther }));
-    // Single-select: picking "Other" clears normal options
-    if (!multiSelect && willShowOther) {
-      setAnswers((prev) => ({ ...prev, [key]: [] }));
-    }
-  };
-
-  const handleOtherTextChange = (key: string, text: string) => {
-    setOtherTexts((prev) => ({ ...prev, [key]: text }));
-  };
-
-  const handleSubmit = () => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!approvalId) return;
+    const form = new FormData(event.currentTarget);
 
-    // Build answers object
     const formattedAnswers: Record<string, string> = {};
     questions.forEach((q, index) => {
-      const k = qKey(q);
-      const selectedOptions = answers[k] ?? [];
-      const otherText = otherTexts[k]?.trim() ?? '';
-      const useOther = showOther[k] && otherText;
+      const values = form.getAll(fieldName(index))
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean);
       // Gemini uses numeric indices as keys; Codex/CC uses question id or text
-      const key = isGemini ? String(index) : k;
-
-      // Text-only questions always use the text field
-      if (q.type === 'text' && (!q.options || q.options.length === 0)) {
-        if (otherText) formattedAnswers[key] = otherText;
-      } else if (useOther) {
-        formattedAnswers[key] = otherText;
-      } else if (selectedOptions.length > 0) {
-        formattedAnswers[key] = selectedOptions.join(', ');
-      }
+      const key = isGemini ? String(index) : qKey(q);
+      if (values.length > 0) formattedAnswers[key] = values.join(', ');
     });
 
     setOptimisticOutcome('allow');
@@ -202,219 +156,114 @@ export function AskUserQuestionRenderer({
     onPermissionDecide(approvalId, 'deny');
   };
 
-  // Check if all questions have answers
-  const isComplete = questions.every((q) => {
-    const k = qKey(q);
-    const selectedOptions = answers[k] ?? [];
-    const otherText = otherTexts[k]?.trim() ?? '';
-    const useOther = showOther[k] && otherText;
-    if (q.type === 'text' && (!q.options || q.options.length === 0)) {
-      return otherText.length > 0;
-    }
-    return selectedOptions.length > 0 || useOther;
-  });
+  const answerPlaceholder = intl.formatMessage({ id: 'editor.ask.answerPlaceholder', defaultMessage: 'Enter your answer...' });
+  const otherPlaceholder = intl.formatMessage({ id: 'editor.ask.otherPlaceholder', defaultMessage: 'Something else…' });
 
   return (
-    <Tool key={`${messageId}-${partIndex}`} {...(shouldExpand ? { open: true } : {})}>
-      <ToolHeader icon={<MessageCircleQuestionIcon className="size-3.5 shrink-0 text-muted-foreground/70" />} type="dynamic-tool" toolName={intl.formatMessage({ id: 'editor.ask.toolName', defaultMessage: 'Ask User' })} state={state} />
-      <ToolContent>
-        {state === 'approval-requested' ? (
-          <div className="space-y-4 p-4">
-            {questions.map((question, qIndex) => (
-              <div key={qIndex} className="space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-muted/60 text-muted-foreground">
-                    {question.header}
-                  </span>
-                </div>
-                <p className="text-sm font-medium">{question.question}</p>
-                <div className="space-y-1.5">
-                  {/* Text-only question (Gemini type='text') — no options, just input */}
-                  {question.type === 'text' && (!question.options || question.options.length === 0) ? (
-                    <input
-                      type="text"
-                      value={otherTexts[qKey(question)] ?? ''}
-                      onChange={(e) => {
-                        handleOtherTextChange(qKey(question), e.target.value);
-                        setShowOther((prev) => ({ ...prev, [qKey(question)]: true }));
-                      }}
-                      placeholder={question.placeholder ?? intl.formatMessage({ id: 'editor.ask.answerPlaceholder', defaultMessage: 'Enter your answer...' })}
-                      className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-tint/40 placeholder:text-muted-foreground/50"
-                      autoFocus
-                    />
-                  ) : (
-                  <>
-                  {(question.options ?? []).map((option, oIndex) => {
-                    const isSelected = (answers[qKey(question)] ?? []).includes(option.label);
-                    return (
-                      <button
-                        type="button"
-                        key={oIndex}
-                        onClick={() => handleOptionSelect(qKey(question), option.label, question.multiSelect ?? false)}
-                        className={cn(
-                          'w-full text-left px-3 py-2.5 rounded-lg transition-all',
-                          isSelected
-                            ? 'bg-tint-muted ring-1 ring-tint/40'
-                            : 'hover:bg-row-hover'
-                        )}
-                      >
-                        <div className="flex items-start gap-2.5">
-                          <div
-                            className={cn(
-                              'mt-0.5 size-4 rounded flex items-center justify-center shrink-0 transition-colors',
-                              question.multiSelect ? 'rounded' : 'rounded-full',
-                              isSelected
-                                ? 'bg-tint text-tint-fg'
-                                : 'ring-1 ring-border'
-                            )}
-                          >
-                            {isSelected && <CheckIcon className="size-3" />}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">{option.label}</p>
-                            {option.description && (
-                              <p className="text-xs text-muted-foreground mt-0.5">{option.description}</p>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                  {/* Other option */}
-                  <button
-                    type="button"
-                    onClick={() => handleOtherToggle(qKey(question), question.multiSelect ?? false)}
-                    className={cn(
-                      'w-full text-left px-3 py-2.5 rounded-lg transition-all',
-                      showOther[qKey(question)]
-                        ? 'bg-tint-muted ring-1 ring-tint/40'
-                        : 'hover:bg-row-hover'
-                    )}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <div
-                        className={cn(
-                          'mt-0.5 size-4 rounded flex items-center justify-center shrink-0 transition-colors',
-                          question.multiSelect ? 'rounded' : 'rounded-full',
-                          showOther[qKey(question)]
-                            ? 'bg-tint text-tint-fg'
-                            : 'ring-1 ring-border'
-                        )}
-                      >
-                        {showOther[qKey(question)] && <CheckIcon className="size-3" />}
-                      </div>
-                      <p className="text-sm font-medium"><FormattedMessage id="editor.ask.other" defaultMessage="Other" /></p>
-                    </div>
-                  </button>
-
-                  {/* Custom text input */}
-                  {showOther[qKey(question)] && (
-                    <input
-                      type="text"
-                      value={otherTexts[qKey(question)] ?? ''}
-                      onChange={(e) => handleOtherTextChange(qKey(question), e.target.value)}
-                      placeholder={question.placeholder ?? intl.formatMessage({ id: 'editor.ask.answerPlaceholder', defaultMessage: 'Enter your answer...' })}
-                      className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-tint/40 placeholder:text-muted-foreground/50"
-                      autoFocus
-                    />
-                  )}
-                  </>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            <div className="flex gap-2 pt-2" data-testid="ask-user-question">
-              <button
-                type="button"
-                data-testid="ask-user-question-cancel"
-                onClick={handleDeny}
-                className="px-4 py-2 text-sm rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-              >
-                <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
-              </button>
-              <button
-                type="button"
-                data-testid="ask-user-question-submit"
-                onClick={handleSubmit}
-                disabled={!isComplete}
-                className={cn(
-                  'px-4 py-2 text-sm rounded-lg transition-colors',
-                  isComplete
-                    ? 'bg-tint text-tint-fg hover:bg-tint-soft'
-                    : 'bg-muted text-muted-foreground cursor-not-allowed'
-                )}
-              >
-                <FormattedMessage id="editor.ask.submit" defaultMessage="Submit" />
-              </button>
-            </div>
-          </div>
-        ) : state === 'input-streaming' ? (
-          // Data is still streaming, show loading
-          <div className="p-4 text-sm text-muted-foreground"><FormattedMessage id="editor.ask.loading" defaultMessage="Loading questions..." /></div>
-        ) : (
-          // Display questions in a readable format for input-available and other states
-          <div className="space-y-3 p-4">
-            {questions.map((question, qIndex) => (
-              <div key={qIndex} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-muted/60 text-muted-foreground">
-                    {question.header}
-                  </span>
-                </div>
-                <p className="text-sm font-medium">{question.question}</p>
-                <div className="space-y-1">
-                  {(question.options ?? []).map((option, oIndex) => (
-                    <div
-                      key={oIndex}
-                      className="flex items-start gap-2.5 px-3 py-2 rounded-lg"
-                    >
-                      <div
-                        className={cn(
-                          'mt-0.5 size-4 rounded flex items-center justify-center shrink-0 ring-1 ring-border/60',
-                          question.multiSelect ? 'rounded' : 'rounded-full'
-                        )}
-                      />
-                      <div>
-                        <p className="text-sm">{option.label}</p>
-                        {option.description && (
-                          <p className="text-xs text-muted-foreground">{option.description}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {rawInput.answers && Object.keys(rawInput.answers).length > 0 && (
-              <div className="pt-2 border-t border-border/40">
-                <p className="text-xs font-medium text-muted-foreground mb-2"><FormattedMessage id="editor.ask.answersProvided" defaultMessage="Answers provided:" /></p>
-                {Object.entries(rawInput.answers).map(([q, a]) => (
-                  <div key={q} className="text-sm">
-                    <span className="text-muted-foreground">{q}: </span>
-                    <span className="font-medium">{a}</span>
+    <div key={`${messageId}-${partIndex}`} className="flex min-w-0 flex-col gap-2">
+      <Tool>
+        <TraceCollapsibleTrigger>
+          <ToolLine
+            icon={<MessageCircleQuestionIcon />}
+            name={intl.formatMessage({ id: 'editor.ask.toolName', defaultMessage: 'Ask User' })}
+            status={awaiting ? undefined : toolTraceStatus(state)}
+            trailing={
+              awaiting ? null : answered ? (
+                <TraceDescription><FormattedMessage id="editor.ask.answered" defaultMessage="Answered" /></TraceDescription>
+              ) : cancelled ? (
+                <TraceDescription><FormattedMessage id="editor.ask.cancelled" defaultMessage="Cancelled" /></TraceDescription>
+              ) : null
+            }
+          />
+        </TraceCollapsibleTrigger>
+        <ToolContent>
+          {state === 'input-streaming' ? (
+            <p className="text-sm"><FormattedMessage id="editor.ask.loading" defaultMessage="Loading questions..." /></p>
+          ) : (
+            <dl className="space-y-2 text-sm">
+              {questions.map((question, qIndex) => {
+                const answer = rawInput.answers?.[qKey(question)] ?? rawInput.answers?.[String(qIndex)];
+                return (
+                  <div key={qIndex} className="space-y-0.5">
+                    <dt>{question.question}</dt>
+                    {answer ? <dd className="text-foreground">{answer}</dd> : null}
                   </div>
-                ))}
-              </div>
-            )}
-            <Confirmation approval={approval} state={state}>
-              <ConfirmationTitle>
-                <ConfirmationAccepted>
-                  <CheckIcon className="size-4 text-status-ok" />
-                  <span><FormattedMessage id="editor.ask.answered" defaultMessage="Answered" /></span>
-                </ConfirmationAccepted>
-                <ConfirmationRejected>
-                  <XIcon className="size-4 text-destructive" />
-                  <span><FormattedMessage id="editor.ask.cancelled" defaultMessage="Cancelled" /></span>
-                </ConfirmationRejected>
-              </ConfirmationTitle>
-            </Confirmation>
+                );
+              })}
+            </dl>
+          )}
+          {(hasOutput || toolPart.errorText) ? <ToolOutput output={output} errorText={toolPart.errorText} /> : null}
+        </ToolContent>
+      </Tool>
+
+      {awaiting && questions.length > 0 && (
+        <Questionnaire
+          data-testid="ask-user-question"
+          onSubmit={handleSubmit}
+          className="not-prose gap-4 rounded-xl border border-border/60 bg-background p-4 dark:border-border/35"
+        >
+          {questions.length > 1 && <QuestionnaireProgress />}
+          {questions.map((question, qIndex) => {
+            const textOnly = question.type === 'text' && (!question.options || question.options.length === 0);
+            return (
+              <QuestionnaireItem
+                key={qIndex}
+                name={fieldName(qIndex)}
+                multiple={question.multiSelect}
+                required
+                className="gap-3"
+              >
+                <QuestionnaireTitle className="text-sm [&:not(:has(~[data-slot=questionnaire-description]))]:mb-3">
+                  {question.question}
+                </QuestionnaireTitle>
+                {question.header && question.header !== question.question && (
+                  <QuestionnaireDescription className="text-xs">{question.header}</QuestionnaireDescription>
+                )}
+                <QuestionnaireChoices className="gap-2">
+                  {!textOnly && (question.options ?? []).map((option, oIndex) => (
+                    <QuestionnaireChoice key={oIndex} value={option.label} className="min-h-0 px-3 py-2.5">
+                      <span className="font-medium">{option.label}</span>
+                      {option.description && (
+                        <QuestionnaireChoiceDescription className="text-xs">{option.description}</QuestionnaireChoiceDescription>
+                      )}
+                    </QuestionnaireChoice>
+                  ))}
+                  <QuestionnaireInput
+                    aria-label={textOnly ? question.question : otherPlaceholder}
+                    placeholder={question.placeholder ?? (textOnly ? answerPlaceholder : otherPlaceholder)}
+                    className="h-9 min-h-0 text-sm"
+                  />
+                </QuestionnaireChoices>
+                <QuestionnaireError className="mt-0 text-xs" />
+              </QuestionnaireItem>
+            );
+          })}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              data-testid="ask-user-question-cancel"
+              size="sm"
+              variant="ghost"
+              className="h-8"
+              onClick={handleDeny}
+            >
+              <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
+            </Button>
+            <QuestionnaireActions className="ml-auto flex w-auto min-h-0 justify-end gap-2 sm:min-h-0">
+              <QuestionnairePrevious>
+                <FormattedMessage id="editor.ask.previous" defaultMessage="Previous" />
+              </QuestionnairePrevious>
+              <QuestionnaireNext>
+                <FormattedMessage id="editor.ask.next" defaultMessage="Next" />
+              </QuestionnaireNext>
+              <QuestionnaireSubmit data-testid="ask-user-question-submit">
+                <FormattedMessage id="editor.ask.submit" defaultMessage="Submit" />
+              </QuestionnaireSubmit>
+            </QuestionnaireActions>
           </div>
-        )}
-        {(hasOutput || toolPart.errorText) ? <ToolOutput output={output} errorText={toolPart.errorText} /> : null}
-      </ToolContent>
-    </Tool>
+        </Questionnaire>
+      )}
+    </div>
   );
 }
 

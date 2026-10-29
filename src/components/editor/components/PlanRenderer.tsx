@@ -5,6 +5,7 @@ import {
   Confirmation,
   ConfirmationAction,
   ConfirmationActions,
+  ConfirmationTitle,
 } from '@/components/ai-elements/confirmation';
 import type { ConfirmationProps } from '@/components/ai-elements/confirmation';
 import { MessageResponse } from '@/components/ai-elements/message';
@@ -14,8 +15,8 @@ import {
   PlanDescription,
   PlanHeader,
   PlanTitle,
-  PlanTrigger,
 } from '@/components/ai-elements/plan';
+import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace';
 import { FileText } from 'lucide-react';
 import { normalizeToolState } from './toolState';
 import { type ToolPartLike } from './toolName';
@@ -90,40 +91,47 @@ export function PlanRenderer({
     }
   };
 
+  const awaitingReview = state === 'approval-requested';
+  const planStatus = awaitingReview
+    ? intl.formatMessage({ id: 'editor.plan.awaitingReview', defaultMessage: 'Awaiting review' })
+    : intl.formatMessage({ id: 'editor.plan.submitted', defaultMessage: 'Plan submitted.' });
+
   return (
-    <Plan key={`${messageId}-${partIndex}`} defaultOpen={state === 'approval-requested'}>
-      <PlanHeader>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <FileText className="size-4 text-muted-foreground" />
-            <PlanTitle>{planTitle}</PlanTitle>
-          </div>
-          <PlanDescription>
-            {state === 'approval-requested'
-              ? intl.formatMessage({ id: 'editor.plan.reviewPrompt', defaultMessage: 'Review and approve this plan to proceed.' })
-              : intl.formatMessage({ id: 'editor.plan.submitted', defaultMessage: 'Plan submitted.' })}
-          </PlanDescription>
-        </div>
-        <PlanTrigger />
-      </PlanHeader>
+    <div key={`${messageId}-${partIndex}`} className="flex min-w-0 flex-col gap-2">
       {planMarkdown ? (
-        <PlanContent>
-          <div className="space-y-4 text-sm">
+        <Plan defaultOpen={awaitingReview}>
+          <PlanHeader icon={<FileText />}>
+            <PlanTitle>{planTitle}</PlanTitle>
+            <PlanDescription>{planStatus}</PlanDescription>
+          </PlanHeader>
+          <PlanContent className="text-foreground">
             <MessageResponse>{planMarkdown}</MessageResponse>
-          </div>
-        </PlanContent>
-      ) : null}
+          </PlanContent>
+        </Plan>
+      ) : (
+        // Codex writes the plan as the reply itself, above: nothing to open here.
+        <Trace>
+          <TraceLine>
+            <TraceIcon><FileText /></TraceIcon>
+            <TraceTitle>{planTitle}</TraceTitle>
+            <TraceDescription>{planStatus}</TraceDescription>
+          </TraceLine>
+        </Trace>
+      )}
       {state === 'approval-requested' && (
-        <Confirmation approval={approval} state={state}>
+        <Confirmation approval={approval} state={state} icon={<FileText className="text-muted-foreground" />}>
+          <ConfirmationTitle>
+            {intl.formatMessage({ id: 'editor.plan.reviewPrompt', defaultMessage: 'Review and approve this plan to proceed.' })}
+          </ConfirmationTitle>
           {/* Gemini: feedback input for rejection */}
           {isGemini && (
-            <div className="px-1 pb-2">
+            <div className="order-last basis-full">
               <input
                 type="text"
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 placeholder={intl.formatMessage({ id: 'editor.plan.feedbackPlaceholder', defaultMessage: 'Optional feedback if rejecting...' })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-muted/40 focus:outline-none focus:ring-1 focus:ring-tint/40 placeholder:text-muted-foreground/50"
+                className="h-8 w-full rounded-lg border border-border/50 bg-background px-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-tint/40 dark:border-border/35"
               />
             </div>
           )}
@@ -144,7 +152,7 @@ export function PlanRenderer({
                 key={`allow-${i}`}
                 data-testid={`permission-allow-${opt.outcome}`}
                 tone="allow"
-                variant="default"
+                variant={i === 0 ? 'default' : 'secondary'}
                 onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
               >
                 {opt.label}
@@ -164,6 +172,6 @@ export function PlanRenderer({
           </ConfirmationActions>
         </Confirmation>
       )}
-    </Plan>
+    </div>
   );
 }

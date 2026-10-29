@@ -11,13 +11,11 @@ import endpointLogo from "@/assets/logos/endpoint.svg";
 
 import {
   Command,
-  CommandDialog,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
 import {
@@ -65,12 +63,6 @@ export const ModelSelectorContent = ({
   </DialogContent>
 );
 
-export type ModelSelectorDialogProps = ComponentProps<typeof CommandDialog>;
-
-export const ModelSelectorDialog = (props: ModelSelectorDialogProps) => (
-  <CommandDialog {...props} />
-);
-
 export type ModelSelectorInputProps = ComponentProps<typeof CommandInput>;
 
 export const ModelSelectorInput = ({
@@ -108,14 +100,6 @@ export type ModelSelectorShortcutProps = ComponentProps<typeof CommandShortcut>;
 
 export const ModelSelectorShortcut = (props: ModelSelectorShortcutProps) => (
   <CommandShortcut {...props} />
-);
-
-export type ModelSelectorSeparatorProps = ComponentProps<
-  typeof CommandSeparator
->;
-
-export const ModelSelectorSeparator = (props: ModelSelectorSeparatorProps) => (
-  <CommandSeparator {...props} />
 );
 
 export type ModelSelectorLogoProps = Omit<
@@ -214,21 +198,6 @@ export const ModelSelectorLogo = ({
     height={12}
     src={localLogos[provider] ?? `https://models.dev/logos/${provider}.svg`}
     width={12}
-  />
-);
-
-export type ModelSelectorLogoGroupProps = ComponentProps<"div">;
-
-export const ModelSelectorLogoGroup = ({
-  className,
-  ...props
-}: ModelSelectorLogoGroupProps) => (
-  <div
-    className={cn(
-      "-space-x-1 flex shrink-0 items-center [&>img]:rounded-full [&>img]:bg-background [&>img]:p-px [&>img]:ring-1 dark:[&>img]:bg-foreground",
-      className
-    )}
-    {...props}
   />
 );
 

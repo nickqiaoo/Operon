@@ -1,29 +1,29 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@/components/ui/trace";
 import { cn } from "@/lib/utils";
-import { ChevronsUpDownIcon } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { createContext, useContext } from "react";
-import { Shimmer } from "./shimmer";
 
-interface PlanContextValue {
+/**
+ * Plan, rebuilt on shadcn/ui Trace (https://ui.shadcn.com/docs/ai-elements/radix/plan):
+ * one line ("Plan: …", "2 of 4 done") that opens onto the plan. The whole line
+ * is the trigger, so PlanTrigger renders only its children, and a PlanAction
+ * goes next to the line rather than inside it.
+ */
+
+type PlanContextValue = {
   isStreaming: boolean;
-}
+};
 
 const PlanContext = createContext<PlanContextValue | null>(null);
 
@@ -35,108 +35,46 @@ const usePlan = () => {
   return context;
 };
 
-export type PlanProps = ComponentProps<typeof Collapsible> & {
+export type PlanProps = Omit<ComponentProps<typeof TraceCollapsible>, "open" | "onOpenChange"> & {
   isStreaming?: boolean;
 };
 
-export const Plan = ({
-  className,
-  isStreaming = false,
-  children,
-  ...props
-}: PlanProps) => (
+export const Plan = ({ className, isStreaming = false, children, ...props }: PlanProps) => (
   <PlanContext.Provider value={{ isStreaming }}>
-    <Collapsible asChild data-slot="plan" {...props}>
-      <Card className={cn("border-border/40 shadow-none", className)}>{children}</Card>
-    </Collapsible>
+    <Trace>
+      <TraceCollapsible data-slot="plan" className={cn("not-prose", className)} {...props}>
+        {children}
+      </TraceCollapsible>
+    </Trace>
   </PlanContext.Provider>
 );
 
-export type PlanHeaderProps = ComponentProps<typeof CardHeader>;
-
-export const PlanHeader = ({ className, ...props }: PlanHeaderProps) => (
-  <CardHeader
-    className={cn("flex items-start justify-between", className)}
-    data-slot="plan-header"
-    {...props}
-  />
-);
-
-export type PlanTitleProps = Omit<
-  ComponentProps<typeof CardTitle>,
-  "children"
-> & {
-  children: string;
+export type PlanHeaderProps = Omit<ComponentProps<typeof TraceCollapsibleTrigger>, "children"> & {
+  /** Leading icon. */
+  icon?: ReactNode;
+  children?: ReactNode;
 };
 
-export const PlanTitle = ({ children, ...props }: PlanTitleProps) => {
+export const PlanHeader = ({ icon, children, ...props }: PlanHeaderProps) => {
   const { isStreaming } = usePlan();
-
   return (
-    <CardTitle data-slot="plan-title" {...props}>
-      {isStreaming ? <Shimmer>{children}</Shimmer> : children}
-    </CardTitle>
+    <TraceCollapsibleTrigger {...props}>
+      <TraceLine status={isStreaming ? "running" : undefined}>
+        {icon && <TraceIcon>{icon}</TraceIcon>}
+        {children}
+      </TraceLine>
+    </TraceCollapsibleTrigger>
   );
 };
 
-export type PlanDescriptionProps = Omit<
-  ComponentProps<typeof CardDescription>,
-  "children"
-> & {
-  children: string;
-};
+export type PlanTitleProps = ComponentProps<typeof TraceTitle>;
 
-export const PlanDescription = ({
-  className,
-  children,
-  ...props
-}: PlanDescriptionProps) => {
-  const { isStreaming } = usePlan();
+export const PlanTitle = (props: PlanTitleProps) => <TraceTitle {...props} />;
 
-  return (
-    <CardDescription
-      className={cn("text-balance", className)}
-      data-slot="plan-description"
-      {...props}
-    >
-      {isStreaming ? <Shimmer>{children}</Shimmer> : children}
-    </CardDescription>
-  );
-};
+export type PlanDescriptionProps = ComponentProps<typeof TraceDescription>;
 
-export type PlanActionProps = ComponentProps<typeof CardAction>;
+export const PlanDescription = (props: PlanDescriptionProps) => <TraceDescription {...props} />;
 
-export const PlanAction = (props: PlanActionProps) => (
-  <CardAction data-slot="plan-action" {...props} />
-);
+export type PlanContentProps = ComponentProps<typeof TraceCollapsibleContent>;
 
-export type PlanContentProps = ComponentProps<typeof CardContent>;
-
-export const PlanContent = (props: PlanContentProps) => (
-  <CollapsibleContent asChild>
-    <CardContent data-slot="plan-content" {...props} />
-  </CollapsibleContent>
-);
-
-export type PlanFooterProps = ComponentProps<"div">;
-
-export const PlanFooter = (props: PlanFooterProps) => (
-  <CardFooter data-slot="plan-footer" {...props} />
-);
-
-export type PlanTriggerProps = ComponentProps<typeof CollapsibleTrigger>;
-
-export const PlanTrigger = ({ className, ...props }: PlanTriggerProps) => (
-  <CollapsibleTrigger asChild>
-    <Button
-      className={cn("size-8", className)}
-      data-slot="plan-trigger"
-      size="icon"
-      variant="ghost"
-      {...props}
-    >
-      <ChevronsUpDownIcon className="size-4" />
-      <span className="sr-only">Toggle plan</span>
-    </Button>
-  </CollapsibleTrigger>
-);
+export const PlanContent = (props: PlanContentProps) => <TraceCollapsibleContent {...props} />;

@@ -19,6 +19,7 @@ import { CompactToolCall } from './compact-tool/CompactToolCall';
 import { AskUserQuestionRenderer, isAskUserQuestionTool } from './AskUserQuestionRenderer';
 import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
+import { Trace, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace';
 import { SpecNoticeMessage, WorkflowResultMessage, isSpecWorkflowResult, isWorkflowResultMessage, parseSpecNotice } from './WorkflowResultMessage';
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import { getInjectedInput } from './steer-message';
@@ -434,6 +435,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
           isStreamingMessage &&
           partIndex === message.parts.length - 1
         }
+        empty={!part.text.trim()}
       >
         <ReasoningTrigger />
         <ReasoningContent>{part.text}</ReasoningContent>
@@ -455,8 +457,9 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
 
     return (
       <Message key={`${message.id}-${partIndex}`} from={message.role}>
-        <MessageContent>
-          <Attachments className={cn(message.role === 'assistant' && 'ml-0')} variant="grid">
+        {/* The cards are their own surface: no bubble around them. */}
+        <MessageContent variant="none">
+          <Attachments className={cn(message.role === 'assistant' && 'ml-0')}>
             {attachmentsWithId.map((file) => (
               <Attachment key={file.id} data={file}>
                 <AttachmentPreview />
@@ -474,7 +477,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   if (injected) {
     return (
       <Message key={`${message.id}-${partIndex}`} from="user" data-testid="injected-steer">
-        <MessageContent>
+        <MessageContent variant="tint">
           <UserMessageText text={injected.text} />
         </MessageContent>
       </Message>
@@ -489,10 +492,12 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   // Compact rendering for background agent completion notifications
   if (message.role === 'user' && displayText.includes('<task-notification>')) {
     return (
-      <div key={`${message.id}-${partIndex}`} className="flex items-center gap-1.5 text-xs text-muted-foreground py-1">
-        <CheckCircle2Icon className="size-3.5 text-status-ok" />
-        <span><FormattedMessage id="editor.msg.bgAgentCompleted" defaultMessage="Background agent completed" /></span>
-      </div>
+      <Trace key={`${message.id}-${partIndex}`}>
+        <TraceLine>
+          <TraceIcon><CheckCircle2Icon className="text-status-ok" /></TraceIcon>
+          <TraceTitle><FormattedMessage id="editor.msg.bgAgentCompleted" defaultMessage="Background agent completed" /></TraceTitle>
+        </TraceLine>
+      </Trace>
     );
   }
 
@@ -548,9 +553,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
 
   return (
     <Message key={`${message.id}-${partIndex}`} from={message.role}>
-      <MessageContent
-        className={isSteerMessage ? 'bg-tint/20 text-foreground ring-1 ring-inset ring-tint/35 shadow-card' : undefined}
-      >
+      <MessageContent variant={isSteerMessage ? 'tint' : undefined}>
         {message.role === 'user' && <UserContextBlocks blocks={contextBlocks} />}
         {skillTags.length > 0 && !isSteerMessage ? (
           <div className="flex items-baseline flex-wrap gap-1">

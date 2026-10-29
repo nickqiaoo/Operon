@@ -23,8 +23,11 @@ const CATEGORY_ICONS: Record<ToolCategory, LucideIcon> = {
   other: WrenchIcon,
 };
 
-/** Leading icon for a tool row, picked by the same categories the group summary uses. */
+/**
+ * Leading icon for a tool row, picked by the same categories the group summary
+ * uses. Sized and coloured by the TraceIcon / TraceLine it sits in.
+ */
 export function ToolIcon({ toolName, className }: { toolName: string; className?: string }) {
   const Icon = CATEGORY_ICONS[categorizeTool(toolName)];
-  return <Icon className={cn('size-3.5 shrink-0 text-muted-foreground/70', className)} />;
+  return <Icon className={cn('shrink-0', className)} />;
 }

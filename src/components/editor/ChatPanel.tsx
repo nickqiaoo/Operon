@@ -7,16 +7,6 @@ import { ChartPie, Gauge } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
 import { skillsList, type OperonSkillDTO } from './agent/agentControl';
 import {
-  Queue,
-  QueueItem,
-  QueueItemContent,
-  QueueItemIndicator,
-  QueueSection,
-  QueueSectionContent,
-  QueueSectionLabel,
-  QueueSectionTrigger,
-} from '@/components/ai-elements/queue';
-import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
@@ -94,7 +84,7 @@ import { useAppShellStore } from '@/stores/app-shell-store';
 import { WorkflowApprovalsBar } from './components/WorkflowRunsWatcher';
 import { SpecChatBar } from '@/components/spec/SpecChatBar';
 import { RewindConfirmDialog, RewindConflictDialog } from './components/RewindConfirmDialog';
-import { extractTodosFromPart, isTodoWriteTool } from './components/TodoWriteRenderer';
+import { TodoQueue, extractTodosFromPart, isTodoWriteTool } from './components/TodoWriteRenderer';
 import { CanvasChatBanner } from './components/CanvasChatBanner';
 import { isCanvasChatId } from '@/lib/canvas-utils';
 import { trackEvent } from '@/lib/analytics';
@@ -1318,43 +1308,11 @@ function ChatPanelContent({
           ) : null}
         </div>
         )}
-        {latestTodos.length > 0 ? (() => {
-          const completedCount = latestTodos.filter((e) => e.status === 'completed').length;
-          const inProgressCount = latestTodos.filter((e) => e.status === 'in_progress').length;
-          const allCompleted = completedCount === latestTodos.length;
-          const label = allCompleted
-            ? intl.formatMessage({ id: 'editor.todos.completed', defaultMessage: 'tasks completed' })
-            : inProgressCount > 0
-              ? intl.formatMessage({ id: 'editor.todos.progress', defaultMessage: 'tasks ({done}/{total} done)' }, { done: completedCount, total: latestTodos.length })
-              : intl.formatMessage({ id: 'editor.todos.label', defaultMessage: 'tasks' });
-
-          return (
-            <Queue className="max-h-[150px] overflow-y-auto code-scrollbar mb-2 border-border/50">
-              <QueueSection key={allCompleted ? 'done' : 'active'} defaultOpen={!allCompleted}>
-                <QueueSectionTrigger>
-                  <QueueSectionLabel count={allCompleted ? completedCount : latestTodos.length} label={label} />
-                </QueueSectionTrigger>
-                <QueueSectionContent>
-                  <div>
-                    {latestTodos.map((entry, k) => {
-                      const isCompleted = entry.status === 'completed';
-                      const isInProgress = entry.status === 'in_progress';
-                      const displayText = isInProgress && entry.activeForm ? entry.activeForm : entry.content;
-                      return (
-                        <QueueItem key={k}>
-                          <div className="flex items-center gap-2">
-                            <QueueItemIndicator completed={isCompleted} inProgress={isInProgress} />
-                            <QueueItemContent completed={isCompleted}>{displayText}</QueueItemContent>
-                          </div>
-                        </QueueItem>
-                      );
-                    })}
-                  </div>
-                </QueueSectionContent>
-              </QueueSection>
-            </Queue>
-          );
-        })() : null}
+        {latestTodos.length > 0 ? (
+          <div className="mb-2 max-h-[150px] overflow-y-auto rounded-xl border border-border/50 bg-background px-3 py-2 code-scrollbar dark:border-border/35">
+            <TodoQueue todos={latestTodos} live={status === 'streaming' || status === 'submitted'} />
+          </div>
+        ) : null}
         <AnnotationTray workspaceId={currentWorkspaceId} />
         <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
         <LineCommentTray workspaceId={currentWorkspaceId} />

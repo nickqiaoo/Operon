@@ -57,11 +57,11 @@ export const AccessibilityTreeOutput = ({ snapshot, className }: AccessibilityTr
         </div>
       </div>
 
-      {/* No max-height here: ToolOutput already wraps this in a bounded
-          ScrollArea, and nesting a second scroller inside it traps the wheel. */}
+      {/* The tree is its own bounded scroller, the same height cap as the
+          other tool output blocks (ToolOutput itself does not scroll). */}
       <div
         key={expansion.version}
-        className="rounded-lg border border-border/40 bg-muted/30 p-1.5"
+        className="code-scrollbar max-h-64 overflow-auto rounded-lg border border-border/40 bg-muted/30 p-1.5 dark:border-border/35"
       >
         {snapshot.roots.map((node) => (
           <AxRow key={node.index} node={node} depth={0} openAll={expansion.openAll} />

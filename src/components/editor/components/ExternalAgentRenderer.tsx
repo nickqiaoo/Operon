@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { ArrowUpRight, CircleAlert, ExternalLinkIcon, Loader2 } from 'lucide-react'
+import { ChevronRightIcon, CircleAlert, ExternalLinkIcon, Loader2 } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { needsConversationToAnswer, type PendingInputSummary } from '@shared/pending-input'
 import { Button } from '@/components/ui/button'
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
+import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import { api } from '@/lib/api'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useEditorStore } from '@/stores/editor-store'
@@ -11,8 +13,8 @@ import { parseExternalAgentRun } from '@/hooks/useExternalAgent'
 import type { UIMessage } from 'ai'
 import type { ActivityStatus } from '@shared/assistant'
 import { codingAgentName } from '@/components/assistant/CodingAgentCard'
-import { ActivityStatusBadge } from '@/components/assistant/shared'
-import { AgentAvatar } from '@/components/icons/AgentAvatar'
+import { ACTIVITY_STATUS_MESSAGES } from '@/components/assistant/assistant-i18n'
+import { ProviderIcon } from './ModelSelectorPanel'
 
 /**
  * Check if a tool part is an external agent run tool.
@@ -180,31 +182,37 @@ export function ExternalAgentToolRenderer({
   const error = live?.status === 'failed' ? live.error : undefined
   const openLabel = intl.formatMessage({ id: 'assistant.coding.openConversation', defaultMessage: 'Open conversation' })
 
+  // The run as a Subagent line: who and what, on which model, and its state;
+  // the line opens the child conversation. Whatever the child is blocked on
+  // sits under it as Items, like any other question for the person.
+  const line = (
+    <TraceLine status={status === 'running' ? 'running' : status === 'failed' ? 'error' : undefined}>
+      <TraceIcon><ProviderIcon id={agentType} size={16} /></TraceIcon>
+      <TraceTitle>{description || codingAgentName(agentType)}</TraceTitle>
+      <TraceDescription className="min-w-0 shrink truncate">
+        {[codingAgentName(agentType), model].filter(Boolean).join(' · ')}
+      </TraceDescription>
+      {status && status !== 'running' && (
+        <TraceDescription className={status === 'waiting' ? 'text-status-warn' : undefined}>
+          <FormattedMessage {...ACTIVITY_STATUS_MESSAGES[status]} />
+        </TraceDescription>
+      )}
+      {canClick && <TraceIcon><ChevronRightIcon /></TraceIcon>}
+    </TraceLine>
+  )
+
   return (
-    <div className="w-full space-y-2.5 rounded-xl border border-border/60 bg-popover p-3 shadow-card dark:border-border/35">
-      {/* Same row as the assistant's coding card: who, what and on which model; state and the way in. */}
-      <div className="flex items-center gap-3">
-        <AgentAvatar provider={agentType} size="md" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{description || codingAgentName(agentType)}</div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            <span className="shrink-0">{codingAgentName(agentType)}</span>
-            {model && <span className="truncate text-muted-foreground/70">{model}</span>}
-          </div>
-        </div>
-        {status && (
-          <span className="flex shrink-0">
-            <ActivityStatusBadge status={status} />
-          </span>
+    <div className="flex min-w-0 flex-col gap-2">
+      <Trace>
+        {canClick ? (
+          <button type="button" onClick={handleClick} aria-label={openLabel} title={openLabel}>
+            {line}
+          </button>
+        ) : (
+          line
         )}
-        {canClick && (
-          <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" onClick={handleClick}>
-            <ArrowUpRight className="h-3.5 w-3.5" />
-            {openLabel}
-          </Button>
-        )}
-      </div>
-      {error && <div className="line-clamp-2 pl-11 text-xs text-status-error">{error}</div>}
+      </Trace>
+      {error && <div className="line-clamp-2 pl-6 text-xs text-status-error">{error}</div>}
       {waiting ? (
         <ExternalAgentPendingInput childChatId={childId} pending={pending} onOpen={handleClick} />
       ) : null}
@@ -268,12 +276,14 @@ function ExternalAgentPendingInput({
   }
 
   return (
-    <div className="mt-2 space-y-2 border-t border-border/40 pt-2" onClick={(event) => event.stopPropagation()}>
+    <ItemGroup className="gap-2" onClick={(event) => event.stopPropagation()}>
       {pending.map((item) => (
-        <div key={item.approvalId} className="flex items-start gap-2">
-          <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-status-warn" />
-          <div className="min-w-0 flex-1">
-            <div className="text-xs text-foreground">
+        <Item key={item.approvalId} variant="outline" size="sm" className="bg-background">
+          <ItemMedia variant="icon">
+            <CircleAlert className="text-status-warn" />
+          </ItemMedia>
+          <ItemContent className="min-w-0">
+            <ItemTitle className="font-normal">
               {item.toolName === 'AskUserQuestion' ? (
                 <FormattedMessage id="editor.external.pendingQuestion" defaultMessage="The agent asked you a question" />
               ) : needsConversationToAnswer(item) ? (
@@ -285,16 +295,16 @@ function ExternalAgentPendingInput({
                   values={{ tool: <span className="font-mono text-muted-foreground">{item.toolName}</span> }}
                 />
               )}
-            </div>
+            </ItemTitle>
             {item.inputPreview && !needsConversationToAnswer(item) ? (
-              <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={item.inputPreview}>
+              <ItemDescription className="truncate font-mono text-xs" title={item.inputPreview}>
                 {item.inputPreview}
-              </div>
+              </ItemDescription>
             ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
+          </ItemContent>
+          <ItemActions>
             {needsConversationToAnswer(item) ? (
-              <Button size="sm" variant="secondary" className="h-7 gap-1.5 text-xs" onClick={onOpen}>
+              <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={onOpen}>
                 <ExternalLinkIcon className="h-3.5 w-3.5" />
                 <FormattedMessage id="editor.external.openToAnswer" defaultMessage="Open" />
               </Button>
@@ -302,8 +312,8 @@ function ExternalAgentPendingInput({
               <>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs"
+                  variant="outline"
+                  className="h-8"
                   disabled={busyId === item.approvalId}
                   onClick={() => void decide(item.approvalId, 'deny')}
                 >
@@ -311,8 +321,7 @@ function ExternalAgentPendingInput({
                 </Button>
                 <Button
                   size="sm"
-                  variant="secondary"
-                  className="h-7 gap-1.5 text-xs"
+                  className="h-8 gap-1.5"
                   disabled={busyId === item.approvalId}
                   onClick={() => void decide(item.approvalId, 'allow')}
                 >
@@ -321,9 +330,9 @@ function ExternalAgentPendingInput({
                 </Button>
               </>
             )}
-          </div>
-        </div>
+          </ItemActions>
+        </Item>
       ))}
-    </div>
+    </ItemGroup>
   )
 }

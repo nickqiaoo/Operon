@@ -1,15 +1,16 @@
-import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
+import { TerminalIcon, PuzzleIcon, InboxIcon } from 'lucide-react';
 import {
-  ChevronDownIcon,
-  CheckIcon,
-  XIcon,
-  TerminalIcon,
-  PuzzleIcon,
-  InboxIcon,
-} from 'lucide-react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { cn } from '@/lib/utils';
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
+import { CodeBlock, CodeBlockContent } from '@/components/ui/code-block';
 
 /**
  * Events the agent runtime steers into the conversation on its own.
@@ -108,64 +109,48 @@ const ICONS: Record<SteerKind, typeof TerminalIcon> = {
 };
 
 export function SteerNoticeMessage({ notice }: { notice: SteerNotice }) {
-  const [open, setOpen] = useState(false);
   const Icon = ICONS[notice.kind];
   const expandable = notice.detail.length > 0;
+  const failed = notice.kind === 'background' && notice.failed;
 
-  const label = (
-    <span className="truncate text-xs text-muted-foreground">
-      {notice.headline || notice.origin}
-    </span>
-  );
-
-  const header = (
-    <>
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-      {notice.kind === 'background' ? (
-        notice.failed ? (
-          <XIcon className="h-3.5 w-3.5 shrink-0 text-status-error" />
-        ) : (
-          <CheckIcon className="h-3.5 w-3.5 shrink-0 text-status-ok" />
-        )
-      ) : null}
-      {label}
-      {expandable && (
-        <ChevronDownIcon
-          className={cn(
-            'ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform',
-            open && 'rotate-180',
+  // One more step line in the turn (Trace), not a card: the event happened, the
+  // agent reacts to it next. A background command reports done or failed.
+  const line = (
+    <TraceLine status={failed ? 'error' : undefined}>
+      <TraceIcon><Icon /></TraceIcon>
+      <TraceTitle>{notice.headline || notice.origin}</TraceTitle>
+      {notice.kind === 'background' && (
+        <TraceDescription className={failed ? 'text-status-error' : 'text-status-ok'}>
+          {failed ? (
+            <FormattedMessage id="editor.steerNotice.failed" defaultMessage="Failed" />
+          ) : (
+            <FormattedMessage id="editor.steerNotice.done" defaultMessage="Done" />
           )}
-        />
+        </TraceDescription>
       )}
-    </>
+    </TraceLine>
   );
 
   if (!expandable) {
-    return (
-      <div className="mt-1 flex items-center gap-2 rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
-        {header}
-      </div>
-    );
+    return <Trace className="mt-1">{line}</Trace>;
   }
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="mt-1 rounded-lg border border-border/40 bg-muted/10">
-      <CollapsibleTrigger asChild>
-        <button type="button" className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left">
-          {header}
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border/40 px-3 py-2">
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">
-          {notice.detail}
-        </pre>
-        <div className="mt-2 text-[11px] text-muted-foreground/60">
-          <FormattedMessage
-            id="editor.steerNotice.automated"
-            defaultMessage="Automated event — not a message you sent."
-          />
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <Trace className="mt-1">
+      <TraceCollapsible>
+        <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
+        <TraceCollapsibleContent className="space-y-2">
+          <CodeBlock size="sm">
+            <CodeBlockContent wrap className="max-h-64">{notice.detail}</CodeBlockContent>
+          </CodeBlock>
+          <p className="text-xs text-muted-foreground/70">
+            <FormattedMessage
+              id="editor.steerNotice.automated"
+              defaultMessage="Automated event — not a message you sent."
+            />
+          </p>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
   );
 }

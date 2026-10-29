@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Trace, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { AppWindowIcon, ChevronRightIcon, ChevronUpIcon, DownloadIcon, Maximize2Icon, MinusIcon, PlusIcon, XIcon } from 'lucide-react'
 import {
@@ -323,21 +324,25 @@ export function HtmlRenderFrame({ visual }: { visual: HtmlRenderRef }) {
     setCollapsed(next)
   }
 
-  // Put away, the page reads as one more step in the turn, so it takes the tool
-  // rows' look (chevron, icon, muted name) rather than a card of its own.
+  // Put away, the page reads as one more step in the turn, so it is a Trace
+  // line like the tool rows (icon, name, trailing chevron), not a card.
   if (collapsed) {
     return (
-      <button
-        type="button"
-        onClick={() => toggleCollapsed(false)}
-        aria-expanded={false}
-        className="my-1 flex w-full min-w-0 items-center gap-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
-        aria-label={intl.formatMessage({ id: 'editor.htmlRender.expand', defaultMessage: 'Show {title}' }, { title: visual.title })}
-      >
-        <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/60" />
-        <AppWindowIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-        <span className="truncate text-sm font-medium">{visual.title}</span>
-      </button>
+      <Trace>
+        <button
+          type="button"
+          onClick={() => toggleCollapsed(false)}
+          aria-expanded={false}
+          className="items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={intl.formatMessage({ id: 'editor.htmlRender.expand', defaultMessage: 'Show {title}' }, { title: visual.title })}
+        >
+          <TraceLine>
+            <TraceIcon><AppWindowIcon /></TraceIcon>
+            <TraceTitle>{visual.title}</TraceTitle>
+          </TraceLine>
+          <TraceIcon><ChevronRightIcon /></TraceIcon>
+        </button>
+      </Trace>
     )
   }
 

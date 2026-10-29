@@ -1,44 +1,137 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  CodeBlock,
+  CodeBlockContent,
+  CodeBlockHighlightedContent,
+} from "@/components/ui/code-block";
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  type TraceStatus,
+  TraceTitle,
+} from "@/components/ui/trace";
 import { cn } from "@/lib/utils";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import {
-  CheckCircleIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  CircleIcon,
-  ClockIcon,
-  LoaderIcon,
-  XCircleIcon,
-  XIcon,
-  AlertCircleIcon,
-} from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { Fragment, isValidElement } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { CodeBlock } from "./code-block";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { classifyToolInput, type ToolInputView } from "@shared/tool-rendering/toolInput";
 import { parseAccessibilitySnapshot } from "@shared/tool-rendering/accessibilityTree";
 import { AccessibilityTreeOutput } from "./accessibility-tree";
 
-export type ToolProps = ComponentProps<typeof Collapsible>;
-
-export const Tool = ({ className, ...props }: ToolProps) => (
-  <Collapsible
-    data-testid="tool-invocation"
-    className={cn("group not-prose mb-2 w-full rounded-xl border border-border/40", className)}
-    {...props}
-  />
-);
+/**
+ * Tool, rebuilt on shadcn/ui Trace (https://ui.shadcn.com/docs/ai-elements/radix/tool):
+ * a call is one line — icon, name, argument summary — that opens onto its input
+ * and output. State reads from the line itself: the name shimmers while the call
+ * runs and turns red when it fails, instead of a status icon or badge.
+ */
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart;
+
+/** The Trace status a tool state reads as. Approvals sit outside the line. */
+export function toolTraceStatus(state: ToolPart["state"]): TraceStatus | undefined {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return "running";
+    case "output-error":
+      return "error";
+    default:
+      return undefined;
+  }
+}
+
+export type ToolProps = Omit<ComponentProps<typeof TraceCollapsible>, "open" | "onOpenChange"> & {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+export const Tool = ({ className, open, onOpenChange, ...props }: ToolProps) => {
+  const collapsible = open === undefined
+    ? <TraceCollapsible data-testid="tool-invocation" className={cn("not-prose", className)} {...props} />
+    : (
+      <TraceCollapsible
+        data-testid="tool-invocation"
+        className={cn("not-prose", className)}
+        open={open}
+        onOpenChange={onOpenChange ?? (() => {})}
+        {...props}
+      />
+    );
+  return <Trace>{collapsible}</Trace>;
+};
+
+const splitPath = (value: string): [string, string] | null => {
+  if (/\s/.test(value)) return null;
+  const trimmed = value.length > 1 ? value.replace(/\/+$/, "") : value;
+  const slash = trimmed.lastIndexOf("/");
+  // Needs a non-empty directory AND basename to be worth splitting.
+  if (slash <= 0 || slash === trimmed.length - 1) return null;
+  return [trimmed.slice(0, slash), trimmed.slice(slash)];
+};
+
+/**
+ * The argument summary beside a tool name, as the line's TraceDescription. A
+ * lone path truncates in the middle — the directory gives way and the basename
+ * stays — because the basename is what tells two reads apart;
+ * `/Volumes/data/pro…/operon-agents`.
+ */
+export const ToolDescription = ({ value, className }: { value: string; className?: string }) => {
+  const parts = splitPath(value);
+  const base = "min-w-0 shrink font-mono text-xs";
+  if (!parts) {
+    return (
+      <TraceDescription title={value} className={cn(base, "truncate", className)}>
+        {value}
+      </TraceDescription>
+    );
+  }
+  return (
+    <TraceDescription title={value} className={cn(base, "flex", className)}>
+      <span className="min-w-0 truncate">{parts[0]}</span>
+      <span className="max-w-[70%] shrink-0 truncate">{parts[1]}</span>
+    </TraceDescription>
+  );
+};
+
+/** One tool line: what both the collapsible header and a bare (no detail) row render. */
+export const ToolLine = ({
+  name,
+  icon,
+  description,
+  status,
+  trailing,
+  className,
+}: {
+  name: ReactNode;
+  icon?: ReactNode;
+  description?: string;
+  status?: TraceStatus;
+  /** After the description, e.g. "Denied". */
+  trailing?: ReactNode;
+  className?: string;
+}) => (
+  <TraceLine status={status} className={className}>
+    {icon && <TraceIcon>{icon}</TraceIcon>}
+    {/* The name identifies the row, so it truncates last: with a description
+        beside it the name is unshrinkable and the description absorbs the
+        squeeze; `max-w` still caps a provider that passes an entire shell
+        command as the tool name, which would otherwise overflow the window. */}
+    <TraceTitle
+      data-testid="tool-name"
+      className={description ? "max-w-[60%] shrink-0" : undefined}
+    >
+      {name}
+    </TraceTitle>
+    {description && <ToolDescription value={description} />}
+    {trailing}
+  </TraceLine>
+);
 
 export type ToolHeaderProps = {
   title?: string;
@@ -55,86 +148,9 @@ export type ToolHeaderProps = {
     }
   );
 
-const STATUS_LABELS: Record<ToolPart["state"], string> = {
-  "input-streaming": "Pending",
-  "input-available": "Running",
-  "approval-requested": "Awaiting Approval",
-  "approval-responded": "Responded",
-  "output-available": "Completed",
-  "output-error": "Error",
-  "output-denied": "Denied",
-};
-
-const getStatusIcon = (status: ToolPart["state"], className = "size-4") => {
-  const icons: Record<ToolPart["state"], ReactNode> = {
-    "input-streaming": <CircleIcon className={className} />,
-    "input-available": <ClockIcon className={cn(className, "animate-pulse")} />,
-    "approval-requested": <ClockIcon className={cn(className, "text-status-warn")} />,
-    "approval-responded": <CheckCircleIcon className={cn(className, "text-status-info")} />,
-    "output-available": <CheckCircleIcon className={cn(className, "text-status-ok")} />,
-    "output-error": <XCircleIcon className={cn(className, "text-status-error")} />,
-    "output-denied": <XCircleIcon className={cn(className, "text-status-warn")} />,
-  };
-  return icons[status];
-};
-
-export const getStatusBadge = (status: ToolPart["state"]) => (
-  <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-    {getStatusIcon(status)}
-    {STATUS_LABELS[status]}
-  </Badge>
-);
-
-/**
- * Icon-only status for a tool row: a bare icon instead of a labelled pill that
- * outweighs the tool name. The label survives as an aria-label.
- */
-export const ToolStatusIcon = ({ state }: { state: ToolPart["state"] }) => {
-  const label = STATUS_LABELS[state];
-  switch (state) {
-    case "input-streaming":
-    case "input-available":
-      return <LoaderIcon aria-label={label} className="size-3.5 animate-spin text-muted-foreground" />;
-    case "output-available":
-    case "approval-responded":
-      return <CheckIcon aria-label={label} className="size-3.5 text-status-ok" />;
-    case "output-error":
-      return <XIcon aria-label={label} className="size-3.5 text-status-error" />;
-    case "output-denied":
-      return <XIcon aria-label={label} className="size-3.5 text-status-warn" />;
-    case "approval-requested":
-      return <span aria-label={label} className="block size-2 animate-pulse rounded-full bg-status-warn" />;
-    default:
-      return null;
-  }
-};
-
-const splitPath = (value: string): [string, string] | null => {
-  if (/\s/.test(value)) return null;
-  const trimmed = value.length > 1 ? value.replace(/\/+$/, "") : value;
-  const slash = trimmed.lastIndexOf("/");
-  // Needs a non-empty directory AND basename to be worth splitting.
-  if (slash <= 0 || slash === trimmed.length - 1) return null;
-  return [trimmed.slice(0, slash), trimmed.slice(slash)];
-};
-
-/**
- * The argument summary beside a tool name. A lone path truncates in the middle
- * — the directory gives way and the basename stays — because the basename is
- * what tells two reads apart; `/Volumes/data/pro…/operon-agents`.
- */
-export const ToolDescription = ({ value, className }: { value: string; className?: string }) => {
-  const parts = splitPath(value);
-  const base = "min-w-0 font-mono text-xs text-muted-foreground";
-  if (!parts) {
-    return <code title={value} className={cn(base, "truncate", className)}>{value}</code>;
-  }
-  return (
-    <code title={value} className={cn(base, "flex", className)}>
-      <span className="min-w-0 truncate">{parts[0]}</span>
-      <span className="max-w-[70%] shrink-0 truncate">{parts[1]}</span>
-    </code>
-  );
+const normalizeToolName = (name: string) => {
+  const withoutPrefix = name.startsWith("tool-") ? name.slice(5) : name;
+  return withoutPrefix.replace(/`/g, "").trim();
 };
 
 export const ToolHeader = ({
@@ -145,57 +161,27 @@ export const ToolHeader = ({
   type,
   state,
   toolName,
-  ...props
 }: ToolHeaderProps) => {
-  const normalizeToolName = (name: string) => {
-    const withoutPrefix = name.startsWith("tool-") ? name.slice(5) : name;
-    return withoutPrefix.replace(/`/g, "").trim();
-  };
   const rawName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
-  const derivedName = normalizeToolName(rawName);
 
   return (
-    <CollapsibleTrigger
-      className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left",
-        className
-      )}
-      {...props}
-    >
-      {icon}
-      {/* Truncates last, like CompactToolCall's: the description absorbs the
-          shrinkage so a short name stays whole. `max-w` still caps the case
-          where a provider passes an entire shell command as the tool name,
-          which unshrinkable would overflow the window. */}
-      <span
-        data-testid="tool-name"
-        className={cn(
-          "truncate font-medium text-sm text-muted-foreground",
-          description ? "shrink-0 max-w-[60%]" : "min-w-0"
-        )}
-      >
-        {title ?? derivedName}
-      </span>
-      {description && <ToolDescription value={description} />}
-      <span className="ml-auto flex shrink-0 items-center gap-2">
-        <ToolStatusIcon state={state} />
-        <ChevronDownIcon className="size-3.5 text-muted-foreground/60 transition-transform group-data-[state=open]:rotate-180" />
-      </span>
-    </CollapsibleTrigger>
+    <TraceCollapsibleTrigger className={className}>
+      <ToolLine
+        name={title ?? normalizeToolName(rawName)}
+        icon={icon}
+        description={description}
+        status={toolTraceStatus(state)}
+        trailing={state === "output-denied" ? <TraceDescription>Denied</TraceDescription> : undefined}
+      />
+    </TraceCollapsibleTrigger>
   );
 };
 
-export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
+export type ToolContentProps = ComponentProps<typeof TraceCollapsibleContent>;
 
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
-  <CollapsibleContent
-    className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-      className
-    )}
-    {...props}
-  />
+  <TraceCollapsibleContent className={cn("space-y-2", className)} {...props} />
 );
 
 export type ToolInputProps = ComponentProps<"div"> & {
@@ -203,11 +189,7 @@ export type ToolInputProps = ComponentProps<"div"> & {
 };
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  // The <h4> is kept even when a caller hides it via `[&_h4]:hidden`.
-  <div className={cn("space-y-2 overflow-hidden p-4", className)} {...props}>
-    <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-      Parameters
-    </h4>
+  <div className={cn("min-w-0", className)} {...props}>
     <ToolInputBody view={classifyToolInput(input)} />
   </div>
 );
@@ -221,9 +203,9 @@ const ToolInputBody = ({ view }: { view: ToolInputView }) => {
   // A — a lone text blob, rendered as text so its newlines survive.
   if (view.kind === "text") {
     return (
-      <div className="rounded-lg bg-muted/50">
-        <CodeBlock code={view.value} language={view.language} />
-      </div>
+      <CodeBlock size="sm">
+        <CodeBlockHighlightedContent code={view.value} language={view.language} wrap className="max-h-64" />
+      </CodeBlock>
     );
   }
 
@@ -235,14 +217,21 @@ const ToolInputBody = ({ view }: { view: ToolInputView }) => {
           field.multiline ? (
             <Fragment key={field.key}>
               <dt className="col-span-2 font-mono text-muted-foreground">{field.key}</dt>
-              <dd className="col-span-2 min-w-0 overflow-hidden rounded-lg bg-muted/50">
-                <CodeBlock code={field.value} language={field.language ?? "markdown"} />
+              <dd className="col-span-2 min-w-0">
+                <CodeBlock size="sm">
+                  <CodeBlockHighlightedContent
+                    code={field.value}
+                    language={field.language ?? "markdown"}
+                    wrap
+                    className="max-h-64"
+                  />
+                </CodeBlock>
               </dd>
             </Fragment>
           ) : (
             <Fragment key={field.key}>
               <dt className="font-mono text-muted-foreground">{field.key}</dt>
-              <dd className="min-w-0 break-words font-mono">{field.value}</dd>
+              <dd className="min-w-0 break-words font-mono text-foreground/90">{field.value}</dd>
             </Fragment>
           ),
         )}
@@ -251,12 +240,20 @@ const ToolInputBody = ({ view }: { view: ToolInputView }) => {
   }
 
   // C — nested structures stay JSON.
-  return (
-    <div className="rounded-lg bg-muted/50">
-      <CodeBlock code={JSON.stringify(view.value, null, 2)} language="json" />
-    </div>
-  );
+  return <JsonBlock value={view.value} />;
 };
+
+const JsonBlock = ({ value }: { value: unknown }) => (
+  <CodeBlock size="sm">
+    <CodeBlockHighlightedContent code={JSON.stringify(value, null, 2)} language="json" className="max-h-64" />
+  </CodeBlock>
+);
+
+const TextBlock = ({ text, variant }: { text: string; variant?: "destructive" }) => (
+  <CodeBlock size="sm" variant={variant}>
+    <CodeBlockContent wrap className="max-h-64">{text}</CodeBlockContent>
+  </CodeBlock>
+);
 
 export type ToolOutputProps = ComponentProps<"div"> & {
   output: ToolPart["output"];
@@ -361,24 +358,14 @@ export function normalizeToolOutputBlocks(output: unknown): ToolOutputBlock[] | 
 const ToolTextBlock = ({ text }: { text: string }) => {
   const snapshot = parseAccessibilitySnapshot(text);
   if (snapshot) return <AccessibilityTreeOutput snapshot={snapshot} />;
-  return <CodeBlock code={text} language="markdown" />;
+  return <TextBlock text={text} />;
 };
 
-export const ToolOutput = ({
-  className,
-  output,
-  errorText,
-  ...props
-}: ToolOutputProps) => {
-  if (!(output || errorText)) {
-    return null;
-  }
-
+const ToolOutputBody = ({ output }: { output: ToolPart["output"] }) => {
   const blocks = normalizeToolOutputBlocks(output);
-  let Output = blocks == null
-    ? <div>{output as ReactNode}</div>
-    : (
-      <div className="space-y-3 p-2">
+  if (blocks != null) {
+    return (
+      <div className="space-y-2">
         {blocks.map((block, index) => {
           if (block.kind === "image") {
             return (
@@ -393,49 +380,34 @@ export const ToolOutput = ({
           if (block.kind === "text") {
             return <ToolTextBlock key={index} text={block.text} />;
           }
-          return <CodeBlock code={JSON.stringify(block.value, null, 2)} key={index} language="json" />;
+          return <JsonBlock key={index} value={block.value} />;
         })}
       </div>
     );
+  }
+  if (isValidElement(output)) return output;
+  // A bare string is a plain tool result (Read, Bash, …). Only MCP content
+  // blocks above can carry a Computer Use snapshot; a numbered file listing
+  // would otherwise parse as one.
+  if (typeof output === "string") return <TextBlock text={output} />;
+  if (typeof output === "object") return <JsonBlock value={output} />;
+  return <TextBlock text={String(output)} />;
+};
 
-  if (blocks == null && typeof output === "object" && !isValidElement(output)) {
-    Output = (
-      <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
-    );
-  } else if (blocks == null && typeof output === "string") {
-    Output = <CodeBlock code={output} language="json" />;
+export const ToolOutput = ({
+  className,
+  output,
+  errorText,
+  ...props
+}: ToolOutputProps) => {
+  if (!(output || errorText)) {
+    return null;
   }
 
   return (
-    <div className={cn("space-y-2 p-4", className)} {...props}>
-      {errorText ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon className="size-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>
-            {errorText}
-            {output ? <div className="mt-2 text-foreground/90">{Output}</div> : null}
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <>
-          <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-            Result
-          </h4>
-          <ScrollArea
-            className={cn(
-              "max-h-80 overflow-hidden rounded-xl bg-muted/50 text-xs text-foreground",
-              "[&>[data-slot=scroll-area-viewport]]:max-h-80",
-              "[&>[data-slot=scroll-area-viewport]>div]:!block",
-              "[&>[data-slot=scroll-area-viewport]>div]:!w-full",
-              "[&>[data-slot=scroll-area-viewport]>div]:min-w-0",
-              "[&_table]:w-full"
-            )}
-          >
-            <div className="w-full min-w-0">{Output}</div>
-          </ScrollArea>
-        </>
-      )}
+    <div className={cn("min-w-0 space-y-2", className)} {...props}>
+      {errorText && <TextBlock text={errorText} variant="destructive" />}
+      {output ? <ToolOutputBody output={output} /> : null}
     </div>
   );
 };

@@ -431,7 +431,7 @@ export function ChatInputArea({
     >
       <PromptInputBody>
         {attachments.files.length > 0 && (
-          <Attachments className="px-4 pt-4 ml-0 w-full" variant="grid">
+          <Attachments className="px-4 pt-4 ml-0 w-full">
             {attachments.files.map((file) => (
               <Attachment key={file.id} data={file} onRemove={() => attachments.remove(file.id)}>
                 <AttachmentPreview />

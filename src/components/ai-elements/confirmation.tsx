@@ -1,7 +1,14 @@
 "use client";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
+/**
+ * Confirmation, rebuilt on shadcn/ui Item (https://ui.shadcn.com/docs/ai-elements/radix/confirmation):
+ * a pending approval is a question for the person, not a step the agent took,
+ * so it sits outside the Trace as an Item — the question, then the answers.
+ * Once answered, the call goes back to being a Tool line.
+ */
+
 import { Button } from "@/components/ui/button";
+import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { cn } from "@/lib/utils";
 import type { ToolUIPart } from "ai";
 import {
@@ -58,15 +65,19 @@ const useConfirmation = () => {
   return context;
 };
 
-export type ConfirmationProps = ComponentProps<typeof Alert> & {
+export type ConfirmationProps = ComponentProps<typeof Item> & {
   approval?: ToolUIPartApproval;
   state: ToolUIPart["state"];
+  /** Leading icon, e.g. the tool's. */
+  icon?: ReactNode;
 };
 
 export const Confirmation = ({
   className,
   approval,
   state,
+  icon,
+  children,
   ...props
 }: ConfirmationProps) => {
   if (
@@ -80,27 +91,29 @@ export const Confirmation = ({
 
   return (
     <ConfirmationContext.Provider value={{ approval, state }}>
-      <div className="px-4 pb-4">
-        <Alert
-          data-testid="confirmation"
-          className={cn(
-            "flex flex-col gap-2 border-0 bg-muted/50",
-            className
-          )}
-          {...props}
-        />
-      </div>
+      <Item
+        data-testid="confirmation"
+        variant="outline"
+        size="sm"
+        className={cn("not-prose gap-3 bg-background", className)}
+        {...props}
+      >
+        {icon && <ItemMedia variant="icon">{icon}</ItemMedia>}
+        {children}
+      </Item>
     </ConfirmationContext.Provider>
   );
 };
 
-export type ConfirmationTitleProps = ComponentProps<typeof AlertDescription>;
+export type ConfirmationTitleProps = ComponentProps<typeof ItemTitle>;
 
 export const ConfirmationTitle = ({
   className,
   ...props
 }: ConfirmationTitleProps) => (
-  <AlertDescription className={cn("inline", className)} {...props} />
+  <ItemContent className="min-w-0">
+    <ItemTitle className={cn("line-clamp-none flex-wrap font-normal [&_svg]:size-4", className)} {...props} />
+  </ItemContent>
 );
 
 export interface ConfirmationRequestProps {
@@ -176,10 +189,7 @@ export const ConfirmationActions = ({
   }
 
   return (
-    <div
-      className={cn("flex items-center justify-end gap-2 self-end", className)}
-      {...props}
-    />
+    <ItemActions className={cn("ml-auto flex-wrap justify-end", className)} {...props} />
   );
 };
 
@@ -192,24 +202,15 @@ export type ConfirmationActionProps = ComponentProps<typeof Button> & {
 export const ConfirmationAction = ({
   className,
   tone = "neutral",
+  variant,
+  size = "sm",
   ...props
-}: ConfirmationActionProps) => {
-  const toneClassName =
-    tone === "allow"
-      ? "bg-accent-green text-white hover:brightness-110 active:brightness-95 focus-visible:ring-accent-green/40"
-      : tone === "reject"
-        ? "border-destructive/40 text-destructive hover:bg-destructive/10 active:bg-destructive/20 focus-visible:ring-destructive/30 dark:border-destructive/60 dark:text-destructive dark:hover:bg-destructive/20 dark:active:bg-destructive/30"
-        : "";
-
-  return (
-    <Button
-      className={cn(
-        "h-8 px-3 text-sm transition-[transform,box-shadow,background-color,color] active:translate-y-px active:scale-[0.98] active:shadow-none disabled:active:translate-y-0 disabled:active:scale-100",
-        toneClassName,
-        className
-      )}
-      type="button"
-      {...props}
-    />
-  );
-};
+}: ConfirmationActionProps) => (
+  <Button
+    className={cn("h-8", tone === "reject" && "text-status-error hover:text-status-error", className)}
+    size={size}
+    type="button"
+    variant={variant ?? (tone === "allow" ? "default" : "ghost")}
+    {...props}
+  />
+);
