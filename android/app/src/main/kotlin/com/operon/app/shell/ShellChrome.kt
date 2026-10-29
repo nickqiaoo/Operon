@@ -109,6 +109,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
     // Mirrored so the chrome can be rebuilt on a theme change without the web
     // app having to send its state again.
     private var titles: Map<String, String> = emptyMap()
+    private var badges: Map<String, Int> = emptyMap()
     // Shown until `configure` says otherwise (and by a web bundle too old to say).
     private var visibleTabs: Set<String> = setOf("chats", "channel", "changes", "more")
     private var selectedTab: String = tabIds.first()
@@ -297,6 +298,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
     private fun applyAll() {
         applyTabs()
         applyTitles()
+        applyBadges()
         applySelection()
         applyTabBarVisibility()
         applyTopBar()
@@ -334,6 +336,23 @@ class ShellChrome(private val activity: AppCompatActivity) {
         if (tabId == selectedTab || tabId !in tabIds) return
         selectedTab = tabId
         applySelection()
+    }
+
+    fun setBadges(badges: Map<String, Int>) {
+        this.badges = badges
+        applyBadges()
+    }
+
+    private fun applyBadges() {
+        val bar = tabBar ?: return
+        tabIds.forEachIndexed { index, id ->
+            val count = badges[id] ?: 0
+            if (count > 0) {
+                bar.getOrCreateBadge(tabMenuIds[index]).number = count
+            } else {
+                bar.removeBadge(tabMenuIds[index])
+            }
+        }
     }
 
     private fun applySelection() {

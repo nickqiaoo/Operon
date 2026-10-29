@@ -44,10 +44,10 @@ export function groupSpecWorkspaces(
   return { top, tickets }
 }
 
-/** Completed specs have no workspace; only explicit user choices appear here. */
+/** Active specs stay discoverable even without a workspace; completed ones are opt-in. */
 export function sidebarSpecShortcuts(project: Project, shownIds: readonly number[], hiddenIds: readonly number[]) {
   return (project.specs ?? []).filter((spec) =>
-    shownIds.includes(spec.id) && !hiddenIds.includes(spec.id) && spec.archivedAt == null &&
+    (spec.specStage !== 'done' || shownIds.includes(spec.id)) && !hiddenIds.includes(spec.id) && spec.archivedAt == null &&
     !project.workspaces.some((workspace) => workspace.task?.id === spec.id),
   )
 }
@@ -70,7 +70,7 @@ export function projectSidebarEntries(project: Project, shownIds: readonly numbe
     ),
     specs: [...specsById.values()].filter((spec) =>
       !hiddenIds.includes(spec.id) && spec.archivedAt == null &&
-      (withWorkspace.has(spec.id) || shownIds.includes(spec.id)),
+      (spec.specStage !== 'done' || withWorkspace.has(spec.id) || shownIds.includes(spec.id)),
     ),
   }
 }

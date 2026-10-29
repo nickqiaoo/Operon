@@ -85,6 +85,14 @@ describe('project navigation', () => {
     id: 1, name: 'Test', rootPath: '/repo', createdAt: 0, updatedAt: 0, workspaces, specs,
   })
 
+  it.each(['grounding', 'stopped', 'failed'])('shows a %s Spec without requiring a workspace or explicit pin', (specStage) => {
+    const spec = task(10, 7, { specStage })
+    const data = project([ws(1)], [spec])
+    expect(projectSidebarEntries(data, [], []).specs).toEqual([spec])
+    expect(projectSidebarEntries(data, [], [10]).specs).toEqual([])
+    expect(sidebarSpecShortcuts(data, [], [])).toEqual([spec])
+  })
+
   it('separates directories from specs and their execution worktrees', () => {
     const spec = task(10, 7, { specStage: 'building' })
     const entries = projectSidebarEntries(project([ws(1), ws(2, spec), ws(3, task(11, 8, { parentTaskId: 10 })), ws(4, task(12, 9))], [spec]), [], [])

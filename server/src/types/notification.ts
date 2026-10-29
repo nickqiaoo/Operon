@@ -77,8 +77,11 @@ export interface ListNotificationsQuery {
 }
 
 export interface UnreadCounts {
-  /** All unread + visible. */
+  /** Unread + visible inbox rows, excluding the assistant. */
   total: number
   /** Unread + visible + severity 'action' — the red badge count. */
   action: number
+  /** Separate destination; optional for older clients and storage adapters. */
+  assistantTotal?: number
+  assistantAction?: number
 }

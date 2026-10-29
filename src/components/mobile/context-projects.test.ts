@@ -19,6 +19,12 @@ const project: Project = {
 }
 
 describe('mobile context project groups', () => {
+  it('shows a stopped Spec even if its workspace is absent', () => {
+    const stopped = { ...spec, specStage: 'stopped' }
+    const data = { ...project, workspaces: [workspace(1)], specs: [stopped] }
+    expect(contextProjectGroups(data, [], []).specs).toEqual([stopped])
+    expect(contextProjectGroups(data, [10], []).specs).toEqual([])
+  })
   it('lists Specs by title and keeps their execution worktrees out of ordinary choices', () => {
     const result = contextProjectGroups(project, [], [])
     expect(result.workspaces.map((w) => w.id)).toEqual([1])

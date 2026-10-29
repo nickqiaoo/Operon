@@ -65,15 +65,18 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
         let tabs = call.getArray("tabs", JSObject.self) ?? []
         var ids: [String] = []
         var titles: [String: String] = [:]
+        var badges: [String: Int] = [:]
         for tab in tabs {
             if let id = tab["id"] as? String, let title = tab["title"] as? String {
                 ids.append(id)
                 titles[id] = title
+                badges[id] = tab["badge"] as? Int ?? 0
             }
         }
         onMain(call) { [weak self] shell in
             shell.setTabs(ids)
             shell.setTitles(titles)
+            shell.setBadges(badges)
             shell.onTabSelected = { id in
                 self?.notifyListeners("tabSelected", data: ["tab": id])
             }

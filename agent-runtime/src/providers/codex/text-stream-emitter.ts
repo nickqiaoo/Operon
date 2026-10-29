@@ -159,7 +159,7 @@ export class CodexTextStreamEmitter {
   private accountPlanType: string | null | undefined
   private rateLimits: CodexRateLimitSnapshot | null | undefined
   private rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot> | null | undefined
-  private latestGoal: import('./sdk/protocol/index.js').CodexGoal | undefined
+  private latestGoal: import('./sdk/protocol/index.js').CodexGoal | null | undefined
   private contextCompaction: NonNullable<StreamMessageMetadata['contextCompaction']> | undefined
 
   constructor(
@@ -270,7 +270,7 @@ export class CodexTextStreamEmitter {
    * goal is also folded into every subsequent metadata flush so it survives
    * replace-style metadata merges on the client.
    */
-  emitGoalUpdate(goal: import('./sdk/protocol/index.js').CodexGoal): void {
+  emitGoalUpdate(goal: import('./sdk/protocol/index.js').CodexGoal | null): void {
     this.latestGoal = goal
     this.emitMessageMetadata()
   }
@@ -430,7 +430,7 @@ export class CodexTextStreamEmitter {
     })
     return {
       ...base,
-      ...(this.latestGoal ? { goal: this.latestGoal } : {}),
+      ...(this.latestGoal !== undefined ? { goal: this.latestGoal } : {}),
       ...(this.contextCompaction ? { contextCompaction: this.contextCompaction } : {}),
       ...(this.contextCompaction?.status === 'completed'
         ? { compacted: { compacted: true, id: this.contextCompaction.id } }

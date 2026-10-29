@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { replaceEqualDeep } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { trackEvent } from "@/lib/analytics"
 import { getSelectedNodeId } from "@/lib/web-auth"
@@ -193,7 +194,8 @@ export const useProjectStore = create<ProjectStore>()(
             : activeProject?.workspaces[0]?.id ?? null
 
           return {
-            projects: fullProjects,
+            // A live task refresh must not replace unchanged projects or rows.
+            projects: replaceEqualDeep(state.projects, fullProjects),
             collapsedProjectIds: state.collapsedProjectIds.filter((id) =>
               fullProjects.some((project) => project.id === id)
             ),

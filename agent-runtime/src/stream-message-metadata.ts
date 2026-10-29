@@ -20,7 +20,7 @@ export type StreamMessageMetadata = {
     status: 'in_progress' | 'completed'
   }
   /** Live thread-goal state (`features.goal`), sent whenever it changes. */
-  goal?: RuntimeGoal
+  goal?: RuntimeGoal | null
   codex?: {
     /** The signed-in account (ChatGPT plan or API key). */
     account?: Record<string, unknown>

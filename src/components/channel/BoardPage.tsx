@@ -8,7 +8,6 @@ import { PageVisibleContext, usePageVisible } from '@/lib/page-visibility'
 import { useChannelStore } from '@/stores/channel-store'
 import { ProjectFilterSelect, useProjectFilter } from '@/components/project/ProjectFilterSelect'
 import { useTaskStore } from '@/stores/task-store'
-import { useTaskStream } from '@/hooks/useTaskStream'
 import { AgentMenu, ProjectAgentDialog } from './AgentMenu'
 import { ChannelsView } from './ChannelsView'
 import { TasksPage } from '@/components/task/TasksPage'
@@ -69,7 +68,6 @@ export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSideba
       setActiveChannel(null)
     }
   }, [loadAgents, loadChannels, loadSessions, loadTasks, setActiveChannel])
-  useTaskStream(null)
 
   const openChannel = useCallback(
     (channelId: number, messageId: number | null) => {

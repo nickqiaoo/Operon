@@ -594,15 +594,13 @@ export function ChatInputArea({
                   ? 'border-tint/30 bg-tint/10 text-tint hover:bg-tint/15 hover:text-tint'
                   : ''
               )}
-              title={intl.formatMessage({
-                id: goalArmed ? 'editor.input.goalArmedHint' : 'editor.input.goalSetHint',
-                defaultMessage: goalArmed
-                  ? 'Goal mode on — your next message starts a goal. Click to turn off.'
-                  : 'Turn on goal mode — your next message starts a goal the agent pursues.',
-              })}
+              aria-label="Goal mode"
+              title={goalArmed
+                ? 'Goal mode on — your next message starts a goal. Click to turn off.'
+                : 'Turn on goal mode — your next message starts a goal the agent pursues.'}
             >
-              <Target className="size-3.5" />
-              <span className="@max-[440px]:sr-only"><FormattedMessage id="editor.input.goal" defaultMessage="Goal" /></span>
+              <Target aria-hidden="true" className="size-3.5" />
+              <span className="@max-[440px]:sr-only">Goal</span>
             </PromptInputButton>
           )}
 

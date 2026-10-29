@@ -1,6 +1,7 @@
 import { FileDiff, LayoutDashboard, MessageSquare, Menu, Sparkles } from "lucide-react"
 import { defineMessages, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
+import { useInboxStore } from "@/stores/inbox-store"
 
 export type MobileTab = "chats" | "assistant" | "channel" | "changes" | "more"
 
@@ -43,6 +44,8 @@ interface MobileTabBarProps {
  */
 export function MobileTabBar({ active, onChange }: MobileTabBarProps) {
   const intl = useIntl()
+  const assistantTotal = useInboxStore((s) => s.counts.assistantTotal ?? 0)
+  const assistantAction = useInboxStore((s) => s.counts.assistantAction ?? 0)
   return (
     <nav
       className="flex shrink-0 items-stretch border-t border-border/50 bg-background/95 backdrop-blur"
@@ -66,11 +69,17 @@ export function MobileTabBar({ active, onChange }: MobileTabBarProps) {
           >
             <span
               className={cn(
-                "grid size-9 place-items-center rounded-full transition-[background-color,color,opacity]",
+                "relative grid size-9 place-items-center rounded-full transition-[background-color,color,opacity]",
                 isActive ? "bg-muted/80" : "hover:bg-row-hover"
               )}
             >
               <Icon className={cn("size-5", isActive ? "opacity-100" : "opacity-70")} />
+              {id === "assistant" && assistantTotal > 0 ? (
+                <span className={cn(
+                  "absolute right-0.5 top-0.5 size-2 rounded-full ring-2 ring-background",
+                  assistantAction > 0 ? "bg-accent-warm" : "bg-tint",
+                )} />
+              ) : null}
             </span>
           </button>
         )

@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { InboxListPage } from "@/lib/api-client"
 import type { Notification } from "@/types/notification"
 
-const { inboxList } = vi.hoisted(() => ({
+const { inboxList, inboxMarkRead } = vi.hoisted(() => ({
   inboxList: vi.fn<() => Promise<InboxListPage>>(),
+  inboxMarkRead: vi.fn().mockResolvedValue({ ids: [] }),
 }))
 
 vi.mock("@/lib/api", () => ({
   api: {
     inboxList,
+    inboxMarkRead,
   },
 }))
 
@@ -36,6 +38,7 @@ function notification(id: number, severity: Notification["severity"] = "info"): 
 
 beforeEach(() => {
   inboxList.mockReset()
+  inboxMarkRead.mockClear()
   useInboxStore.setState({
     items: [],
     counts: { total: 0, action: 0 },
@@ -45,6 +48,44 @@ beforeEach(() => {
     loadingMore: false,
     hasMore: false,
     nextCursor: null,
+  })
+})
+
+describe("assistant unread notifications", () => {
+  it("keeps assistant counts from the initial stream snapshot without loading the inbox", () => {
+    useInboxStore.getState().applyEvent({
+      type: "counts", total: 0, action: 0, assistantTotal: 2, assistantAction: 1,
+    })
+
+    expect(useInboxStore.getState().counts).toEqual({
+      total: 0, action: 0, assistantTotal: 2, assistantAction: 1,
+    })
+    expect(inboxList).not.toHaveBeenCalled()
+  })
+
+  it("does not mark the assistant read when marking the inbox read", async () => {
+    const assistant: Notification = {
+      ...notification(2), kind: "assistant_message", sourceKey: "assistant:message",
+    }
+    useInboxStore.setState({ items: [notification(1), assistant] })
+
+    await useInboxStore.getState().markAllRead()
+
+    expect(useInboxStore.getState().items[0].readAt).not.toBeNull()
+    expect(useInboxStore.getState().items[1].readAt).toBeNull()
+    expect(inboxMarkRead).toHaveBeenCalledWith({ all: true })
+  })
+
+  it("clears assistant counts after the assistant is read", () => {
+    useInboxStore.getState().applyEvent({
+      type: "counts", total: 1, action: 0, assistantTotal: 2, assistantAction: 1,
+    })
+    useInboxStore.getState().applyEvent({
+      type: "counts", total: 1, action: 0, assistantTotal: 0, assistantAction: 0,
+    })
+    expect(useInboxStore.getState().counts).toEqual({
+      total: 1, action: 0, assistantTotal: 0, assistantAction: 0,
+    })
   })
 })
 

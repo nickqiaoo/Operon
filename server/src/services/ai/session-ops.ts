@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
 import type { UIMessage } from 'ai'
-import { getRuntime, getSessionManager, getChatStorage } from './state.js'
+import { getRuntime, getSessionManager, getChatStorage, getProjectStorage } from './state.js'
 import { runSessionControl, supportsSessionControl } from './session-control.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
@@ -316,6 +316,24 @@ export async function handleCCDynamicSet(
   }
 }
 
+/** Goal state belongs to the persisted Codex thread, even after the live session was closed. */
+async function goalSessionForChat(chatId: number) {
+  const manager = getSessionManager()
+  const live = manager.get(chatId)
+  if (live) return live
+  const meta = getChatStorage()?.getChatMeta(chatId)
+  if (meta?.providerId !== 'codex' || !meta.sessionId) return undefined
+  const workspace = meta.workspaceId ? getProjectStorage()?.getWorkspace(meta.workspaceId) : undefined
+  // Construct only the runtime handle; goal/get reads stored state without
+  // resuming the thread or starting autonomous work.
+  return manager.getOrCreate(chatId, 'codex', {
+    cwd: workspace?.worktreePath ?? process.cwd(),
+    resume: meta.sessionId,
+    model: meta.model,
+    effort: meta.thinkingLevel,
+  })
+}
+
 /**
  * Read the current thread goal for a chat (for rehydrating the goal banner).
  * Returns goal: null when there is no session or no goal.
@@ -323,8 +341,7 @@ export async function handleCCDynamicSet(
 export async function getChatGoal(
   chatId: number,
 ): Promise<{ success: boolean; goal?: RuntimeGoal | null; error?: string }> {
-  const sessionManager = getSessionManager()
-  const session = sessionManager.get(chatId)
+  const session = await goalSessionForChat(chatId)
   if (!session) return { success: true, goal: null }
   const goalControl = session.runtime.goal
   if (!goalControl) {
@@ -348,19 +365,19 @@ export async function clearChatGoal(
   chatId: number,
 ): Promise<{ success: boolean; error?: string }> {
   const sessionManager = getSessionManager()
-  const session = sessionManager.get(chatId)
+  const session = await goalSessionForChat(chatId)
   if (!session) return { success: true }
   const goalControl = session.runtime.goal
   if (!goalControl) {
     return { success: false, error: 'Current provider does not support goals' }
   }
   try {
-    // Stop the pursuit loop first, then clear the persisted goal.
+    // Clear first so an abort cannot race a delayed pause against goal/clear.
+    await goalControl.clear()
     if (session.activeRequest) {
       session.activeRequest.abortController.abort()
       sessionManager.finishRequest(chatId, session.activeRequest.requestId)
     }
-    await goalControl.clear()
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -378,20 +395,19 @@ export async function setChatGoalStatus(
   status: 'active' | 'paused',
 ): Promise<{ success: boolean; goal?: RuntimeGoal | null; error?: string }> {
   const sessionManager = getSessionManager()
-  const session = sessionManager.get(chatId)
+  const session = await goalSessionForChat(chatId)
   if (!session) return { success: false, error: 'No active session' }
   const goalControl = session.runtime.goal
   if (!goalControl) {
     return { success: false, error: 'Current provider does not support goals' }
   }
   try {
+    const goal = await goalControl.setStatus(status)
     if (status === 'paused' && session.activeRequest) {
-      // Pausing stops the active pursuit loop (loop pauses on abort).
+      // Persist the pause before stopping the stream and acknowledging success.
       session.activeRequest.abortController.abort()
       sessionManager.finishRequest(chatId, session.activeRequest.requestId)
-      return { success: true }
     }
-    const goal = await goalControl.setStatus(status)
     return { success: true, goal }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

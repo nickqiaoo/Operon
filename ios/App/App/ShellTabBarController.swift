@@ -235,6 +235,7 @@ final class ShellChromeController: UINavigationController {
 
     func setTabs(_ ids: [String]) { tabsController.setTabs(ids) }
     func setTitles(_ titles: [String: String]) { tabsController.setTitles(titles) }
+    func setBadges(_ badges: [String: Int]) { tabsController.setBadges(badges) }
     func select(tabId: String) { tabsController.select(tabId: tabId) }
     func setTabBarHidden(_ hidden: Bool) { tabsController.setTabBarHidden(hidden) }
 
@@ -616,6 +617,13 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
     func select(tabId: String) {
         guard let index = tabIds.firstIndex(of: tabId), index != selectedIndex else { return }
         selectedIndex = index
+    }
+
+    func setBadges(_ badges: [String: Int]) {
+        for (index, id) in tabIds.enumerated() {
+            let count = badges[id] ?? 0
+            viewControllers?[index].tabBarItem.badgeValue = count > 0 ? (count > 99 ? "99+" : String(count)) : nil
+        }
     }
 
     func setTabBarHidden(_ hidden: Bool) {

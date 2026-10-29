@@ -3,6 +3,7 @@ import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } fro
 import { CheckCheck, Inbox as InboxIcon } from "lucide-react"
 import { useInboxStore, type InboxFilter } from "@/stores/inbox-store"
 import type { Notification } from "@/types/notification"
+import { isAssistantNotification } from "@/types/notification"
 import { cn } from "@/lib/utils"
 import { InboxItem } from "./InboxItem"
 
@@ -89,7 +90,7 @@ export function InboxPanel({ onItemClick, variant = "sheet" }: InboxPanelProps) 
     void load()
   }, [load])
 
-  const visible = items.filter((n) => (filter === "all" ? true : n.severity === filter))
+  const visible = items.filter((n) => !isAssistantNotification(n) && (filter === "all" || n.severity === filter))
   const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     if (!hasMore || loadingMore) return
     const element = event.currentTarget

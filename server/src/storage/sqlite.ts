@@ -2526,7 +2526,7 @@ export class SqliteStorage
   }
 
   notificationList(query: ListNotificationsQuery): Notification[] {
-    const clauses = ['archived_at IS NULL']
+    const clauses = ['archived_at IS NULL', "kind NOT IN ('assistant_message', 'assistant_approval')"]
     const params: unknown[] = []
     if (query.severity) {
       clauses.push('severity = ?')
@@ -2551,10 +2551,10 @@ export class SqliteStorage
     const now = Date.now()
     if (ids === 'all') {
       const unread = this.db
-        .prepare('SELECT id FROM notifications WHERE read_at IS NULL AND archived_at IS NULL')
+        .prepare("SELECT id FROM notifications WHERE read_at IS NULL AND archived_at IS NULL AND kind NOT IN ('assistant_message', 'assistant_approval')")
         .all() as { id: number }[]
       this.db
-        .prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND archived_at IS NULL')
+        .prepare("UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND archived_at IS NULL AND kind NOT IN ('assistant_message', 'assistant_approval')")
         .run(now)
       return unread.map((r) => r.id)
     }
@@ -2630,19 +2630,14 @@ export class SqliteStorage
   }
 
   notificationUnreadCounts(): UnreadCounts {
-    const total = (
-      this.db
-        .prepare('SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL AND archived_at IS NULL')
-        .get() as { n: number }
-    ).n
-    const action = (
-      this.db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL AND archived_at IS NULL AND severity = 'action'",
-        )
-        .get() as { n: number }
-    ).n
-    return { total, action }
+    return this.db.prepare(`
+      SELECT
+        COUNT(CASE WHEN kind NOT IN ('assistant_message', 'assistant_approval') THEN 1 END) AS total,
+        COUNT(CASE WHEN kind NOT IN ('assistant_message', 'assistant_approval') AND severity = 'action' THEN 1 END) AS action,
+        COUNT(CASE WHEN kind IN ('assistant_message', 'assistant_approval') THEN 1 END) AS assistantTotal,
+        COUNT(CASE WHEN kind IN ('assistant_message', 'assistant_approval') AND severity = 'action' THEN 1 END) AS assistantAction
+      FROM notifications WHERE read_at IS NULL AND archived_at IS NULL
+    `).get() as UnreadCounts
   }
 
   private rowToNotification(row: Record<string, unknown>): Notification {

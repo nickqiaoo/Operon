@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api } from '@/lib/api'
 import type { InboxEvent, Notification, UnreadCounts } from '@/types/notification'
+import { isAssistantNotification } from '@/types/notification'
 
 export type InboxFilter = 'all' | 'action' | 'info'
 
@@ -8,7 +9,7 @@ const PAGE_SIZE = 50
 let loadGeneration = 0
 
 interface InboxStore {
-  /** Visible (non-archived) notifications, newest first. */
+  /** Live notifications, including assistant rows; inbox views filter by destination. */
   items: Notification[]
   counts: UnreadCounts
   filter: InboxFilter
@@ -168,7 +169,7 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
 
   markAllRead: async () => {
     const now = Date.now()
-    set((s) => ({ items: s.items.map((n) => (n.readAt == null ? { ...n, readAt: now } : n)) }))
+    set((s) => ({ items: s.items.map((n) => (n.readAt == null && !isAssistantNotification(n) ? { ...n, readAt: now } : n)) }))
     try {
       await api.inboxMarkRead({ all: true })
     } catch {
@@ -189,7 +190,12 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
   applyEvent: (event) => {
     switch (event.type) {
       case 'counts':
-        set({ counts: { total: event.total, action: event.action } })
+        set({ counts: {
+          total: event.total,
+          action: event.action,
+          assistantTotal: event.assistantTotal ?? 0,
+          assistantAction: event.assistantAction ?? 0,
+        } })
         break
       case 'notification_upsert':
         set((s) => ({ items: upsert(s.items, event.notification) }))

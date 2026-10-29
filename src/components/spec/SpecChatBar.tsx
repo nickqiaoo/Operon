@@ -126,15 +126,15 @@ function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; othe
         <button
           type="button"
           onClick={openSpec}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1 text-left text-xs transition-colors hover:bg-row-hover active:bg-row-selected focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1 text-left text-xs text-foreground transition-colors hover:text-status-info active:text-status-info/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           title={intl.formatMessage({ id: 'spec.bar.open', defaultMessage: 'Open the spec' })}
         >
+          <SpecIcon className={cn('h-4 w-4 shrink-0 transition-colors', needsYou ? 'text-status-warn' : 'text-muted-foreground group-hover:text-status-info')} />
           <span className="shrink-0 font-mono text-muted-foreground">#{entry.taskNumber}</span>
-          <span className="min-w-0 flex-1 truncate font-medium text-foreground">{spec?.title ?? entry.title}</span>
-          <SpecIcon className={cn('h-4 w-4 shrink-0', needsYou ? 'text-status-warn' : 'text-muted-foreground')} />
-          <SpecStageBadge stage={stage} running={spec?.running} />
-          {progress && <span className="shrink-0 tabular-nums text-muted-foreground">{progress}</span>}
+          <span className="min-w-0 truncate font-medium">{spec?.title ?? entry.title}</span>
         </button>
+        <SpecStageBadge stage={stage} running={spec?.running} />
+        {progress && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{progress}</span>}
         {others > 0 && (
           <button type="button" onClick={onNext} className="shrink-0 whitespace-nowrap rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-row-hover hover:text-foreground">
             <FormattedMessage id="spec.bar.others" defaultMessage="+{count} more" values={{ count: others }} />

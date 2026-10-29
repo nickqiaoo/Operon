@@ -160,7 +160,7 @@ export async function nativeAuthenticate(url: string, callbackScheme: string): P
  * growing a platform branch here.
  */
 export interface NativeShellPlugin {
-  configure(options: { tabs: { id: string; title: string }[] }): Promise<{ tabBarInset: number }>
+  configure(options: { tabs: { id: string; title: string; badge?: number }[] }): Promise<{ tabBarInset: number }>
   selectTab(options: { tab: string }): Promise<void>
   setTabBarVisible(options: { visible: boolean }): Promise<void>
   /**

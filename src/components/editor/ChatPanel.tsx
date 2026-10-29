@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
@@ -851,9 +852,9 @@ function ChatPanelContent({
 
   // --- Goal (codex) ---
   const sendGoalMessage = useCallback((objective: string) => {
-    void sendMessage({ text: objective }, { body: { asGoal: true } });
+    return sendMessage({ text: objective }, { body: { asGoal: true } });
   }, [sendMessage]);
-  const { goal, startGoal, clearGoal, pauseGoal, resumeGoal } = useGoal({
+  const { goal, pending: goalPending, startGoal, clearGoal, pauseGoal, resumeGoal } = useGoal({
     dbChatId,
     messages,
     supported: supportsGoal,
@@ -877,13 +878,21 @@ function ChatPanelContent({
   const handleSubmitOrGoal = useCallback((message: { text: string; files: FileUIPart[] }) => {
     const text = message.text.trim();
     if (goalArmed && supportsGoal && text) {
-      startGoal(text);
+      const hasContext = message.files.length > 0 || attachments.files.length > 0
+        || annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId).length > 0
+        || lineCommentsForWorkspace(useLineCommentsStore.getState().items, currentWorkspaceId).length > 0
+        || selectedTextForChat(useSelectedTextStore.getState().items, currentWorkspaceId, dbChatId).length > 0;
+      if (hasContext) {
+        toast.error('Goals currently support text only. Send attachments and context in a regular message first.');
+        return;
+      }
+      if (!startGoal(text)) return;
       setGoalArmed(false);
       setInput('');
       return;
     }
     handleSubmit(message);
-  }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput]);
+  }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, dbChatId]);
 
   // One-click "send" from the browser annotation toolbar: when its nonce bumps
   // for this workspace, the focused chat submits the queued annotations. Consume
@@ -1316,6 +1325,8 @@ function ChatPanelContent({
         {goal && (
           <GoalBanner
             goal={goal}
+            pending={goalPending || !dbChatId}
+            isGenerating={isGenerating}
             onClear={clearGoal}
             onPause={pauseGoal}
             onResume={resumeGoal}

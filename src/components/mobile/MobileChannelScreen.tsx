@@ -15,7 +15,6 @@ import { STATUS_MESSAGES, priorityMessage } from "@/components/task/task-i18n"
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/types/task"
 import { MobileNewTaskPage } from "./MobileNewTaskPage"
 import { useTaskStore } from "@/stores/task-store"
-import { useTaskStream } from "@/hooks/useTaskStream"
 import { MobileSheet } from "./MobileSheet"
 import { hasNativeTabBar, NativeShell } from "@/lib/native"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
@@ -107,7 +106,6 @@ export function MobileChannelScreen({
     setActiveChannel(null)
     void Promise.all([loadAgents(), loadChannels(null), loadSessions(null), loadTasks(null)])
   }, [loadAgents, loadChannels, loadSessions, loadTasks, setActiveChannel])
-  useTaskStream(null)
 
   // A task chip under a channel message: over to the tasks, its detail open.
   const openTask = useCallback((taskId: number) => {

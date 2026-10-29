@@ -4,6 +4,8 @@ import type { RuntimeUsageLimits } from '@operon/agent-runtime';
 const stateMock = vi.hoisted(() => ({
   getSession: vi.fn(),
   destroySession: vi.fn(async () => undefined),
+  finishRequest: vi.fn(),
+  getOrCreate: vi.fn(),
   getChatMeta: vi.fn(),
   isAgentOwnedChat: vi.fn(() => false),
 }));
@@ -24,8 +26,11 @@ vi.mock('./state.js', () => ({
   getSessionManager: () => ({
     get: stateMock.getSession,
     destroy: stateMock.destroySession,
+    finishRequest: stateMock.finishRequest,
+    getOrCreate: stateMock.getOrCreate,
   }),
   getChatStorage: () => ({ getChatMeta: stateMock.getChatMeta }),
+  getProjectStorage: () => null,
   getRuntime: () => ({
     native: () => ({ accountUsage: runtimeMock.getClaudeAccountUsage, peekAccountUsage: () => null }),
   }),
@@ -248,4 +253,42 @@ describe('handleSessionCleanup', () => {
     abortChat(7);
     expect(abort).toHaveBeenCalledOnce();
   });
+});
+
+
+describe('goal controls', () => {
+  it('persists pause before aborting the stream and returns the authoritative goal', async () => {
+    const controller = new AbortController();
+    const goal = { objective: 'Finish', status: 'paused', tokensUsed: 120 };
+    const setStatus = vi.fn(async () => {
+      expect(controller.signal.aborted).toBe(false);
+      return goal;
+    });
+    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'r', abortController: controller }, runtime: { goal: { setStatus } } });
+    const { setChatGoalStatus } = await loadSessionOps();
+    await expect(setChatGoalStatus(7, 'paused')).resolves.toEqual({ success: true, goal });
+    expect(controller.signal.aborted).toBe(true);
+    expect(setStatus).toHaveBeenCalledWith('paused');
+  });
+
+  it('clears the persisted goal before abort so a delayed pause cannot recreate it', async () => {
+    const controller = new AbortController();
+    const clear = vi.fn(async () => { expect(controller.signal.aborted).toBe(false); });
+    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'r', abortController: controller }, runtime: { goal: { clear } } });
+    const { clearChatGoal } = await loadSessionOps();
+    await expect(clearChatGoal(7)).resolves.toEqual({ success: true });
+    expect(clear).toHaveBeenCalledOnce();
+    expect(controller.signal.aborted).toBe(true);
+  });
+});
+
+
+it('rehydrates a persisted Codex goal without requiring an already open session', async () => {
+  stateMock.getSession.mockReturnValue(undefined);
+  stateMock.getChatMeta.mockReturnValue({ providerId: 'codex', sessionId: 'thread-stored', model: 'gpt-5' });
+  const goal = { objective: 'Finish', status: 'paused', tokensUsed: 120 };
+  stateMock.getOrCreate.mockResolvedValue({ runtime: { goal: { get: async () => goal } } });
+  const { getChatGoal } = await loadSessionOps();
+  await expect(getChatGoal(7)).resolves.toEqual({ success: true, goal });
+  expect(stateMock.getOrCreate).toHaveBeenCalledWith(7, 'codex', expect.objectContaining({ resume: 'thread-stored', model: 'gpt-5' }));
 });

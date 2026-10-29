@@ -812,6 +812,15 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
           }
         }
 
+        const goalUnsubscribers = [
+          client.onNotification('thread/goal/updated', (params) => {
+            const update = params as GoalUpdatedParams
+            if (String(update.threadId) === String(threadId)) emitter.emitGoalUpdate(update.goal)
+          }),
+          client.onNotification('thread/goal/cleared', (params) => {
+            if (String((params as GoalClearedParams).threadId) === String(threadId)) emitter.emitGoalUpdate(null)
+          }),
+        ]
         let finalized = false
         let router: NotificationRouter | undefined
         const finalize = (status?: string, error?: { code?: string; message?: string } | null) => {
@@ -822,6 +831,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
             emitter.emitFinish(status, error)
           }
           router?.unsubscribe()
+          for (const unsubscribe of goalUnsubscribers) unsubscribe()
           if (this.activeRouter === router) {
             this.activeRouter = null
           }
@@ -890,9 +900,16 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     const threadMode = settings.threadMode ?? DEFAULT_THREAD_MODE
     const { resolved: resolvedMcpServers, sdkServers } = await resolveSdkMcpServers(settings.mcpServers)
     this.activeSdkServers = [...this.activeSdkServers.filter((server) => !sdkServers.includes(server)), ...sdkServers]
+    const goalEffort = mapReasoningEffort(settings.reasoningEffort)
     const effectiveSettings: CodexAppServerSettings = {
       ...settings,
       mcpServers: resolvedMcpServers as Record<string, CodexSdkMcpServerConfig>,
+      // Auto-started goal turns have no turn/start payload. Put the selected
+      // effort on the thread instead of silently using the CLI's default.
+      configOverrides: {
+        ...settings.configOverrides,
+        ...(goalEffort ? { model_reasoning_effort: goalEffort } : {}),
+      },
     }
 
     const { inputs, warnings, tempFiles } = convertPrompt(messages, threadMode)
@@ -912,7 +929,6 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     }
 
     const abortSignal = this.createAbortSignal(signal)
-    const MAX_GOAL_ITERATIONS = 50
 
     const stream = new ReadableStream<import('../../types.js').RuntimeStreamPart>({
       start: (controller) => {
@@ -941,13 +957,22 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
 
         let finalized = false
         let stopped = false
+        let pendingTurnWait: AbortController | undefined
         let activeRouter: NotificationRouter | undefined
+        const goalClearUnsub = client.onNotification('thread/goal/cleared', (params) => {
+          if (String((params as GoalClearedParams).threadId) !== String(threadId)) return
+          this.currentGoal = null
+          emitter.emitGoalUpdate(null)
+          if (!activeRouter) pendingTurnWait?.abort()
+        })
 
         const finalize = (status?: string, error?: TurnError | null) => {
           if (finalized) return
           finalized = true
           stopped = true
           goalUpdateUnsub()
+          goalClearUnsub()
+          pendingTurnWait?.abort()
           activeRouter?.unsubscribe()
           if (this.activeRouter === activeRouter) this.activeRouter = null
           this.codexSession?._setInactive()
@@ -958,10 +983,23 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
 
         const runLoop = async () => {
           try {
-            for (let iteration = 0; iteration < MAX_GOAL_ITERATIONS; iteration++) {
-              if (stopped || abortSignal.aborted) break
-
-              const turnStartedPromise = this.waitForGoalTurnStarted(client, threadId, abortSignal)
+            let iteration = 0
+            while (!stopped && !abortSignal.aborted) {
+              pendingTurnWait = new AbortController()
+              let outcomePromise: ReturnType<CodexRuntimeSession['runGoalTurn']> | undefined
+              const turnStartedPromise = this.waitForGoalTurnStarted(
+                client, threadId, AbortSignal.any([abortSignal, pendingTurnWait.signal]),
+                (turnId) => {
+                  // Subscribe synchronously inside turn/started: more notifications
+                  // can arrive in the same stdout chunk, before await resumes.
+                  this.codexSession = new SessionImpl(client, threadId)
+                  this.codexSession._setTurnId(turnId)
+                  outcomePromise = this.runGoalTurn(client, emitter, effectiveSettings, threadId, turnId, (router) => {
+                    activeRouter = router
+                    this.activeRouter = router
+                  })
+                },
+              )
 
               let goal: CodexGoal
               try {
@@ -969,6 +1007,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
                   threadId,
                   objective: iteration === 0 ? objective : undefined,
                   status: 'active',
+                  origin: iteration === 0 ? 'user' : 'automatic',
                 })
                 goal = result.goal
               } catch (error) {
@@ -989,26 +1028,15 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
                 finalize()
                 return
               }
-              if (!turnId) {
-                // codex did not start a turn (objective already satisfied / timeout)
+              if (!turnId || !outcomePromise) {
+                // Do not leave a goal marked active when no pursuit is attached.
+                await this.pauseActiveGoal(client, threadId)
+                emitter.emitGoalUpdate(this.currentGoal)
                 finalize(goalStatusToFinishReason(this.currentGoal?.status))
                 return
               }
 
-              this.codexSession = new SessionImpl(client, threadId)
-              this.codexSession._setTurnId(turnId)
-
-              const outcome = await this.runGoalTurn(
-                client,
-                emitter,
-                effectiveSettings,
-                threadId,
-                turnId,
-                (router) => {
-                  activeRouter = router
-                  this.activeRouter = router
-                },
-              )
+              const outcome = await outcomePromise
 
               activeRouter?.unsubscribe()
               if (this.activeRouter === activeRouter) this.activeRouter = null
@@ -1044,6 +1072,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
                 return
               }
 
+              iteration += 1
               await this.delay(GOAL_CONTINUE_DELAY_MS, abortSignal)
             }
             finalize()
@@ -1057,8 +1086,12 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
         abortSignal.addEventListener(
           'abort',
           () => {
-            void this.pauseActiveGoal(client, threadId)
-            finalize()
+            stopped = true
+            void this.pauseActiveGoal(client, threadId).finally(() => {
+              if (finalized) return
+              emitter.emitGoalUpdate(this.currentGoal)
+              finalize()
+            })
           },
           { once: true },
         )
@@ -1089,6 +1122,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     client: AppServerClient,
     threadId: string,
     signal: AbortSignal,
+    onStarted: (turnId: string) => void,
     timeoutMs = 60_000,
   ): Promise<string | null> {
     return new Promise((resolve) => {
@@ -1107,7 +1141,9 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
       unsubscribe = client.onNotification('turn/started', (paramsRaw) => {
         const payload = paramsRaw as { threadId: string; turn: { id: string } }
         if (String(payload.threadId) !== String(threadId)) return
-        finish(String(payload.turn.id))
+        const turnId = String(payload.turn.id)
+        onStarted(turnId)
+        finish(turnId)
       })
       if (signal.aborted) finish(null)
       else signal.addEventListener('abort', onAbort, { once: true })
@@ -1150,7 +1186,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   private async pauseActiveGoal(client: AppServerClient, threadId: string): Promise<void> {
     try {
       if (this.currentGoal?.status === 'active') {
-        const { goal } = await client.setGoal({ threadId, status: 'paused' })
+        const { goal } = await client.setGoal({ threadId, status: 'paused', origin: 'automatic' })
         this.currentGoal = goal
       }
     } catch (error) {
@@ -1263,26 +1299,21 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
 
   private async getGoal(): Promise<CodexGoal | null> {
     if (!this.threadId) return this.currentGoal
-    try {
-      const { goal } = await this.getClient().getGoal({ threadId: this.threadId })
-      this.currentGoal = goal ?? null
-    } catch (error) {
-      this.logger.warn(`getGoal failed: ${error instanceof Error ? error.message : String(error)}`)
-    }
+    const { goal } = await this.getClient().getGoal({ threadId: this.threadId })
+    this.currentGoal = goal ?? null
     return this.currentGoal
   }
 
   private async setGoalStatus(status: 'active' | 'paused'): Promise<CodexGoal | null> {
     if (!this.threadId) return this.currentGoal
-    const { goal } = await this.getClient().setGoal({ threadId: this.threadId, status })
+    const { goal } = await this.getClient().setGoal({ threadId: this.threadId, status, origin: 'user' })
     this.currentGoal = goal ?? null
     return this.currentGoal
   }
 
   private async clearGoal(): Promise<void> {
+    if (this.threadId) await this.getClient().clearGoal({ threadId: this.threadId, origin: 'user' })
     this.currentGoal = null
-    if (!this.threadId) return
-    await this.getClient().clearGoal({ threadId: this.threadId })
   }
 
   /**

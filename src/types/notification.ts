@@ -40,8 +40,15 @@ export interface Notification {
 }
 
 export interface UnreadCounts {
+  /** Inbox only; assistant notifications have their own destination. */
   total: number
   action: number
+  assistantTotal?: number
+  assistantAction?: number
+}
+
+export function isAssistantNotification(notification: Notification): boolean {
+  return notification.kind === 'assistant_message' || notification.kind === 'assistant_approval'
 }
 
 /** SSE payloads pushed on /api/inbox/stream. */
@@ -49,4 +56,4 @@ export type InboxEvent =
   | { type: 'notification_upsert'; notification: Notification }
   | { type: 'notification_read'; ids: number[] }
   | { type: 'notification_archive'; ids: number[] }
-  | { type: 'counts'; total: number; action: number }
+  | ({ type: 'counts' } & UnreadCounts)

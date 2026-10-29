@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react"
 import { defineMessages, useIntl, type IntlShape } from "react-intl"
 import { hasNativeTabBar, NativeShell, type NativeInboxState } from "@/lib/native"
 import { useInboxStore } from "@/stores/inbox-store"
+import { isAssistantNotification } from "@/types/notification"
 import { INBOX_KIND_SYMBOL, inboxRelativeTime } from "@/components/inbox/InboxItem"
 import { localizeNotification } from "@/components/inbox/localize-notification"
 import type { Notification } from "@/types/notification"
@@ -40,7 +41,7 @@ function labels(intl: IntlShape) {
 
 function snapshot(intl: IntlShape): NativeInboxState {
   const s = useInboxStore.getState()
-  const visible = s.items.filter((n) => (s.filter === "all" ? true : n.severity === s.filter))
+  const visible = s.items.filter((n) => !isAssistantNotification(n) && (s.filter === "all" || n.severity === s.filter))
   return {
     filter: s.filter,
     items: visible.map((n) => {

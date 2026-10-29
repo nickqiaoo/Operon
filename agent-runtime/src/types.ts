@@ -377,7 +377,7 @@ export type RuntimeBackgroundEvent =
 export interface GoalControl {
   /** The current goal, or null when there is none. */
   get(): Promise<RuntimeGoal | null>
-  /** Set the goal's status without starting a turn (e.g. pause). */
+  /** Update persisted status. Activating may start work; use run() to stream the pursuit. */
   setStatus(status: 'active' | 'paused'): Promise<RuntimeGoal | null>
   clear(): Promise<void>
   /**

@@ -632,6 +632,7 @@ export interface CodexGoal {
 
 export interface GoalSetParams {
   threadId: string
+  origin?: 'user' | 'automatic'
   /** Omitted on continuation (objective already persisted on the thread). */
   objective?: string
   status?: CodexGoalStatus
@@ -644,10 +645,15 @@ export interface GoalGetParams {
 
 export interface GoalClearParams {
   threadId: string
+  origin?: 'user' | 'automatic'
 }
 
 export interface GoalResult {
   goal: CodexGoal
+}
+
+export interface GoalGetResult {
+  goal: CodexGoal | null
 }
 
 export interface GoalClearResult {

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.4.21] - 2026-10-29
+
+### Changed
+
+- Refreshed the conversation layout and message controls, with a compact Goal banner that shows progress and pause, resume and clear actions.
+- Spec links in the chat bar keep their status and progress visible beside long titles.
+
+### Fixed
+
+- Assistant messages and approvals show unread reminders on the Assistant entry on desktop and mobile, instead of the Inbox. Marking the Inbox read leaves assistant notifications unread.
+- New and updated Specs appear in project navigation without opening the Board, including active Specs without a workspace. Repeated task updates no longer redraw unchanged project rows.
+- Codex goals restore their persisted state, update progress reliably, and pause or clear without stale updates bringing them back. Autonomous turns honor the selected reasoning effort and no longer stop at an arbitrary 50-turn limit.
+- Sending a message while reading earlier replies preserves the reading position; resizing the conversation and selecting text also keep scroll anchors stable.
+- Assistant replies retain their identity through approval continuations, and OpenCode question forms attach to the correct tool call.
+
 ## [1.4.20] - 2026-10-29
 
 ### Changed

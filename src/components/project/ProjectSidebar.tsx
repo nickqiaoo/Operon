@@ -4,7 +4,7 @@ import { openExternalUrl } from "@/lib/open-external"
 import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
-import { Fragment, useCallback, useState } from "react"
+import { Fragment, memo, useCallback, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -80,7 +80,7 @@ const buildWorkspaceInputs = (entries: GitWorktreeEntry[], fallbackRoot: string)
   })
 }
 
-function ProjectItem({
+const ProjectItem = memo(function ProjectItem({
   project,
   onSelectWorkspace,
   activeWorkspaceId,
@@ -202,7 +202,7 @@ function ProjectItem({
       </CollapsibleContent>
     </Collapsible>
   )
-}
+})
 
 function SpecRow({ spec, active, onSelect }: { spec: WorkspaceTask; active: boolean; onSelect: () => void }) {
   const needsInput = ['awaiting_answers', 'awaiting_design', 'awaiting_signoff'].includes(spec.specStage ?? '')
@@ -354,6 +354,8 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
   const clearUnseen = useStreamingStore((s) => s.clearUnseen)
   const inboxAction = useInboxStore((s) => s.counts.action)
   const inboxTotal = useInboxStore((s) => s.counts.total)
+  const assistantAction = useInboxStore((s) => s.counts.assistantAction ?? 0)
+  const assistantTotal = useInboxStore((s) => s.counts.assistantTotal ?? 0)
 
   // Clear unseen when user switches to a workspace. Tabs are read at click time
   // rather than subscribed: they change on every send (chat id, title, draft),
@@ -408,9 +410,9 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
 
   const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
 
-  const handleOpenAddWorkspace = (project: Project) => {
+  const handleOpenAddWorkspace = useCallback((project: Project) => {
     setNewWorkspaceProjectId(project.id)
-  }
+  }, [])
 
   const handleConfirmAddWorkspace = async (branchName: string) => {
     if (newWorkspaceProjectId === null) return
@@ -484,6 +486,15 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
             >
               <MessageCircle className="h-4 w-4" />
               <span className="flex-1"><FormattedMessage id="sidebar.assistant" defaultMessage="Assistant" /></span>
+              {assistantAction > 0 ? (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
+                  {assistantAction > 99 ? "99+" : assistantAction}
+                </span>
+              ) : assistantTotal > 0 ? (
+                <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
+                  {assistantTotal > 99 ? "99+" : assistantTotal}
+                </span>
+              ) : null}
             </button>
           )}
           {onOpenInbox && (

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TaskDetail } from '@/types/task'
 
-const mocks = vi.hoisted(() => ({ taskGet: vi.fn() }))
+const mocks = vi.hoisted(() => ({ taskGet: vi.fn(), setWorkspaceTaskArchived: vi.fn() }))
 vi.mock('@/lib/api', () => ({ api: mocks }))
 vi.mock('@/lib/analytics', () => ({ trackEvent: vi.fn() }))
-vi.mock('@/stores/project-store', () => ({ useProjectStore: { getState: () => ({}) } }))
+vi.mock('@/stores/project-store', () => ({ useProjectStore: { getState: () => ({ setWorkspaceTaskArchived: mocks.setWorkspaceTaskArchived }) } }))
 
 import { useTaskStore } from './task-store'
 
@@ -30,6 +30,29 @@ beforeEach(() => {
 })
 
 describe('openDetail', () => {
+  it('keeps task subscribers quiet for an identical stream snapshot', () => {
+    const { activity: _activity, children: _children, surfaces: _surfaces, ...row } = task(1)
+    useTaskStore.setState({ projectId: null, tasks: [row], detail: null })
+    const previous = useTaskStore.getState().tasks
+    const listener = vi.fn()
+    const unsubscribe = useTaskStore.subscribe(listener)
+    useTaskStore.getState().applyUpsert(structuredClone(row))
+    expect(useTaskStore.getState().tasks).toBe(previous)
+    expect(listener).not.toHaveBeenCalled()
+    expect(mocks.taskGet).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it('still refreshes open activity for a comment event with an unchanged task row', async () => {
+    const { activity: _activity, children: _children, surfaces: _surfaces, ...row } = task(1)
+    useTaskStore.setState({ projectId: null, tasks: [row], detail: task(1) })
+    mocks.taskGet.mockResolvedValue({ task: task(1) })
+    const previous = useTaskStore.getState().tasks
+    useTaskStore.getState().applyUpsert(structuredClone(row))
+    expect(mocks.taskGet).toHaveBeenCalledWith(1)
+    expect(useTaskStore.getState().tasks).toBe(previous)
+  })
+
   it('marks the task pending from the tap until its detail arrives', async () => {
     const reply = deferred<{ task: TaskDetail }>()
     mocks.taskGet.mockReturnValue(reply.promise)

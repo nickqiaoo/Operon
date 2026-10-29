@@ -1,90 +1,82 @@
-import { FormattedMessage, useIntl } from 'react-intl'
-import { Target, Pause, Play, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Loader2, Pause, Play, Target, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item'
-import { type CodexGoal, isResumableGoalStatus, toggleGoalStatus } from '@/types/goal'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
+import { type CodexGoal, isResumableGoalStatus } from '@/types/goal'
 
 interface GoalBannerProps {
   goal: CodexGoal
+  pending?: boolean
+  isGenerating?: boolean
   onClear: () => void
   onPause: () => void
   onResume: () => void
 }
 
-function formatDuration(totalSeconds: number): string {
-  if (totalSeconds < 60) return `${totalSeconds}s`
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${minutes % 60}m`
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-function statusLabel(status: string) {
+function statusLabel(status: string, isGenerating: boolean): string {
   switch (status) {
-    case 'active':
-      return <FormattedMessage id="editor.goal.status.active" defaultMessage="Active goal" />
-    case 'paused':
-      return <FormattedMessage id="editor.goal.status.paused" defaultMessage="Goal paused" />
-    case 'blocked':
-      return <FormattedMessage id="editor.goal.status.blocked" defaultMessage="Goal blocked" />
-    case 'usageLimited':
-      return <FormattedMessage id="editor.goal.status.usageLimited" defaultMessage="Goal paused (usage limit)" />
-    case 'budgetLimited':
-      return <FormattedMessage id="editor.goal.status.budgetLimited" defaultMessage="Goal stopped (budget)" />
-    default:
-      return <FormattedMessage id="editor.goal.status.generic" defaultMessage="Goal" />
+    case 'active': return isGenerating ? 'Working' : 'Ready'
+    case 'paused': return 'Paused'
+    case 'blocked': return 'Blocked'
+    case 'usageLimited': return 'Usage limit reached'
+    case 'budgetLimited': return 'Budget reached'
+    case 'complete': return 'Complete'
+    default: return 'Goal'
   }
 }
 
-/** The goal in progress, above the composer: an Item (icon, objective, status and spend, actions). */
-export function GoalBanner({ goal, onClear, onPause, onResume }: GoalBannerProps) {
-  const intl = useIntl()
+export function GoalBanner({ goal, pending = false, isGenerating = false, onClear, onPause, onResume }: GoalBannerProps) {
   const isActive = goal.status === 'active'
+  const isPursuing = isActive && isGenerating
   const canResume = isResumableGoalStatus(goal.status)
-  const canToggle = toggleGoalStatus(goal.status) !== null
-  const toggleLabel = isActive
-    ? intl.formatMessage({ id: 'editor.goal.pause', defaultMessage: 'Pause goal' })
-    : intl.formatMessage({ id: 'editor.goal.resume', defaultMessage: 'Resume goal' })
-  const clearLabel = intl.formatMessage({ id: 'editor.goal.clear', defaultMessage: 'Clear goal' })
+  const status = statusLabel(goal.status, isGenerating)
   const spent = [
-    typeof goal.timeUsedSeconds === 'number' && goal.timeUsedSeconds > 0 ? formatDuration(goal.timeUsedSeconds) : null,
-    typeof goal.tokensUsed === 'number' && goal.tokensUsed > 0 ? `${goal.tokensUsed.toLocaleString()} tokens` : null,
-  ].filter(Boolean)
+    typeof goal.tokensUsed === 'number' ? `${goal.tokensUsed.toLocaleString('en-US')} tokens` : null,
+    goal.timeUsedSeconds ? formatDuration(goal.timeUsedSeconds) : null,
+  ].filter(Boolean).join(' · ')
 
   return (
-    <Item variant="outline" size="xs" className="rounded-xl bg-background shadow-card">
-      <ItemMedia variant="icon" className="text-muted-foreground">
-        {/* No spinner: the status line says it is running, and the Working marker spins. */}
-        <Target />
-      </ItemMedia>
-      <ItemContent className="min-w-0">
-        <ItemTitle className="w-full min-w-0">
-          <span className="truncate" title={goal.objective}>{goal.objective}</span>
-        </ItemTitle>
-        <ItemDescription className="truncate">
-          {statusLabel(goal.status)}
-          {spent.map((part) => ` · ${part}`)}
-        </ItemDescription>
-      </ItemContent>
-      <ItemActions className="gap-0.5">
-        {canToggle && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={isActive ? onPause : onResume}
-            disabled={!isActive && !canResume}
-            aria-label={toggleLabel}
-            title={toggleLabel}
-          >
-            {isActive ? <Pause /> : <Play />}
+    <div data-testid="goal-banner" className="mb-1.5 flex min-w-0 items-center gap-2 rounded-lg bg-muted/35 px-2.5 py-1 text-xs">
+      {goal.status === 'complete'
+        ? <Check aria-hidden="true" className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        : <Target aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button type="button" aria-label="View goal details" className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-1.5 text-left text-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <span className="truncate">{goal.objective}</span>
+            <ChevronDown aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" side="top" className="w-80 max-w-[calc(100vw-2rem)] space-y-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium">Goal</span>
+            <span className="text-xs text-muted-foreground">{status}</span>
+          </div>
+          <p className="whitespace-pre-wrap break-words text-foreground/85">{goal.objective}</p>
+          {spent && <p className="text-xs tabular-nums text-muted-foreground">{spent}</p>}
+          {goal.tokenBudget != null && <p className="text-xs text-muted-foreground">Budget: {goal.tokenBudget.toLocaleString('en-US')} tokens</p>}
+          {goal.status === 'blocked' && <p className="text-xs text-muted-foreground">Review the conversation for what is needed before resuming.</p>}
+          {goal.status === 'usageLimited' && <p className="text-xs text-muted-foreground">Resume when your usage limit resets.</p>}
+        </PopoverContent>
+      </Popover>
+      <span role="status" className={cn('shrink-0 text-[11px] text-muted-foreground', isActive && isGenerating && 'text-tint')}>{status}</span>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {(isActive || canResume) && (
+          <Button type="button" variant="ghost" size="icon-sm" className="size-7 text-muted-foreground" disabled={pending || (!isActive && isGenerating)} onClick={isPursuing ? onPause : onResume} aria-label={isPursuing ? 'Pause goal' : 'Resume goal'} title={isPursuing ? 'Pause goal' : 'Resume goal'}>
+            {pending ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin motion-reduce:animate-none" /> : isPursuing ? <Pause aria-hidden="true" className="size-3.5" /> : <Play aria-hidden="true" className="size-3.5" />}
           </Button>
         )}
-        <Button type="button" variant="ghost" size="icon-sm" onClick={onClear} aria-label={clearLabel} title={clearLabel}>
-          <Trash2 />
+        <Button type="button" variant="ghost" size="icon-sm" className="size-7 text-muted-foreground" disabled={pending} onClick={onClear} aria-label="Clear goal" title="Clear goal">
+          <X aria-hidden="true" className="size-3.5" />
         </Button>
-      </ItemActions>
-    </Item>
+      </div>
+    </div>
   )
 }

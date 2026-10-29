@@ -283,3 +283,62 @@ describe('withLocalMcpNoProxy', () => {
     })
   })
 })
+
+describe('Codex goal pursuit', () => {
+  function harness(turnCount = 1) {
+    type Handler = (params: unknown) => void
+    const handlers = new Map<string, Set<Handler>>()
+    const emit = (method: string, params: unknown) => {
+      for (const handler of handlers.get(method) ?? []) handler(params)
+    }
+    let turns = 0
+    const snapshot = (status: 'active' | 'complete') => ({ threadId: 'thread-goal', objective: 'Finish', status, tokensUsed: turns * 100 })
+    const client = {
+      onNotification: (method: string, handler: Handler) => {
+        const set = handlers.get(method) ?? new Set<Handler>()
+        set.add(handler)
+        handlers.set(method, set)
+        return () => set.delete(handler)
+      },
+      onRequest: () => () => {},
+      readRateLimits: async () => null,
+      setGoal: vi.fn(async () => {
+        turns += 1
+        // A whole fast turn may arrive before the goal/set promise resumes.
+        emit('turn/started', { threadId: 'thread-goal', turn: { id: `turn-${turns}` } })
+        emit('item/agentMessage/delta', { threadId: 'thread-goal', turnId: `turn-${turns}`, itemId: `text-${turns}`, delta: 'Done' })
+        emit('turn/completed', { threadId: 'thread-goal', turn: { id: `turn-${turns}`, status: 'completed' } })
+        return { goal: snapshot('active') }
+      }),
+      getGoal: vi.fn(async () => ({ goal: turns < turnCount ? snapshot('active') : null })),
+    }
+    const session = new CodexRuntimeSession({ cwd: '/tmp', model: 'gpt-5', effort: 'xhigh' }, createRuntimeContext({ resolveBinary: () => '/mock/codex' }))
+    const internals = session as unknown as {
+      getClient(): typeof client
+      resolveThreadId(): Promise<string>
+      delay(): Promise<void>
+    }
+    vi.spyOn(internals, 'getClient').mockReturnValue(client)
+    vi.spyOn(internals, 'resolveThreadId').mockResolvedValue('thread-goal')
+    vi.spyOn(internals, 'delay').mockResolvedValue(undefined)
+    return { session, client, handlers, internals }
+  }
+
+  it('captures fast auto-started turns and handles a cleared goal returned by goal/get', async () => {
+    const { session, client, handlers, internals } = harness()
+    const parts = []
+    for await (const part of session.goal.run('Finish')) parts.push(part)
+    expect(parts).toContainEqual(expect.objectContaining({ type: 'text-delta', text: 'Done' }))
+    expect(parts).toContainEqual({ type: 'message-metadata', metadata: expect.objectContaining({ goal: null }) })
+    expect(client.setGoal).toHaveBeenCalledWith(expect.objectContaining({ origin: 'user', objective: 'Finish' }))
+    expect(internals.resolveThreadId).toHaveBeenCalledWith(client, expect.objectContaining({ configOverrides: expect.objectContaining({ model_reasoning_effort: 'xhigh' }) }), undefined, 'persistent')
+    expect([...handlers.values()].every((set) => set.size === 0)).toBe(true)
+  })
+
+  it('continues beyond 50 turns without inventing a user budget and marks continuations automatic', async () => {
+    const { session, client } = harness(51)
+    for await (const _part of session.goal.run('Finish')) { /* drain */ }
+    expect(client.setGoal).toHaveBeenCalledTimes(51)
+    expect(client.setGoal).toHaveBeenNthCalledWith(2, expect.objectContaining({ origin: 'automatic', objective: undefined }))
+  })
+})

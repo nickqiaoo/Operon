@@ -13,6 +13,7 @@ import { InboxButton, MobileInboxSheet } from "@/components/inbox/InboxButton"
 import { useInboxStore } from "@/stores/inbox-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useInboxStream } from "@/hooks/useInboxStream"
+import { useTaskStream } from "@/hooks/useTaskStream"
 import type { Notification } from "@/types/notification"
 import { useProjectStore } from "@/stores/project-store"
 import { useEditorStore } from "@/stores/editor-store"
@@ -66,6 +67,7 @@ function readSavedTab(): MobileTab {
  * the desktop multi-pane app is left completely untouched.
  */
 export function MobileApp() {
+  useTaskStream(null)
   const [tab, setTab] = useState<MobileTab>(readSavedTab)
   useEffect(() => {
     try {
@@ -116,12 +118,17 @@ export function MobileApp() {
   const [nativeTopBarHeight, setNativeTopBarHeight] = useState(44)
   const overlayCount = useNativeShellOverlayCount()
   const tabBarVisible = !keyboardOpen && !immersive
+  const assistantUnread = useInboxStore((s) => s.counts.assistantTotal ?? 0)
 
   useEffect(() => {
     if (!nativeTabBar) return
     let cancelled = false
     // Titles follow the app's locale, so this re-runs when it changes.
-    const tabs = MOBILE_TABS.map((id) => ({ id, title: intl.formatMessage(MOBILE_TAB_LABELS[id]) }))
+    const tabs = MOBILE_TABS.map((id) => ({
+      id,
+      title: intl.formatMessage(MOBILE_TAB_LABELS[id]),
+      badge: id === "assistant" ? assistantUnread : 0,
+    }))
     void NativeShell.configure({ tabs })
       .then(({ tabBarInset }) => {
         if (!cancelled && tabBarInset > 0) setNativeTabBarHeight(tabBarInset)
@@ -130,7 +137,7 @@ export function MobileApp() {
     return () => {
       cancelled = true
     }
-  }, [nativeTabBar, intl])
+  }, [nativeTabBar, intl, assistantUnread])
 
   const selectWorkspace = useCallback((projectId: number, workspaceId: number | null) => {
     setSelectedSpec(null)

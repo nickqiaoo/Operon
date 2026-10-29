@@ -66,6 +66,29 @@ describe("loadProjects", () => {
 
     expect(useProjectStore.getState().projectsLoaded).toBe(true)
   })
+
+  it("retains the tree reference for an unchanged refresh", async () => {
+    projectListWithWorkspaces.mockImplementation(async () => ({ projects: structuredClone(tree) }))
+    await useProjectStore.getState().loadProjects()
+    const previous = useProjectStore.getState().projects
+    await useProjectStore.getState().loadProjects()
+    expect(useProjectStore.getState().projects).toBe(previous)
+  })
+
+  it("retains unrelated projects and workspace rows when a Spec changes", async () => {
+    const spec = { id: 42, number: 1, title: 'Spec', status: 'in_progress', parentTaskId: null, specStage: 'grounding', archivedAt: null }
+    const initial = [{ ...tree[0], specs: [spec] }, { ...tree[0], id: 2 }]
+    projectListWithWorkspaces.mockResolvedValueOnce({ projects: structuredClone(initial) })
+    await useProjectStore.getState().loadProjects()
+    const previous = useProjectStore.getState().projects
+    projectListWithWorkspaces.mockResolvedValueOnce({ projects: [{ ...initial[0], specs: [{ ...spec, specStage: 'stopped' }] }, initial[1]] })
+    await useProjectStore.getState().loadProjects()
+    const next = useProjectStore.getState().projects
+    expect(next[0]).not.toBe(previous[0])
+    expect(next[0].specs?.[0].specStage).toBe('stopped')
+    expect(next[0].workspaces).toBe(previous[0].workspaces)
+    expect(next[1]).toBe(previous[1])
+  })
 })
 
 

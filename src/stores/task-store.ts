@@ -1,5 +1,6 @@
 import { taskSubtreeIds } from '@shared/task-tree'
 import { create } from 'zustand'
+import { replaceEqualDeep } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useProjectStore } from '@/stores/project-store'
 import { trackEvent } from '@/lib/analytics'
@@ -214,7 +215,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     useProjectStore.getState().setWorkspaceTaskArchived(task.id, task.archivedAt)
     const scope = get().projectId
     if (scope != null && task.projectId !== scope) return
-    set((s) => ({ tasks: upsertTask(s.tasks, task) }))
+    const previous = get().tasks.find((entry) => entry.id === task.id)
+    // Reconnect snapshots and workflow heartbeats often repeat the same task.
+    if (!previous || replaceEqualDeep(previous, task) !== previous) {
+      set((s) => ({ tasks: upsertTask(s.tasks, task) }))
+    }
+    // A comment can change activity without changing the task row itself.
     // If this task's detail is open, refetch it to pull fresh activity-feed rows
     // (status/dispatch/comment events the agent just produced).
     const { detail } = get()

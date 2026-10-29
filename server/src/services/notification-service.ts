@@ -126,8 +126,7 @@ export function startNotificationPruning(storage: NotificationStorageAdapter): (
 /** Broadcast a fresh unread-counts snapshot (drives the bell badge). */
 export function emitCounts(storage: NotificationStorageAdapter): void {
   try {
-    const { total, action } = storage.notificationUnreadCounts()
-    emitInboxEvent({ type: 'counts', total, action })
+    emitInboxEvent({ type: 'counts', ...storage.notificationUnreadCounts() })
   } catch (err) {
     console.error('[Inbox] emitCounts failed:', err)
   }

@@ -29,6 +29,7 @@ import type {
   GoalGetParams,
   GoalClearParams,
   GoalResult,
+  GoalGetResult,
   GoalClearResult,
   AccountRateLimitsReadResult,
 } from './protocol/index.js';
@@ -580,8 +581,8 @@ export class AppServerClient {
   /**
    * Get the current thread goal.
    */
-  async getGoal(params: GoalGetParams): Promise<GoalResult> {
-    return this.request<GoalResult>('thread/goal/get', params);
+  async getGoal(params: GoalGetParams): Promise<GoalGetResult> {
+    return this.request<GoalGetResult>('thread/goal/get', params);
   }
 
   /**

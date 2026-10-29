@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import type { AgentSessionStatus, ChannelMessage } from '../types/channel.js'
 import type { TaskListItem } from '../types/task.js'
-import type { Notification } from '../types/notification.js'
+import type { Notification, UnreadCounts } from '../types/notification.js'
 
 export type ChannelEvent =
   | { type: 'channel_message'; data: ChannelMessage }
@@ -74,7 +74,7 @@ export type InboxEvent =
   | { type: 'notification_upsert'; notification: Notification }
   | { type: 'notification_read'; ids: number[] }
   | { type: 'notification_archive'; ids: number[] }
-  | { type: 'counts'; total: number; action: number }
+  | ({ type: 'counts' } & UnreadCounts)
 
 export function emitInboxEvent(event: InboxEvent): void {
   bus.emit('inbox', event)

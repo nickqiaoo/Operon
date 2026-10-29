@@ -31,6 +31,7 @@ import { AssistantPage } from "@/components/assistant/AssistantPage"
 import { useOpenWorkspaceSessions } from "@/hooks/useOpenWorkspaceSessions"
 import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
 import { useInboxStream } from "@/hooks/useInboxStream"
+import { useTaskStream } from "@/hooks/useTaskStream"
 import type { Notification } from "@/types/notification"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useTabsStore } from "@/stores/tabs-store"
@@ -44,6 +45,7 @@ import type { SpecChatRef } from '@shared/spec'
 import { OPEN_PLUGINS_PAGE_EVENT, OPEN_SCHEDULE_PAGE_EVENT, OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
 
 export default function App() {
+  useTaskStream(null)
   const intl = useIntl()
   const [settingsOpen, setSettingsOpen] = useState(false)
   /** Tab to land on when something deep-linked into Settings; cleared once consumed. */
