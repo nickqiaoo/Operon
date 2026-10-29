@@ -261,7 +261,7 @@ export function EditorTabs({
           <DropdownMenuTrigger asChild>
             <button
               data-testid="new-tab-button"
-              className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:bg-background/50 hover:text-foreground transition-colors shrink-0"
+              className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors shrink-0"
               title={intl.formatMessage({ id: "tab.newTab", defaultMessage: "New tab" })}
               aria-label={intl.formatMessage({ id: "tab.newTab", defaultMessage: "New tab" })}
             >
@@ -376,7 +376,7 @@ export function EditorTabs({
                     return (
                       <button
                         key={item.id}
-                        className="flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
+                        className="flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-row-hover transition-colors"
                         onClick={() => {
                           onOpenChat(tabId, item.title, undefined, item.providerId, isSubAgent || undefined)
                           setTabChatId(tabId, item.id)

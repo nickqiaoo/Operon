@@ -12,7 +12,6 @@ import {
 } from '@/components/ai-elements/message';
 import { Attachment, AttachmentPreview, Attachments } from '@/components/ai-elements/attachments';
 import { cn } from '@/lib/utils';
-import type { EditorTab } from '@/types/editor';
 import { PlanRenderer } from './PlanRenderer';
 import { ShareButton } from './ShareButton';
 import { SubAgentRenderer } from './SubAgentRenderer';
@@ -103,22 +102,19 @@ export function AssistantMessageActions({
   text,
   onCopy,
   onSendToTab,
-  tabs,
   currentChatId,
   SendToChatButton,
 }: {
   text: string;
   onCopy: (text: string) => void;
   onSendToTab: (chatId: string, text: string) => void;
-  tabs: EditorTab[];
   currentChatId: string;
-  SendToChatButton: (props: { tabs: EditorTab[]; onSendTo: (tabId: string) => void; currentChatId: string }) => ReactElement | null;
+  SendToChatButton: (props: { onSendTo: (tabId: string) => void; currentChatId: string }) => ReactElement | null;
 }) {
   if (!text) return null;
   return (
     <MessageActions className="-ml-2.5">
       <SendToChatButton
-        tabs={tabs}
         currentChatId={currentChatId}
         onSendTo={(targetId: string) => onSendToTab(targetId, text)}
       />
@@ -566,7 +562,10 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
         ) : message.role === 'user' ? (
           userText && <UserMessageText text={userText} />
         ) : (
-          <MessageResponse mode={isStreamingMessage ? 'streaming' : 'static'}>
+          /* Always the streaming renderer: Streamdown's static mode is a different tree, so
+              switching to it when the reply finished rebuilt the whole message (every block
+              re-parsed, code re-highlighted) in one blocking render. */
+          <MessageResponse mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
             {displayText}
           </MessageResponse>
         )}

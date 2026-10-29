@@ -45,8 +45,14 @@ export const useSelectedTextStore = create<SelectedTextState>((set) => ({
   items: [],
   add: (snippet) => set((s) => ({ items: [...s.items, snippet] })),
   remove: (id) => set((s) => ({ items: s.items.filter((i) => i.id !== id) })),
+  // Every send calls this. With nothing to drop, keep the same array: a fresh
+  // one re-renders every subscriber, and the file preview's `<File>` then
+  // rebuilds the whole highlighted file inside the Enter keypress.
   clearWorkspace: (workspaceId) =>
-    set((s) => ({ items: s.items.filter((i) => i.workspaceId !== workspaceId) })),
+    set((s) =>
+      s.items.some((i) => i.workspaceId === workspaceId)
+        ? { items: s.items.filter((i) => i.workspaceId !== workspaceId) }
+        : s),
 }))
 
 /**

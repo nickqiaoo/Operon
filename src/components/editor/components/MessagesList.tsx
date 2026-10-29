@@ -1,8 +1,7 @@
 import type { UIMessage } from 'ai';
-import { memo, useCallback, useMemo, type CSSProperties } from 'react';
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { CornerDownRight } from 'lucide-react';
-import type { EditorTab } from '@/types/editor';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { Checkpoint, CheckpointIcon, CheckpointTrigger } from '@/components/ai-elements/checkpoint';
 import { TurnDiffCard, type TurnDiffFile } from './TurnDiffCard';
@@ -101,13 +100,44 @@ const OFFSCREEN_DEFER_STYLE: CSSProperties = {
  */
 const LIVE_TAIL_SIZE = 8;
 
+/**
+ * Older history arrives through useChat's `setMessages`, whose store update React
+ * renders synchronously: mounting a page of messages (markdown, code, tool cards)
+ * in that one render blocked scrolling for hundreds of milliseconds. Those
+ * messages mount as a placeholder instead and are revealed one per idle slot, in
+ * a transition, newest first — the one nearest the viewport. Browser scroll
+ * anchoring keeps the view still as each placeholder grows into its message.
+ */
+const PENDING_MOUNT_STYLE: CSSProperties = { minHeight: 240 };
+
+const revealQueue: Array<() => void> = [];
+let revealScheduled = false;
+
+const whenIdle = (callback: () => void) => {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(callback, { timeout: 200 });
+  else setTimeout(callback, 16);
+};
+
+const enqueueReveal = (reveal: () => void) => {
+  revealQueue.push(reveal);
+  if (revealScheduled) return;
+  revealScheduled = true;
+  const run = () => {
+    // LIFO: a page mounts in document order, so the last one queued sits closest
+    // to the messages already on screen.
+    revealQueue.pop()?.();
+    if (revealQueue.length > 0) whenIdle(run);
+    else revealScheduled = false;
+  };
+  whenIdle(run);
+};
+
 interface MessagesListProps {
   messages: UIMessage[];
   status: string;
   onPermissionDecide: (id: string, outcome: 'allow' | 'deny' | 'allowAlways', updatedInput?: Record<string, unknown>) => Promise<boolean>;
   onSendTo: (modelId: string, providerId: string, text: string) => void;
   onSendToTab: (chatId: string, text: string) => void;
-  tabs: EditorTab[];
   currentChatId: string;
   availableModels: SendToModel[];
   onSendToOpen?: () => void;
@@ -134,6 +164,8 @@ interface MessageItemProps {
   isLastAssistantInRound: boolean;
   /** Let the browser skip layout/paint while this message is out of view. */
   deferOffscreen: boolean;
+  /** Loaded with older history: mount as a placeholder, render the message when idle. */
+  deferMount: boolean;
   precedingUserMessageId?: string;
   isRewindedCheckpoint: boolean;
   /**
@@ -153,7 +185,6 @@ interface MessageItemProps {
   onCopy: (text: string) => void;
   onSendTo: (modelId: string, providerId: string, text: string) => void;
   onSendToTab: (chatId: string, text: string) => void;
-  tabs: EditorTab[];
   currentChatId: string;
   availableModels: SendToModel[];
   onSendToOpen?: () => void;
@@ -196,6 +227,7 @@ const MessageItem = memo(function MessageItem({
   isStreamingMessage,
   isLastAssistantInRound,
   deferOffscreen,
+  deferMount,
   precedingUserMessageId,
   isRewindedCheckpoint,
   isLatestChangedTurn,
@@ -208,7 +240,6 @@ const MessageItem = memo(function MessageItem({
   onCopy,
   onSendTo,
   onSendToTab,
-  tabs,
   currentChatId,
   availableModels,
   onSendToOpen,
@@ -216,6 +247,29 @@ const MessageItem = memo(function MessageItem({
   onUndoRewind,
 }: MessageItemProps) {
   const intl = useIntl();
+  const [mounted, setMounted] = useState(!deferMount);
+  useEffect(() => {
+    if (mounted) return;
+    let cancelled = false;
+    enqueueReveal(() => {
+      if (!cancelled) startTransition(() => setMounted(true));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted]);
+
+  if (!mounted) {
+    // Keeps the ids the turn rail and the selection toolbar look for.
+    return (
+      <div
+        data-message-item-role={message.role}
+        data-message-id={message.id}
+        style={PENDING_MOUNT_STYLE}
+      />
+    );
+  }
+
   const sortedParts: MessagePart[] = message.parts ?? [];
   const attachmentParts = sortedParts.filter(isAttachmentPart);
   const firstAttachmentIndex = sortedParts.findIndex(isAttachmentPart);
@@ -376,7 +430,10 @@ const MessageItem = memo(function MessageItem({
             {message.role === 'user' ? (
               <UserMessageWithContext text={getMessageText(message)} />
             ) : (
-              <MessageResponse mode={isStreamingMessage ? 'streaming' : 'static'}>
+              /* Always the streaming renderer: Streamdown's static mode is a different tree, so
+                  switching to it when the reply finished rebuilt the whole message (every block
+                  re-parsed, code re-highlighted) in one blocking render. */
+              <MessageResponse mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
                 {getMessageText(message)}
               </MessageResponse>
             )}
@@ -395,7 +452,6 @@ const MessageItem = memo(function MessageItem({
           text={getFilteredMessageText(message)}
           onCopy={onCopy}
           onSendToTab={onSendToTab}
-          tabs={tabs}
           currentChatId={currentChatId}
           SendToChatButton={SendToChatButton}
         />
@@ -412,7 +468,6 @@ export const MessagesList = memo(function MessagesList({
   onPermissionDecide,
   onSendTo,
   onSendToTab,
-  tabs,
   currentChatId,
   availableModels,
   onSendToOpen,
@@ -549,6 +604,22 @@ export const MessagesList = memo(function MessagesList({
 
   const lastMessageIndex = messages.length - 1;
 
+  // Messages that now sit before the one this list last rendered first were just
+  // loaded from older history: those mount deferred (see PENDING_MOUNT_STYLE). The
+  // ids are kept rather than recomputed so the prop never flips back and
+  // re-renders them once they have mounted.
+  const renderedFirstIdRef = useRef<string | undefined>(undefined);
+  const deferredMountIdsRef = useRef(new Set<string>());
+  const previousFirstIndex = renderedFirstIdRef.current === undefined
+    ? -1
+    : messages.findIndex((message) => message.id === renderedFirstIdRef.current);
+  for (let index = 0; index < previousFirstIndex; index += 1) {
+    deferredMountIdsRef.current.add(messages[index].id);
+  }
+  useLayoutEffect(() => {
+    renderedFirstIdRef.current = messages[0]?.id;
+  });
+
   return (
     <>
       {messages.map((message, index) => (
@@ -559,6 +630,7 @@ export const MessagesList = memo(function MessagesList({
           isStreamingMessage={status === 'streaming' && index === lastMessageIndex}
           isLastAssistantInRound={lastAssistantInRoundIds.has(message.id)}
           deferOffscreen={index < lastMessageIndex - LIVE_TAIL_SIZE}
+          deferMount={deferredMountIdsRef.current.has(message.id)}
           precedingUserMessageId={precedingUserMessageIds[index]}
           isRewindedCheckpoint={rewindedCheckpoint?.messageId === precedingUserMessageIds[index]}
           canRewindHere={
@@ -583,7 +655,6 @@ export const MessagesList = memo(function MessagesList({
           onCopy={handleCopy}
           onSendTo={onSendTo}
           onSendToTab={onSendToTab}
-          tabs={tabs}
           currentChatId={currentChatId}
           availableModels={availableModels}
           onSendToOpen={onSendToOpen}

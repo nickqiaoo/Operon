@@ -2,21 +2,19 @@ import { useLayoutEffect, useRef } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 
 interface AutoScrollManagerProps {
-  status: string;
   messageCount: number;
-  lastMessageId?: string;
-  lastMessageTextSize: number;
   historyLoaded: boolean;
 }
 
-export function AutoScrollManager({
-  status,
-  messageCount,
-  lastMessageId,
-  lastMessageTextSize,
-  historyLoaded,
-}: AutoScrollManagerProps) {
-  const { scrollToBottom, isAtBottom } = useStickToBottomContext();
+/**
+ * Jumps to the newest message once history has loaded. Following the stream
+ * from there is left to the library: it tracks content growth itself and lets
+ * go as soon as the reader scrolls up. A second follower driven by each token
+ * (with the library's "within 70px" `isAtBottom`) re-locked readers easing
+ * down near the end and fought their wheel/trackpad scroll.
+ */
+export function AutoScrollManager({ messageCount, historyLoaded }: AutoScrollManagerProps) {
+  const { scrollToBottom } = useStickToBottomContext();
   const hasScrolledForHistoryRef = useRef(false);
 
   useLayoutEffect(() => {
@@ -27,17 +25,6 @@ export function AutoScrollManager({
       });
     }
   }, [historyLoaded, messageCount, scrollToBottom]);
-
-  const lastMessageKey = `${messageCount}:${lastMessageId ?? 'msg'}:${lastMessageTextSize}`;
-
-  useLayoutEffect(() => {
-    if (status !== 'streaming' && status !== 'submitted') return;
-    if (!isAtBottom) return;
-    const frame = requestAnimationFrame(() => {
-      scrollToBottom({ animation: 'smooth' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [lastMessageKey, status, scrollToBottom, isAtBottom]);
 
   return null;
 }

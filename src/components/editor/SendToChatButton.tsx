@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { CornerUpRightIcon } from 'lucide-react';
 import { MessageAction } from '@/components/ai-elements/message';
-import type { EditorTab } from '@/types/editor';
+import { useEditorStore } from '@/stores/editor-store';
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -15,14 +15,16 @@ import {
 } from '@/components/ai-elements/model-selector';
 
 interface SendToChatButtonProps {
-  tabs: EditorTab[];
   onSendTo: (tabId: string) => void;
   currentChatId: string;
 }
 
-export function SendToChatButton({ tabs, onSendTo, currentChatId }: SendToChatButtonProps) {
+export function SendToChatButton({ onSendTo, currentChatId }: SendToChatButtonProps) {
   const intl = useIntl();
   const [open, setOpen] = useState(false);
+  // Read here rather than passed down: as a prop, every tab change (a title, a new
+  // chat) re-rendered every message of every open chat to reach this button.
+  const tabs = useEditorStore((state) => state.tabs);
   const otherTabs = tabs.filter((t) => t.type === 'chat' && t.id !== currentChatId);
 
   if (otherTabs.length === 0) return null;

@@ -31,19 +31,6 @@ const isNetworkError = (error: unknown): boolean => {
   )
 }
 
-const getMessageTextSize = (message: UIMessage | undefined): number => {
-  if (!message) return 0
-
-  let size = 0
-  for (const part of message.parts ?? []) {
-    if ('text' in part && typeof part.text === 'string') {
-      size += part.text.length
-    }
-  }
-
-  return size
-}
-
 export function useChatRuntime({
   chatId,
   dbChatId,
@@ -276,7 +263,7 @@ export function useChatRuntime({
   } = useChat({
     id: chatId,
     transport,
-    experimental_throttle: 50,
+    throttle: 50,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onError: (error) => {
       console.error('Chat error:', error)
@@ -589,8 +576,6 @@ export function useChatRuntime({
 
   const isGenerating = status === 'submitted' || status === 'streaming'
   const lastMessage = messages[messages.length - 1]
-  const lastMessageId = lastMessage?.id
-  const lastMessageTextSize = getMessageTextSize(lastMessage)
   const hasStepStarted = status === 'streaming' &&
     lastMessage?.role === 'assistant' &&
     lastMessage.parts?.some((part) => part.type === 'step-start')
@@ -615,8 +600,6 @@ export function useChatRuntime({
     isGenerating,
     turnSettling,
     lastMessage,
-    lastMessageId,
-    lastMessageTextSize,
     hasStepStarted,
     canDynamicSwitch,
     selectedModelId,

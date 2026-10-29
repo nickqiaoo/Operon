@@ -160,3 +160,30 @@ describe("editor chat session cleanup", () => {
     expect(aiSessionCleanup).toHaveBeenCalledWith(42)
   })
 })
+
+describe("editor tab field updates", () => {
+  it("keeps the tabs array when the value is unchanged", () => {
+    useEditorStore.setState({ tabs: [chatTab("chat:1", 1), chatTab("chat:2", 2)] })
+    const before = useEditorStore.getState().tabs
+    const store = useEditorStore.getState()
+
+    store.updateTabTitle("chat:1", "Conversation")
+    store.updateTabProviderId("chat:1", "grok")
+    store.setTabChatId("chat:2", 2)
+    store.updateTabTitle("missing", "Other")
+
+    expect(useEditorStore.getState().tabs).toBe(before)
+  })
+
+  it("replaces only the changed tab", () => {
+    useEditorStore.setState({ tabs: [chatTab("chat:1", 1), chatTab("chat:2", 2)] })
+    const [first, second] = useEditorStore.getState().tabs
+
+    useEditorStore.getState().updateTabTitle("chat:1", "Renamed")
+
+    const [nextFirst, nextSecond] = useEditorStore.getState().tabs
+    expect(nextFirst).not.toBe(first)
+    expect(nextFirst.title).toBe("Renamed")
+    expect(nextSecond).toBe(second)
+  })
+})

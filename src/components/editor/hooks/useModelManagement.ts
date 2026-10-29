@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '@/lib/api';
 import { useProviderCapabilityStore } from '@/stores/provider-capability-store';
 
@@ -358,10 +358,16 @@ export function useModelManagement(
 
   // A server-owned chat may use a valid model absent from a short UI catalog.
   // Keep its actual model visible instead of labeling it as the first entry.
-  const visibleModels: DynamicModel[] = initialOptions?.preserveModel && model && !availableModels.some((item) => item.id === model)
-    ? [{ id: model, label: model === 'default' ? 'Default' : model,
-        providerId: providerId ?? '', provider: providerId ?? '', group: providerId ?? '', hasThinking: false }, ...availableModels]
-    : availableModels;
+  // Memoized: this reaches every message row as `availableModels`, so a fresh
+  // array per render re-rendered a sub-agent's whole transcript on each token.
+  const preserveModel = initialOptions?.preserveModel;
+  const visibleModels = useMemo<DynamicModel[]>(
+    () => preserveModel && model && !availableModels.some((item) => item.id === model)
+      ? [{ id: model, label: model === 'default' ? 'Default' : model,
+          providerId: providerId ?? '', provider: providerId ?? '', group: providerId ?? '', hasThinking: false }, ...availableModels]
+      : availableModels,
+    [preserveModel, model, availableModels, providerId],
+  );
   const selectedModel = visibleModels.find((item) => item.id === model) ?? visibleModels[0];
   const currentProviderId = selectedModel?.providerId;
 

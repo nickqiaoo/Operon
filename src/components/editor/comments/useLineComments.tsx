@@ -1,10 +1,11 @@
-import { useCallback, useMemo, type ReactNode } from "react"
+import { useCallback, useMemo, useRef, type ReactNode } from "react"
 import type { SelectedLineRange } from "@pierre/diffs"
 import {
   useLineCommentsStore,
   lineCommentsForFile,
   formatCommentLocation,
   type CommentSide,
+  type LineComment,
 } from "@/stores/line-comments-store"
 import { LineCommentCard } from "./LineCommentCard"
 
@@ -73,18 +74,30 @@ export function useLineComments({
   const updateText = useLineCommentsStore((s) => s.updateText)
   const remove = useLineCommentsStore((s) => s.remove)
 
-  const saved = useMemo(
-    () => lineCommentsForFile(items, workspaceId, path),
-    [items, workspaceId, path]
-  )
+  // The store is global, so it changes for comments on every other file too.
+  // Keep this file's array (and the annotations built from it) when its own
+  // comments didn't change: pierre rebuilds the whole file whenever it gets new
+  // annotations, and store actions keep untouched comments by reference.
+  const savedRef = useRef<LineComment[]>([])
+  const saved = useMemo(() => {
+    const next = lineCommentsForFile(items, workspaceId, path)
+    const prev = savedRef.current
+    if (next.length === prev.length && next.every((c, i) => c === prev[i])) return prev
+    savedRef.current = next
+    return next
+  }, [items, workspaceId, path])
 
+  // Reads the comments at click time rather than closing over `saved`: this
+  // goes into pierre's options, which are compared by reference, so a new
+  // function on every comment change re-rendered every open file and diff.
   const onGutterUtilityClick = useCallback(
     (range: SelectedLineRange) => {
       const side = sideFromRange(range, mode)
       const start = Math.min(range.start, range.end)
       const end = Math.max(range.start, range.end)
       const startLine = start !== end ? start : undefined
-      if (saved.some((c) => c.side === side && c.line === end)) return
+      const current = lineCommentsForFile(useLineCommentsStore.getState().items, workspaceId, path)
+      if (current.some((c) => c.side === side && c.line === end)) return
       add({
         id: crypto.randomUUID(),
         workspaceId,
@@ -96,7 +109,7 @@ export function useLineComments({
         createdAt: Date.now(),
       })
     },
-    [add, mode, path, saved, workspaceId]
+    [add, mode, path, workspaceId]
   )
 
   const entries = useMemo<CommentEntry[]>(() => {

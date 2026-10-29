@@ -307,7 +307,6 @@ function ChatPanelContent({
     updateRecentChatOptions(providerId, patch);
   }, [providerId, recentOptionsState.remember]);
 
-  const tabs = useEditorStore((state) => state.tabs);
   const appliedTabInputKeyRef = useRef<string | null>(null);
 
   const modelManagement = useModelManagement(
@@ -341,8 +340,6 @@ function ChatPanelContent({
     liveTurnActive,
     isGenerating,
     turnSettling,
-    lastMessageId,
-    lastMessageTextSize,
     canDynamicSwitch,
   } = useChatRuntime({
     chatId,
@@ -1088,10 +1085,7 @@ function ChatPanelContent({
       />
       <Conversation className="flex-1 rounded-xl bg-background font-sans">
         <AutoScrollManager
-          status={status}
           messageCount={messages.length}
-          lastMessageId={lastMessageId}
-          lastMessageTextSize={lastMessageTextSize}
           historyLoaded={historyLoaded}
         />
         <ScrollTopLoader
@@ -1136,7 +1130,6 @@ function ChatPanelContent({
               onPermissionDecide={handlePermissionDecide}
               onSendTo={handleSendTo}
               onSendToTab={handleSendToTab}
-              tabs={tabs}
               currentChatId={chatId}
               availableModels={sendToAvailableModels}
               onSendToOpen={loadGlobalModels}
@@ -1459,18 +1452,21 @@ function ScrollTopLoader({
   onLoadMore: () => void;
 }) {
   const { scrollRef } = useStickToBottomContext();
-  const pendingAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  const pendingHeightRef = useRef<number | null>(null);
 
-  // Only restore scroll after older messages are prepended (loadingMore transition).
+  // Keep the view on what the reader was looking at once older messages are
+  // prepended. Browser scroll anchoring already does that, against wherever the
+  // reader has scrolled to by now, except at offset 0, where Chromium never
+  // anchors; only that case needs pushing down by what was added.
   useLayoutEffect(() => {
     if (loadingMore) return;
-    const anchor = pendingAnchorRef.current;
-    if (!anchor) return;
+    const height = pendingHeightRef.current;
+    if (height === null) return;
     const el = scrollRef.current;
-    pendingAnchorRef.current = null;
-    if (!el) return;
-    const diff = el.scrollHeight - anchor.height;
-    if (diff > 0) el.scrollTop = anchor.top + diff;
+    pendingHeightRef.current = null;
+    if (!el || el.scrollTop > 0) return;
+    const added = el.scrollHeight - height;
+    if (added > 0) el.scrollTop = added;
   }, [loadingMore, scrollRef]);
 
   useEffect(() => {
@@ -1478,8 +1474,10 @@ function ScrollTopLoader({
     if (!el) return;
 
     const handleScroll = () => {
-      if (el.scrollTop < 100 && hasMore && !loadingMore) {
-        pendingAnchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
+      // Fetch a screen and a half early, so the page is in before the reader
+      // reaches the top instead of while they wait there.
+      if (el.scrollTop < el.clientHeight * 1.5 && hasMore && !loadingMore) {
+        pendingHeightRef.current = el.scrollHeight;
         onLoadMore();
       }
     };

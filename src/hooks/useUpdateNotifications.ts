@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect } from "react"
 import { toast } from "sonner"
 
 import { useUpdateStore } from "@/stores/update-store"
@@ -11,9 +11,8 @@ type UpdateStatus =
   | { event: 'downloaded'; version: string }
   | { event: 'error'; message: string }
 
-export function UpdateNotification() {
-  const toastId = useRef<string | number | undefined>(undefined)
-
+/** Reacts to the auto-updater's status events from the main process. */
+export function useUpdateNotifications(): void {
   useEffect(() => {
     const api = window.electronAPI
     if (!api?.onUpdateStatus) return
@@ -44,14 +43,9 @@ export function UpdateNotification() {
           break
 
         case 'error':
-          toast.error('Failed to check for updates', {
-            id: toastId.current,
-            duration: 3000,
-          })
+          toast.error('Failed to check for updates', { duration: 3000 })
           break
       }
     })
   }, [])
-
-  return null
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react"
 import { createPortal } from "react-dom"
+import { DIFFS_TAG_NAME } from "@pierre/diffs"
 import { cn } from "@/lib/utils"
 
 export interface SelectionContext {
@@ -49,14 +50,14 @@ type ShadowRootWithSelection = ShadowRoot & { getSelection?: () => Selection | n
  *
  * Pierre renders file contents into `fileContainer.attachShadow({ mode: 'open' })`,
  * so a selection in the source view is invisible to `window.getSelection()` and
- * `container.contains()` cannot reach its nodes either. Only light-DOM elements
- * are walked here, and Pierre keeps everything else inside the shadow, so this
- * is a short list.
+ * `container.contains()` cannot reach its nodes either. Only Pierre's host
+ * elements are checked: walking every node instead ran on each key-up and
+ * pointer-up, once per mounted surface (every open chat).
  */
 function readShadowSelection(
   container: HTMLElement
 ): { text: string; range: Range; host: HTMLElement } | null {
-  for (const host of container.querySelectorAll<HTMLElement>("*")) {
+  for (const host of container.querySelectorAll<HTMLElement>(DIFFS_TAG_NAME)) {
     const root = host.shadowRoot as ShadowRootWithSelection | null
     if (root?.getSelection == null) continue
     const selection = root.getSelection()
@@ -162,6 +163,9 @@ export function SelectionToolbar({ containerRef, targetSelector, actions }: Sele
       // the action, and reading the selection here would clear it first.
       const node = event.target as Node | null
       if (node != null && toolbarRef.current?.contains(node) === true) return
+      // Typing in a field (the composer, a comment box) never selects text in
+      // the transcript or a file, and fires on every key.
+      if (event.type === "keyup" && node instanceof HTMLElement && (node.isContentEditable || node.closest("input, textarea") != null)) return
       // Let the browser finish updating the selection for this gesture.
       requestAnimationFrame(() => setState(readSelection()))
     }

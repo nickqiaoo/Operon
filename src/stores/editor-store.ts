@@ -68,6 +68,24 @@ const persistedChatIdFromTabId = (tabId: string): number | undefined => {
   return chatId > 0 ? chatId : undefined
 }
 
+/**
+ * Set one field on a tab, leaving the store untouched when it already holds
+ * that value. Each chat panel sets its title and provider as it mounts, and a
+ * new `tabs` array re-renders the shell and every message row of every chat.
+ */
+const patchTab = <K extends keyof EditorTab>(
+  state: Pick<EditorStore, "tabs">,
+  id: string,
+  key: K,
+  value: EditorTab[K],
+): Pick<EditorStore, "tabs"> => {
+  const index = state.tabs.findIndex((tab) => tab.id === id)
+  if (index < 0 || state.tabs[index][key] === value) return state
+  const tabs = state.tabs.slice()
+  tabs[index] = { ...tabs[index], [key]: value }
+  return { tabs }
+}
+
 const hasOtherChatReference = (
   state: Pick<EditorStore, "tabs" | "workspaceStates" | "currentWorkspaceId">,
   closedTabId: string,
@@ -290,27 +308,19 @@ export const useEditorStore = create<EditorStore>()(
   },
 
   setTabChatId: (tabId: string, chatId: number) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, chatId } : tab)),
-    }))
+    set((state) => patchTab(state, tabId, "chatId", chatId))
   },
 
   updateTabTitle: (id, title) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, title } : tab)),
-    }))
+    set((state) => patchTab(state, id, "title", title))
   },
 
   updateTabProvider: (id, provider) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, provider } : tab)),
-    }))
+    set((state) => patchTab(state, id, "provider", provider))
   },
 
   updateTabProviderId: (id, providerId) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, providerId } : tab)),
-    }))
+    set((state) => patchTab(state, id, "providerId", providerId))
   },
 
   clearTabInputAttachment: (id) => {

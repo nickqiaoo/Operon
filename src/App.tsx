@@ -26,10 +26,10 @@ import { PluginsPage } from "@/components/plugins/PluginsPage"
 import { BoardPage, type BoardPageView } from "@/components/channel/BoardPage"
 import { SpecPage } from "@/components/spec/SpecPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
-import { UpdateNotification } from "@/components/update/UpdateNotification"
 import { InboxPage } from "@/components/inbox/InboxPage"
 import { AssistantPage } from "@/components/assistant/AssistantPage"
 import { useOpenWorkspaceSessions } from "@/hooks/useOpenWorkspaceSessions"
+import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import type { Notification } from "@/types/notification"
 import { useAppShellStore } from "@/stores/app-shell-store"
@@ -338,6 +338,8 @@ export default function App() {
   // Agent sessions the server started in this workspace (a dispatched task) get a tab.
   useOpenWorkspaceSessions(currentWorkspaceId)
 
+  useUpdateNotifications()
+
   // Handle Chat → Canvas navigation request from editor-store
   useEffect(() => {
     if (canvasNavRequest) {
@@ -383,6 +385,79 @@ export default function App() {
     : boardView ? boardView
     : activeTab?.type ?? 'home'
   useEffect(() => { setAnalyticsScreen(analyticsScreen) }, [analyticsScreen])
+
+  // The workspace header slot of SpecPage: breadcrumbs row + editor tab strip.
+  // A Spec swaps this out for its own header; see SpecPage.
+  const workspaceHeader = (
+    <>
+      {/* Center header (workspace breadcrumbs). The whole row is a
+          drag-region so its empty space drags the window; the inline
+          TopBarControls are `no-drag` children (macOS honors that for
+          real children of a drag bar). When the right panel is open
+          the controls move into its tab strip (window top-right), so
+          we only render them here when it's closed. */}
+      <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/50 bg-background shrink-0">
+        <div className={cn("flex flex-1 min-w-0 items-center gap-2 text-xs text-muted-foreground font-normal", sidebarCollapsed ? (__APP_TARGET__ === 'web' ? "px-4" : "pl-20 pr-4") : "px-4")}>
+          {sidebarCollapsed && (
+            <button
+              className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors"
+              style={{ viewTransitionName: "sidebar-trigger" }}
+              onClick={handleToggleSidebar}
+              title={intl.formatMessage({ id: "app.expandSidebar", defaultMessage: "Expand sidebar" })}
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          )}
+          {/* Both names truncate: without it the workspace pill wraps
+              onto a second line, outgrows the h-10 row and collides with
+              whatever sits to its right. The project name gives way first
+              — the workspace is the more specific half of the crumb.
+              The workspace pill is also capped (max-w-44): a long branch-
+              style name would otherwise eat the room the usage bar needs. */}
+          <span className="min-w-0 shrink truncate hover:text-tint transition-colors cursor-pointer no-drag">
+            {activeWorkspaceInfo ? activeWorkspaceInfo.project.name : "OPERON"}
+          </span>
+          {activeWorkspaceInfo && (
+            <>
+              <span className="shrink-0 text-muted-foreground/40">›</span>
+              <span
+                className="min-w-0 max-w-44 shrink-[0.5] truncate hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs"
+                title={activeWorkspaceInfo.workspace.name}
+              >
+                {activeWorkspaceInfo.workspace.name}
+              </span>
+            </>
+          )}
+        </div>
+        {/* Account quota for every signed-in provider. A real child
+            of the drag row (not a floating overlay) so macOS honors
+            its `no-drag`; it sits before the panel toggles because it
+            is read, not operated. */}
+        {/* Refresh, Session and the panel toggles read as one row of
+            24px buttons 2px apart (as in the right panel's strip). */}
+        <AccountUsageBar className="shrink-0 pr-0.5" />
+        <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
+        {/* When the right panel is closed this row is the window's
+            top-right, so the controls live here; when it's open they
+            move into the right panel's tab strip instead. */}
+        {!rightPanelOpen && (
+          <div className="shrink-0 pr-2">
+            <TopBarControls />
+          </div>
+        )}
+      </div>
+
+      <EditorTabs
+        tabs={editorStripTabs}
+        activeTabId={activeTabId}
+        onSelectTab={setActiveTab}
+        onCloseTab={closeTab}
+        onNewChat={handleProviderSelected}
+        onNewTerminal={handleNewTerminal}
+        onOpenChat={openChatTab}
+      />
+    </>
+  )
 
   return (
     <>
@@ -447,236 +522,165 @@ export default function App() {
         document.body
       )}
 
-    <div className={`relative h-screen w-screen flex flex-col text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
-      <UpdateNotification />
-
+    <div className={`relative h-screen w-screen text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
       {/* Main Content */}
-      <div className="flex-1 min-h-0 flex flex-col">
-        <div className="flex h-full w-full min-h-0">
-          {/* Left Panel - Project Sidebar (push-open, mirrors RightPanel) */}
-          <LeftSidebar
-            isOpen={!sidebarCollapsed}
-            width={sidebarWidth}
-            onWidthChange={setSidebarWidth}
-            onClose={() => setSidebarCollapsed(true)}
-          >
-            <ProjectSidebar
-              onOpenSettings={() => { setSettingsOpen(true); trackEvent('page_opened', { page: 'settings' }) }}
-              onOpenCronjobs={() => { setCronjobOpen(true); trackEvent('page_opened', { page: 'cronjob' }) }}
-              onOpenPlugins={() => { setPluginsOpen(true); trackEvent('page_opened', { page: 'plugins' }) }}
-              onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
-              onOpenBoard={() => { setMainView('board'); trackEvent('page_opened', { page: 'board' }) }}
-              onOpenChannels={() => { setMainView('channels'); trackEvent('page_opened', { page: 'channels' }) }}
-              onOpenInbox={() => { setMainView('inbox'); trackEvent('page_opened', { page: 'inbox' }) }}
-              onOpenAssistant={() => setMainView('assistant')}
-              assistantActive={assistantOpen}
-              inboxActive={inboxOpen}
-              boardActive={mainView === 'board'}
-              channelsActive={mainView === 'channels'}
-              onLeaveMainView={leaveMainView}
-              activeSpecId={mainView === 'spec' ? activeSpec?.taskId : null}
-              onOpenSpec={openSpec}
-              onCollapse={handleToggleSidebar}
-              collapsed={sidebarCollapsed}
-            />
-          </LeftSidebar>
+      <div className="flex h-full w-full">
+        {/* Left Panel - Project Sidebar (push-open, mirrors RightPanel) */}
+        <LeftSidebar
+          isOpen={!sidebarCollapsed}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          onClose={() => setSidebarCollapsed(true)}
+        >
+          <ProjectSidebar
+            onOpenSettings={() => { setSettingsOpen(true); trackEvent('page_opened', { page: 'settings' }) }}
+            onOpenCronjobs={() => { setCronjobOpen(true); trackEvent('page_opened', { page: 'cronjob' }) }}
+            onOpenPlugins={() => { setPluginsOpen(true); trackEvent('page_opened', { page: 'plugins' }) }}
+            onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
+            onOpenBoard={() => { setMainView('board'); trackEvent('page_opened', { page: 'board' }) }}
+            onOpenChannels={() => { setMainView('channels'); trackEvent('page_opened', { page: 'channels' }) }}
+            onOpenInbox={() => { setMainView('inbox'); trackEvent('page_opened', { page: 'inbox' }) }}
+            onOpenAssistant={() => setMainView('assistant')}
+            assistantActive={assistantOpen}
+            inboxActive={inboxOpen}
+            boardActive={mainView === 'board'}
+            channelsActive={mainView === 'channels'}
+            onLeaveMainView={leaveMainView}
+            activeSpecId={mainView === 'spec' ? activeSpec?.taskId : null}
+            onOpenSpec={openSpec}
+            onCollapse={handleToggleSidebar}
+            collapsed={sidebarCollapsed}
+          />
+        </LeftSidebar>
 
-          {/* Main Content Area (Center + Right) */}
-          <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
-            {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,
-                each stays mounted once opened (display:none while another view is up), so
-                switching back keeps its state; the browser webview hides itself once its
-                placeholder has no size. */}
-            {assistantMounted && (
-              <div className={cn("flex min-h-0 flex-1 flex-col", !assistantOpen && "hidden")}>
-                <PageVisibleContext value={assistantOpen && !isPageOpen}>
-                  <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
-                </PageVisibleContext>
-              </div>
-            )}
-            {inboxMounted && (
-              <div className={cn("flex min-h-0 flex-1 flex-col", !inboxOpen && "hidden")}>
-                <PageVisibleContext value={inboxOpen}>
-                  <InboxPage
-                    sidebarCollapsed={sidebarCollapsed}
-                    onExpandSidebar={handleToggleSidebar}
-                    onOpenSource={handleOpenNotification}
-                  />
-                </PageVisibleContext>
-              </div>
-            )}
-            {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
-            {lastBoardView && (
-              <div className={cn("flex min-h-0 flex-1 flex-col", boardView === null && "hidden")}>
-                <PageVisibleContext value={boardView !== null}>
-                  <BoardPage
-                    view={lastBoardView}
-                    onViewChange={setMainView}
-                    sidebarCollapsed={sidebarCollapsed}
-                    onExpandSidebar={handleToggleSidebar}
-                    initialTaskId={boardInitialTaskId}
-                    onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
-                    onOpenChat={(chat) =>
-                      openChat({
-                        chatId: chat.chatId,
-                        workspaceId: chat.workspaceId ?? undefined,
-                        title: chat.title,
-                        subAgent: chat.subAgent || undefined,
-                      })
-                    }
-                    onOpenWorkspace={(workspaceId) => {
-                      setMainView(null)
-                      // The workspace was likely just provisioned by a task dispatch
-                      // and isn't in the store yet — reload, then read the *fresh*
-                      // state to locate and activate it.
-                      void (async () => {
-                        await loadProjects()
-                        const found = useProjectStore
-                          .getState()
-                          .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
-                        if (found) setActiveWorkspace(workspaceId, found.id)
-                      })()
-                    }}
-                  />
-                </PageVisibleContext>
-              </div>
-            )}
-            <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && mainView !== 'spec' && "hidden")}>
-            <PageVisibleContext value={!isPageOpen && (mainView === null || mainView === 'spec')}>
-            <AppShell>
-              <SpecPage
-                target={mainView === 'spec' ? activeSpec : null}
-                sidebarCollapsed={sidebarCollapsed}
-                onExpandSidebar={handleToggleSidebar}
-                onOpenWorkspace={openWorkspace}
-                onFocusWorkspace={focusSpecWorkspace}
-                onFocusChat={focusSpecChat}
-                workspaceHeader={<>
-                {/* Center header (workspace breadcrumbs). The whole row is a
-                    drag-region so its empty space drags the window; the inline
-                    TopBarControls are `no-drag` children (macOS honors that for
-                    real children of a drag bar). When the right panel is open
-                    the controls move into its tab strip (window top-right), so
-                    we only render them here when it's closed. */}
-                <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/50 bg-background shrink-0">
-                  <div className={cn("flex flex-1 min-w-0 items-center gap-2 text-xs text-muted-foreground font-normal", sidebarCollapsed ? (__APP_TARGET__ === 'web' ? "px-4" : "pl-20 pr-4") : "px-4")}>
-                    {sidebarCollapsed && (
-                      <button
-                        className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors"
-                        style={{ viewTransitionName: "sidebar-trigger" }}
-                        onClick={handleToggleSidebar}
-                        title={intl.formatMessage({ id: "app.expandSidebar", defaultMessage: "Expand sidebar" })}
-                      >
-                        <PanelLeft className="h-4 w-4" />
-                      </button>
-                    )}
-                    {/* Both names truncate: without it the workspace pill wraps
-                        onto a second line, outgrows the h-10 row and collides with
-                        whatever sits to its right. The project name gives way first
-                        — the workspace is the more specific half of the crumb.
-                        The workspace pill is also capped (max-w-44): a long branch-
-                        style name would otherwise eat the room the usage bar needs. */}
-                    <span className="min-w-0 shrink truncate hover:text-tint transition-colors cursor-pointer no-drag">
-                      {activeWorkspaceInfo ? activeWorkspaceInfo.project.name : "OPERON"}
-                    </span>
-                    {activeWorkspaceInfo && (
-                      <>
-                        <span className="shrink-0 text-muted-foreground/40">›</span>
-                        <span
-                          className="min-w-0 max-w-44 shrink-[0.5] truncate hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs"
-                          title={activeWorkspaceInfo.workspace.name}
-                        >
-                          {activeWorkspaceInfo.workspace.name}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  {/* Account quota for every signed-in provider. A real child
-                      of the drag row (not a floating overlay) so macOS honors
-                      its `no-drag`; it sits before the panel toggles because it
-                      is read, not operated. */}
-                  {/* Refresh, Session and the panel toggles read as one row of
-                      24px buttons 2px apart (as in the right panel's strip). */}
-                  <AccountUsageBar className="shrink-0 pr-0.5" />
-                  <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
-                  {/* When the right panel is closed this row is the window's
-                      top-right, so the controls live here; when it's open they
-                      move into the right panel's tab strip instead. */}
-                  {!rightPanelOpen && (
-                    <div className="shrink-0 pr-2">
-                      <TopBarControls />
-                    </div>
-                  )}
-                </div>
-
-                <EditorTabs
-                  tabs={editorStripTabs}
-                  activeTabId={activeTabId}
-                  onSelectTab={setActiveTab}
-                  onCloseTab={closeTab}
-                  onNewChat={handleProviderSelected}
-                  onNewTerminal={handleNewTerminal}
-                  onOpenChat={openChatTab}
+        {/* Main Content Area (Center + Right) */}
+        <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
+          {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,
+              each stays mounted once opened (display:none while another view is up), so
+              switching back keeps its state; the browser webview hides itself once its
+              placeholder has no size. */}
+          {assistantMounted && (
+            <div className={cn("flex min-h-0 flex-1 flex-col", !assistantOpen && "hidden")}>
+              <PageVisibleContext value={assistantOpen && !isPageOpen}>
+                <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
+              </PageVisibleContext>
+            </div>
+          )}
+          {inboxMounted && (
+            <div className={cn("flex min-h-0 flex-1 flex-col", !inboxOpen && "hidden")}>
+              <PageVisibleContext value={inboxOpen}>
+                <InboxPage
+                  sidebarCollapsed={sidebarCollapsed}
+                  onExpandSidebar={handleToggleSidebar}
+                  onOpenSource={handleOpenNotification}
                 />
-                </>}
-              >
-                <div className="relative min-h-0 flex-1 overflow-hidden">
-                  {/* Render chat tabs from ALL workspaces to keep streaming
-                      alive across workspace switches */}
-                  {allChatTabs.map(tab => {
-                    const isActive = activeTabId === tab.id;
-                    return (
-                      <div
-                        key={tab.id}
-                        className="absolute inset-0 bg-background"
-                        aria-hidden={!isActive}
-                        inert={!isActive}
-                        style={{
-                          opacity: isActive ? 1 : 0,
-                          zIndex: isActive ? 1 : 0,
-                          pointerEvents: isActive ? 'auto' : 'none',
-                        }}
-                      >
-                        <ChatPanel
-                          chatId={tab.id}
-                          providerId={tab.providerId}
-                          visible={isActive && !isPageOpen}
-                        />
-                      </div>
-                    );
-                  })}
-                  {activeTab?.type === "terminal" && activeTab.terminalId && (
-                    <div className="absolute inset-0 z-10 bg-background">
-                      <TerminalTab
-                        terminalId={activeTab.terminalId}
-                        cwd={activeTab.cwd ?? ""}
-                        launch={activeTab.launch}
-                        isActive={!isPageOpen && mainView === null}
+              </PageVisibleContext>
+            </div>
+          )}
+          {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
+          {lastBoardView && (
+            <div className={cn("flex min-h-0 flex-1 flex-col", boardView === null && "hidden")}>
+              <PageVisibleContext value={boardView !== null}>
+                <BoardPage
+                  view={lastBoardView}
+                  onViewChange={setMainView}
+                  sidebarCollapsed={sidebarCollapsed}
+                  onExpandSidebar={handleToggleSidebar}
+                  initialTaskId={boardInitialTaskId}
+                  onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
+                  onOpenChat={(chat) =>
+                    openChat({
+                      chatId: chat.chatId,
+                      workspaceId: chat.workspaceId ?? undefined,
+                      title: chat.title,
+                      subAgent: chat.subAgent || undefined,
+                    })
+                  }
+                  onOpenWorkspace={(workspaceId) => {
+                    setMainView(null)
+                    // The workspace was likely just provisioned by a task dispatch
+                    // and isn't in the store yet — reload, then read the *fresh*
+                    // state to locate and activate it.
+                    void (async () => {
+                      await loadProjects()
+                      const found = useProjectStore
+                        .getState()
+                        .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
+                      if (found) setActiveWorkspace(workspaceId, found.id)
+                    })()
+                  }}
+                />
+              </PageVisibleContext>
+            </div>
+          )}
+          <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && mainView !== 'spec' && "hidden")}>
+          <PageVisibleContext value={!isPageOpen && (mainView === null || mainView === 'spec')}>
+          <AppShell>
+            <SpecPage
+              target={mainView === 'spec' ? activeSpec : null}
+              sidebarCollapsed={sidebarCollapsed}
+              onExpandSidebar={handleToggleSidebar}
+              onOpenWorkspace={openWorkspace}
+              onFocusWorkspace={focusSpecWorkspace}
+              onFocusChat={focusSpecChat}
+              workspaceHeader={workspaceHeader}
+            >
+              <div className="relative min-h-0 flex-1 overflow-hidden">
+                {/* Render chat tabs from ALL workspaces to keep streaming
+                    alive across workspace switches */}
+                {allChatTabs.map(tab => {
+                  const isActive = activeTabId === tab.id;
+                  return (
+                    <div
+                      key={tab.id}
+                      className="absolute inset-0 bg-background"
+                      aria-hidden={!isActive}
+                      inert={!isActive}
+                      style={{
+                        opacity: isActive ? 1 : 0,
+                        zIndex: isActive ? 1 : 0,
+                        pointerEvents: isActive ? 'auto' : 'none',
+                      }}
+                    >
+                      <ChatPanel
+                        chatId={tab.id}
+                        providerId={tab.providerId}
+                        visible={isActive && !isPageOpen}
                       />
                     </div>
-                  )}
-                  {!activeTab && (
-                    <ConversationEmptyState className="bg-background" style={{ backgroundImage: 'var(--gradient-glow)' }}>
-                      <div className="flex flex-col items-center justify-center h-full text-center space-y-6 pb-20 select-none">
-                        <svg width="80" height="80" viewBox="60 90 900 850" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90 relative z-10 drop-shadow-[0_0_24px_rgba(99,88,220,0.2)]">
-                          <path className="fill-brand" d="M312.607 320.213c7.186-11.909 22.72-15.771 34.696-8.626l120.42 71.849C475.34 387.981 480 396.167 480 405s-4.66 17.019-12.277 21.564l-120.42 71.849c-11.976 7.145-27.51 3.283-34.696-8.626s-3.301-27.357 8.674-34.502L405.559 405l-84.278-50.285c-11.975-7.145-15.859-22.593-8.674-34.502M714.859 631C728.744 631 740 642.193 740 656s-11.256 25-25.141 25H595.141C581.256 681 570 669.807 570 656s11.256-25 25.141-25z" />
-                          <path className="fill-brand" d="M836 512c0-178.94-145.06-324-324-324S188 333.06 188 512s145.06 324 324 324v96C280.04 932 92 743.96 92 512S280.04 92 512 92s420 188.04 420 420-188.04 420-420 420v-96c178.94 0 324-145.06 324-324" />
-                          <path className="fill-brand" d="M380.374 146c129.287 0 234.094 104.902 234.094 234.306 0 64.118-25.736 122.214-67.426 164.521-25.545 25.077-41.574 60.224-41.574 98.867 0 76.315 61.81 138.18 138.056 138.18 38.607 0 73.511-15.863 98.566-41.431l67.91 67.97C767.564 851.376 708.652 878 643.524 878 514.237 878 409.43 773.098 409.43 643.694c0-65.187 26.778-124.365 69.702-166.839 24.311-24.909 39.298-58.976 39.298-96.549 0-76.315-61.81-138.18-138.056-138.18-37.538 0-71.576 14.998-96.462 39.331L216 213.484C258.268 171.756 316.315 146 380.374 146" />
-                        </svg>
-                        <h1 className="relative z-10 text-4xl text-foreground/90">
-                          <span className="logo text-foreground uppercase">
-                            OPERON
-                          </span>
-                        </h1>
-                        <div className="absolute inset-0 bg-grid z-0 pointer-events-none [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]"></div>
-                      </div>
-                    </ConversationEmptyState>
-                  )}
-                </div>
-              </SpecPage>
-            </AppShell>
-            </PageVisibleContext>
-            </div>
+                  );
+                })}
+                {activeTab?.type === "terminal" && activeTab.terminalId && (
+                  <div className="absolute inset-0 z-10 bg-background">
+                    <TerminalTab
+                      terminalId={activeTab.terminalId}
+                      cwd={activeTab.cwd ?? ""}
+                      launch={activeTab.launch}
+                      isActive={!isPageOpen && mainView === null}
+                    />
+                  </div>
+                )}
+                {!activeTab && (
+                  <ConversationEmptyState className="bg-background" style={{ backgroundImage: 'var(--gradient-glow)' }}>
+                    <div className="flex flex-col items-center justify-center h-full text-center space-y-6 pb-20 select-none">
+                      <svg width="80" height="80" viewBox="60 90 900 850" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90 relative z-10 drop-shadow-[0_0_24px_rgba(99,88,220,0.2)]">
+                        <path className="fill-brand" d="M312.607 320.213c7.186-11.909 22.72-15.771 34.696-8.626l120.42 71.849C475.34 387.981 480 396.167 480 405s-4.66 17.019-12.277 21.564l-120.42 71.849c-11.976 7.145-27.51 3.283-34.696-8.626s-3.301-27.357 8.674-34.502L405.559 405l-84.278-50.285c-11.975-7.145-15.859-22.593-8.674-34.502M714.859 631C728.744 631 740 642.193 740 656s-11.256 25-25.141 25H595.141C581.256 681 570 669.807 570 656s11.256-25 25.141-25z" />
+                        <path className="fill-brand" d="M836 512c0-178.94-145.06-324-324-324S188 333.06 188 512s145.06 324 324 324v96C280.04 932 92 743.96 92 512S280.04 92 512 92s420 188.04 420 420-188.04 420-420 420v-96c178.94 0 324-145.06 324-324" />
+                        <path className="fill-brand" d="M380.374 146c129.287 0 234.094 104.902 234.094 234.306 0 64.118-25.736 122.214-67.426 164.521-25.545 25.077-41.574 60.224-41.574 98.867 0 76.315 61.81 138.18 138.056 138.18 38.607 0 73.511-15.863 98.566-41.431l67.91 67.97C767.564 851.376 708.652 878 643.524 878 514.237 878 409.43 773.098 409.43 643.694c0-65.187 26.778-124.365 69.702-166.839 24.311-24.909 39.298-58.976 39.298-96.549 0-76.315-61.81-138.18-138.056-138.18-37.538 0-71.576 14.998-96.462 39.331L216 213.484C258.268 171.756 316.315 146 380.374 146" />
+                      </svg>
+                      <h1 className="relative z-10 text-4xl text-foreground/90">
+                        <span className="logo text-foreground uppercase">
+                          OPERON
+                        </span>
+                      </h1>
+                      <div className="absolute inset-0 bg-grid z-0 pointer-events-none [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]"></div>
+                    </div>
+                  </ConversationEmptyState>
+                )}
+              </div>
+            </SpecPage>
+          </AppShell>
+          </PageVisibleContext>
           </div>
         </div>
       </div>
