@@ -109,6 +109,11 @@ export const ChatNavigator = memo(function ChatNavigator({
   const { scrollRef, contentRef, scrollToMessage } = useConversationScroll();
   const frameRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
+  const jumpFrameRef = useRef(0);
+  const cancelJump = useCallback(() => {
+    cancelAnimationFrame(jumpFrameRef.current);
+    jumpFrameRef.current = 0;
+  }, []);
   /** Scroll offset of each entry inside the transcript, by entry index. */
   const offsetsRef = useRef<number[]>([]);
   const entriesRef = useRef(entries);
@@ -233,12 +238,34 @@ export const ChatNavigator = memo(function ChatNavigator({
   const handleJump = useCallback(
     (index: number) => {
       const entry = entriesRef.current[index];
-      // A long jump reveals content-visibility rows with estimated heights.
-      // Avoid a smooth animation fighting their first layout measurements.
-      if (entry) scrollToMessage(entry.id, { scrollMargin: 12, behavior: 'instant' });
+      if (!entry) return;
+      cancelJump();
+      // Reveal the destination, then align again after its first paint. Before
+      // that paint, neighboring content-visibility rows can still have estimated
+      // heights even when getBoundingClientRect is forced synchronously.
+      scrollToMessage(entry.id, { scrollMargin: 12, behavior: 'instant' });
+      jumpFrameRef.current = requestAnimationFrame(() => {
+        jumpFrameRef.current = requestAnimationFrame(() => {
+          jumpFrameRef.current = 0;
+          scrollToMessage(entry.id, { scrollMargin: 12, behavior: 'instant' });
+        });
+      });
     },
-    [scrollToMessage],
+    [cancelJump, scrollToMessage],
   );
+
+  // A new gesture owns the viewport immediately, including during the two-frame
+  // layout correction. Cancel the pending correction when leaving the panel too.
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const events = ['wheel', 'touchmove', 'pointerdown', 'keydown'] as const;
+    for (const event of events) viewport.addEventListener(event, cancelJump, { passive: true });
+    return () => {
+      cancelJump();
+      for (const event of events) viewport.removeEventListener(event, cancelJump);
+    };
+  }, [cancelJump, scrollRef]);
 
   const handleEnter = useCallback((index: number, tick: HTMLElement) => {
     const frame = frameRef.current;

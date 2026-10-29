@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
 import {
-  createContext, useContext, useEffect, useImperativeHandle, useMemo, useRef,
+  createContext, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState,
   type ComponentProps, type Ref, type RefObject,
 } from "react";
 
@@ -23,6 +23,8 @@ export type ConversationScrollHandle = ReturnType<typeof useMessageScroller>;
 type ConversationRefs = {
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
+  selecting: boolean;
+  setSelecting: (selecting: boolean) => void;
 };
 const ConversationContext = createContext<ConversationRefs | null>(null);
 
@@ -35,8 +37,55 @@ export function useConversationScroll() {
 }
 
 function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandle> }) {
-  const controls = useMessageScroller();
-  useImperativeHandle(contextRef, () => controls, [controls]);
+  const { scrollRef, setSelecting, isAtBottom, scrollToEnd, scrollToStart, scrollToMessage } = useConversationScroll();
+  useImperativeHandle(contextRef, () => ({ scrollToEnd, scrollToStart, scrollToMessage }), [scrollToEnd, scrollToStart, scrollToMessage]);
+  const atBottomRef = useRef(isAtBottom);
+  atBottomRef.current = isAtBottom;
+
+  // Match the previous scroller: a mouse drag may select streamed text without
+  // moving it underneath the pointer. Releasing the mouse resumes native following.
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    let dragging = false;
+    let anchorSelectionTop: number | undefined;
+    const hasSpacer = () => !!viewport.querySelector<HTMLElement>("[data-message-scroller-spacer]")?.offsetHeight;
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      const ancestor = selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : null;
+      const selecting = dragging && !!ancestor && !selection?.isCollapsed &&
+        (viewport.contains(ancestor) || ancestor.contains(viewport));
+      if (selecting && anchorSelectionTop === undefined && atBottomRef.current && hasSpacer()) {
+        anchorSelectionTop = viewport.scrollTop;
+      }
+      setSelecting(selecting);
+    };
+    const onMouseDown = (event: MouseEvent) => {
+      dragging = event.button === 0;
+      onSelectionChange();
+    };
+    const onRelease = () => {
+      // The primitive normally starts following when a turn consumes its spacer.
+      // If that happened while paused, finish the transition on release, unless
+      // the reader moved away in the meantime.
+      if (anchorSelectionTop !== undefined && Math.abs(viewport.scrollTop - anchorSelectionTop) <= 2 && !hasSpacer()) {
+        scrollToEnd({ behavior: "instant" });
+      }
+      anchorSelectionTop = undefined;
+      dragging = false;
+      setSelecting(false);
+    };
+    viewport.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("mouseup", onRelease);
+    window.addEventListener("blur", onRelease);
+    return () => {
+      viewport.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("mouseup", onRelease);
+      window.removeEventListener("blur", onRelease);
+    };
+  }, [scrollRef, setSelecting, scrollToEnd]);
   return null;
 }
 
@@ -47,9 +96,10 @@ export type ConversationProps = ComponentProps<typeof MessageScroller> & {
 export function Conversation({ className, children, contextRef, ...props }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const refs = useMemo(() => ({ scrollRef, contentRef }), []);
+  const [selecting, setSelecting] = useState(false);
+  const refs = useMemo(() => ({ scrollRef, contentRef, selecting, setSelecting }), [selecting]);
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+    <MessageScrollerProvider autoScroll={!selecting} defaultScrollPosition="end">
       <ConversationContext.Provider value={refs}>
         <MessageScroller data-testid="conversation" className={cn("flex-1", className)} {...props}>
           <ScrollHandle contextRef={contextRef} />
@@ -67,9 +117,9 @@ export const ConversationItem = MessageScrollerPrimitive.Item;
 export type ConversationContentProps = ComponentProps<"div"> & { scrollClassName?: string };
 
 export function ConversationContent({ className, scrollClassName, children, ...props }: ConversationContentProps) {
-  const { scrollRef, contentRef, scrollToMessage, scrollToEnd, isAtBottom } = useConversationScroll();
-  const followingRef = useRef(isAtBottom);
-  followingRef.current = isAtBottom;
+  const { scrollRef, contentRef, scrollToMessage, scrollToEnd, isAtBottom, selecting } = useConversationScroll();
+  const followingRef = useRef(isAtBottom && !selecting);
+  followingRef.current = isAtBottom && !selecting;
 
   // The primitive schedules resize handling in rAF. Pin a following viewport
   // before paint as well, so a keyboard/side-panel resize never exposes a gap
@@ -83,7 +133,10 @@ export function ConversationContent({ className, scrollClassName, children, ...p
       if (width === viewport.clientWidth && height === viewport.clientHeight) return;
       width = viewport.clientWidth;
       height = viewport.clientHeight;
-      if (followingRef.current) scrollToEnd({ behavior: "instant" });
+      // A short new turn has synthetic space below it. It reports no unread
+      // content too, but must keep its turn anchor rather than jump to the end.
+      const spacer = viewport.querySelector<HTMLElement>("[data-message-scroller-spacer]");
+      if (followingRef.current && !spacer?.offsetHeight) scrollToEnd({ behavior: "instant" });
     });
     observer.observe(viewport);
     return () => observer.disconnect();

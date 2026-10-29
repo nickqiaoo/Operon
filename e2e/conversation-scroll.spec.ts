@@ -9,11 +9,15 @@ type ScrollHarness = {
   prepend: () => void
   trim: () => void
   append: () => void
+  anchor: () => void
   reply: () => void
+  hydrate: () => void
+  steer: () => void
+  typing: () => void
   cleanup: () => void
 }
 declare global {
-  interface Window { __conversationScrollTest?: ScrollHarness }
+  interface Window { __conversationScrollTest?: ScrollHarness; __conversationScrollDelayHistory?: boolean }
 }
 const harness = readFileSync(new URL('./scroll/harness.js', import.meta.url), 'utf8')
 const viewport = (page: Page) => page.locator('#conversation-scroll-test [data-conversation-scroller]')
@@ -138,6 +142,124 @@ test.describe('Conversation scroll regression', () => {
     await frames(page)
     expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
   })
+
+  test('keyboard scrolling releases following before streamed growth', async ({ appPage: page }) => {
+    await viewport(page).focus()
+    await page.keyboard.press('PageUp')
+    await expect.poll(() => gap(page)).toBeGreaterThan(100)
+    // PageUp scrolls smoothly; wait for the gesture to finish before growing.
+    await expect.poll(async () => {
+      const before = await top(page)
+      await frames(page)
+      return Math.abs(await top(page) - before)
+    }).toBeLessThanOrEqual(2)
+    const before = await top(page)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+    await frames(page)
+    expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
+  })
+
+  test('resizing preserves the position of a newly anchored short turn', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const row = page.locator('#conversation-scroll-test [data-message-id="anchored"]')
+    const before = await row.evaluate(el => el.getBoundingClientRect().top)
+    for (const height of [300, 500]) {
+      await page.locator('#conversation-scroll-test').evaluate((el, height) => { el.style.height = `${height}px` }, height)
+      await frames(page)
+      await expect.poll(async () => Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+    }
+  })
+
+  test('expanding details in a short anchored turn preserves its position', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const before = await top(page)
+    await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Expand details', exact: true }).click()
+    await frames(page)
+    expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
+  })
+
+  test('pauses streaming follow while dragging a text selection and resumes on release', async ({ appPage: page }) => {
+    const paragraph = page.locator('#conversation-scroll-test [data-message-id="row-24"] p')
+    await paragraph.hover()
+    await page.mouse.down()
+    try {
+      await paragraph.evaluate(el => {
+        const range = document.createRange()
+        range.setStart(el.firstChild!, 0)
+        range.setEnd(el.firstChild!, 7)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+      })
+      const before = await top(page)
+      await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+      await frames(page)
+      await frames(page)
+      expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
+    } finally {
+      await page.mouse.up()
+    }
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('resumes following when a selected new turn grows beyond its spacer', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const paragraph = page.locator('#conversation-scroll-test [data-message-id="anchored"] p')
+    await paragraph.hover()
+    await page.mouse.down()
+    try {
+      await paragraph.evaluate(el => {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+      })
+      const before = await top(page)
+      await page.evaluate(() => window.__conversationScrollTest!.grow(600))
+      await frames(page)
+      await frames(page)
+      expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
+    } finally {
+      await page.mouse.up()
+    }
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(150))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('releasing a selection respects scrolling away from a growing new turn', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const paragraph = page.locator('#conversation-scroll-test [data-message-id="anchored"] p')
+    await paragraph.hover()
+    await page.mouse.down()
+    let before = 0
+    try {
+      await paragraph.evaluate(el => {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+      })
+      await page.evaluate(() => window.__conversationScrollTest!.grow(600))
+      await frames(page)
+      await viewport(page).dispatchEvent('wheel', { deltaY: -200 })
+      await viewport(page).evaluate(el => { el.scrollTop -= 200 })
+      await frames(page)
+      before = await top(page)
+    } finally {
+      await page.mouse.up()
+    }
+    await page.evaluate(() => window.__conversationScrollTest!.grow(150))
+    await frames(page)
+    expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
+    expect(await gap(page)).toBeGreaterThan(300)
+  })
 })
 
 test.describe('Assistant history integration', () => {
@@ -175,6 +297,15 @@ test.describe('Assistant history integration', () => {
     await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
     await expectTurnNearTop(page, 'assistant-row-120')
   })
+
+  test('sending while the assistant is typing still anchors a new turn from history', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.typing())
+    await frames(page)
+    await readEarlier(page)
+    await page.locator('#conversation-scroll-test textarea').fill('Another question while busy')
+    await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
+    await expectTurnNearTop(page, 'assistant-row-120')
+  })
 })
 
 test.describe('Main transcript integration', () => {
@@ -191,6 +322,46 @@ test.describe('Main transcript integration', () => {
     await expectTurnNearTop(page, 'main-row-50')
     await page.evaluate(() => window.__conversationScrollTest!.reply())
     await expectTurnNearTop(page, 'main-row-50')
+  })
+
+  test('reopening a running conversation shows the bottom after delayed history arrives', async ({ appPage: page }) => {
+    await page.evaluate(() => {
+      window.__conversationScrollTest!.cleanup()
+      window.__conversationScrollDelayHistory = true
+    })
+    await page.evaluate(readFileSync(new URL('./scroll/main-harness.js', import.meta.url), 'utf8'))
+    await expect(page.locator('#conversation-scroll-test').getByRole('status')).toBeVisible()
+    await frames(page)
+    await page.evaluate(() => window.__conversationScrollTest!.hydrate())
+    await expect(page.locator('#conversation-scroll-test [data-message-id="main-row-49"]')).toBeAttached()
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('a steer stays with its existing turn without becoming a new scroll anchor', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.steer())
+    await expect(page.locator('#conversation-scroll-test [data-message-id="main-row-50"]')).toHaveCount(0)
+    await frames(page)
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('a new turn keeps its position when the mobile composer or keyboard changes bottom padding', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.append())
+    await expectTurnNearTop(page, 'main-row-50')
+    const row = page.locator('#conversation-scroll-test [data-message-id="main-row-50"]')
+    const before = await row.evaluate(el => el.getBoundingClientRect().top)
+    for (const padding of [240, 16]) {
+      await page.locator('#conversation-scroll-test [data-testid="message-list"]').evaluate((el, padding) => { el.style.paddingBottom = `${padding}px` }, padding)
+      await frames(page)
+      expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+    }
+  })
+
+  test('a following transcript stays at the bottom when panel width reflows markdown', async ({ appPage: page }) => {
+    for (const width of [520, 1000]) {
+      await page.locator('#conversation-scroll-test').evaluate((el, width) => { el.style.width = `${width}px` }, width)
+      await frames(page)
+      await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    }
   })
 
   test('turn navigator jumps to a registered row and releases streaming follow', async ({ appPage: page }) => {
@@ -220,5 +391,20 @@ test.describe('Main transcript integration', () => {
     await expect(page.locator('#conversation-scroll-test [data-message-id="main-row--8"]')).toBeAttached()
     await frames(page)
     expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+  })
+
+  test('a fresh wheel gesture cancels the navigator layout correction', async ({ appPage: page }) => {
+    await page.locator('#conversation-scroll-test [data-testid="chat-navigator"]')
+      .getByRole('button', { name: 'Question 10: verify navigation and history.', exact: true })
+      .evaluate(el => {
+        el.click()
+        const viewport = document.querySelector<HTMLElement>('#conversation-scroll-test [data-conversation-scroller]')!
+        viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -300 }))
+        viewport.scrollTop -= 300
+      })
+    await frames(page)
+    const offset = await page.locator('#conversation-scroll-test [data-message-id="main-row-10"]').evaluate(el =>
+      el.getBoundingClientRect().top - el.closest('[data-conversation-scroller]')!.getBoundingClientRect().top)
+    expect(offset).toBeGreaterThan(200)
   })
 })
