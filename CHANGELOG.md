@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.4.20] - 2026-10-29
+
+### Changed
+
+- Older chat messages load earlier and render gradually to keep scrolling responsive in long conversations.
+- Chat tabs and file previews avoid unnecessary re-renders when sending messages, updating tab details or editing comments in another file.
+- New-tab and conversation menus use consistent hover highlights.
+- Starting or finishing a reply no longer redraws the sidebar, tab bar and the rest of the window.
+- Streaming replies update the chat once per chunk and leave the open Session panel alone.
+
+### Fixed
+
+- Scrolling up during a streaming reply no longer pulls the conversation back to the bottom.
+- Finishing a reply no longer rebuilds its Markdown and code blocks, avoiding a pause at the end of long responses.
+- Streaming replies use the AI SDK's current throttling option to limit unnecessary updates.
+- Scrolling up right after reaching the bottom of a conversation now moves on the first try.
+
 ## [1.4.19] - 2026-10-28
 
 ### Fixed
