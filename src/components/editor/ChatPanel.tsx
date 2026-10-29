@@ -5,7 +5,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
 import { ChartPie, Gauge } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
-import { skillsList } from './agent/agentControl';
+import { skillsList, type OperonSkillDTO } from './agent/agentControl';
 import {
   Queue,
   QueueItem,
@@ -536,14 +536,14 @@ function ChatPanelContent({
     isTodoWriteTool,
     extractTodosFromPart,
   });
-  const displayedContextUsage = polledContextUsage
+  const displayedContextUsage = useMemo(() => polledContextUsage
     ? {
         usage: contextUsage?.usage,
         maxTokens: polledContextUsage.maxTokens,
         usedTokens: polledContextUsage.totalTokens,
         detailedContextUsage: polledContextUsage,
       }
-    : contextUsage;
+    : contextUsage, [polledContextUsage, contextUsage]);
   // The object exists long before it holds anything, and some agents never fill
   // it at all — Antigravity's ACP server sends no usage on any message, so the
   // badge sat there claiming a confident "0 tokens". Show it once there is a
@@ -610,10 +610,13 @@ function ChatPanelContent({
   // or the conversation's native bar (phone). Only a provider without a panel
   // keeps its context pill; every quota-reporting provider has one.
   const metricsInSessionPanel = sessionPanelProviderId != null;
-  const sessionUsageCards: SessionUsageCard[] = [];
+  // Memoized (with the facts and callbacks below) so the memo'd Session panel
+  // skips the re-render every streamed chunk would otherwise give it.
+  const sessionUsageCards = useMemo(() => {
+  const cards: SessionUsageCard[] = [];
   if (metricsInSessionPanel) {
     if (showContextUsage && displayedContextUsage) {
-      sessionUsageCards.push({
+      cards.push({
         key: 'context',
         icon: ChartPie,
         title: <FormattedMessage id="editor.context.title" defaultMessage="Context window" />,
@@ -625,7 +628,7 @@ function ChatPanelContent({
       });
     }
     if (displayedClaudeRateLimits) {
-      sessionUsageCards.push({
+      cards.push({
         key: 'claude-quota',
         icon: Gauge,
         title: <FormattedMessage id="editor.claude.title" defaultMessage="Subscription usage" />,
@@ -633,7 +636,7 @@ function ChatPanelContent({
       });
     }
     if (showCodexRateLimits && codexUsageDetails) {
-      sessionUsageCards.push({
+      cards.push({
         key: 'codex-quota',
         icon: Gauge,
         title: <FormattedMessage id="editor.codex.title" defaultMessage="Rate limits" />,
@@ -641,6 +644,15 @@ function ChatPanelContent({
       });
     }
   }
+  return cards;
+  }, [metricsInSessionPanel, showContextUsage, displayedContextUsage, dbChatId, displayedClaudeRateLimits, showCodexRateLimits, codexUsageDetails]);
+  const closeSessionPanel = useCallback(() => setSessionPanelOpen(false), [setSessionPanelOpen]);
+  // A skill picked in the panel arrives as a chip in the composer — the same state a
+  // `/` pick produces — rather than as text or as a message sent on your behalf.
+  const handleSessionPanelSkill = useCallback((skill: OperonSkillDTO) => {
+    setPendingSkill({ type: 'skill', name: skill.name, description: skill.description });
+    setSessionPanelOpen(false);
+  }, [setSessionPanelOpen]);
 
   // Reset the skill cache when switching chats or away from operon.
   useEffect(() => {
@@ -693,6 +705,13 @@ function ChatPanelContent({
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
   const reviewCwd = useProjectStore((s) => s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
+  // thinkingEffortOptions is a fresh array each render; key on the label instead.
+  const thinkingEffortLabel = thinkingEffortOptions.find((option) => option.value === thinkingEffort)?.label;
+  const sessionFacts = useMemo(() => ({
+    cwd: reviewCwd,
+    model: selectedModel?.label,
+    effort: thinkingEffortLabel,
+  }), [reviewCwd, selectedModel?.label, thinkingEffortLabel]);
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
   const [turnDiffs, setTurnDiffs] = useState<{
@@ -1412,18 +1431,9 @@ function ChatPanelContent({
         providerId={sessionPanelProviderId}
         variant={isMobile ? 'overlay' : 'inline'}
         usageCards={sessionUsageCards}
-        facts={{
-          cwd: reviewCwd,
-          model: selectedModel?.label,
-          effort: thinkingEffortOptions.find((option) => option.value === thinkingEffort)?.label,
-        }}
-        onClose={() => setSessionPanelOpen(false)}
-        // A skill picked in the panel arrives as a chip in the composer — the same state a
-        // `/` pick produces — rather than as text or as a message sent on your behalf.
-        onUseSkill={(skill) => {
-          setPendingSkill({ type: 'skill', name: skill.name, description: skill.description })
-          setSessionPanelOpen(false)
-        }}
+        facts={sessionFacts}
+        onClose={closeSessionPanel}
+        onUseSkill={handleSessionPanelSkill}
       />
       {isMobile && dbChatId !== undefined && reviewCwd && mobileReviewMessageUid ? (
         <MobileSheet

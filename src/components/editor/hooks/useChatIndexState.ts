@@ -10,6 +10,18 @@ import {
   type ChatIndexState,
 } from '../utils/chat-derived'
 
+const sameSet = (a: Set<string>, b: Set<string>) =>
+  a.size === b.size && [...a].every((value) => b.has(value))
+
+// Entries are re-parsed from tool parts on every pass, so compare by content.
+// They are small (one per external agent run), so JSON is cheap enough.
+const sameMap = <V,>(a: Map<string, V>, b: Map<string, V>) =>
+  a.size === b.size &&
+  [...a].every(([key, value]) => {
+    const other = b.get(key)
+    return other === value || (other !== undefined && JSON.stringify(other) === JSON.stringify(value))
+  })
+
 export function useChatIndexState({
   chatId,
   messages,
@@ -124,8 +136,28 @@ export function useChatIndexState({
     sources.lastMessageSignature = lastMessageSignature
 
     if (changed) {
-      entry.state = nextState
-      setChatIndexState(nextState)
+      // Every streamed chunk re-applies the last message into fresh collections.
+      // Keep the ones whose content didn't change, and skip the state update (a
+      // second, synchronous render of the whole chat panel per chunk, since this
+      // is a layout effect) when none did.
+      const previous = entry.state
+      const backgroundTaskIds = sameSet(previous.backgroundTaskIds, nextState.backgroundTaskIds)
+        ? previous.backgroundTaskIds
+        : nextState.backgroundTaskIds
+      const externalAgentTasksById = sameMap(previous.externalAgentTasksById, nextState.externalAgentTasksById)
+        ? previous.externalAgentTasksById
+        : nextState.externalAgentTasksById
+      const externalAgentNotificationsByTaskId = sameMap(previous.externalAgentNotificationsByTaskId, nextState.externalAgentNotificationsByTaskId)
+        ? previous.externalAgentNotificationsByTaskId
+        : nextState.externalAgentNotificationsByTaskId
+      if (
+        backgroundTaskIds !== previous.backgroundTaskIds ||
+        externalAgentTasksById !== previous.externalAgentTasksById ||
+        externalAgentNotificationsByTaskId !== previous.externalAgentNotificationsByTaskId
+      ) {
+        entry.state = { backgroundTaskIds, externalAgentTasksById, externalAgentNotificationsByTaskId }
+        setChatIndexState(entry.state)
+      }
     }
   }, [chatId, getChatIndexEntry, historyLoaded, messages])
 

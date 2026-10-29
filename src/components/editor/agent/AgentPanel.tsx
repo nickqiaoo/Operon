@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ChevronRight,
@@ -88,6 +88,8 @@ export interface SessionUsageCard {
   content: React.ReactNode
 }
 
+const EMPTY_USAGE_CARDS: SessionUsageCard[] = []
+
 /** The inline column's width — ChatPanel pads the chat by the same amount to make room. */
 export const SESSION_PANEL_WIDTH_CLASS = 'w-[344px]'
 export const SESSION_PANEL_PAD_CLASS = 'pr-[344px]'
@@ -131,7 +133,9 @@ function isMcpProblem(server: McpServerDTO): boolean {
  * meant to keep it up while the agent works. Everything goes through
  * `POST /api/ai/agent-control` via `agentControl.ts`.
  */
-export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = [], facts }: AgentPanelProps) {
+// Memoized: ChatPanel re-renders on every streamed chunk, and redrawing the open
+// panel (MCP rows, skills, usage cards) each time cost ~30ms a chunk in dev.
+export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -417,7 +421,7 @@ export function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, vari
       <div className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-3 pl-1 pr-3">{cards}</div>
     </div>
   )
-}
+})
 
 // ── data hook ────────────────────────────────────────────────────────────────
 interface Resource<T> {

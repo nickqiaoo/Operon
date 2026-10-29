@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { UIMessage } from 'ai'
 import {
   createEmptyRecentDerivedState,
@@ -12,6 +12,7 @@ import {
   reduceTodosFromMessage,
   type RecentDerivedState,
   type RecentDerivedSources,
+  type TodoEntry,
 } from '../utils/chat-derived'
 import { extractCompacted, extractContextUsage } from '../utils/chatMetadata'
 import type { DetailedContextUsage } from '@/types/context-usage'
@@ -27,6 +28,40 @@ type CodexUsageDetailsView = {
   account: NonNullable<ReturnType<typeof extractContextUsage>>['codexAccount']
   rateLimits: NonNullable<ReturnType<typeof extractContextUsage>>['codexRateLimits']
 } | null
+
+const sameTodos = (a: TodoEntry[], b: TodoEntry[]) =>
+  a === b ||
+  (a.length === b.length &&
+    a.every((todo, index) => {
+      const other = b[index]
+      return todo.id === other.id && todo.content === other.content && todo.activeForm === other.activeForm && todo.status === other.status
+    }))
+
+type UsageMetadata = RecentDerivedState['latestContextMetadata']
+
+// extractContextUsage wraps the message's metadata fields in a fresh object on
+// every call, so compare what it wraps.
+const sameMetadata = (a: UsageMetadata, b: UsageMetadata) =>
+  a === b ||
+  (a !== null &&
+    b !== null &&
+    a.usage === b.usage &&
+    a.contextUsage === b.contextUsage &&
+    a.detailedContextUsage === b.detailedContextUsage &&
+    a.codexAccount === b.codexAccount &&
+    a.codexRateLimits === b.codexRateLimits &&
+    a.claudeRateLimits === b.claudeRateLimits)
+
+/**
+ * Whether two states look the same to ChatPanel. `lastAssistant` is left out on
+ * purpose: streaming replaces it on every chunk and nothing renders from it.
+ */
+const sameRenderedState = (a: RecentDerivedState, b: RecentDerivedState) =>
+  a.firstUserTitle === b.firstUserTitle &&
+  a.compactedInfo === b.compactedInfo &&
+  a.latestContextMetadata === b.latestContextMetadata &&
+  a.latestCodexMetadata === b.latestCodexMetadata &&
+  sameTodos(a.latestTodos, b.latestTodos)
 
 export function useRecentDerivedState<TTodoPart>({
   chatId,
@@ -235,13 +270,28 @@ export function useRecentDerivedState<TTodoPart>({
     sources.lastMessageSignature = lastMessageSignature
 
     if (changed) {
+      const previous = entry.state
+      // Keep the previous metadata objects when nothing in them changed, so the
+      // usage views derived from them (and the Session panel's cards) stay put.
+      if (sameMetadata(previous.latestContextMetadata, nextState.latestContextMetadata)) {
+        nextState.latestContextMetadata = previous.latestContextMetadata
+      }
+      if (sameMetadata(previous.latestCodexMetadata, nextState.latestCodexMetadata)) {
+        nextState.latestCodexMetadata = previous.latestCodexMetadata
+      }
       entry.state = nextState
-      setRecentDerivedState(nextState)
+      // This runs in a layout effect, so every setState here re-renders the whole
+      // chat panel a second time — once per streamed chunk, since each one
+      // rewrites lastAssistant and rebuilds the todo list. Only re-render when
+      // something that is shown actually changed.
+      if (!sameRenderedState(previous, nextState)) setRecentDerivedState(nextState)
     }
   }, [chatId, extractTodos, getRecentDerivedEntry, historyLoaded, isTodoToolPart, messages])
 
-  const contextUsage: ContextUsageView = (() => {
-    const meta = recentDerivedState.latestContextMetadata
+  // Memoized so the panels these feed (Session usage cards) can skip re-rendering.
+  const latestContextMetadata = recentDerivedState.latestContextMetadata
+  const contextUsage = useMemo((): ContextUsageView => {
+    const meta = latestContextMetadata
     if (!meta?.usage && !meta?.detailedContextUsage) return null
     const usage = meta.usage
     const detailed = meta.detailedContextUsage
@@ -262,19 +312,20 @@ export function useRecentDerivedState<TTodoPart>({
       maxTokens: meta.contextUsage?.contextWindow,
       usedTokens: estimatedTokens > 0 ? estimatedTokens : undefined,
     }
-  })()
+  }, [latestContextMetadata])
 
-  const codexUsageDetails: CodexUsageDetailsView =
-    recentDerivedState.latestCodexMetadata?.codexAccount || recentDerivedState.latestCodexMetadata?.codexRateLimits
+  const latestCodexMetadata = recentDerivedState.latestCodexMetadata
+  const codexUsageDetails = useMemo((): CodexUsageDetailsView =>
+    latestCodexMetadata?.codexAccount || latestCodexMetadata?.codexRateLimits
       ? {
-          account: recentDerivedState.latestCodexMetadata?.codexAccount,
-          rateLimits: recentDerivedState.latestCodexMetadata?.codexRateLimits,
+          account: latestCodexMetadata.codexAccount,
+          rateLimits: latestCodexMetadata.codexRateLimits,
         }
-      : null
+      : null,
+  [latestCodexMetadata])
 
   return {
     firstUserTitle: recentDerivedState.firstUserTitle,
-    lastAssistant: recentDerivedState.lastAssistant,
     compactedInfo: recentDerivedState.compactedInfo,
     latestTodos: recentDerivedState.latestTodos,
     contextUsage,
