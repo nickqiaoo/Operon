@@ -22,7 +22,7 @@
       prepend: () => setRows(current => [...Array.from({ length: 8 }, (_, i) => ({ id: 'older-' + i, height: 110 })), ...current]),
       trim: () => setRows(current => current.slice(8)),
       append: () => setRows(current => [...current, { id: 'appended', height: 180 }]),
-      anchor: () => setRows(current => [...current, { id: 'anchored', height: 100, anchor: true }]),
+      anchor: () => setRows(current => [...current, { id: current.some(row => row.id === 'anchored') ? 'anchored-next' : 'anchored', height: 100, anchor: true }]),
       cleanup: () => { root.unmount(); host.remove(); delete window.__conversationScrollTest; window.getSelection()?.removeAllRanges(); },
     };
     return h(ui.Conversation, ui.ConversationItem ? {} : { initial: 'instant' },

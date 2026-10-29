@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProper
 import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
-import { Conversation, ConversationContent, ConversationItem, ConversationScrollButton, useConversationScroll, type ConversationScrollHandle } from "@/components/ai-elements/conversation"
+import { Conversation, ConversationContent, ConversationItem, ConversationScrollButton, useConversationScroll } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import {
   PromptInput,
@@ -152,7 +152,6 @@ export function AssistantChat({
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
-  const scroller = useRef<ConversationScrollHandle>(null)
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     // PromptInput has already reset the textarea, which fires no change event.
@@ -163,16 +162,12 @@ export function AssistantChat({
       .filter((f) => !f.url.startsWith("blob:"))
       .map((f): AssistantAttachment => ({ url: f.url, mediaType: f.mediaType, ...(f.filename ? { filename: f.filename } : {}) }))
     if (!trimmed && attachments.length === 0) return
-    const sent = onSend(trimmed, attachments)
-    // What the user just said goes to the bottom of the thread, and so do they — even from up
-    // the thread, where the scroller has let go of the bottom and would leave it out of sight.
-    void scroller.current?.scrollToEnd({ behavior: "smooth" })
-    return sent
+    return onSend(trimmed, attachments)
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Conversation contextRef={scroller}>
+      <Conversation>
         <ConversationContent
           scrollClassName="scroll-fade-y"
           className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}

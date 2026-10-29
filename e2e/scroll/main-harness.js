@@ -28,8 +28,14 @@
       grow: () => setMessages(current => current.map((m, i) => i === current.length - 1 ? { ...m, parts: [{ type: 'text', text: m.parts[0].text + '\n\n' + 'Streamed paragraph. '.repeat(300) }] } : m)),
       prepend: () => setMessages(current => [...Array.from({ length: 8 }, (_, i) => message(i - 8)), ...current]),
       trim: () => setMessages(current => current.slice(8)),
-      append: () => setMessages(current => [...current, message(50)]),
-      reply: () => setMessages(current => [...current, message(51)]),
+      append: () => setMessages(current => {
+        const next = Number(current.at(-1).id.slice('main-row-'.length)) + 1;
+        return [...current, message(next % 2 ? next + 1 : next)];
+      }),
+      reply: () => setMessages(current => {
+        const next = Number(current.at(-1).id.slice('main-row-'.length)) + 1;
+        return [...current, message(next % 2 ? next : next + 1)];
+      }),
       hydrate: () => setMessages(initialMessages()),
       steer: () => setMessages(current => [...current, { ...message(50), metadata: { steer: true, turnMessageId: 'main-row-48' } }]),
       cleanup: () => { root.unmount(); host.remove(); delete window.__conversationScrollTest; },

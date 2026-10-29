@@ -4,12 +4,11 @@ import { MessageScroller as MessageScrollerPrimitive } from "@shadcn/react/messa
 import { Button } from "@/components/ui/button";
 import {
   MessageScroller,
-  MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  messageScrollerButtonClassName,
   useMessageScroller,
-  useMessageScrollerScrollable,
 } from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
@@ -25,6 +24,8 @@ type ConversationRefs = {
   contentRef: RefObject<HTMLDivElement | null>;
   selecting: boolean;
   setSelecting: (selecting: boolean) => void;
+  isAtBottom: boolean;
+  setIsAtBottom: (atBottom: boolean) => void;
 };
 const ConversationContext = createContext<ConversationRefs | null>(null);
 
@@ -32,8 +33,7 @@ export function useConversationScroll() {
   const refs = useContext(ConversationContext);
   if (!refs) throw new Error("useConversationScroll must be used within Conversation");
   const controls = useMessageScroller();
-  const { end } = useMessageScrollerScrollable();
-  return { ...refs, ...controls, isAtBottom: !end };
+  return { ...refs, ...controls };
 }
 
 function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandle> }) {
@@ -41,6 +41,15 @@ function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandl
   useImperativeHandle(contextRef, () => ({ scrollToEnd, scrollToStart, scrollToMessage }), [scrollToEnd, scrollToStart, scrollToMessage]);
   const atBottomRef = useRef(isAtBottom);
   atBottomRef.current = isAtBottom;
+
+  // Reaching the actual end also resumes native following after a manual jump
+  // or scrollbar drag. A newly anchored turn already at the end keeps its mode.
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (isAtBottom && viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) {
+      scrollToEnd({ behavior: "instant" });
+    }
+  }, [isAtBottom, scrollRef, scrollToEnd]);
 
   // Match the previous scroller: a mouse drag may select streamed text without
   // moving it underneath the pointer. Releasing the mouse resumes native following.
@@ -97,9 +106,34 @@ export function Conversation({ className, children, contextRef, ...props }: Conv
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [selecting, setSelecting] = useState(false);
-  const refs = useMemo(() => ({ scrollRef, contentRef, selecting, setSelecting }), [selecting]);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const refs = useMemo(() => ({ scrollRef, contentRef, selecting, setSelecting, isAtBottom, setIsAtBottom }), [selecting, isAtBottom]);
+
+  // Include synthetic turn space when deciding whether the reader is at the end.
+  // The primitive's `end` flag only measures real content, so it can report no
+  // hidden content even after the reader scrolls upward within a short turn.
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    let width = viewport.clientWidth;
+    let height = viewport.clientHeight;
+    const onScroll = () => {
+      if (width !== viewport.clientWidth || height !== viewport.clientHeight) return;
+      setIsAtBottom(viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2);
+    };
+    const observer = new ResizeObserver(() => {
+      width = viewport.clientWidth;
+      height = viewport.clientHeight;
+    });
+    observer.observe(viewport);
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", onScroll);
+    };
+  }, []);
   return (
-    <MessageScrollerProvider autoScroll={!selecting} defaultScrollPosition="end">
+    <MessageScrollerProvider autoScroll={isAtBottom && !selecting} defaultScrollPosition="end">
       <ConversationContext.Provider value={refs}>
         <MessageScroller data-testid="conversation" className={cn("flex-1", className)} {...props}>
           <ScrollHandle contextRef={contextRef} />
@@ -112,12 +146,19 @@ export function Conversation({ className, children, contextRef, ...props }: Conv
 
 // Preserve the transcript's own deferred-rendering policy (including the mobile
 // exceptions). Only register rows here; don't add a second content-visibility policy.
-export const ConversationItem = MessageScrollerPrimitive.Item;
+export function ConversationItem({ scrollAnchor = false, ...props }: ComponentProps<typeof MessageScrollerPrimitive.Item>) {
+  const context = useContext(ConversationContext);
+  if (!context) throw new Error("ConversationItem must be used within Conversation");
+  // Decide once when this row arrives. Returning to the end must not turn an
+  // already received prompt into a fresh automatic jump.
+  const [canAnchor] = useState(() => context.isAtBottom);
+  return <MessageScrollerPrimitive.Item {...props} scrollAnchor={scrollAnchor && canAnchor} />;
+}
 
 export type ConversationContentProps = ComponentProps<"div"> & { scrollClassName?: string };
 
 export function ConversationContent({ className, scrollClassName, children, ...props }: ConversationContentProps) {
-  const { scrollRef, contentRef, scrollToMessage, scrollToEnd, isAtBottom, selecting } = useConversationScroll();
+  const { scrollRef, contentRef, scrollToMessage, scrollToEnd, isAtBottom, setIsAtBottom, selecting } = useConversationScroll();
   const followingRef = useRef(isAtBottom && !selecting);
   followingRef.current = isAtBottom && !selecting;
 
@@ -154,10 +195,12 @@ export function ConversationContent({ className, scrollClassName, children, ...p
       const rows = contentRef.current?.querySelectorAll<HTMLElement>("[data-message-id]");
       const lastId = rows?.[rows.length - 1]?.dataset.messageId;
       if (!lastId) return;
+      setIsAtBottom(false);
       scrollToMessage(lastId, { align: "end", behavior: "instant" });
       clearTimeout(restoreTimer);
       restoreTimer = setTimeout(() => {
         if (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) {
+          setIsAtBottom(true);
           scrollToEnd({ behavior: "instant" });
         }
       }, 400);
@@ -167,7 +210,7 @@ export function ConversationContent({ className, scrollClassName, children, ...p
       viewport.removeEventListener("click", onClick, true);
       clearTimeout(restoreTimer);
     };
-  }, [scrollRef, contentRef, scrollToMessage, scrollToEnd]);
+  }, [scrollRef, contentRef, scrollToMessage, scrollToEnd, setIsAtBottom]);
 
   return (
     <MessageScrollerViewport ref={scrollRef} data-conversation-scroller className={scrollClassName}>
@@ -220,15 +263,35 @@ export const ConversationEmptyState = ({
 
 export type ConversationScrollButtonProps = ComponentProps<typeof Button> & { glass?: boolean };
 
-export function ConversationScrollButton({ className, glass, variant: _variant, size: _size, asChild: _asChild, ...props }: ConversationScrollButtonProps) {
+export function ConversationScrollButton({ className, glass, variant: _variant, size: _size, asChild: _asChild, onClick, ...props }: ConversationScrollButtonProps) {
+  const { isAtBottom, setIsAtBottom, scrollRef, scrollToEnd } = useConversationScroll();
   return (
-    <MessageScrollerButton
-      aria-label="Scroll to bottom"
-      className={cn(glass && "liquid-glass size-9 border-none text-foreground/80", className)}
-      render={<Button type="button" variant="ghost" size="icon-sm" />}
+    <Button
       {...props}
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label="Scroll to bottom"
+      inert={isAtBottom}
+      data-slot="message-scroller-button"
+      data-direction="end"
+      data-active={!isAtBottom}
+      tabIndex={isAtBottom ? -1 : props.tabIndex}
+      className={cn(
+        messageScrollerButtonClassName,
+        glass && "liquid-glass size-9 border-none text-foreground/80", className,
+      )}
+      onClick={(event) => {
+        if (isAtBottom) return;
+        onClick?.(event);
+        if (event.defaultPrevented) return;
+        event.currentTarget.blur();
+        const viewport = scrollRef.current;
+        if (viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) setIsAtBottom(true);
+        scrollToEnd({ behavior: "smooth" });
+      }}
     >
       <ArrowDownIcon className="size-4" />
-    </MessageScrollerButton>
+    </Button>
   );
 }

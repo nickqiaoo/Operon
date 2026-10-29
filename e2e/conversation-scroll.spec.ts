@@ -31,6 +31,27 @@ async function readEarlier(page: Page) {
   await frames(page)
 }
 
+async function readingPoint(page: Page) {
+  return viewport(page).evaluate(el => {
+    const view = el.getBoundingClientRect()
+    for (const row of el.querySelectorAll<HTMLElement>('[data-message-id]')) {
+      const box = row.getBoundingClientRect()
+      if (box.top >= view.top && box.top < view.bottom) {
+        return { id: row.dataset.messageId!, offset: box.top - view.top }
+      }
+    }
+    throw new Error('No visible message to track')
+  })
+}
+
+async function expectReadingPoint(page: Page, point: { id: string; offset: number }) {
+  await frames(page)
+  await expect.poll(() => page.locator(`#conversation-scroll-test [data-message-id="${point.id}"]`).evaluate(
+    (row, offset) => Math.abs(row.getBoundingClientRect().top - row.closest('[data-conversation-scroller]')!.getBoundingClientRect().top - offset),
+    point.offset,
+  )).toBeLessThanOrEqual(2)
+}
+
 async function expectTurnNearTop(page: Page, id: string) {
   const row = page.locator(`#conversation-scroll-test [data-message-id="${id}"]`)
   await expect(row).toBeAttached()
@@ -180,6 +201,24 @@ test.describe('Conversation scroll regression', () => {
     expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
   })
 
+  test('sending after scrolling upward within a short turn preserves the reading position', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    await viewport(page).hover()
+    await page.mouse.wheel(0, -100)
+    await expect.poll(() => gap(page)).toBeGreaterThan(50)
+    const point = await readingPoint(page)
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expect(page.locator('#conversation-scroll-test [data-message-id="anchored-next"]')).toBeAttached()
+    await expectReadingPoint(page, point)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+    await expectReadingPoint(page, point)
+    await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Scroll to bottom', exact: true }).click()
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(150))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
   test('pauses streaming follow while dragging a text selection and resumes on release', async ({ appPage: page }) => {
     const paragraph = page.locator('#conversation-scroll-test [data-message-id="row-24"] p')
     await paragraph.hover()
@@ -288,21 +327,33 @@ test.describe('Assistant history integration', () => {
     }
   })
 
-  test('sending while reading history anchors the new turn near the top', async ({ appPage: page }) => {
+  test('sending while reading history preserves the current reading position', async ({ appPage: page }) => {
     await viewport(page).hover()
     await page.mouse.wheel(0, -1200)
     await expect.poll(() => gap(page)).toBeGreaterThan(400)
+    const point = await readingPoint(page)
     const input = page.locator('#conversation-scroll-test textarea')
-    await input.fill('Return to latest')
+    await input.fill('Keep reading history')
     await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
-    await expectTurnNearTop(page, 'assistant-row-120')
+    await expect(page.locator('#conversation-scroll-test [data-message-id="assistant-row-120"]')).toBeAttached()
+    await expectReadingPoint(page, point)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+    await expectReadingPoint(page, point)
   })
 
-  test('sending while the assistant is typing still anchors a new turn from history', async ({ appPage: page }) => {
+  test('sending while the assistant is typing preserves history reading position', async ({ appPage: page }) => {
     await page.evaluate(() => window.__conversationScrollTest!.typing())
     await frames(page)
     await readEarlier(page)
+    const point = await readingPoint(page)
     await page.locator('#conversation-scroll-test textarea').fill('Another question while busy')
+    await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
+    await expect(page.locator('#conversation-scroll-test [data-message-id="assistant-row-120"]')).toBeAttached()
+    await expectReadingPoint(page, point)
+  })
+
+  test('sending from the latest position still anchors the new turn near the top', async ({ appPage: page }) => {
+    await page.locator('#conversation-scroll-test textarea').fill('A new question at the latest position')
     await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
     await expectTurnNearTop(page, 'assistant-row-120')
   })
@@ -322,6 +373,24 @@ test.describe('Main transcript integration', () => {
     await expectTurnNearTop(page, 'main-row-50')
     await page.evaluate(() => window.__conversationScrollTest!.reply())
     await expectTurnNearTop(page, 'main-row-50')
+  })
+
+  test('sending while reading history preserves the visible message during the new reply', async ({ appPage: page }) => {
+    await readEarlier(page)
+    const point = await readingPoint(page)
+    await page.evaluate(() => window.__conversationScrollTest!.append())
+    await expect(page.locator('#conversation-scroll-test [data-message-id="main-row-50"]')).toBeAttached()
+    await expectReadingPoint(page, point)
+    await page.evaluate(() => window.__conversationScrollTest!.reply())
+    await expectReadingPoint(page, point)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+    await expectReadingPoint(page, point)
+    await expect(page.locator('#conversation-scroll-test [data-message-id="main-row-50"]')).toHaveAttribute('data-scroll-anchor', 'false')
+    await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Scroll to bottom', exact: true }).click()
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    await expect(page.locator('#conversation-scroll-test [data-message-id="main-row-50"]')).toHaveAttribute('data-scroll-anchor', 'false')
+    await page.evaluate(() => window.__conversationScrollTest!.append())
+    await expectTurnNearTop(page, 'main-row-52')
   })
 
   test('reopening a running conversation shows the bottom after delayed history arrives', async ({ appPage: page }) => {

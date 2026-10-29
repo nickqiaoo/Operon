@@ -81,6 +81,8 @@ function MessageScrollerItem({
   )
 }
 
+const messageScrollerButtonClassName = "absolute inset-s-1/2 -translate-x-1/2 rounded-full border border-border/60 bg-background text-foreground shadow-card transition-[translate,scale,opacity] duration-200 hover:bg-accent-hover hover:text-foreground dark:border-border/35 data-[active=false]:pointer-events-none data-[active=false]:scale-95 data-[active=false]:opacity-0 data-[active=false]:duration-400 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:translate-y-0 data-[active=true]:scale-100 data-[active=true]:opacity-100 data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] data-[direction=end]:bottom-4 data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:top-4 data-[direction=start]:data-[active=false]:-translate-y-full rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180"
+
 function MessageScrollerButton({
   direction = "end",
   className,
@@ -99,7 +101,7 @@ function MessageScrollerButton({
       data-size={size}
       direction={direction}
       className={cn(
-        "absolute inset-s-1/2 -translate-x-1/2 rounded-full border border-border/60 bg-background text-foreground shadow-card transition-[translate,scale,opacity] duration-200 hover:bg-accent-hover hover:text-foreground dark:border-border/35 data-[active=false]:pointer-events-none data-[active=false]:scale-95 data-[active=false]:opacity-0 data-[active=false]:duration-400 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:translate-y-0 data-[active=true]:scale-100 data-[active=true]:opacity-100 data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] data-[direction=end]:bottom-4 data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:top-4 data-[direction=start]:data-[active=false]:-translate-y-full rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180",
+        messageScrollerButtonClassName,
         className
       )}
       render={render ?? <Button variant={variant} size={size} />}
@@ -125,6 +127,7 @@ export {
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerButton,
+  messageScrollerButtonClassName,
   useMessageScroller,
   useMessageScrollerScrollable,
   useMessageScrollerVisibility,
