@@ -1102,7 +1102,10 @@ function ChatPanelContent({
           // stops the column jumping when the transcript starts to overflow).
           // Not on a phone: there the transcript runs on under the floating
           // composer, and a faded edge would leave its glass nothing to frost.
-          scrollClassName={cn("[scrollbar-gutter:stable_both-edges]", !isMobile && "scroll-fade-y")}
+          // overscroll-y-contain: wheeling down at the bottom otherwise latches the
+          // gesture to the viewport, so reversing straight away scrolled nothing
+          // until the wheel paused and a new gesture started.
+          scrollClassName={cn("[scrollbar-gutter:stable_both-edges]", !isMobile && "scroll-fade-y overscroll-y-contain")}
           // Phone: the last message clears the floating composer (and the
           // keyboard, while it is up — the shell keeps its full height under it).
           style={isMobile ? { paddingBottom: "calc(var(--composer-height, 0px) + 16px + var(--keyboard-height, 0px))" } : undefined}
