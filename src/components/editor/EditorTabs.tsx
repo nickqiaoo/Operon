@@ -101,6 +101,57 @@ const formatRelativeTime = (timestamp: number, intl: IntlShape): string => {
   return intl.formatMessage({ id: "editor.time.monthsAgo", defaultMessage: "{count}mo ago" }, { count: diffMon })
 }
 
+/**
+ * Waiting-for-input / generating / unread marker for one tab. Subscribed here,
+ * per tab, so a turn starting or ending re-renders this marker instead of the
+ * whole tab strip.
+ */
+function TabStatusIndicator({ tabId, chatId }: { tabId: string; chatId?: number }) {
+  const intl = useIntl()
+  // Keyed by tab id, written by every mounted ChatPanel — including the ones the
+  // user isn't looking at, which is the whole point of showing it up here.
+  const streaming = useStreamingStore((s) => s.streamingTabIds.has(tabId))
+  const unseen = useStreamingStore((s) => s.unseenTabIds.has(tabId))
+  const needsInput = useChatPendingInputStore((s) => chatId != null && s.pendingByChat.has(chatId))
+  return (
+    needsInput ? (
+      // Blocked on the user. Wins over the spinner: the turn is still
+      // technically running, but nothing happens until someone answers.
+      <span
+        className="ml-1 flex shrink-0 items-center"
+        title={intl.formatMessage({ id: "editor.tabs.needsInput", defaultMessage: "Waiting for your input" })}
+      >
+        <CircleAlert className="size-3 text-status-warn" aria-hidden />
+        <span className="sr-only">
+          <FormattedMessage id="editor.tabs.needsInput" defaultMessage="Waiting for your input" />
+        </span>
+      </span>
+    ) : streaming ? (
+      <span
+        className="ml-1 flex shrink-0 items-center"
+        title={intl.formatMessage({ id: "editor.tabs.generating", defaultMessage: "Generating…" })}
+      >
+        <Loader2 className="size-3 animate-spin text-tint" aria-hidden />
+        <span className="sr-only">
+          <FormattedMessage id="editor.tabs.generating" defaultMessage="Generating…" />
+        </span>
+      </span>
+    ) : unseen ? (
+      // Done generating, and the user hasn't come back to it yet. Cleared
+      // by ChatPanel as soon as this tab becomes the active one.
+      <span
+        className="ml-1 flex shrink-0 items-center"
+        title={intl.formatMessage({ id: "editor.tabs.unread", defaultMessage: "New reply" })}
+      >
+        <span className="size-1.5 rounded-full bg-status-info" aria-hidden />
+        <span className="sr-only">
+          <FormattedMessage id="editor.tabs.unread" defaultMessage="New reply" />
+        </span>
+      </span>
+    ) : null
+  )
+}
+
 export function EditorTabs({
   tabs,
   activeTabId,
@@ -114,11 +165,6 @@ export function EditorTabs({
   const setTabChatId = useEditorStore((s) => s.setTabChatId)
   const [historyOpen, setHistoryOpen] = useState(false)
   const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId)
-  // Keyed by tab id, written by every mounted ChatPanel — including the ones the
-  // user isn't looking at, which is the whole point of showing it up here.
-  const streamingTabIds = useStreamingStore((s) => s.streamingTabIds)
-  const unseenTabIds = useStreamingStore((s) => s.unseenTabIds)
-  const pendingInputByChat = useChatPendingInputStore((s) => s.pendingByChat)
 
   // Cached per workspace, so opening this right after a switch can only ever
   // show this workspace's conversations or a skeleton — never the ones from the
@@ -199,41 +245,7 @@ export function EditorTabs({
               <img src={providerLogos[tab.providerId ?? tab.provider ?? 'google'] ?? googleLogo} alt="model" className="absolute left-2 size-3.5 shrink-0 dark:invert" />
             )}
             <span className="truncate font-medium">{fileCitationsToText(tab.title)}</span>
-            {tab.chatId != null && pendingInputByChat.has(tab.chatId) ? (
-              // Blocked on the user. Wins over the spinner: the turn is still
-              // technically running, but nothing happens until someone answers.
-              <span
-                className="ml-1 flex shrink-0 items-center"
-                title={intl.formatMessage({ id: "editor.tabs.needsInput", defaultMessage: "Waiting for your input" })}
-              >
-                <CircleAlert className="size-3 text-status-warn" aria-hidden />
-                <span className="sr-only">
-                  <FormattedMessage id="editor.tabs.needsInput" defaultMessage="Waiting for your input" />
-                </span>
-              </span>
-            ) : streamingTabIds.has(tab.id) ? (
-              <span
-                className="ml-1 flex shrink-0 items-center"
-                title={intl.formatMessage({ id: "editor.tabs.generating", defaultMessage: "Generating…" })}
-              >
-                <Loader2 className="size-3 animate-spin text-tint" aria-hidden />
-                <span className="sr-only">
-                  <FormattedMessage id="editor.tabs.generating" defaultMessage="Generating…" />
-                </span>
-              </span>
-            ) : unseenTabIds.has(tab.id) ? (
-              // Done generating, and the user hasn't come back to it yet. Cleared
-              // by ChatPanel as soon as this tab becomes the active one.
-              <span
-                className="ml-1 flex shrink-0 items-center"
-                title={intl.formatMessage({ id: "editor.tabs.unread", defaultMessage: "New reply" })}
-              >
-                <span className="size-1.5 rounded-full bg-status-info" aria-hidden />
-                <span className="sr-only">
-                  <FormattedMessage id="editor.tabs.unread" defaultMessage="New reply" />
-                </span>
-              </span>
-            ) : null}
+            <TabStatusIndicator tabId={tab.id} chatId={tab.chatId} />
             {tab.closable !== false && (
               <button
                 type="button"

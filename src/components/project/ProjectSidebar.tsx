@@ -4,7 +4,7 @@ import { openExternalUrl } from "@/lib/open-external"
 import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
-import { Fragment, useCallback, useMemo, useState } from "react"
+import { Fragment, useCallback, useState } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -37,8 +37,6 @@ interface ProjectItemProps {
   onTogglePin: (project: Project) => void
   error?: string | null
   workspaceDiffStats?: Record<string, WorkspaceDiffStat>
-  streamingCounts?: Record<number, number>
-  unseenCounts?: Record<number, number>
   activeSpecId?: number | null
   onOpenSpec?: (taskId: number, projectId: number) => void
 }
@@ -90,8 +88,6 @@ function ProjectItem({
   onTogglePin,
   error,
   workspaceDiffStats,
-  streamingCounts,
-  unseenCounts,
   activeSpecId,
   onOpenSpec,
 }: ProjectItemProps) {
@@ -183,12 +179,11 @@ function ProjectItem({
               .map((workspace) => (
                 <WorkspaceRow
                   key={workspace.id}
+                  workspaceId={workspace.id}
                   label={workspace.name}
                   title={workspace.worktreePath}
                   isActive={activeWorkspaceId === workspace.id}
                   stats={workspaceDiffStats?.[workspace.worktreePath]}
-                  streaming={streamingCounts?.[workspace.id] ?? 0}
-                  unseen={unseenCounts?.[workspace.id] ?? 0}
                   onSelect={() => onSelectWorkspace(workspace.id, project.id)}
                 />
               ))}
@@ -232,15 +227,32 @@ function SpecRow({ spec, active, onSelect }: { spec: WorkspaceTask; active: bool
   )
 }
 
-function WorkspaceRow({ label, title, isActive, stats, streaming, unseen, onSelect }: {
+const countChatTabs = (tabs: EditorTab[] | undefined, ids: Set<string>) =>
+  tabs?.reduce((count, tab) => count + (tab.type === "chat" && ids.has(tab.id) ? 1 : 0), 0) ?? 0
+
+/**
+ * Streaming / unread chat counts for one workspace. Subscribed per row, as
+ * numbers, so a turn starting or ending re-renders that row instead of the whole
+ * sidebar (~12ms in dev, right as the reply finishes).
+ */
+function useWorkspaceChatActivity(workspaceId: number) {
+  const tabs = useEditorStore((s) =>
+    s.currentWorkspaceId === workspaceId ? s.tabs : s.workspaceStates[String(workspaceId)]?.tabs
+  )
+  const streaming = useStreamingStore((s) => countChatTabs(tabs, s.streamingTabIds))
+  const unseen = useStreamingStore((s) => countChatTabs(tabs, s.unseenTabIds))
+  return { streaming, unseen }
+}
+
+function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect }: {
+  workspaceId: number
   label: string
   title: string
   isActive: boolean
   stats?: WorkspaceDiffStat
-  streaming: number
-  unseen: number
   onSelect: () => void
 }) {
+  const { streaming, unseen } = useWorkspaceChatActivity(workspaceId)
   return (
     <button
       type="button"
@@ -315,6 +327,16 @@ interface ProjectSidebarProps {
   collapsed?: boolean
 }
 
+/**
+ * Runs the +N/-N refresh. Its own component because the hook subscribes to how
+ * many chats are streaming: called in ProjectSidebar, every turn start and end
+ * re-rendered the whole sidebar (~12ms in dev).
+ */
+function WorkspaceDiffStatsSync() {
+  useWorkspaceDiffStats()
+  return null
+}
+
 export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, activeSpecId, onOpenSpec, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
   const canAddProject = __APP_TARGET__ !== "web"
@@ -327,52 +349,23 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
   const setProjectWorkspaces = useProjectStore((s) => s.setProjectWorkspaces)
   const setProjectPinned = useProjectStore((s) => s.setProjectPinned)
   const workspaceDiffStats = useProjectStore((s) => s.workspaceDiffStats)
-  useWorkspaceDiffStats()
   const [projectErrors, setProjectErrors] = useState<Record<string, string | null>>({})
 
-  // Compute per-workspace streaming & unseen counts
-  const workspaceStates = useEditorStore((s) => s.workspaceStates)
-  const currentWorkspaceId = useEditorStore((s) => s.currentWorkspaceId)
-  const currentTabs = useEditorStore((s) => s.tabs)
-  const streamingTabIds = useStreamingStore((s) => s.streamingTabIds)
-  const unseenTabIds = useStreamingStore((s) => s.unseenTabIds)
   const clearUnseen = useStreamingStore((s) => s.clearUnseen)
   const inboxAction = useInboxStore((s) => s.counts.action)
   const inboxTotal = useInboxStore((s) => s.counts.total)
 
-  const getWorkspaceTabs = useCallback((wsId: number): EditorTab[] => {
-    if (wsId === currentWorkspaceId) return currentTabs
-    return workspaceStates[String(wsId)]?.tabs ?? []
-  }, [workspaceStates, currentWorkspaceId, currentTabs])
-
-  const { streamingCounts, unseenCounts } = useMemo(() => {
-    const sc: Record<number, number> = {}
-    const uc: Record<number, number> = {}
-    const allWsIds = new Set<number>()
-
-    for (const key of Object.keys(workspaceStates)) {
-      const wsId = Number(key)
-      if (!Number.isNaN(wsId)) allWsIds.add(wsId)
-    }
-    if (currentWorkspaceId) allWsIds.add(currentWorkspaceId)
-
-    for (const wsId of allWsIds) {
-      const tabs = wsId === currentWorkspaceId ? currentTabs : (workspaceStates[String(wsId)]?.tabs ?? [])
-      const chatTabs = tabs.filter((t) => t.type === "chat")
-      sc[wsId] = chatTabs.filter((t) => streamingTabIds.has(t.id)).length
-      uc[wsId] = chatTabs.filter((t) => unseenTabIds.has(t.id)).length
-    }
-    return { streamingCounts: sc, unseenCounts: uc }
-  }, [workspaceStates, currentWorkspaceId, currentTabs, streamingTabIds, unseenTabIds])
-
-  // Clear unseen when user switches to a workspace
+  // Clear unseen when user switches to a workspace. Tabs are read at click time
+  // rather than subscribed: they change on every send (chat id, title, draft),
+  // and subscribing re-rendered the whole sidebar each time (~12ms in dev).
   const handleSelectWorkspace = useCallback((workspaceId: number, projectId: number) => {
-    const tabs = getWorkspaceTabs(workspaceId)
+    const { currentWorkspaceId, tabs: currentTabs, workspaceStates } = useEditorStore.getState()
+    const tabs = workspaceId === currentWorkspaceId ? currentTabs : (workspaceStates[String(workspaceId)]?.tabs ?? [])
     const chatTabIds = tabs.filter((t) => t.type === "chat").map((t) => t.id)
     if (chatTabIds.length > 0) clearUnseen(chatTabIds)
     setActiveWorkspace(workspaceId, projectId)
     onLeaveMainView?.()
-  }, [getWorkspaceTabs, clearUnseen, setActiveWorkspace, onLeaveMainView])
+  }, [clearUnseen, setActiveWorkspace, onLeaveMainView])
 
   const handleTogglePin = useCallback((project: Project) => {
     void setProjectPinned(project.id, project.pinnedAt == null).catch((error: unknown) => {
@@ -457,6 +450,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
 
   return (
     <div className="h-full flex flex-col bg-sidebar text-sidebar-foreground">
+      <WorkspaceDiffStatsSync />
       {/* Top Drag Region. pl-20 reserves room for the macOS traffic lights — only
           on the desktop app; the web build has no window controls, so it would
           otherwise be an empty gap. */}
@@ -594,8 +588,6 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
                   onTogglePin={handleTogglePin}
                   error={projectErrors[String(project.id)] ?? null}
                   workspaceDiffStats={workspaceDiffStats}
-                  streamingCounts={streamingCounts}
-                  unseenCounts={unseenCounts}
                   activeSpecId={activeSpecId}
                   onOpenSpec={onOpenSpec}
                 />

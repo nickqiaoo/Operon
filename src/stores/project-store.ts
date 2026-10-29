@@ -347,9 +347,19 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       setWorkspaceDiffStats: (stats) => {
-        set((state) => ({
-          workspaceDiffStats: { ...state.workspaceDiffStats, ...stats },
-        }))
+        set((state) => {
+          // Refreshed on every turn start/end and window focus, almost always with
+          // the same numbers: keep the existing object then, so the sidebar that
+          // reads it doesn't re-render for nothing.
+          let next: Record<string, WorkspaceDiffStat> | null = null
+          for (const [path, stat] of Object.entries(stats)) {
+            const current = state.workspaceDiffStats[path]
+            if (current && current.additions === stat.additions && current.deletions === stat.deletions) continue
+            next ??= { ...state.workspaceDiffStats }
+            next[path] = stat
+          }
+          return next ? { workspaceDiffStats: next } : state
+        })
       },
 
       getActiveProject: () => {

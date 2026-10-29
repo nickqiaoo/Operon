@@ -100,7 +100,6 @@ export default function App() {
   const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
   const loadProjects = useProjectStore((state) => state.loadProjects)
   const setActiveWorkspace = useProjectStore((state) => state.setActiveWorkspace)
-  const streamingTabIds = useStreamingStore((s) => s.streamingTabIds)
   const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
   // Shell state, not App state: an expanded right panel needs to know whether
   // the sidebar left it sitting under the macOS traffic lights.
@@ -274,26 +273,34 @@ export default function App() {
   // tab that opened them.
   const editorStripTabs = useMemo(() => tabs.filter((tab) => !tab.isSideChat), [tabs])
 
+  // Side chats render inside their right-panel tab, not here.
+  const currentChatTabs = useMemo(() => tabs.filter(t => t.type === 'chat' && !t.isSideChat), [tabs])
+  const currentChatTabIds = useMemo(() => new Set(currentChatTabs.map(t => t.id)), [currentChatTabs])
+  // Only chats streaming in *other* workspaces change what is mounted below.
+  // Selecting them as a string key keeps the open chat starting or finishing a
+  // turn from re-rendering the whole shell (~35ms in dev, right as the reply ends).
+  const backgroundStreamingKey = useStreamingStore((s) =>
+    [...s.streamingTabIds].filter((id) => !currentChatTabIds.has(id)).sort().join('\n')
+  )
+
   // Keep Spec conversations mounted across workspace switches so the original
   // chat, draft and live stream remain the same surface through both entrances.
   const allChatTabs = useMemo(() => {
     const currentKey = String(currentWorkspaceId ?? 'global')
-    // Side chats render inside their right-panel tab, not here.
-    const currentChatTabs = tabs.filter(t => t.type === 'chat' && !t.isSideChat)
-    const currentIds = new Set(currentChatTabs.map(t => t.id))
+    const backgroundStreamingIds = new Set(backgroundStreamingKey.split('\n'))
 
     const inactiveTabs: typeof tabs = []
     for (const [key, state] of Object.entries(workspaceStates)) {
       if (key === currentKey) continue
       for (const tab of state.tabs) {
-        if (tab.type === 'chat' && !tab.isSideChat && !currentIds.has(tab.id) && (streamingTabIds.has(tab.id) || specChatIds.has(tab.id))) {
+        if (tab.type === 'chat' && !tab.isSideChat && !currentChatTabIds.has(tab.id) && (backgroundStreamingIds.has(tab.id) || specChatIds.has(tab.id))) {
           inactiveTabs.push(tab)
         }
       }
     }
 
     return [...currentChatTabs, ...inactiveTabs]
-  }, [tabs, workspaceStates, currentWorkspaceId, streamingTabIds, specChatIds])
+  }, [currentChatTabs, currentChatTabIds, workspaceStates, currentWorkspaceId, backgroundStreamingKey, specChatIds])
 
   useEffect(() => {
     void loadProjects().catch((error) => {
