@@ -79,12 +79,18 @@ export async function startChat(
   let chatRecord: ChatRecordState | undefined
   let continuation: AssistantContinuationState | null = null
 
-  if (providerId === 'custom' && chatHistoryService && (payload.chatId ?? 0) > 0) {
+  // An assistant-last request (e.g. a declined Codex plan) continues that
+  // message for every provider. The SDK seeds assembly with its existing parts;
+  // the stream id and persistence target must identify the same message.
+  if (
+    chatHistoryService && (payload.chatId ?? 0) > 0 &&
+    (providerId === 'custom' || latestPayloadMessage?.role === 'assistant')
+  ) {
     const dbEntry = chatHistoryService.getChat(payload.chatId!)
     dbHistory = normalizeUiMessagesFileAttachments(dbEntry.messages as UIMessage[])
     const meta = chatHistoryService.getChatMeta(payload.chatId!)
     if (!meta) {
-      throw new Error(`Chat history not found for custom provider chatId=${payload.chatId}`)
+      throw new Error(`Chat history not found for chatId=${payload.chatId}`)
     }
 
     if (latestPayloadMessage?.role !== 'user') {
@@ -94,7 +100,7 @@ export async function startChat(
         baseRevision: meta.revision,
         sessionId: meta.sessionId,
       }
-      messagesForModel = buildCompactAwareView(dbHistory)
+      if (providerId === 'custom') messagesForModel = buildCompactAwareView(dbHistory)
     }
   }
 
@@ -189,7 +195,7 @@ export async function startChat(
   }
   request.abortController.signal.addEventListener('abort', () => session.runtime.abort(), { once: true })
 
-  if (!messagesForModel && dbHistory) {
+  if (!messagesForModel && dbHistory && providerId === 'custom') {
     messagesForModel = buildCompactAwareView(dbHistory)
   } else if (!messagesForModel) {
     messagesForModel = normalizedMessages
