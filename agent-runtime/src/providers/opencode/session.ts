@@ -29,6 +29,7 @@ import {
   convertEventToStreamParts,
   createFinishParts,
   createStreamState,
+  formApprovalParts,
   getEventSessionId,
   isEventForSession,
   isSessionComplete,
@@ -316,7 +317,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
           const form = native.data.form
           this.pendingForms.set(form.id, form)
           this.pendingApprovalIds.add(form.id)
-          yield this.formApproval(form)
+          for (const part of formApprovalParts(form.id, this.formQuestionsInput(form), state)) yield part
         }
         if (native.type === 'permission.asked') this.approvalSessions.set(native.data.id, native.data.sessionID)
         for (const rawEvent of adapter.convert(native)) {
@@ -802,16 +803,14 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
   private readonly pendingForms = new Map<string, Extract<OpenCodeEvent, { type: 'form.created' }>['data']['form']>()
   private readonly approvalSessions = new Map<string, string>()
 
-  private formApproval(form: Extract<OpenCodeEvent, { type: 'form.created' }>['data']['form']): Extract<RuntimeStreamPart, { type: 'tool-approval-request' }> {
+  /** The form's visible fields as AskUserQuestion input; answers are keyed by these titles. */
+  private formQuestionsInput(form: Extract<OpenCodeEvent, { type: 'form.created' }>['data']['form']): string {
     const questions = form.fields.filter((field) => !('hidden' in field && field.hidden)).map((field) => ({
       question: field.title ?? field.key, header: field.title ?? field.key,
       options: 'options' in field ? (field.options ?? []).map((option) => ({ label: option.label ?? String(option.value), description: option.description ?? '' })) : [],
       multiSelect: field.type === 'multiselect', custom: true,
     }))
-    return { type: 'tool-approval-request', approvalId: form.id, toolCall: {
-      type: 'tool-call', toolCallId: form.id, toolName: 'AskUserQuestion', input: JSON.stringify({ questions }),
-      providerExecuted: true, dynamic: true,
-    } }
+    return JSON.stringify({ questions })
   }
 
   async contextUsage(): Promise<DetailedContextUsage | null> {

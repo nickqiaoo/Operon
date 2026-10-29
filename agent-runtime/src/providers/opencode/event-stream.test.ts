@@ -4,6 +4,7 @@ import {
   convertEventToStreamParts,
   createFinishParts,
   createStreamState,
+  formApprovalParts,
   tryRegisterChildFromSessionEvent,
   type EventMessagePartUpdated,
   type EventMessageUpdated,
@@ -181,5 +182,47 @@ describe('opencode injected input', () => {
     expect(convertEventToStreamParts(assistant('msg_a2', 'msg_steer'), state)).toEqual([])
     expect(convertEventToStreamParts(assistant('msg_a3', 'msg_steer'), state)).toEqual([])
     expect(pendingInjections.size).toBe(0)
+  })
+})
+
+describe('opencode form approvals', () => {
+  const questionPart = (status: 'pending' | 'running') => ({
+    type: 'message.part.updated',
+    properties: {
+      part: {
+        id: 'call_q',
+        sessionID: 'main-session',
+        messageID: 'assistant-message',
+        type: 'tool',
+        callID: 'call_q',
+        tool: 'question',
+        state: status === 'running'
+          ? { status, input: { questions: [{ question: 'Which file?' }] }, raw: '', time: { start: Date.now() } }
+          : { status, input: {}, raw: '' },
+      },
+    },
+  }) as EventMessagePartUpdated
+
+  const input = JSON.stringify({ questions: [{ question: 'Which file?', header: 'Which file?', options: [] }] })
+
+  it("puts a form's approval on the question call still open, announcing the call first", () => {
+    const state = createStreamState()
+    convertEventToStreamParts(questionPart('pending'), state)
+    convertEventToStreamParts(questionPart('running'), state)
+
+    const parts = formApprovalParts('frm_1', input, state)
+
+    expect(parts.map((part) => part.type)).toEqual(['tool-input-end', 'tool-call', 'tool-approval-request'])
+    const approval = parts.at(-1)
+    expect(approval).toMatchObject({ approvalId: 'frm_1', toolCall: { toolCallId: 'call_q', toolName: 'AskUserQuestion', input } })
+    // The call is announced: the question's own completion must not announce it again.
+    expect(state.toolStates.get('call_q')?.callEmitted).toBe(true)
+  })
+
+  it('announces a call under the form id when no question call is open', () => {
+    const parts = formApprovalParts('frm_2', input, createStreamState())
+
+    expect(parts.map((part) => part.type)).toEqual(['tool-call', 'tool-approval-request'])
+    expect(parts[1]).toMatchObject({ approvalId: 'frm_2', toolCall: { toolCallId: 'frm_2' } })
   })
 })

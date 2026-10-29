@@ -1069,6 +1069,35 @@ function handleQuestionAsked(event: EventQuestionAsked, state: StreamState): Run
   return []
 }
 
+/**
+ * A form (OpenCode's `form.created`, how its question tool asks the user) as an approval
+ * request. The approval has to name a tool call the stream already announced, or the UI
+ * stream rejects it ("No tool invocation found"). The form carries no pointer back to its
+ * call, so it goes on the question call still open in this stream; when there is none
+ * (a form from something else), a call is announced under the form's own id first.
+ * The questions come from the form either way: answers are matched back to its fields.
+ */
+export function formApprovalParts(formId: string, input: string, state: StreamState): RuntimeStreamPart[] {
+  const open = [...state.toolStates.values()]
+    .filter((tool) => tool.toolName === 'AskUserQuestion' && !tool.resultEmitted)
+    .at(-1)
+  const parts: RuntimeStreamPart[] = []
+  if (!open) {
+    const toolCall = createToolCall(formId, 'AskUserQuestion', input)
+    parts.push(toolCall, { type: 'tool-approval-request', approvalId: formId, toolCall })
+    return parts
+  }
+  if (open.inputStarted && !open.inputClosed) {
+    parts.push({ type: 'tool-input-end', id: open.callId })
+    open.inputClosed = true
+  }
+  const toolCall = createToolCall(open.callId, open.toolName, input)
+  parts.push(toolCall, { type: 'tool-approval-request', approvalId: formId, toolCall })
+  open.callEmitted = true
+  open.lastInput = input
+  return parts
+}
+
 function handleStepFinishPart(part: StepFinishPart, state: StreamState): RuntimeStreamPart[] {
   state.usage = {
     inputTokens: part.tokens.input,
