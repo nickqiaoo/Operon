@@ -1,3 +1,4 @@
+import { ConversationItem } from '@/components/ai-elements/conversation';
 import type { UIMessage } from 'ai';
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
@@ -262,7 +263,8 @@ const MessageItem = memo(function MessageItem({
   if (!mounted) {
     // Keeps the ids the turn rail and the selection toolbar look for.
     return (
-      <div
+      <ConversationItem
+        messageId={message.id}
         data-message-item-role={message.role}
         data-message-id={message.id}
         style={PENDING_MOUNT_STYLE}
@@ -389,7 +391,8 @@ const MessageItem = memo(function MessageItem({
   };
 
   return (
-    <div
+    <ConversationItem
+      messageId={message.id}
       data-message-item-role={message.role}
       // Anchor for the left-hand turn rail (ChatNavigator), which locates each
       // prompt by id to compute its scroll offset.
@@ -458,7 +461,7 @@ const MessageItem = memo(function MessageItem({
       )}
       <ArchivedSteers messages={archivedSteers} />
       {turnFooter}
-    </div>
+    </ConversationItem>
   );
 });
 

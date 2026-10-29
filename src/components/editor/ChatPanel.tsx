@@ -13,7 +13,7 @@ import {
 } from '@/components/ai-elements/conversation';
 import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavigator';
 import { nativeTopBarTakesSpace } from '@/lib/native';
-import { useStickToBottomContext } from 'use-stick-to-bottom';
+import { useConversationScroll } from '@/components/ai-elements/conversation';
 import {
   PromptInputProvider,
   usePromptInputController,
@@ -88,7 +88,6 @@ import { TodoQueue, extractTodosFromPart, isTodoWriteTool } from './components/T
 import { CanvasChatBanner } from './components/CanvasChatBanner';
 import { isCanvasChatId } from '@/lib/canvas-utils';
 import { trackEvent } from '@/lib/analytics';
-import { AutoScrollManager } from './components/AutoScrollManager';
 import { ChatWaitingIndicator } from './components/ChatWaitingIndicator';
 import { CodexRateLimitsDetails } from './components/CodexRateLimitsButton';
 import { ClaudeRateLimitsDetails } from './components/ClaudeRateLimitsButton';
@@ -1093,10 +1092,6 @@ function ChatPanelContent({
         actions={selectionActions}
       />
       <Conversation className="flex-1 rounded-xl bg-background font-sans">
-        <AutoScrollManager
-          messageCount={messages.length}
-          historyLoaded={historyLoaded}
-        />
         <ScrollTopLoader
           hasMore={chatHasMore}
           loadingMore={chatLoadingMore}
@@ -1422,24 +1417,7 @@ function ScrollTopLoader({
   loadingMore: boolean;
   onLoadMore: () => void;
 }) {
-  const { scrollRef } = useStickToBottomContext();
-  const pendingHeightRef = useRef<number | null>(null);
-
-  // Keep the view on what the reader was looking at once older messages are
-  // prepended. Browser scroll anchoring already does that, against wherever the
-  // reader has scrolled to by now, except at offset 0, where Chromium never
-  // anchors; only that case needs pushing down by what was added.
-  useLayoutEffect(() => {
-    if (loadingMore) return;
-    const height = pendingHeightRef.current;
-    if (height === null) return;
-    const el = scrollRef.current;
-    pendingHeightRef.current = null;
-    if (!el || el.scrollTop > 0) return;
-    const added = el.scrollHeight - height;
-    if (added > 0) el.scrollTop = added;
-  }, [loadingMore, scrollRef]);
-
+  const { scrollRef } = useConversationScroll();
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -1448,7 +1426,6 @@ function ScrollTopLoader({
       // Fetch a screen and a half early, so the page is in before the reader
       // reaches the top instead of while they wait there.
       if (el.scrollTop < el.clientHeight * 1.5 && hasMore && !loadingMore) {
-        pendingHeightRef.current = el.scrollHeight;
         onLoadMore();
       }
     };

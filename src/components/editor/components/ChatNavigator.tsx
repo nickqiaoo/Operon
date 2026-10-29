@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useStickToBottomContext } from 'use-stick-to-bottom';
+import { useConversationScroll } from '@/components/ai-elements/conversation';
 import { stripContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import { cn } from '@/lib/utils';
 import { isSteerUserMessage } from './steer-message';
@@ -106,7 +106,7 @@ export const ChatNavigator = memo(function ChatNavigator({
   entries: ChatNavigatorEntry[];
 }) {
   const intl = useIntl();
-  const { scrollRef, contentRef } = useStickToBottomContext();
+  const { scrollRef, contentRef, scrollToMessage } = useConversationScroll();
   const frameRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
   /** Scroll offset of each entry inside the transcript, by entry index. */
@@ -232,12 +232,12 @@ export const ChatNavigator = memo(function ChatNavigator({
 
   const handleJump = useCallback(
     (index: number) => {
-      const scrollEl = scrollRef.current;
-      const top = offsetsRef.current[index];
-      if (!scrollEl || !Number.isFinite(top)) return;
-      scrollEl.scrollTo({ top: Math.max(0, top - 12), behavior: 'smooth' });
+      const entry = entriesRef.current[index];
+      // A long jump reveals content-visibility rows with estimated heights.
+      // Avoid a smooth animation fighting their first layout measurements.
+      if (entry) scrollToMessage(entry.id, { scrollMargin: 12, behavior: 'instant' });
     },
-    [scrollRef],
+    [scrollToMessage],
   );
 
   const handleEnter = useCallback((index: number, tick: HTMLElement) => {

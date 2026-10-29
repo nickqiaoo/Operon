@@ -1,9 +1,8 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
-import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
+import { Conversation, ConversationContent, ConversationItem, ConversationScrollButton, useConversationScroll, type ConversationScrollHandle } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import {
   PromptInput,
@@ -109,7 +108,6 @@ export function AssistantChat({
   onOpenChat,
   onAtBottom,
   compact = false,
-  keyboardOpen = false,
   insetTop,
 }: AssistantChatProps) {
   const intl = useIntl()
@@ -148,7 +146,7 @@ export function AssistantChat({
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
-  const scroller = useRef<StickToBottomContext>(null)
+  const scroller = useRef<ConversationScrollHandle>(null)
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     // PromptInput has already reset the textarea, which fires no change event.
@@ -162,64 +160,59 @@ export function AssistantChat({
     const sent = onSend(trimmed, attachments)
     // What the user just said goes to the bottom of the thread, and so do they — even from up
     // the thread, where the scroller has let go of the bottom and would leave it out of sight.
-    void scroller.current?.scrollToBottom("smooth")
+    void scroller.current?.scrollToEnd({ behavior: "smooth" })
     return sent
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Conversation initial="instant" contextRef={scroller}>
-        {/* Phone: the content's own p-4 would stack on the gutter (24px a side); drop it so
-            the bubbles get the width. */}
-        <ConversationContent scrollClassName="scroll-fade-y" className={cn(compact && "p-0")}>
-          <div
-            className={cn("mx-auto flex w-full max-w-3xl flex-col gap-3 pt-4", compact ? "px-3 pb-4" : "px-6 pb-6")}
-            style={insetTop ? { paddingTop: insetTop + 8 } : undefined}
-          >
-            {/* Held open while anything is left above, so "Loading…" coming and going doesn't
-                push the thread around; it leaves in the same commit as the last batch, which
-                the scroll make-up already counts. */}
-            {(hasMore || loadingOlder || start > 0) && (
-              <div className="flex h-6 shrink-0 items-center justify-center text-[11px] text-muted-foreground">
-                {loadingOlder && <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />}
-              </div>
-            )}
-            {rendered.map((m, j) => {
-              const i = start + j
-              const prev = shown[i - 1]
-              const newDay = !prev || !isSameDay(prev.createdAt, m.createdAt)
-              const gap = !newDay && prev != null && m.createdAt - prev.createdAt > TIME_GAP_MS
-              return (
-                <div
-                  key={m.id}
-                  className="flex flex-col gap-3"
-                  style={!compact && i < shown.length - LIVE_TAIL_SIZE ? OFFSCREEN_DEFER_STYLE : undefined}
-                >
-                  {newDay && <Separator label={dayLabel(intl, m.createdAt)} />}
-                  {gap && <Separator label={formatClock(m.createdAt)} />}
-                  {m.role === "user" ? (
-                    <UserMessage message={m} compact={compact} />
-                  ) : (
-                    <AssistantBubble
-                      message={m}
-                      coding={m.activityId ? codingById.get(m.activityId) : undefined}
-                      onDecide={onDecide}
-                      onOpenMemory={onOpenMemory}
-                      onOpenChat={onOpenChat}
-                      compact={compact}
-                    />
-                  )}
-                </div>
-              )
-            })}
-            {typing && <TypingBubble compact={compact} />}
-          </div>
+      <Conversation contextRef={scroller}>
+        <ConversationContent
+          scrollClassName="scroll-fade-y"
+          className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}
+          style={insetTop ? { paddingTop: insetTop + 8 + (compact ? 0 : 16) } : undefined}
+        >
+          {/* Held open while anything is left above, so "Loading…" coming and going doesn't
+              push the thread around; it leaves in the same commit as the last batch, which
+              the scroll make-up already counts. */}
+          {(hasMore || loadingOlder || start > 0) && (
+            <div className="flex h-6 shrink-0 items-center justify-center text-[11px] text-muted-foreground">
+              {loadingOlder && <FormattedMessage id="assistant.chat.loading" defaultMessage="Loading…" />}
+            </div>
+          )}
+          {rendered.map((m, j) => {
+            const i = start + j
+            const prev = shown[i - 1]
+            const newDay = !prev || !isSameDay(prev.createdAt, m.createdAt)
+            const gap = !newDay && prev != null && m.createdAt - prev.createdAt > TIME_GAP_MS
+            return (
+              <ConversationItem
+                key={m.id}
+                messageId={m.id}
+                className="flex flex-col gap-3"
+                style={!compact && i < shown.length - LIVE_TAIL_SIZE ? OFFSCREEN_DEFER_STYLE : undefined}
+              >
+                {newDay && <Separator label={dayLabel(intl, m.createdAt)} />}
+                {gap && <Separator label={formatClock(m.createdAt)} />}
+                {m.role === "user" ? (
+                  <UserMessage message={m} compact={compact} />
+                ) : (
+                  <AssistantBubble
+                    message={m}
+                    coding={m.activityId ? codingById.get(m.activityId) : undefined}
+                    onDecide={onDecide}
+                    onOpenMemory={onOpenMemory}
+                    onOpenChat={onOpenChat}
+                    compact={compact}
+                  />
+                )}
+              </ConversationItem>
+            )
+          })}
+          {typing && <ConversationItem><TypingBubble compact={compact} /></ConversationItem>}
         </ConversationContent>
         <ConversationScrollButton />
-        <RepinOnChange value={keyboardOpen} />
-        <EscapeOnTouchScroll />
         <RevealOlderOnScroll
-          start={start}
           canReveal={start > 0}
           canLoad={hasMore}
           loadingOlder={loadingOlder}
@@ -270,7 +263,7 @@ export function AssistantChat({
 
 /** Calls `onChange` each time the reader arrives at the newest message. */
 function AtBottom({ onChange }: { onChange: () => void }) {
-  const { isAtBottom } = useStickToBottomContext()
+  const { isAtBottom } = useConversationScroll()
   useEffect(() => {
     if (isAtBottom) onChange()
   }, [isAtBottom, onChange])
@@ -278,44 +271,11 @@ function AtBottom({ onChange }: { onChange: () => void }) {
 }
 
 /**
- * Lets go of the bottom as soon as a finger drags the thread toward older messages. The
- * scroller does this for a mouse wheel, but a touch has no wheel event: it only notices from
- * scroll events, and skips those while the content is resizing (a reply streaming in), so it
- * keeps pulling back to the bottom against the swipe.
- */
-function EscapeOnTouchScroll() {
-  const { scrollRef, state, stopScroll } = useStickToBottomContext()
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    let lastY: number | null = null
-    const onStart = (e: TouchEvent) => {
-      lastY = e.touches[0]?.clientY ?? null
-    }
-    const onMove = (e: TouchEvent) => {
-      const y = e.touches[0]?.clientY
-      if (y == null || lastY == null) return
-      // Finger moving down = content scrolling up, toward older messages.
-      if (y > lastY && state.isAtBottom && el.scrollHeight > el.clientHeight) stopScroll()
-      lastY = y
-    }
-    el.addEventListener("touchstart", onStart, { passive: true })
-    el.addEventListener("touchmove", onMove, { passive: true })
-    return () => {
-      el.removeEventListener("touchstart", onStart)
-      el.removeEventListener("touchmove", onMove)
-    }
-  }, [scrollRef, state, stopScroll])
-  return null
-}
-
-/**
  * Grows the rendered part upward as the reader nears its top: first the messages already loaded,
- * then the next page from the server. What goes in above is made up for in scrollTop before the
- * frame is painted, so what the reader is looking at doesn't move.
+ * then the next page from the server. MessageScroller preserves the visible row
+ * when those earlier messages are inserted.
  */
 function RevealOlderOnScroll({
-  start,
   canReveal,
   canLoad,
   loadingOlder,
@@ -323,8 +283,6 @@ function RevealOlderOnScroll({
   onLoad,
   onPinStart,
 }: {
-  /** Index of the first rendered message; changes when a batch goes in. */
-  start: number
   canReveal: boolean
   canLoad: boolean
   loadingOlder: boolean
@@ -333,8 +291,7 @@ function RevealOlderOnScroll({
   /** `true` when the reader leaves the newest (hold the top still), `false` back there (follow the tail). */
   onPinStart: (pinned: boolean) => void
 }) {
-  const { scrollRef, isAtBottom } = useStickToBottomContext()
-  const before = useRef<{ height: number; top: number } | null>(null)
+  const { scrollRef, isAtBottom } = useConversationScroll()
 
   useEffect(() => {
     onPinStart(!isAtBottom)
@@ -342,22 +299,11 @@ function RevealOlderOnScroll({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAtBottom])
 
-  // Same commit as the new batch: the browser has laid it out but not painted it.
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    const prev = before.current
-    before.current = null
-    if (!el || !prev) return
-    const added = el.scrollHeight - prev.height
-    if (added > 0) el.scrollTop = prev.top + added
-  }, [start, scrollRef])
-
   const check = useRef<() => void>(() => {})
   check.current = () => {
     const el = scrollRef.current
-    if (!el || before.current || el.scrollTop > el.clientHeight * REVEAL_AHEAD_VIEWPORTS) return
+    if (!el || el.scrollTop > el.clientHeight * REVEAL_AHEAD_VIEWPORTS) return
     if (canReveal) {
-      before.current = { height: el.scrollHeight, top: el.scrollTop }
       onReveal()
     } else if (canLoad && !loadingOlder) {
       onLoad()
@@ -381,23 +327,6 @@ function RevealOlderOnScroll({
     wasLoading.current = loadingOlder
   }, [loadingOlder])
 
-  return null
-}
-
-/** Scroll back to the newest message when `value` changes, if that is where the reader was. */
-function RepinOnChange({ value }: { value: unknown }) {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext()
-  // The value from before the change: by the time the effect runs the view has already shrunk.
-  const wasAtBottom = useRef(isAtBottom)
-  useEffect(() => {
-    if (!wasAtBottom.current) return
-    // Next frame: the layout has to settle at the new height first.
-    const frame = requestAnimationFrame(() => void scrollToBottom("instant"))
-    return () => cancelAnimationFrame(frame)
-  }, [value, scrollToBottom])
-  useEffect(() => {
-    wasAtBottom.current = isAtBottom
-  }, [isAtBottom])
   return null
 }
 

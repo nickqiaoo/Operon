@@ -1,159 +1,134 @@
 "use client";
 
+import { MessageScroller as MessageScrollerPrimitive } from "@shadcn/react/message-scroller";
 import { Button } from "@/components/ui/button";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+  useMessageScroller,
+  useMessageScrollerScrollable,
+} from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
-import { useCallback, useEffect } from "react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  createContext, useContext, useEffect, useImperativeHandle, useMemo, useRef,
+  type ComponentProps, type Ref, type RefObject,
+} from "react";
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>;
+export type ConversationScrollHandle = ReturnType<typeof useMessageScroller>;
 
-export const Conversation = ({ className, ...props }: ConversationProps) => (
-  <StickToBottom
-    data-testid="conversation"
-    className={cn(
-      "relative flex-1 min-h-0 overflow-y-hidden",
-      className
-    )}
-    initial={false}
-    role="log"
-    {...props}
-  />
-);
+type ConversationRefs = {
+  scrollRef: RefObject<HTMLDivElement | null>;
+  contentRef: RefObject<HTMLDivElement | null>;
+};
+const ConversationContext = createContext<ConversationRefs | null>(null);
 
-export type ConversationContentProps = Omit<ComponentProps<"div">, "children"> & {
-  /** Classes for the scrolling element (the outer div), e.g. `scroll-fade-y`. */
-  scrollClassName?: string;
-  children?:
-  | ReactNode
-  | ((context: ReturnType<typeof useStickToBottomContext>) => ReactNode);
+export function useConversationScroll() {
+  const refs = useContext(ConversationContext);
+  if (!refs) throw new Error("useConversationScroll must be used within Conversation");
+  const controls = useMessageScroller();
+  const { end } = useMessageScrollerScrollable();
+  return { ...refs, ...controls, isAtBottom: !end };
+}
+
+function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandle> }) {
+  const controls = useMessageScroller();
+  useImperativeHandle(contextRef, () => controls, [controls]);
+  return null;
+}
+
+export type ConversationProps = ComponentProps<typeof MessageScroller> & {
+  contextRef?: Ref<ConversationScrollHandle>;
 };
 
-export const ConversationContent = ({
-  className,
-  scrollClassName,
-  children,
-  ...props
-}: ConversationContentProps) => {
-  const context = useStickToBottomContext();
-  const { scrollRef, contentRef, state, scrollToBottom, stopScroll } = context;
-  const content = typeof children === "function" ? children(context) : children;
+export function Conversation({ className, children, contextRef, ...props }: ConversationProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const refs = useMemo(() => ({ scrollRef, contentRef }), []);
+  return (
+    <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+      <ConversationContext.Provider value={refs}>
+        <MessageScroller data-testid="conversation" className={cn("flex-1", className)} {...props}>
+          <ScrollHandle contextRef={contextRef} />
+          {children}
+        </MessageScroller>
+      </ConversationContext.Provider>
+    </MessageScrollerProvider>
+  );
+}
 
-  // When the scroller itself changes size the library doesn't follow at all
-  // (it only watches the content): narrowing (a side panel animating open)
-  // reflows the content taller, and getting shorter (a phone keyboard or a
-  // composer growing from below) leaves the newest message under the fold.
-  // Pin the bottom inside the ResizeObserver callback: it runs after layout
-  // but before paint, so the frame is already painted bottom-anchored.
-  //
-  // Don't trust `state.isAtBottom` alone for this: when the scroller widens or
-  // gets taller the browser clamps scrollTop downward, and the library
-  // sometimes (timing race in its resize-vs-scroll bookkeeping) reads that as
-  // the user scrolling up and drops the lock. So track "at bottom" from
-  // geometry at scroll time, and once the size settles, hand the lock back to
-  // the library if it lost it.
+// Preserve the transcript's own deferred-rendering policy (including the mobile
+// exceptions). Only register rows here; don't add a second content-visibility policy.
+export const ConversationItem = MessageScrollerPrimitive.Item;
+
+export type ConversationContentProps = ComponentProps<"div"> & { scrollClassName?: string };
+
+export function ConversationContent({ className, scrollClassName, children, ...props }: ConversationContentProps) {
+  const { scrollRef, contentRef, scrollToMessage, scrollToEnd, isAtBottom } = useConversationScroll();
+  const followingRef = useRef(isAtBottom);
+  followingRef.current = isAtBottom;
+
+  // The primitive schedules resize handling in rAF. Pin a following viewport
+  // before paint as well, so a keyboard/side-panel resize never exposes a gap
+  // for a frame. Content growth and reading-position preservation stay native.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const gap = () => el.scrollHeight - el.clientHeight - el.scrollTop;
-    let pinned = state.isAtBottom || gap() <= 2;
-    let lastWidth = el.clientWidth;
-    let lastHeight = el.clientHeight;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const onScroll = () => {
-      pinned = state.isAtBottom || gap() <= 2;
-    };
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    let width = viewport.clientWidth;
+    let height = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
-      const width = el.clientWidth;
-      const height = el.clientHeight;
-      if (width === lastWidth && height === lastHeight) return;
-      lastWidth = width;
-      lastHeight = height;
-      if (!pinned) return;
-      el.scrollTop = el.scrollHeight - el.clientHeight;
-      clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
-        if (!state.isAtBottom && gap() <= 2) {
-          state.escapedFromLock = false;
-          void scrollToBottom({ animation: "instant" });
-        }
-      }, 100);
+      if (width === viewport.clientWidth && height === viewport.clientHeight) return;
+      width = viewport.clientWidth;
+      height = viewport.clientHeight;
+      if (followingRef.current) scrollToEnd({ behavior: "instant" });
     });
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    observer.observe(el);
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      observer.disconnect();
-      clearTimeout(settleTimer);
-    };
-  }, [scrollRef, state, scrollToBottom]);
-
-  // The library follows the bottom only when the content grows. A thread that renders a
-  // sliding window (the assistant's newest 40) drops its oldest message as a new one lands:
-  // if the one leaving is taller, the content shrinks, scroll anchoring pulls scrollTop back
-  // by what left above, and the new message sits below the fold with nothing moving to it.
-  // While still locked to the bottom, follow it down for a shrink too.
-  useEffect(() => {
-    const scroller = scrollRef.current;
-    const content = contentRef.current;
-    if (!scroller || !content) return;
-    let previousHeight = content.offsetHeight;
-    const observer = new ResizeObserver(() => {
-      const height = content.offsetHeight;
-      const shrank = height < previousHeight;
-      previousHeight = height;
-      if (!shrank || !state.isAtBottom || state.escapedFromLock) return;
-      if (scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2) return;
-      void scrollToBottom({ preserveScrollPosition: true, wait: true });
-    });
-    observer.observe(content);
+    observer.observe(viewport);
     return () => observer.disconnect();
-  }, [scrollRef, contentRef, state, scrollToBottom]);
+  }, [scrollRef, scrollToEnd]);
 
-  // The library can't tell content streaming in from a section the reader just
-  // opened: at the bottom both are growth, and it follows both down, so opening
-  // a card near the end jumped the view to the last line. A click on a
-  // disclosure (anything with aria-expanded) lets go of the bottom first. If
-  // nothing grew after all (a menu trigger, say), take the bottom back.
+  // A disclosure is deliberate reading, not streamed output. Leave following
+  // mode before it grows, without moving the viewport from its current bottom.
   useEffect(() => {
-    const scroller = scrollRef.current;
-    if (!scroller) return;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
     let restoreTimer: ReturnType<typeof setTimeout> | undefined;
     const onClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest("[aria-expanded]")) return;
-      if (!state.isAtBottom || state.escapedFromLock) return;
-      stopScroll();
+      if (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 2) return;
+      const rows = contentRef.current?.querySelectorAll<HTMLElement>("[data-message-id]");
+      const lastId = rows?.[rows.length - 1]?.dataset.messageId;
+      if (!lastId) return;
+      scrollToMessage(lastId, { align: "end", behavior: "instant" });
       clearTimeout(restoreTimer);
-      // Long enough for a collapsible's open animation to have started growing.
       restoreTimer = setTimeout(() => {
-        if (scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2) {
-          void scrollToBottom({ animation: "instant" });
+        if (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) {
+          scrollToEnd({ behavior: "instant" });
         }
       }, 400);
     };
-    scroller.addEventListener("click", onClick, true);
+    viewport.addEventListener("click", onClick, true);
     return () => {
-      scroller.removeEventListener("click", onClick, true);
+      viewport.removeEventListener("click", onClick, true);
       clearTimeout(restoreTimer);
     };
-  }, [scrollRef, state, stopScroll, scrollToBottom]);
+  }, [scrollRef, contentRef, scrollToMessage, scrollToEnd]);
 
   return (
-    <div ref={scrollRef} data-conversation-scroller className={cn("h-full w-full overflow-y-auto code-scrollbar", scrollClassName)}>
-      <div
+    <MessageScrollerViewport ref={scrollRef} data-conversation-scroller className={scrollClassName}>
+      <MessageScrollerContent
         ref={contentRef}
         data-testid="message-list"
-        className={cn("flex flex-col gap-8 p-4", className)}
+        className={cn("gap-8 p-4", className)}
         {...props}
       >
-        {content}
-      </div>
-    </div>
+        {children}
+      </MessageScrollerContent>
+    </MessageScrollerViewport>
   );
-};
+}
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;
@@ -190,64 +165,17 @@ export const ConversationEmptyState = ({
   </div>
 );
 
-export type ConversationScrollButtonProps = ComponentProps<typeof Button> & {
-  /** Phone: frosted `liquid-glass` like the floating composer, so the transcript shows through. */
-  glass?: boolean;
-};
+export type ConversationScrollButtonProps = ComponentProps<typeof Button> & { glass?: boolean };
 
-export const ConversationScrollButton = ({
-  className,
-  glass,
-  variant: _variant,
-  size: _size,
-  asChild: _asChild,
-  ...props
-}: ConversationScrollButtonProps) => {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
-
-  const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
-
-  if (glass) {
-    return (
-      !isAtBottom && (
-        <button
-          aria-label="Scroll to bottom"
-          // Only `transform` animates (the press): a transition on `bottom` would make it
-          // lag behind the composer it sits on as that grows.
-          className={cn(
-            "liquid-glass absolute bottom-4 left-1/2 flex size-9 -translate-x-1/2 items-center justify-center rounded-full text-foreground/80 transition-transform active:scale-[0.94]",
-            className
-          )}
-          onClick={handleScrollToBottom}
-          type="button"
-          {...props}
-        >
-          <ArrowDownIcon className="size-4" />
-        </button>
-      )
-    );
-  }
-
+export function ConversationScrollButton({ className, glass, variant: _variant, size: _size, asChild: _asChild, ...props }: ConversationScrollButtonProps) {
   return (
-    !isAtBottom && (
-      // shadcn MessageScrollerButton's look: a small round button with a hairline
-      // border on the background, lifted by the card shadow.
-      <Button
-        aria-label="Scroll to bottom"
-        className={cn(
-          "absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-border/60 bg-background text-foreground shadow-card hover:bg-accent-hover dark:border-border/35",
-          className
-        )}
-        onClick={handleScrollToBottom}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-        {...props}
-      >
-        <ArrowDownIcon className="size-4" />
-      </Button>
-    )
+    <MessageScrollerButton
+      aria-label="Scroll to bottom"
+      className={cn(glass && "liquid-glass size-9 border-none text-foreground/80", className)}
+      render={<Button type="button" variant="ghost" size="icon-sm" />}
+      {...props}
+    >
+      <ArrowDownIcon className="size-4" />
+    </MessageScrollerButton>
   );
-};
+}
