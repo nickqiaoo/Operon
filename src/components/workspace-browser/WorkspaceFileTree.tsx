@@ -32,6 +32,19 @@ const TREE_UNSAFE_CSS = `
   [data-type='item'][data-item-focused='true']:focus:not(:focus-visible)::before {
     outline-color: transparent;
   }
+
+  /*
+   * On touch screens :hover sticks to the row the finger landed on. The list is
+   * virtualized, so while scrolling that row element is handed other names and
+   * the tint appears to ride along under the finger, then snaps back on
+   * release. Touch has no real hover, so drop the hover tint there.
+   */
+  @media (hover: none) {
+    [data-type='item']:hover:not([data-item-selected='true']) {
+      background-color: var(--trees-bg);
+      --truncate-marker-background-overlay-color: transparent;
+    }
+  }
 `
 
 /**
