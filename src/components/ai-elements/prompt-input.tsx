@@ -22,6 +22,7 @@ import {
   LocalAttachmentsContext,
   LocalReferencedSourcesContext,
   PromptInputSubmittingContext,
+  PromptInputSubmitContext,
   type ReferencedSourcesContext,
   useOptionalPromptInputController,
 } from "./prompt-input-context";
@@ -90,10 +91,18 @@ export const PromptInput = ({
   ...props
 }: PromptInputProps) => {
   const controller = useOptionalPromptInputController();
+  const controllerRef = useRef(controller);
+  controllerRef.current = controller;
   const usingProvider = !!controller;
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const submittedTextRef = useRef<string | null>(null);
+  const submitText = useCallback((text: string) => {
+    submittedTextRef.current = text;
+    formRef.current?.requestSubmit();
+    submittedTextRef.current = null;
+  }, []);
 
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([]);
   const files = usingProvider ? controller.attachments.files : items;
@@ -352,12 +361,12 @@ export const PromptInput = ({
     };
 
     const form = event.currentTarget;
-    const text = usingProvider
+    const text = submittedTextRef.current ?? (usingProvider
       ? controller.textInput.value
       : (() => {
           const formData = new FormData(form);
           return (formData.get("message") as string) || "";
-        })();
+        })());
 
     if (!usingProvider) form.reset();
 
@@ -380,13 +389,13 @@ export const PromptInput = ({
             result
               .then(() => {
                 clear();
-                if (usingProvider) controller.textInput.clear();
+                if (controllerRef.current?.textInput.value === text) controllerRef.current.textInput.clear();
               })
               .catch(() => {})
               .finally(finish);
           } else {
             clear();
-            if (usingProvider) controller.textInput.clear();
+            if (controllerRef.current?.textInput.value === text) controllerRef.current.textInput.clear();
             finish();
           }
         } catch {
@@ -417,7 +426,7 @@ export const PromptInput = ({
         ref={formRef}
         {...props}
       >
-        <InputGroup className="overflow-hidden">{children}</InputGroup>
+        <InputGroup className="overflow-hidden has-[[data-native-composer]]:h-auto">{children}</InputGroup>
       </form>
     </>
   );
@@ -426,7 +435,9 @@ export const PromptInput = ({
     <LocalAttachmentsContext.Provider value={attachmentsCtx}>
       <LocalReferencedSourcesContext.Provider value={refsCtx}>
         <PromptInputSubmittingContext.Provider value={submitting}>
-          {inner}
+          <PromptInputSubmitContext.Provider value={submitText}>
+            {inner}
+          </PromptInputSubmitContext.Provider>
         </PromptInputSubmittingContext.Provider>
       </LocalReferencedSourcesContext.Provider>
     </LocalAttachmentsContext.Provider>

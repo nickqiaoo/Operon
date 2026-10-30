@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
-import { BarChart3, CalendarClock, FolderTree, Loader2, LogOut, Monitor, RefreshCw, Settings, Trash2 } from "lucide-react"
+import { ArrowLeft, ChevronRight, Shield, BarChart3, CalendarClock, FolderTree, Loader2, LogOut, Monitor, RefreshCw, Settings, Trash2 } from "lucide-react"
 import { FormattedMessage, defineMessages, useIntl } from "react-intl"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useThemeStore } from "@/stores/theme-store"
+import { useNativeShellOverlay } from "@/hooks/useNativeShellOverlay"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { SettingsPage } from "@/components/settings/SettingsPage"
 import { Button } from "@/components/ui/button"
@@ -35,6 +36,8 @@ export function MobileMoreScreen() {
   const contentBottom = useMobileContentBottom()
   const theme = useThemeStore((s) => s.theme)
   const setTheme = useThemeStore((s) => s.setTheme)
+  const [privacyOpen, setPrivacyOpen] = useState(false)
+  useNativeShellOverlay(privacyOpen)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [cronjobOpen, setCronjobOpen] = useState(false)
   const [filesOpen, setFilesOpen] = useState(false)
@@ -50,6 +53,7 @@ export function MobileMoreScreen() {
 
   // Android back closes whichever full-screen overlay is up. These sit above
   // the shell's own fallback, so back never skips past an open panel.
+  useBackHandler(privacyOpen && !confirmDelete && !deleting, () => setPrivacyOpen(false))
   useBackHandler(settingsOpen, () => setSettingsOpen(false))
   useBackHandler(cronjobOpen, () => setCronjobOpen(false))
   useBackHandler(filesOpen, () => setFilesOpen(false))
@@ -110,6 +114,7 @@ export function MobileMoreScreen() {
     <div className="flex h-full flex-col" style={{ paddingTop: topInset }}>
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ paddingBottom: contentBottom }}>
       <div className="space-y-6 p-4">
+        {!privacyOpen && <>
         {__APP_TARGET__ === "web" && (
           <Section title={<FormattedMessage id="mobile.more.machine" defaultMessage="Machine" />}>
             <div className="overflow-hidden rounded-lg border border-border/40 bg-muted/10">
@@ -211,6 +216,27 @@ export function MobileMoreScreen() {
           </button>
         </Section>
 
+        <button
+          type="button"
+          onClick={() => setPrivacyOpen(true)}
+          className="flex w-full items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-left hover:bg-row-hover"
+        >
+          <Shield className="size-4 shrink-0 text-muted-foreground/70" />
+          <span className="flex-1 text-base text-foreground/85">Privacy &amp; account</span>
+          <ChevronRight className="size-4 text-muted-foreground/50" />
+        </button>
+        </>}
+        {privacyOpen && <>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Back"
+              disabled={deleting}
+              onClick={() => { setPrivacyOpen(false); setConfirmDelete(false) }}
+            ><ArrowLeft className="size-4" /></Button>
+            <h1 className="text-lg font-semibold">Privacy &amp; account</h1>
+          </div>
         {/*
           The privacy policy states analytics can be turned off; this is what
           makes that true. Takes effect immediately — opting out also resets the
@@ -218,26 +244,21 @@ export function MobileMoreScreen() {
         */}
         <Section title={<FormattedMessage id="mobile.more.privacy" defaultMessage="Privacy" />}>
           <div className="flex items-center gap-3 rounded-lg border border-border/40 bg-muted/10 px-4 py-3">
-            <BarChart3 className="size-4 shrink-0 text-muted-foreground/70" />
-            <div className="min-w-0 flex-1">
-              <p className="text-base text-foreground/85">
-                <FormattedMessage id="mobile.more.analytics" defaultMessage="Share usage analytics" />
-              </p>
-              <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">
-                <FormattedMessage
-                  id="mobile.more.analytics.help"
-                  defaultMessage="Anonymous usage and crash data. Never your code, messages or files."
-                />
-              </p>
-            </div>
-            <Switch
-              checked={analyticsOn}
-              onCheckedChange={(on) => {
-                setAnalyticsOn(on)
-                setAnalyticsOptedOut(!on)
-              }}
-            />
+              <BarChart3 className="size-4 shrink-0 text-muted-foreground/70" />
+              <span className="min-w-0 flex-1 truncate text-base text-foreground/85">Share usage analytics</span>
+              <Switch
+                aria-label="Share usage analytics"
+                className="shrink-0"
+                checked={analyticsOn}
+                onCheckedChange={(on) => {
+                  setAnalyticsOn(on)
+                  setAnalyticsOptedOut(!on)
+                }}
+              />
           </div>
+          <p className="px-1 text-[13px] leading-relaxed text-muted-foreground">
+            Anonymous usage and crash data. Never your code, messages or files.
+          </p>
         </Section>
 
         {/*
@@ -302,6 +323,7 @@ export function MobileMoreScreen() {
             </div>
           </Section>
         )}
+        </>}
       </div>
       </div>
 

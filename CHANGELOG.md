@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [1.4.22] - 2026-10-30
+
+### Added
+
+- iOS conversations use native Liquid Glass input bars with attachments, model settings, command suggestions and Skill chips, plus a native scroll-to-bottom button.
+
+### Changed
+
+- Mobile usage analytics and account deletion move into a Privacy & account page, with a single-line analytics switch and separate explanatory text.
+- Native input controls share the app's purple accent in light and dark mode.
+- The Spec Changes view hides the redundant Open workspace action.
+
+### Fixed
+
+- Opening the mobile keyboard resizes the chat viewport so the newest messages stay above the input bar. Input text and action icons align consistently.
+- Native input preserves drafts after failed sends and submits the latest text without waiting for draft synchronization. Sending no longer dismisses the keyboard or clears text entered while a submission is pending.
+- Reading earlier messages stays stable while history loads or deferred rows resize; explicit jumps and new-turn anchors no longer compete with reading-position preservation.
+- Workspace history includes Spec and workflow agent conversations with the correct agent behavior, while global history continues to exclude workflow agents and temporary side chats.
+
 ## [1.4.21] - 2026-10-29
 
 ### Changed

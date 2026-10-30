@@ -315,6 +315,7 @@ export function MobileAssistantScreen({
           ) : (
             <AssistantChat
               compact
+              positionKey="assistant"
               keyboardOpen={keyboardOpen}
               insetTop={headerHeight}
               messages={messages}

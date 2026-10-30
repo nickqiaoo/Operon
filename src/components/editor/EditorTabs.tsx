@@ -382,7 +382,7 @@ export function EditorTabs({
                   {historyItems.map((item) => {
                     const tabId = `chat:${item.id}`
                     const isCanvas = item.tp === 'canvas'
-                    const isSubAgent = item.tp === 'subagent'
+                    const isSubAgent = item.tp === 'subagent' || item.tp === 'workflow-agent'
                     const isTeammate = item.tp === 'teammate'
                     const logo = getHistoryLogo(item.providerId)
                     return (

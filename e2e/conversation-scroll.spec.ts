@@ -14,6 +14,7 @@ type ScrollHarness = {
   hydrate: () => void
   steer: () => void
   typing: () => void
+  switchTab: () => Promise<void>
   cleanup: () => void
 }
 declare global {
@@ -356,6 +357,37 @@ test.describe('Assistant history integration', () => {
     await page.locator('#conversation-scroll-test textarea').fill('A new question at the latest position')
     await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Submit', exact: true }).click()
     await expectTurnNearTop(page, 'assistant-row-120')
+  })
+})
+
+test.describe('Assistant phone tab switches', () => {
+  test.beforeEach(async ({ appPage: page }) => {
+    await page.evaluate(readFileSync(new URL('./scroll/assistant-phone-harness.js', import.meta.url), 'utf8'))
+    await expect(page.locator('#conversation-scroll-test [data-message-id]').first()).toBeAttached()
+  })
+  test.afterEach(async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest?.cleanup())
+  })
+
+  test('a thread left at the end returns to the end under a header measured after mount', async ({ appPage: page }) => {
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.__conversationScrollTest!.switchTab())
+      await frames(page)
+      await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+      await expect(page.locator('#conversation-scroll-test [data-slot="message-scroller-button"]')).toHaveAttribute('data-active', 'false')
+    }
+  })
+
+  test('a thread left mid-history returns to the same message', async ({ appPage: page }) => {
+    await viewport(page).hover()
+    for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -1500)
+    await expect(page.locator('#conversation-scroll-test [data-message-id="assistant-row-60"]')).toBeAttached()
+    await frames(page)
+    const point = await readingPoint(page)
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => window.__conversationScrollTest!.switchTab())
+      await expectReadingPoint(page, point)
+    }
   })
 })
 

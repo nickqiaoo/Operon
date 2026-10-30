@@ -106,8 +106,8 @@ const LIVE_TAIL_SIZE = 8;
  * renders synchronously: mounting a page of messages (markdown, code, tool cards)
  * in that one render blocked scrolling for hundreds of milliseconds. Those
  * messages mount as a placeholder instead and are revealed one per idle slot, in
- * a transition, newest first — the one nearest the viewport. Browser scroll
- * anchoring keeps the view still as each placeholder grows into its message.
+ * a transition, newest first — the one nearest the viewport. The conversation's
+ * reading anchor keeps the view still as each placeholder grows into its message.
  */
 const PENDING_MOUNT_STYLE: CSSProperties = { minHeight: 240 };
 

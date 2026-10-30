@@ -68,8 +68,9 @@ describe('a workflow sub-agent is a chat', () => {
 
     // The run panel reads it back from the chat.
     expect(readAgentChatChunks([chatId])).toContainEqual({ type: 'text-delta', delta: 'Candidate A wins.' })
-    // Reached from its run, not listed among the workspace's conversations.
-    expect(ctx.storage.listChatEntries({ workspaceId: ctx.workspaceId }).map((c) => c.id)).not.toContain(chatId)
+    // Reachable from both its run and its workspace's history.
+    expect(ctx.storage.listChatEntries({ workspaceId: ctx.workspaceId }).map((c) => c.id)).toContain(chatId)
+    expect(ctx.storage.listChatEntries().map((c) => c.id)).not.toContain(chatId)
     // No app MCP servers: a sub-agent cannot start workflows or schedule from inside a run.
     expect(mcp.resolved).toBe(0)
     // Its warm session is gone; the chat is not.

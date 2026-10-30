@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
@@ -23,6 +23,8 @@ import type { ActivitySummary, AssistantApproval, AssistantAttachment, Assistant
 import { CodingAgentCard, CodingChip } from "./CodingAgentCard"
 import { AuditIconTile, formatClock, isSameDay } from "./shared"
 import { auditDetail, dayLabel, messageText } from "./assistant-i18n"
+import { hasNativeComposer } from "@/lib/native-composer"
+import { NativePromptComposer } from "@/components/mobile/NativeChatComposer"
 
 /** Messages further apart than this get a time label between them (same day). */
 const TIME_GAP_MS = 30 * 60_000
@@ -49,6 +51,8 @@ const LIVE_TAIL_SIZE = 8
 const RENDER_BATCH = 40
 /** How close to the top (in viewport heights) the next batch goes in, so it is there before the reader is. */
 const REVEAL_AHEAD_VIEWPORTS = 1.5
+/** Where the rendered part started when a thread with a `positionKey` unmounted up the thread. */
+const savedStartAt = new Map<string, number>()
 
 /** Same as the chat composer (ChatInputArea). */
 const ATTACH_ACCEPT =
@@ -88,6 +92,8 @@ interface AssistantChatProps {
    * header). The thread scrolls up under it but starts, and stops, below it.
    */
   insetTop?: number
+  /** Return to the same reading position when the thread mounts again (the phone's tab switches). */
+  positionKey?: string
 }
 
 /**
@@ -109,6 +115,7 @@ export function AssistantChat({
   onAtBottom,
   compact = false,
   insetTop,
+  positionKey,
 }: AssistantChatProps) {
   const intl = useIntl()
   // An approval card is there to be answered; once it is, it leaves the thread (the Audit tab
@@ -134,7 +141,13 @@ export function AssistantChat({
   // Where the rendered part starts: `null` follows the tail (the newest RENDER_BATCH); a time pins
   // the top while the reader is up the thread, so what arrives below shifts nothing above.
   // By time, not id: an answered approval leaves `shown`, and the store trims the oldest.
-  const [startAt, setStartAt] = useState<number | null>(null)
+  // The saved row must be rendered again for the transcript to return to it.
+  const [startAt, setStartAt] = useState<number | null>(() => (positionKey ? savedStartAt.get(positionKey) ?? null : null))
+  useEffect(() => {
+    if (!positionKey) return
+    if (startAt == null) savedStartAt.delete(positionKey)
+    else savedStartAt.set(positionKey, startAt)
+  }, [positionKey, startAt])
   const start = useMemo(() => {
     const tail = Math.max(0, shown.length - RENDER_BATCH)
     if (startAt == null) return tail
@@ -152,6 +165,17 @@ export function AssistantChat({
   // Phone: the composer is a one-line bar until it is focused or holds something.
   const [composerFocused, setComposerFocused] = useState(false)
   const [hasText, setHasText] = useState(false)
+  const nativeComposer = compact && hasNativeComposer()
+  const chatRoot = useRef<HTMLDivElement>(null)
+  const composerRoot = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!nativeComposer || !composerRoot.current) return
+    const measure = () => chatRoot.current?.style.setProperty('--assistant-composer-height', `${composerRoot.current?.offsetHeight ?? 0}px`)
+    const observer = new ResizeObserver(measure)
+    observer.observe(composerRoot.current)
+    measure()
+    return () => observer.disconnect()
+  }, [nativeComposer])
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     // PromptInput has already reset the textarea, which fires no change event.
@@ -166,12 +190,15 @@ export function AssistantChat({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Conversation>
+    <div ref={chatRoot} className="relative flex h-full min-h-0 flex-col">
+      <Conversation positionKey={positionKey}>
         <ConversationContent
           scrollClassName="scroll-fade-y"
           className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}
-          style={insetTop ? { paddingTop: insetTop + 8 + (compact ? 0 : 16) } : undefined}
+          style={{
+            ...(insetTop ? { paddingTop: insetTop + 8 + (compact ? 0 : 16) } : {}),
+            ...(nativeComposer ? { paddingBottom: 'calc(var(--assistant-composer-height, 64px) + 16px)' } : {}),
+          }}
         >
           {rendered.map((m, j) => {
             const i = start + j
@@ -212,7 +239,7 @@ export function AssistantChat({
           })}
           {typing && <ConversationItem><TypingBubble compact={compact} /></ConversationItem>}
         </ConversationContent>
-        <ConversationScrollButton />
+        <ConversationScrollButton style={nativeComposer ? { bottom: 'calc(var(--assistant-composer-height, 64px) + 12px)' } : undefined} />
         <RevealOlderOnScroll
           canReveal={start > 0}
           canLoad={hasMore}
@@ -225,7 +252,8 @@ export function AssistantChat({
       </Conversation>
 
       <div
-        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? "px-2 pb-2" : "px-6 pb-5")}
+        ref={composerRoot}
+        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? "px-2 pb-2" : "px-6 pb-5", nativeComposer && 'absolute inset-x-0 bottom-0')}
         onFocus={() => setComposerFocused(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setComposerFocused(false)
@@ -236,7 +264,10 @@ export function AssistantChat({
           if (e.target instanceof Element && e.target.closest("button")) e.preventDefault()
         }}
       >
-        <PromptInput
+        {nativeComposer ? <NativeAssistantInput
+          onSubmit={handleSubmit}
+          placeholder={assistantName ? `Message ${assistantName}…` : 'Message…'}
+        /> : <PromptInput
           onSubmit={handleSubmit}
           accept={ATTACH_ACCEPT}
           maxFileSize={ATTACH_MAX_BYTES}
@@ -256,10 +287,24 @@ export function AssistantChat({
             }
             onTextChange={setHasText}
           />
-        </PromptInput>
+        </PromptInput>}
       </div>
     </div>
   )
+}
+
+/** Keep draft updates below the transcript so native typing never re-renders the message list. */
+function NativeAssistantInput({ placeholder, onSubmit }: { placeholder: string; onSubmit: (message: PromptInputMessage) => void | Promise<void> }) {
+  const [draft, setDraft] = useState('')
+  return <PromptInput
+    accept={ATTACH_ACCEPT}
+    maxFileSize={ATTACH_MAX_BYTES}
+    multiple
+    onSubmit={async (message) => { await onSubmit(message); setDraft((current) => current === message.text ? '' : current) }}
+    className="[&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:shadow-none"
+  >
+    <NativePromptComposer value={draft} onChange={setDraft} placeholder={placeholder} />
+  </PromptInput>
 }
 
 /** Calls `onChange` each time the reader arrives at the newest message. */

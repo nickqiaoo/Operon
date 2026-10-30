@@ -15,6 +15,8 @@ import { useScrollActivity } from '@/hooks/useScrollActivity'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
 import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { hasNativeComposer } from '@/lib/native-composer'
+import { NativeChatComposer } from '@/components/mobile/NativeChatComposer'
 
 interface ChannelChatProps {
   channelId: number
@@ -57,6 +59,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const nativeCursor = useRef(0)
   const [mention, setMention] = useMentionState()
   // Scrollbar shows only while scrolling; see .transcript-scrollbar.
   useScrollActivity(scrollRef)
@@ -64,6 +67,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
   // Phone: the composer floats over the transcript's bottom, which pads its
   // end by the composer's live height and scrolls on under its glass.
   const isMobile = useIsMobile()
+  const nativeComposer = isMobile && hasNativeComposer()
   const composerRef = useRef<HTMLDivElement>(null)
   const [composerHeight, setComposerHeight] = useState(0)
   useLayoutEffect(() => {
@@ -241,9 +245,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
 
   const insertMention = useCallback((agent: Agent) => {
     const el = textareaRef.current
-    if (!el) return
-    const value = el.value
-    const caret = el.selectionStart ?? value.length
+    if (!el && !nativeComposer) return
+    const value = el?.value ?? input
+    const caret = el?.selectionStart ?? nativeCursor.current
     const detected = detectMentionToken(value, caret)
     const atIndex = detected?.atIndex ?? mention.atIndex
     if (atIndex < 0) return
@@ -260,7 +264,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
       node.focus()
       node.setSelectionRange(cursor, cursor)
     })
-  }, [mention.atIndex, setMention])
+  }, [mention.atIndex, setMention, input, nativeComposer])
 
   const updateMentionFromCaret = useCallback(() => {
     const el = textareaRef.current
@@ -494,7 +498,23 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
               // it covers that strip, so the two never stack (0 on desktop).
               className="shrink-0 p-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--keyboard-height)))] max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:z-20"
             >
-              <ComposerFrame className="max-w-4xl mx-auto" floating={isMobile}>
+              {nativeComposer ? <NativeChatComposer
+                active={!showRightPanel}
+                value={input}
+                onChange={(text, cursor) => {
+                  setInput(text)
+                  nativeCursor.current = cursor
+                  const token = detectMentionToken(text, cursor)
+                  setMention({ open: !!token, query: token?.query ?? '', atIndex: token?.atIndex ?? -1, selectedIndex: 0 })
+                }}
+                onSubmit={() => void handleSend()}
+                placeholder="Message this channel…"
+                suggestions={mention.open ? mentionMatches.map((agent) => ({ id: String(agent.id), title: agent.name, subtitle: `${agent.provider} · ${agent.model}` })) : []}
+                onAction={(action) => {
+                  const agent = mentionMatches.find((item) => `suggestion:${item.id}` === action)
+                  if (agent) insertMention(agent)
+                }}
+              /> : <ComposerFrame className="max-w-4xl mx-auto" floating={isMobile}>
                 {mention.open && (
                   <MentionPicker
                     agents={mentionMatches}
@@ -517,7 +537,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   className={COMPOSER_TEXTAREA_CLASS}
                 />
                 <ComposerSendButton disabled={!input.trim()} onClick={() => void handleSend()} />
-              </ComposerFrame>
+              </ComposerFrame>}
             </div>
       </div>
 

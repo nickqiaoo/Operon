@@ -105,7 +105,7 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
               ))}
             </TabsList>
             <span className="@max-[680px]/spec:hidden"><SpecStageBadge stage={spec.run.stage} running={spec.running} /></span>
-            {workspace && <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 text-xs @max-[680px]/spec:hidden" onClick={() => onOpenWorkspace(workspace.id)}>Open workspace <ArrowUpRight className="size-3.5" /></Button>}
+            {workspace && section !== 'changes' && <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 text-xs @max-[680px]/spec:hidden" onClick={() => onOpenWorkspace(workspace.id)}>Open workspace <ArrowUpRight className="size-3.5" /></Button>}
           </div>
 
       </Tabs>}

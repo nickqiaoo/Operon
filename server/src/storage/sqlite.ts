@@ -797,13 +797,12 @@ export class SqliteStorage
       whereClauses.push('tp = ?')
       params.push(query.tp)
     } else {
-      // Side chats are throwaway branches of another conversation and never
-      // belong in a history list; the tab that owns one is the only way back to
-      // it. A workflow sub-agent's chat is reached from its run (and its spec),
-      // where it has a label; a run of ten agents would bury the history list.
-      // An explicit `tp` filter still reaches both (their tabs read their own
-      // row by id, not through here).
-      whereClauses.push("tp NOT IN ('side', 'workflow-agent')")
+      // Workspace history includes its workflow/spec agents. Keep those out of
+      // the global list, where large runs would bury ordinary conversations.
+      // Side chats remain reachable only through their owning tab.
+      whereClauses.push(query?.workspaceId !== undefined
+        ? "tp != 'side'"
+        : "tp NOT IN ('side', 'workflow-agent')")
     }
 
     const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''

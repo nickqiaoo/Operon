@@ -29,6 +29,8 @@ import { useSlashCommand } from './useSlashCommand';
 import { SlashCommandPopup } from './SlashCommandPopup';
 import { SkillChips } from './SkillChips';
 import { hasComposerDraft } from './chatInputState';
+import { hasNativeComposer } from '@/lib/native-composer';
+import { NativePromptComposer } from '@/components/mobile/NativeChatComposer';
 
 interface ChatInputAreaProps {
   input: string;
@@ -46,10 +48,12 @@ interface ChatInputAreaProps {
   setModel: (id: string) => void;
   thinkingEffort: string;
   cycleThinkingEffort: () => void;
+  setThinkingEffort: (value: string) => void;
   thinkingEffortOptions: { value: string; label: string }[];
   modeOptions: { value: string; label: string; description?: string }[];
   currentMode: string;
   cycleMode: () => void;
+  setMode: (value: string) => void;
   modeButtonClass?: string;
   serviceTierOptions: { value: string; label: string; description?: string }[];
   currentServiceTier: string;
@@ -78,6 +82,7 @@ interface ChatInputAreaProps {
   pendingSkill?: SlashCommandItem | null;
   /** Called once `pendingSkill` has been taken, so the owner can clear it. */
   onPendingSkillConsumed?: () => void;
+  visible?: boolean;
 }
 
 function AttachmentButton() {
@@ -113,10 +118,12 @@ export function ChatInputArea({
   setModel,
   thinkingEffort,
   cycleThinkingEffort,
+  setThinkingEffort,
   thinkingEffortOptions,
   modeOptions,
   currentMode,
   cycleMode,
+  setMode,
   serviceTierOptions,
   currentServiceTier,
   toggleFastMode,
@@ -136,6 +143,7 @@ export function ChatInputArea({
   hasPendingContext = false,
   pendingSkill = null,
   onPendingSkillConsumed,
+  visible = true,
 }: ChatInputAreaProps) {
   const intl = useIntl();
   const {
@@ -150,6 +158,7 @@ export function ChatInputArea({
     handleTextareaClick,
     handleTextareaSelect,
     handleTextareaScroll,
+    setMentionCursor,
   } = useMentionOverlay({ input, setInput });
 
   const [cursorPos, setCursorPos] = useState(0);
@@ -387,6 +396,56 @@ export function ChatInputArea({
   const submitTitle = availableModels.length === 0
     ? intl.formatMessage({ id: 'editor.input.noModels', defaultMessage: 'No models available. Please configure a provider first.' })
     : undefined;
+
+  if (floating && hasNativeComposer()) {
+    const settingsDisabled = isGenerating && !supportsDynamicSwitch && !canEditTurnSettings;
+    return <PromptInput
+      onSubmit={handleSubmitWithSkills}
+      accept="image/*,application/pdf,.txt,.md,.csv,.json,.xml,.yaml,.yml,.html,.css,.js,.ts,.jsx,.tsx,.py,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,.log,.env,.toml,.ini,.cfg"
+      maxFileSize={10 * 1024 * 1024}
+      multiple
+      className="[&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:shadow-none"
+    >
+      <NativePromptComposer
+        active={visible}
+        value={input}
+        onChange={(text, cursor) => { setInput(text); setCursorPos(cursor); setMentionCursor(cursor); }}
+        placeholder="Ask anything…"
+        disabled={availableModels.length === 0}
+        running={isGenerating}
+        canSteer={canSteer && !steerPending}
+        hasContext={hasPendingContext || selectedSkills.length > 0}
+        onStop={onStop}
+        onSteer={() => void handleSteer()}
+        skills={selectedSkills.map((skill) => ({ id: skill.name, title: skill.name }))}
+        suggestions={slashCommand.isOpen
+          ? slashCommand.suggestions.map((item) => ({ id: `slash:${item.name}`, title: `/${item.name}`, subtitle: item.description }))
+          : mention.isOpen ? mention.suggestions.map((item) => ({ id: `mention:${item.path}`, title: item.name, subtitle: mention.getRelativePath(item) })) : []}
+        menuTitle={[selectedModel?.label, selectedModel?.hasThinking ? thinkingLabel : '', modeLabel].filter(Boolean).join(' · ')}
+        menu={[
+          { id: 'models', title: 'Model', symbol: 'cpu', children: availableModels.map((item) => ({ id: `model:${item.id}`, title: item.label, selected: item.id === model, disabled: settingsDisabled })) },
+          ...(selectedModel?.hasThinking && thinkingEffortOptions.length > 0 ? [{ id: 'thinking', title: `Thinking: ${thinkingLabel}`, symbol: 'brain', children: thinkingEffortOptions.map((option) => ({ id: `thinking:${option.value}`, title: option.label, selected: option.value === thinkingEffort, disabled: isGenerating && !canEditTurnSettings })) }] : []),
+          ...(modeOptions.length > 0 ? [{ id: 'mode', title: `Mode: ${modeLabel}`, symbol: 'slider.horizontal.3', children: modeOptions.map((option) => ({ id: `mode:${option.value}`, title: option.label, selected: option.value === currentMode, disabled: settingsDisabled })) }] : []),
+          ...(fastOption ? [{ id: 'fast', title: 'Fast mode', symbol: 'bolt', selected: fastEnabled, disabled: isGenerating && !canEditTurnSettings }] : []),
+          ...(goalSupported ? [{ id: 'goal', title: 'Goal mode', symbol: 'target', selected: goalArmed, disabled: isGenerating }] : []),
+        ]}
+        onAction={(action) => {
+          if (action.startsWith('model:')) setModel(action.slice(6));
+          else if (action.startsWith('skill:')) removeSkill(action.slice(6));
+          else if (action.startsWith('suggestion:slash:')) {
+            const item = slashCommand.suggestions.find((entry) => entry.name === action.slice(17));
+            if (item) selectItem(item);
+          } else if (action.startsWith('suggestion:mention:')) {
+            const item = mention.suggestions.find((entry) => entry.path === action.slice(19));
+            if (item) handleMentionSelect(item, cursorPos);
+          } else if (action.startsWith('thinking:')) setThinkingEffort(action.slice(9));
+          else if (action.startsWith('mode:')) setMode(action.slice(5));
+          else if (action === 'fast') toggleFastMode();
+          else if (action === 'goal') onToggleGoal?.();
+        }}
+      />
+    </PromptInput>;
+  }
 
   return (
     <PromptInput

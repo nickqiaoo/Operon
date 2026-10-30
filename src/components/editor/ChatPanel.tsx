@@ -410,17 +410,20 @@ function ChatPanelContent({
     setInput(tab.options.input);
   }, [chatId, setInput, tab?.options?.input, tab?.options?.timestamp]);
 
-  const cycleThinkingEffort = useCallback(() => {
-    const idx = thinkingEffortOptions.findIndex((option) => option.value === thinkingEffort);
-    const nextEffort =
-      thinkingEffortOptions[(idx + 1) % thinkingEffortOptions.length]?.value ??
-      thinkingEffort;
+  const setThinkingEffortAndRemember = useCallback((nextEffort: string) => {
+    if (!thinkingEffortOptions.some((option) => option.value === nextEffort)) return;
     setThinkingEffort(nextEffort);
     rememberRecentOptions({ thinkingEffort: nextEffort });
     if (canDynamicSwitch && tab?.isSubAgent !== true && dbChatIdRef.current) {
       void api.aiCCDynamicSet({ chatId: dbChatIdRef.current, thinkingLevel: nextEffort });
     }
-  }, [canDynamicSwitch, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffort, thinkingEffortOptions]);
+  }, [canDynamicSwitch, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffortOptions]);
+
+  const cycleThinkingEffort = useCallback(() => {
+    const idx = thinkingEffortOptions.findIndex((option) => option.value === thinkingEffort);
+    const next = thinkingEffortOptions[(idx + 1) % thinkingEffortOptions.length];
+    if (next) setThinkingEffortAndRemember(next.value);
+  }, [thinkingEffortOptions, thinkingEffort, setThinkingEffortAndRemember]);
 
   useEffect(() => {
     if (!thinkingEffortOptions.length) return;
@@ -451,6 +454,7 @@ function ChatPanelContent({
   const {
     handlePermissionDecide,
     handleSetModel,
+    handleSetMode,
     handleCycleMode,
   } = useChatSessionControls({
     providerId,
@@ -1100,7 +1104,12 @@ function ChatPanelContent({
         targetSelector='[data-message-item-role="assistant"]'
         actions={selectionActions}
       />
-      <Conversation className="flex-1 rounded-xl bg-background font-sans">
+      <Conversation
+        className="flex-1 rounded-xl bg-background font-sans"
+        // Resize the scrolling viewport when the keyboard appears. Padding only
+        // the content leaves the viewport unchanged, so it cannot follow the end.
+        style={isMobile ? { paddingBottom: 'var(--keyboard-height, 0px)' } : undefined}
+      >
         <ScrollTopLoader
           hasMore={chatHasMore}
           loadingMore={chatLoadingMore}
@@ -1119,9 +1128,9 @@ function ChatPanelContent({
           // gesture to the viewport, so reversing straight away scrolled nothing
           // until the wheel paused and a new gesture started.
           scrollClassName={cn("[scrollbar-gutter:stable_both-edges]", !isMobile && "scroll-fade-y overscroll-y-contain")}
-          // Phone: the last message clears the floating composer (and the
-          // keyboard, while it is up — the shell keeps its full height under it).
-          style={isMobile ? { paddingBottom: "calc(var(--composer-height, 0px) + 16px + var(--keyboard-height, 0px))" } : undefined}
+          // The viewport already clears the keyboard; leave room only for the
+          // composer floating over the remaining visible part of the transcript.
+          style={isMobile ? { paddingBottom: "calc(var(--composer-height, 0px) + 16px)" } : undefined}
           className={cn(
             "w-full max-w-4xl mx-auto px-4 pt-5 pb-4 gap-1",
             // Phone: the transcript runs under the status bar and the floating
@@ -1349,6 +1358,7 @@ function ChatPanelContent({
             {readOnlyReason}
           </div>
         ) : <ChatInputArea
+          visible={visible}
           input={input}
           setInput={setInput}
           attachments={attachments}
@@ -1364,10 +1374,12 @@ function ChatPanelContent({
           setModel={handleSetModelAndRemember}
           thinkingEffort={thinkingEffort}
           cycleThinkingEffort={cycleThinkingEffort}
+          setThinkingEffort={setThinkingEffortAndRemember}
           thinkingEffortOptions={thinkingEffortOptions}
           modeOptions={modeOptions}
           currentMode={currentMode}
           cycleMode={handleCycleMode}
+          setMode={handleSetMode}
           modeButtonClass={modeButtonClass}
           supportsDynamicSwitch={canDynamicSwitch && tab?.isSubAgent !== true}
           canEditTurnSettings={(supportsDynamicSwitch || (selectedModel?.providerId ?? providerId) === 'codex') && tab?.isSubAgent !== true}

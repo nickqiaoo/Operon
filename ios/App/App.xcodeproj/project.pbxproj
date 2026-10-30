@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA5EC0DE0000000000000019 /* NativeComposerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5EC0DE0000000000000018 /* NativeComposerPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -29,6 +30,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		AA5EC0DE0000000000000018 /* NativeComposerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeComposerPlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -101,6 +103,7 @@
 				AA5EC0DE0000000000000001 /* SecureStoragePlugin.swift */,
 				AA5EC0DE0000000000000006 /* WebAuthPlugin.swift */,
 				AA5EC0DE000000000000000A /* NativeShellPlugin.swift */,
+				AA5EC0DE0000000000000018 /* NativeComposerPlugin.swift */,
 				AA5EC0DE000000000000000C /* ContextSheet.swift */,
 				AA5EC0DE000000000000000E /* AgentSheet.swift */,
 				AA5EC0DE0000000000000010 /* ModelSheet.swift */,
@@ -249,6 +252,7 @@
 				AA5EC0DE0000000000000002 /* SecureStoragePlugin.swift in Sources */,
 				AA5EC0DE0000000000000007 /* WebAuthPlugin.swift in Sources */,
 				AA5EC0DE000000000000000B /* NativeShellPlugin.swift in Sources */,
+				AA5EC0DE0000000000000019 /* NativeComposerPlugin.swift in Sources */,
 				AA5EC0DE000000000000000D /* ContextSheet.swift in Sources */,
 				AA5EC0DE000000000000000F /* AgentSheet.swift in Sources */,
 				AA5EC0DE0000000000000011 /* ModelSheet.swift in Sources */,
@@ -396,7 +400,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 3D3M6SK6AD;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 80;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
@@ -418,7 +422,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 3D3M6SK6AD;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 80;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";

@@ -9,6 +9,7 @@ class BridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(SecureStoragePlugin())
         bridge?.registerPluginInstance(WebAuthPlugin())
         bridge?.registerPluginInstance(NativeShellPlugin())
+        bridge?.registerPluginInstance(NativeComposerPlugin())
     }
 }
 

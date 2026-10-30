@@ -101,6 +101,15 @@ export function useChatSessionControls({
     }
   }, [canDynamicSwitch, currentDbChatId, setModel])
 
+  const handleSetMode = useCallback((mode: string) => {
+    if (!modeOptions.some((option) => option.value === mode)) return
+    setMode(mode)
+    chatBodyRef.current.modeId = mode
+    if (canDynamicSwitch && currentDbChatId) {
+      void api.aiCCDynamicSet({ chatId: currentDbChatId, modeId: mode })
+    }
+  }, [modeOptions, setMode, chatBodyRef, canDynamicSwitch, currentDbChatId])
+
   const handleCycleMode = useCallback(() => {
     if (!modeOptions.length) {
       cycleMode()
@@ -126,6 +135,7 @@ export function useChatSessionControls({
   return {
     handlePermissionDecide,
     handleSetModel,
+    handleSetMode,
     handleCycleMode,
   }
 }

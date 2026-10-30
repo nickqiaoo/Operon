@@ -23,11 +23,12 @@ struct ContextSheetProject: Identifiable {
 }
 
 /// `--color-brand` from globals.css (light / dark).
-let brand = Color(UIColor { trait in
+let brandUIColor = UIColor { trait in
     trait.userInterfaceStyle == .dark
         ? UIColor(red: 0x8B / 255, green: 0x7D / 255, blue: 0xF0 / 255, alpha: 1)
         : UIColor(red: 0x63 / 255, green: 0x58 / 255, blue: 0xDC / 255, alpha: 1)
-})
+}
+let brand = Color(brandUIColor)
 
 struct ContextSheetView: View {
     let title: String

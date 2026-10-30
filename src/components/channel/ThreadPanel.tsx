@@ -8,6 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './ComposerFrame'
 import type { ChannelMessage, Agent } from '@/types/channel'
+import { useIsMobile } from '@/hooks/useIsMobile'
+import { hasNativeComposer } from '@/lib/native-composer'
+import { NativeChatComposer } from '@/components/mobile/NativeChatComposer'
 
 interface ThreadPanelProps {
   /** Which channel the thread belongs to — shown in the header so a resized or long-open panel keeps its context. */
@@ -38,6 +41,7 @@ export function ThreadPanel({
 }: ThreadPanelProps) {
   const intl = useIntl()
   const [input, setInput] = useState('')
+  const nativeComposer = useIsMobile() && hasNativeComposer()
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -137,7 +141,13 @@ export function ThreadPanel({
       {/* No top border: the composer already has its own rounded border, so a
           rule above it is a second divider doing the same job. */}
       <div className="shrink-0 p-3">
-        <ComposerFrame>
+        {nativeComposer ? <NativeChatComposer
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSend}
+          placeholder="Reply in thread…"
+          overlayLevel={1}
+        /> : <ComposerFrame>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -147,7 +157,7 @@ export function ThreadPanel({
             className={COMPOSER_TEXTAREA_CLASS}
           />
           <ComposerSendButton disabled={!input.trim()} onClick={handleSend} />
-        </ComposerFrame>
+        </ComposerFrame>}
       </div>
     </div>
   )

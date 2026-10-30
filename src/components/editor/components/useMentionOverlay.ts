@@ -249,5 +249,6 @@ export function useMentionOverlay({ input, setInput }: UseMentionOverlayOptions)
     handleTextareaClick,
     handleTextareaSelect,
     handleTextareaScroll,
+    setMentionCursor: setCursorPos,
   };
 }

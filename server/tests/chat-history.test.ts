@@ -86,6 +86,41 @@ describe('POST /api/chat-history', () => {
     expect(ids).not.toContain(c.chatId)
   })
 
+  it('includes spec agent conversations only in their workspace history, with paging', async () => {
+    const projectId = ctx.storage.getWorkspace(ctx.workspaceId)!.projectId
+    const otherWorkspace = ctx.storage.createWorkspace(projectId, {
+      name: 'Other Spec', branchName: 'operon/task-other', worktreePath: `${ctx.workspaceCwd}/other`,
+    })
+    const create = (title: string, tp: string, workspaceId = ctx.workspaceId) => createChat(ctx, {
+      baseRevision: 0, replaceFrom: 0, tailMessages: [msg('m1', 'user', title)], tp, workspaceId, providerId: 'fake',
+    })
+    const discussion = await create('Discussion', 'chat')
+    const agents = await Promise.all([
+      create('explorer · Data and state', 'workflow-agent'),
+      create('explorer · Flow and surfaces', 'workflow-agent'),
+      create('explorer · Conventions and history', 'workflow-agent'),
+    ])
+    await create('Temporary side chat', 'side')
+    await create('Another Spec explorer', 'workflow-agent', otherWorkspace.id)
+
+    const list = async (query: string) => {
+      const response = await ctx.request(`/api/chat-history${query}`)
+      expect(response.status).toBe(200)
+      return await response.json() as Array<{ id: number; tp: string; title: string; providerId?: string }>
+    }
+    const scoped = `?workspaceId=${ctx.workspaceId}`
+    const expectedIds = [discussion.chatId, ...agents.map((agent) => agent.chatId)].sort((a, b) => a - b)
+    const history = await list(scoped)
+    expect(history.map((item) => item.id).sort((a, b) => a - b)).toEqual(expectedIds)
+    expect(history.filter((item) => item.tp === 'workflow-agent')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: agents[0].chatId, title: 'explorer · Data and state', providerId: 'fake' }),
+    ]))
+    const pages = [...await list(`${scoped}&limit=2`), ...await list(`${scoped}&limit=2&offset=2`)]
+    expect(pages.map((item) => item.id).sort((a, b) => a - b)).toEqual(expectedIds)
+    expect((await list(`${scoped}&tp=chat`)).map((item) => item.id)).toEqual([discussion.chatId])
+    expect((await list('')).map((item) => item.id)).toEqual([discussion.chatId])
+  })
+
   it('rejects negative baseRevision with 400', async () => {
     const res = await ctx.request('/api/chat-history', {
       method: 'POST',

@@ -100,7 +100,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     loadMore,
   } = useChatHistoryList({
     workspaceId: currentWorkspaceId,
-    tp: "chat",
+    tp: currentWorkspaceId == null ? "chat" : undefined,
     pageSize: CHATS_PAGE_SIZE,
     enabled: specId == null && openId === null,
     staleTime: 0,
@@ -220,7 +220,8 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // exist, so tapping the conversation you had just been in did nothing while
   // every other row opened fine.
   const openHistory = (item: ChatHistoryItem) => {
-    const tabId = openChatTab(`chat:${item.id}`, item.title, undefined, item.providerId ?? undefined, item.tp === "subagent" || undefined)
+    const isSubAgent = item.tp === "subagent" || item.tp === "workflow-agent"
+    const tabId = openChatTab(`chat:${item.id}`, item.title, undefined, item.providerId ?? undefined, isSubAgent || undefined)
     setTabChatId(tabId, item.id)
     setActiveTab(tabId)
     setOpenId(tabId)

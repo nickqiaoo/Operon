@@ -63,6 +63,8 @@ export const LocalReferencedSourcesContext = createContext<ReferencedSourcesCont
 // be handed to onSubmit, which takes seconds for a large image. The submit
 // button reads this so the user can't fire a second, duplicate send meanwhile.
 export const PromptInputSubmittingContext = createContext(false);
+export const PromptInputSubmitContext = createContext<(text: string) => void>(() => {});
+export const usePromptInputSubmit = () => useContext(PromptInputSubmitContext);
 
 // ============================================================================
 // Hooks
