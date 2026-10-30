@@ -380,6 +380,7 @@ export async function login(provider: AuthProvider = 'github'): Promise<void> {
     const session = await nativeAuthenticate(url, NATIVE_URL_SCHEME)
     if (session.kind === 'cancelled') return
     if (session.kind === 'url') {
+      nativeAuthPendingSink?.()
       let params: URLSearchParams
       try {
         params = new URL(session.url).searchParams
@@ -467,14 +468,20 @@ export async function reviewerLogin(username: string, password: string): Promise
  * component subscribe twice.
  */
 let nativeAuthSink: ((result: CallbackResult) => void) | null = null
+/** Told when the provider has answered and the code exchange is starting. */
+let nativeAuthPendingSink: (() => void) | null = null
 
 function deliverNativeAuthResult(result: CallbackResult): void {
   nativeAuthSink?.(result)
 }
 
-export function installNativeAuthListener(onResult: (result: CallbackResult) => void): () => void {
+export function installNativeAuthListener(
+  onResult: (result: CallbackResult) => void,
+  onPending?: () => void
+): () => void {
   if (!isNativeApp()) return () => {}
   nativeAuthSink = onResult
+  nativeAuthPendingSink = onPending ?? null
   const handle = CapacitorApp.addListener('appUrlOpen', (event) => {
     void (async () => {
       let params: URLSearchParams
@@ -488,6 +495,7 @@ export function installNativeAuthListener(onResult: (result: CallbackResult) => 
       // Dismiss the auth sheet before the exchange so the user isn't staring at
       // a spent GitHub page while the token round-trips.
       await Browser.close().catch(() => {})
+      onPending?.()
       onResult(await exchangeAuthCode(params))
     })()
   })
@@ -495,7 +503,10 @@ export function installNativeAuthListener(onResult: (result: CallbackResult) => 
     // Only clear the sink if it is still ours — under React's strict-mode
     // double-invoke the second effect registers before the first tears down,
     // and clearing unconditionally would drop the live subscriber.
-    if (nativeAuthSink === onResult) nativeAuthSink = null
+    if (nativeAuthSink === onResult) {
+      nativeAuthSink = null
+      nativeAuthPendingSink = null
+    }
     void handle.then((h) => h.remove()).catch(() => {})
   }
 }
@@ -531,9 +542,8 @@ async function exchangeAuthCode(params: URLSearchParams): Promise<CallbackResult
   }
 
   const verifier = takePkceVerifier()
-  let res: Response
-  try {
-    res = await fetchWithTimeout(`${BROKER}/auth/token`, {
+  const requestToken = () =>
+    fetchWithTimeout(`${BROKER}/auth/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       credentials: 'include',
@@ -541,8 +551,20 @@ async function exchangeAuthCode(params: URLSearchParams): Promise<CallbackResult
       // See NATIVE_REFRESH_KEY for why the cookie is unusable here.
       body: JSON.stringify({ code, code_verifier: verifier, native: isNativeApp() }),
     })
+  let res: Response
+  try {
+    res = await requestToken()
   } catch {
-    return { ok: false, reason: 'Could not reach the operon service. Check your connection and try again.' }
+    // This is often the app's first request of all, right after the auth sheet
+    // closes, and that one can fail before the network is up. A request that
+    // never reached the broker left the code unspent, so one more try is free
+    // and saves the user a whole second sign-in.
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      res = await requestToken()
+    } catch {
+      return { ok: false, reason: 'Could not reach the operon service. Check your connection and try again.' }
+    }
   }
 
   if (!res.ok) {

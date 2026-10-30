@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
-import { toast } from 'sonner'
+import { toast, Toaster } from 'sonner'
 import { Loader2, Monitor, LogOut, RefreshCw, ChevronUp, Github } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -164,10 +164,16 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
   // Native sign-in doesn't come back as a navigation — iOS hands the app a
   // `operon://auth/callback` URL while this component stays mounted, so the
   // gate has to advance from an event instead of from `boot()`. No-op on web.
+  // The code exchange and the machine list can each take a network round trip
+  // after the sheet closes; show the loading card for that instead of leaving
+  // the login page sitting there as if nothing happened.
   useEffect(() => {
-    return installNativeAuthListener((result) => {
-      void advanceAfterSignIn(result)
-    })
+    return installNativeAuthListener(
+      (result) => {
+        void advanceAfterSignIn(result)
+      },
+      () => setPhase('loading')
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -265,175 +271,197 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
     )
   }
 
+  // The app's own <Toaster/> only mounts once the gate is ready, so every phase
+  // before that needs one of its own — without it a failed sign-in's toast is
+  // never shown and the login page just sits there.
+  const gateToaster = (
+    <Toaster
+      position="top-center"
+      theme={theme}
+      mobileOffset={{ top: 'calc(env(safe-area-inset-top) + 0.75rem)', right: '1rem', left: '1rem' }}
+    />
+  )
+
   if (phase === 'login') {
-    return <LoginLanding onSignedIn={advanceAfterSignIn} />
+    return (
+      <>
+        {gateToaster}
+        <LoginLanding onSignedIn={advanceAfterSignIn} />
+      </>
+    )
   }
 
   if (phase === 'pairing' && pairingNode) {
     return (
-      <SecurePairingCard
-        nodeId={pairingNode.nodeId}
-        nodeLabel={pairingNode.label}
-        onPaired={() => setPhase('ready')}
-        onBack={switchMachine}
-      />
+      <>
+        {gateToaster}
+        <SecurePairingCard
+          nodeId={pairingNode.nodeId}
+          nodeLabel={pairingNode.label}
+          onPaired={() => setPhase('ready')}
+          onBack={switchMachine}
+        />
+      </>
     )
   }
 
   // loading / picker — a quiet centered card.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-sm space-y-5 rounded-xl border border-border/50 bg-muted/10 p-6">
-        <div className="flex items-center gap-2.5">
-          <OperonMark className="h-7 w-7" />
-          <div className="space-y-0.5">
-            <div className="logo text-sm uppercase text-foreground">operon</div>
-            <p className="text-xs text-muted-foreground">
-              {phase === 'picker'
-                ? intl.formatMessage({
-                    id: 'web.auth.chooseMachine',
-                    defaultMessage: 'Choose a machine to control',
-                  })
-                : intl.formatMessage({ id: 'web.auth.loading', defaultMessage: 'Loading…' })}
-            </p>
-          </div>
-        </div>
-
-        {phase === 'loading' && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {intl.formatMessage({ id: 'web.auth.loading', defaultMessage: 'Loading…' })}
-          </div>
-        )}
-
-        {phase === 'picker' && (
-          <div className="space-y-3">
-            {loadingNodes ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {intl.formatMessage({ id: 'web.auth.loadingMachines', defaultMessage: 'Loading machines…' })}
-              </div>
-            ) : nodesError ? (
-              <div role="alert" className="space-y-2 rounded-lg border border-border/50 p-4 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">Couldn't load machines</p>
-                <p>{nodesError}</p>
-              </div>
-            ) : nodes.length === 0 ? (
-              <div className="space-y-2 rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
-                <p>
-                  {intl.formatMessage({
-                    id: 'web.auth.noMachines',
-                    defaultMessage:
-                      'No machines yet. Open the operon app on your computer and connect it to the SaaS, then refresh.',
-                  })}
-                </p>
-                {/* GitHub and Apple are deliberately separate accounts, so an
-                    empty list is just as likely to mean "signed in the other
-                    way" as "never paired a machine". Saying so here is the
-                    whole mitigation — there is no automatic linking to fall
-                    back on. Omitted when we don't know which button was used
-                    (a session predating that being recorded), since naming the
-                    wrong one sends the user in a circle. */}
-                {signedInWith && (
-                  <p className="border-t border-border/40 pt-2">
-                    {intl.formatMessage(
-                      {
-                        id: 'web.auth.noMachines.otherProvider',
-                        defaultMessage:
-                          'You are signed in with {current}. Signing in with {other} creates a separate account — if you paired your machine that way, sign out and use {other} instead.',
-                      },
-                      {
-                        current: signedInWith === 'apple' ? 'Apple' : 'GitHub',
-                        other: signedInWith === 'apple' ? 'GitHub' : 'Apple',
-                      },
-                    )}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {nodes.map((n) => (
-                  <button
-                    key={n.nodeId}
-                    disabled={!n.online}
-                    onClick={() => void pick(n)}
-                    className="flex w-full items-center gap-2.5 rounded-lg border border-border/50 bg-background/40 p-3 text-left transition-colors hover:bg-row-hover disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Monitor className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 truncate text-sm">{n.label || n.nodeId.slice(0, 8)}</span>
-                    <span className={`text-xs ${n.online ? 'text-status-ok' : 'text-muted-foreground'}`}>
-                      {n.online
-                        ? intl.formatMessage({ id: 'web.auth.status.online', defaultMessage: 'online' })
-                        : intl.formatMessage({ id: 'web.auth.status.offline', defaultMessage: 'offline' })}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center justify-between pt-1">
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={loadingNodes} onClick={() => void loadNodes()}>
-                <RefreshCw className="h-3.5 w-3.5" />
-                {nodesError ? 'Retry' : intl.formatMessage({ id: 'web.auth.refresh', defaultMessage: 'Refresh' })}
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => logout()}>
-                <LogOut className="h-3.5 w-3.5" />
-                {intl.formatMessage({ id: 'web.auth.signOut', defaultMessage: 'Sign out' })}
-              </Button>
+    <>
+      {gateToaster}
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <div className="w-full max-w-sm space-y-5 rounded-xl border border-border/50 bg-muted/10 p-6">
+          <div className="flex items-center gap-2.5">
+            <OperonMark className="h-7 w-7" />
+            <div className="space-y-0.5">
+              <div className="logo text-sm uppercase text-foreground">operon</div>
+              <p className="text-xs text-muted-foreground">
+                {phase === 'picker'
+                  ? intl.formatMessage({
+                      id: 'web.auth.chooseMachine',
+                      defaultMessage: 'Choose a machine to control',
+                    })
+                  : intl.formatMessage({ id: 'web.auth.loading', defaultMessage: 'Loading…' })}
+              </p>
             </div>
-
-            {/*
-              Deleting the account has to be reachable from inside the app
-              (Guideline 5.1.1(v)), and the copy in MobileMoreScreen is not:
-              that screen lives behind a selected machine, so an account with no
-              machines — a brand-new one, or one whose machines were revoked —
-              stops here with sign-out as its only exit. Same flow, same
-              wording, one confirmation step, kept visually quiet so it doesn't
-              compete with picking a machine.
-            */}
-            {confirmDelete ? (
-              <div className="space-y-2 rounded-lg border border-border/40 bg-muted/10 p-3">
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {intl.formatMessage({
-                    id: 'web.auth.deleteAccount.confirm',
-                    defaultMessage:
-                      'This permanently removes your account, unpairs every machine, and cannot be undone. Files and projects on your machines are not touched.',
-                  })}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="h-8 gap-1.5"
-                    disabled={deletingAccount}
-                    onClick={() => void runDeleteAccount()}
-                  >
-                    {deletingAccount && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    {intl.formatMessage({ id: 'web.auth.deleteAccount', defaultMessage: 'Delete account' })}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 gap-1.5 text-xs"
-                    disabled={deletingAccount}
-                    onClick={() => setConfirmDelete(false)}
-                  >
-                    {intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:text-destructive hover:underline"
-              >
-                {intl.formatMessage({ id: 'web.auth.deleteAccount', defaultMessage: 'Delete account' })}
-              </button>
-            )}
           </div>
-        )}
+
+          {phase === 'loading' && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {intl.formatMessage({ id: 'web.auth.loading', defaultMessage: 'Loading…' })}
+            </div>
+          )}
+
+          {phase === 'picker' && (
+            <div className="space-y-3">
+              {loadingNodes ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {intl.formatMessage({ id: 'web.auth.loadingMachines', defaultMessage: 'Loading machines…' })}
+                </div>
+              ) : nodesError ? (
+                <div role="alert" className="space-y-2 rounded-lg border border-border/50 p-4 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Couldn't load machines</p>
+                  <p>{nodesError}</p>
+                </div>
+              ) : nodes.length === 0 ? (
+                <div className="space-y-2 rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
+                  <p>
+                    {intl.formatMessage({
+                      id: 'web.auth.noMachines',
+                      defaultMessage:
+                        'No machines yet. Open the operon app on your computer and connect it to the SaaS, then refresh.',
+                    })}
+                  </p>
+                  {/* GitHub and Apple are deliberately separate accounts, so an
+                      empty list is just as likely to mean "signed in the other
+                      way" as "never paired a machine". Saying so here is the
+                      whole mitigation — there is no automatic linking to fall
+                      back on. Omitted when we don't know which button was used
+                      (a session predating that being recorded), since naming the
+                      wrong one sends the user in a circle. */}
+                  {signedInWith && (
+                    <p className="border-t border-border/40 pt-2">
+                      {intl.formatMessage(
+                        {
+                          id: 'web.auth.noMachines.otherProvider',
+                          defaultMessage:
+                            'You are signed in with {current}. Signing in with {other} creates a separate account — if you paired your machine that way, sign out and use {other} instead.',
+                        },
+                        {
+                          current: signedInWith === 'apple' ? 'Apple' : 'GitHub',
+                          other: signedInWith === 'apple' ? 'GitHub' : 'Apple',
+                        },
+                      )}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {nodes.map((n) => (
+                    <button
+                      key={n.nodeId}
+                      disabled={!n.online}
+                      onClick={() => void pick(n)}
+                      className="flex w-full items-center gap-2.5 rounded-lg border border-border/50 bg-background/40 p-3 text-left transition-colors hover:bg-row-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Monitor className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 truncate text-sm">{n.label || n.nodeId.slice(0, 8)}</span>
+                      <span className={`text-xs ${n.online ? 'text-status-ok' : 'text-muted-foreground'}`}>
+                        {n.online
+                          ? intl.formatMessage({ id: 'web.auth.status.online', defaultMessage: 'online' })
+                          : intl.formatMessage({ id: 'web.auth.status.offline', defaultMessage: 'offline' })}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between pt-1">
+                <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={loadingNodes} onClick={() => void loadNodes()}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {nodesError ? 'Retry' : intl.formatMessage({ id: 'web.auth.refresh', defaultMessage: 'Refresh' })}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => logout()}>
+                  <LogOut className="h-3.5 w-3.5" />
+                  {intl.formatMessage({ id: 'web.auth.signOut', defaultMessage: 'Sign out' })}
+                </Button>
+              </div>
+
+              {/*
+                Deleting the account has to be reachable from inside the app
+                (Guideline 5.1.1(v)), and the copy in MobileMoreScreen is not:
+                that screen lives behind a selected machine, so an account with no
+                machines — a brand-new one, or one whose machines were revoked —
+                stops here with sign-out as its only exit. Same flow, same
+                wording, one confirmation step, kept visually quiet so it doesn't
+                compete with picking a machine.
+              */}
+              {confirmDelete ? (
+                <div className="space-y-2 rounded-lg border border-border/40 bg-muted/10 p-3">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {intl.formatMessage({
+                      id: 'web.auth.deleteAccount.confirm',
+                      defaultMessage:
+                        'This permanently removes your account, unpairs every machine, and cannot be undone. Files and projects on your machines are not touched.',
+                    })}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-8 gap-1.5"
+                      disabled={deletingAccount}
+                      onClick={() => void runDeleteAccount()}
+                    >
+                      {deletingAccount && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      {intl.formatMessage({ id: 'web.auth.deleteAccount', defaultMessage: 'Delete account' })}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1.5 text-xs"
+                      disabled={deletingAccount}
+                      onClick={() => setConfirmDelete(false)}
+                    >
+                      {intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:text-destructive hover:underline"
+                >
+                  {intl.formatMessage({ id: 'web.auth.deleteAccount', defaultMessage: 'Delete account' })}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
