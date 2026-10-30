@@ -4,6 +4,7 @@ import { isNativeApp, nativePlatform } from './native'
 export interface ComposerMenuItem {
   id: string
   title: string
+  /** A drawn `ComposerGlyph` (model, thinking, mode, fast, goal), else an SF Symbol name. */
   symbol?: string
   selected?: boolean
   disabled?: boolean

@@ -423,11 +423,11 @@ export function ChatInputArea({
           : mention.isOpen ? mention.suggestions.map((item) => ({ id: `mention:${item.path}`, title: item.name, subtitle: mention.getRelativePath(item) })) : []}
         menuTitle={[selectedModel?.label, selectedModel?.hasThinking ? thinkingLabel : '', modeLabel].filter(Boolean).join(' · ')}
         menu={[
-          { id: 'models', title: 'Model', symbol: 'cpu', children: availableModels.map((item) => ({ id: `model:${item.id}`, title: item.label, selected: item.id === model, disabled: settingsDisabled })) },
-          ...(selectedModel?.hasThinking && thinkingEffortOptions.length > 0 ? [{ id: 'thinking', title: `Thinking: ${thinkingLabel}`, symbol: 'brain', children: thinkingEffortOptions.map((option) => ({ id: `thinking:${option.value}`, title: option.label, selected: option.value === thinkingEffort, disabled: isGenerating && !canEditTurnSettings })) }] : []),
-          ...(modeOptions.length > 0 ? [{ id: 'mode', title: `Mode: ${modeLabel}`, symbol: 'slider.horizontal.3', children: modeOptions.map((option) => ({ id: `mode:${option.value}`, title: option.label, selected: option.value === currentMode, disabled: settingsDisabled })) }] : []),
-          ...(fastOption ? [{ id: 'fast', title: 'Fast mode', symbol: 'bolt', selected: fastEnabled, disabled: isGenerating && !canEditTurnSettings }] : []),
-          ...(goalSupported ? [{ id: 'goal', title: 'Goal mode', symbol: 'target', selected: goalArmed, disabled: isGenerating }] : []),
+          { id: 'models', title: selectedModel ? `Model: ${selectedModel.label}` : 'Model', symbol: 'model', children: availableModels.map((item) => ({ id: `model:${item.id}`, title: item.label, selected: item.id === model, disabled: settingsDisabled })) },
+          ...(selectedModel?.hasThinking && thinkingEffortOptions.length > 0 ? [{ id: 'thinking', title: `Thinking: ${thinkingLabel}`, symbol: 'thinking', children: thinkingEffortOptions.map((option) => ({ id: `thinking:${option.value}`, title: option.label, selected: option.value === thinkingEffort, disabled: isGenerating && !canEditTurnSettings })) }] : []),
+          ...(modeOptions.length > 0 ? [{ id: 'mode', title: `Mode: ${modeLabel}`, symbol: 'mode', children: modeOptions.map((option) => ({ id: `mode:${option.value}`, title: option.label, selected: option.value === currentMode, disabled: settingsDisabled })) }] : []),
+          ...(fastOption ? [{ id: 'fast', title: 'Fast mode', symbol: 'fast', selected: fastEnabled, disabled: isGenerating && !canEditTurnSettings }] : []),
+          ...(goalSupported ? [{ id: 'goal', title: 'Goal mode', symbol: 'goal', selected: goalArmed, disabled: isGenerating }] : []),
         ]}
         onAction={(action) => {
           if (action.startsWith('model:')) setModel(action.slice(6));

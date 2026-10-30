@@ -184,7 +184,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private let attach = UIButton(type: .system)
     private let send = UIButton(type: .system)
     private let steer = UIButton(type: .system)
-    private let options = UIButton(type: .custom)
+    private let options = UIButton(type: .system)
     private let tokens = UIScrollView()
     private let suggestions = UIScrollView()
     private var state: JSObject = [:]
@@ -238,13 +238,12 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         attach.tintColor = brandUIColor
         attach.accessibilityLabel = "Attachments and options"
         attach.showsMenuAsPrimaryAction = true
+        // Model / thinking / mode live behind one small button; the current
+        // values only show once it is opened, as the menu's header.
+        options.setImage(ComposerGlyph.options.image(size: 26), for: .normal)
+        options.tintColor = .label
+        options.accessibilityLabel = "Model and options"
         options.showsMenuAsPrimaryAction = true
-        options.contentHorizontalAlignment = .leading
-        options.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
-        options.titleLabel?.lineBreakMode = .byTruncatingTail
-        options.tintColor = .secondaryLabel
-        options.setTitleColor(.secondaryLabel, for: .normal)
-        options.backgroundColor = .clear
         send.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
         send.accessibilityIdentifier = "native-send-message"
         steer.setImage(UIImage(systemName: "arrow.up.forward"), for: .normal)
@@ -310,8 +309,8 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         }
         attach.menu = UIMenu(children: attachmentActions)
         attach.isHidden = attachmentActions.isEmpty
-        options.menu = UIMenu(children: custom)
-        options.setTitle(next["menuTitle"] as? String ?? "Options", for: .normal)
+        options.menu = UIMenu(children: [UIMenu(title: next["menuTitle"] as? String ?? "", options: .displayInline, children: custom)])
+        options.accessibilityValue = next["menuTitle"] as? String
         refresh()
     }
 
@@ -331,18 +330,21 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private var running: Bool { state["running"] as? Bool ?? false }
     private var hasDraft: Bool { !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tokenItems.isEmpty || state["hasContext"] as? Bool == true }
     private var showsSteer: Bool { running && state["canSteer"] as? Bool == true && !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var footerVisible: Bool { !(state["menu"] as? [JSObject] ?? []).isEmpty && (textView.isFirstResponder || hasDraft) }
+    /// Focused or holding a draft: the text gets its own full-width row and the
+    /// controls move to a row beneath it. Otherwise one compact row.
+    private var expanded: Bool { textView.isFirstResponder || hasDraft }
 
     private func refresh() {
         guard let parent = superview, anchorWidth > 0 else { return }
-        let leading: CGFloat = attach.isHidden ? 16 : 52
-        let trailing: CGFloat = showsSteer ? 90 : 50
+        let isExpanded = expanded
+        let leading: CGFloat = isExpanded || attach.isHidden ? 16 : 52
+        let trailing: CGFloat = isExpanded ? 16 : showsSteer ? 90 : 50
         let textWidth = max(40, anchorWidth - leading - trailing)
         let textHeight = min(140, max(40, ceil(textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)))
         let suggestionHeight = min(156, CGFloat(suggestionItems.count) * 48)
         let tokensHeight: CGFloat = tokenItems.isEmpty ? 0 : 34
-        let footerHeight: CGFloat = footerVisible ? 30 : 0
-        let total = 16 + suggestionHeight + tokensHeight + textHeight + footerHeight
+        let controlsHeight: CGFloat = isExpanded ? 44 : 0
+        let total = 16 + suggestionHeight + tokensHeight + textHeight + controlsHeight
         var bottom = parent.bounds.height - max(8, closedBottom)
         if let keyboardTop, keyboardTop < parent.bounds.height - parent.safeAreaInsets.bottom - 1 {
             bottom = min(bottom, keyboardTop - 6)
@@ -360,16 +362,18 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         // to the actual text line rather than the bottom of that fitted box.
         let caret = textView.caretRect(for: textView.endOfDocument)
         let lineCenter = min(max(caret.midY, 20), textHeight - 20)
-        let controlsCenterY = rowY + lineCenter
         let placeholderHeight = textView.font?.lineHeight ?? 22
-        placeholder.frame = CGRect(x: leading, y: controlsCenterY - placeholderHeight / 2, width: textWidth, height: placeholderHeight)
+        placeholder.frame = CGRect(x: leading, y: rowY + lineCenter - placeholderHeight / 2, width: textWidth, height: placeholderHeight)
         placeholder.isHidden = !textView.text.isEmpty
+        // Compact: controls sit on the text line. Expanded: + on the left, then
+        // (right to left) send, options, steer on the row below the text.
+        let controlsCenterY = isExpanded ? rowY + textHeight + controlsHeight / 2 : rowY + lineCenter
         attach.frame = CGRect(x: 8, y: controlsCenterY - 20, width: 40, height: 40)
         send.frame = CGRect(x: anchorWidth - 44, y: controlsCenterY - 16, width: 32, height: 32)
-        steer.frame = CGRect(x: anchorWidth - 86, y: controlsCenterY - 20, width: 40, height: 40)
+        options.isHidden = !isExpanded || (state["menu"] as? [JSObject] ?? []).isEmpty
+        options.frame = CGRect(x: anchorWidth - 92, y: controlsCenterY - 22, width: 44, height: 44)
+        steer.frame = CGRect(x: (isExpanded && !options.isHidden ? anchorWidth - 134 : anchorWidth - 86), y: controlsCenterY - 20, width: 40, height: 40)
         steer.isHidden = !showsSteer
-        options.isHidden = !footerVisible || (state["menu"] as? [JSObject] ?? []).isEmpty
-        options.frame = CGRect(x: 16, y: rowY + textHeight, width: anchorWidth - 32, height: 30)
         let locked = submissionPending || state["submitting"] as? Bool == true
         // Disabling editing would resign first responder and drop the keyboard on every send.
         textView.isEditable = state["disabled"] as? Bool != true
@@ -396,7 +400,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private func menuElements(_ items: [JSObject]) -> [UIMenuElement] {
         items.map { item in
             let title = item["title"] as? String ?? ""
-            let image = (item["symbol"] as? String).flatMap { UIImage(systemName: $0) }
+            let image = (item["symbol"] as? String).flatMap { ComposerGlyph(rawValue: $0)?.image() ?? UIImage(systemName: $0) }
             if let children = item["children"] as? [JSObject] {
                 return UIMenu(title: title, image: image, children: menuElements(children))
             }
@@ -529,6 +533,100 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState, .allowUserInteraction]) {
             self.refresh()
+        }
+    }
+}
+
+/// The composer's options button and menu icons, drawn in the tab bar's
+/// family (`TabGlyph`) rather than taken from SF Symbols: 24-unit grid, y down,
+/// 1.75 round strokes. Menu items name them by `symbol`; anything else falls
+/// back to an SF Symbol of that name.
+enum ComposerGlyph: String {
+    case options, model, thinking, mode, fast, goal
+
+    func image(size: CGFloat = 22) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { context in
+            let ctx = context.cgContext
+            ctx.scaleBy(x: size / 24, y: size / 24)
+            ctx.setLineWidth(1.75)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            UIColor.black.setStroke()
+            UIColor.black.setFill()
+            let (strokes, fills) = shapes()
+            ctx.addPath(strokes)
+            ctx.strokePath()
+            if let fills {
+                ctx.addPath(fills)
+                ctx.fillPath()
+            }
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    /// Stroked marks, filled marks. Angles grow clockwise on screen (y down).
+    private func shapes() -> (CGPath, CGPath?) {
+        func radians(_ degrees: CGFloat) -> CGFloat { degrees * .pi / 180 }
+        func point(_ center: CGPoint, _ radius: CGFloat, _ degrees: CGFloat) -> CGPoint {
+            CGPoint(x: center.x + radius * cos(radians(degrees)), y: center.y + radius * sin(radians(degrees)))
+        }
+        func dot(_ center: CGPoint, _ radius: CGFloat) -> CGPath {
+            CGPath(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2), transform: nil)
+        }
+        let path = CGMutablePath()
+        switch self {
+        case .options:
+            // A dial open at the bottom, its needle up and to the right.
+            let center = CGPoint(x: 12, y: 12.75)
+            path.addArc(center: center, radius: 8.5, startAngle: radians(135), endAngle: radians(405), clockwise: false)
+            path.move(to: center)
+            path.addLine(to: point(center, 5.25, -50))
+            return (path, dot(center, 1.9))
+
+        case .model:
+            // A cube.
+            path.addLines(between: [
+                CGPoint(x: 12, y: 3.25), CGPoint(x: 19.75, y: 7.6), CGPoint(x: 19.75, y: 16.4),
+                CGPoint(x: 12, y: 20.75), CGPoint(x: 4.25, y: 16.4), CGPoint(x: 4.25, y: 7.6),
+            ])
+            path.closeSubpath()
+            path.addLines(between: [CGPoint(x: 4.25, y: 7.6), CGPoint(x: 12, y: 11.95), CGPoint(x: 19.75, y: 7.6)])
+            path.move(to: CGPoint(x: 12, y: 11.95))
+            path.addLine(to: CGPoint(x: 12, y: 20.75))
+            return (path, nil)
+
+        case .thinking:
+            // A light bulb with a glint, its base below.
+            let center = CGPoint(x: 12, y: 9.75)
+            path.addArc(center: center, radius: 6.5, startAngle: radians(130), endAngle: radians(410), clockwise: false)
+            path.addLine(to: CGPoint(x: 14.6, y: 17))
+            path.addLine(to: CGPoint(x: 9.4, y: 17))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 9.75, y: 20))
+            path.addLine(to: CGPoint(x: 14.25, y: 20))
+            path.move(to: point(center, 3.4, 195))
+            path.addArc(center: center, radius: 3.4, startAngle: radians(195), endAngle: radians(262), clockwise: false)
+            return (path, nil)
+
+        case .mode:
+            // A switch, knob to the right.
+            path.addRoundedRect(in: CGRect(x: 2.75, y: 6.75, width: 18.5, height: 10.5), cornerWidth: 5.25, cornerHeight: 5.25)
+            return (path, dot(CGPoint(x: 16, y: 12), 2.6))
+
+        case .fast:
+            // A bolt.
+            path.addLines(between: [
+                CGPoint(x: 13.25, y: 3), CGPoint(x: 5.5, y: 13.25), CGPoint(x: 11.5, y: 13.25),
+                CGPoint(x: 10.75, y: 21), CGPoint(x: 18.5, y: 10.75), CGPoint(x: 12.5, y: 10.75),
+            ])
+            path.closeSubpath()
+            return (path, nil)
+
+        case .goal:
+            // A target.
+            let center = CGPoint(x: 12, y: 12)
+            path.addPath(dot(center, 8.5))
+            path.addPath(dot(center, 4.5))
+            return (path, dot(center, 1.5))
         }
     }
 }
