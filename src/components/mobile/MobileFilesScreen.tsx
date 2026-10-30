@@ -49,11 +49,11 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
           leftAccessory={
             <button
               type="button"
+              aria-label="Back"
               onClick={() => setSelected(null)}
-              className="-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-base text-muted-foreground hover:bg-row-hover hover:text-foreground"
+              className="-ml-1 flex items-center rounded-md px-1.5 py-1 text-muted-foreground hover:bg-row-hover hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
-              <FormattedMessage id="mobile.files.title" defaultMessage="Files" />
             </button>
           }
         />

@@ -261,10 +261,10 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
               setDiff("")
               setDiffError(null)
             }}
-            className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-base text-muted-foreground hover:bg-row-hover hover:text-foreground"
+            aria-label="Back"
+            className="flex shrink-0 items-center rounded-md px-2 py-1.5 text-muted-foreground hover:bg-row-hover hover:text-foreground"
           >
             <ArrowLeft className="size-4 shrink-0" />
-            <span className="truncate">{title}</span>
           </button>
           <span className="ml-1 min-w-0 truncate font-mono text-[13px] text-foreground/85">{selectedFile.path}</span>
         </div>
