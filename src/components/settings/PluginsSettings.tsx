@@ -21,18 +21,28 @@ import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { api } from "@/lib/api"
+import {
+  invalidateAfterPluginChange,
+  invalidatePluginInfo,
+  refreshMarketplace,
+  useInstalledPlugins,
+  useMarketplace,
+  useMarketplaceDetails,
+  useMarketplacePluginInfo,
+  usePluginInfo,
+  usePluginMcpTools,
+  usePluginSkillContent,
+  type SkillOrigin,
+} from "@/lib/plugin-queries"
 import { cn } from "@/lib/utils"
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl"
 import { openExternalUrl } from "@/lib/open-external"
-import { consumePendingPluginId, OPEN_PLUGIN_EVENT } from "@/lib/open-settings"
 import type {
   OperonMarketplaceDetailsDTO,
   OperonMarketplaceEntryDTO,
-  OperonMarketplaceInfoDTO,
   OperonMarketplaceMcpServerDTO,
   OperonMcpToolDTO,
   OperonPluginDTO,
-  OperonPluginInfoDTO,
   OperonPluginMcpServerDTO,
 } from "@/types/plugin"
 
@@ -43,101 +53,53 @@ import type {
  * entries open the SAME detail view — enable/disable, per-MCP toggles, and install all live there.
  * Direct install from a github / zip / path source lives at the bottom.
  */
-export function PluginsSettings() {
-  // Installed plugins (the local store).
-  const [installed, setInstalled] = useState<OperonPluginDTO[]>([])
-  const [loadingInstalled, setLoadingInstalled] = useState(false)
-  const [installedError, setInstalledError] = useState<string | null>(null)
+const NO_PLUGINS: OperonPluginDTO[] = []
+const NO_SOURCES: string[] = []
+const NO_BROWSE_ERRORS: Array<{ source: string; message: string }> = []
 
-  // Marketplace browse state.
-  const [entries, setEntries] = useState<OperonMarketplaceEntryDTO[] | null>(null)
-  const [sources, setSources] = useState<string[]>([])
-  const [browseErrors, setBrowseErrors] = useState<Array<{ source: string; message: string }>>([])
-  const [browsing, setBrowsing] = useState(false)
-  const [browseError, setBrowseError] = useState<string | null>(null)
-  const [details, setDetails] = useState<Record<string, OperonMarketplaceDetailsDTO>>({})
+const errorMessage = (e: unknown): string | null => (e == null ? null : e instanceof Error ? e.message : String(e))
+
+/**
+ * `request` is the navigation entry that opened the page. A new one (a deep link
+ * while the page is already up) switches to the plugin it names.
+ */
+export function PluginsSettings({ request }: { request?: { pluginId?: string } } = {}) {
+  // Installed plugins (the local store).
+  const installedQuery = useInstalledPlugins()
+  const installed = installedQuery.data ?? NO_PLUGINS
+  const loadingInstalled = installedQuery.isFetching
+  const installedError = errorMessage(installedQuery.error)
+
+  // Marketplace browse state: the configured registries are browsed on open.
+  const marketplaceQuery = useMarketplace()
+  const entries = marketplaceQuery.isError ? null : marketplaceQuery.data?.entries ?? null
+  const sources = marketplaceQuery.data?.sources ?? NO_SOURCES
+  const browseErrors = marketplaceQuery.data?.errors ?? NO_BROWSE_ERRORS
+  const browsing = marketplaceQuery.isFetching
+  const browseError = errorMessage(marketplaceQuery.error)
+  // Lazily enrich entries with logo/description, in chunks so they appear progressively.
+  const details = useMarketplaceDetails(entries)
   const [query, setQuery] = useState("")
 
   // Install / navigation state.
   const [installing, setInstalling] = useState<string | null>(null)
   const [installError, setInstallError] = useState<string | null>(null)
   // A deep link from a plugin-provided skill or MCP server opens straight onto that plugin.
-  const [selectedId, setSelectedId] = useState<string | null>(() => consumePendingPluginId())
+  const [selectedId, setSelectedId] = useState<string | null>(request?.pluginId ?? null)
+  const [seenRequest, setSeenRequest] = useState(request)
+  if (request !== seenRequest) {
+    setSeenRequest(request)
+    if (request?.pluginId) setSelectedId(request.pluginId)
+  }
 
-  useEffect(() => {
-    const onOpen = (): void => {
-      const id = consumePendingPluginId()
-      if (id) setSelectedId(id)
-    }
-    window.addEventListener(OPEN_PLUGIN_EVENT, onOpen)
-    return () => window.removeEventListener(OPEN_PLUGIN_EVENT, onOpen)
-  }, [])
-
-  // Bumped on each browse so a slow detail fetch from a previous browse can't overwrite newer results.
-  const browseIdRef = useRef(0)
-
+  // Plugins feed skills and MCP servers to every agent: refresh those along with the list.
   const reloadInstalled = useCallback(async () => {
-    setLoadingInstalled(true)
-    setInstalledError(null)
-    try {
-      const res = await api.pluginsList()
-      if (res.error) throw new Error(res.error)
-      setInstalled(res.plugins ?? [])
-    } catch (e) {
-      setInstalledError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoadingInstalled(false)
-    }
+    await invalidateAfterPluginChange()
   }, [])
 
-  // Lazily enrich entries with logo/description, in chunks so they appear progressively.
-  const loadDetails = useCallback(async (list: OperonMarketplaceEntryDTO[], browseId: number) => {
-    const CHUNK = 24
-    for (let i = 0; i < list.length; i += CHUNK) {
-      const chunk = list.slice(i, i + CHUNK).map((e) => e.source)
-      try {
-        const res = await api.pluginsMarketplaceDetails(chunk)
-        if (browseId !== browseIdRef.current) return // a newer browse started — drop stale results
-        if (!res.details) continue
-        // Cached-repo logos come as a local path — resolve to a servable asset URL for <img>.
-        const normalized: Record<string, OperonMarketplaceDetailsDTO> = {}
-        for (const [src, d] of Object.entries(res.details)) {
-          normalized[src] = d.logoAsset && !d.logoUrl ? { ...d, logoUrl: await api.pluginAssetUrl(d.logoAsset) } : d
-        }
-        if (browseId !== browseIdRef.current) return
-        setDetails((prev) => ({ ...prev, ...normalized }))
-      } catch {
-        // Best-effort decoration — ignore failures, entries still render without logo/description.
-      }
-    }
+  const browse = useCallback(() => {
+    void refreshMarketplace()
   }, [])
-
-  const browse = useCallback(async () => {
-    const browseId = ++browseIdRef.current
-    setBrowsing(true)
-    setBrowseError(null)
-    setDetails({})
-    try {
-      const res = await api.pluginsMarketplace()
-      if (res.error) throw new Error(res.error)
-      const list = res.entries ?? []
-      setEntries(list)
-      setSources(res.sources ?? [])
-      setBrowseErrors(res.errors ?? [])
-      void loadDetails(list, browseId)
-    } catch (e) {
-      setBrowseError(e instanceof Error ? e.message : String(e))
-      setEntries(null)
-    } finally {
-      setBrowsing(false)
-    }
-  }, [loadDetails])
-
-  // Open the default library automatically, and load the installed store.
-  useEffect(() => {
-    void reloadInstalled()
-    void browse()
-  }, [reloadInstalled, browse])
 
   const install = useCallback(
     async (src: string, key: string, onDone?: () => void) => {
@@ -541,59 +503,22 @@ function PluginDetail({
   const installedPlugin = installed.find((p) => p.id === id) ?? null
   const isInstalled = installedPlugin !== null
 
-  const [info, setInfo] = useState<OperonPluginInfoDTO | null>(null)
-  const [infoLoading, setInfoLoading] = useState(false)
+  const infoQuery = usePluginInfo(id, isInstalled)
+  const info = isInstalled ? infoQuery.data ?? null : null
+  const infoLoading = isInstalled && infoQuery.isFetching
   const [busy, setBusy] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   // Not-installed: the full detail (example prompts / MCP servers / skills / developer) read straight
   // from the cached marketplace repo, so a plugin can be inspected before installing.
   const marketSource = marketView?.entry.source
-  const [marketInfo, setMarketInfo] = useState<OperonMarketplaceInfoDTO | null>(null)
-  const [marketInfoLoading, setMarketInfoLoading] = useState(false)
+  const marketInfoQuery = useMarketplacePluginInfo(marketSource, !isInstalled)
+  const marketInfo = !isInstalled && marketSource ? marketInfoQuery.data ?? null : null
+  const marketInfoLoading = !isInstalled && !!marketSource && marketInfoQuery.isPending
 
   const loadInfo = useCallback(async () => {
-    if (!isInstalled) {
-      setInfo(null)
-      return
-    }
-    setInfoLoading(true)
-    try {
-      const res = await api.pluginsInfo(id)
-      setInfo(res.info ?? null)
-    } catch {
-      setInfo(null)
-    } finally {
-      setInfoLoading(false)
-    }
+    if (isInstalled) await invalidatePluginInfo(id)
   }, [id, isInstalled])
-
-  useEffect(() => {
-    void loadInfo()
-  }, [loadInfo])
-
-  useEffect(() => {
-    if (isInstalled || !marketSource) {
-      setMarketInfo(null)
-      return
-    }
-    let cancelled = false
-    setMarketInfoLoading(true)
-    setMarketInfo(null)
-    void (async () => {
-      try {
-        const res = await api.pluginsMarketplaceInfo(marketSource)
-        if (!cancelled) setMarketInfo(res.info ?? null)
-      } catch {
-        if (!cancelled) setMarketInfo(null)
-      } finally {
-        if (!cancelled) setMarketInfoLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [isInstalled, marketSource])
 
   const run = async (key: string, fn: () => Promise<{ error?: string }>, opts?: { reloadInfo?: boolean; back?: boolean }) => {
     setBusy(key)
@@ -887,7 +812,7 @@ function PluginDetail({
                     logoUrl={logo?.logoUrl}
                     brand={brand}
                     conflict={info.skillConflicts?.includes(s) ?? false}
-                    fetchContent={() => api.pluginsSkill(id, s)}
+                    origin={{ kind: 'installed', pluginId: id }}
                   />
                 ))}
               </div>
@@ -953,7 +878,7 @@ function PluginDetail({
             >
               <div className="divide-y divide-border/30">
                 {marketInfo.skills.map((s) => (
-                  <SkillRow key={s} skill={s} logoUrl={logo?.logoUrl} brand={brand} fetchContent={() => api.pluginsMarketplaceSkill(marketSource, s)} />
+                  <SkillRow key={s} skill={s} logoUrl={logo?.logoUrl} brand={brand} origin={{ kind: 'marketplace', source: marketSource }} />
                 ))}
               </div>
             </DetailSection>
@@ -1067,27 +992,12 @@ function McpServerRow({
 }) {
   const intl = useIntl()
   const [open, setOpen] = useState(false)
-  const [tools, setTools] = useState<OperonMcpToolDTO[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const canOpen = !server.requiresAuth || server.authenticated
-
-  const openDialog = async () => {
-    setOpen(true)
-    if (tools === null && !loading) {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await api.pluginsMcpTools(pluginId, server.name)
-        if (res.error) throw new Error(res.error)
-        setTools(res.tools ?? [])
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        setLoading(false)
-      }
-    }
-  }
+  const toolsQuery = usePluginMcpTools(pluginId, server.name, { enabled: open })
+  const tools = toolsQuery.data ?? null
+  const loading = toolsQuery.isFetching && tools == null
+  const error = toolsQuery.error?.message ?? null
+  const openDialog = () => setOpen(true)
 
   const meta =
     server.transport === "http"
@@ -1258,43 +1168,28 @@ function MarketMcpRow({ server, logoUrl, brand }: { server: OperonMarketplaceMcp
   )
 }
 
-// One skill row: clicking opens a dialog rendering its SKILL.md. The fetcher differs for installed
-// plugins (read from the store) vs marketplace entries (read from the cached repo).
+// One skill row: clicking opens a dialog rendering its SKILL.md, read from an installed plugin's
+// store or a marketplace entry's cached repo (`origin`).
 function SkillRow({
   skill,
   logoUrl,
   brand,
   conflict = false,
-  fetchContent,
+  origin,
 }: {
   skill: string
   logoUrl?: string
   brand?: string
   /** Another skill already owns this name, so agents don't see this one. */
   conflict?: boolean
-  fetchContent: () => Promise<{ content?: string; error?: string }>
+  origin: SkillOrigin
 }) {
   const [open, setOpen] = useState(false)
-  const [content, setContent] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const openDialog = async () => {
-    setOpen(true)
-    if (content === null && !loading) {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await fetchContent()
-        if (res.error) throw new Error(res.error)
-        setContent(res.content ?? "")
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        setLoading(false)
-      }
-    }
-  }
+  const contentQuery = usePluginSkillContent(origin, skill, { enabled: open })
+  const content = contentQuery.data ?? null
+  const loading = contentQuery.isFetching && content == null
+  const error = contentQuery.error?.message ?? null
+  const openDialog = () => setOpen(true)
 
   return (
     <>

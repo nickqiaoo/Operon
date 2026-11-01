@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react"
 import { useIntl } from "react-intl"
 import { CalendarClock, ExternalLink, Play, RefreshCw } from "lucide-react"
 import type { CronjobExecutionHistoryItem, CronjobTask } from "@/types/cronjob"
-import { api } from "@/lib/api"
+import { useCronjobHistory } from "@/lib/cronjob-queries"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,15 +15,9 @@ interface CronjobHistoryPanelProps {
 
 export function CronjobHistoryPanel({ job, onOpenChat }: CronjobHistoryPanelProps) {
   const intl = useIntl()
-  const [history, setHistory] = useState<CronjobExecutionHistoryItem[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    setLoading(true)
-    api.cronjobHistory(job.id)
-      .then((res) => setHistory(res.history))
-      .finally(() => setLoading(false))
-  }, [job.id])
+  const historyQuery = useCronjobHistory(job.id)
+  const history = historyQuery.data ?? []
+  const loading = historyQuery.isPending
 
   const handleOpenChat = (item: CronjobExecutionHistoryItem) => {
     if (!item.chatId) return
@@ -80,7 +73,7 @@ export function CronjobHistoryPanel({ job, onOpenChat }: CronjobHistoryPanelProp
         {/* History List */}
         <div className="flex items-center justify-between px-8 py-4">
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 ml-1">{intl.formatMessage({ id: "cronjob.history.executionHistory", defaultMessage: "Execution History" })}</div>
-          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 rounded-full hover:bg-background shadow-none hover:shadow-card transition-all" onClick={() => void api.cronjobHistory(job.id).then(res => setHistory(res.history))}>
+          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 rounded-full hover:bg-background shadow-none hover:shadow-card transition-all" onClick={() => void historyQuery.refetch()}>
             <RefreshCw className="h-3 w-3" /> {intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
           </Button>
         </div>

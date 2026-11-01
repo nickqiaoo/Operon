@@ -5,7 +5,8 @@ import { ArrowLeft, ChevronRight, Play, RefreshCw, ListChecks, X, Loader2, Penci
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
-import type { CanvasWorkflowListItem } from "@/types/canvas-workflow"
+import { invalidateCanvasWorkflowList, patchCanvasWorkflowList, useCanvasWorkflows } from "@/lib/canvas-workflow-queries"
+import { useProviders } from "@/lib/provider-queries"
 import { WorkflowLibrary } from "./WorkflowLibrary"
 import { NodePalette } from "./NodePalette"
 import { CanvasEditor } from "./CanvasEditor"
@@ -32,11 +33,7 @@ function homeWorkspaceId(project: Project): number | undefined {
   return (project.workspaces.find((w) => w.worktreePath === project.rootPath) ?? project.workspaces[0])?.id
 }
 
-interface ProviderInfo {
-  id: string
-  label: string
-  logo: string
-}
+const NO_PROVIDERS: { id: string; label: string; logo: string }[] = []
 
 type RightPanel = "none" | "config" | "results" | "preview"
 
@@ -44,11 +41,14 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
   const intl = useIntl()
   const projects = useProjectStore((s) => s.projects)
   const [projectFilter, setProjectFilter] = useProjectFilter("operon.workflowProjectFilter")
-  const [allWorkflows, setWorkflows] = useState<CanvasWorkflowListItem[]>([])
+  // Every workspace's: the page is one place for all of them, filtered by project here.
+  const workflowsQuery = useCanvasWorkflows()
+  const allWorkflows = workflowsQuery.workflows
+  const providersQuery = useProviders()
+  const providers = providersQuery.data ?? NO_PROVIDERS
+  const loading = workflowsQuery.isPending
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | undefined>()
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [loading, setLoading] = useState(true)
   const [rightPanel, setRightPanel] = useState<RightPanel>("none")
   const [previewChatId, setPreviewChatId] = useState<number | null>(null)
   const [isRenamingWorkflow, setIsRenamingWorkflow] = useState(false)
@@ -61,21 +61,12 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
   const canvasState = useCanvasWorkflow(selectedWorkflowId)
   const execution = useCanvasExecution(canvasState.workflow?.id)
 
-  // Load data
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [wfRes, provRes] = await Promise.all([
-        // Every workspace's: the page is one place for all of them, filtered by project here.
-        api.canvasWorkflowList(),
-        api.getProviders(),
-      ])
-      setWorkflows(wfRes.workflows)
-      setProviders(provRes)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const { refetch: refetchWorkflows } = workflowsQuery
+  const { refetch: refetchProviders } = providersQuery
+  const refresh = useCallback(() => {
+    void refetchWorkflows()
+    void refetchProviders()
+  }, [refetchWorkflows, refetchProviders])
 
   // Each workflow runs in a workspace; which project and workspace that is, by id.
   const workspaceOwners = useMemo(() => {
@@ -92,10 +83,6 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
         : allWorkflows.filter((wf) => wf.workspaceId != null && workspaceOwners.get(wf.workspaceId)?.project.id === projectFilter),
     [allWorkflows, projectFilter, workspaceOwners],
   )
-
-  useEffect(() => {
-    void loadData()
-  }, [loadData])
 
   // No auto-select: the page opens on the library. Picking workflows[0] for the
   // user hid both the rest of the list and the workspace it was filtered to.
@@ -168,13 +155,13 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
       nodes: [],
       edges: [],
     })
-    setWorkflows((prev) => [workflow, ...prev])
+    patchCanvasWorkflowList((prev) => [workflow, ...prev])
     setSelectedWorkflowId(workflow.id)
   }, [projects, intl])
 
   const handleDeleteWorkflow = useCallback(async (id: number) => {
     await api.canvasWorkflowDelete(id)
-    setWorkflows((prev) => prev.filter((w) => w.id !== id))
+    patchCanvasWorkflowList((prev) => prev.filter((w) => w.id !== id))
     if (selectedWorkflowId === id) {
       setSelectedWorkflowId(undefined)
     }
@@ -182,15 +169,15 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
 
   /**
    * Back to the library. Re-lists on the way out so the row that was just
-   * edited shows its new name, node count and run — the list is a snapshot
-   * taken on mount, and the editor is exactly what invalidates it.
+   * edited shows its new name, node count and run — the editor is exactly
+   * what makes the cached list stale.
    */
   const handleBackToLibrary = useCallback(() => {
     setSelectedWorkflowId(undefined)
     setSelectedNodeId(null)
     setRightPanel("none")
-    void loadData()
-  }, [loadData])
+    void invalidateCanvasWorkflowList()
+  }, [])
 
   const handleExecute = useCallback(async () => {
     await canvasState.save()
@@ -294,7 +281,7 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
       const { workflow: updated } = await api.canvasWorkflowUpdate(canvasState.workflow.id, { name: nextName })
       if (updated) {
         canvasState.setWorkflow(updated)
-        setWorkflows((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+        patchCanvasWorkflowList((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
         setWorkflowNameDraft(updated.name)
       }
     } catch {
@@ -387,7 +374,7 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => void loadData()}
+            onClick={refresh}
             title={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
           >
             <RefreshCw className="h-4 w-4" />
@@ -506,6 +493,7 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
                   onCreateSessionNode={canvasState.addSessionNode}
                   hasSessionChild={canvasState.hasSessionChild}
                   onInit={canvasState.setReactFlowInstance}
+                  containerRef={canvasState.flowContainerRef}
                   onDeleteNodes={canvasState.deleteNodes}
                   onDuplicateNodes={canvasState.duplicateNodes}
                   onAddNodeAtPosition={canvasState.addNodeAtPosition}

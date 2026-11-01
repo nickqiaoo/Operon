@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { ArrowLeft, CalendarClock, Plus, RefreshCw } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { api } from "@/lib/api"
+import { useCronjobActions, useCronjobs } from "@/lib/cronjob-queries"
+import { useProviders, type ProviderSummary } from "@/lib/provider-queries"
 import { cn } from "@/lib/utils"
 import type { CronjobTask, CronjobUpsertInput } from "@/types/cronjob"
 import { useProjectStore } from "@/stores/project-store"
 import { CronjobListItem } from "@/components/cronjob/CronjobListItem"
 import { CronjobEditorDialog } from "@/components/cronjob/CronjobEditorDialog"
 import { CronjobHistoryPanel } from "@/components/cronjob/CronjobHistoryPanel"
-import { toUpsertInput, type ProviderInfo } from "@/components/cronjob/cronjobUtils"
 import { MobileSheet } from "./MobileSheet"
+
+const NO_CRONJOBS: CronjobTask[] = []
+const NO_PROVIDERS: ProviderSummary[] = []
 
 interface MobileCronjobScreenProps {
   onBack: () => void
@@ -28,28 +31,20 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
 
-  const [cronjobs, setCronjobs] = useState<CronjobTask[]>([])
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [loading, setLoading] = useState(true)
+  const cronjobsQuery = useCronjobs()
+  const providersQuery = useProviders()
+  const cronjobs = cronjobsQuery.data ?? NO_CRONJOBS
+  const providers = providersQuery.data ?? NO_PROVIDERS
+  const loading = cronjobsQuery.isPending
+  const { create, update, remove, setEnabled, run, runningIds } = useCronjobActions()
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<CronjobTask | null>(null)
-  const [runningIds, setRunningIds] = useState<Set<number>>(new Set())
   const [historyJob, setHistoryJob] = useState<CronjobTask | null>(null)
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const [cronjobRes, providerRes] = await Promise.all([api.cronjobList(), api.getProviders()])
-      setCronjobs(cronjobRes.cronjobs)
-      setProviders(providerRes)
-    } finally {
-      setLoading(false)
-    }
+  const refresh = () => {
+    void cronjobsQuery.refetch()
+    void providersQuery.refetch()
   }
-
-  useEffect(() => {
-    void loadData()
-  }, [])
 
   const sorted = useMemo(
     () =>
@@ -60,44 +55,22 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
   )
 
   const handleSave = async (input: CronjobUpsertInput) => {
-    if (editing) {
-      const result = await api.cronjobUpdate(editing.id, input)
-      setCronjobs((prev) => prev.map((j) => (j.id === editing.id ? result.cronjob : j)))
-    } else {
-      const result = await api.cronjobCreate(input)
-      setCronjobs((prev) => [result.cronjob, ...prev])
-    }
+    if (editing) await update(editing.id, input)
+    else await create(input)
     setEditorOpen(false)
     setEditing(null)
   }
 
   const handleDelete = async (job: CronjobTask) => {
     if (!window.confirm(intl.formatMessage({ id: "mobile.cron.deleteConfirm", defaultMessage: 'Delete schedule "{name}"?' }, { name: job.name }))) return
-    await api.cronjobDelete(job.id)
-    setCronjobs((prev) => prev.filter((j) => j.id !== job.id))
+    await remove(job.id)
   }
 
   const handleToggle = async (job: CronjobTask, enabled: boolean) => {
-    const result = await api.cronjobUpdate(job.id, { ...toUpsertInput(job), enabled })
-    setCronjobs((prev) => prev.map((j) => (j.id === job.id ? result.cronjob : j)))
+    await setEnabled(job, enabled)
   }
 
-  const handleRun = async (job: CronjobTask) => {
-    setRunningIds((prev) => new Set(prev).add(job.id))
-    try {
-      const result = await api.cronjobRun(job.id)
-      if (result.cronjob) {
-        const updated = result.cronjob
-        setCronjobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)))
-      }
-    } finally {
-      setRunningIds((prev) => {
-        const next = new Set(prev)
-        next.delete(job.id)
-        return next
-      })
-    }
-  }
+  const handleRun = (job: CronjobTask) => run(job)
 
   return (
     <div
@@ -119,11 +92,11 @@ export function MobileCronjobScreen({ onBack }: MobileCronjobScreenProps) {
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            onClick={() => void loadData()}
+            onClick={refresh}
             className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover"
             aria-label={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}
           >
-            <RefreshCw className={cn("size-4", loading && "animate-spin")} />
+            <RefreshCw className={cn("size-4", cronjobsQuery.isFetching && "animate-spin")} />
           </button>
           <button
             type="button"

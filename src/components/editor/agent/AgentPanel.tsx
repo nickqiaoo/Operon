@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ChevronRight,
@@ -32,6 +32,7 @@ import { openExternalUrl } from '@/lib/open-external'
 import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
 import { api } from '@/lib/api'
 import { useGitStatus } from '@/lib/git-queries'
+import { useAgentSessionState, type SessionResource } from '@/lib/agent-session-queries'
 import { useEditorStore } from '@/stores/editor-store'
 import { hasNativeTabBar } from '@/lib/native'
 import { useBackHandler } from '@/hooks/useAndroidBackButton'
@@ -185,22 +186,15 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
   // Fetching lives up here rather than per-section so the summary strip, the
   // single refresh control and the no-session check all see the same data.
   const fullSessionInspector = providerId === 'custom'
-  const live = open && chatId != null
   const id = chatId ?? -1
+  // Remounts per-session section state (an expanded server, a pending toggle) on switch.
   const sessionKey = `${providerId ?? 'none'}:${id}`
-  const mcp = usePolled(live, sessionKey, LIVE_POLL_MS, () => agent.mcpList(id))
-  const tasks = usePolled(live && fullSessionInspector, sessionKey, LIVE_POLL_MS, () => agent.tasksList(id))
-  const subagents = usePolled(live && fullSessionInspector, sessionKey, LIVE_POLL_MS, () => agent.subagentsList(id))
-  const skills = usePolled(live && fullSessionInspector, sessionKey, 0, () => agent.skillsList(id))
-  const cron = usePolled(live && fullSessionInspector, sessionKey, 0, () => agent.cronList(id))
-  const extensions = usePolled(live && fullSessionInspector, sessionKey, 0, () => agent.extensionsList(id))
-  // The roster changes on its own (teammates wake, finish, park) — live poll.
-  const peers = usePolled(live && fullSessionInspector, sessionKey, LIVE_POLL_MS, () => agent.peersList(id))
-  // Plugins are global (Settings → Operon), not per-session — chat-less route.
-  const plugins = usePolled(open && fullSessionInspector, providerId, 0, async () => {
-    const res = await api.pluginsList()
-    if (res.error) throw new Error(res.error)
-    return res.plugins ?? []
+  const { mcp, tasks, subagents, skills, cron, extensions, peers, plugins } = useAgentSessionState({
+    providerId,
+    chatId,
+    open,
+    fullInspector: fullSessionInspector,
+    pollMs: LIVE_POLL_MS,
   })
 
   const servers = mcp.data?.servers ?? []
@@ -423,71 +417,7 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
   )
 })
 
-// ── data hook ────────────────────────────────────────────────────────────────
-interface Resource<T> {
-  data: T | null
-  loading: boolean
-  error: string | null
-  /** True once a fetch has finished, success or not — lets us tell "empty" from "not loaded yet". */
-  settled: boolean
-  reload: () => void
-}
-
-/**
- * Load `fetcher` when `enabled`, then re-poll every `intervalMs` (0 = never).
- * Poll ticks are silent — they don't flip `loading`, so nothing flickers or
- * disables under you — and the last good data survives a failed poll.
- */
-function usePolled<T>(
-  enabled: boolean,
-  resetKey: unknown,
-  intervalMs: number,
-  fetcher: () => Promise<T>,
-): Resource<T> {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [settled, setSettled] = useState(false)
-  // Keep the latest fetcher without making it a reload dependency.
-  const fetcherRef = useRef(fetcher)
-  fetcherRef.current = fetcher
-  const inFlight = useRef(false)
-
-  const run = useCallback(async (silent: boolean) => {
-    if (inFlight.current) return
-    inFlight.current = true
-    if (!silent) setLoading(true)
-    try {
-      setData(await fetcherRef.current())
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSettled(true)
-      setLoading(false)
-      inFlight.current = false
-    }
-  }, [])
-
-  const reload = useCallback(() => {
-    void run(false)
-  }, [run])
-
-  useEffect(() => {
-    if (!enabled) return
-    setSettled(false)
-    void run(false)
-    if (intervalMs <= 0) return
-    const timer = setInterval(() => {
-      // Don't burn requests while the window is in the background.
-      if (document.visibilityState === 'hidden') return
-      void run(true)
-    }, intervalMs)
-    return () => clearInterval(timer)
-  }, [enabled, resetKey, intervalMs, run])
-
-  return { data, loading, error, settled, reload }
-}
+type Resource<T> = SessionResource<T>
 
 // ── primitives ───────────────────────────────────────────────────────────────
 function IconButton({
@@ -1108,7 +1038,7 @@ function TaskRow({ chatId, task, onChanged }: { chatId: number; task: OperonBack
   }
 
   return (
-    <div className={cn(ROW, 'transition-colors hover:bg-muted/20')}>
+    <div className={cn(ROW, 'transition-colors hover:bg-row-hover')}>
       <div className="flex items-center gap-2">
         <RowDot className={TASK_DOT[task.status]} />
         <button className="min-w-0 flex-1 truncate text-left text-foreground/85" onClick={toggleOutput}>

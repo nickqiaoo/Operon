@@ -13,10 +13,7 @@ import { useTabsStore } from "@/stores/tabs-store"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { browserScopeChatId } from "@/stores/browser-scope-store"
 import { useEditorStore } from "@/stores/editor-store"
-import {
-  providerSupportsSideChat,
-  useProviderCapabilityStore,
-} from "@/stores/provider-capability-store"
+import { providerSupportsSideChat, useProviderSupportsSideChat } from "@/lib/provider-queries"
 import { openSideChat } from "@/lib/side-chat"
 import type { PanelId, Tab, TabType } from "./types"
 
@@ -312,12 +309,17 @@ export function useNewTab(panelId: PanelId) {
     const tab = s.tabs.find((t) => t.id === s.activeTabId)
     return tab?.type === "chat" && !tab.isSideChat ? (tab.chatId ?? null) : null
   })
-  const sideChatProviders = useProviderCapabilityStore((s) => s.byProvider)
+  const sideChatProviderId = useEditorStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    return tab?.type === "chat" ? tab.providerId : undefined
+  })
+  // Subscribed so the entry appears once the provider's catalog loads.
+  const sideChatSupported = useProviderSupportsSideChat(sideChatProviderId)
 
   const ordered = useMemo(
     () => availableEntries(panelId),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [panelId, sideChatSource, sideChatProviders]
+    [panelId, sideChatSource, sideChatSupported]
   )
 
   const openEntry = useCallback(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl';
 import { BotIcon, CircleDashedIcon } from 'lucide-react';
 import {
@@ -16,8 +16,7 @@ import { CompactToolCall } from './compact-tool/CompactToolCall';
 import type { ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
 import type { PermissionOutcome } from './permission-utils';
-import type { SubagentTranscript } from '@shared/background-tasks';
-import { api } from '@/lib/api';
+import { useSubagentTranscript } from '@/lib/chat-queries';
 import { useBackgroundTask } from '@/stores/chat-background-task-store';
 import { useChatDbId } from './chat-db-id-context';
 
@@ -53,36 +52,6 @@ function getTaskDescription(toolPart: ToolInvocationPart, intl: IntlShape): stri
   if (rawInput.description) return rawInput.description;
   if (rawInput.subagent_type) return intl.formatMessage({ id: 'editor.subagent.runningType', defaultMessage: 'Running {type} agent' }, { type: rawInput.subagent_type });
   return intl.formatMessage({ id: 'editor.subagent.running', defaultMessage: 'Running agent...' });
-}
-
-/**
- * A background sub-agent's steps, read from its transcript. Its steps never reach
- * the chat's messages — it keeps working after the turn that launched it has
- * ended — so this is the card's only source for them. Re-read whenever
- * `refreshKey` changes (the agent made another call, or finished).
- */
-function useSubagentTranscript(
-  chatId: number | undefined,
-  toolUseId: string | undefined,
-  enabled: boolean,
-  refreshKey: string,
-): SubagentTranscript | undefined {
-  const [transcript, setTranscript] = useState<SubagentTranscript>();
-  useEffect(() => {
-    if (!enabled || chatId == null || !toolUseId) return;
-    let cancelled = false;
-    api.aiSubagentTranscript(chatId, toolUseId)
-      .then((result) => {
-        if (!cancelled && !result.error) setTranscript({ steps: result.steps, finished: result.finished });
-      })
-      .catch(() => {
-        // Not written yet, or the server is gone; the next refresh tries again.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [chatId, toolUseId, enabled, refreshKey]);
-  return transcript;
 }
 
 export function SubAgentRenderer({

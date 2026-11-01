@@ -28,6 +28,8 @@ import {
   CodeBlockTitle,
 } from '@/components/ui/code-block';
 import { api, type WorkflowRunView, type WorkflowAgentView } from '@/lib/api';
+import { useProviders } from '@/lib/provider-queries';
+import { invalidateWorkflowAgentChunks, useWorkflowAgentChunks, useWorkflowRunScript } from '@/lib/workflow-run-queries';
 import {
   AgentStreamView,
   INITIAL_AGENT_STREAM_STATE,
@@ -47,6 +49,7 @@ import { ProviderIcon, ProviderLabel } from '@/components/icons/ProviderLabel';
 import { StructuredValue } from './StructuredValue';
 import { splitTrailingJson } from '@shared/json-reply';
 import { useEditorStore } from '@/stores/editor-store';
+import { formatDuration } from '@/lib/format';
 
 /**
  * One workflow run, rendered for the panel — where there is actual room.
@@ -63,14 +66,6 @@ import { useEditorStore } from '@/stores/editor-store';
  * result is shown here too — it used to exist only in the conversation the run
  * reported back to.
  */
-
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m${String(Math.floor(s % 60)).padStart(2, '0')}s`;
-}
 
 function AgentStateIcon({ state }: { state: WorkflowAgentView['state'] }) {
   if (state === 'done') return <CheckIcon className="h-3.5 w-3.5 shrink-0 text-status-ok" />;
@@ -183,31 +178,10 @@ function InlineStats({
 /** The script the run was launched with — fetched only when opened. */
 function ScriptSection({ runId }: { runId: string }) {
   const [open, setOpen] = useState(false);
-  const [script, setScript] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!open || script != null) return;
-    let cancelled = false;
-    setLoading(true);
-    void api
-      .aiWorkflowScript(runId)
-      .then((res) => {
-        if (!cancelled) setScript(res.script ?? '');
-      })
-      .catch(() => {
-        if (!cancelled) setScript('');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `script` is deliberately out of the deps: it is what this effect sets, and
-    // including it would re-run the effect, cancel it, and strand `loading` on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, runId]);
+  const scriptQuery = useWorkflowRunScript(runId, { enabled: open });
+  // A failed read shows "no longer stored", same as an empty answer.
+  const script = scriptQuery.isError ? '' : scriptQuery.data ?? null;
+  const loading = scriptQuery.isFetching && script == null;
 
   const lines = script ? script.split('\n').length : 0;
 
@@ -320,47 +294,24 @@ export function AgentRow({
   // through the SAME reducer the live stream uses, so there is only ever one
   // rendering of an agent's work. Fetched on expand — a run can have many agents
   // and their transcripts are the bulk of it.
-  const [replay, setReplay] = useState<{ state: AgentStreamState; truncated: boolean } | null>(null);
-  const [loading, setLoading] = useState(false);
-  // Only inputs that stay put for the lifetime of the request may gate this. It
-  // used to also depend on `loading`/`replay`, which the effect itself sets — so
-  // starting the fetch immediately re-ran the effect, the cleanup marked it
-  // cancelled, and `finally` then skipped `setLoading(false)`: the row sat on
-  // "loading transcript…" forever even though the response had arrived.
   const wantsReplay = open && !stream && runId != null;
   // Without a live stream, a running agent's transcript is re-read every few
   // seconds (and right after a message is sent), so the row keeps up with it.
-  const [refresh, setRefresh] = useState(0);
-  const polling = wantsReplay && agent.state === 'running';
-  useEffect(() => {
-    if (!polling) return;
-    const timer = setInterval(() => setRefresh((n) => n + 1), 3000);
-    return () => clearInterval(timer);
-  }, [polling]);
-  useEffect(() => {
-    if (!wantsReplay || runId == null) return;
-    let cancelled = false;
-    setLoading(true);
-    void api
-      .aiWorkflowAgentChunks(runId, agent.index)
-      .then(({ chunks, truncated }) => {
-        if (cancelled) return;
-        const state = chunks.reduce<AgentStreamState>(
-          (acc, chunk) => reduceAgentChunk(acc, chunk as Record<string, unknown>),
-          INITIAL_AGENT_STREAM_STATE,
-        );
-        setReplay({ state, truncated });
-      })
-      .catch(() => {
-        if (!cancelled) setReplay({ state: INITIAL_AGENT_STREAM_STATE, truncated: false });
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [wantsReplay, runId, agent.index, refresh]);
+  const chunksQuery = useWorkflowAgentChunks(runId, agent.index, {
+    enabled: wantsReplay,
+    running: agent.state === 'running',
+  });
+  const replay = useMemo<{ state: AgentStreamState; truncated: boolean } | null>(() => {
+    // A failed read renders as an empty transcript rather than spinning forever.
+    if (chunksQuery.isError) return { state: INITIAL_AGENT_STREAM_STATE, truncated: false };
+    if (!chunksQuery.data) return null;
+    const state = chunksQuery.data.chunks.reduce<AgentStreamState>(
+      (acc, chunk) => reduceAgentChunk(acc, chunk as Record<string, unknown>),
+      INITIAL_AGENT_STREAM_STATE,
+    );
+    return { state, truncated: chunksQuery.data.truncated };
+  }, [chunksQuery.data, chunksQuery.isError]);
+  const loading = chunksQuery.isFetching;
   // The latest one: a handoff to another provider starts a new chat.
   const chatId = agent.chatIds?.at(-1);
   const elapsed =
@@ -445,7 +396,7 @@ export function AgentRow({
               runId={runId}
               index={agent.index}
               current={agent.agentType}
-              onSent={() => setRefresh((n) => n + 1)}
+              onSent={() => { if (runId != null) void invalidateWorkflowAgentChunks(runId, agent.index) }}
             />
           )}
         </div>
@@ -890,26 +841,12 @@ export function WorkflowRunDetail({
 }
 
 type HandoffProvider = { id: string; label: string };
-let handoffProviders: Promise<HandoffProvider[]> | null = null;
 
-/** The agents a running one can be handed to — fetched once, shared by every row. */
+/** The agents a running one can be handed to — one cached query shared by every row. */
 function useHandoffProviders(): HandoffProvider[] {
-  const [list, setList] = useState<HandoffProvider[]>([]);
-  useEffect(() => {
-    let active = true;
-    handoffProviders ??= api
-      .getProviders()
-      .then((all) => all.filter((p) => p.available).map(({ id, label }) => ({ id, label })))
-      .catch(() => {
-        handoffProviders = null;
-        return [];
-      });
-    void handoffProviders.then((next) => {
-      if (active) setList(next);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-  return list;
+  const { data } = useProviders();
+  return useMemo(
+    () => (data ?? []).filter((p) => p.available).map(({ id, label }) => ({ id, label })),
+    [data],
+  );
 }

@@ -1,24 +1,24 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { FormattedMessage } from "react-intl"
 import { Bot, Settings2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useChannelStore } from "@/stores/channel-store"
 import { AgentManageDialog } from "@/components/channel/AgentManageDialog"
-import { api } from "@/lib/api"
+import { useProviders } from "@/lib/provider-queries"
 import { SettingsSection } from "./SettingsSection"
 
 export function AgentSettings() {
   const agents = useChannelStore((s) => s.agents)
   const loadAgents = useChannelStore((s) => s.loadAgents)
   const [open, setOpen] = useState(false)
-  const [providers, setProviders] = useState<{ id: string; label: string }[]>([])
+  const { data: providerList } = useProviders()
+  const providers = useMemo(
+    () => (providerList ?? []).map((p) => ({ id: p.id, label: p.label })),
+    [providerList],
+  )
 
   useEffect(() => {
     void loadAgents()
-    void api
-      .getProviders()
-      .then((list) => setProviders(list.map((p) => ({ id: p.id, label: p.label }))))
-      .catch(() => setProviders([]))
   }, [loadAgents])
 
   const previewNames = agents.slice(0, 3).map((a) => a.name).join(", ")

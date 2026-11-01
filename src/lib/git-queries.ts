@@ -34,6 +34,8 @@ export const gitKeys = {
   changedFiles: (root: string, ref: string) => ['git', root, 'changed-files', ref] as const,
   prRepoStatus: (root: string) => ['git', root, 'pr-repo-status'] as const,
   prForBranch: (root: string, branch: string) => ['git', root, 'pr-for-branch', branch] as const,
+  // One file's working-tree diff as the phone renders it; `variant` folds in the index/worktree codes.
+  fileDiff: (root: string, path: string, variant: string) => ['git', root, 'file-diff', path, variant] as const,
 }
 
 /**

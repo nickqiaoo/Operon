@@ -1,19 +1,13 @@
-import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ProviderLabel } from '@/components/icons/ProviderLabel'
-import { api } from '@/lib/api'
+import { useProviderModelOptions } from '@/lib/provider-queries'
 import { cn } from '@/lib/utils'
 import type { SpecSeat } from '@shared/spec'
 
 /** Radix Select reserves the empty value; these stand for "automatic" and "the agent's own default model". */
 const AUTO = '__auto__'
 const DEFAULT_MODEL = '__default__'
-
-interface ModelOption {
-  modelId: string
-  name: string
-}
 
 /**
  * Which agent plays a seat, and on which model: a provider, then that provider's
@@ -36,24 +30,7 @@ export function SeatPicker({
 }) {
   const intl = useIntl()
   const providerId = value?.providerId
-  const [models, setModels] = useState<ModelOption[] | null>(null)
-
-  useEffect(() => {
-    if (!providerId) return
-    let cancelled = false
-    setModels(null)
-    api
-      .getProviderModels(providerId)
-      .then((result: { models?: ModelOption[] }) => {
-        if (!cancelled) setModels((result?.models ?? []).map((m) => ({ modelId: m.modelId, name: m.name })))
-      })
-      .catch(() => {
-        if (!cancelled) setModels([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [providerId])
+  const models = useProviderModelOptions(providerId)
 
   const modelId = value?.modelId ?? ''
   // A model that is no longer offered still shows, so the choice stays visible.

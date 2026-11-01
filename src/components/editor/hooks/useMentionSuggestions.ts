@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useFileMentionDir, useFileMentionSearch } from '@/lib/file-mention-queries';
 import { useProjectStore } from '@/stores/project-store';
 
 export interface FileEntry {
@@ -15,7 +16,7 @@ interface MentionState {
   triggerIndex: number;
 }
 
-const MENTION_SEARCH_LIMIT = 50;
+const NO_ENTRIES: FileEntry[] = [];
 const MENTION_SEARCH_DEBOUNCE_MS = 120;
 
 const normalizeToPosixPath = (value: string) => value.replace(/\\/g, '/');
@@ -26,12 +27,7 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
     query: '',
     triggerIndex: -1,
   });
-  const [suggestions, setSuggestions] = useState<FileEntry[]>([]);
-  const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const directoryCacheRef = useRef<Map<string, FileEntry[]>>(new Map());
-  const searchCacheRef = useRef<Map<string, FileEntry[]>>(new Map());
 
   // Subscribe reactively to project store so we get the path after persistence loads
   const workspacePath = useProjectStore((state) => {
@@ -55,7 +51,6 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
     if (lastAtIndex === -1) {
       if (mentionState.isOpen) {
         setMentionState({ isOpen: false, query: '', triggerIndex: -1 });
-        setSuggestions([]);
       }
       return;
     }
@@ -64,7 +59,6 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
     if (lastAtIndex > 0 && !/\s/.test(input[lastAtIndex - 1])) {
       if (mentionState.isOpen) {
         setMentionState({ isOpen: false, query: '', triggerIndex: -1 });
-        setSuggestions([]);
       }
       return;
     }
@@ -76,7 +70,6 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
     if (/\s/.test(query)) {
       if (mentionState.isOpen) {
         setMentionState({ isOpen: false, query: '', triggerIndex: -1 });
-        setSuggestions([]);
       }
       return;
     }
@@ -85,92 +78,27 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
     setSelectedIndex(0);
   }, [input, cursorPos]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch suggestions when query changes
-  useEffect(() => {
-    if (!mentionState.isOpen) {
-      setLoading(false);
-      return;
-    }
+  // Debounce typing (not the bare "@", which lists the root at once), then read
+  // from the shared query cache: a fuzzy search for a plain word, a directory
+  // listing once the query names a folder.
+  const trimmedQuery = mentionState.query.trim();
+  const query = useDebouncedValue(trimmedQuery, trimmedQuery.length > 0 ? MENTION_SEARCH_DEBOUNCE_MS : 0);
+  const active = mentionState.isOpen && !!workspacePath;
+  const useGlobalSearch = query.length > 0 && !query.includes('/');
+  const { dirPath, filter } = resolveDirectoryQuery(workspacePath ?? '', query);
+  const searchQuery = useFileMentionSearch(workspacePath, query, { enabled: active && useGlobalSearch });
+  const dirQuery = useFileMentionDir(workspacePath, dirPath, { enabled: active && !useGlobalSearch });
+  const activeQuery = useGlobalSearch ? searchQuery : dirQuery;
 
-    if (!workspacePath) {
-      setSuggestions([]);
-      setLoading(false);
-      return;
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    const query = mentionState.query.trim();
-    const shouldUseGlobalSearch = query.length > 0 && !query.includes('/');
-    const runFetch = async () => {
-      setLoading(true);
-
-      if (shouldUseGlobalSearch) {
-        const searchCacheKey = `${workspacePath}::${query.toLowerCase()}`;
-        const cached = searchCacheRef.current.get(searchCacheKey);
-        if (cached) {
-          if (!controller.signal.aborted) {
-            setSuggestions(cached);
-            setLoading(false);
-          }
-          return;
-        }
-
-        try {
-          const entries = await api.findPaths(workspacePath, query, MENTION_SEARCH_LIMIT);
-          if (controller.signal.aborted) return;
-          searchCacheRef.current.set(searchCacheKey, entries);
-          setSuggestions(entries);
-        } catch {
-          if (controller.signal.aborted) return;
-          setSuggestions([]);
-        } finally {
-          if (!controller.signal.aborted) setLoading(false);
-        }
-        return;
-      }
-
-      const { dirPath, filter } = resolveDirectoryQuery(workspacePath, query);
-      const cached = directoryCacheRef.current.get(dirPath);
-      if (cached) {
-        if (!controller.signal.aborted) {
-          setSuggestions(filterEntries(cached, filter));
-          setLoading(false);
-        }
-        return;
-      }
-
-      try {
-        const entries = await api.readDir(dirPath);
-        if (controller.signal.aborted) return;
-        directoryCacheRef.current.set(dirPath, entries);
-        setSuggestions(filterEntries(entries, filter));
-      } catch {
-        if (controller.signal.aborted) return;
-        setSuggestions([]);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    };
-
-    const timerId = window.setTimeout(
-      () => {
-        void runFetch();
-      },
-      query.length > 0 ? MENTION_SEARCH_DEBOUNCE_MS : 0
-    );
-
-    return () => {
-      window.clearTimeout(timerId);
-      controller.abort();
-    };
-  }, [mentionState.isOpen, mentionState.query, workspacePath]);
+  const suggestions = useMemo<FileEntry[]>(() => {
+    if (!active) return NO_ENTRIES;
+    if (useGlobalSearch) return searchQuery.data ?? NO_ENTRIES;
+    return dirQuery.data ? filterEntries(dirQuery.data, filter) : NO_ENTRIES;
+  }, [active, useGlobalSearch, searchQuery.data, dirQuery.data, filter]);
+  const loading = active && activeQuery.isFetching;
 
   const dismiss = useCallback(() => {
     setMentionState({ isOpen: false, query: '', triggerIndex: -1 });
-    setSuggestions([]);
   }, []);
 
   const moveUp = useCallback(() => {

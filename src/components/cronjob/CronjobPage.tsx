@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useIntl } from "react-intl"
 import { ArrowLeft, CalendarClock, Plus, RefreshCw } from "lucide-react"
 import type { CronjobTask, CronjobUpsertInput } from "@/types/cronjob"
-import { api } from "@/lib/api"
-import { consumePendingCronjobId } from "@/lib/open-settings"
+import { useCronjobActions, useCronjobs } from "@/lib/cronjob-queries"
+import { useProviders, type ProviderSummary } from "@/lib/provider-queries"
 import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -11,42 +11,42 @@ import { useProjectStore } from "@/stores/project-store"
 import { CronjobListItem } from "./CronjobListItem"
 import { CronjobHistoryPanel } from "./CronjobHistoryPanel"
 import { CronjobEditorDialog } from "./CronjobEditorDialog"
-import { toUpsertInput, type ProviderInfo } from "./cronjobUtils"
+
+const NO_CRONJOBS: CronjobTask[] = []
+const NO_PROVIDERS: ProviderSummary[] = []
 
 interface CronjobPageProps {
+  /** The navigation entry that opened (or re-raised) this page. */
+  request?: { cronjobId?: number }
   onBack: () => void
   onOpenChat: (chatId: number, title: string, providerId?: string) => void
 }
 
-export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
+export function CronjobPage({ request, onBack, onOpenChat }: CronjobPageProps) {
   const intl = useIntl()
-  const [cronjobs, setCronjobs] = useState<CronjobTask[]>([])
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [loading, setLoading] = useState(true)
+  const cronjobsQuery = useCronjobs()
+  const providersQuery = useProviders()
+  const cronjobs = cronjobsQuery.data ?? NO_CRONJOBS
+  const providers = providersQuery.data ?? NO_PROVIDERS
+  const loading = cronjobsQuery.isPending
+  const { create, update, remove, setEnabled, run, runningIds } = useCronjobActions()
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<CronjobTask | null>(null)
-  const [runningIds, setRunningIds] = useState<Set<number>>(new Set())
   // Opened from a chat card: land on the task that card is about.
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(() => consumePendingCronjobId())
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(request?.cronjobId ?? null)
+  const [seenRequest, setSeenRequest] = useState(request)
+  if (request !== seenRequest) {
+    setSeenRequest(request)
+    if (request?.cronjobId != null) setSelectedJobId(request.cronjobId)
+  }
   const projects = useProjectStore((state) => state.projects)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const [cronjobRes, providerRes] = await Promise.all([
-        api.cronjobList(),
-        api.getProviders(),
-      ])
-      setCronjobs(cronjobRes.cronjobs)
-      setProviders(providerRes)
-    } finally {
-      setLoading(false)
-    }
+  const refresh = () => {
+    void cronjobsQuery.refetch()
+    void providersQuery.refetch()
   }
-
-  useEffect(() => { void loadData() }, [])
 
   const sortedCronjobs = useMemo(() =>
     [...cronjobs].sort((a, b) => (a.nextRunAt ?? Number.POSITIVE_INFINITY) - (b.nextRunAt ?? Number.POSITIVE_INFINITY)),
@@ -57,12 +57,10 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
 
   const handleSave = async (input: CronjobUpsertInput) => {
     if (editing) {
-      const result = await api.cronjobUpdate(editing.id, input)
-      setCronjobs((prev) => prev.map((job) => (job.id === editing.id ? result.cronjob : job)))
+      await update(editing.id, input)
     } else {
-      const result = await api.cronjobCreate(input)
-      setCronjobs((prev) => [result.cronjob, ...prev])
-      setSelectedJobId(result.cronjob.id)
+      const created = await create(input)
+      setSelectedJobId(created.id)
     }
     setEditorOpen(false)
     setEditing(null)
@@ -71,31 +69,15 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
   const handleDelete = async (job: CronjobTask) => {
     const confirmed = window.confirm(intl.formatMessage({ id: "cronjob.page.deleteConfirm", defaultMessage: 'Delete schedule "{name}"?' }, { name: job.name }))
     if (!confirmed) return
-    await api.cronjobDelete(job.id)
-    setCronjobs((prev) => prev.filter((item) => item.id !== job.id))
+    await remove(job.id)
     if (selectedJobId === job.id) setSelectedJobId(null)
   }
 
   const handleToggle = async (job: CronjobTask, enabled: boolean) => {
-    const result = await api.cronjobUpdate(job.id, { ...toUpsertInput(job), enabled })
-    setCronjobs((prev) => prev.map((item) => (item.id === job.id ? result.cronjob : item)))
+    await setEnabled(job, enabled)
   }
 
-  const handleRun = async (job: CronjobTask) => {
-    setRunningIds((prev) => new Set(prev).add(job.id))
-    try {
-      const result = await api.cronjobRun(job.id)
-      if (result.cronjob) {
-        setCronjobs((prev) => prev.map((item) => (item.id === job.id ? result.cronjob! : item)))
-      }
-    } finally {
-      setRunningIds((prev) => {
-        const next = new Set(prev)
-        next.delete(job.id)
-        return next
-      })
-    }
-  }
+  const handleRun = (job: CronjobTask) => run(job)
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground">
@@ -110,7 +92,7 @@ export function CronjobPage({ onBack, onOpenChat }: CronjobPageProps) {
           <h1 className="text-sm font-semibold tracking-tight">{intl.formatMessage({ id: "cronjob.page.title", defaultMessage: "Schedules" })}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => void loadData()} title={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={refresh} title={intl.formatMessage({ id: "common.refresh", defaultMessage: "Refresh" })}>
             <RefreshCw className="h-4 w-4" />
           </Button>
           <Button variant="secondary" onClick={() => { setEditing(null); setEditorOpen(true) }} size="sm" className="h-8 gap-1.5">

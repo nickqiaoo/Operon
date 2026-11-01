@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react"
+import { useMemo } from "react"
 import { Loader2 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { api } from "@/lib/api"
-import type { CanvasSubWorkflowNodeData, CanvasWorkflowListItem } from "@/types/canvas-workflow"
+import { useCanvasWorkflows } from "@/lib/canvas-workflow-queries"
+import type { CanvasSubWorkflowNodeData } from "@/types/canvas-workflow"
 import { VARIABLES_HINT, labelClass, selectContentClass, selectTriggerClass } from "./fields"
 import { KeyValueList } from "./KeyValueList"
 
@@ -15,15 +15,12 @@ export function SubWorkflowPanel({
   currentWorkflowId?: number
   onUpdate: (updates: Partial<CanvasSubWorkflowNodeData>) => void
 }) {
-  const [workflows, setWorkflows] = useState<CanvasWorkflowListItem[] | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    api.canvasWorkflowList()
-      .then(({ workflows: list }) => { if (!cancelled) setWorkflows(list.filter((w) => w.id !== currentWorkflowId)) })
-      .catch(() => { if (!cancelled) setWorkflows([]) })
-    return () => { cancelled = true }
-  }, [currentWorkflowId])
+  // The library list the canvas page already holds; null while it first loads.
+  const { workflows: all, isPending } = useCanvasWorkflows()
+  const workflows = useMemo(
+    () => (isPending ? null : all.filter((w) => w.id !== currentWorkflowId)),
+    [isPending, all, currentWorkflowId],
+  )
 
   const select = (value: string) => {
     const id = Number(value)

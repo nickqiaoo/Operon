@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { Edge, Node } from "@xyflow/react"
 import type { CanvasWorkflowRun } from "@/types/canvas-workflow"
 import type { CanvasNode } from "./utils/canvasConversions"
@@ -38,7 +38,8 @@ import { LoopPanel } from "./panels/LoopPanel"
 import { SubWorkflowPanel } from "./panels/SubWorkflowPanel"
 import { ApprovalPanel } from "./panels/ApprovalPanel"
 import { Field, NumberField, TextAreaField } from "./panels/fields"
-import { api } from "@/lib/api"
+import { useCanvasWorkflowCallers } from "@/lib/canvas-workflow-queries"
+import { useProviderModels } from "@/lib/provider-queries"
 
 interface ProviderInfo {
   id: string
@@ -64,26 +65,18 @@ interface NodeConfigPanelProps {
  * The child never declares them, so the only honest source is the callers.
  */
 function useCallerVariables(workflowId: number | undefined): CallerVariable[] {
-  const [callers, setCallers] = useState<CallerVariable[]>([])
-  useEffect(() => {
-    if (!workflowId) { setCallers([]); return }
-    let cancelled = false
-    api.canvasWorkflowCallers(workflowId)
-      .then(({ callers: list }) => {
-        if (cancelled) return
-        const byName = new Map<string, Set<string>>()
-        for (const caller of list) {
-          for (const key of caller.keys) {
-            if (!byName.has(key)) byName.set(key, new Set())
-            byName.get(key)!.add(caller.workflowName)
-          }
-        }
-        setCallers([...byName.entries()].map(([name, from]) => ({ name, from: [...from] })))
-      })
-      .catch(() => { if (!cancelled) setCallers([]) })
-    return () => { cancelled = true }
-  }, [workflowId])
-  return callers
+  const { data: list } = useCanvasWorkflowCallers(workflowId)
+  return useMemo(() => {
+    if (!workflowId || !list) return []
+    const byName = new Map<string, Set<string>>()
+    for (const caller of list) {
+      for (const key of caller.keys) {
+        if (!byName.has(key)) byName.set(key, new Set())
+        byName.get(key)!.add(caller.workflowName)
+      }
+    }
+    return [...byName.entries()].map(([name, from]) => ({ name, from: [...from] }))
+  }, [workflowId, list])
 }
 
 export function NodeConfigPanel({ node, providers, workflowId, nodes, edges, lastRun, onUpdate, onClose }: NodeConfigPanelProps) {
@@ -341,37 +334,17 @@ function AINodeConfig({
   onUpdate: (updates: Partial<CanvasAINodeData>) => void
 }) {
   const [userPrompt, setUserPrompt] = useState(nodeData.userPrompt || "")
-  const [descriptor, setDescriptor] = useState<ProviderDescriptorPartial | null>(null)
-  const [loading, setLoading] = useState(false)
+  // Same cache entry the chat panels read for this provider.
+  const modelsQuery = useProviderModels(nodeData.providerId || undefined)
+  const descriptor = useMemo<ProviderDescriptorPartial | null>(
+    () => (nodeData.providerId && modelsQuery.data ? normalizeDescriptor(modelsQuery.data) : null),
+    [nodeData.providerId, modelsQuery.data],
+  )
+  const loading = !!nodeData.providerId && modelsQuery.isPending
 
   useEffect(() => {
     setUserPrompt(nodeData.userPrompt || "")
   }, [nodeData.userPrompt])
-
-  const fetchDescriptor = useCallback(async (providerId: string) => {
-    if (!providerId) {
-      setDescriptor(null)
-      return
-    }
-    setLoading(true)
-    try {
-      const raw = await api.getProviderModels(providerId)
-      const desc = normalizeDescriptor(raw)
-      setDescriptor(desc)
-    } catch {
-      setDescriptor(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (nodeData.providerId) {
-      fetchDescriptor(nodeData.providerId)
-    } else {
-      setDescriptor(null)
-    }
-  }, [nodeData.providerId, fetchDescriptor])
 
   const handleProviderChange = (providerId: string) => {
     onUpdate({ providerId, modelId: undefined, modeId: undefined })

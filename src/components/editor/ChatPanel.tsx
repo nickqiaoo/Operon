@@ -39,7 +39,7 @@ import { useAttachmentLoader } from './hooks/useAttachmentLoader';
 import { AnnotationTray, annotationToFiles } from './AnnotationTray';
 import { SelectionToolbar, type SelectionAction } from '@/components/ui/selection-toolbar';
 import { openSideChat } from '@/lib/side-chat';
-import { useProviderCapabilityStore } from '@/stores/provider-capability-store';
+import { useProviderSupportsSideChat } from '@/lib/provider-queries';
 import { useAnnotationsStore, annotationsForWorkspace } from '@/stores/annotations-store';
 import { LineCommentTray } from './comments/LineCommentTray';
 import { SelectedTextTray } from './comments/SelectedTextTray';
@@ -227,11 +227,7 @@ function ChatPanelContent({
     return () => observer.disconnect();
   }, []);
   const sideChatProviderId = tab?.providerId ?? providerId;
-  const canOpenSideChat = useProviderCapabilityStore(
-    (state) =>
-      sideChatProviderId != null &&
-      state.byProvider[sideChatProviderId]?.sideChat === true
-  );
+  const canOpenSideChat = useProviderSupportsSideChat(sideChatProviderId);
   const selectionActions = useMemo<SelectionAction[]>(() => {
     const actions: SelectionAction[] = [
       {

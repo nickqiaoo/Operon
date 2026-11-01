@@ -11,7 +11,12 @@ export interface OperonPluginDTO {
   mcpServerCount: number
   enabledMcpServerCount: number
   hasErrors: boolean
+  /** How it was installed: `local-path` | `zip-url` | `github`. */
   source: string
+  /** The install spec the user typed (a path, a URL, `owner/repo`). */
+  originalSource?: string
+  /** Set for a github install — enough to open the repo. */
+  github?: { owner: string; repo: string }
 }
 
 export interface OperonPluginMcpServerDTO {

@@ -3,7 +3,8 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { ChevronRight } from 'lucide-react'
 import { SpecIcon } from '@/components/icons/SpecIcon'
 import { useEditorStore } from '@/stores/editor-store'
-import { SPEC_STARTED_EVENT } from './SpecChatBar'
+import { noteChatSpecShown } from '@/lib/spec-queries'
+import { useChatDbId } from '@/components/editor/components/chat-db-id-context'
 import { SpecStageBadge, useSpecView } from './spec-shared'
 
 /**
@@ -21,9 +22,10 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
   const { spec } = useSpecView(taskId)
   const intl = useIntl()
 
+  const chatId = useChatDbId()
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent(SPEC_STARTED_EVENT, { detail: { taskId } }))
-  }, [taskId])
+    if (chatId != null && chatId > 0) noteChatSpecShown(chatId, taskId)
+  }, [chatId, taskId])
 
   return (
     <button

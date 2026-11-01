@@ -1,81 +1,49 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { api } from "@/lib/api"
 import type { CanvasWorkflowRun } from "@/types/canvas-workflow"
+import {
+  invalidateCanvasWorkflowRuns,
+  isTerminalRun,
+  useCanvasWorkflowRun,
+  useCanvasWorkflowRuns,
+} from "@/lib/canvas-workflow-queries"
+
+const NO_RUNS: CanvasWorkflowRun[] = []
 
 export function useCanvasExecution(workflowId?: number) {
   const [runId, setRunId] = useState<number | null>(null)
-  const [run, setRun] = useState<CanvasWorkflowRun | null>(null)
-  const [runs, setRuns] = useState<CanvasWorkflowRun[]>([])
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
-  const [executing, setExecuting] = useState(false)
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [starting, setStarting] = useState(false)
 
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-  }, [])
+  // History is keyed by workflow, so switching workflows never shows the
+  // previous one's runs while the new list loads.
+  const runsQuery = useCanvasWorkflowRuns(workflowId)
+  const runs = workflowId ? runsQuery.data ?? NO_RUNS : NO_RUNS
 
-  // Fetch run history
-  const fetchRuns = useCallback(async () => {
-    if (!workflowId) return
-    try {
-      const { runs: runList } = await api.canvasWorkflowListRuns(workflowId, 20)
-      setRuns(runList)
-    } catch {
-      // ignore
-    }
-  }, [workflowId])
+  // The run just started, polled until it finishes (see useCanvasWorkflowRun).
+  const runQuery = useCanvasWorkflowRun(runId)
+  const run = runId != null ? runQuery.data ?? null : null
+  const finished = isTerminalRun(runQuery.data)
+  const executing = starting || (runId != null && !finished && !runQuery.isError)
 
-  // Load history on workflow change
+  // Refresh run history once the live run lands.
   useEffect(() => {
-    if (workflowId) {
-      fetchRuns()
-    } else {
-      setRuns([])
-    }
-  }, [workflowId, fetchRuns])
+    if (finished && workflowId) void invalidateCanvasWorkflowRuns(workflowId)
+  }, [finished, workflowId])
 
   const execute = useCallback(async () => {
     if (!workflowId) return
-    setExecuting(true)
+    setStarting(true)
     try {
       const result = await api.canvasWorkflowExecute(workflowId)
       setRunId(result.runId)
       setSelectedRunId(result.runId)
     } catch (err) {
       console.error("[CanvasExecution] Failed to start:", err)
-      setExecuting(false)
+    } finally {
+      setStarting(false)
     }
   }, [workflowId])
-
-  // Poll execution status
-  useEffect(() => {
-    if (!runId) return
-
-    const poll = async () => {
-      try {
-        const { run: runData } = await api.canvasWorkflowGetRun(runId)
-        setRun(runData)
-        if (runData.status === "success" || runData.status === "error") {
-          stopPolling()
-          setExecuting(false)
-          // Refresh run history after completion
-          fetchRuns()
-        }
-      } catch {
-        stopPolling()
-        setExecuting(false)
-      }
-    }
-
-    // Immediate first poll
-    void poll()
-
-    pollingRef.current = setInterval(poll, 2000)
-    return () => stopPolling()
-  }, [runId, stopPolling, fetchRuns])
 
   // The currently viewed run: either the live run or a selected historical one
   const selectedRun = useMemo(() => {
@@ -104,11 +72,9 @@ export function useCanvasExecution(workflowId?: number) {
   }, [selectedRun])
 
   const reset = useCallback(() => {
-    stopPolling()
     setRunId(null)
-    setRun(null)
-    setExecuting(false)
-  }, [stopPolling])
+    setStarting(false)
+  }, [])
 
   return { execute, run, selectedRun, runs, selectRun, selectedRunId, nodeStatusMap, nodeProgressMap, executing, reset }
 }

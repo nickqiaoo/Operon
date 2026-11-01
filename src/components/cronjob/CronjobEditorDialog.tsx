@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react"
 import { useIntl } from "react-intl"
 import { XIcon } from "lucide-react"
-import type { CanvasWorkflow } from "@/types/canvas-workflow"
 import type { CronjobSchedule, CronjobTask, CronjobTaskType, CronjobUpsertInput } from "@/types/cronjob"
-import { api } from "@/lib/api"
+import { useCanvasWorkflows } from "@/lib/canvas-workflow-queries"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -91,7 +90,7 @@ export function CronjobEditorDialog({
   const [enabled, setEnabled] = useState(initial?.enabled ?? true)
   const [taskType, setTaskType] = useState<CronjobTaskType>(initial?.taskType ?? "chat")
   const [canvasWorkflowId, setCanvasWorkflowId] = useState<number | undefined>(initial?.canvasWorkflowId)
-  const [canvasWorkflows, setCanvasWorkflows] = useState<CanvasWorkflow[]>([])
+  const { workflows: canvasWorkflows } = useCanvasWorkflows({ enabled: open })
   const [providerId, setProviderId] = useState(initial?.providerId ?? providers[0]?.id ?? "")
   const [prompt, setPrompt] = useState(initial?.prompt ?? "")
   const [dailyTime, setDailyTime] = useState(initial?.schedule.time ?? "09:00")
@@ -130,7 +129,6 @@ export function CronjobEditorDialog({
     })
     setProjectId(location.projectId)
     setWorkspaceId(location.workspaceId)
-    api.canvasWorkflowList().then((res) => setCanvasWorkflows(res.workflows)).catch(() => {})
   }, [initial, open, providers, activeProjectId, activeWorkspaceId, projects])
 
   useEffect(() => { if (initial?.modelId) setModel(initial.modelId) }, [initial?.modelId, setModel])
@@ -230,7 +228,7 @@ export function CronjobEditorDialog({
                     <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.adapterPlaceholder", defaultMessage: "Select adapter" })} />
                     </SelectTrigger>
-                    <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                    <SelectContent align="start" position="popper" sideOffset={6}>
                       {providers.map((provider) => (
                         <SelectItem key={provider.id} value={provider.id}>{provider.label}</SelectItem>
                       ))}
@@ -244,7 +242,7 @@ export function CronjobEditorDialog({
                     <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={canvasWorkflows.length ? intl.formatMessage({ id: "cronjob.editor.workflowPlaceholder", defaultMessage: "Select workflow" }) : intl.formatMessage({ id: "cronjob.editor.workflowEmpty", defaultMessage: "No workflows" })} />
                     </SelectTrigger>
-                    <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                    <SelectContent align="start" position="popper" sideOffset={6}>
                       {canvasWorkflows.map((wf) => (
                         <SelectItem key={wf.id} value={String(wf.id)}>{wf.name}</SelectItem>
                       ))}
@@ -263,7 +261,7 @@ export function CronjobEditorDialog({
                     <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.projectPlaceholder", defaultMessage: "Select project" })} />
                     </SelectTrigger>
-                    <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                    <SelectContent align="start" position="popper" sideOffset={6}>
                       {projects.map((project) => (
                         <SelectItem key={project.id} value={String(project.id)}>{project.name}</SelectItem>
                       ))}
@@ -276,7 +274,7 @@ export function CronjobEditorDialog({
                     <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                       <SelectValue placeholder={workspaces.length ? intl.formatMessage({ id: "cronjob.editor.workspacePlaceholder", defaultMessage: "Select workspace" }) : intl.formatMessage({ id: "cronjob.editor.workspaceEmpty", defaultMessage: "No workspaces" })} />
                     </SelectTrigger>
-                    <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                    <SelectContent align="start" position="popper" sideOffset={6}>
                       {workspaces.map((workspace) => (
                         <SelectItem key={workspace.id} value={String(workspace.id)}>{workspace.name}</SelectItem>
                       ))}
@@ -310,7 +308,7 @@ export function CronjobEditorDialog({
                           <span className="text-xs opacity-50">{intl.formatMessage({ id: "cronjob.editor.modelChange", defaultMessage: "Change" })}</span>
                         </Button>
                       </ModelSelectorTrigger>
-                      <ModelSelectorContent className="z-[80]">
+                      <ModelSelectorContent>
                         <ModelSelectorInput placeholder={intl.formatMessage({ id: "cronjob.editor.modelSearch", defaultMessage: "Search models..." })} />
                         <ModelSelectorList>
                           {Object.entries(
@@ -340,7 +338,7 @@ export function CronjobEditorDialog({
                       <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                         <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.modeSelect", defaultMessage: "Select mode" })} />
                       </SelectTrigger>
-                      <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                      <SelectContent align="start" position="popper" sideOffset={6}>
                         {modeOptions.map((mode) => (
                           <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
                         ))}
@@ -356,7 +354,7 @@ export function CronjobEditorDialog({
                       <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                         <SelectValue placeholder={intl.formatMessage({ id: "cronjob.editor.thinkingLevelSelect", defaultMessage: "Select thinking level" })} />
                       </SelectTrigger>
-                      <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                      <SelectContent align="start" position="popper" sideOffset={6}>
                         {thinkingEffortOptions.map((opt) => (
                           <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                         ))}

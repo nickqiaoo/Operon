@@ -1,5 +1,6 @@
 import { api } from '@/lib/api'
 import type { PeersRosterDTO } from '@/types/peers'
+import type { OperonPluginDTO } from '@/types/plugin'
 
 /**
  * Typed client for the Session panel's provider runtime-control surface.
@@ -83,23 +84,8 @@ export interface OperonSkillDTO {
   disableModelInvocation?: boolean
 }
 
-export interface OperonPluginDTO {
-  id: string
-  displayName: string
-  version?: string
-  enabled: boolean
-  state: 'ok' | 'error'
-  skillCount: number
-  mcpServerCount: number
-  enabledMcpServerCount: number
-  hasErrors: boolean
-  /** How it was installed: `local-path` | `zip-url` | `github`. */
-  source: string
-  /** The install spec the user typed (a path, a URL, `owner/repo`). */
-  originalSource?: string
-  /** Set for a github install — enough to open the repo. */
-  github?: { owner: string; repo: string }
-}
+/** One source of truth with the Plugins page (`/api/plugins/list` answers the same shape). */
+export type { OperonPluginDTO }
 
 export interface OperonSessionExtensionDTO {
   id: string

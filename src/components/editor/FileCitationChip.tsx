@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState, type HTMLAttributes, type MouseEvent } from "react"
+import { useCallback, type HTMLAttributes, type MouseEvent } from "react"
 import { getFileIcon } from "@/components/FileIcon"
 import { formatLineLabel, decodeCitation, resolveCitationFile, type FileReference } from "@/lib/file-citation"
 import { useCitationRoot, useFileOpenHandler } from "@/lib/file-open-context"
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
+import { useFileStat } from "@/lib/fs-queries"
 
 function getBasename(path: string): string {
   const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/)
@@ -29,14 +29,8 @@ export function FileCitationChip({ path, line, endLine, className }: FileCitatio
   const openFile = useFileOpenHandler()
   const rootPath = useCitationRoot()
   const target = rootPath === undefined ? null : resolveCitationFile(rootPath, cleanPath(path))
-  const [available, setAvailable] = useState<string | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    if (target) void api.stat(target).then((stat) => {
-      if (!cancelled) setAvailable(stat.isFile ? target : null)
-    }).catch(() => { if (!cancelled) setAvailable(null) })
-    return () => { cancelled = true }
-  }, [target])
+  const { data: stat } = useFileStat(target)
+  const available = target && stat?.isFile ? target : null
   const basename = getBasename(cleanPath(path))
   // The prompt has the model cite a whole file as L1: that is "this file", not a place in it.
   const wholeFile = line === 1 && (endLine == null || endLine === 1)

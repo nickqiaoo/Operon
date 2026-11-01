@@ -5,6 +5,7 @@ import { SpecIcon } from '@/components/icons/SpecIcon'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
+import { useChatSpecs } from '@/lib/spec-queries'
 import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/stores/editor-store'
 import { openWorkflowPanel } from '@/components/app-shell/useWorkflowTab'
@@ -21,18 +22,14 @@ import {
   notifySpecChanged,
 } from './spec-shared'
 
-/** Fired when a spec card shows up in a conversation, so its bar picks the new spec up at once. */
-export const SPEC_STARTED_EVENT = 'operon:spec-started'
-
-/** Between events a spec can still start from elsewhere (another window, the phone). */
-const LIST_POLL_MS = 15_000
-
 interface ChatSpec {
   taskId: number
   taskNumber: number
   title: string
   stage: SpecStage
 }
+
+const NO_SPECS: ChatSpec[] = []
 
 /**
  * The specs a conversation started, held above its composer while they run.
@@ -45,29 +42,19 @@ interface ChatSpec {
  * Several specs show the newest, with a way to step through the others.
  */
 export function SpecChatBar({ chatId }: { chatId?: number | null }) {
-  const [specs, setSpecs] = useState<ChatSpec[]>([])
+  // Polled every 15s (a spec can start from another window or the phone), and
+  // refreshed at once when a spec card lands in this chat (`noteChatSpecShown`);
+  // a failed poll keeps what is shown and the next one tries again.
+  const specsQuery = useChatSpecs(chatId)
+  const hasChat = chatId != null && chatId > 0
+  const specs = hasChat ? specsQuery.data ?? NO_SPECS : NO_SPECS
   const [selected, setSelected] = useState(0)
 
-  const load = useCallback(async () => {
-    if (chatId == null || chatId <= 0) return setSpecs([])
-    try {
-      const { specs } = await api.specListByChat(chatId)
-      setSpecs(specs)
-    } catch {
-      // Keep what is shown; the next poll tries again.
-    }
-  }, [chatId])
-
-  useEffect(() => {
-    void load()
-    const timer = setInterval(() => void load(), LIST_POLL_MS)
-    const onStarted = () => void load()
-    window.addEventListener(SPEC_STARTED_EVENT, onStarted)
-    return () => {
-      clearInterval(timer)
-      window.removeEventListener(SPEC_STARTED_EVENT, onStarted)
-    }
-  }, [load])
+  // `refetch` ignores `enabled`, so an unsaved chat must not call it.
+  const { refetch } = specsQuery
+  const load = useCallback(() => {
+    if (hasChat) void refetch()
+  }, [hasChat, refetch])
 
   if (specs.length === 0) return null
   const index = Math.min(selected, specs.length - 1)

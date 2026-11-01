@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useMemo } from "react"
 import { FileDiff } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
+import { gitKeys, useGitStatus } from "@/lib/git-queries"
+import { queryClient } from "@/lib/query-client"
 import { MobileDiffBrowser } from "./MobileDiffBrowser"
 import { MobileHeader, useMobileContentBottom, useMobileContentOffset, useMobileTopInset } from "./MobileHeader"
 
@@ -31,36 +33,32 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
   const topInset = useMobileTopInset()
   const contentOffset = useMobileContentOffset()
   const contentBottom = useMobileContentBottom()
-  const [files, setFiles] = useState<ChangedFile[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Keyed by worktree: switching workspaces shows that workspace's last known
+  // status (or the loading state), never the previous one's files.
+  const statusQuery = useGitStatus(worktreePath ?? "", { enabled: !!worktreePath })
+  // A fresh array per successful fetch (not only when the list changes) so the
+  // diff browser reloads diffs after a refresh even if the file list is the same.
+  const { data: status, dataUpdatedAt } = statusQuery
+  const files = useMemo<ChangedFile[]>(
+    () => (status?.files ?? []).map((f) => ({ path: f.path, status: f.status, index: f.index, workingDir: f.workingDir })),
+    [status, dataUpdatedAt],
+  )
+  const error = statusQuery.isError
+    ? intl.formatMessage({ id: "mobile.changes.loadError", defaultMessage: "Couldn't load changes." })
+    : null
 
-  const refresh = useCallback(async () => {
-    if (!worktreePath) return
-    setLoading(true)
-    setError(null)
-    try {
-      const status = await api.gitStatus(worktreePath)
-      setFiles(status.files.map((f) => ({
-        path: f.path,
-        status: f.status,
-        index: f.index,
-        workingDir: f.workingDir,
-      })))
-    } catch {
-      setError(intl.formatMessage({ id: "mobile.changes.loadError", defaultMessage: "Couldn't load changes." }))
-    } finally {
-      setLoading(false)
-    }
-  }, [worktreePath, intl])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
+  // Refresh drops the cached status and every cached diff for this repo.
+  const refresh = useCallback(() => {
+    if (worktreePath) void queryClient.invalidateQueries({ queryKey: gitKeys.all(worktreePath) })
+  }, [worktreePath])
 
   const loadDiff = useCallback((file: ChangedFile) => {
     if (!worktreePath) return Promise.resolve("")
-    return loadFileDiff(worktreePath, file)
+    return queryClient.fetchQuery({
+      queryKey: gitKeys.fileDiff(worktreePath, file.path, `${file.status}|${file.index}|${file.workingDir}`),
+      queryFn: () => loadFileDiff(worktreePath, file),
+      staleTime: 5_000,
+    })
   }, [worktreePath])
 
   if (!worktreePath) {
@@ -85,13 +83,13 @@ export function MobileReviewScreen({ worktreePath }: MobileReviewScreenProps) {
       title={<FormattedMessage id="mobile.changes.title" defaultMessage="Changes" />}
       files={files}
       loadDiff={loadDiff}
-      loading={loading}
-      refreshing={loading}
+      loading={!!worktreePath && statusQuery.isPending}
+      refreshing={statusQuery.isFetching}
       error={error}
       emptyTitle={<FormattedMessage id="mobile.changes.emptyTitle" defaultMessage="No changes" />}
       emptyDescription={<FormattedMessage id="mobile.changes.emptyDesc" defaultMessage="The working tree is clean." />}
       diffErrorMessage={intl.formatMessage({ id: "mobile.changes.diffError", defaultMessage: "Couldn't load diff." })}
-      onRefresh={() => void refresh()}
+      onRefresh={refresh}
       renderHeader={(actions) => <MobileHeader actions={actions} />}
       topInset={topInset}
       contentOffset={contentOffset}

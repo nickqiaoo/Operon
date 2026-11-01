@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { api } from '@/lib/api';
+import { useFileContent } from '@/lib/fs-queries';
 import {
   Confirmation,
   ConfirmationAction,
@@ -58,13 +58,8 @@ export function PlanRenderer({
   const rawInput = (toolPart.args || toolPart.input || {}) as Record<string, unknown>;
   const { options } = extractPermissionOptions(rawInput, PLAN_DEFAULTS);
   const [feedback, setFeedback] = useState('');
-  const [fileContent, setFileContent] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (planPath && !planMarkdownProp) {
-      api.readFile(planPath).then((content) => setFileContent(content)).catch(() => setFileContent(null));
-    }
-  }, [planPath, planMarkdownProp]);
+  // Keyed by path, so a re-pointed plan never shows the previous file.
+  const { data: fileContent } = useFileContent(planPath, { enabled: !planMarkdownProp });
 
   const planMarkdown = planMarkdownProp || fileContent || (planPath ? intl.formatMessage({ id: 'editor.plan.loading', defaultMessage: 'Loading plan...' }) : '');
   const planLines = planMarkdown.split('\n');

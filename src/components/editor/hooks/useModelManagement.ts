@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { api } from '@/lib/api';
-import { useProviderCapabilityStore } from '@/stores/provider-capability-store';
+import { useProviderModels, type ProviderModelsResponse } from '@/lib/provider-queries';
 
 export interface DynamicModel {
   id: string;
@@ -13,72 +12,6 @@ export interface DynamicModel {
   supportsAutoMode?: boolean;
   supportsFastMode?: boolean;
   supportsAdaptiveThinking?: boolean;
-}
-
-type ProviderConfigCategory = 'model' | 'mode' | 'thought_level' | 'service_tier';
-
-interface ProviderConfigOptionResponse {
-  category: ProviderConfigCategory;
-  currentValue?: string;
-  options: Array<{
-    value: string;
-    name: string;
-    description?: string;
-    providerLogo?: string;
-    providerLabel?: string;
-    supportedEffortLevels?: string[];
-    supportsAutoMode?: boolean;
-    supportsFastMode?: boolean;
-    supportsAdaptiveThinking?: boolean;
-  }>;
-}
-
-interface ProviderModelsResponse {
-  models?: Array<{
-    id?: string;
-    modelId?: string;
-    name: string;
-    providerLogo?: string;
-    providerLabel?: string;
-  }>;
-  currentModelId?: string;
-  modes?: Array<{ id: string; name: string; description?: string }>;
-  currentModeId?: string;
-  serviceTiers?: Array<{ id: string; name: string; description?: string }>;
-  currentServiceTier?: string;
-  commands?: Array<{ id: string; name: string; description?: string }>;
-  skills?: Array<{ name: string; description?: string }>;
-  slashCommands?: Array<{ name: string; description?: string; type?: 'skill' | 'command' }>;
-  features?: {
-    injection?: boolean;
-    goal?: boolean;
-    dynamicSwitch?: boolean;
-    contextUsage?: boolean;
-    sideChat?: boolean;
-  };
-  configOptions?: ProviderConfigOptionResponse[];
-  // Set by the backend SWR cache when the provider's model list isn't ready yet
-  // (e.g. copilot's background probe is still running). We poll until it clears.
-  modelsPending?: boolean;
-}
-
-// How the frontend backs off while a provider is still warming up. copilot's
-// probe takes ~10-20s, so ~15 tries at 2s covers the cold-start window.
-const MODELS_PENDING_POLL_MS = 2000;
-const MODELS_PENDING_MAX_ATTEMPTS = 15;
-
-// ---------------------------------------------------------------------------
-// Global invalidation – lets external code (e.g. settings save) tell every
-// mounted instance to re-fetch.
-// ---------------------------------------------------------------------------
-const invalidationListeners = new Set<() => void>();
-
-/**
- * Call this whenever provider configs are saved or toggled.
- * Every mounted useModelManagement instance will re-fetch its own models.
- */
-export function invalidateModelsCache() {
-  invalidationListeners.forEach((notify) => notify());
 }
 
 export interface ProviderCommand {
@@ -144,210 +77,149 @@ export function dedupeByPrefix<T extends { name: string; type?: 'skill' | 'comma
   return result;
 }
 
+interface ProviderCatalog {
+  models: DynamicModel[];
+  config: ProviderConfig;
+}
+
+const EMPTY_MODELS_RESPONSE: ProviderModelsResponse = {};
+// Stable identities: `availableModels` feeds effect deps and memoized rows.
+const NO_MODELS: DynamicModel[] = [];
+const NO_CONFIGS: Record<string, ProviderConfig> = {};
+
+/** Turns the raw `/ai/providers/:id/models` payload into what the pickers render. Pure. */
+function deriveProviderCatalog(providerId: string, data: ProviderModelsResponse): ProviderCatalog {
+  const modelConfigOpt = data.configOptions?.find((c) => c.category === 'model');
+  const effortConfig = data.configOptions?.find((c) => c.category === 'thought_level');
+  const modeConfigOpt = data.configOptions?.find((c) => c.category === 'mode');
+  const serviceTierConfigOpt = data.configOptions?.find((c) => c.category === 'service_tier');
+  const hasThinking = !!effortConfig;
+
+  const modes = modeConfigOpt?.options?.length
+    ? modeConfigOpt.options.map((o) => ({ value: o.value, label: o.name, description: o.description }))
+    : data.modes?.length
+      ? data.modes.map((m) => ({ value: m.id, label: m.name, description: m.description }))
+      : [];
+  const serviceTiers = serviceTierConfigOpt?.options?.length
+    ? serviceTierConfigOpt.options.map((o) => ({ value: o.value, label: o.name, description: o.description }))
+    : data.serviceTiers?.length
+      ? data.serviceTiers.map((tier) => ({ value: tier.id, label: tier.name, description: tier.description }))
+      : [];
+
+  const config: ProviderConfig = {
+    modes,
+    defaultMode: modeConfigOpt?.currentValue ?? data.currentModeId ?? '',
+    serviceTiers,
+    defaultServiceTier: serviceTierConfigOpt?.currentValue ?? data.currentServiceTier ?? '',
+    thinkingEfforts: effortConfig?.options?.map((o) => ({ value: o.value, label: o.name })) ?? [],
+    commands: (data.commands ?? []).map((c) => ({ id: c.id, name: c.name, description: c.description })),
+    skills: dedupeByPrefix((data.skills ?? []).map((s) => ({ name: s.name, description: s.description ?? '' }))),
+    slashCommands: dedupeByPrefix((data.slashCommands ?? []).map((s) => ({
+      name: s.name, description: s.description ?? '', type: s.type ?? 'skill',
+    }))),
+    supportsInjection: data.features?.injection === true,
+    supportsGoal: data.features?.goal === true,
+    supportsDynamicSwitch: data.features?.dynamicSwitch === true,
+    supportsContextUsage: data.features?.contextUsage === true,
+  };
+
+  // provider info comes back from the models endpoint in each option
+  const providerLogo = modelConfigOpt?.options?.[0]?.providerLogo ?? providerId;
+  const providerLabel = modelConfigOpt?.options?.[0]?.providerLabel ?? providerId;
+
+  const models: DynamicModel[] = [];
+  if (modelConfigOpt?.options?.length) {
+    for (const opt of modelConfigOpt.options) {
+      // Prefer per-model effort info when the provider supplies it.
+      const modelHasThinking = opt.supportedEffortLevels
+        ? opt.supportedEffortLevels.length > 0
+        : hasThinking;
+      models.push({
+        id: opt.value, label: opt.name,
+        providerId,
+        provider: opt.providerLogo ?? providerLogo,
+        group: opt.providerLabel ?? providerLabel,
+        hasThinking: modelHasThinking,
+        supportedEffortLevels: opt.supportedEffortLevels,
+        supportsAutoMode: opt.supportsAutoMode,
+        supportsFastMode: opt.supportsFastMode,
+        supportsAdaptiveThinking: opt.supportsAdaptiveThinking,
+      });
+    }
+  } else if (data.models?.length) {
+    for (const m of data.models) {
+      const modelId = m.id ?? m.modelId;
+      if (!modelId) continue;
+      models.push({
+        id: modelId,
+        label: m.name,
+        providerId,
+        provider: m.providerLogo ?? providerLogo,
+        group: m.providerLabel ?? providerLabel,
+        hasThinking: false,
+      });
+    }
+  }
+
+  return { models, config };
+}
+
 export function useModelManagement(
   initialModel: string,
   providerId?: string,
   initialOptions?: InitialModelOptions,
 ) {
   const [model, setModelState] = useState(initialModel);
-  const [availableModels, setAvailableModels] = useState<DynamicModel[]>([]);
-  const [providerConfigs, setProviderConfigs] = useState<Record<string, ProviderConfig>>({});
   const [currentModes, setCurrentModes] = useState<Record<string, string>>({});
   const [currentServiceTiers, setCurrentServiceTiers] = useState<Record<string, string>>({});
 
-  // Bumped by refetch() or invalidateModelsCache() — causes the load effect to re-run
-  const [version, setVersion] = useState(0);
+  // Served from the shared query cache: every tab on the same provider reads
+  // one entry, a settings save refreshes them all (`invalidateProviderQueries`),
+  // and the copilot warm-up poll lives in the query's `refetchInterval`.
+  const { data: modelsData, refetch: refetchModels } = useProviderModels(providerId);
+  // `refetch` ignores `enabled`: never fire it without a provider.
+  const refetch = useCallback(() => { if (providerId) void refetchModels(); }, [providerId, refetchModels]);
 
-  const refetch = useCallback(() => setVersion((v) => v + 1), []);
+  const catalog = useMemo(
+    () => (providerId ? deriveProviderCatalog(providerId, modelsData ?? EMPTY_MODELS_RESPONSE) : null),
+    [providerId, modelsData],
+  );
+  const availableModels = catalog?.models ?? NO_MODELS;
+  const providerConfigs = useMemo(
+    () => (providerId && catalog ? { [providerId]: catalog.config } : NO_CONFIGS),
+    [providerId, catalog],
+  );
 
-  // Warm-up poll bookkeeping (see MODELS_PENDING_*). A ref so it survives
-  // re-renders without retriggering the load effect.
-  const pendingPoll = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempts: number }>({
-    timer: null,
-    attempts: 0,
-  });
-
-  // Reset the warm-up poll counter whenever the provider changes.
+  // Seed the mode / service-tier selection from the conversation's saved
+  // options, falling back to the provider's default. Reseeds wholesale when the
+  // provider or saved options change; otherwise only fills a provider that has
+  // no selection yet (the list was still warming up), so a background refetch
+  // never overwrites what the user picked.
+  const seededFor = useRef<string | null>(null);
   useEffect(() => {
-    pendingPoll.current.attempts = 0;
-  }, [providerId]);
+    if (!providerId || !catalog) return;
+    const initialMode = initialOptions?.modeId;
+    const initialServiceTier = initialOptions?.serviceTier;
+    const { modes, defaultMode, serviceTiers, defaultServiceTier } = catalog.config;
+    const resolvedMode = initialMode && modes.some((mode) => mode.value === initialMode)
+      ? initialMode
+      : defaultMode;
+    const resolvedServiceTier =
+      initialServiceTier && serviceTiers.some((tier) => tier.value === initialServiceTier)
+        ? initialServiceTier
+        : defaultServiceTier;
 
-  // Subscribe to global invalidation events for the lifetime of this component
-  useEffect(() => {
-    invalidationListeners.add(refetch);
-    return () => { invalidationListeners.delete(refetch); };
-  }, [refetch]);
-
-  // Fetch models for this tab's provider only
-  useEffect(() => {
-    if (!providerId) return;
-
-    let active = true;
-    const emptyData: ProviderModelsResponse = {
-      models: [],
-      currentModelId: '',
-      modes: [],
-      currentModeId: '',
-      serviceTiers: [],
-      currentServiceTier: '',
-      features: { injection: false },
-      configOptions: [],
+    const key = `${providerId}\u0000${initialMode ?? ''}\u0000${initialServiceTier ?? ''}`;
+    const reseed = seededFor.current !== key;
+    seededFor.current = key;
+    const seed = (resolved: string) => (prev: Record<string, string>) => {
+      if (reseed) return resolved ? { [providerId]: resolved } : {};
+      return providerId in prev || !resolved ? prev : { ...prev, [providerId]: resolved };
     };
+    setCurrentModes(seed(resolvedMode));
+    setCurrentServiceTiers(seed(resolvedServiceTier));
+  }, [providerId, catalog, initialOptions?.modeId, initialOptions?.serviceTier]);
 
-    async function loadModels() {
-      try {
-        let data: ProviderModelsResponse;
-        try {
-          data = await api.getProviderModels(providerId!) as ProviderModelsResponse;
-        } catch {
-          data = emptyData;
-        }
-
-        if (!active) return;
-
-        const models: DynamicModel[] = [];
-        const configs: Record<string, ProviderConfig> = {};
-        const modes: Record<string, string> = {};
-        const serviceTiersByProvider: Record<string, string> = {};
-
-        const modelConfigOpt = data.configOptions?.find((c) => c.category === 'model');
-        const effortConfig = data.configOptions?.find((c) => c.category === 'thought_level');
-        const modeConfigOpt = data.configOptions?.find((c) => c.category === 'mode');
-        const serviceTierConfigOpt = data.configOptions?.find((c) => c.category === 'service_tier');
-        const hasThinking = !!effortConfig;
-
-        const providerModes = modeConfigOpt?.options?.length
-          ? modeConfigOpt.options.map((o) => ({ value: o.value, label: o.name, description: o.description }))
-          : data.modes?.length
-            ? data.modes.map((m) => ({ value: m.id, label: m.name, description: m.description }))
-            : [];
-        const defaultMode = modeConfigOpt?.currentValue ?? data.currentModeId ?? '';
-        const providerServiceTiers = serviceTierConfigOpt?.options?.length
-          ? serviceTierConfigOpt.options.map((o) => ({ value: o.value, label: o.name, description: o.description }))
-          : data.serviceTiers?.length
-            ? data.serviceTiers.map((tier) => ({ value: tier.id, label: tier.name, description: tier.description }))
-            : [];
-        const defaultServiceTier = serviceTierConfigOpt?.currentValue ?? data.currentServiceTier ?? '';
-
-        const providerCommands: ProviderCommand[] = (data.commands ?? []).map((c) => ({
-          id: c.id, name: c.name, description: c.description,
-        }));
-
-        const providerSkills: ProviderSkillInfo[] = dedupeByPrefix((data.skills ?? []).map((s) => ({
-          name: s.name, description: s.description ?? '',
-        })));
-
-        const providerSlashCommands: SlashCommandItem[] = dedupeByPrefix((data.slashCommands ?? []).map((s) => ({
-          name: s.name, description: s.description ?? '', type: s.type ?? 'skill',
-        })));
-
-        configs[providerId!] = {
-          modes: providerModes,
-          defaultMode,
-          serviceTiers: providerServiceTiers,
-          defaultServiceTier,
-          thinkingEfforts: effortConfig?.options?.map((o) => ({ value: o.value, label: o.name })) ?? [],
-          commands: providerCommands,
-          skills: providerSkills,
-          slashCommands: providerSlashCommands,
-          supportsInjection: data.features?.injection === true,
-          supportsGoal: data.features?.goal === true,
-          supportsDynamicSwitch: data.features?.dynamicSwitch === true,
-          supportsContextUsage: data.features?.contextUsage === true,
-        };
-        // Mirror the capability bits so surfaces outside this chat (the right
-        // panel's new-tab menu) can gate on them without refetching.
-        useProviderCapabilityStore.getState().setCapabilities(providerId!, {
-          sideChat: data.features?.sideChat === true,
-        });
-        const initialMode = initialOptions?.modeId;
-        const resolvedMode = initialMode && providerModes.some((mode) => mode.value === initialMode)
-          ? initialMode
-          : defaultMode;
-        const initialServiceTier = initialOptions?.serviceTier;
-        const resolvedServiceTier =
-          initialServiceTier &&
-          providerServiceTiers.some((tier) => tier.value === initialServiceTier)
-            ? initialServiceTier
-            : defaultServiceTier;
-        if (resolvedMode) modes[providerId!] = resolvedMode;
-        if (resolvedServiceTier) serviceTiersByProvider[providerId!] = resolvedServiceTier;
-
-        // provider info comes back from the models endpoint in each option
-        const providerLogo = modelConfigOpt?.options?.[0]?.providerLogo ?? providerId!;
-        const providerLabel = modelConfigOpt?.options?.[0]?.providerLabel ?? providerId!;
-
-        if (modelConfigOpt?.options?.length) {
-          for (const opt of modelConfigOpt.options) {
-            // Prefer per-model effort info when the provider supplies it.
-            const modelHasThinking = opt.supportedEffortLevels
-              ? opt.supportedEffortLevels.length > 0
-              : hasThinking;
-            models.push({
-              id: opt.value, label: opt.name,
-              providerId: providerId!,
-              provider: opt.providerLogo ?? providerLogo,
-              group: opt.providerLabel ?? providerLabel,
-              hasThinking: modelHasThinking,
-              supportedEffortLevels: opt.supportedEffortLevels,
-              supportsAutoMode: opt.supportsAutoMode,
-              supportsFastMode: opt.supportsFastMode,
-              supportsAdaptiveThinking: opt.supportsAdaptiveThinking,
-            });
-          }
-        } else if (data.models?.length) {
-          for (const m of data.models) {
-            const modelId = m.id ?? m.modelId;
-            if (!modelId) continue;
-            models.push({
-              id: modelId,
-              label: m.name,
-              providerId: providerId!,
-              provider: m.providerLogo ?? providerLogo,
-              group: m.providerLabel ?? providerLabel,
-              hasThinking: false,
-            });
-          }
-        }
-
-        setAvailableModels(models);
-        setProviderConfigs(configs);
-        setCurrentModes(modes);
-        setCurrentServiceTiers(serviceTiersByProvider);
-
-        // Provider still warming up on the backend (e.g. copilot's probe): keep
-        // polling until the real list lands or we hit the attempt cap.
-        if (data.modelsPending && models.length === 0) {
-          if (pendingPoll.current.attempts < MODELS_PENDING_MAX_ATTEMPTS) {
-            pendingPoll.current.attempts += 1;
-            pendingPoll.current.timer = setTimeout(() => {
-              pendingPoll.current.timer = null;
-              refetch();
-            }, MODELS_PENDING_POLL_MS);
-          }
-        } else {
-          pendingPoll.current.attempts = 0;
-        }
-      } catch (err) {
-        console.error('Failed to load provider models:', err);
-      }
-    }
-
-    loadModels();
-    return () => {
-      active = false;
-      if (pendingPoll.current.timer) {
-        clearTimeout(pendingPoll.current.timer);
-        pendingPoll.current.timer = null;
-      }
-    };
-  }, [
-    providerId,
-    version,
-    refetch,
-    initialOptions?.modeId,
-    initialOptions?.serviceTier,
-  ]);
 
   // Auto-select first available model when the list changes
   useEffect(() => {
