@@ -9,6 +9,7 @@ import {
   DEFAULT_LIGHT_TERMINAL_THEME,
   getTerminalTheme,
 } from "@/lib/terminal-themes"
+import { Z_HOST_SURFACE } from "@/lib/z-index"
 
 export type TerminalStatus =
   | "idle"
@@ -33,14 +34,11 @@ type Listener = (state: TerminalState) => void
 type CsiParams = (number | number[])[]
 
 // The xterm container lives at body level, so its z-index competes directly
-// with the host's body-level portals (Radix dialogs/menus like the new-tab
-// dropdown and the provider picker, the full-screen pages — all z-50). We sit
-// just below them (40): high enough to paint over the in-tree placeholder it
-// overlays, low enough that any host overlay naturally covers it via normal
-// stacking. Using a max z-index here (the old value) made the terminal cover
-// the new-tab dropdown and provider-picker dialog, so "New chat" was
-// unclickable while a terminal tab was active. Mirrors WebviewInstance.
-const Z_INDEX = "40"
+// with the host's body-level portals. It takes the lowest band (see
+// lib/z-index.ts), under every overlay and full-screen page. A max z-index here
+// (the old value) made the terminal cover the new-tab dropdown and the
+// provider-picker dialog. Mirrors WebviewInstance.
+const Z_INDEX = String(Z_HOST_SURFACE)
 const HIDDEN_KEEPALIVE_OPACITY = "0.001"
 // How long bounds must hold still before we spawn the PTY. Long enough to
 // outlast the panel animations that drive resizes, short enough to read as

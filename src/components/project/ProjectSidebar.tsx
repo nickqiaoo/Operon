@@ -18,6 +18,8 @@ import { useEditorStore } from "@/stores/editor-store"
 import type { EditorTab } from "@/types/editor"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { useInboxStore } from "@/stores/inbox-store"
+import { useNavigationStore } from "@/stores/navigation-store"
+import { trackEvent } from "@/lib/analytics"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
 import { projectSidebarEntries } from "./workspace-groups"
@@ -302,26 +304,12 @@ function WorkspaceListSkeleton() {
   )
 }
 
+/**
+ * Where the sidebar sends you is read from and written to the navigation store
+ * directly; only opening a Spec goes through `App`, which also has to keep that
+ * Spec's conversation mounted.
+ */
 interface ProjectSidebarProps {
-  onOpenSettings: () => void
-  onOpenCronjobs: () => void
-  onOpenPlugins: () => void
-  onOpenCanvas: () => void
-  /** The board and channels across every project (one page, two views). */
-  onOpenBoard?: () => void
-  onOpenChannels?: () => void
-  onOpenInbox?: () => void
-  onOpenAssistant?: () => void
-  /** The Assistant view is showing in place of the editor. */
-  assistantActive?: boolean
-  /** The Inbox is showing in place of the editor. */
-  inboxActive?: boolean
-  /** The Board / Channels is showing in place of the editor. */
-  boardActive?: boolean
-  channelsActive?: boolean
-  /** Picking a workspace leaves the Assistant / Inbox view. */
-  onLeaveMainView?: () => void
-  activeSpecId?: number | null
   onOpenSpec?: (taskId: number, projectId: number) => void
   onCollapse?: () => void
   collapsed?: boolean
@@ -337,8 +325,17 @@ function WorkspaceDiffStatsSync() {
   return null
 }
 
-export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, onOpenCanvas, onOpenBoard, onOpenChannels, onOpenInbox, onOpenAssistant, assistantActive, inboxActive, boardActive, channelsActive, onLeaveMainView, activeSpecId, onOpenSpec, onCollapse, collapsed }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSpec, onCollapse, collapsed }: ProjectSidebarProps) {
   const intl = useIntl()
+  const mainView = useNavigationStore((s) => s.main)
+  const showMain = useNavigationStore((s) => s.showMain)
+  const showWorkbench = useNavigationStore((s) => s.showWorkbench)
+  const openPage = useNavigationStore((s) => s.openPage)
+  const assistantActive = mainView.kind === "assistant"
+  const inboxActive = mainView.kind === "inbox"
+  const boardActive = mainView.kind === "board" && mainView.view === "board"
+  const channelsActive = mainView.kind === "board" && mainView.view === "channels"
+  const activeSpecId = mainView.kind === "spec" ? mainView.taskId : null
   const canAddProject = __APP_TARGET__ !== "web"
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.projectsLoaded)
@@ -366,8 +363,9 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
     const chatTabIds = tabs.filter((t) => t.type === "chat").map((t) => t.id)
     if (chatTabIds.length > 0) clearUnseen(chatTabIds)
     setActiveWorkspace(workspaceId, projectId)
-    onLeaveMainView?.()
-  }, [clearUnseen, setActiveWorkspace, onLeaveMainView])
+    // Picking a workspace leaves the Assistant / Inbox / Board view.
+    showWorkbench()
+  }, [clearUnseen, setActiveWorkspace, showWorkbench])
 
   const handleTogglePin = useCallback((project: Project) => {
     void setProjectPinned(project.id, project.pinnedAt == null).catch((error: unknown) => {
@@ -470,89 +468,79 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       </div>
 
       {/* Global destinations */}
-      {(onOpenAssistant || onOpenInbox || onOpenBoard || onOpenChannels) && (
-        <div className="px-2 pt-2 shrink-0">
-          {onOpenAssistant && (
-            <button
-              type="button"
-              onClick={onOpenAssistant}
-              className={cn(
-                "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-                // Same selection fill as a workspace row, so the two read as one kind of "you are here".
-                assistantActive
-                  ? "bg-row-selected text-foreground hover:bg-row-selected"
-                  : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-              )}
-            >
-              <MessageCircle className="h-4 w-4" />
-              <span className="flex-1"><FormattedMessage id="sidebar.assistant" defaultMessage="Assistant" /></span>
-              {assistantAction > 0 ? (
-                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
-                  {assistantAction > 99 ? "99+" : assistantAction}
-                </span>
-              ) : assistantTotal > 0 ? (
-                <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
-                  {assistantTotal > 99 ? "99+" : assistantTotal}
-                </span>
-              ) : null}
-            </button>
+      <div className="px-2 pt-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => showMain({ kind: "assistant" })}
+          className={cn(
+            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+            // Same selection fill as a workspace row, so the two read as one kind of "you are here".
+            assistantActive
+              ? "bg-row-selected text-foreground hover:bg-row-selected"
+              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
           )}
-          {onOpenInbox && (
-          <button
-            type="button"
-            onClick={onOpenInbox}
-            className={cn(
-              "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-              inboxActive
-                ? "bg-row-selected text-foreground hover:bg-row-selected"
-                : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-            )}
-          >
-            <Inbox className="h-4 w-4" />
-            <span className="flex-1"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
-            {inboxAction > 0 ? (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
-                {inboxAction > 99 ? "99+" : inboxAction}
-              </span>
-            ) : inboxTotal > 0 ? (
-              <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
-                {inboxTotal > 99 ? "99+" : inboxTotal}
-              </span>
-            ) : null}
-          </button>
+        >
+          <MessageCircle className="h-4 w-4" />
+          <span className="flex-1"><FormattedMessage id="sidebar.assistant" defaultMessage="Assistant" /></span>
+          {assistantAction > 0 ? (
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
+              {assistantAction > 99 ? "99+" : assistantAction}
+            </span>
+          ) : assistantTotal > 0 ? (
+            <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
+              {assistantTotal > 99 ? "99+" : assistantTotal}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => { showMain({ kind: "inbox" }); trackEvent("page_opened", { page: "inbox" }) }}
+          className={cn(
+            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+            inboxActive
+              ? "bg-row-selected text-foreground hover:bg-row-selected"
+              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
           )}
-          {onOpenBoard && (
-            <button
-              type="button"
-              onClick={onOpenBoard}
-              className={cn(
-                "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-                boardActive
-                  ? "bg-row-selected text-foreground hover:bg-row-selected"
-                  : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-              )}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              <span className="flex-1"><FormattedMessage id="sidebar.board" defaultMessage="Board" /></span>
-            </button>
+        >
+          <Inbox className="h-4 w-4" />
+          <span className="flex-1"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
+          {inboxAction > 0 ? (
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
+              {inboxAction > 99 ? "99+" : inboxAction}
+            </span>
+          ) : inboxTotal > 0 ? (
+            <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
+              {inboxTotal > 99 ? "99+" : inboxTotal}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => { showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }}
+          className={cn(
+            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+            boardActive
+              ? "bg-row-selected text-foreground hover:bg-row-selected"
+              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
           )}
-          {onOpenChannels && (
-            <button
-              type="button"
-              onClick={onOpenChannels}
-              className={cn(
-                "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-                channelsActive
-                  ? "bg-row-selected text-foreground hover:bg-row-selected"
-                  : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-              )}
-            >
-              <Hash className="h-4 w-4" />
-              <span className="flex-1"><FormattedMessage id="sidebar.channels" defaultMessage="Channels" /></span>
-            </button>
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          <span className="flex-1"><FormattedMessage id="sidebar.board" defaultMessage="Board" /></span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }}
+          className={cn(
+            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
+            channelsActive
+              ? "bg-row-selected text-foreground hover:bg-row-selected"
+              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
           )}
-        </div>
-      )}
+        >
+          <Hash className="h-4 w-4" />
+          <span className="flex-1"><FormattedMessage id="sidebar.channels" defaultMessage="Channels" /></span>
+        </button>
+      </div>
 
       {/* Secondary Header */}
       <div className="h-9 px-4 flex items-center justify-between shrink-0">
@@ -617,21 +605,21 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
       >
         <button
           className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-          onClick={onOpenCanvas}
+          onClick={() => openPage({ kind: "canvas" })}
         >
           <Network className="h-4 w-4" />
           <FormattedMessage id="sidebar.workflow" defaultMessage="Workflow" />
         </button>
         <button
           className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-          onClick={onOpenPlugins}
+          onClick={() => openPage({ kind: "plugins" })}
         >
           <Package className="h-4 w-4" />
           <FormattedMessage id="sidebar.plugins" defaultMessage="Plugins" />
         </button>
         <button
           className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-          onClick={onOpenCronjobs}
+          onClick={() => openPage({ kind: "schedule" })}
         >
           <CalendarClock className="h-4 w-4" />
           <FormattedMessage id="sidebar.schedule" defaultMessage="Schedule" />
@@ -641,7 +629,7 @@ export function ProjectSidebar({ onOpenSettings, onOpenCronjobs, onOpenPlugins, 
           <button
             data-testid="settings-button"
             className="flex-1 flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-            onClick={onOpenSettings}
+            onClick={() => openPage({ kind: "settings" })}
           >
             <Settings className="h-4 w-4" />
             <FormattedMessage id="sidebar.settings" defaultMessage="Settings" />

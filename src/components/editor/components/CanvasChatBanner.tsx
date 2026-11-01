@@ -1,7 +1,7 @@
 import { FormattedMessage } from 'react-intl'
 import { LayoutDashboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useEditorStore } from '@/stores/editor-store'
+import { useNavigationStore } from '@/stores/navigation-store'
 import { parseCanvasChatId } from '@/lib/canvas-utils'
 
 interface CanvasChatBannerProps {
@@ -10,7 +10,7 @@ interface CanvasChatBannerProps {
 
 export function CanvasChatBanner({ chatId }: CanvasChatBannerProps) {
   const canvasInfo = parseCanvasChatId(chatId)
-  const requestOpenCanvas = useEditorStore((s) => s.requestOpenCanvas)
+  const openPage = useNavigationStore((s) => s.openPage)
 
   if (!canvasInfo) return null
 
@@ -25,11 +25,7 @@ export function CanvasChatBanner({ chatId }: CanvasChatBannerProps) {
           variant="ghost"
           size="sm"
           className="text-brand hover:text-brand hover:bg-brand-muted"
-          onClick={() => requestOpenCanvas({
-            workflowId: 0,
-            runId: canvasInfo.runId,
-            nodeId: canvasInfo.nodeId,
-          })}
+          onClick={() => openPage({ kind: 'canvas' })}
         >
           <FormattedMessage id="editor.canvas.viewInWorkflow" defaultMessage="View in Workflow" />
         </Button>

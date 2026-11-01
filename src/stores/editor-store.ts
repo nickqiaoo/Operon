@@ -8,12 +8,6 @@ interface EditorState {
   activeTabId: string
 }
 
-export interface CanvasNavigationRequest {
-  workflowId: number
-  runId?: number
-  nodeId?: string
-}
-
 /** Jump to a task's detail page — raised by the task card in a chat transcript. */
 export interface TaskNavigationRequest {
   projectId: number
@@ -26,12 +20,8 @@ interface EditorStore extends EditorState {
   currentProjectId: number | null
   workspaceStates: Record<string, EditorState>
 
-  // Canvas navigation
-  canvasNavigationRequest: CanvasNavigationRequest | null
-  requestOpenCanvas: (request: CanvasNavigationRequest) => void
-  clearCanvasNavigationRequest: () => void
-
-  // Task navigation
+  // Task navigation. Raised by task cards shared by both shells; the desktop
+  // App and MobileApp each map it to their own place (Board vs Channel tab).
   taskNavigationRequest: TaskNavigationRequest | null
   requestOpenTask: (request: TaskNavigationRequest) => void
   clearTaskNavigationRequest: () => void
@@ -115,11 +105,6 @@ export const useEditorStore = create<EditorStore>()(
   currentWorkspaceId: null,
   currentProjectId: null,
   workspaceStates: {},
-  canvasNavigationRequest: null,
-
-  requestOpenCanvas: (request) => set({ canvasNavigationRequest: request }),
-  clearCanvasNavigationRequest: () => set({ canvasNavigationRequest: null }),
-
   taskNavigationRequest: null,
   requestOpenTask: (request) => set({ taskNavigationRequest: request }),
   clearTaskNavigationRequest: () => set({ taskNavigationRequest: null }),

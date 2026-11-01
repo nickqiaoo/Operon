@@ -3,13 +3,14 @@ import { installBrowserUseBridge } from "@/components/browser/browser-use-bridge
 import { useIntl } from "react-intl"
 import { PanelLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { PageVisibleContext } from "@/lib/page-visibility"
 import { Toaster } from "sonner"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
 import { createPortal } from "react-dom"
+import { Z_FULL_PAGE } from "@/lib/z-index"
 import { AnnotationEditorHost } from "@/components/browser/AnnotationEditorHost"
 
 import { LeftSidebar } from "@/components/app-shell/LeftSidebar"
+import { KeepAliveView } from "@/components/app-shell/KeepAliveView"
 import { SessionPanelToggle, TopBarControls } from "@/components/app-shell/TopBarControls"
 import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
@@ -23,7 +24,7 @@ import { useGlobalShortcuts } from "@/lib/shortcuts/useGlobalShortcuts"
 import { SettingsPage } from "@/components/settings/SettingsPage"
 import { CronjobPage } from "@/components/cronjob/CronjobPage"
 import { PluginsPage } from "@/components/plugins/PluginsPage"
-import { BoardPage, type BoardPageView } from "@/components/channel/BoardPage"
+import { BoardPage } from "@/components/channel/BoardPage"
 import { SpecPage } from "@/components/spec/SpecPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
 import { InboxPage } from "@/components/inbox/InboxPage"
@@ -39,45 +40,40 @@ import { useThemeStore, applyTheme } from "@/stores/theme-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
+import { useNavigationStore, type FullPage, type FullPageKind } from "@/stores/navigation-store"
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
 import type { SpecChatRef } from '@shared/spec'
-import { OPEN_PLUGINS_PAGE_EVENT, OPEN_SCHEDULE_PAGE_EVENT, OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from "@/lib/open-settings"
+
+/** Full-screen pages in the order they are rendered; which is on top comes from the stack, by z-index. */
+const FULL_PAGE_ORDER: readonly FullPageKind[] = ["settings", "plugins", "canvas", "schedule"]
+/** Their names in analytics (the Schedule page predates its name). */
+const FULL_PAGE_ANALYTICS = { settings: "settings", plugins: "plugins", canvas: "canvas", schedule: "cronjob" } as const satisfies Record<FullPageKind, string>
 
 export default function App() {
   useTaskStream(null)
   const intl = useIntl()
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  /** Tab to land on when something deep-linked into Settings; cleared once consumed. */
-  const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
-  const [cronjobOpen, setCronjobOpen] = useState(false)
-  const [pluginsOpen, setPluginsOpen] = useState(false)
-  const [canvasOpen, setCanvasOpen] = useState(false)
-  // Deep-link target when a task notification opens the board: forwarded to
-  // BoardPage → TasksPage to open that task's detail. Cleared once consumed.
-  const [boardInitialTaskId, setBoardInitialTaskId] = useState<number | null>(null)
-  // These pages take over the workbench; Spec keeps its panels and chat surface.
-  const [mainView, setMainView] = useState<'assistant' | 'inbox' | 'spec' | BoardPageView | null>(null)
-  const [activeSpec, setActiveSpec] = useState<{ taskId: number; projectId: number } | null>(null)
+  // Where the shell is: see navigation-store.ts.
+  const mainView = useNavigationStore((s) => s.main)
+  const pages = useNavigationStore((s) => s.pages)
+  const visited = useNavigationStore((s) => s.visited)
+  const lastBoardView = useNavigationStore((s) => s.lastBoardView)
+  const boardTaskId = useNavigationStore((s) => s.boardTaskId)
+  const showMain = useNavigationStore((s) => s.showMain)
+  const showWorkbench = useNavigationStore((s) => s.showWorkbench)
+  const openTask = useNavigationStore((s) => s.openTask)
+  const clearBoardTask = useNavigationStore((s) => s.clearBoardTask)
+  const closePage = useNavigationStore((s) => s.closePage)
+  const isPageOpen = pages.length > 0
+  const workbenchActive = mainView.kind === 'workbench' || mainView.kind === 'spec'
+
+  // Chats a Spec showed stay mounted across workspace switches (see allChatTabs).
   const [specChatIds, setSpecChatIds] = useState<ReadonlySet<string>>(() => new Set())
   const openSpec = useCallback((taskId: number, projectId: number) => {
     const currentTabId = useEditorStore.getState().activeTabId
     if (currentTabId) setSpecChatIds((previous) => previous.has(currentTabId) ? previous : new Set([...previous, currentTabId]))
-    setActiveSpec({ taskId, projectId })
-    setMainView('spec')
-  }, [])
-  const assistantOpen = mainView === 'assistant'
-  const inboxOpen = mainView === 'inbox'
-  const boardView = mainView === 'board' || mainView === 'channels' ? mainView : null
-  // Each of those pages mounts the first time it's opened and then stays mounted, hidden while
-  // another view is up, so coming back finds it as it was left (selected channel, scroll, filters).
-  const [assistantMounted, setAssistantMounted] = useState(false)
-  const [inboxMounted, setInboxMounted] = useState(false)
-  // The Board page shows the view it was last on while hidden, so its inner state survives too.
-  const [lastBoardView, setLastBoardView] = useState<BoardPageView | null>(null)
-  if (assistantOpen && !assistantMounted) setAssistantMounted(true)
-  if (inboxOpen && !inboxMounted) setInboxMounted(true)
-  if (boardView !== null && boardView !== lastBoardView) setLastBoardView(boardView)
+    showMain({ kind: 'spec', taskId, projectId })
+  }, [showMain])
   const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const theme = useThemeStore((state) => state.theme)
   const lightUITheme = useThemeStore((state) => state.lightUITheme)
@@ -93,8 +89,6 @@ export default function App() {
   const setWorkspace = useEditorStore((state) => state.setWorkspace)
   const workspaceStates = useEditorStore((state) => state.workspaceStates)
   const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId)
-  const canvasNavRequest = useEditorStore((state) => state.canvasNavigationRequest)
-  const clearCanvasNavRequest = useEditorStore((state) => state.clearCanvasNavigationRequest)
   const taskNavRequest = useEditorStore((state) => state.taskNavigationRequest)
   const clearTaskNavRequest = useEditorStore((state) => state.clearTaskNavigationRequest)
 
@@ -109,7 +103,6 @@ export default function App() {
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const handleToggleSidebar = useAppShellStore((s) => s.toggleSidebar)
 
-  const leaveMainView = useCallback(() => setMainView(null), [])
   const specFocusedTabId = useRef<string | null>(null)
   const openWorkspace = useCallback((workspaceId: number) => {
     void (async () => {
@@ -118,9 +111,9 @@ export default function App() {
       if (!project) return
       setActiveWorkspace(workspaceId, project.id)
       setWorkspace(workspaceId, project.id)
-      setMainView(null)
+      showWorkbench()
     })().catch((error: unknown) => console.error('Could not open workspace:', error))
-  }, [loadProjects, setActiveWorkspace, setWorkspace])
+  }, [loadProjects, setActiveWorkspace, setWorkspace, showWorkbench])
   const focusSpecWorkspace = useCallback((workspaceId: number | null, projectId: number) => {
     setActiveWorkspace(workspaceId, projectId)
     setWorkspace(workspaceId, projectId)
@@ -139,8 +132,9 @@ export default function App() {
   useEffect(() => {
     if (lastActiveTabIdRef.current === activeTabId) return
     lastActiveTabIdRef.current = activeTabId
-    if (mainView !== 'spec' || activeTabId !== specFocusedTabId.current) setMainView(null)
-  }, [activeTabId, mainView])
+    const { main } = useNavigationStore.getState()
+    if (main.kind !== 'spec' || activeTabId !== specFocusedTabId.current) showWorkbench()
+  }, [activeTabId, showWorkbench])
 
   // Keep the global inbox stream live for the whole session so the bell badge
   // updates even when the relevant chat/task tab is unmounted.
@@ -152,7 +146,7 @@ export default function App() {
    */
   const openChat = useCallback(
     (target: { chatId: number; workspaceId?: number; title?: string; subAgent?: boolean }) => {
-      setMainView(null)
+      showWorkbench()
       if (target.workspaceId != null) {
         const project = projects.find((p) => p.workspaces.some((w) => w.id === target.workspaceId))
         // Switch both stores before opening the tab. The project-store update
@@ -164,7 +158,7 @@ export default function App() {
       const tabId = openChatTab(`chat:${target.chatId}`, target.title, undefined, undefined, target.subAgent || undefined)
       setTabChatId(tabId, target.chatId)
     },
-    [projects, setActiveWorkspace, setWorkspace, openChatTab, setTabChatId],
+    [projects, setActiveWorkspace, setWorkspace, openChatTab, setTabChatId, showWorkbench],
   )
 
   // Deep-link from an inbox notification to its source (task board / workspace chat).
@@ -172,20 +166,28 @@ export default function App() {
     (n: Notification) => {
       // The assistant's rows have no chat or task to land on: they open its page.
       if (n.kind === 'assistant_message' || n.kind === 'assistant_approval') {
-        setMainView('assistant')
+        showMain({ kind: 'assistant' })
+        return
+      }
+      if (n.taskId != null) {
+        openTask(n.taskId)
         return
       }
       // Also when the source is the tab already active: no tab change would bring the editor back.
-      setMainView(null)
-      if (n.taskId != null) {
-        setBoardInitialTaskId(n.taskId)
-        setMainView('board')
-        return
-      }
+      showWorkbench()
       if (n.chatId != null) openChat({ chatId: n.chatId, workspaceId: n.workspaceId ?? undefined, title: n.title })
     },
-    [openChat],
+    [openChat, openTask, showMain, showWorkbench],
   )
+
+  // A full-screen page that opens a chat (a workflow node's, a scheduled run's) closes itself and
+  // lands on that chat's tab; the tab change brings the editor back.
+  const openChatFromPage = useCallback((page: FullPageKind, chatId: number, title?: string, providerId?: string) => {
+    closePage(page)
+    const tabId = `chat:${chatId}`
+    openChatTab(tabId, title, undefined, providerId)
+    setTabChatId(tabId, chatId)
+  }, [closePage, openChatTab, setTabChatId])
 
   // Browser Use: let the main-process IAB backend open/close browser tabs.
   // The tabs store only exists here, so main has to ask us. See
@@ -231,40 +233,6 @@ export default function App() {
       .getState()
       .setActiveWorkspace(activeWorkspaceId != null ? String(activeWorkspaceId) : null)
   }, [activeWorkspaceId])
-
-  // Deep links into Settings (a plugin row in the session panel, an extension row…).
-  useEffect(() => {
-    const onOpen = (event: Event): void => {
-      const detail = (event as CustomEvent<OpenSettingsDetail>).detail
-      if (!detail?.tab) return
-      setSettingsTab(detail.tab)
-      setSettingsOpen(true)
-      trackEvent('page_opened', { page: 'settings' })
-    }
-    window.addEventListener(OPEN_SETTINGS_EVENT, onOpen)
-    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, onOpen)
-  }, [])
-
-  // Deep links into the Plugins page (a plugin-provided skill or MCP server, a session-panel row…).
-  // It stacks over Settings when opened from there, so Back lands where the user came from.
-  useEffect(() => {
-    const onOpen = (): void => {
-      setPluginsOpen(true)
-      trackEvent('page_opened', { page: 'plugins' })
-    }
-    window.addEventListener(OPEN_PLUGINS_PAGE_EVENT, onOpen)
-    return () => window.removeEventListener(OPEN_PLUGINS_PAGE_EVENT, onOpen)
-  }, [])
-
-  // A schedule card in a chat opens the Schedule page on the task it created.
-  useEffect(() => {
-    const onOpen = (): void => {
-      setCronjobOpen(true)
-      trackEvent('page_opened', { page: 'cronjob' })
-    }
-    window.addEventListener(OPEN_SCHEDULE_PAGE_EVENT, onOpen)
-    return () => window.removeEventListener(OPEN_SCHEDULE_PAGE_EVENT, onOpen)
-  }, [])
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -349,22 +317,13 @@ export default function App() {
 
   useUpdateNotifications()
 
-  // Handle Chat → Canvas navigation request from editor-store
-  useEffect(() => {
-    if (canvasNavRequest) {
-      setCanvasOpen(true)
-      clearCanvasNavRequest()
-    }
-  }, [canvasNavRequest, clearCanvasNavRequest])
-
   // A task card in a chat transcript asked to open that task — same landing as an
   // inbox task notification: the board, detail open.
   useEffect(() => {
     if (!taskNavRequest) return
-    setBoardInitialTaskId(taskNavRequest.taskId)
-    setMainView('board')
+    openTask(taskNavRequest.taskId)
     clearTaskNavRequest()
-  }, [taskNavRequest, clearTaskNavRequest])
+  }, [taskNavRequest, clearTaskNavRequest, openTask])
 
   // Bind analytics to the broker account this desktop client is signed into, so
   // its events reconcile with the same person's web and phone sessions. The web
@@ -379,21 +338,52 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  const isPageOpen = settingsOpen || pluginsOpen || canvasOpen || cronjobOpen
-
   // The app navigates by state, not by URL, so analytics has no way to know
-  // which screen the user is on unless it is told. Full-screen pages win over
-  // the tab underneath them because that is what the user is looking at.
-  const analyticsScreen = pluginsOpen ? 'plugins'
-    : settingsOpen ? 'settings'
-    : canvasOpen ? 'canvas'
-    : cronjobOpen ? 'cronjob'
-    : inboxOpen ? 'inbox'
-    : assistantOpen ? 'assistant'
-    : mainView === 'spec' ? 'spec'
-    : boardView ? boardView
-    : activeTab?.type ?? 'home'
+  // which screen the user is on unless it is told. The top full-screen page
+  // wins over what is underneath because that is what the user is looking at.
+  const topPage = pages.at(-1)
+  const analyticsScreen = topPage ? FULL_PAGE_ANALYTICS[topPage.kind]
+    : mainView.kind === 'board' ? mainView.view
+    : mainView.kind === 'workbench' ? activeTab?.type ?? 'home'
+    : mainView.kind
   useEffect(() => { setAnalyticsScreen(analyticsScreen) }, [analyticsScreen])
+
+  // page_opened for the full-screen pages, whichever entry opened them (sidebar, a deep link
+  // from a chat card, Settings → Plugins); page_closed is only defined for Settings and Plugins.
+  const trackedPagesRef = useRef<ReadonlySet<FullPageKind>>(new Set())
+  useEffect(() => {
+    const before = trackedPagesRef.current
+    const after = new Set(pages.map((page) => page.kind))
+    for (const kind of after) if (!before.has(kind)) trackEvent('page_opened', { page: FULL_PAGE_ANALYTICS[kind] })
+    for (const kind of before) {
+      if (!after.has(kind) && (kind === 'settings' || kind === 'plugins')) trackEvent('page_closed', { page: kind })
+    }
+    trackedPagesRef.current = after
+  }, [pages])
+
+  const renderFullPage = (page: FullPage) => {
+    switch (page.kind) {
+      case 'settings':
+        return <SettingsPage initialTab={page.tab} onBack={() => closePage('settings')} />
+      case 'plugins':
+        return <PluginsPage request={page} onBack={() => closePage('plugins')} />
+      case 'canvas':
+        return (
+          <CanvasPage
+            onBack={() => closePage('canvas')}
+            onOpenChat={(chatId, title, providerId) => openChatFromPage('canvas', chatId, title, providerId)}
+          />
+        )
+      case 'schedule':
+        return (
+          <CronjobPage
+            request={page}
+            onBack={() => closePage('schedule')}
+            onOpenChat={(chatId, title, providerId) => openChatFromPage('schedule', chatId, title, providerId)}
+          />
+        )
+    }
+  }
 
   // The workspace header slot of SpecPage: breadcrumbs row + editor tab strip.
   // A Spec swaps this out for its own header; see SpecPage.
@@ -474,52 +464,21 @@ export default function App() {
           browser tab, so its frameless editor window has nothing to drive. */}
       {__APP_TARGET__ !== 'web' && <AnnotationEditorHost />}
       {/* Full-screen pages portal to body so they become siblings of the
-          browser webview container (also body-level, z-40) and cover it via
-          normal z-index. Inside #root they'd render *under* the webview. */}
+          browser webview container (also body-level) and cover it via normal
+          z-index. Inside #root they'd render *under* the webview. Layers: lib/z-index.ts. */}
       {createPortal(
         <>
-          {settingsOpen && (
-            <div className="fixed inset-0 z-50">
-              <SettingsPage
-                initialTab={settingsTab}
-                onBack={() => { setSettingsOpen(false); setSettingsTab(undefined); trackEvent('page_closed', { page: 'settings' }) }}
-              />
-            </div>
-          )}
-
-          {pluginsOpen && (
-            <div className="fixed inset-0 z-50">
-              <PluginsPage onBack={() => { setPluginsOpen(false); trackEvent('page_closed', { page: 'plugins' }) }} />
-            </div>
-          )}
-
-          {canvasOpen && (
-            <div className="fixed inset-0 z-50">
-              <CanvasPage
-                onBack={() => setCanvasOpen(false)}
-                onOpenChat={(chatId, title, providerId) => {
-                  setCanvasOpen(false)
-                  const tabId = `chat:${chatId}`
-                  openChatTab(tabId, title, undefined, providerId)
-                  setTabChatId(tabId, chatId)
-                }}
-              />
-            </div>
-          )}
-
-          {cronjobOpen && (
-            <div className="fixed inset-0 z-50">
-              <CronjobPage
-                onBack={() => setCronjobOpen(false)}
-                onOpenChat={(chatId, title, providerId) => {
-                  setCronjobOpen(false)
-                  const tabId = `chat:${chatId}`
-                  openChatTab(tabId, title, undefined, providerId)
-                  setTabChatId(tabId, chatId)
-                }}
-              />
-            </div>
-          )}
+          {FULL_PAGE_ORDER.map((kind) => {
+            // Rendered in a fixed order and stacked by z-index rather than reordered in the
+            // DOM, so bringing a page back to the top never moves (and remounts) its nodes.
+            const index = pages.findIndex((page) => page.kind === kind)
+            if (index < 0) return null
+            return (
+              <div key={kind} className="fixed inset-0" style={{ zIndex: Z_FULL_PAGE + index }}>
+                {renderFullPage(pages[index])}
+              </div>
+            )
+          })}
 
           {/* Toasts live at body level, above the full-screen pages. They used to
               sit inside the shell below, which goes `invisible` whenever a page is
@@ -542,20 +501,6 @@ export default function App() {
           onClose={() => setSidebarCollapsed(true)}
         >
           <ProjectSidebar
-            onOpenSettings={() => { setSettingsOpen(true); trackEvent('page_opened', { page: 'settings' }) }}
-            onOpenCronjobs={() => { setCronjobOpen(true); trackEvent('page_opened', { page: 'cronjob' }) }}
-            onOpenPlugins={() => { setPluginsOpen(true); trackEvent('page_opened', { page: 'plugins' }) }}
-            onOpenCanvas={() => { setCanvasOpen(true); trackEvent('page_opened', { page: 'canvas' }) }}
-            onOpenBoard={() => { setMainView('board'); trackEvent('page_opened', { page: 'board' }) }}
-            onOpenChannels={() => { setMainView('channels'); trackEvent('page_opened', { page: 'channels' }) }}
-            onOpenInbox={() => { setMainView('inbox'); trackEvent('page_opened', { page: 'inbox' }) }}
-            onOpenAssistant={() => setMainView('assistant')}
-            assistantActive={assistantOpen}
-            inboxActive={inboxOpen}
-            boardActive={mainView === 'board'}
-            channelsActive={mainView === 'channels'}
-            onLeaveMainView={leaveMainView}
-            activeSpecId={mainView === 'spec' ? activeSpec?.taskId : null}
             onOpenSpec={openSpec}
             onCollapse={handleToggleSidebar}
             collapsed={sidebarCollapsed}
@@ -565,68 +510,56 @@ export default function App() {
         {/* Main Content Area (Center + Right) */}
         <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
           {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,
-              each stays mounted once opened (display:none while another view is up), so
-              switching back keeps its state; the browser webview hides itself once its
-              placeholder has no size. */}
-          {assistantMounted && (
-            <div className={cn("flex min-h-0 flex-1 flex-col", !assistantOpen && "hidden")}>
-              <PageVisibleContext value={assistantOpen && !isPageOpen}>
-                <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
-              </PageVisibleContext>
-            </div>
-          )}
-          {inboxMounted && (
-            <div className={cn("flex min-h-0 flex-1 flex-col", !inboxOpen && "hidden")}>
-              <PageVisibleContext value={inboxOpen}>
-                <InboxPage
-                  sidebarCollapsed={sidebarCollapsed}
-                  onExpandSidebar={handleToggleSidebar}
-                  onOpenSource={handleOpenNotification}
-                />
-              </PageVisibleContext>
-            </div>
-          )}
+              each stays mounted once opened, so switching back keeps its state; the browser
+              webview hides itself once its placeholder has no size. */}
+          <KeepAliveView mounted={visited.has('assistant')} active={mainView.kind === 'assistant'} visible={mainView.kind === 'assistant' && !isPageOpen}>
+            <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
+          </KeepAliveView>
+          <KeepAliveView mounted={visited.has('inbox')} active={mainView.kind === 'inbox'} visible={mainView.kind === 'inbox' && !isPageOpen}>
+            <InboxPage
+              sidebarCollapsed={sidebarCollapsed}
+              onExpandSidebar={handleToggleSidebar}
+              onOpenSource={handleOpenNotification}
+            />
+          </KeepAliveView>
           {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
-          {lastBoardView && (
-            <div className={cn("flex min-h-0 flex-1 flex-col", boardView === null && "hidden")}>
-              <PageVisibleContext value={boardView !== null}>
-                <BoardPage
-                  view={lastBoardView}
-                  onViewChange={setMainView}
-                  sidebarCollapsed={sidebarCollapsed}
-                  onExpandSidebar={handleToggleSidebar}
-                  initialTaskId={boardInitialTaskId}
-                  onInitialTaskConsumed={() => setBoardInitialTaskId(null)}
-                  onOpenChat={(chat) =>
-                    openChat({
-                      chatId: chat.chatId,
-                      workspaceId: chat.workspaceId ?? undefined,
-                      title: chat.title,
-                      subAgent: chat.subAgent || undefined,
-                    })
-                  }
-                  onOpenWorkspace={(workspaceId) => {
-                    setMainView(null)
-                    // The workspace was likely just provisioned by a task dispatch
-                    // and isn't in the store yet — reload, then read the *fresh*
-                    // state to locate and activate it.
-                    void (async () => {
-                      await loadProjects()
-                      const found = useProjectStore
-                        .getState()
-                        .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
-                      if (found) setActiveWorkspace(workspaceId, found.id)
-                    })()
-                  }}
-                />
-              </PageVisibleContext>
-            </div>
-          )}
-          <div className={cn("flex min-h-0 flex-1 flex-col", mainView !== null && mainView !== 'spec' && "hidden")}>
-          <PageVisibleContext value={!isPageOpen && (mainView === null || mainView === 'spec')}>
+          <KeepAliveView mounted={lastBoardView !== null} active={mainView.kind === 'board'} visible={mainView.kind === 'board' && !isPageOpen}>
+            {lastBoardView && (
+              <BoardPage
+                view={lastBoardView}
+                onViewChange={(view) => showMain({ kind: 'board', view })}
+                sidebarCollapsed={sidebarCollapsed}
+                onExpandSidebar={handleToggleSidebar}
+                initialTaskId={boardTaskId}
+                onInitialTaskConsumed={clearBoardTask}
+                onOpenChat={(chat) =>
+                  openChat({
+                    chatId: chat.chatId,
+                    workspaceId: chat.workspaceId ?? undefined,
+                    title: chat.title,
+                    subAgent: chat.subAgent || undefined,
+                  })
+                }
+                onOpenWorkspace={(workspaceId) => {
+                  showWorkbench()
+                  // The workspace was likely just provisioned by a task dispatch
+                  // and isn't in the store yet — reload, then read the *fresh*
+                  // state to locate and activate it.
+                  void (async () => {
+                    await loadProjects()
+                    const found = useProjectStore
+                      .getState()
+                      .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
+                    if (found) setActiveWorkspace(workspaceId, found.id)
+                  })()
+                }}
+              />
+            )}
+          </KeepAliveView>
+          <KeepAliveView mounted active={workbenchActive} visible={workbenchActive && !isPageOpen}>
           <AppShell>
             <SpecPage
-              target={mainView === 'spec' ? activeSpec : null}
+              target={mainView.kind === 'spec' ? mainView : null}
               sidebarCollapsed={sidebarCollapsed}
               onExpandSidebar={handleToggleSidebar}
               onOpenWorkspace={openWorkspace}
@@ -665,7 +598,7 @@ export default function App() {
                       terminalId={activeTab.terminalId}
                       cwd={activeTab.cwd ?? ""}
                       launch={activeTab.launch}
-                      isActive={!isPageOpen && mainView === null}
+                      isActive={!isPageOpen && mainView.kind === 'workbench'}
                     />
                   </div>
                 )}
@@ -689,8 +622,7 @@ export default function App() {
               </div>
             </SpecPage>
           </AppShell>
-          </PageVisibleContext>
-          </div>
+          </KeepAliveView>
         </div>
       </div>
     </div>

@@ -33,7 +33,6 @@ beforeEach(() => {
     currentWorkspaceId: null,
     currentProjectId: null,
     workspaceStates: {},
-    canvasNavigationRequest: null,
   })
 })
 

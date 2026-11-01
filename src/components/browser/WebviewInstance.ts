@@ -19,6 +19,7 @@ import {
 } from "@/stores/annotations-store"
 import { useAnnotationEditorStore } from "@/stores/annotation-editor-store"
 import { DeviceResizeController } from "./DeviceResizeController"
+import { Z_HOST_SURFACE } from "@/lib/z-index"
 
 export interface WebviewBounds {
   x: number
@@ -126,12 +127,11 @@ const formatDesignContext = (design: DesignSubmission | null, anchor: Anchor): s
 /** All built-in browser tabs share one persistent profile, matching Codex IAB. */
 const BROWSER_PARTITION = "persist:operon-browser"
 // The webview container lives at body level, so its z-index competes directly
-// with the host's body-level portals (Radix dialogs/menus, the full-screen
-// pages — all z-50). We sit just below them (40): high enough to paint over the
-// in-tree placeholder it overlays, low enough that any host overlay naturally
-// covers it via normal stacking. This is why no "hide the webview on overlay"
-// hack is needed (cf. Codex, which likewise gives its webview a plain z-index).
-const Z_INDEX = "40"
+// with the host's body-level portals. It takes the lowest band (see
+// lib/z-index.ts): above the in-tree placeholder it overlays, under every
+// overlay and full-screen page, so those cover it via normal stacking — no
+// "hide the webview on overlay" hack (cf. Codex, which also uses a plain z-index).
+const Z_INDEX = String(Z_HOST_SURFACE)
 const DETACHED_OPACITY = "0"
 const HIDDEN_KEEPALIVE_OPACITY = "0.001"
 const DEFAULT_BROWSER_USE_BOUNDS: WebviewBounds = {

@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button"
 import { PluginsSettings } from "@/components/settings/PluginsSettings"
 
 interface PluginsPageProps {
+  /** The navigation entry that opened (or re-raised) this page. */
+  request?: { pluginId?: string }
   onBack: () => void
 }
 
 /** Full-screen Plugins page, opened from the sidebar (and from plugin deep links). */
-export function PluginsPage({ onBack }: PluginsPageProps) {
+export function PluginsPage({ request, onBack }: PluginsPageProps) {
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground">
       <div className="h-10 drag-region shrink-0 bg-background" />
@@ -35,7 +37,7 @@ export function PluginsPage({ onBack }: PluginsPageProps) {
 
       <div className="flex-1 min-h-0 overflow-auto code-scrollbar scroll-fade-y">
         <div className="mx-auto max-w-4xl px-8 py-7">
-          <PluginsSettings />
+          <PluginsSettings request={request} />
         </div>
       </div>
     </div>
