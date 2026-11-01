@@ -123,7 +123,7 @@ export function ToolCallGroup({
   const summary = buildGroupSummary(toolParts, reasoningCount);
 
   return (
-    <ToolGroupCollapsible running={running} forceOpen={hasApproval}>
+    <ToolGroupCollapsible forceOpen={hasApproval}>
       <TraceCollapsibleTrigger>
         <TraceLine status={running ? 'running' : undefined}>
           <TraceIcon><ListTreeIcon /></TraceIcon>
@@ -152,23 +152,26 @@ export function ToolCallGroup({
 }
 
 /**
- * The group's open state, as in shadcn's Chain of Thought: open while its steps
- * run (and while one waits on an approval, so the question is in view), closed
- * once they finish — unless the person opened or closed it themselves.
+ * The group's open state: closed unless the person opens it, or one of its steps
+ * waits on an approval (so the question is in view).
+ *
+ * It does not open while a step runs. The step streaming right now always sits
+ * outside the group (segmentMessageParts keeps the active tail as its own
+ * segment), so a running step in here is an older parallel call that hasn't
+ * returned yet — opening for it popped an already-folded group open mid-turn.
+ * The header's shimmer says the group is still working.
  */
 function ToolGroupCollapsible({
-  running,
   forceOpen,
   children,
 }: {
-  running: boolean;
   forceOpen: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState<boolean>();
+  const [open, setOpen] = useState(false);
   return (
     <Trace>
-      <TraceCollapsible open={forceOpen || (open ?? running)} onOpenChange={setOpen}>
+      <TraceCollapsible open={forceOpen || open} onOpenChange={setOpen}>
         {children}
       </TraceCollapsible>
     </Trace>

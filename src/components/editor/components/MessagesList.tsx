@@ -88,10 +88,20 @@ const hasExternalAgentToolPart = (message: UIMessage) =>
  * auto <fallback>` makes the browser remember each message's real measured
  * height once rendered, so the scrollbar stops drifting after the first pass;
  * the fallback only applies to messages never yet displayed.
+ *
+ * Live rows carry `contain-intrinsic-size` too (it does nothing without
+ * containment), so the browser is already remembering their height when a new
+ * message pushes one out of the live tail. Without it, the row that crossed the
+ * line had no remembered size and snapped to the 240px fallback: every send
+ * resized a row above the viewport and the list jumped for a frame before the
+ * reading anchor caught up.
  */
-const OFFSCREEN_DEFER_STYLE: CSSProperties = {
-  contentVisibility: 'auto',
+const LIVE_ROW_STYLE: CSSProperties = {
   containIntrinsicSize: 'auto 240px',
+};
+const OFFSCREEN_DEFER_STYLE: CSSProperties = {
+  ...LIVE_ROW_STYLE,
+  contentVisibility: 'auto',
 };
 
 /**
@@ -402,7 +412,7 @@ const MessageItem = memo(function MessageItem({
       // prompt by id to compute its scroll offset.
       data-message-id={message.id}
       className="space-y-1"
-      style={deferOffscreen ? OFFSCREEN_DEFER_STYLE : undefined}
+      style={deferOffscreen ? OFFSCREEN_DEFER_STYLE : LIVE_ROW_STYLE}
     >
       {sortedParts.length > 0 ? (
         (() => {
