@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-01
+
+### Added
+
+- The iOS composer gives text its own row when focused, with an options menu for model, thinking and mode. Skills and commands chosen from the `/` list appear as inline chips, and suggestions open in a panel above the input.
+
+### Changed
+
+- Relative times, durations and file sizes use one format across the app and follow the UI language.
+- Pages opened from another full-screen page, such as Plugins opened from Settings, stack on top, and Back returns to the previous page.
+
+### Fixed
+
+- Failed mobile sign-ins show an error instead of leaving the login page waiting.
+- Sending a message no longer makes the conversation jump for a frame. Collapsed tool groups stay closed while slower parallel calls finish.
+- Switching projects, channels or conversations no longer shows stale data from the previous one on the Board, in Channels, in the session panel or on the workflow canvas.
+- Opening a workflow no longer marks it as edited or saves it.
+- Settings, providers, plugins and schedules refresh everywhere after a change and no longer send duplicate requests.
+- Removing a row from environment variables or workflow lists, conditions and loop variables no longer moves values into the wrong rows.
+- Jumping to a line in a large file preview no longer fails silently.
+- Touch screens no longer leave a hover tint on file tree rows, and mobile diff and file headers show only the back arrow.
+
 ## [1.4.22] - 2026-10-30
 
 ### Added
