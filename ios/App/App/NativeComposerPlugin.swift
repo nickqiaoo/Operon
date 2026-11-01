@@ -175,6 +175,12 @@ public final class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocument
     }
 }
 
+private final class ComposerTokenContainer: UIView {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        subviews.contains { !$0.isHidden && $0.frame.contains(point) }
+    }
+}
+
 final class NativeComposerView: UIView, UITextViewDelegate {
     private(set) var owner = ""
     private var revision = 0
@@ -186,9 +192,12 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private let steer = UIButton(type: .system)
     private let options = UIButton(type: .system)
     private let tokens = UIScrollView()
+    private let inlineTokens = ComposerTokenContainer()
+    private let suggestionPanel = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let suggestions = UIScrollView()
     private var state: JSObject = [:]
     private var tokenItems: [(id: String, title: String)] = []
+    private var inlineTokenItems: [(id: String, title: String)] = []
     private var suggestionItems: [JSObject] = []
     private var draftSync: DispatchWorkItem?
     private var anchorX: CGFloat = 12
@@ -214,11 +223,26 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         glass.layer.cornerCurve = .continuous
         glass.clipsToBounds = true
         addSubview(glass)
-        for child in [suggestions, tokens, attach, textView, placeholder, send, steer, options] {
+        for child in [tokens, attach, textView, placeholder, send, steer, options] {
             glass.contentView.addSubview(child)
         }
+        suggestionPanel.layer.cornerRadius = 18
+        suggestionPanel.layer.cornerCurve = .continuous
+        suggestionPanel.clipsToBounds = true
+        suggestionPanel.layer.borderWidth = 0.5
+        suggestionPanel.layer.borderColor = UIColor.separator.withAlphaComponent(0.25).cgColor
+        suggestionPanel.accessibilityIdentifier = "native-composer-suggestions"
+        suggestionPanel.contentView.addSubview(suggestions)
+        addSubview(suggestionPanel)
         textView.backgroundColor = .clear
         textView.font = .preferredFont(forTextStyle: .body)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 28
+        textView.typingAttributes = [
+            .font: UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: paragraph,
+        ]
         textView.adjustsFontForContentSizeCategory = true
         textView.textColor = .label
         textView.tintColor = brandUIColor
@@ -228,11 +252,13 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         textView.accessibilityLabel = "Message"
         textView.accessibilityIdentifier = "native-message-input"
         textView.delegate = self
+        textView.addSubview(inlineTokens)
         placeholder.font = textView.font
         placeholder.textColor = .placeholderText
         placeholder.isUserInteractionEnabled = false
         placeholder.isAccessibilityElement = false
         suggestions.showsVerticalScrollIndicator = true
+        suggestions.keyboardDismissMode = .none
         tokens.showsHorizontalScrollIndicator = false
         attach.setImage(UIImage(systemName: "plus"), for: .normal)
         attach.tintColor = brandUIColor
@@ -290,7 +316,8 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         tokenItems = (next["attachments"] as? [JSObject] ?? []).compactMap { item in
             guard let id = item["id"] as? String, let title = item["title"] as? String else { return nil }
             return ("attachment:\(id)", title)
-        } + (next["skills"] as? [JSObject] ?? []).compactMap { item in
+        }
+        inlineTokenItems = (next["skills"] as? [JSObject] ?? []).compactMap { item in
             guard let id = item["id"] as? String, let title = item["title"] as? String else { return nil }
             return ("skill:\(id)", title)
         }
@@ -328,7 +355,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     }
 
     private var running: Bool { state["running"] as? Bool ?? false }
-    private var hasDraft: Bool { !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tokenItems.isEmpty || state["hasContext"] as? Bool == true }
+    private var hasDraft: Bool { !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tokenItems.isEmpty || !inlineTokenItems.isEmpty || state["hasContext"] as? Bool == true }
     private var showsSteer: Bool { running && state["canSteer"] as? Bool == true && !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// Focused or holding a draft: the text gets its own full-width row and the
     /// controls move to a row beneath it. Otherwise one compact row.
@@ -340,31 +367,37 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         let leading: CGFloat = isExpanded || attach.isHidden ? 16 : 52
         let trailing: CGFloat = isExpanded ? 16 : showsSteer ? 90 : 50
         let textWidth = max(40, anchorWidth - leading - trailing)
-        let textHeight = min(140, max(40, ceil(textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)))
-        let suggestionHeight = min(156, CGFloat(suggestionItems.count) * 48)
+        let inlineHeight = layoutInlineTokens(width: textWidth)
+        let textHeight = min(140, max(40, inlineHeight + 20, ceil(textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)))
         let tokensHeight: CGFloat = tokenItems.isEmpty ? 0 : 34
         let controlsHeight: CGFloat = isExpanded ? 44 : 0
-        let total = 16 + suggestionHeight + tokensHeight + textHeight + controlsHeight
+        let total = 16 + tokensHeight + textHeight + controlsHeight
         var bottom = parent.bounds.height - max(8, closedBottom)
         if let keyboardTop, keyboardTop < parent.bounds.height - parent.safeAreaInsets.bottom - 1 {
             bottom = min(bottom, keyboardTop - 6)
         }
-        frame = CGRect(x: anchorX, y: bottom - total, width: anchorWidth, height: total)
-        glass.frame = bounds
-        suggestions.frame = CGRect(x: 8, y: 8, width: anchorWidth - 16, height: suggestionHeight)
-        suggestions.isHidden = suggestionItems.isEmpty
-        tokens.frame = CGRect(x: 12, y: 8 + suggestionHeight, width: anchorWidth - 24, height: tokensHeight)
+        let panelGap: CGFloat = suggestionItems.isEmpty ? 0 : 8
+        let availableHeight = max(0, bottom - total - parent.safeAreaInsets.top - 8 - panelGap)
+        let panelHeight = suggestionItems.isEmpty ? 0 : min(248, CGFloat(suggestionItems.count) * 48 + 8, availableHeight)
+        let composerY = panelHeight + panelGap
+        frame = CGRect(x: anchorX, y: bottom - total - composerY, width: anchorWidth, height: total + composerY)
+        glass.frame = CGRect(x: 0, y: composerY, width: anchorWidth, height: total)
+        suggestionPanel.frame = CGRect(x: 0, y: 0, width: anchorWidth, height: panelHeight)
+        suggestionPanel.isHidden = panelHeight == 0
+        suggestions.frame = CGRect(x: 4, y: 4, width: anchorWidth - 8, height: max(0, panelHeight - 8))
+        tokens.frame = CGRect(x: 12, y: 8, width: anchorWidth - 24, height: tokensHeight)
         tokens.isHidden = tokenItems.isEmpty
-        let rowY = 8 + suggestionHeight + tokensHeight
+        let rowY = 8 + tokensHeight
         textView.frame = CGRect(x: leading, y: rowY, width: textWidth, height: textHeight)
         textView.isScrollEnabled = textHeight >= 140
+        alignInlineTokenBaseline()
         // UITextView's fitted height includes extra layout space. Align controls
         // to the actual text line rather than the bottom of that fitted box.
         let caret = textView.caretRect(for: textView.endOfDocument)
         let lineCenter = min(max(caret.midY, 20), textHeight - 20)
         let placeholderHeight = textView.font?.lineHeight ?? 22
         placeholder.frame = CGRect(x: leading, y: rowY + lineCenter - placeholderHeight / 2, width: textWidth, height: placeholderHeight)
-        placeholder.isHidden = !textView.text.isEmpty
+        placeholder.isHidden = !textView.text.isEmpty || !inlineTokenItems.isEmpty
         // Compact: controls sit on the text line. Expanded: + on the left, then
         // (right to left) send, options, steer on the row below the text.
         let controlsCenterY = isExpanded ? rowY + textHeight + controlsHeight / 2 : rowY + lineCenter
@@ -413,18 +446,27 @@ final class NativeComposerView: UIView, UITextViewDelegate {
 
     private func rebuildTokens() {
         tokens.subviews.forEach { $0.removeFromSuperview() }
-        for item in tokenItems {
+        inlineTokens.subviews.forEach { $0.removeFromSuperview() }
+        for item in tokenItems + inlineTokenItems {
             let button = UIButton(type: .system)
+            let isInline = item.id.hasPrefix("skill:")
+            let font = isInline ? UIFont.preferredFont(forTextStyle: .body) : UIFont.systemFont(ofSize: 14, weight: .medium)
             var config = UIButton.Configuration.tinted()
             config.title = item.title
-            config.image = UIImage(systemName: "xmark.circle.fill")
+            config.image = UIImage(systemName: isInline ? "xmark" : "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: isInline ? 10 : 14, weight: .medium))
             config.imagePlacement = .trailing
             config.imagePadding = 6
-            config.cornerStyle = .capsule
-            config.baseForegroundColor = .secondaryLabel
+            config.cornerStyle = isInline ? .fixed : .capsule
+            if isInline {
+                config.background.cornerRadius = 10
+                config.background.backgroundColor = brandUIColor.withAlphaComponent(0.12)
+                config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
+            }
+            config.baseForegroundColor = isInline ? brandUIColor : .secondaryLabel
+            config.titleLineBreakMode = .byTruncatingTail
             config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var outgoing = incoming
-                outgoing.font = .systemFont(ofSize: 12, weight: .medium)
+                outgoing.font = font
                 return outgoing
             }
             button.configuration = config
@@ -433,8 +475,51 @@ final class NativeComposerView: UIView, UITextViewDelegate {
                 guard let self else { return }
                 self.emitAction(item.id)
             }, for: .touchUpInside)
-            tokens.addSubview(button)
+            (item.id.hasPrefix("skill:") ? inlineTokens : tokens).addSubview(button)
         }
+    }
+
+    /// Reserve space in the text container so the caret and prose flow beside the tokens.
+    private func layoutInlineTokens(width: CGFloat) -> CGFloat {
+        let rowHeight = max(28, ceil(textView.font?.lineHeight ?? 22))
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var paths: [UIBezierPath] = []
+        for button in inlineTokens.subviews {
+            let tokenWidth = min(max(40, width - 32), button.sizeThatFits(CGSize(width: width, height: rowHeight)).width)
+            if x > 0 && x + tokenWidth > width - 24 {
+                paths.append(UIBezierPath(rect: CGRect(x: 0, y: y, width: width, height: rowHeight)))
+                x = 0
+                y += rowHeight
+            }
+            button.frame = CGRect(x: x, y: y, width: tokenWidth, height: rowHeight)
+            x += tokenWidth + 6
+        }
+        if x > 0 { paths.append(UIBezierPath(rect: CGRect(x: 0, y: y, width: min(width, x), height: rowHeight))) }
+        let height = inlineTokenItems.isEmpty ? 0 : y + rowHeight
+        inlineTokens.frame = CGRect(x: 0, y: 10, width: width, height: height)
+        textView.textContainer.exclusionPaths = paths
+        return height
+    }
+
+    private func alignInlineTokenBaseline() {
+        guard let button = inlineTokens.subviews.first as? UIButton,
+              let font = textView.font else { return }
+        // The caret's bounds include paragraph leading; its center is not a text baseline.
+        let manager = textView.layoutManager
+        manager.ensureLayout(for: textView.textContainer)
+        let glyphs = manager.glyphRange(for: textView.textContainer)
+        let baseline: CGFloat
+        if glyphs.length > 0 {
+            baseline = manager.location(forGlyphAt: glyphs.location).y
+        } else {
+            baseline = font.ascender + max(0, 28 - font.lineHeight)
+        }
+        button.layoutIfNeeded()
+        guard let label = button.titleLabel, let labelFont = label.font else { return }
+        let titleRect = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 1)
+        let titleBaseline = label.convert(CGPoint(x: 0, y: titleRect.minY + labelFont.ascender), to: inlineTokens).y
+        inlineTokens.frame.origin.y = textView.textContainerInset.top + baseline - titleBaseline
     }
 
     private func layoutTokenButtons() {
@@ -448,16 +533,35 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     }
 
     private func rebuildSuggestions() {
-        suggestions.subviews.forEach { $0.removeFromSuperview() }
+        suggestions.subviews.compactMap { $0 as? UIButton }.forEach { $0.removeFromSuperview() }
+        suggestions.contentOffset = .zero
         for item in suggestionItems {
             let button = UIButton(type: .system)
             var config = UIButton.Configuration.plain()
             config.title = item["title"] as? String
             config.subtitle = item["subtitle"] as? String
+            config.titleLineBreakMode = .byTruncatingTail
+            config.subtitleLineBreakMode = .byTruncatingTail
             config.titleAlignment = .leading
             config.baseForegroundColor = .label
+            let type = item["type"] as? String
+            config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: type == nil ? 12 : 96)
             button.contentHorizontalAlignment = .leading
             button.configuration = config
+            button.clipsToBounds = true
+            if let type {
+                let badge = UILabel()
+                badge.tag = 1
+                badge.text = type == "skill" ? "Skill" : "Command"
+                badge.font = .systemFont(ofSize: 11, weight: .medium)
+                badge.textAlignment = .center
+                badge.textColor = type == "skill" ? brandUIColor : .secondaryLabel
+                badge.backgroundColor = type == "skill" ? brandUIColor.withAlphaComponent(0.1) : UIColor.secondaryLabel.withAlphaComponent(0.08)
+                badge.layer.cornerRadius = 6
+                badge.clipsToBounds = true
+                button.addSubview(badge)
+                button.accessibilityLabel = "\(item["title"] as? String ?? ""), \(badge.text ?? "")"
+            }
             button.addAction(UIAction { [weak self] _ in
                 guard let self else { return }
                 self.emitAction("suggestion:\(item["id"] as? String ?? "")")
@@ -467,8 +571,12 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     }
 
     private func layoutSuggestionButtons() {
-        for (index, button) in suggestions.subviews.enumerated() {
+        for (index, button) in suggestions.subviews.compactMap({ $0 as? UIButton }).enumerated() {
             button.frame = CGRect(x: 0, y: CGFloat(index) * 48, width: suggestions.bounds.width, height: 48)
+            if let badge = button.viewWithTag(1) as? UILabel {
+                let width = badge.intrinsicContentSize.width + 12
+                badge.frame = CGRect(x: button.bounds.width - width - 12, y: 14, width: width, height: 20)
+            }
         }
         suggestions.contentSize = CGSize(width: suggestions.bounds.width, height: CGFloat(suggestionItems.count) * 48)
     }

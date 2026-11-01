@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SlashCommandItem } from '../hooks/useModelManagement';
 
+export function formatSlashCommandPrefix(items: readonly SlashCommandItem[]): string {
+  return items.map((item) => item.type === 'command' ? `/${item.name}` : `[skill:${item.name}]`).join(' ');
+}
+
 export interface SlashCommandState {
   isOpen: boolean;
   suggestions: SlashCommandItem[];
@@ -19,9 +23,10 @@ interface UseSlashCommandOptions {
   setInput: (val: string) => void;
   cursorPos: number;
   slashCommands: SlashCommandItem[];
+  inlineCommands?: boolean;
 }
 
-export function useSlashCommand({ input, setInput, cursorPos, slashCommands }: UseSlashCommandOptions) {
+export function useSlashCommand({ input, setInput, cursorPos, slashCommands, inlineCommands = false }: UseSlashCommandOptions) {
   const [selectedSkills, setSelectedSkills] = useState<SlashCommandItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissedMatchKey, setDismissedMatchKey] = useState<string | null>(null);
@@ -83,8 +88,8 @@ export function useSlashCommand({ input, setInput, cursorPos, slashCommands }: U
   }, [slashMatchKey]);
 
   const selectItem = useCallback((item: SlashCommandItem) => {
-    if (item.type === 'skill') {
-      // Skill: add as chip, remove slash text
+    if (item.type === 'skill' || inlineCommands) {
+      // Native commands share the inline token presentation with skills.
       setSelectedSkills((prev) => {
         if (prev.some((s) => s.name === item.name)) return prev;
         return [...prev, item];
@@ -104,7 +109,7 @@ export function useSlashCommand({ input, setInput, cursorPos, slashCommands }: U
       }
     }
     setDismissedMatchKey(null);
-  }, [slashMatch, input, cursorPos, setInput]);
+  }, [slashMatch, input, cursorPos, setInput, inlineCommands]);
 
   const removeSkill = useCallback((skillName: string) => {
     setSelectedSkills((prev) => prev.filter((s) => s.name !== skillName));

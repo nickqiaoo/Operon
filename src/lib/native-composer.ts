@@ -18,6 +18,7 @@ export interface ComposerToken {
 
 export interface ComposerSuggestion extends ComposerToken {
   subtitle?: string
+  type?: 'skill' | 'command'
 }
 
 export interface ComposerSnapshot {

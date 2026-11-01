@@ -25,7 +25,7 @@ import type { SlashCommandItem } from '../hooks/useModelManagement';
 import { MentionPopup } from './MentionPopup';
 import { ModelSelectorPanel, type DynamicModel } from './ModelSelectorPanel';
 import { useMentionOverlay } from './useMentionOverlay';
-import { useSlashCommand } from './useSlashCommand';
+import { formatSlashCommandPrefix, useSlashCommand } from './useSlashCommand';
 import { SlashCommandPopup } from './SlashCommandPopup';
 import { SkillChips } from './SkillChips';
 import { hasComposerDraft } from './chatInputState';
@@ -170,7 +170,7 @@ export function ChatInputArea({
     selectItem,
     removeSkill,
     clearSkills,
-  } = useSlashCommand({ input, setInput, cursorPos, slashCommands });
+  } = useSlashCommand({ input, setInput, cursorPos, slashCommands, inlineCommands: floating && hasNativeComposer() });
 
   // A skill chosen in the session panel becomes a chip here, then is cleared upstream so
   // reopening the panel does not re-add it.
@@ -186,7 +186,7 @@ export function ChatInputArea({
     if (!text) return;
 
     const prefixedText = selectedSkills.length > 0
-      ? `${selectedSkills.map((s) => `[skill:${s.name}]`).join(' ')} ${text}`.trim()
+      ? `${formatSlashCommandPrefix(selectedSkills)} ${text}`.trim()
       : text;
 
     setMobileActionExpanded(false);
@@ -262,7 +262,7 @@ export function ChatInputArea({
   const handleSubmitWithSkills = useCallback((message: PromptInputMessage) => {
     setMobileActionExpanded(false);
     if (selectedSkills.length > 0) {
-      const skillPrefix = selectedSkills.map((s) => `[skill:${s.name}]`).join(' ');
+      const skillPrefix = formatSlashCommandPrefix(selectedSkills);
       onSubmit({ ...message, text: `${skillPrefix} ${message.text}`.trim() });
       clearSkills();
     } else {
@@ -419,7 +419,7 @@ export function ChatInputArea({
         onSteer={() => void handleSteer()}
         skills={selectedSkills.map((skill) => ({ id: skill.name, title: skill.name }))}
         suggestions={slashCommand.isOpen
-          ? slashCommand.suggestions.map((item) => ({ id: `slash:${item.name}`, title: `/${item.name}`, subtitle: item.description }))
+          ? slashCommand.suggestions.map((item) => ({ id: `slash:${item.name}`, title: item.name, type: item.type }))
           : mention.isOpen ? mention.suggestions.map((item) => ({ id: `mention:${item.path}`, title: item.name, subtitle: mention.getRelativePath(item) })) : []}
         menuTitle={[selectedModel?.label, selectedModel?.hasThinking ? thinkingLabel : '', modeLabel].filter(Boolean).join(' · ')}
         menu={[
