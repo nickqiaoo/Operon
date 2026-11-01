@@ -1,12 +1,13 @@
 import { TaskAssigneeAvatar, TaskExecutionIndicator } from './TaskExecutionIndicator'
 import { ListTodo, Archive } from 'lucide-react'
-import { FormattedMessage } from 'react-intl'
+import { FormattedMessage, useIntl } from 'react-intl'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { PriorityIcon, LabelChip, TaskRef, relativeTime, type TaskGroup } from './task-meta'
+import { PriorityIcon, LabelChip, TaskRef, type TaskGroup } from './task-meta'
 import type { TaskListItem } from '@/types/task'
 import { SpecCardBadge } from '@/components/spec/spec-shared'
 import type { Agent, AgentSession } from '@/types/channel'
+import { formatRelativeTime } from '@/lib/format'
 
 interface TaskListViewProps {
   tasks: TaskListItem[]
@@ -74,6 +75,7 @@ function TaskRow({
   sessions: AgentSession[]
   onClick: () => void
 }) {
+  const intl = useIntl()
   const archived = task.archivedAt != null
   return (
     <button
@@ -101,8 +103,8 @@ function TaskRow({
           ))}
         </span>
       </div>
-      <span className="text-[11px] text-muted-foreground/40 tabular-nums w-9 text-right shrink-0">
-        {relativeTime(task.updatedAt)}
+      <span className="text-[11px] text-muted-foreground/40 tabular-nums w-12 text-right shrink-0 whitespace-nowrap">
+        {formatRelativeTime(intl, task.updatedAt, { compact: true })}
       </span>
       <span className="flex w-6 shrink-0 items-center justify-center">
         <TaskAssigneeAvatar task={task} agents={agents} />

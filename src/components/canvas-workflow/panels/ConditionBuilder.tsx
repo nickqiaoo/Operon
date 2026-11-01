@@ -8,6 +8,7 @@ import { VariablePicker } from "./VariablePicker"
 import { useVariableScope } from "./variable-scope"
 import { TextField, inputClass, selectContentClass, selectTriggerClass } from "./fields"
 import { Input } from "@/components/ui/input"
+import { useRowKeys } from "@/hooks/useRowKeys"
 
 const OPERATORS: Array<{ id: CanvasConditionOperator; label: string; unary?: boolean }> = [
   { id: "is_true", label: "is true", unary: true },
@@ -60,6 +61,7 @@ export function ConditionBuilder({
   onChange: (next: CanvasConditionGroup) => void
 }) {
   const rows = group.conditions ?? []
+  const rowKeys = useRowKeys(rows.length)
   const advanced = typeof group.expression === "string"
 
   const setRow = (index: number, patch: Partial<CanvasCondition>) =>
@@ -79,7 +81,7 @@ export function ConditionBuilder({
           {rows.map((row, index) => {
             const op = OPERATORS.find((o) => o.id === row.operator) ?? OPERATORS[0]
             return (
-              <div key={index} className="space-y-1">
+              <div key={rowKeys.keys[index]} className="space-y-1">
                 {index > 0 && (
                   <button
                     type="button"
@@ -98,7 +100,7 @@ export function ConditionBuilder({
                       {OPERATORS.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => onChange({ ...group, conditions: rows.filter((_, i) => i !== index) })}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { rowKeys.remove(index); onChange({ ...group, conditions: rows.filter((_, i) => i !== index) }) }}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>

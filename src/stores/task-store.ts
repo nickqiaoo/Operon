@@ -62,6 +62,9 @@ function upsertTask(tasks: TaskListItem[], task: TaskListItem): TaskListItem[] {
   return tasks.map((t) => (t.id === task.id ? task : t))
 }
 
+/** Bumped per list request; only the newest one may write the board. */
+let listRequestSeq = 0
+
 export const useTaskStore = create<TaskStore>((set, get) => ({
   projectId: null,
   tasks: [],
@@ -74,7 +77,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     // Re-entering the same scope keeps what's on screen (and a deep-linked detail
     // that opened first) and refreshes underneath; a new scope starts clean.
     const same = get().projectId === projectId && get().tasks.length > 0
-    set((s) => ({ projectId, loading: !same, detail: same ? s.detail : null }))
+    const seq = ++listRequestSeq
+    set((s) => same
+      ? { projectId, loading: false }
+      : { projectId, loading: true, tasks: [], labels: [], detail: null, detailPending: s.detailPending })
     try {
       const [{ tasks }, { labels }] = await Promise.all([
         // Fetch archived too — the board filters them client-side via the
@@ -82,15 +88,20 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         api.taskList(projectId, { includeArchived: true }),
         api.taskLabelList(projectId),
       ])
+      // Another project was opened (or this one reloaded) while this was on its
+      // way: a late answer must not paint the previous project's board.
+      if (seq !== listRequestSeq) return
       set({ tasks, labels, loading: false })
     } catch {
-      set({ loading: false })
+      if (seq === listRequestSeq) set({ loading: false })
     }
   },
 
   reload: async () => {
-    const { tasks } = await api.taskList(get().projectId, { includeArchived: true })
-    set({ tasks })
+    const projectId = get().projectId
+    const seq = ++listRequestSeq
+    const { tasks } = await api.taskList(projectId, { includeArchived: true })
+    if (seq === listRequestSeq) set({ tasks })
   },
 
   openDetail: async (taskId) => {

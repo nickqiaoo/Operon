@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { type CodexGoal, isResumableGoalStatus } from '@/types/goal'
+import { formatDuration } from '@/lib/format'
 
 interface GoalBannerProps {
   goal: CodexGoal
@@ -11,13 +12,6 @@ interface GoalBannerProps {
   onClear: () => void
   onPause: () => void
   onResume: () => void
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 function statusLabel(status: string, isGenerating: boolean): string {
@@ -39,7 +33,7 @@ export function GoalBanner({ goal, pending = false, isGenerating = false, onClea
   const status = statusLabel(goal.status, isGenerating)
   const spent = [
     typeof goal.tokensUsed === 'number' ? `${goal.tokensUsed.toLocaleString('en-US')} tokens` : null,
-    goal.timeUsedSeconds ? formatDuration(goal.timeUsedSeconds) : null,
+    goal.timeUsedSeconds ? formatDuration(goal.timeUsedSeconds * 1000) : null,
   ].filter(Boolean).join(' · ')
 
   return (

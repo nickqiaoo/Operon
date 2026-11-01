@@ -5,6 +5,7 @@ import { AgentRow } from '@/components/editor/components/WorkflowRunDetail'
 import { AgentTimeline, type TimelineAgent } from './AgentTimeline'
 import { buildAgentTimeline } from './agent-timeline-data'
 import { SpecAgentList, stageLabel } from './spec-shared'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 export function SpecAgentTimeline({ spec, onOpenChat }: { spec: SpecView; onOpenChat?: (chat: SpecChatRef) => void }) {
   const intl = useIntl()
@@ -30,12 +31,17 @@ export function SpecAgentTimeline({ spec, onOpenChat }: { spec: SpecView; onOpen
   }
 
   return <div className="min-w-0 space-y-3">
-    {runIds.length > 1 && <label className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+    {runIds.length > 1 && <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
       Run
-      <select aria-label="Timeline run" value={runId} onChange={(event) => { setSelectedRun(event.target.value); setSelectedAgent(null) }} className="max-w-48 rounded-md border border-border/40 bg-background px-2 py-1 text-foreground">
-        {runIds.map((id, index) => <option key={id} value={id}>Run {index + 1}{id === latestRun ? ' · Latest' : ''}</option>)}
-      </select>
-    </label>}
+      <Select value={runId} onValueChange={(value) => { setSelectedRun(value); setSelectedAgent(null) }}>
+        <SelectTrigger size="sm" aria-label="Timeline run" className="h-7 max-w-48 bg-background text-xs text-foreground">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {runIds.map((id, index) => <SelectItem key={id} value={id} className="text-xs">Run {index + 1}{id === latestRun ? ' · Latest' : ''}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>}
     <AgentTimeline key={runId} statusLabel={runId === latestRun ? stageLabel(intl, spec.run.stage) : 'Previous run'} {...timeline} onSelectAgent={selectAgent} />
     {timeline.untimed > 0 && <p className="text-xs text-muted-foreground">{timeline.untimed} agent calls have no timing data. See all calls below.</p>}
     {selected && <AgentRow key={`${selected.runId}:${selected.index}`} runId={selected.runId} agent={{ ...selected, chatIds: selected.chats?.map((chat) => chat.chatId) }} stream={undefined} referenceRootPath={selected.chats?.at(-1)?.cwd ?? null} />}

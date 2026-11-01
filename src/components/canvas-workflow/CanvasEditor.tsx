@@ -61,6 +61,8 @@ interface CanvasEditorProps {
   onCreateSessionNode?: (parentNodeId: string) => void
   hasSessionChild?: (nodeId: string) => boolean
   onInit?: (instance: ReactFlowInstance) => void
+  /** Receives the flow's wrapper element (the owner measures the visible canvas with it). */
+  containerRef?: React.RefObject<HTMLDivElement | null>
   onNodeDragStop?: (event: unknown, node: CanvasNode) => void
   onDeleteNodes?: (nodeIds: string[]) => void
   onDuplicateNodes?: (nodeIds: string[]) => void
@@ -79,6 +81,7 @@ function CanvasEditorInner({
   onCreateSessionNode,
   hasSessionChild,
   onInit,
+  containerRef: externalContainerRef,
   onDeleteNodes,
   onDuplicateNodes,
   onAddNodeAtPosition,
@@ -106,7 +109,8 @@ function CanvasEditorInner({
 
   const intl = useIntl()
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const ownContainerRef = useRef<HTMLDivElement>(null)
+  const containerRef = externalContainerRef ?? ownContainerRef
   const { fitView, screenToFlowPosition } = useReactFlow()
 
   // Node right-click

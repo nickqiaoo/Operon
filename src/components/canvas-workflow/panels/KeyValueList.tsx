@@ -1,6 +1,7 @@
 import { Plus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TextField } from "./fields"
+import { useRowKeys } from "@/hooks/useRowKeys"
 
 export interface KeyValueEntry {
   key: string
@@ -23,13 +24,14 @@ export function KeyValueList({
   addLabel: string
   valueMono?: boolean
 }) {
+  const rowKeys = useRowKeys(entries.length)
   const set = (index: number, patch: Partial<KeyValueEntry>) =>
     onChange(entries.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)))
 
   return (
     <div className="space-y-1.5">
       {entries.map((entry, index) => (
-        <div key={index} className="flex items-center gap-1.5">
+        <div key={rowKeys.keys[index]} className="flex items-center gap-1.5">
           <TextField
             value={entry.key}
             onChange={(key) => set(index, { key })}
@@ -49,7 +51,10 @@ export function KeyValueList({
             variant="ghost"
             size="icon"
             className="h-7 w-7 shrink-0"
-            onClick={() => onChange(entries.filter((_, i) => i !== index))}
+            onClick={() => {
+              rowKeys.remove(index)
+              onChange(entries.filter((_, i) => i !== index))
+            }}
           >
             <X className="h-3.5 w-3.5" />
           </Button>

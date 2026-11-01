@@ -33,7 +33,6 @@ const providerLogos: Record<string, string> = {
   cursor: cursorLogo,
   antigravity: antigravityLogo,
 }
-import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { EditorTab } from "@/types/editor"
 import { useEditorStore } from "@/stores/editor-store"
@@ -42,6 +41,7 @@ import { useChatPendingInputStore } from "@/stores/chat-pending-input-store"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useChatHistoryList } from "@/lib/chat-queries"
+import { useProviders, type ProviderSummary } from "@/lib/provider-queries"
 import { WorkspaceTaskButton } from "./WorkspaceTaskButton"
 
 import {
@@ -59,10 +59,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
-import { useEffect, useRef, useState } from "react"
-import { FormattedMessage, useIntl, type IntlShape } from "react-intl"
+import { useRef, useState } from "react"
+import { FormattedMessage, useIntl } from "react-intl"
+import { formatRelativeTime } from "@/lib/format"
 
-type ProviderOption = { id: string; label: string; logo: string; available: boolean }
+const NO_PROVIDERS: ProviderSummary[] = []
 
 interface EditorTabsProps {
   tabs: EditorTab[]
@@ -85,20 +86,6 @@ const HISTORY_PAGE_SIZE = 40
 const getHistoryLogo = (providerId?: string): string | undefined => {
   if (!providerId) return undefined
   return providerLogos[providerId]
-}
-
-const formatRelativeTime = (timestamp: number, intl: IntlShape): string => {
-  const now = Date.now()
-  const diffMs = now - timestamp
-  const diffMin = Math.floor(diffMs / 60000)
-  if (diffMin < 1) return intl.formatMessage({ id: "editor.time.justNow", defaultMessage: "just now" })
-  if (diffMin < 60) return intl.formatMessage({ id: "editor.time.minutesAgo", defaultMessage: "{count}m ago" }, { count: diffMin })
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return intl.formatMessage({ id: "editor.time.hoursAgo", defaultMessage: "{count}h ago" }, { count: diffHr })
-  const diffDay = Math.floor(diffHr / 24)
-  if (diffDay < 30) return intl.formatMessage({ id: "editor.time.daysAgo", defaultMessage: "{count}d ago" }, { count: diffDay })
-  const diffMon = Math.floor(diffDay / 30)
-  return intl.formatMessage({ id: "editor.time.monthsAgo", defaultMessage: "{count}mo ago" }, { count: diffMon })
 }
 
 /**
@@ -181,18 +168,10 @@ export function EditorTabs({
     enabled: historyOpen,
   })
 
-  // Providers backing the new-tab menu (Chat + Terminal submenus). Fetched once
-  // when the "+" menu first opens.
-  const [providers, setProviders] = useState<ProviderOption[]>([])
+  // Providers backing the new-tab menu (Chat + Terminal submenus). Not fetched
+  // until the "+" menu first opens; the cached list stays after it closes.
   const [newTabOpen, setNewTabOpen] = useState(false)
-  useEffect(() => {
-    if (!newTabOpen || providers.length > 0) return
-    let active = true
-    api.getProviders().then((list) => {
-      if (active) setProviders(list)
-    }).catch(() => {})
-    return () => { active = false }
-  }, [newTabOpen, providers.length])
+  const { data: providers = NO_PROVIDERS } = useProviders({ enabled: newTabOpen })
 
   const terminalProviders = providers.filter((p) => p.id in TERMINAL_CLI_LAUNCH)
 
@@ -429,7 +408,7 @@ export function EditorTabs({
                           </span>
                         )}
                         <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-                          {formatRelativeTime(item.updatedAt, intl)}
+                          {formatRelativeTime(intl, item.updatedAt)}
                         </span>
                       </button>
                     )

@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from "react"
+import { useCallback, type MutableRefObject, type RefObject } from "react"
 import { DEFAULT_GROUP_SIZE, NODE_TYPES, isGroupReactFlowType, type CreatableNodeType } from "../node-registry"
 import type {
   NodeChange,
@@ -23,9 +23,13 @@ interface UseCanvasNodeOperationsParams {
   setEdges: React.Dispatch<React.SetStateAction<CanvasEdge[]>>
   rawOnNodesChange: (changes: NodeChange<CanvasNode>[]) => void
   setDirty: (dirty: boolean) => void
-  initialLoadRef: MutableRefObject<boolean>
   reactFlowInstanceRef: MutableRefObject<ReactFlowInstance | null>
+  /** The flow's wrapper element, for "the middle of the visible canvas". */
+  flowContainerRef: RefObject<HTMLDivElement | null>
 }
+
+/** Unique even for several nodes made in one tick (duplicate, paste). */
+const newNodeId = () => `node-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
 export function useCanvasNodeOperations({
   nodes,
@@ -35,16 +39,21 @@ export function useCanvasNodeOperations({
   setEdges,
   rawOnNodesChange,
   setDirty,
-  initialLoadRef,
   reactFlowInstanceRef,
+  flowContainerRef,
 }: UseCanvasNodeOperationsParams) {
   // Wrap onNodesChange to cascade-delete session descendants and track dirty
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => {
+    // Only what the user did counts. React Flow also emits changes of its own while
+    // it measures freshly loaded nodes — a group that `expandParent` grows to fit its
+    // children gets `position` / `dimensions` changes — and those carry neither
+    // `dragging` (set on every drag / keyboard move) nor `resizing` (set by the resizer).
     const hasStructuralChange = changes.some(
-      (c) => c.type === "add" || c.type === "remove" || c.type === "position"
+      (c) => c.type === "add" || c.type === "remove"
+        || (c.type === "position" && c.dragging !== undefined)
         || (c.type === "dimensions" && c.resizing === false)
     )
-    if (hasStructuralChange && !initialLoadRef.current) setDirty(true)
+    if (hasStructuralChange) setDirty(true)
     const removeChanges = changes.filter((c): c is NodeRemoveChange => c.type === "remove")
 
     if (removeChanges.length > 0) {
@@ -87,25 +96,19 @@ export function useCanvasNodeOperations({
     }
 
     rawOnNodesChange(changes)
-  }, [rawOnNodesChange, setEdges, nodesRef, initialLoadRef, setDirty])
+  }, [rawOnNodesChange, setEdges, nodesRef, setDirty])
 
   // Add node
   const addNode = useCallback((type: CreatableNodeType) => {
-    const id = `node-${Date.now()}`
+    const id = newNodeId()
 
     // Place node at the center of the current viewport
     let position = { x: 100 + nodes.length * 300, y: 200 }
     const instance = reactFlowInstanceRef.current
-    if (instance) {
-      const viewport = instance.getViewport()
-      const flowEl = document.querySelector('.react-flow') as HTMLElement | null
-      if (flowEl) {
-        const { width, height } = flowEl.getBoundingClientRect()
-        position = {
-          x: (-viewport.x + width / 2) / viewport.zoom - 100,
-          y: (-viewport.y + height / 2) / viewport.zoom - 50,
-        }
-      }
+    const bounds = flowContainerRef.current?.getBoundingClientRect()
+    if (instance && bounds) {
+      const center = instance.screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
+      position = { x: center.x - 100, y: center.y - 50 }
     }
 
     const newNode: CanvasNode = {
@@ -118,7 +121,7 @@ export function useCanvasNodeOperations({
 
     setNodes((nds) => (NODE_TYPES[type].group ? [newNode, ...nds] : [...nds, newNode]))
     setDirty(true)
-  }, [nodes.length, setNodes, setDirty, reactFlowInstanceRef])
+  }, [nodes.length, setNodes, setDirty, reactFlowInstanceRef, flowContainerRef])
 
   // Check if a node already has a session child
   const hasSessionChild = useCallback((nodeId: string) => {
@@ -137,7 +140,7 @@ export function useCanvasNodeOperations({
     // Each node can only have one session child
     if (hasSessionChild(parentNodeId)) return
 
-    const id = `node-${Date.now()}`
+    const id = newNodeId()
     const parentName = (parentNode.data.name as string) || parentNodeId
 
     // Resolve root AI node info for display
@@ -304,7 +307,7 @@ export function useCanvasNodeOperations({
 
     const idMap = new Map<string, string>()
     const newNodes: CanvasNode[] = toDuplicate.map((n) => {
-      const newId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      const newId = newNodeId()
       idMap.set(n.id, newId)
       return {
         ...n,
@@ -340,7 +343,7 @@ export function useCanvasNodeOperations({
 
   // Add node at specific position (for pane context menu)
   const addNodeAtPosition = useCallback((type: CreatableNodeType, position: XYPosition) => {
-    const id = `node-${Date.now()}`
+    const id = newNodeId()
     const newNode: CanvasNode = {
       id,
       type: NODE_TYPES[type].rfType,
@@ -395,10 +398,8 @@ export function useCanvasNodeOperations({
       })
     )
 
-    // Fit view after layout
-    setTimeout(() => {
-      reactFlowInstanceRef.current?.fitView({ padding: 0.2, duration: 300 })
-    }, 50)
+    // React Flow queues a fitView until the nodes above have been applied.
+    void reactFlowInstanceRef.current?.fitView({ padding: 0.2, duration: 300 })
   }, [edges, setNodes, nodesRef, reactFlowInstanceRef])
 
   // Update node status for execution visualization

@@ -9,8 +9,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
 import { cn } from "@/lib/utils"
-import { relativeTime } from "@/components/task/task-meta"
 import type { CanvasWorkflowLastRun, CanvasWorkflowListItem } from "@/types/canvas-workflow"
+import { formatRelativeTime } from "@/lib/format"
 
 /**
  * The landing view for the workflow page: what exists, where it lives, and how
@@ -81,7 +81,7 @@ function LastRunChip({ lastRun }: { lastRun?: CanvasWorkflowLastRun }) {
     )
   }
 
-  const when = relativeTime(lastRun.finishedAt ?? lastRun.startedAt)
+  const when = formatRelativeTime(intl, lastRun.finishedAt ?? lastRun.startedAt)
 
   if (lastRun.status === "running") {
     return (
@@ -96,7 +96,7 @@ function LastRunChip({ lastRun }: { lastRun?: CanvasWorkflowLastRun }) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-status-error">
         <AlertCircle className="h-3 w-3" />
-        {intl.formatMessage({ id: "canvas.library.failed", defaultMessage: "Failed {when} ago" }, { when })}
+        {intl.formatMessage({ id: "canvas.library.failedWhen", defaultMessage: "Failed {when}" }, { when })}
       </span>
     )
   }
@@ -104,7 +104,7 @@ function LastRunChip({ lastRun }: { lastRun?: CanvasWorkflowLastRun }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-status-ok">
       <Check className="h-3 w-3" />
-      {intl.formatMessage({ id: "canvas.library.succeeded", defaultMessage: "Ran {when} ago" }, { when })}
+      {intl.formatMessage({ id: "canvas.library.succeededWhen", defaultMessage: "Ran {when}" }, { when })}
     </span>
   )
 }
@@ -174,7 +174,7 @@ export function WorkflowLibrary({
                 onClick={() => onOpen(wf.id)}
                 className={cn(
                   "group flex w-full items-center gap-4 rounded-xl border border-border/60 bg-popover/95 px-4 py-3 text-left",
-                  "shadow-card transition-colors hover:border-border hover:bg-muted/30 dark:border-border/35"
+                  "shadow-card transition-colors hover:border-border hover:bg-row-hover dark:border-border/35"
                 )}
               >
                 <div className="min-w-0 flex-1">
@@ -200,8 +200,8 @@ export function WorkflowLibrary({
                     <span className="text-muted-foreground/40">·</span>
                     <span>
                       {intl.formatMessage(
-                        { id: "canvas.library.edited", defaultMessage: "Edited {when} ago" },
-                        { when: relativeTime(wf.updatedAt) }
+                        { id: "canvas.library.editedWhen", defaultMessage: "Edited {when}" },
+                        { when: formatRelativeTime(intl, wf.updatedAt) }
                       )}
                     </span>
                   </div>

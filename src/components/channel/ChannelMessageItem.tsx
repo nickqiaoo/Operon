@@ -87,7 +87,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
     <div
       data-message-id={message.id}
       className={cn(
-        'relative group px-2 md:px-4 transition-colors duration-500 hover:bg-muted/10',
+        'relative group px-2 md:px-4 transition-colors duration-500 hover:bg-row-hover',
         grouped ? 'py-0.5' : 'pt-2 pb-0.5',
         highlighted && 'bg-row-selected hover:bg-row-selected',
       )}

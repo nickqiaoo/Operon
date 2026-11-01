@@ -35,16 +35,29 @@ export function useChannel({ channelId }: UseChannelOptions) {
     if (!channelId) {
       setMessages([])
       setHasMore(false)
+      setLoading(false)
       return
     }
+    // A new channel starts empty, and a late answer for the previous one is dropped.
+    let cancelled = false
+    setMessages([])
+    setHasMore(false)
     setLoading(true)
     api.channelMessageList(channelId, { limit: PAGE_SIZE })
       .then((res) => {
+        if (cancelled) return
         setMessages(res.messages.filter((m) => !m.threadRootId))
         setHasMore(res.hasMore)
       })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+      .catch((err: unknown) => {
+        if (!cancelled) console.error(err)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [channelId])
 
   // Mirrors of the paging state that `loadMore` reads. Kept in refs so its
@@ -52,6 +65,8 @@ export function useChannel({ channelId }: UseChannelOptions) {
   // handler, and taking `messages`/`loadingMore` as deps rebuilt that handler on
   // every single incoming message.
   const oldestIdRef = useRef<number | null>(null)
+  const currentChannelRef = useRef(channelId)
+  currentChannelRef.current = channelId
   const hasMoreRef = useRef(false)
   const loadingMoreRef = useRef(false)
   useEffect(() => {
@@ -70,6 +85,8 @@ export function useChannel({ channelId }: UseChannelOptions) {
     setLoadingMore(true)
     try {
       const res = await api.channelMessageList(channelId, { before, limit: PAGE_SIZE })
+      // The user switched channels while this page was loading.
+      if (currentChannelRef.current !== channelId) return
       const older = res.messages.filter((m) => !m.threadRootId)
       setMessages((prev) => [...older, ...prev])
       setHasMore(res.hasMore)
@@ -93,9 +110,18 @@ export function useChannel({ channelId }: UseChannelOptions) {
       setThreadMessages([])
       return
     }
+    let cancelled = false
+    setThreadMessages([])
     api.channelThreadReplies(channelId, threadRootId)
-      .then(({ replies }) => setThreadMessages(replies))
-      .catch(console.error)
+      .then(({ replies }) => {
+        if (!cancelled) setThreadMessages(replies)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) console.error(err)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [channelId, threadRootId])
 
   const clearTyping = useCallback((agentId: number) => {

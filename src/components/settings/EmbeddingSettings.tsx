@@ -6,6 +6,7 @@ import { SettingsSection } from "./SettingsSection"
 import { cn } from "@/lib/utils"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
+import { formatBytes } from "@/lib/format"
 
 interface EmbeddingConfig {
     enabled: boolean
@@ -29,12 +30,6 @@ interface LLMStatus {
         rerank: ModelStatus
     }
     downloading: boolean
-}
-
-function formatBytes(bytes: number): string {
-    if (bytes === 0) return "0 B"
-    const mb = bytes / (1024 * 1024)
-    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`
 }
 
 export function EmbeddingSettings() {

@@ -10,12 +10,13 @@ import {
   X,
   XCircle,
 } from "lucide-react"
-import { defineMessages, useIntl, type IntlShape } from "react-intl"
+import { useIntl } from "react-intl"
 import type { Notification, NotificationKind } from "@/types/notification"
 import { cn } from "@/lib/utils"
 import { useInboxStore } from "@/stores/inbox-store"
 import { InboxApprovals } from "./InboxApprovals"
 import { localizeNotification } from "./localize-notification"
+import { formatRelativeTime } from "@/lib/format"
 
 const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
   chat_complete: MessageSquare,
@@ -54,27 +55,6 @@ export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
   device_paired: "iphone",
   assistant_message: "sparkles",
   assistant_approval: "checkmark.shield",
-}
-
-const timeMessages = defineMessages({
-  justNow: { id: "inbox.time.justNow", defaultMessage: "just now" },
-  minutes: { id: "inbox.time.minutes", defaultMessage: "{n}m" },
-  hours: { id: "inbox.time.hours", defaultMessage: "{n}h" },
-  days: { id: "inbox.time.days", defaultMessage: "{n}d" },
-  weeks: { id: "inbox.time.weeks", defaultMessage: "{n}w" },
-})
-
-export function inboxRelativeTime(ms: number, intl: IntlShape): string {
-  const diff = Date.now() - ms
-  const s = Math.floor(diff / 1000)
-  if (s < 60) return intl.formatMessage(timeMessages.justNow)
-  const m = Math.floor(s / 60)
-  if (m < 60) return intl.formatMessage(timeMessages.minutes, { n: m })
-  const h = Math.floor(m / 60)
-  if (h < 24) return intl.formatMessage(timeMessages.hours, { n: h })
-  const d = Math.floor(h / 24)
-  if (d < 7) return intl.formatMessage(timeMessages.days, { n: d })
-  return intl.formatMessage(timeMessages.weeks, { n: Math.floor(d / 7) })
 }
 
 interface InboxItemProps {
@@ -154,7 +134,7 @@ export function InboxItem({ notification, onClick }: InboxItemProps) {
         {/* Time, replaced by a dismiss button on hover. */}
         <div className="relative mt-0.5 w-10 shrink-0 text-right">
           <span className="text-[11px] tabular-nums text-muted-foreground/60 group-hover:invisible">
-            {inboxRelativeTime(notification.createdAt, intl)}
+            {formatRelativeTime(intl, notification.createdAt, { compact: true })}
           </span>
           <button
             type="button"

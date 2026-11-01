@@ -354,29 +354,53 @@ export function FilePreviewPane({
 
   useEffect(() => {
     if (gotoLine == null || isRasterImage || content == null || viewMode !== "source") return
+    const container = contentRef.current
+    if (container == null) return
 
-    let raf = 0
-    let tries = 0
-    const tryScroll = () => {
-      const host = contentRef.current?.querySelector(".pierre-diff-file-view")
-      const root: ParentNode | null | undefined = host?.shadowRoot ?? contentRef.current
+    // The rows are rendered by Pierre inside a shadow root, after highlighting —
+    // which for a large file can take a while. Watch for the row instead of
+    // guessing how many frames that takes; give up quietly after a few seconds.
+    const findRow = (): HTMLElement | null => {
+      const host = container.querySelector(".pierre-diff-file-view")
+      const root: ParentNode = host?.shadowRoot ?? container
       // In the comparison, a removed row can carry the same (old) number.
-      const el = root?.querySelector<HTMLElement>(
-        `[data-line="${gotoLine}"]:not([data-line-type="change-deletion"])`
-      )
-      if (el) {
-        el.scrollIntoView({ block: "center" })
-        el.style.transition = "background-color 200ms ease"
-        el.style.backgroundColor = "var(--code-line, rgba(120,150,255,0.15))"
-        window.setTimeout(() => {
-          el.style.backgroundColor = ""
-        }, 1200)
-        return
-      }
-      if (tries++ < 20) raf = requestAnimationFrame(tryScroll)
+      return root.querySelector<HTMLElement>(`[data-line="${gotoLine}"]:not([data-line-type="change-deletion"])`)
     }
-    raf = requestAnimationFrame(tryScroll)
-    return () => cancelAnimationFrame(raf)
+    const observer = new MutationObserver(() => {
+      if (!reveal()) watchShadowRoot()
+    })
+    const watched = new WeakSet<Node>()
+    const watch = (node: Node) => {
+      if (watched.has(node)) return
+      watched.add(node)
+      observer.observe(node, { childList: true, subtree: true })
+    }
+    const watchShadowRoot = () => {
+      const shadow = container.querySelector(".pierre-diff-file-view")?.shadowRoot
+      if (shadow) watch(shadow)
+    }
+    const stop = () => {
+      observer.disconnect()
+      window.clearTimeout(giveUp)
+    }
+    const reveal = (): boolean => {
+      const row = findRow()
+      if (row == null) return false
+      stop()
+      row.scrollIntoView({ block: "center" })
+      // A one-off flash that cleans up after itself (no inline style left behind).
+      row.animate(
+        [{ backgroundColor: "var(--code-line, rgba(120,150,255,0.15))" }, { backgroundColor: "transparent" }],
+        { duration: 1400, easing: "ease-out" },
+      )
+      return true
+    }
+    const giveUp = window.setTimeout(stop, 5000)
+    if (!reveal()) {
+      watch(container)
+      watchShadowRoot()
+    }
+    return stop
   }, [content, gotoLine, gotoNonce, isRasterImage, viewMode, showingDiff])
 
   const goToChange = (index: number) => {

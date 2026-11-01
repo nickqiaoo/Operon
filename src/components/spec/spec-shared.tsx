@@ -1,5 +1,5 @@
 import { fileCitationsToText } from '@/lib/file-citation'
-import { cloneElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { cloneElement, useState, type ReactElement, type ReactNode } from 'react'
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl'
 import { AlertCircle, ArrowLeftRight, Bot, Check, ChevronRight, Clock, ExternalLink, GitMerge, Hammer, Loader2, MessageSquareText, Play, Send, Square, X } from 'lucide-react'
 import { ProviderLabel } from '@/components/icons/ProviderLabel'
@@ -11,93 +11,23 @@ import { Textarea } from '@/components/ui/textarea'
 import { MobileSheet } from '@/components/mobile/MobileSheet'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { api } from '@/lib/api'
+import { invalidateSpec, useSpecView } from '@/lib/spec-queries'
 import { cn } from '@/lib/utils'
-import { AgentRow, formatDuration } from '@/components/editor/components/WorkflowRunDetail'
+import { AgentRow } from '@/components/editor/components/WorkflowRunDetail'
+import { formatDuration } from '@/lib/format'
 import type { SpecChatRef, SpecRole, SpecSeat, SpecSeatView, SpecStage, SpecSwitch, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
 import { SeatPicker, seatName } from './SeatPicker'
 import type { TaskListItem } from '@/types/task'
 
 /** Stages in which the server is working and the view changes on its own. */
 const LIVE_STAGES: readonly SpecStage[] = ['grounding', 'designing', 'reviewing']
-const POLL_MS = 2500
-/** Building lasts hours and moves when a ticket does — fast enough to see a review land. */
-const BUILD_POLL_MS = 5000
-/**
- * Between runs a spec still changes from elsewhere — the chat agent answering its
- * questions, another window resuming it, a ticket editing the signed design — so
- * an idle view checks in now and then instead of never.
- */
-const IDLE_POLL_MS = 15_000
 
-/** Every mounted view of a spec, so an action on one (chat card, task page) reloads the others. */
-const specViewers = new Map<number, Set<() => void>>()
-
+/** Every mounted view of a spec shares one query; an action on one (chat card, task page) refreshes the others. */
 export function notifySpecChanged(taskId: number): void {
-  for (const reload of specViewers.get(taskId) ?? []) reload()
+  void invalidateSpec(taskId)
 }
 
-/**
- * The spec behind a task, kept fresh while its design is running.
- *
- * Polls quickly while the design runs and slowly otherwise. Actions taken here reload every
- * view of the same spec; `stage` is the task's own `specStage` where the caller
- * has it, so a change made elsewhere (an agent, another device) reloads too.
- */
-export function useSpecView(taskId: number, stage?: SpecStage | null, enabled = true) {
-  const [snapshot, setSnapshot] = useState<{ taskId: number; spec: SpecView } | null>(null)
-  const [failure, setFailure] = useState<{ taskId: number; message: string } | null>(null)
-  const spec = snapshot?.taskId === taskId ? snapshot.spec : null
-  const error = failure?.taskId === taskId ? failure.message : null
-  const currentTaskId = useRef(taskId)
-  currentTaskId.current = taskId
-  const alive = useRef(true)
-
-  const reload = useCallback(async () => {
-    try {
-      const { spec } = await api.specGet(taskId)
-      if (!alive.current || currentTaskId.current !== taskId) return
-      setSnapshot({ taskId, spec })
-      setFailure(null)
-    } catch (e) {
-      if (alive.current && currentTaskId.current === taskId) setFailure({ taskId, message: e instanceof Error ? e.message : String(e) })
-    }
-  }, [taskId])
-
-  useEffect(() => {
-    alive.current = true
-    if (!enabled) return () => { alive.current = false }
-    void reload()
-    return () => {
-      alive.current = false
-    }
-  }, [reload, stage, enabled])
-
-  useEffect(() => {
-    if (!enabled) return
-    let viewers = specViewers.get(taskId)
-    if (!viewers) specViewers.set(taskId, (viewers = new Set()))
-    const listener = () => void reload()
-    viewers.add(listener)
-    return () => {
-      viewers.delete(listener)
-      if (viewers.size === 0) specViewers.delete(taskId)
-    }
-  }, [taskId, reload, enabled])
-
-  const pollMs =
-    spec != null && (spec.running || LIVE_STAGES.includes(spec.run.stage))
-      ? POLL_MS
-      : spec?.run.stage === 'building' || spec?.run.stage === 'integrating'
-        ? BUILD_POLL_MS
-        : IDLE_POLL_MS
-  useEffect(() => {
-    if (!enabled) return
-    const timer = setInterval(() => void reload(), pollMs)
-    return () => clearInterval(timer)
-  }, [pollMs, reload, enabled])
-
-  return { spec, error }
-}
+export { useSpecView }
 
 export function stageLabel(intl: IntlShape, stage: SpecStage): string {
   switch (stage) {

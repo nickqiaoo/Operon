@@ -20,6 +20,7 @@ import { listSpecSessions } from './session-groups'
 import { SpecOverview } from './SpecPanel'
 import { SpecStageBadge, useSpecView } from './spec-shared'
 import { specSessionWorkspace } from './session-context'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 type Section = 'overview' | 'discussion' | 'sessions' | 'changes'
 
@@ -128,12 +129,17 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {target && conversation && <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-4 py-2 text-xs text-muted-foreground">
-            {section === 'sessions' && <select aria-label="Spec session" value={selectedSession?.chat.chatId} onChange={(event) => {
-              const entry = sessions.find((item) => item.chat.chatId === Number(event.target.value))
+            {section === 'sessions' && <Select value={selectedSession ? String(selectedSession.chat.chatId) : undefined} onValueChange={(value) => {
+              const entry = sessions.find((item) => item.chat.chatId === Number(value))
               if (entry) openSession(entry.chat)
-            }} className="min-w-0 flex-1 bg-transparent text-xs outline-none @min-[681px]/spec:hidden">
-              {sessions.map((entry) => <option key={entry.chat.chatId} value={entry.chat.chatId}>{fileCitationsToText(entry.label)}</option>)}
-            </select>}
+            }}>
+              <SelectTrigger size="sm" aria-label="Spec session" className="h-7 min-w-0 flex-1 border-transparent bg-transparent px-2 text-xs shadow-none @min-[681px]/spec:hidden">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sessions.map((entry) => <SelectItem key={entry.chat.chatId} value={String(entry.chat.chatId)} className="text-xs">{fileCitationsToText(entry.label)}</SelectItem>)}
+              </SelectContent>
+            </Select>}
             <span className={cn('min-w-0 truncate', section === 'sessions' && '@max-[680px]/spec:hidden')}>{fileCitationsToText(conversation.title)}</span>
             {conversationWorkspace
               ? <span className="ml-auto flex shrink-0 items-center gap-1" title={conversationWorkspace.worktreePath}><GitBranch className="size-3" />{conversationWorkspace.branchName}</span>
@@ -174,9 +180,14 @@ function SpecChanges({ taskId, workspaces, onOpenWorkspace }: {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-4 py-2">
         <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-        <select aria-label="Spec workspace" value={workspace.id} onChange={(event) => setSelectedId(Number(event.target.value))} className="min-w-0 flex-1 bg-transparent text-xs outline-none">
-          {workspaces.map((item) => <option key={item.id} value={item.id}>{item.task?.id === taskId ? 'Spec' : `Ticket #${item.task?.number}`} · {item.branchName}</option>)}
-        </select>
+        <Select value={String(workspace.id)} onValueChange={(value) => setSelectedId(Number(value))}>
+          <SelectTrigger size="sm" aria-label="Spec workspace" className="h-7 min-w-0 flex-1 border-transparent bg-transparent px-2 text-xs shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {workspaces.map((item) => <SelectItem key={item.id} value={String(item.id)} className="text-xs">{item.task?.id === taskId ? 'Spec' : `Ticket #${item.task?.number}`} · {item.branchName}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => onOpenWorkspace(workspace.id)}>Open workspace <ArrowUpRight className="size-3.5" /></Button>
       </div>
       <div className="min-h-0 flex-1">

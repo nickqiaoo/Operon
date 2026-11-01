@@ -3,7 +3,8 @@ import { defineMessages, useIntl, type IntlShape } from "react-intl"
 import { hasNativeTabBar, NativeShell, type NativeInboxState } from "@/lib/native"
 import { useInboxStore } from "@/stores/inbox-store"
 import { isAssistantNotification } from "@/types/notification"
-import { INBOX_KIND_SYMBOL, inboxRelativeTime } from "@/components/inbox/InboxItem"
+import { INBOX_KIND_SYMBOL } from "@/components/inbox/InboxItem"
+import { formatRelativeTime } from "@/lib/format"
 import { localizeNotification } from "@/components/inbox/localize-notification"
 import type { Notification } from "@/types/notification"
 
@@ -50,7 +51,7 @@ function snapshot(intl: IntlShape): NativeInboxState {
       id: n.id,
       title,
       body: body ?? undefined,
-      time: inboxRelativeTime(n.createdAt, intl),
+      time: formatRelativeTime(intl, n.createdAt, { compact: true }),
       symbol: INBOX_KIND_SYMBOL[n.kind] ?? "message",
       action: n.severity === "action",
       unread: n.readAt == null,

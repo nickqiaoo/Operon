@@ -4,15 +4,10 @@ import { Download, Loader2, CheckCircle2, Trash2, PackageOpen } from "lucide-rea
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { api, type AcpAgentEntry } from "@/lib/api"
+import { formatBytes } from "@/lib/format"
 
 /** A busy install is worth re-polling; a finished one is not. */
 const RUNNING: ReadonlyArray<string> = ["downloading", "extracting", "installing"]
-
-function formatBytes(bytes: number): string {
-    if (bytes <= 0) return "0 MB"
-    const mb = bytes / (1024 * 1024)
-    return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`
-}
 
 /**
  * Install/remove an ACP agent that ships as a downloadable binary.

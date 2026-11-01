@@ -32,6 +32,7 @@ import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
 import type { Agent } from "@/types/channel"
 import { FormattedMessage, useIntl } from "react-intl"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 type Step = "token" | "configure" | "done"
 
@@ -425,7 +426,7 @@ function ConfigureStep({
               : intl.formatMessage({ id: "settings.telegram.configure.selectAgent", defaultMessage: "Select an agent" })
             } />
           </SelectTrigger>
-          <SelectContent className="z-[80]">
+          <SelectContent>
             {agents.map((a) => (
               <SelectItem key={a.id} value={String(a.id)}>
                 {a.name} <span className="text-muted-foreground">· {a.provider}/{a.model}</span>
@@ -469,7 +470,7 @@ function DoneStep({
   const [rechecking, setRechecking] = useState(false)
   const [recheckError, setRecheckError] = useState<string | null>(null)
   const [b2bAcked, setB2bAcked] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, flashCopied] = useTransientFlag(2000)
 
   async function handleRecheck() {
     setRechecking(true)
@@ -492,8 +493,7 @@ function DoneStep({
     if (username) {
       try {
         await navigator.clipboard.writeText(`@${username}`)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        flashCopied()
       } catch {
         // Clipboard may be unavailable; ignore — BotFather still opens.
       }

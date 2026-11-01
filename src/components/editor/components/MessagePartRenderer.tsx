@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai';
-import { useState, useCallback, type ReactElement } from 'react';
+import { useCallback, type ReactElement } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { CheckCircle2Icon, CheckIcon, CopyIcon, HistoryIcon, SparklesIcon } from 'lucide-react';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
@@ -45,6 +45,7 @@ import { extractPeerMessage } from '../utils/chatMetadata';
 import { UserContextBlocks } from './UserContextBlocks';
 import { parseContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import type { SendToModel } from '../SendToButton';
+import { useTransientFlag } from '@/hooks/useTransientFlag'
 
 const skillTagPattern = /\[skill:([\w-]+)\]/g;
 
@@ -80,11 +81,10 @@ function SkillTag({ name }: { name: string }) {
 
 function CopyButton({ text, onCopy }: { text: string; onCopy: (text: string) => void }) {
   const intl = useIntl();
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied] = useTransientFlag(1500);
   const handleClick = useCallback(() => {
     onCopy(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    flashCopied();
   }, [text, onCopy]);
 
   return (

@@ -4,7 +4,7 @@ import { FormattedMessage, useIntl } from "react-intl"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { ProfileFile, ProfileFileName } from "./types"
-import { timeAgo } from "./assistant-i18n"
+import { formatRelativeTime } from "@/lib/format"
 import { DrawerShell, useDrawer } from "./Drawer"
 import { PROFILE_FILE_META } from "./ProfileTab"
 
@@ -64,13 +64,13 @@ export function ProfileFileEditor({ file, assistantName, onClose, onSave, compac
               <FormattedMessage
                 id="assistant.profile.updatedBy"
                 defaultMessage="updated by {name} {when}"
-                values={{ name: assistantName, when: timeAgo(intl, file.updatedAt) }}
+                values={{ name: assistantName, when: formatRelativeTime(intl, file.updatedAt) }}
               />
             ) : (
               <FormattedMessage
                 id="assistant.profile.editedByYou"
                 defaultMessage="edited by you {when}"
-                values={{ when: timeAgo(intl, file.updatedAt) }}
+                values={{ when: formatRelativeTime(intl, file.updatedAt) }}
               />
             )}
           </div>

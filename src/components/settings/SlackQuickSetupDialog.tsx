@@ -332,7 +332,7 @@ function NameStep({
               : intl.formatMessage({ id: "settings.slack.name.selectAgent", defaultMessage: "Select an agent" })
             } />
           </SelectTrigger>
-          <SelectContent className="z-[80]">
+          <SelectContent>
             {agents.map((a) => (
               <SelectItem key={a.id} value={String(a.id)}>
                 {a.name} <span className="text-muted-foreground">· {a.provider}/{a.model}</span>

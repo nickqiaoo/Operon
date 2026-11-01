@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { MAX_LOOP_ITERATIONS, type CanvasLoopNodeData, type CanvasLoopVariable } from "@/types/canvas-workflow"
 import { Field, NumberField, TextAreaField, TextField, labelClass } from "./fields"
 import { ConditionBuilder } from "./ConditionBuilder"
+import { useRowKeys } from "@/hooks/useRowKeys"
 
 export function LoopPanel({
   nodeData,
@@ -12,6 +13,7 @@ export function LoopPanel({
   onUpdate: (updates: Partial<CanvasLoopNodeData>) => void
 }) {
   const variables = nodeData.variables ?? []
+  const variableKeys = useRowKeys(variables.length)
   const setVariable = (index: number, patch: Partial<CanvasLoopVariable>) =>
     onUpdate({ variables: variables.map((v, i) => (i === index ? { ...v, ...patch } : v)) })
 
@@ -38,10 +40,10 @@ export function LoopPanel({
       <div className="space-y-2">
         <label className={labelClass}>Loop variables</label>
         {variables.map((variable, index) => (
-          <div key={index} className="space-y-1.5 rounded-lg border border-border/40 bg-muted/10 p-2.5">
+          <div key={variableKeys.keys[index]} className="space-y-1.5 rounded-lg border border-border/40 bg-muted/10 p-2.5">
             <div className="flex items-center gap-1.5">
               <TextField value={variable.name} onChange={(name) => setVariable(index, { name })} placeholder="name" mono className="flex-1" />
-              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => onUpdate({ variables: variables.filter((_, i) => i !== index) })}>
+              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { variableKeys.remove(index); onUpdate({ variables: variables.filter((_, i) => i !== index) }) }}>
                 <X className="h-3.5 w-3.5" />
               </Button>
             </div>

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { CalendarClock, ChevronDown, ChevronRight, Loader2, Play, RefreshCcw, Wand2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,9 +25,13 @@ import {
 import { useModelManagement } from "@/components/editor/hooks/useModelManagement"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api, type MemoryMaintenanceConfig, type MemoryMaintenanceRun } from "@/lib/api"
+import { useProviders } from "@/lib/provider-queries"
+import { setSettingsData, settingsKeys, useMemoryMaintenanceConfig, useMemoryMaintenanceRuns } from "@/lib/settings-queries"
 import { SettingsRow, SettingsSection } from "./SettingsSection"
+import { formatDuration } from "@/lib/format"
 
-type Provider = { id: string; label: string; available: boolean }
+const NO_PROVIDERS: { id: string; label: string; available: boolean }[] = []
+const NO_RUNS: MemoryMaintenanceRun[] = []
 
 const CLEAN_INPUT_CLASS =
   "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background focus:border-tint/20 shadow-none transition-all"
@@ -37,14 +41,6 @@ const CLEAN_SELECT_CLASS =
 
 function formatDateTime(ts: number): string {
   return new Date(ts).toLocaleString()
-}
-
-function formatDuration(start: number, end?: number): string {
-  if (!end) return "—"
-  const ms = end - start
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.round(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
 }
 
 function statusColor(status: MemoryMaintenanceRun["status"]): string {
@@ -68,10 +64,15 @@ function Row({ title, hint, children }: { title: string; hint?: string; children
 
 export function MemoryMaintenanceSettings() {
   const intl = useIntl()
-  const [config, setConfig] = useState<MemoryMaintenanceConfig | null>(null)
-  const [providers, setProviders] = useState<Provider[]>([])
-  const [runs, setRuns] = useState<MemoryMaintenanceRun[]>([])
-  const [loading, setLoading] = useState(true)
+  const configQuery = useMemoryMaintenanceConfig()
+  const runsQuery = useMemoryMaintenanceRuns()
+  const providersQuery = useProviders()
+  const providers = providersQuery.data ?? NO_PROVIDERS
+  const runs = runsQuery.data ?? NO_RUNS
+  const loading = configQuery.isPending || providersQuery.isPending
+  // Unsaved edits to the text inputs (saved on blur); null shows the saved config.
+  const [draft, setConfig] = useState<MemoryMaintenanceConfig | null>(null)
+  const config = draft ?? configQuery.data ?? null
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -135,47 +136,24 @@ export function MemoryMaintenanceSettings() {
   )
   const { model, setModel, availableModels, selectedModel } = modelManagement
 
-  const reloadRuns = async () => {
-    try {
-      const list = await api.memoryMaintenanceListRuns(20)
-      setRuns(Array.isArray(list) ? list : [])
-    } catch {
-      // leave as-is
-    }
-  }
+  const reloadRuns = () => runsQuery.refetch()
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      try {
-        const [cfg, providerList, runList] = await Promise.all([
-          api.memoryMaintenanceGetConfig(),
-          api.getProviders(),
-          api.memoryMaintenanceListRuns(20),
-        ])
-        if (cancelled) return
-        setConfig(cfg)
-        setProviders(providerList)
-        setRuns(Array.isArray(runList) ? runList : [])
-      } catch (err) {
-        setError(err instanceof Error ? err.message : intl.formatMessage({ id: "settings.maintenance.failedLoad", defaultMessage: "Failed to load settings" }))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const loadError = configQuery.error ?? providersQuery.error
+  const shownError =
+    error ??
+    (loadError
+      ? loadError instanceof Error
+        ? loadError.message
+        : intl.formatMessage({ id: "settings.maintenance.failedLoad", defaultMessage: "Failed to load settings" })
+      : null)
 
   const updateConfig = async (updates: Partial<Omit<MemoryMaintenanceConfig, "updatedAt">>) => {
     setSaving(true)
     setError(null)
     try {
       const next = await api.memoryMaintenanceUpdateConfig(updates)
-      setConfig(next)
+      setSettingsData(settingsKeys.memoryMaintenance(), next)
+      setConfig(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : intl.formatMessage({ id: "settings.maintenance.failedSave", defaultMessage: "Failed to save" }))
     } finally {
@@ -218,9 +196,9 @@ export function MemoryMaintenanceSettings() {
         }
       >
 
-      {error && (
+      {shownError && (
         <div className="rounded-xl border border-status-error/20 bg-status-error/10 px-3 py-2 text-xs text-status-error">
-          {error}
+          {shownError}
         </div>
       )}
 
@@ -448,7 +426,7 @@ export function MemoryMaintenanceSettings() {
                     <Fragment key={r.id}>
                       <tr
                         onClick={() => void toggleRunLog(r.id)}
-                        className="border-t border-border/40 hover:bg-muted/10 transition-colors cursor-pointer"
+                        className="border-t border-border/40 hover:bg-row-hover transition-colors cursor-pointer"
                       >
                         <td className="pl-3 pr-0 py-2 text-muted-foreground">
                           {expanded ? (
@@ -466,7 +444,7 @@ export function MemoryMaintenanceSettings() {
                           {r.tokensInput + r.tokensOutput}
                         </td>
                         <td className="px-3 py-2 text-right text-muted-foreground">
-                          {formatDuration(r.startedAt, r.finishedAt)}
+                          {r.finishedAt ? formatDuration(r.finishedAt - r.startedAt) : "—"}
                         </td>
                       </tr>
                       {expanded && (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ArrowLeft, ChevronDown, ChevronRight, FileDiff, ListCollapse, ListRestart, RefreshCw } from "lucide-react"
 import { PatchDiff } from "@pierre/diffs/react"
 import { cn } from "@/lib/utils"
@@ -127,18 +127,24 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
     files.length > 0 &&
     files.every((file) => collapsedFilePaths.has(file.path))
 
+  // Only the latest tap may write the diff: opening A then B quickly must not
+  // let A's slower response land on B.
+  const openSeq = useRef(0)
   const openFile = useCallback(async (file: TFile) => {
+    const seq = ++openSeq.current
     setSelectedPath(file.path)
     setDiff("")
     setDiffError(null)
     setDiffLoading(true)
     try {
-      setDiff(await loadDiff(file))
+      const loaded = await loadDiff(file)
+      if (seq === openSeq.current) setDiff(loaded)
     } catch {
+      if (seq !== openSeq.current) return
       setDiff("")
       setDiffError(diffErrorMessage)
     } finally {
-      setDiffLoading(false)
+      if (seq === openSeq.current) setDiffLoading(false)
     }
   }, [diffErrorMessage, loadDiff])
 
@@ -368,7 +374,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
                   <button
                     type="button"
                     onClick={() => toggleStackedFile(file.path)}
-                    className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background/95 px-3 py-2 text-left backdrop-blur hover:bg-muted/35"
+                    className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-background/95 px-3 py-2 text-left backdrop-blur active:bg-accent-hover"
                     style={{ top: contentOffset }}
                     aria-expanded={!collapsed}
                     title={collapsed ? "Expand diff" : "Collapse diff"}

@@ -1,26 +1,28 @@
-import { useState, useEffect } from "react"
+import { useMemo, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Loader2, Save, Check, AlertCircle, Plus, Variable, X } from "lucide-react"
 import { SettingsSection } from "./SettingsSection"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
+import { useDraft } from "@/hooks/useDraft"
+import { setSettingsData, settingsKeys, useEnvVars } from "@/lib/settings-queries"
+import { useRowKeys } from "@/hooks/useRowKeys"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 export function EnvSettings() {
     const intl = useIntl()
-    const [vars, setVars] = useState<Array<{ key: string; value: string }>>([])
-    const [loading, setLoading] = useState(true)
+    const envQuery = useEnvVars()
+    const loading = envQuery.isPending
+    // The saved variables as editable rows; always at least one (blank) row.
+    const savedRows = useMemo(() => {
+        const entries = Object.entries(envQuery.data ?? {}).map(([key, value]) => ({ key, value }))
+        return entries.length > 0 ? entries : [{ key: '', value: '' }]
+    }, [envQuery.data])
+    const [vars, setVars, resetVars] = useDraft(savedRows)
+    const rowKeys = useRowKeys(vars.length)
     const [saving, setSaving] = useState(false)
-    const [savedOk, setSavedOk] = useState(false)
-    const [saveErr, setSaveErr] = useState(false)
-
-    useEffect(() => {
-        api.envGetAll().then((res) => {
-            const entries = Object.entries(res.vars ?? {}).map(([key, value]) => ({ key, value }))
-            setVars(entries.length > 0 ? entries : [{ key: '', value: '' }])
-        }).catch(() => {
-            setVars([{ key: '', value: '' }])
-        }).finally(() => setLoading(false))
-    }, [])
+    const [savedOk, flashSavedOk, clearSavedOk] = useTransientFlag(2000)
+    const [saveErr, flashSaveErr, clearSaveErr] = useTransientFlag(2000)
 
     function updateRow(index: number, field: 'key' | 'value', val: string) {
         setVars(prev => prev.map((r, i) => i === index ? { ...r, [field]: val } : r))
@@ -31,22 +33,23 @@ export function EnvSettings() {
     }
 
     function removeRow(index: number) {
+        rowKeys.remove(index)
         setVars(prev => prev.length === 1 ? [{ key: '', value: '' }] : prev.filter((_, i) => i !== index))
     }
 
     async function handleSave() {
-        setSaving(true); setSavedOk(false); setSaveErr(false)
+        setSaving(true); clearSavedOk(); clearSaveErr()
         try {
             const record: Record<string, string> = {}
             for (const { key, value } of vars) {
                 if (key.trim()) record[key.trim()] = value
             }
             await api.envSave(record)
-            setSavedOk(true)
-            setTimeout(() => setSavedOk(false), 2000)
+            setSettingsData(settingsKeys.env(), record)
+            resetVars()
+            flashSavedOk()
         } catch {
-            setSaveErr(true)
-            setTimeout(() => setSaveErr(false), 2000)
+            flashSaveErr()
         } finally {
             setSaving(false)
         }
@@ -67,7 +70,7 @@ export function EnvSettings() {
             ) : (
                 <div className="space-y-2">
                     {vars.map((row, i) => (
-                        <div key={i} className="flex items-center gap-2">
+                        <div key={rowKeys.keys[i]} className="flex items-center gap-2">
                             <input
                                 type="text"
                                 value={row.key}

@@ -211,7 +211,7 @@ export function MemorySettings() {
                                     <FormattedMessage id="settings.memory.results.count" defaultMessage="{count} results" values={{ count: searchResults.length }} />
                                 </div>
                                 {searchResults.map((r) => (
-                                    <details key={`${r.type}/${r.slug}`} className="group rounded-lg border border-border/50 bg-muted/10 hover:bg-muted/20 transition-colors">
+                                    <details key={`${r.type}/${r.slug}`} className="group rounded-lg border border-border/50 bg-muted/10 hover:bg-row-hover transition-colors">
                                         <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
@@ -276,7 +276,7 @@ export function MemorySettings() {
                                 return (
                                     <details
                                         key={key}
-                                        className="group rounded-lg border border-border/50 bg-muted/10 hover:bg-muted/20 transition-colors"
+                                        className="group rounded-lg border border-border/50 bg-muted/10 hover:bg-row-hover transition-colors"
                                         onToggle={(e) => {
                                             if ((e.currentTarget as HTMLDetailsElement).open) {
                                                 loadTimeline(page.type, page.slug)

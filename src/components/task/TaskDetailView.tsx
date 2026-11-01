@@ -42,7 +42,7 @@ import { useIntl, FormattedMessage, type IntlShape } from 'react-intl'
 import { useTaskStore } from '@/stores/task-store'
 import { useProjectStore } from '@/stores/project-store'
 import { useChannelStore } from '@/stores/channel-store'
-import { StatusIcon, PriorityIcon, LabelChip, TaskRef, relativeTime } from './task-meta'
+import { StatusIcon, PriorityIcon, LabelChip, TaskRef } from './task-meta'
 import { SpecPanel } from '@/components/spec/SpecPanel'
 import { STATUS_MESSAGES, ACTOR_MESSAGES, priorityMessage, activityEventMessage } from './task-i18n'
 import {
@@ -57,6 +57,7 @@ import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
 import { cn } from '@/lib/utils'
 import { toastTaskError } from './task-error-toast'
 import type { SpecChatRef } from '@shared/spec'
+import { formatRelativeTime } from '@/lib/format'
 
 interface TaskDetailViewProps {
   detail: TaskDetail
@@ -289,7 +290,7 @@ export function TaskDetailView({
                 setTitleDraft(detail.title)
                 setEditingTitle(true)
               }}
-              className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-muted/20 rounded px-1 -mx-1"
+              className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-row-hover rounded px-1 -mx-1"
             >
               {detail.title}
             </h1>
@@ -324,8 +325,8 @@ export function TaskDetailView({
                 className={cn(
                   'text-sm cursor-text rounded-lg p-3 min-h-[44px] transition-colors',
                   detail.description
-                    ? 'text-foreground -m-3 hover:bg-muted/20'
-                    : 'border border-dashed border-border/50 hover:border-border/60 hover:bg-muted/20'
+                    ? 'text-foreground -m-3 hover:bg-row-hover'
+                    : 'border border-dashed border-border/50 hover:border-border/60 hover:bg-row-hover'
                 )}
               >
                 {detail.description ? (
@@ -911,7 +912,7 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
         {children.length === 0 && !adding && (
           <button
             onClick={() => setAdding(true)}
-            className="w-full text-left text-xs text-muted-foreground/50 rounded-lg border border-dashed border-border/50 px-3 py-2 hover:border-border/60 hover:bg-muted/20 hover:text-muted-foreground transition-colors"
+            className="w-full text-left text-xs text-muted-foreground/50 rounded-lg border border-dashed border-border/50 px-3 py-2 hover:border-border/60 hover:bg-row-hover hover:text-muted-foreground transition-colors"
           >
             <FormattedMessage id="task.detail.addSubtask" defaultMessage="+ Add sub-task" />
           </button>
@@ -1193,7 +1194,7 @@ function ActivityItem({ activity: a, taskId }: { activity: TaskActivity; taskId:
                 {source}
               </span>
             )}
-            <span className="text-muted-foreground/60 tabular-nums" title={absoluteTime}>{relativeTime(a.createdAt)}</span>
+            <span className="text-muted-foreground/60 tabular-nums" title={absoluteTime}>{formatRelativeTime(intl, a.createdAt, { compact: true })}</span>
             {forwardable && (
               <Button
                 size="sm"
@@ -1227,7 +1228,7 @@ function ActivityItem({ activity: a, taskId }: { activity: TaskActivity; taskId:
         <span className="text-muted-foreground truncate">{describeEvent(a, intl)}</span>
       </div>
       <span className="shrink-0 text-muted-foreground/60 tabular-nums" title={absoluteTime}>
-        {relativeTime(a.createdAt)}
+        {formatRelativeTime(intl, a.createdAt, { compact: true })}
       </span>
     </div>
   )

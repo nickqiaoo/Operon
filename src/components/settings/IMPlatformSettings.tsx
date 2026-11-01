@@ -442,7 +442,7 @@ export function IMPlatformSettings() {
                   <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="z-[80]">
+                  <SelectContent>
                     {sources.map((s) => (
                       <SelectItem key={s.source} value={s.source}>{s.label}</SelectItem>
                     ))}
@@ -476,7 +476,7 @@ export function IMPlatformSettings() {
                   <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover shadow-none">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="z-[80]">
+                  <SelectContent>
                     <SelectItem value="mate">
                       <FormattedMessage id="settings.im.mode.mate" defaultMessage="mate — agent-as-bot, joins channels" />
                     </SelectItem>
@@ -502,7 +502,7 @@ export function IMPlatformSettings() {
                         : intl.formatMessage({ id: "settings.im.selectAgent", defaultMessage: "Select an agent" })
                       } />
                     </SelectTrigger>
-                    <SelectContent className="z-[80]">
+                    <SelectContent>
                       {agents.map((a) => (
                         <SelectItem key={a.id} value={String(a.id)}>
                           {a.name} <span className="text-muted-foreground">· {a.provider}/{a.model}</span>

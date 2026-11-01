@@ -4,7 +4,8 @@ import { FormattedMessage, useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import type { AuditRecord } from "./types"
 import { AuditIconTile } from "./shared"
-import { auditDetail, DECISION_MESSAGES, timeAgo } from "./assistant-i18n"
+import { auditDetail, DECISION_MESSAGES } from "./assistant-i18n"
+import { formatRelativeTime } from "@/lib/format"
 import { Empty } from "./ActivityTab"
 
 interface AuditTabProps {
@@ -51,7 +52,7 @@ export function AuditTab({ records }: AuditTabProps) {
                     <FormattedMessage {...DECISION_MESSAGES[r.decision]} />
                   </span>
                   {" · "}
-                  {timeAgo(intl, r.at)}
+                  {formatRelativeTime(intl, r.at)}
                 </div>
               </div>
               {r.args && (

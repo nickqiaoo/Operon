@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback } from "react"
+import { setSettingsData, settingsKeys, useMcpPluginServers, useMcpServers } from "@/lib/settings-queries"
 import {
   api,
   type McpServerEntry,
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils"
 import { Plus, Trash2, ChevronDown, ChevronUp, Save, Loader2, ChevronRight, ShieldCheck, Plug, Package } from "lucide-react"
 import { SettingsSection } from "./SettingsSection"
 import { FormattedMessage, useIntl } from "react-intl"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 type McpType = 'stdio' | 'http' | 'sse'
 
@@ -340,31 +342,26 @@ function ServerFormPanel({ initial, existingNames, editingName, onSave, onCancel
   )
 }
 
+const NO_SERVERS: Record<string, McpServerEntry> = {}
+const NO_PLUGIN_SERVERS: PluginMcpServerView[] = []
+
 export function McpSettings() {
   const intl = useIntl()
-  const [servers, setServers] = useState<Record<string, McpServerEntry>>({})
-  const [loading, setLoading] = useState(true)
+  const serversQuery = useMcpServers()
+  const servers = serversQuery.data ?? NO_SERVERS
+  const loading = serversQuery.isPending
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [saved, flashSaved] = useTransientFlag(2000)
   const [editing, setEditing] = useState<null | 'new' | string>(null)
-  const [pluginServers, setPluginServers] = useState<PluginMcpServerView[]>([])
-
-  useEffect(() => {
-    api.mcpGetServers().then(res => {
-      setServers(res.servers ?? {})
-      setLoading(false)
-    }).catch(() => setLoading(false))
-    // Best-effort: the plugin group is informational, the page works without it.
-    api.mcpGetPluginServers().then(res => setPluginServers(res.servers ?? [])).catch(() => {})
-  }, [])
+  // Best-effort: the plugin group is informational, the page works without it.
+  const pluginServers = useMcpPluginServers().data ?? NO_PLUGIN_SERVERS
 
   const persist = useCallback(async (next: Record<string, McpServerEntry>) => {
     setSaving(true)
     try {
       const res = await api.mcpSaveServers(next)
-      setServers(res.servers)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setSettingsData(settingsKeys.mcpServers(), res.servers)
+      flashSaved()
     } finally {
       setSaving(false)
     }

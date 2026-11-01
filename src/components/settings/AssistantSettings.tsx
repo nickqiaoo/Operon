@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react"
+import { useMemo, useState } from "react"
 import { AlertCircle, Bot, Check, Loader2, Moon, Save } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import type { AssistantAgentChoice, AssistantConfig } from "@shared/assistant"
-import { api } from "@/lib/api"
 import { assistantApi } from "@/lib/assistant-api"
+import { useDraft } from "@/hooks/useDraft"
+import { useProviderModelOptions, useProviders } from "@/lib/provider-queries"
+import { setSettingsData, settingsKeys, useAssistantConfig } from "@/lib/settings-queries"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 /** The agents the assistant can run on (server: services/assistant/agents.ts). */
 const AGENTS: Array<{ id: string; label: string }> = [
@@ -19,11 +22,6 @@ const AGENTS: Array<{ id: string; label: string }> = [
 
 /** Radix Select reserves the empty value; this stands for "the agent's own default". */
 const DEFAULT_MODEL = "__default__"
-
-interface ModelOption {
-  modelId: string
-  name: string
-}
 
 const EMPTY: AssistantConfig = {
   main: { providerId: "custom", modelId: "" },
@@ -45,28 +43,20 @@ function sameChoice(a: AssistantAgentChoice | null, b: AssistantAgentChoice | nu
  */
 export function AssistantSettings() {
   const intl = useIntl()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [available, setAvailable] = useState<Record<string, boolean>>({})
-  const [saved, setSaved] = useState<AssistantConfig>(EMPTY)
-  const [draft, setDraft] = useState<AssistantConfig>(EMPTY)
+  const providersQuery = useProviders()
+  const configQuery = useAssistantConfig()
+  const loading = providersQuery.isPending || configQuery.isPending
+  const available = useMemo<Record<string, boolean>>(
+    () => Object.fromEntries((providersQuery.data ?? []).map((p) => [p.id, p.available])),
+    [providersQuery.data],
+  )
+  const saved = configQuery.data ?? EMPTY
+  const [draft, setDraft, resetDraft] = useDraft(saved)
   const [saving, setSaving] = useState(false)
-  const [justSaved, setJustSaved] = useState(false)
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [providers, config] = await Promise.all([api.getProviders(), assistantApi.getConfig()])
-        setAvailable(Object.fromEntries(providers.map((p) => [p.id, p.available])))
-        setSaved(config)
-        setDraft(config)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
+  const [justSaved, flashJustSaved] = useTransientFlag(1500)
+  const loadError = providersQuery.error ?? configQuery.error
+  const shownError = error ?? (loadError ? (loadError instanceof Error ? loadError.message : String(loadError)) : null)
 
   const agentsDirty = !sameChoice(draft.main, saved.main) || !sameChoice(draft.worker, saved.worker) || !sameChoice(draft.background, saved.background)
   const quietDirty = draft.quietStart !== saved.quietStart || draft.quietEnd !== saved.quietEnd
@@ -86,10 +76,9 @@ export function AssistantSettings() {
     setError(null)
     try {
       const next = await assistantApi.setConfig(draft)
-      setSaved(next)
-      setDraft(next)
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 1500)
+      setSettingsData(settingsKeys.assistant(), next)
+      resetDraft()
+      flashJustSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -158,9 +147,9 @@ export function AssistantSettings() {
           </>
         )}
 
-        {error && (
+        {shownError && (
           <div className="flex items-center gap-2 text-xs text-destructive">
-            <AlertCircle className="h-3.5 w-3.5" /> {error}
+            <AlertCircle className="h-3.5 w-3.5" /> {shownError}
           </div>
         )}
       </div>
@@ -228,25 +217,8 @@ function AgentField({
   onChange: (value: AssistantAgentChoice | null) => void
 }) {
   const intl = useIntl()
-  const [models, setModels] = useState<ModelOption[] | null>(null)
   const providerId = value?.providerId
-
-  useEffect(() => {
-    if (!providerId) return
-    let cancelled = false
-    setModels(null)
-    api
-      .getProviderModels(providerId)
-      .then((result: { models?: ModelOption[] }) => {
-        if (!cancelled) setModels((result?.models ?? []).map((m) => ({ modelId: m.modelId, name: m.name })))
-      })
-      .catch(() => {
-        if (!cancelled) setModels([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [providerId])
+  const models = useProviderModelOptions(providerId)
 
   const modelId = value?.modelId ?? ""
   // A saved model that is no longer offered still shows, so the user sees why.

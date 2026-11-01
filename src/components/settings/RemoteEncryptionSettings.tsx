@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { MobilePairingSummary } from '@/types/mobile'
 import type { RemotePairingQrPayload } from '@shared/e2ee/protocol'
+import { useTransientFlag } from '@/hooks/useTransientFlag'
 
 interface PairingSession {
   payload: RemotePairingQrPayload
@@ -17,7 +18,7 @@ export function RemoteEncryptionSettings() {
   const [pairStatus, setPairStatus] = useState<'waiting' | 'pending' | 'expired'>('waiting')
   const [pendingDevice, setPendingDevice] = useState<MobilePairingSummary | null>(null)
   const [busy, setBusy] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, flashCopied, clearCopied] = useTransientFlag(2000)
   const [error, setError] = useState<string | null>(null)
 
   const loadDevices = useCallback(async () => {
@@ -59,7 +60,7 @@ export function RemoteEncryptionSettings() {
       const imageUrl = await QRCode.toDataURL(JSON.stringify(payload), { margin: 1, width: 260 })
       setPairStatus('waiting')
       setPendingDevice(null)
-      setCopied(false)
+      clearCopied()
       setSession({ payload, imageUrl })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create a pairing code')
@@ -83,7 +84,7 @@ export function RemoteEncryptionSettings() {
   const reject = async () => {
     if (!session) return
     await api.remoteE2eePairReject(session.payload.pairingId).catch(() => undefined)
-    setCopied(false)
+    clearCopied()
     setSession(null)
   }
 
@@ -91,8 +92,7 @@ export function RemoteEncryptionSettings() {
     if (!session) return
     try {
       await navigator.clipboard.writeText(JSON.stringify(session.payload))
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2_000)
+      flashCopied()
     } catch {
       setError('Could not copy the pairing code')
     }

@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { FormattedMessage, defineMessages, useIntl, type MessageDescriptor } from "react-intl"
 import { AlertCircle, Check, Loader2, Plus, Save, X } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
+import { useDraft } from "@/hooks/useDraft"
+import { setSettingsData, settingsKeys, useSpecRoleSettings } from "@/lib/settings-queries"
 import { SeatPicker } from "@/components/spec/SeatPicker"
 import type { SpecRoleSettings, SpecSeat } from "@shared/spec"
+import { useRowKeys } from "@/hooks/useRowKeys"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 type SingleRole = Exclude<keyof SpecRoleSettings, "candidates">
 
@@ -56,31 +60,22 @@ function sameSettings(a: SpecRoleSettings, b: SpecRoleSettings): boolean {
  * Anything left automatic is picked for model diversity, as before; a spec that
  * is already running keeps its own seats (switch them on the spec itself).
  */
+const NO_AVAILABLE: string[] = []
+const NO_ROLES: SpecRoleSettings = {}
+
 export function SpecSettings() {
   const intl = useIntl()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [available, setAvailable] = useState<string[]>([])
-  const [saved, setSaved] = useState<SpecRoleSettings>({})
-  const [draft, setDraft] = useState<SpecRoleSettings>({})
+  const settingsQuery = useSpecRoleSettings()
+  const loading = settingsQuery.isPending && !settingsQuery.isError
+  const [actionError, setError] = useState<string | null>(null)
+  const loadError = settingsQuery.error
+  const error = actionError ?? (loadError ? (loadError instanceof Error ? loadError.message : String(loadError)) : null)
+  const available = settingsQuery.data?.available ?? NO_AVAILABLE
+  const saved = settingsQuery.data?.roles ?? NO_ROLES
+  const [draft, setDraft, resetDraft] = useDraft(saved)
   const [saving, setSaving] = useState(false)
-  const [justSaved, setJustSaved] = useState(false)
+  const [justSaved, flashJustSaved] = useTransientFlag(1500)
   const auto = intl.formatMessage({ id: "spec.settings.auto", defaultMessage: "Automatic" })
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const { roles, available } = await api.specGetRoleSettings()
-        setAvailable(available)
-        setSaved(roles)
-        setDraft(roles)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
 
   const save = async () => {
     setSaving(true)
@@ -88,10 +83,9 @@ export function SpecSettings() {
     try {
       // An unpicked candidate slot is not a choice: drop it.
       const { roles } = await api.specSaveRoleSettings({ ...draft, candidates: (draft.candidates ?? []).filter((c) => c?.providerId) })
-      setSaved(roles)
-      setDraft(roles)
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 1500)
+      setSettingsData(settingsKeys.specRoles(), { roles, available })
+      resetDraft()
+      flashJustSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -106,13 +100,16 @@ export function SpecSettings() {
   )
 
   const candidates = draft.candidates ?? []
-  const setCandidate = (i: number, seat: SpecSeat | null) =>
+  const candidateKeys = useRowKeys(candidates.length)
+  const setCandidate = (i: number, seat: SpecSeat | null) => {
+    if (!seat) candidateKeys.remove(i)
     setDraft((d) => {
       const next = [...(d.candidates ?? [])]
       if (seat) next[i] = seat
       else next.splice(i, 1)
       return { ...d, candidates: next }
     })
+  }
 
   return (
     <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-5">
@@ -148,7 +145,7 @@ export function SpecSettings() {
           >
             <div className="space-y-2">
               {candidates.map((seat, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={candidateKeys.keys[i]} className="flex items-center gap-2">
                   <span className="w-4 shrink-0 font-mono text-xs text-muted-foreground">{String.fromCharCode(65 + i)}</span>
                   <SeatPicker className="flex-1" value={seat} providers={available} onChange={(next) => next && setCandidate(i, next)} />
                   <Button size="sm" variant="ghost" className="h-8 w-8 shrink-0 p-0" onClick={() => setCandidate(i, null)} aria-label={intl.formatMessage({ id: "spec.settings.removeCandidate", defaultMessage: "Remove" })}>

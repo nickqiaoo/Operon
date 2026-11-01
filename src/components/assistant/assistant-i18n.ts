@@ -48,14 +48,6 @@ const DAY_MESSAGES = defineMessages({
   tomorrow: { id: "assistant.day.tomorrow", defaultMessage: "Tomorrow" },
 })
 
-const TIME_AGO_MESSAGES = defineMessages({
-  justNow: { id: "assistant.time.justNow", defaultMessage: "just now" },
-  minutes: { id: "assistant.time.minutesAgo", defaultMessage: "{count}m ago" },
-  hours: { id: "assistant.time.hoursAgo", defaultMessage: "{count}h ago" },
-  days: { id: "assistant.time.daysAgo", defaultMessage: "{count}d ago" },
-  weeks: { id: "assistant.time.weeksAgo", defaultMessage: "{count}w ago" },
-})
-
 const BUSY_MESSAGES = defineMessages({
   idle: { id: "assistant.busy.idle", defaultMessage: "Idle" },
   working: { id: "assistant.busy.working", defaultMessage: "Working" },
@@ -74,19 +66,6 @@ export function dayLabel(intl: IntlShape, ms: number): string {
   if (diffDays === 1) return intl.formatMessage(DAY_MESSAGES.yesterday)
   if (diffDays === -1) return intl.formatMessage(DAY_MESSAGES.tomorrow)
   return intl.formatDate(ms, { weekday: "short", month: "short", day: "numeric" })
-}
-
-/** "just now" / "5m ago" / "2h ago" / "3d ago" / "1w ago". */
-export function timeAgo(intl: IntlShape, ms: number): string {
-  const s = Math.floor((Date.now() - ms) / 1000)
-  if (s < 60) return intl.formatMessage(TIME_AGO_MESSAGES.justNow)
-  const m = Math.floor(s / 60)
-  if (m < 60) return intl.formatMessage(TIME_AGO_MESSAGES.minutes, { count: m })
-  const h = Math.floor(m / 60)
-  if (h < 24) return intl.formatMessage(TIME_AGO_MESSAGES.hours, { count: h })
-  const d = Math.floor(h / 24)
-  if (d < 7) return intl.formatMessage(TIME_AGO_MESSAGES.days, { count: d })
-  return intl.formatMessage(TIME_AGO_MESSAGES.weeks, { count: Math.floor(d / 7) })
 }
 
 /** "Idle" / "Working" — the assistant's status line. No count: how many is the Activity tab's job. */

@@ -17,8 +17,9 @@ import {
   Search,
   Trash2,
 } from "lucide-react"
-import type { InstalledSkill, SkillDetail, SkillInfo, SkillManagedBy, SkillScope } from "@/types/skill"
+import type { InstalledSkill, SkillInfo, SkillManagedBy, SkillScope } from "@/types/skill"
 import { api } from "@/lib/api"
+import { invalidateInstalledSkills, refreshAvailableSkills, useAvailableSkills, useInstalledSkills, useSkillDetail } from "@/lib/skill-queries"
 import { openPluginsPage } from "@/lib/open-settings"
 import { useProjectStore, type Project } from "@/stores/project-store"
 import { AgentBadges, AgentChips } from "./AgentBadges"
@@ -34,8 +35,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { formatBytes, formatRelativeTime } from "@/lib/format"
 
 const DEFAULT_SOURCE = "vercel-labs/agent-skills"
+const NO_INSTALLED: InstalledSkill[] = []
+const NO_AVAILABLE: SkillInfo[] = []
 
 /** The project the page's project scope points at, named in "Install into …". */
 const ScopeProjectNameContext = createContext<string | undefined>(undefined)
@@ -73,19 +77,26 @@ export function SkillsSettings() {
   const scopeProject = projects.find((p) => p.id === scopeProjectId) ?? null
   const projectPath = scopeProject?.rootPath
   const projectName = scopeProject?.name
-  const [installed, setInstalled] = useState<InstalledSkill[]>([])
-  const [available, setAvailable] = useState<SkillInfo[]>([])
   const [source, setSource] = useState(DEFAULT_SOURCE)
   const [sourceInput, setSourceInput] = useState(DEFAULT_SOURCE)
   const [filter, setFilter] = useState("")
-  const [loadingInstalled, setLoadingInstalled] = useState(true)
-  const [loadingAvailable, setLoadingAvailable] = useState(false)
+  const installedQuery = useInstalledSkills(scope, projectPath)
+  const availableQuery = useAvailableSkills(source)
+  const installed = installedQuery.data ?? NO_INSTALLED
+  const available = availableQuery.data ?? NO_AVAILABLE
+  const loadingInstalled = installedQuery.isPending
+  const loadingAvailable = availableQuery.isFetching
   const [installingNames, setInstallingNames] = useState<Set<string>>(new Set())
   const [removingNames, setRemovingNames] = useState<Set<string>>(new Set())
   const [updatingNames, setUpdatingNames] = useState<Set<string>>(new Set())
-  const [error, setError] = useState<string | null>(null)
+  const [actionError, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+  const error =
+    actionError ??
+    (installedQuery.error ? `Failed to load installed skills: ${errorText(installedQuery.error)}` : null) ??
+    (availableQuery.error ? `Failed to load skills from ${source}: ${errorText(availableQuery.error)}` : null)
 
   // Losing the project (closed, switched away) must not strand the page on a scope it
   // can no longer load.
@@ -93,48 +104,14 @@ export function SkillsSettings() {
     if (scope === "project" && !projectPath) setScope("global")
   }, [scope, projectPath])
 
-  const loadInstalled = useCallback(async () => {
-    setLoadingInstalled(true)
-    try {
-      const res = await api.skillListInstalled(scope, projectPath)
-      if (res.error) throw new Error(res.error)
-      setInstalled(res.skills ?? [])
-    } catch (err) {
-      setError(`Failed to load installed skills: ${err instanceof Error ? err.message : String(err)}`)
-      setInstalled([])
-    } finally {
-      setLoadingInstalled(false)
-    }
-  }, [scope, projectPath])
-
-  const loadAvailable = useCallback(async (src: string, refresh = false) => {
-    setLoadingAvailable(true)
-    setError(null)
-    try {
-      const res = await api.skillListAvailable(src, refresh)
-      if (res.error) throw new Error(res.error)
-      setAvailable(res.skills ?? [])
-    } catch (err) {
-      setError(`Failed to load skills from ${src}: ${err instanceof Error ? err.message : String(err)}`)
-      setAvailable([])
-    } finally {
-      setLoadingAvailable(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadInstalled()
-  }, [loadInstalled])
-
-  useEffect(() => {
-    void loadAvailable(DEFAULT_SOURCE)
-  }, [loadAvailable])
+  // Install / update / uninstall change every scope's shadow flags and the previews.
+  const loadInstalled = () => invalidateInstalledSkills()
 
   const handleLoadSource = () => {
     const trimmed = sourceInput.trim()
     if (!trimmed) return
+    setError(null)
     setSource(trimmed)
-    void loadAvailable(trimmed)
   }
 
   const withPending = async (
@@ -282,8 +259,11 @@ export function SkillsSettings() {
   const shownLibrary = useMemo(() => libraryItems.filter(matches), [libraryItems, matches])
 
   const refreshAll = () => {
-    void loadInstalled()
-    void loadAvailable(source, true)
+    setError(null)
+    void installedQuery.refetch()
+    void refreshAvailableSkills(source).catch(() => {
+      // The query's own error state reports it.
+    })
   }
 
   const selectedItem = useMemo(
@@ -787,7 +767,7 @@ function SkillCardMeta({ item }: { item: SkillListItem }) {
           <span className="truncate font-mono">{item.source}</span>
         </span>
       )}
-      {item.updatedAt && <span className="shrink-0">{formatRelativeTime(item.updatedAt)}</span>}
+      {item.updatedAt && <span className="shrink-0">{formatRelativeTime(intl, item.updatedAt)}</span>}
       {agentCount > 0 && <AgentBadges agents={item.agents!} />}
       {item.shadowed && (
         <Badge
@@ -909,17 +889,6 @@ function InstallButton({
 }
 
 /** Coarse relative time — the exact minute never matters for an install date. */
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ""
-  const days = Math.floor((Date.now() - then) / 86_400_000)
-  if (days <= 0) return "today"
-  if (days === 1) return "yesterday"
-  if (days < 30) return `${days}d ago`
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`
-  return `${Math.floor(days / 365)}y ago`
-}
-
 // ── Detail: the rendered SKILL.md, read from the install or the source repo ──
 function SkillDetailView({
   name,
@@ -957,32 +926,12 @@ function SkillDetailView({
 }) {
   const intl = useIntl()
   const scopeProjectName = useContext(ScopeProjectNameContext)
-  const [detail, setDetail] = useState<SkillDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  // Reload after install/uninstall so the preview switches between the installed
-  // copy and the source repo copy.
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    void (async () => {
-      try {
-        const res = await api.skillDetail(name, source, scope, workspacePath)
-        if (cancelled) return
-        if (res.error) throw new Error(res.error)
-        setDetail(res.detail ?? null)
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [name, source, scope, workspacePath, installed, updating])
+  // Keyed by `installed` and refreshed after an update, so the preview switches
+  // between the installed copy and the source repo copy.
+  const detailQuery = useSkillDetail(name, source, scope, workspacePath, installed)
+  const detail = detailQuery.data ?? null
+  const loading = detailQuery.isPending || (updating && detailQuery.isFetching)
+  const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null
 
   const description = detail?.description || fallbackDescription
 
@@ -1132,8 +1081,3 @@ function SkillDetailView({
   )
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}

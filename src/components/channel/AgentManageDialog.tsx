@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Plus, Pencil, Trash2, Bot, XIcon, X, Info, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,10 +28,12 @@ import {
 import { useModelManagement } from '@/components/editor/hooks/useModelManagement'
 import { useChannelStore } from '@/stores/channel-store'
 import { api } from '@/lib/api'
+import { useProviders } from '@/lib/provider-queries'
 import { cn } from '@/lib/utils'
 import { scopeLabel } from './channel-i18n'
 import { countLive, BindingCountBadge, BindingRow } from './binding-ui'
 import type { Agent, AgentBinding, AgentEnvVar } from '@/types/channel'
+import { useRowKeys } from '@/hooks/useRowKeys'
 
 interface AgentManageDialogProps {
   open: boolean
@@ -65,20 +67,11 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
   const intl = useIntl()
   // Opened from wherever an agent is picked (the board, a dispatch, a task), not just the channel
   // page that used to hand the list in.
-  const [loadedProviders, setLoadedProviders] = useState<{ id: string; label: string }[]>([])
-  useEffect(() => {
-    if (!open || givenProviders) return
-    let cancelled = false
-    void api
-      .getProviders()
-      .then((list) => {
-        if (!cancelled) setLoadedProviders(list.map((p) => ({ id: p.id, label: p.label })))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [open, givenProviders])
+  const { data: providerList } = useProviders({ enabled: open && !givenProviders })
+  const loadedProviders = useMemo(
+    () => (providerList ?? []).map((p) => ({ id: p.id, label: p.label })),
+    [providerList],
+  )
   const providers = givenProviders ?? loadedProviders
   const agents = useChannelStore((s) => s.agents)
   const createAgent = useChannelStore((s) => s.createAgent)
@@ -87,6 +80,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
   const [editing, setEditing] = useState<Agent | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<AgentFormState>(EMPTY_FORM)
+  const envKeys = useRowKeys(form.env.length)
   const [saving, setSaving] = useState(false)
   const [bindingsByAgent, setBindingsByAgent] = useState<Record<number, AgentBinding[]>>({})
   const [expandedAgentId, setExpandedAgentId] = useState<number | null>(null)
@@ -377,7 +371,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                   <SelectTrigger className="w-full bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors">
                     <SelectValue placeholder={intl.formatMessage({ id: 'channel.form.selectAdapter', defaultMessage: 'Select adapter' })} />
                   </SelectTrigger>
-                  <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                  <SelectContent align="start" position="popper" sideOffset={6}>
                     {providers.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
                     ))}
@@ -399,7 +393,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                         <span className="text-xs opacity-50"><FormattedMessage id="channel.form.change" defaultMessage="Change" /></span>
                       </Button>
                     </ModelSelectorTrigger>
-                    <ModelSelectorContent className="z-[80]">
+                    <ModelSelectorContent>
                       <ModelSelectorInput placeholder={intl.formatMessage({ id: 'channel.form.searchModels', defaultMessage: 'Search models...' })} />
                       <ModelSelectorList>
                         {Object.entries(
@@ -458,7 +452,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                         ?? intl.formatMessage({ id: 'channel.form.selectPermissionMode', defaultMessage: 'Select mode' })}
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectContent align="start" position="popper" sideOffset={6} className="z-[80]">
+                  <SelectContent align="start" position="popper" sideOffset={6}>
                     {permissionOptions.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         <span className="flex flex-col gap-0.5">
@@ -491,7 +485,7 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                       dimmed && 'opacity-60',
                     )
                     return (
-                      <div key={idx} className="flex items-center gap-2">
+                      <div key={envKeys.keys[idx]} className="flex items-center gap-2">
                         <Input
                           value={entry.key}
                           onChange={(e) => setForm((f) => ({
@@ -521,7 +515,10 @@ export function AgentManageDialog({ open, onClose, providers: givenProviders }: 
                         />
                         <button
                           type="button"
-                          onClick={() => setForm((f) => ({ ...f, env: f.env.filter((_, i) => i !== idx) }))}
+                          onClick={() => {
+                            envKeys.remove(idx)
+                            setForm((f) => ({ ...f, env: f.env.filter((_, i) => i !== idx) }))
+                          }}
                           className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors shrink-0"
                           title={intl.formatMessage({ id: 'common.remove', defaultMessage: 'Remove' })}
                         >

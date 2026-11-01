@@ -1,43 +1,39 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Loader2, Save, Check, AlertCircle, Eye, EyeOff, FileDiff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
+import { useDraft } from "@/hooks/useDraft"
+import { setSettingsData, settingsKeys, useDiffPreviewConfig } from "@/lib/settings-queries"
 import { openExternalUrl } from "@/lib/open-external"
 import { SettingsSection } from "./SettingsSection"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 export function DiffPreviewSettings() {
     const intl = useIntl()
-    const [workerUrl, setWorkerUrl] = useState("")
-    const [workerApiKey, setWorkerApiKey] = useState("")
+    const configQuery = useDiffPreviewConfig()
+    const [workerUrl, setWorkerUrl, resetWorkerUrl] = useDraft(configQuery.data?.workerUrl ?? "")
+    const [workerApiKey, setWorkerApiKey, resetWorkerApiKey] = useDraft(configQuery.data?.workerApiKey ?? "")
     const [showKey, setShowKey] = useState(false)
 
-    const [loading, setLoading] = useState(true)
+    const loading = configQuery.isPending && !configQuery.isError
     const [saving, setSaving] = useState(false)
-    const [savedOk, setSavedOk] = useState(false)
-    const [saveErr, setSaveErr] = useState(false)
-
-    useEffect(() => {
-        api.diffPreviewGetConfig().then((res) => {
-            setWorkerUrl(res.workerUrl ?? "")
-            setWorkerApiKey(res.workerApiKey ?? "")
-        }).catch(() => {
-            // ignore
-        }).finally(() => setLoading(false))
-    }, [])
+    const [savedOk, flashSavedOk, clearSavedOk] = useTransientFlag(2000)
+    const [saveErr, flashSaveErr, clearSaveErr] = useTransientFlag(2000)
 
     async function handleSave() {
-        setSaving(true); setSavedOk(false); setSaveErr(false)
+        setSaving(true); clearSavedOk(); clearSaveErr()
         try {
-            await api.diffPreviewSaveConfig({
+            const saved = await api.diffPreviewSaveConfig({
                 workerUrl: workerUrl.trim(),
                 workerApiKey: workerApiKey.trim(),
             })
-            setSavedOk(true)
-            setTimeout(() => setSavedOk(false), 2000)
+            setSettingsData(settingsKeys.diffPreview(), { workerUrl: saved.workerUrl, workerApiKey: saved.workerApiKey })
+            resetWorkerUrl()
+            resetWorkerApiKey()
+            flashSavedOk()
         } catch {
-            setSaveErr(true)
-            setTimeout(() => setSaveErr(false), 2000)
+            flashSaveErr()
         } finally {
             setSaving(false)
         }

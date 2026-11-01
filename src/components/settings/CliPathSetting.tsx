@@ -4,6 +4,7 @@ import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Check, Loader2, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 interface CliPathSettingProps {
   adapterId: string
@@ -23,7 +24,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
   const [command, setCommand] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [savedOk, setSavedOk] = useState(false)
+  const [savedOk, flashSavedOk, clearSavedOk] = useTransientFlag(2000)
   const [error, setError] = useState("")
   const [originalPath, setOriginalPath] = useState("")
   const [versionInfo, setVersionInfo] = useState<{ version?: string; error?: string; warning?: string } | null>(null)
@@ -70,7 +71,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
   async function handleSave() {
     setSaving(true)
     setError("")
-    setSavedOk(false)
+    clearSavedOk()
     try {
       const res = await api.cliPathSet(adapterId, path.trim() || undefined)
       setAvailable(res.info.available)
@@ -78,8 +79,7 @@ export function CliPathSetting({ adapterId, label, description, placeholder }: C
       setSource(res.info.source)
       setCommand(res.info.command)
       setOriginalPath(path.trim())
-      setSavedOk(true)
-      setTimeout(() => setSavedOk(false), 2000)
+      flashSavedOk()
     } catch {
       setError(intl.formatMessage({ id: "common.saveFailed", defaultMessage: "Failed to save" }))
       setTimeout(() => setError(""), 3000)

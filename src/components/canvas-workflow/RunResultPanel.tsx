@@ -1,4 +1,4 @@
-import { FormattedMessage } from "react-intl"
+import { FormattedMessage, useIntl } from "react-intl"
 import { useEffect, useState } from "react"
 import { CheckCircle2, AlertCircle, Loader2, Clock, ChevronDown, ChevronRight, MinusCircle, Layers, XCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { CanvasWorkflowRun } from "@/types/canvas-workflow"
 import { cn } from "@/lib/utils"
+import { formatDuration, formatRelativeTime } from "@/lib/format"
 
 interface RunResultPanelProps {
   run: CanvasWorkflowRun | null
@@ -22,6 +23,7 @@ interface RunResultPanelProps {
 }
 
 export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunResultPanelProps) {
+  const intl = useIntl()
   return (
     <div className="h-full flex flex-col">
       {/* Run Selector */}
@@ -32,7 +34,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
               <button className="flex items-center gap-2 text-sm hover:bg-row-hover rounded-md px-2 py-1 -ml-2 transition-colors">
                 {run && <RunStatusIcon status={run.status} size="sm" />}
                 <span className="text-foreground/80">
-                  {run ? formatRelativeTime(run.startedAt) : "Select a run"}
+                  {run ? formatRelativeTime(intl, run.startedAt, { dateAfterDays: 1 }) : "Select a run"}
                 </span>
                 <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
               </button>
@@ -51,9 +53,9 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
                   )}
                 >
                   <RunStatusIcon status={r.status} size="sm" />
-                  <span className="flex-1">{formatRelativeTime(r.startedAt)}</span>
+                  <span className="flex-1">{formatRelativeTime(intl, r.startedAt, { dateAfterDays: 1 })}</span>
                   <span className="text-[10px] text-muted-foreground/50">
-                    {r.finishedAt ? formatDuration(r.startedAt, r.finishedAt) : "..."}
+                    {r.finishedAt ? formatDuration(r.finishedAt - r.startedAt) : "..."}
                   </span>
                 </DropdownMenuItem>
               ))}
@@ -62,7 +64,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
           {run?.startedAt && (
             <span className="text-[10px] text-muted-foreground/50 flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              {formatDuration(run.startedAt, run.finishedAt)}
+              {formatDuration((run.finishedAt || Date.now()) - run.startedAt)}
             </span>
           )}
         </div>
@@ -77,7 +79,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
               {run.nodeResults.map((result) => (
                 <div
                   key={result.nodeId}
-                  className="rounded-lg border border-border/40 bg-muted/10 overflow-hidden transition-colors hover:border-border/60 hover:bg-muted/20"
+                  className="rounded-lg border border-border/40 bg-muted/10 overflow-hidden transition-colors hover:border-border/60 hover:bg-row-hover"
                 >
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-border/40 bg-muted/20">
                     <NodeResultStatusIcon status={result.status} />
@@ -90,7 +92,7 @@ export function RunResultPanel({ run, runs, selectedRunId, onSelectRun }: RunRes
                     )}
                     {result.startedAt && result.finishedAt && (
                       <span className="text-[10px] text-muted-foreground/50 ml-auto">
-                        {formatDuration(result.startedAt, result.finishedAt)}
+                        {formatDuration((result.finishedAt || Date.now()) - result.startedAt)}
                       </span>
                     )}
                   </div>
@@ -230,7 +232,7 @@ function ChildRuns({ run }: { run: CanvasWorkflowRun }) {
                   {child.trigger === "subworkflow" ? "Sub-workflow" : `Round ${(child.iteration ?? 0) + 1}`}
                 </span>
                 <span className="ml-auto text-[10px] text-muted-foreground/50">
-                  {formatDuration(child.startedAt, child.finishedAt)}
+                  {formatDuration((child.finishedAt || Date.now()) - child.startedAt)}
                 </span>
               </button>
               {expanded === child.id && (
@@ -291,23 +293,3 @@ function NodeResultStatusIcon({ status }: { status: string }) {
   }
 }
 
-function formatDuration(startMs: number, endMs?: number): string {
-  const end = endMs || Date.now()
-  const diff = end - startMs
-  if (diff < 1000) return `${diff}ms`
-  if (diff < 60000) return `${(diff / 1000).toFixed(1)}s`
-  return `${Math.floor(diff / 60000)}m ${Math.floor((diff % 60000) / 1000)}s`
-}
-
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp
-  if (diff < 60000) return "Just now"
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
-  return new Date(timestamp).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}

@@ -23,7 +23,6 @@ interface UseCanvasAutoSaveParams {
   setEdges: React.Dispatch<React.SetStateAction<CanvasEdge[]>>
   dirty: boolean
   setDirty: (dirty: boolean) => void
-  initialLoadRef: React.MutableRefObject<boolean>
 }
 
 interface SaveOptions {
@@ -59,7 +58,6 @@ export function useCanvasAutoSave({
   setEdges,
   dirty,
   setDirty,
-  initialLoadRef,
 }: UseCanvasAutoSaveParams) {
   const [workflow, setWorkflow] = useState<CanvasWorkflow | null>(null)
   const [saving, setSaving] = useState(false)
@@ -67,21 +65,27 @@ export function useCanvasAutoSave({
   const [saveError, setSaveError] = useState<string | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load workflow
+  // Load the workflow into the editor. The document is an editing buffer (React
+  // Flow owns it from here on), so this is a one-shot load per id, not a cached
+  // query. Switching workflows mid-request drops the late answer.
   useEffect(() => {
-    if (workflowId) {
-      initialLoadRef.current = true
-      api.canvasWorkflowGet(workflowId).then(({ workflow: data }) => {
+    if (!workflowId) return
+    let cancelled = false
+    api.canvasWorkflowGet(workflowId)
+      .then(({ workflow: data }) => {
+        if (cancelled) return
         setWorkflow(data)
         setNodes(toReactFlowNodes(data.nodes))
         setEdges(toReactFlowEdges(data.edges, data.nodes))
         setDirty(false)
         setLastSavedAt(null)
-        // Allow changes to be tracked after initial load settles
-        setTimeout(() => { initialLoadRef.current = false }, 200)
       })
-    }
-  }, [workflowId, setNodes, setEdges, setDirty, initialLoadRef])
+      .catch((error: unknown) => {
+        if (cancelled) return
+        toast.error("Failed to load workflow", { description: error instanceof Error ? error.message : String(error) })
+      })
+    return () => { cancelled = true }
+  }, [workflowId, setNodes, setEdges, setDirty])
 
   // Save workflow
   const save = useCallback(async (name?: string, options?: SaveOptions) => {

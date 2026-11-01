@@ -2,6 +2,7 @@ import { useIntl } from "react-intl"
 import { RotateCw, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { WebviewInstance, WebviewState } from "./WebviewInstance"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface Preset {
   label: string
@@ -63,18 +64,19 @@ export function DeviceToolbar({
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 bg-muted/30 px-3 text-xs">
       <span className="text-muted-foreground">{intl.formatMessage({ id: "browser.device.dimensions", defaultMessage: "Dimensions:" })}</span>
-      <select
-        value={activeLabel}
-        onChange={(e) => onPreset(e.target.value)}
-        className={cn(fieldCls, "min-w-[120px]")}
-      >
-        {activeLabel === "Custom" ? <option value="Custom">Custom</option> : null}
-        {PRESETS.map((p) => (
-          <option key={p.label} value={p.label}>
-            {p.label}
-          </option>
-        ))}
-      </select>
+      <Select value={activeLabel} onValueChange={onPreset}>
+        <SelectTrigger size="sm" className="h-7 min-w-[120px] bg-background px-2 text-xs shadow-none">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {activeLabel === "Custom" ? <SelectItem value="Custom" className="text-xs">Custom</SelectItem> : null}
+          {PRESETS.map((p) => (
+            <SelectItem key={p.label} value={p.label} className="text-xs">
+              {p.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <input
         type="number"
@@ -103,19 +105,18 @@ export function DeviceToolbar({
         <RotateCw className="h-3.5 w-3.5" />
       </button>
 
-      <select
-        value={String(state.zoom)}
-        onChange={(e) => instance.setZoom(Number(e.target.value))}
-        className={cn(fieldCls, "ml-1 w-20")}
-      >
-        {(ZOOMS.includes(state.zoom) ? ZOOMS : [...ZOOMS, state.zoom].sort((a, b) => a - b)).map(
-          (z) => (
-            <option key={z} value={z}>
+      <Select value={String(state.zoom)} onValueChange={(value) => instance.setZoom(Number(value))}>
+        <SelectTrigger size="sm" className="ml-1 h-7 w-20 bg-background px-2 text-xs shadow-none">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(ZOOMS.includes(state.zoom) ? ZOOMS : [...ZOOMS, state.zoom].sort((a, b) => a - b)).map((z) => (
+            <SelectItem key={z} value={String(z)} className="text-xs">
               {Math.round(z * 100)}%
-            </option>
-          )
-        )}
-      </select>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <div className="flex-1" />
       <button

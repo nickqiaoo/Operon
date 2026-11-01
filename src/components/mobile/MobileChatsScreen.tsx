@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { Activity, ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
-import { api } from "@/lib/api"
+import { queryClient } from "@/lib/query-client"
+import { providersQuery, useProviders } from "@/lib/provider-queries"
 import { cn } from "@/lib/utils"
 import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -16,6 +17,7 @@ import { providerLogoName } from "@/lib/provider-logos"
 import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import { MobileSheet } from "./MobileSheet"
 import { MobileSpecChatsList, type MobileSpecChatTarget } from "./MobileSpecChatsList"
+import { formatRelativeTime } from "@/lib/format"
 
 interface Provider {
   id: string
@@ -44,17 +46,6 @@ interface MobileChatsScreenProps {
 /** Conversations fetched per request; more load as the list scrolls. */
 const CHATS_PAGE_SIZE = 30
 
-const formatRelativeTime = (timestamp: number): string => {
-  const diffMin = Math.floor((Date.now() - timestamp) / 60000)
-  if (diffMin < 1) return "just now"
-  if (diffMin < 60) return `${diffMin}m ago`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${diffHr}h ago`
-  const diffDay = Math.floor(diffHr / 24)
-  if (diffDay < 30) return `${diffDay}d ago`
-  return `${Math.floor(diffDay / 30)}mo ago`
-}
-
 /**
  * Per-workspace agent chats. Reuses the same editor-store tab model and
  * {@link ChatPanel} the desktop uses, so streaming, tool calls, approvals and
@@ -81,7 +72,11 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
 
   const [openId, setOpenId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [providers, setProviders] = useState<Provider[]>([])
+  const { data: providerList } = useProviders({ enabled: pickerOpen })
+  const providers = useMemo<Provider[]>(
+    () => (providerList ?? []).map((p) => ({ id: p.id, label: p.label })),
+    [providerList],
+  )
 
   const chatTabs = useMemo(() => tabs.filter((t) => t.type === "chat"), [tabs])
   const openTab = useMemo(() => chatTabs.find((t) => t.id === openId) ?? null, [chatTabs, openId])
@@ -156,12 +151,11 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     onDeepLinkConsumed?.()
   }, [openChatId, openChatTitle, openChatSubAgent, openChatTab, setTabChatId, setActiveTab, onDeepLinkConsumed])
 
+  // The native sheet needs the list before it opens, so read the cache
+  // imperatively (served without a request while fresh).
   const loadProviders = async (): Promise<Provider[]> => {
-    if (providers.length > 0) return providers
     try {
-      const list = (await api.getProviders()).map((p) => ({ id: p.id, label: p.label }))
-      setProviders(list)
-      return list
+      return (await queryClient.fetchQuery(providersQuery)).map((p) => ({ id: p.id, label: p.label }))
     } catch {
       // Leave the picker empty; the user can retry by reopening it.
       return []
@@ -184,8 +178,8 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
         // fall through to the web sheet
       }
     }
+    // The web sheet loads the list itself (`useProviders` is enabled while open).
     setPickerOpen(true)
-    void loadProviders()
   }
 
   useEffect(() => {
@@ -333,7 +327,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
               <AgentAvatar provider={item.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{item.title}</span>
               <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">
-                {formatRelativeTime(item.updatedAt)}
+                {formatRelativeTime(intl, item.updatedAt)}
               </span>
             </button>
           ))}

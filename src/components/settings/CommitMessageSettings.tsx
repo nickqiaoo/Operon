@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react"
+import { useMemo, useState } from "react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { GitCommitHorizontal, Loader2, Check } from "lucide-react"
 import { api } from "@/lib/api"
+import { useProviderModels, useProviders } from "@/lib/provider-queries"
+import { setSettingsData, settingsKeys, useCommitMessageConfig } from "@/lib/settings-queries"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -10,12 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-
-interface ProviderOption {
-  id: string
-  label: string
-  available: boolean
-}
+import { useTransientFlag } from "@/hooks/useTransientFlag"
 
 interface ModelOption {
   modelId: string
@@ -29,75 +26,48 @@ interface ModelOption {
  */
 export function CommitMessageSettings() {
   const intl = useIntl()
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [savedOk, setSavedOk] = useState(false)
+  const [savedOk, flashSavedOk, clearSavedOk] = useTransientFlag(2000)
 
-  const [providers, setProviders] = useState<ProviderOption[]>([])
-  const [models, setModels] = useState<ModelOption[]>([])
-  const [modelsLoading, setModelsLoading] = useState(false)
+  const providersQuery = useProviders()
+  const configQuery = useCommitMessageConfig()
+  const providers = providersQuery.data ?? []
+  const loading = providersQuery.isPending || configQuery.isPending
 
-  const [providerId, setProviderId] = useState("")
-  const [modelId, setModelId] = useState("")
+  // The user's picks; null until they choose, so the saved config (or the first
+  // available provider / first model) shows through without being copied in.
+  const [pickedProvider, setPickedProvider] = useState<string | null>(null)
+  const [pickedModel, setPickedModel] = useState<string | null>(null)
 
-  const loadModels = useCallback(async (pid: string, preferredModelId?: string) => {
-    if (!pid) {
-      setModels([])
-      return
-    }
-    setModelsLoading(true)
-    try {
-      const result = (await api.getProviderModels(pid)) as {
-        models?: Array<{ modelId: string; name: string }>
-      }
-      const list: ModelOption[] = (result?.models ?? []).map((m) => ({
-        modelId: m.modelId,
-        name: m.name,
-      }))
-      setModels(list)
-      // Keep the saved model if still valid, else default to the first.
-      setModelId((prev) => {
-        const target = preferredModelId ?? prev
-        if (target && list.some((m) => m.modelId === target)) return target
-        return list[0]?.modelId ?? ""
-      })
-    } catch {
-      setModels([])
-    } finally {
-      setModelsLoading(false)
-    }
-  }, [])
+  const providerId =
+    pickedProvider ??
+    (configQuery.data?.providerId || providers.find((p) => p.available)?.id || "")
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [providerList, config] = await Promise.all([
-          api.getProviders(),
-          api.commitMessageGetConfig(),
-        ])
-        setProviders(providerList)
-        const initialProvider = config.providerId || providerList.find((p) => p.available)?.id || ""
-        setProviderId(initialProvider)
-        if (initialProvider) await loadModels(initialProvider, config.modelId)
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [loadModels])
+  const modelsQuery = useProviderModels(providerId || undefined)
+  const models = useMemo<ModelOption[]>(
+    () => (modelsQuery.data?.models ?? []).flatMap((m) => (m.modelId ? [{ modelId: m.modelId, name: m.name }] : [])),
+    [modelsQuery.data],
+  )
+  const modelsLoading = !!providerId && modelsQuery.isPending
+
+  // Keep the chosen (or saved) model if this provider still offers it, else the first.
+  const preferredModel = pickedModel ?? (pickedProvider == null ? configQuery.data?.modelId : undefined)
+  const modelId =
+    preferredModel && models.some((m) => m.modelId === preferredModel) ? preferredModel : models[0]?.modelId ?? ""
+  const setModelId = (next: string) => setPickedModel(next)
 
   const handleProviderChange = (pid: string) => {
-    setProviderId(pid)
-    setModelId("")
-    void loadModels(pid)
+    setPickedProvider(pid)
+    setPickedModel(null)
   }
 
   const handleSave = async () => {
     setSaving(true)
-    setSavedOk(false)
+    clearSavedOk()
     try {
-      await api.commitMessageSaveConfig({ providerId, modelId })
-      setSavedOk(true)
-      setTimeout(() => setSavedOk(false), 2000)
+      const saved = await api.commitMessageSaveConfig({ providerId, modelId })
+      setSettingsData(settingsKeys.commitMessage(), { providerId: saved.providerId, modelId: saved.modelId })
+      flashSavedOk()
     } finally {
       setSaving(false)
     }

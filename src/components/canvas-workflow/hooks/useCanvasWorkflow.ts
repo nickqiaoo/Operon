@@ -14,7 +14,8 @@ export function useCanvasWorkflow(workflowId?: number) {
   const [edges, setEdges, rawOnEdgesChange] = useEdgesState<CanvasEdge>([])
   const [dirty, setDirty] = useState(false)
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null)
-  const initialLoadRef = useRef(true)
+  // The flow's wrapper element: where "the middle of the visible canvas" is measured.
+  const flowContainerRef = useRef<HTMLDivElement | null>(null)
 
   const setReactFlowInstance = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstanceRef.current = instance
@@ -43,7 +44,6 @@ export function useCanvasWorkflow(workflowId?: number) {
     setEdges,
     dirty,
     setDirty,
-    initialLoadRef,
   })
 
   // Edge operations
@@ -78,8 +78,8 @@ export function useCanvasWorkflow(workflowId?: number) {
     setEdges,
     rawOnNodesChange,
     setDirty,
-    initialLoadRef,
     reactFlowInstanceRef,
+    flowContainerRef,
   })
 
   return {
@@ -106,5 +106,6 @@ export function useCanvasWorkflow(workflowId?: number) {
     onNodeDragStop,
     setWorkflow,
     setReactFlowInstance,
+    flowContainerRef,
   }
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Switch } from "@/components/ui/switch"
 import { api } from '@/lib/api'
-import { invalidateModelsCache } from '@/components/editor/hooks/useModelManagement'
+import { invalidateProviderQueries } from '@/lib/provider-queries'
 import { Button } from '@/components/ui/button'
 import { Check, Eye, EyeOff, Loader2, RefreshCw, AlertCircle, Plus, Trash2, X } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -22,6 +22,7 @@ import openrouterLogo from '@/assets/logos/openrouter.svg'
 import vercelLogo from '@/assets/logos/vercel.svg'
 import ollamaLogo from '@/assets/logos/ollama.svg'
 import endpointLogo from '@/assets/logos/endpoint.svg'
+import { useTransientFlag } from '@/hooks/useTransientFlag'
 
 interface ProviderModel { id: string; name: string }
 
@@ -128,8 +129,8 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
   const [newModelId, setNewModelId] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [savedOk, setSavedOk] = useState(false)
-  const [saveErr, setSaveErr] = useState(false)
+  const [savedOk, flashSavedOk, clearSavedOk] = useTransientFlag(2000)
+  const [saveErr, flashSaveErr, clearSaveErr] = useTransientFlag(2000)
   const [toggling, setToggling] = useState(false)
   const [fetchingModels, setFetchingModels] = useState(false)
   const [models, setModels] = useState<ProviderModel[]>([])
@@ -182,7 +183,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
   }
 
   async function handleSave() {
-    setSaving(true); setSavedOk(false); setSaveErr(false)
+    setSaving(true); clearSavedOk(); clearSaveErr()
     try {
       const id = isNew ? customProviderId(name.trim(), takenIds) : provider.id
       await api.providerConfigSave(id, {
@@ -193,13 +194,11 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
         // Adding one is asking to use it.
         ...(isNew ? { enabled: true } : {}),
       })
-      setSavedOk(true)
-      invalidateModelsCache()
+      flashSavedOk()
+      void invalidateProviderQueries()
       await onSaved(isNew ? id : undefined)
-      setTimeout(() => setSavedOk(false), 2000)
     } catch {
-      setSaveErr(true)
-      setTimeout(() => setSaveErr(false), 2000)
+      flashSaveErr()
     } finally { setSaving(false) }
   }
 
@@ -209,7 +208,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
     try {
       await api.providerConfigSave(provider.id, { enabled: next })
       onSaved()
-      invalidateModelsCache()
+      void invalidateProviderQueries()
     } finally { setToggling(false) }
   }
 
@@ -240,7 +239,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
     // Two clicks rather than a dialog: removing one is cheap to undo by adding it again.
     if (!confirmDelete) { setConfirmDelete(true); return }
     await api.providerConfigDelete(provider.id)
-    invalidateModelsCache()
+    void invalidateProviderQueries()
     await onDeleted()
   }
 

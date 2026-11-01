@@ -33,7 +33,6 @@ const cleanContentProps = {
   align: "start" as const,
   position: "popper" as const,
   sideOffset: 6,
-  className: "z-[80]",
 }
 
 const NO_PROJECT = "__none__"

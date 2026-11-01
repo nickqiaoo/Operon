@@ -25,8 +25,12 @@ export function LogsSettings() {
         const content = await window.electronAPI?.readLogTail?.() ?? ""
         setLogContent(content)
         setLogLoading(false)
-        setTimeout(() => logEndRef.current?.scrollIntoView(), 50)
     }, [])
+
+    // Land on the newest lines once the tail has rendered.
+    useEffect(() => {
+        if (logContent != null) logEndRef.current?.scrollIntoView()
+    }, [logContent])
 
     return (
         <SettingsSection
