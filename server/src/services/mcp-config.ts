@@ -252,9 +252,11 @@ export function buildMcpServersForCli(
 
   // visual = html_render, a page shown inline where the call appears. It needs no
   // caller: the page is stored as an attachment and the tool result points at it.
+  // cwd bounds where the page's local images may be read from (workspace + temp).
+  // Same for every OpenCode tab, which share one directory, so it is safe there too.
   servers['visual'] = {
     type: 'http',
-    url: withApiToken(`http://127.0.0.1:${appPort}/api/visual-mcp`),
+    url: withApiToken(`http://127.0.0.1:${appPort}/api/visual-mcp?cwd=${encodeURIComponent(options?.cwd ?? '')}`),
   }
 
   // Server names use underscores (not hyphens): some MCP clients / tool-name

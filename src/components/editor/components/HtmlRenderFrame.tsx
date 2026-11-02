@@ -11,7 +11,6 @@ import {
   htmlRenderZoomMessage,
   readHtmlRenderContentHeight,
   readHtmlRenderImageRequest,
-  readHtmlRenderKeyDown,
   readHtmlRenderLinkRequest,
   readHtmlRenderRef,
   type HtmlRenderRef,
@@ -140,6 +139,21 @@ export function HtmlRenderRenderer({ toolPart }: { toolPart: ToolPartLike }) {
 }
 
 /**
+ * The page's scripts can post the same messages its bridge does, so a link or an
+ * image opens only right after a real click in this frame: the click both moves
+ * focus to the frame and activates the app window (activation reaches ancestor
+ * frames). A click elsewhere in the app activates the window too, but leaves the
+ * focus there. A link opened in the browser can carry data out in its URL, hence
+ * also one per second, so a single click cannot open a burst.
+ */
+function clickedInFrame(frame: HTMLIFrameElement): boolean {
+  return document.activeElement === frame && navigator.userActivation?.isActive === true
+}
+
+const LINK_OPEN_INTERVAL_MS = 1000
+let lastLinkOpenedAt = 0
+
+/**
  * The iframe and its side of the bridge, shared by the inline page and the
  * full-screen view.
  *
@@ -187,14 +201,13 @@ function HtmlRenderDocument({
       const height = readHtmlRenderContentHeight(event.data)
       if (height !== undefined) return latest.current.onContentHeight?.(height)
       const link = readHtmlRenderLinkRequest(event.data)
-      if (link) return openExternalUrl(link)
+      if (link) {
+        if (!clickedInFrame(frame) || Date.now() - lastLinkOpenedAt < LINK_OPEN_INTERVAL_MS) return
+        lastLinkOpenedAt = Date.now()
+        return openExternalUrl(link)
+      }
       const image = readHtmlRenderImageRequest(event.data)
-      if (image) return latest.current.onOpenImage(image)
-      const key = readHtmlRenderKeyDown(event.data)
-      // A focused frame keeps its keys. Replayed on the frame element, the key
-      // bubbles through the app the way it would have from outside: ⌘K, Escape
-      // closing the full-screen view, and the rest.
-      if (key) frame.dispatchEvent(new KeyboardEvent('keydown', { ...key, bubbles: true, cancelable: true }))
+      if (image && clickedInFrame(frame)) return latest.current.onOpenImage(image)
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)

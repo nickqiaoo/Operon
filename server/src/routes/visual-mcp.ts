@@ -8,6 +8,7 @@ import {
   HTML_RENDER_MAX_HEIGHT,
   HTML_RENDER_MAX_TITLE_LENGTH,
   HTML_RENDER_MIN_HEIGHT,
+  HTML_RENDER_NETWORK_GUIDE,
   HTML_RENDER_PREVIEW_MAX_WIDTH,
   HTML_RENDER_PREVIEW_MIN_WIDTH,
   HTML_RENDER_PREVIEW_TOOL_NAME,
@@ -18,7 +19,11 @@ import { HtmlRenderError, previewHtmlRender, publishHtmlRender } from '../servic
 import { getHtmlSnapshotter } from '../services/visual/html-snapshot.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 
-const PAGE_RULES = 'Inline <style> and <script>; scripts from CDNs load as-is. Local images referenced by absolute path are embedded.'
+const PAGE_RULES = [
+  'Inline <style> and <script>.',
+  HTML_RENDER_NETWORK_GUIDE,
+  'Local images referenced by absolute path inside the workspace or the temp directory are embedded.',
+].join(' ')
 
 const htmlParam = { type: 'string', description: 'A complete, self-contained HTML document.' }
 
@@ -79,7 +84,8 @@ const previewTool: Tool = {
   annotations: { title: 'Preview HTML', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 }
 
-export function buildVisualMcpServer(): Server {
+/** `cwd` is the calling session's workspace: the one place besides temp that a page's local images may come from. */
+export function buildVisualMcpServer(cwd?: string): Server {
   const server = new Server({ name: 'visual', version: '1.0.0' }, { capabilities: { tools: {} } })
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Headless nodes have nothing to render with: the tool is not offered at all
@@ -91,7 +97,7 @@ export function buildVisualMcpServer(): Server {
     const args = (req.params.arguments ?? {}) as Record<string, unknown>
     try {
       if (req.params.name === HTML_RENDER_PREVIEW_TOOL_NAME) {
-        const preview = await previewHtmlRender({ html: args.html, width: args.width, appearance: args.appearance })
+        const preview = await previewHtmlRender({ html: args.html, width: args.width, appearance: args.appearance, cwd })
         if (!preview) throw new HtmlRenderError(`Preview is not available here. Call ${HTML_RENDER_TOOL_NAME} directly.`)
         const { jpeg, ...report } = preview
         const text = { type: 'text' as const, text: JSON.stringify(report) }
@@ -100,7 +106,7 @@ export function buildVisualMcpServer(): Server {
           : { content: [{ type: 'image' as const, data: jpeg.toString('base64'), mimeType: 'image/jpeg' }, text] }
       }
       if (req.params.name !== HTML_RENDER_TOOL_NAME) throw new Error(`Unknown tool: ${req.params.name}`)
-      const visual = await publishHtmlRender({ html: args.html, title: args.title, height: args.height })
+      const visual = await publishHtmlRender({ html: args.html, title: args.title, height: args.height, cwd })
       const result = {
         visual,
         message: "Shown to the user where this call appears. Don't mention or describe the page; reply with only what it doesn't already say.",
@@ -116,7 +122,7 @@ export function buildVisualMcpServer(): Server {
 
 export function visualMcpRoutes() {
   const router = new Hono()
-  const handle = (c: Context) => serveMcpOverHono(c, buildVisualMcpServer())
+  const handle = (c: Context) => serveMcpOverHono(c, buildVisualMcpServer(c.req.query('cwd') || undefined))
   router.post('/', handle)
   router.get('/', handle)
   router.delete('/', handle)

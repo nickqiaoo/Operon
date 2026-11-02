@@ -3,7 +3,6 @@ import {
   buildHtmlRenderDocument,
   readHtmlRenderContentHeight,
   readHtmlRenderImageRequest,
-  readHtmlRenderKeyDown,
   readHtmlRenderLinkRequest,
   readHtmlRenderRef,
 } from './html-render'
@@ -20,11 +19,20 @@ describe('buildHtmlRenderDocument', () => {
 
   it('does not land inside a comment or script that mentions <head>', () => {
     const doc = buildHtmlRenderDocument('<!-- <head> --><script>"<head>"</script><html><head></head></html>', theme)
-    expect(doc.startsWith('<!-- <head> --><script>"<head>"</script><html><head><meta')).toBe(true)
+    expect(doc).toContain('<!-- <head> --><script>"<head>"</script><html><head><meta')
   })
 
   it('wraps a fragment', () => {
-    expect(buildHtmlRenderDocument('<div>x</div>', theme)).toMatch(/^<!doctype html><head>.*<\/head><div>x<\/div>$/s)
+    expect(buildHtmlRenderDocument('<div>x</div>', theme)).toMatch(/^<!doctype html><meta [^>]*Content-Security-Policy.*<head>.*<\/head><div>x<\/div>$/s)
+  })
+
+  it('puts the network policy ahead of everything but the doctype', () => {
+    const policy = '<meta http-equiv="Content-Security-Policy"'
+    const early = buildHtmlRenderDocument('<script src="https://evil.example/x.js"></script><head></head>', theme)
+    expect(early.startsWith(policy)).toBe(true)
+    const doctype = buildHtmlRenderDocument('<!-- c -->\n<!DOCTYPE html><html><head></head></html>', theme)
+    expect(doctype.startsWith(`<!-- c -->\n<!DOCTYPE html>${policy}`)).toBe(true)
+    expect(buildHtmlRenderDocument('<p>', theme, { standalone: true }).startsWith(`<!doctype html>${policy}`)).toBe(true)
   })
 
   it('keeps the page charset and viewport', () => {
@@ -59,14 +67,12 @@ describe('bridge messages', () => {
     expect(readHtmlRenderLinkRequest({ jsonrpc: '2.0', method: 'ui/open-link', params: { url: 'file:///etc/passwd' } })).toBeUndefined()
   })
 
-  it('opens only remote or inlined images, and reads forwarded keys', () => {
+  it('opens only inlined images', () => {
     const image = (src: string) => readHtmlRenderImageRequest({ jsonrpc: '2.0', method: 'operon/open-image', params: { src, name: ' chart ' } })
     expect(image('data:image/png;base64,AAAA')).toEqual({ src: 'data:image/png;base64,AAAA', name: 'chart' })
-    expect(image('https://a.b/c.png')?.src).toBe('https://a.b/c.png')
+    // The app would fetch it, outside the page's network policy.
+    expect(image('https://a.b/c.png?secret=1')).toBeUndefined()
     expect(image('javascript:alert(1)')).toBeUndefined()
     expect(image('file:///etc/passwd')).toBeUndefined()
-    expect(readHtmlRenderKeyDown({ jsonrpc: '2.0', method: 'operon/keydown', params: { key: 'k', code: 'KeyK', metaKey: true } }))
-      .toEqual({ key: 'k', code: 'KeyK', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false })
-    expect(readHtmlRenderKeyDown({ jsonrpc: '2.0', method: 'operon/keydown', params: { key: 1 } })).toBeUndefined()
   })
 })

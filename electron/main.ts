@@ -641,6 +641,15 @@ function createWindow() {
     mainWindow = null
   })
 
+  // html_render pages (srcdoc iframes, the only ones in the app) must stay put.
+  // Their CSP blocks every request but a navigation of the frame itself, which
+  // could carry data out in its URL; links open through the host instead.
+  mainWindow.webContents.on('will-frame-navigate', (details) => {
+    if (!details.isMainFrame && details.frame?.url === 'about:srcdoc' && details.url !== 'about:srcdoc') {
+      details.preventDefault()
+    }
+  })
+
   // Inject our runtime preload into every browser-sidebar <webview> guest.
   // Leave sandbox at its default (on) to match the main-window preload: the
   // plugin builds preloads as CJS (`require`), which only works in a sandboxed
