@@ -250,8 +250,12 @@ export interface NativeShellPlugin {
     confirmLabel: string
     cancelLabel: string
   }): Promise<{ value: string | null }>
-  /** Light / dark for the native bars and sheets, following the app theme, not the OS. */
-  setAppearance(options: { dark: boolean }): Promise<void>
+  /**
+   * Light / dark for the native bars and sheets, following the app theme, not
+   * the OS. `system: true` means the app theme is "System": iOS then drops its
+   * override so the OS (and the web view's `prefers-color-scheme`) stay live.
+   */
+  setAppearance(options: { dark: boolean; system?: boolean }): Promise<void>
 }
 
 export interface NativeInfoSection {
@@ -303,6 +307,8 @@ export type NativeTopBarAction =
 export interface NativeTopBarHeader {
   /** A pushed Spec page: back on the leading edge, no inbox button. */
   back?: boolean
+  /** False drops the inbox bell (it lives on the Chats tab only). Default true. */
+  bell?: boolean
   leading:
     | { kind: 'context'; title: string; subtitle?: string }
     | { kind: 'segments'; items: { id: string; title: string }[]; selected: string }

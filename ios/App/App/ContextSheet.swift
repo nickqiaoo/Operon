@@ -73,11 +73,12 @@ struct ContextSheetView: View {
                 onPick(project.id, project.workspaces.first?.id, nil)
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(brand)
+                    // Monochrome like every other icon in the app: brand colour
+                    // on each project made the switcher the loudest thing on screen.
+                    Image(systemName: "folder")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
-                        .background(brand.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     Text(project.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -99,7 +100,8 @@ struct ContextSheetView: View {
                 Button {
                     onPick(project.id, workspace.id, nil)
                 } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        subRowIcon(Image(systemName: "arrow.triangle.branch").font(.system(size: 14)))
                         Text(workspace.name)
                             .font(.body)
                             .foregroundStyle(active ? Color.primary : Color.secondary)
@@ -120,17 +122,18 @@ struct ContextSheetView: View {
                     onPick(project.id, nil, spec.id)
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "doc.text")
-                            .foregroundStyle(brand)
+                        // The app's own Spec glyph (src/components/icons/SpecIcon.tsx),
+                        // not a generic document: a Spec is a plan, not a file.
+                        subRowIcon(Image("SpecIcon").resizable().scaledToFit().frame(width: 16, height: 16))
                         Text(spec.name)
                             .foregroundStyle(.primary)
                             .lineLimit(2)
                         Spacer(minLength: 0)
                         if activeSpecId == spec.id { check }
                     }
-                    .padding(.leading, 30)
+                    .padding(.leading, 54)
                     .padding(.trailing, 14)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 11)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(RowButtonStyle())
@@ -140,10 +143,18 @@ struct ContextSheetView: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    /// Workspaces and Specs sit one level under the project, under its name:
+    /// one icon column, so their text starts at the same place.
+    private func subRowIcon<Icon: View>(_ icon: Icon) -> some View {
+        icon
+            .foregroundStyle(.secondary)
+            .frame(width: 18, height: 18)
+    }
+
     private var check: some View {
         Image(systemName: "checkmark")
-            .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(brand)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.secondary)
     }
 }
 

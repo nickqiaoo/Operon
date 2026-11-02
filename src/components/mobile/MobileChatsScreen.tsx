@@ -72,7 +72,10 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
 
   const [openId, setOpenId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const { data: providerList } = useProviders({ enabled: pickerOpen })
+  // Subscribed for the whole screen, not just while the picker is open, so the
+  // "New" tap finds the list already cached instead of waiting on a round trip
+  // through the broker before the sheet can appear.
+  const { data: providerList } = useProviders()
   const providers = useMemo<Provider[]>(
     () => (providerList ?? []).map((p) => ({ id: p.id, label: p.label })),
     [providerList],
@@ -151,11 +154,18 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     onDeepLinkConsumed?.()
   }, [openChatId, openChatTitle, openChatSubAgent, openChatTab, setTabChatId, setActiveTab, onDeepLinkConsumed])
 
-  // The native sheet needs the list before it opens, so read the cache
-  // imperatively (served without a request while fresh).
+  // The native sheet needs the list before it opens. Use whatever is cached,
+  // even if stale (the agent list rarely changes), and refresh it in the
+  // background for next time; only a cold cache waits for the request.
   const loadProviders = async (): Promise<Provider[]> => {
+    const toRows = (list: { id: string; label: string }[]) => list.map((p) => ({ id: p.id, label: p.label }))
+    const cached = queryClient.getQueryData(providersQuery.queryKey)
+    if (cached) {
+      void queryClient.prefetchQuery(providersQuery)
+      return toRows(cached)
+    }
     try {
-      return (await queryClient.fetchQuery(providersQuery)).map((p) => ({ id: p.id, label: p.label }))
+      return toRows(await queryClient.fetchQuery(providersQuery))
     } catch {
       // Leave the picker empty; the user can retry by reopening it.
       return []
@@ -178,7 +188,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
         // fall through to the web sheet
       }
     }
-    // The web sheet loads the list itself (`useProviders` is enabled while open).
+    // The web sheet reads the list from `useProviders` above.
     setPickerOpen(true)
   }
 

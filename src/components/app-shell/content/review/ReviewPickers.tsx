@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Check, ChevronDown, GitBranch, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
+import { useGitCommits } from "@/lib/git-queries"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { TOOLBAR_PILL, TOOLBAR_PILL_BUTTON } from "@/components/ui/toolbar-styles"
 
@@ -133,12 +134,7 @@ export function CommitPicker({
   const intl = useIntl()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const commitsQuery = useQuery({
-    queryKey: ["git", rootPath, "commits"],
-    queryFn: () => api.gitCommits(rootPath, 100),
-    enabled: open || selectedSha != null,
-    staleTime: 30_000,
-  })
+  const commitsQuery = useGitCommits(rootPath, { enabled: open || selectedSha != null })
   const commits = commitsQuery.data ?? []
   const selected = commits.find((c) => c.sha === selectedSha)
   const normalizedQuery = query.trim().toLowerCase()

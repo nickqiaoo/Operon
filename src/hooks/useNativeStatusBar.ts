@@ -26,7 +26,12 @@ export function useNativeStatusBar(): void {
       // Style.Dark means "content for a dark background", i.e. light glyphs.
       void StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light }).catch(() => {})
       // The native bars and sheets follow the same switch (iOS shell only).
-      if (hasNativeTabBar()) void NativeShell.setAppearance({ dark }).catch(() => {})
+      // "System" must reach native as such: pinning the current value there
+      // would also pin the web view's `prefers-color-scheme` (iOS), and this
+      // listener would never hear the OS switch again.
+      if (hasNativeTabBar()) {
+        void NativeShell.setAppearance({ dark, system: theme === "system" }).catch(() => {})
+      }
     }
 
     // Draw behind the status bar rather than reserving a band for it; the

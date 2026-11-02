@@ -154,6 +154,7 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         var header = ShellChromeController.HeaderSpec(leading: leading, menu: menu, actions: parseActions(raw["actions"] as? JSArray ?? []))
         header.back = raw["back"] as? Bool ?? false
+        header.bell = raw["bell"] as? Bool ?? true
         return header
     }
 
@@ -367,15 +368,17 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Light / dark for every native surface, following the app's own theme
-    /// rather than the OS.
+    /// rather than the OS. `system: true` (app theme set to "System") drops
+    /// the override instead, so the OS keeps driving it.
     @objc func setAppearance(_ call: CAPPluginCall) {
         let dark = call.getBool("dark") ?? false
+        let system = call.getBool("system") ?? false
         DispatchQueue.main.async { [weak self] in
             guard let root = self?.bridge?.viewController?.parent as? ShellRootController else {
                 call.reject("Native shell is not the root view controller")
                 return
             }
-            root.setAppearance(dark: dark)
+            root.setAppearance(dark: dark, followSystem: system)
             call.resolve()
         }
     }

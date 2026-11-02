@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-02
+
+### Added
+
+- Cited files open in a bottom sheet on mobile.
+- Read tool calls show the images they inspected at full size when their details are opened.
+- The mobile Changes tab can switch between uncommitted changes and a recent commit, with added and removed line counts on file rows.
+
+### Changed
+
+- Mobile conversations use 17px reading text, more spacing, and horizontally scrollable code lines.
+- Compact mobile inputs place the attachment button on the left and use updated spacing and styling.
+- Android 1.0.6 refreshes launcher and provider icons and adds a monochrome launcher icon.
+- Mobile project and workspace pickers use muted icons, and the inbox bell appears only on the Chats tab.
+
+### Fixed
+
+- Android inputs follow the resized WebView when the keyboard opens, avoiding a second keyboard offset.
+- Desktop file image URLs include the API token so image previews load with authentication enabled.
+- Mobile diff review controls no longer overlap the refresh action.
+- iOS follows system appearance changes without pinning the WebView to its previous theme.
+- The mobile new-chat picker reuses cached providers while refreshing them in the background.
+
+### Security
+
+- Interactive HTML previews restrict remote resources to approved CDNs and local images to the workspace and temporary directories, including checks on symlink targets.
+- Preview links and images require user activation before opening through the host, and previews can no longer forward keyboard shortcuts to the app.
+
 ## [1.5.1] - 2026-11-02
 
 ### Changed

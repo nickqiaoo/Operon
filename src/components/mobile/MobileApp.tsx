@@ -567,6 +567,9 @@ export function MobileApp() {
   // actions + bell right), so the native bar is hidden there. It stays only as
   // the lone back button over an open chat, and as the assistant's capsule.
   const hideTopBar = tab === "assistant"
+  // The inbox bell lives on the Chats tab only; the other list screens' bars
+  // keep just their own actions.
+  const showBell = tab === "chats"
   // The list screen's header, as its MobileHeader describes it. The spec (with
   // its callbacks) lives in a ref the bar's taps read; the key, which changes
   // only when what the bar shows does, is what redraws the bar.
@@ -629,6 +632,7 @@ export function MobileApp() {
     if (spec && tab !== "more" && (!immersive || spec.navigation)) {
       header = {
         back: spec.navigation != null,
+        bell: showBell,
         leading: spec.navigation ? { kind: "context", title: spec.navigation.title, subtitle: spec.navigation.subtitle } : spec.segments
           ? { kind: "segments", items: spec.segments.items.map((i) => ({ id: i.id, title: i.label })), selected: spec.segments.selected }
           : { kind: "context", title: topBarTitle, subtitle: topBarSubtitle },
@@ -649,7 +653,7 @@ export function MobileApp() {
         ? [{ id: SESSION_PANEL_ACTION, symbol: "waveform.path.ecg", label: intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" }) }]
         : [],
     }).catch(() => {})
-  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, headerKey, sessionPanelOffered, intl])
+  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, headerKey, sessionPanelOffered, showBell, intl])
 
   // On iOS the top safe-area inset already includes the native navigation
   // bar, so list screens just pad by it; immersive screens carry their own
@@ -680,13 +684,13 @@ export function MobileApp() {
     projectName: specProject?.name ?? activeInfo?.project.name ?? null,
     workspaceName: specTitle ?? activeInfo?.workspace.name ?? null,
     openContext: () => (nativeTabBar ? void openNativeContextSheet() : setSwitcherOpen(true)),
-    bell: (
+    bell: showBell ? (
       <InboxButton
         onNavigate={handleOpenNotification}
         onOpenSheet={nativeTabBar ? openInboxSheet : undefined}
         className="size-9 rounded-lg"
       />
-    ),
+    ) : null,
     native: nativeHeader,
     barHeight: nativeTopBarHeight,
     tabBarOverlay: tabBarFloats ? nativeTabBarHeight : 0,

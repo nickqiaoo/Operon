@@ -36,6 +36,10 @@ export const gitKeys = {
   prForBranch: (root: string, branch: string) => ['git', root, 'pr-for-branch', branch] as const,
   // One file's working-tree diff as the phone renders it; `variant` folds in the index/worktree codes.
   fileDiff: (root: string, path: string, variant: string) => ['git', root, 'file-diff', path, variant] as const,
+  // Recent commits (newest first), for the commit pickers.
+  commits: (root: string) => ['git', root, 'commits'] as const,
+  // One commit's changed files with their patches (parent → commit), as the phone renders them.
+  commitFiles: (root: string, sha: string) => ['git', root, 'commit-files', sha] as const,
 }
 
 /**
@@ -60,6 +64,16 @@ export function useGitStatus(root: string, options?: { enabled?: boolean; refetc
     staleTime: FIVE_SECONDS,
     enabled: options?.enabled,
     refetchInterval: options?.refetchInterval,
+  })
+}
+
+/** Recent commits on HEAD, newest first. */
+export function useGitCommits(root: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: gitKeys.commits(root),
+    queryFn: () => api.gitCommits(root, 100),
+    enabled: options?.enabled,
+    staleTime: 30_000,
   })
 }
 

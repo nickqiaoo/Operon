@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from lucide-react (git-branch); see scripts/README or the shell docs. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M 6 3 L 6 15 M 21 6 a 3 3 0 1 1 -6 0 a 3 3 0 1 1 6 0 Z M 9 18 a 3 3 0 1 1 -6 0 a 3 3 0 1 1 6 0 Z M 18 9 a 9 9 0 0 1 -9 9"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
