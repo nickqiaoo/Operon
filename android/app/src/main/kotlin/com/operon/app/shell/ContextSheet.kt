@@ -12,9 +12,10 @@ import com.operon.app.shell.SheetUi.dp
  * The project → workspace picker (ios/App/App/ContextSheet.swift).
  *
  * One card per project: the project itself is the card's first row, with a
- * folder glyph on a brand-tinted tile, and its workspaces follow as indented
- * rows. The active workspace is the only row in full-strength text and carries
- * the brand check.
+ * muted folder glyph, and its workspaces follow as indented rows. The active
+ * workspace is the only row in full-strength text and carries the check.
+ * Monochrome like the rest of the app: brand colour on every project made the
+ * switcher the loudest thing on screen.
  *
  * Data arrives over `presentContextSheet`, the pick goes back as
  * `contextPicked`. See src/lib/native.ts.
@@ -90,6 +91,13 @@ object ContextSheet {
             addView(
                 SheetUi.row(context, onClick = { onPick(project.id, workspace.id) }) {
                     setPadding(context.dp(54), context.dp(11), context.dp(14), context.dp(11))
+                    // A workspace is a branch (the desktop sidebar's icon too).
+                    addView(
+                        SheetUi.icon(context, R.drawable.ic_git_branch, 16, R.attr.operonMutedForeground).apply {
+                            layoutParams = LinearLayout.LayoutParams(context.dp(16), context.dp(16))
+                                .apply { marginEnd = context.dp(12) }
+                        },
+                    )
                     addView(
                         SheetUi.label(
                             context,
@@ -108,23 +116,17 @@ object ContextSheet {
     }
 
     private fun folderTile(context: Context) = android.widget.FrameLayout(context).apply {
-        background = android.graphics.drawable.GradientDrawable().apply {
-            cornerRadius = context.dp(8).toFloat()
-            // The brand at low alpha, as on iOS: enough to read as a tile
-            // without turning the row into a coloured band.
-            setColor(androidx.core.graphics.ColorUtils.setAlphaComponent(context.color(R.attr.operonBrand), 31))
-        }
         layoutParams = LinearLayout.LayoutParams(context.dp(28), context.dp(28))
         addView(
-            SheetUi.icon(context, R.drawable.ic_folder, 14, R.attr.operonBrand).apply {
+            SheetUi.icon(context, R.drawable.ic_folder, 16, R.attr.operonMutedForeground).apply {
                 layoutParams = android.widget.FrameLayout.LayoutParams(
-                    context.dp(14),
-                    context.dp(14),
+                    context.dp(16),
+                    context.dp(16),
                     Gravity.CENTER,
                 )
             },
         )
     }
 
-    private fun check(context: Context) = SheetUi.icon(context, R.drawable.ic_check, 16, R.attr.operonBrand)
+    private fun check(context: Context) = SheetUi.icon(context, R.drawable.ic_check, 16, R.attr.operonMutedForeground)
 }

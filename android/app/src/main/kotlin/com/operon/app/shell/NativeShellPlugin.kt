@@ -197,7 +197,13 @@ class NativeShellPlugin : Plugin() {
         val menu = raw.optJSONObject("menu")?.let { m ->
             ShellChrome.HeaderSpec.Menu(m.optString("symbol"), m.optString("label"), parseMenuNodes(m.optJSONArray("nodes")))
         }
-        return ShellChrome.HeaderSpec(leading, menu, parseActions(raw.optJSONArray("actions")), raw.optBoolean("back", false))
+        return ShellChrome.HeaderSpec(
+            leading,
+            menu,
+            parseActions(raw.optJSONArray("actions")),
+            back = raw.optBoolean("back", false),
+            bell = raw.optBoolean("bell", true),
+        )
     }
 
     /** `[{id, symbol, label}]` */

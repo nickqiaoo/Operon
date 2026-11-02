@@ -109,10 +109,16 @@ final class ShellRootController: UIViewController {
     /// not match the OS. Native chrome and sheets must follow the app, or a
     /// dark page gets a light sheet and a grey-on-black title. Applied to the
     /// window so presented sheets inherit it too.
+    ///
+    /// When the app follows the system, the override must be `.unspecified`,
+    /// not the current OS value: the web view lives in this window, so its
+    /// `prefers-color-scheme` reads the override. Pinning `.light` there froze
+    /// the page in light mode when the OS later switched to dark — the media
+    /// query never fired, so the web side never asked to switch.
     private var appearance: UIUserInterfaceStyle = .unspecified
 
-    func setAppearance(dark: Bool) {
-        appearance = dark ? .dark : .light
+    func setAppearance(dark: Bool, followSystem: Bool = false) {
+        appearance = followSystem ? .unspecified : (dark ? .dark : .light)
         applyAppearance()
     }
 
@@ -267,6 +273,8 @@ final class ShellChromeController: UINavigationController {
         let menu: Menu?
         let actions: [Action]
         var back = false
+        /// The inbox bell; only the Chats tab keeps it.
+        var bell = true
     }
 
     /// The leading project › workspace switcher: left-aligned, as wide as its text.
@@ -377,7 +385,7 @@ final class ShellChromeController: UINavigationController {
             primaryAction: UIAction { [weak self] _ in self?.onTopBarAction?("inbox") }
         )
         bell.accessibilityLabel = "Inbox"
-        var trailing: [UIBarButtonItem] = spec.back ? [] : [bell]
+        var trailing: [UIBarButtonItem] = spec.back || !spec.bell ? [] : [bell]
         trailing.append(contentsOf: spec.actions.reversed().map(actionItem))
         if let menu = spec.menu, !menu.nodes.isEmpty {
             // A system pull-down: picked in place, the current choices ticked.

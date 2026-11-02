@@ -19,6 +19,9 @@ const STACKED_COLLAPSE_FILE_LINE_THRESHOLD = 200
 export interface MobileDiffFileBase {
   path: string
   status: string
+  /** Line counts, when the caller already knows them; shown on the file's row. */
+  additions?: number
+  deletions?: number
 }
 
 interface MobileDiffBrowserProps<TFile extends MobileDiffFileBase> {
@@ -44,6 +47,14 @@ interface MobileDiffBrowserProps<TFile extends MobileDiffFileBase> {
    * Default: a title row.
    */
   renderHeader?: (actions: MobileHeaderAction[]) => ReactNode
+  /**
+   * List mode only: a row above the file list (the Changes tab's source picker).
+   * It stays put through the loading / empty / error states, so the user can
+   * always switch away from whatever they are looking at.
+   */
+  listHeader?: ReactNode
+  /** The caller's own header actions, placed before the browser's (expand all, refresh). */
+  extraActions?: MobileHeaderAction[]
   /** Top padding for the file view's back row, when nothing above it clears the status bar. */
   topInset?: string
   /** The list's top padding when a header floats over it (the iOS native bar); sticky file headers stop below it too. */
@@ -74,6 +85,8 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
   autoSelectFirst = false,
   className,
   renderHeader,
+  listHeader,
+  extraActions,
   topInset,
   contentOffset = "0px",
   contentBottom = "0px",
@@ -302,7 +315,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
   // Expand / collapse all and refresh, as data: the Changes tab hands them to its
   // MobileHeader (the native bar draws them as SF Symbols); otherwise they are
   // buttons in this browser's own title row.
-  const headerActionSpecs: MobileHeaderAction[] = []
+  const headerActionSpecs: MobileHeaderAction[] = [...(extraActions ?? [])]
   if (viewMode === "stacked" && files.length > 0) {
     headerActionSpecs.push({
       id: "toggleAll",
@@ -343,6 +356,22 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
     </button>
   ))
 
+  // Error / loading / empty, shared by both layouts below.
+  const statusBody: ReactNode = error ? (
+    <p className="text-[13px] text-destructive">{error}</p>
+  ) : loading ? (
+    <p className="text-[13px] text-muted-foreground/70">{loadingLabel}</p>
+  ) : files.length === 0 ? (
+    <>
+      <FileDiff className="size-6 text-muted-foreground/60" />
+      <p className="text-base font-medium text-foreground/85">{emptyTitle}</p>
+      {emptyDescription ? (
+        <p className="text-[13px] text-muted-foreground/70">{emptyDescription}</p>
+      ) : null}
+    </>
+  ) : null
+  const header = viewMode === "stacked" ? null : listHeader
+
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       {renderHeader ? renderHeader(headerActionSpecs) : (
@@ -352,21 +381,9 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
         </div>
       )}
 
-      {error ? (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-destructive" style={{ paddingTop: contentOffset }}>
-          {error}
-        </div>
-      ) : loading ? (
-        <div className="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-muted-foreground/70" style={{ paddingTop: contentOffset }}>
-          {loadingLabel}
-        </div>
-      ) : files.length === 0 ? (
+      {statusBody != null && !header ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center" style={{ paddingTop: contentOffset }}>
-          <FileDiff className="size-6 text-muted-foreground/60" />
-          <p className="text-base font-medium text-foreground/85">{emptyTitle}</p>
-          {emptyDescription ? (
-            <p className="text-[13px] text-muted-foreground/70">{emptyDescription}</p>
-          ) : null}
+          {statusBody}
         </div>
       ) : viewMode === "stacked" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }}>
@@ -430,18 +447,29 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
           </div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }}>
-          {files.map((file) => (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }}>
+          {header}
+          {statusBody != null ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+              {statusBody}
+            </div>
+          ) : files.map((file) => (
             <button
               key={file.path}
               type="button"
               onClick={() => void openFile(file)}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
+              className="flex w-full shrink-0 items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
             >
               <span className="w-4 shrink-0 text-center font-mono text-[13px] text-muted-foreground/70">
                 {file.status?.trim()?.[0] ?? "-"}
               </span>
-              <span className="truncate font-mono text-[13px] text-foreground/85">{file.path}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-foreground/85">{file.path}</span>
+              {file.additions != null || file.deletions != null ? (
+                <span className="shrink-0 text-[13px] tabular-nums">
+                  <span className="text-diff-add">+{file.additions ?? 0}</span>{" "}
+                  <span className="text-diff-remove">-{file.deletions ?? 0}</span>
+                </span>
+              ) : null}
             </button>
           ))}
         </div>

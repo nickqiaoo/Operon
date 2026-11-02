@@ -74,7 +74,8 @@ class ShellChrome(private val activity: AppCompatActivity) {
      * start; a pop-up menu, the page's actions and the bell at the end. Taps
      * come back as `context`, `segment:<id>`, `menu:<id>`, `action:<id>`, `inbox`.
      */
-    data class HeaderSpec(val leading: Leading, val menu: Menu?, val actions: List<Action>, val back: Boolean = false) {
+    /** `bell`: the inbox bell at the end; only the Chats tab keeps it. */
+    data class HeaderSpec(val leading: Leading, val menu: Menu?, val actions: List<Action>, val back: Boolean = false, val bell: Boolean = true) {
         sealed class Leading {
             data class Context(val title: String, val subtitle: String?) : Leading()
             data class Segments(val items: List<Pair<String, String>>, val selected: String) : Leading()
@@ -495,7 +496,7 @@ class ShellChrome(private val activity: AppCompatActivity) {
                 header?.actions?.forEach { action ->
                     addItem(bar, actions, "action:${action.id}", action.label, tinted(iconFor(action.symbol)))
                 }
-                if (header?.back != true) addBell(bar, actions)
+                if (header?.back != true && header?.bell != false) addBell(bar, actions)
             }
         }
         menuActions = actions
