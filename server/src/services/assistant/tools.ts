@@ -445,7 +445,7 @@ const codingStart = defineTool({
   name: 'coding_start',
   description:
     "Start a coding agent on a task in one of the user's workspaces. It runs in a new conversation tab there, which the user can open and take over; you get a notice when it finishes or needs the user. " +
-    `The agent and the model are the user's choice: if they have not said and memory.md has no model of theirs for that agent, call ${CODING_MODELS} and ask them first (never pick silently, never re-ask what they already said).`,
+    `The agent and the model are the user's choice each time: unless they already chose in this conversation, call ${CODING_MODELS} and ask them first (never pick silently).`,
   parameters: z.object({
     workspace_id: z.number().int().describe('From workspace_list'),
     title: z.string().describe("3–8 words in the user's language; the conversation tab and the card show it"),
@@ -457,10 +457,10 @@ const codingStart = defineTool({
     effort: z
       .string()
       .optional()
-      .describe(`Reasoning effort, one of the levels ${CODING_MODELS} lists for that agent and model. Only when the user asked for one or memory.md records theirs; omit for the agent's own`),
+      .describe(`Reasoning effort, one of the levels ${CODING_MODELS} lists for that agent and model. Only when the user asked for one; omit for the agent's own`),
     selection_confirmed: z
       .boolean()
-      .describe('True only once the user has chosen both the agent and the model — just now, or the model as recorded in memory.md'),
+      .describe('True only once the user has chosen both the agent and the model in this conversation'),
   }),
   roles: ['main'],
   run: async ({ workspace_id, title, prompt, agent, model, effort, selection_confirmed }, _caller, host) => {

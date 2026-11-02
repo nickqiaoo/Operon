@@ -1185,7 +1185,7 @@ function ChatPanelContent({
           // Phone: floats over the bottom of the transcript, which scrolls on
           // under its glass (the card itself is frosted; around it, nothing).
           // `absolute` also anchors the floating metrics row (see below).
-          isMobile && "absolute inset-x-0 bottom-0 z-20 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))]",
+          isMobile && "absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))]",
           isMobile &&
             "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2"
         )}

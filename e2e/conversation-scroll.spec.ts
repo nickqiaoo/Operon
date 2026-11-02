@@ -15,6 +15,7 @@ type ScrollHarness = {
   steer: () => void
   typing: () => void
   switchTab: () => Promise<void>
+  expandBy: (pixels: number) => void
   cleanup: () => void
 }
 declare global {
@@ -200,6 +201,104 @@ test.describe('Conversation scroll regression', () => {
     await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Expand details', exact: true }).click()
     await frames(page)
     expect(Math.abs(await top(page) - before)).toBeLessThanOrEqual(2)
+  })
+
+  test('toggling details inside a short anchored turn keeps the turn in place', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.expandBy(80))
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const row = page.locator('#conversation-scroll-test [data-message-id="anchored"]')
+    const before = await row.evaluate(el => el.getBoundingClientRect().top)
+    const toggle = page.locator('#conversation-scroll-test').getByRole('button', { name: 'Expand details', exact: true })
+    for (let i = 0; i < 2; i++) {
+      await toggle.click()
+      await frames(page)
+      expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+      // The disclosure pause restores following after 400ms; that must not move the turn either.
+      await page.waitForTimeout(500)
+      await frames(page)
+      expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+    }
+  })
+
+  test('a short anchored turn follows once streamed output fills its spacer after a toggle', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.expandBy(80))
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const row = page.locator('#conversation-scroll-test [data-message-id="anchored"]')
+    const before = await row.evaluate(el => el.getBoundingClientRect().top)
+    await page.locator('#conversation-scroll-test').getByRole('button', { name: 'Expand details', exact: true }).click()
+    await page.waitForTimeout(500)
+    // Still inside the spacer: the turn stays put.
+    await page.evaluate(() => window.__conversationScrollTest!.grow(40))
+    await frames(page)
+    expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+    // Past the spacer: follow, and keep following.
+    await page.evaluate(() => window.__conversationScrollTest!.grow(800))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    for (const pixels of [60, 60, 200]) {
+      await page.evaluate(px => window.__conversationScrollTest!.grow(px), pixels)
+      await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    }
+  })
+
+  test('a short anchored turn follows once streamed output fills its spacer in small chunks', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    // Token-sized growth across the spacer boundary, one frame apart.
+    for (let i = 0; i < 30; i++) {
+      await page.evaluate(() => window.__conversationScrollTest!.grow(20))
+      await frames(page)
+    }
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('a downward wheel at the end keeps following streamed output', async ({ appPage: page }) => {
+    await viewport(page).hover()
+    await page.mouse.wheel(0, 200)
+    await frames(page)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('a horizontal wheel keeps following streamed output', async ({ appPage: page }) => {
+    await viewport(page).hover()
+    await page.mouse.wheel(200, 0)
+    await frames(page)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(500))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('a downward wheel inside a short anchored turn keeps the anchor, then follows', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const row = page.locator('#conversation-scroll-test [data-message-id="anchored"]')
+    const before = await row.evaluate(el => el.getBoundingClientRect().top)
+    await viewport(page).hover()
+    await page.mouse.wheel(0, 200)
+    await frames(page)
+    for (const pixels of [40, 40]) {
+      await page.evaluate(px => window.__conversationScrollTest!.grow(px), pixels)
+      await frames(page)
+      expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
+    }
+    await page.evaluate(() => window.__conversationScrollTest!.grow(800))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    await page.evaluate(() => window.__conversationScrollTest!.grow(200))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+  })
+
+  test('a scroll event measured after unseen growth does not release following', async ({ appPage: page }) => {
+    // A streamed chunk can land between the follow scroll and its scroll event.
+    await viewport(page).evaluate(el => {
+      const last = el.querySelector<HTMLElement>('[data-message-id="row-24"]')!
+      last.style.height = `${last.offsetHeight + 300}px`
+      el.dispatchEvent(new Event('scroll'))
+    })
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
+    // React re-applies the row height; grow past the manual one.
+    await page.evaluate(() => window.__conversationScrollTest!.grow(600))
+    await expect.poll(() => gap(page)).toBeLessThanOrEqual(2)
   })
 
   test('sending after scrolling upward within a short turn preserves the reading position', async ({ appPage: page }) => {

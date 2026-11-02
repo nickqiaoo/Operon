@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useNativeShellOverlayCount } from '@/hooks/useNativeShellOverlay'
 import { usePageVisible } from '@/lib/page-visibility'
-import { NativeComposer, type NativeComposerState, type ComposerMenuItem, type ComposerSuggestion, type ComposerToken } from '@/lib/native-composer'
+import { NativeComposer, composerThumbnail, type NativeComposerState, type ComposerMenuItem, type ComposerSuggestion, type ComposerToken } from '@/lib/native-composer'
 import { usePromptInputAttachments, usePromptInputSubmitting, usePromptInputSubmit } from '@/components/ai-elements/prompt-input'
 
 interface NativeChatComposerProps {
@@ -150,12 +150,25 @@ export function NativePromptComposer(props: Omit<NativeChatComposerProps, 'onSub
   const attachments = usePromptInputAttachments()
   const submitting = usePromptInputSubmitting()
   const submit = usePromptInputSubmit()
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const imageKey = attachments.files.filter((file) => file.mediaType?.startsWith('image/')).map((file) => `${file.id}\n${file.url}`).join('\n\n')
+  useEffect(() => {
+    let cancelled = false
+    const images = imageKey ? imageKey.split('\n\n').map((entry) => entry.split('\n') as [string, string]) : []
+    void Promise.all(images.map(async ([id, url]) => [id, await composerThumbnail(url)] as const)).then((entries) => {
+      if (cancelled) return
+      const next: Record<string, string> = {}
+      for (const [id, thumb] of entries) if (thumb) next[id] = thumb
+      setThumbs(next)
+    })
+    return () => { cancelled = true }
+  }, [imageKey])
   return <NativeChatComposer
     {...props}
     submitting={submitting}
     onSubmit={submit}
     onFiles={(files) => attachments.add(files)}
-    attachments={attachments.files.map((file) => ({ id: file.id, title: file.filename ?? 'Attachment' }))}
+    attachments={attachments.files.map((file) => ({ id: file.id, title: file.filename ?? 'Attachment', ...(thumbs[file.id] ? { thumbnail: thumbs[file.id] } : {}) }))}
     onAction={(action) => {
       if (action.startsWith('attachment:')) attachments.remove(action.slice('attachment:'.length))
       else props.onAction?.(action)

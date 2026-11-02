@@ -17,7 +17,7 @@ import { TraceCollapsibleTrigger, TraceDescription } from '@/components/ui/trace
 import { ToolIcon } from './ToolIcon';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
-import { ToolInputDiff } from '../ToolInputDiff';
+import { ToolInputDiff, toolInputDiffStats } from '../ToolInputDiff';
 import { extractPermissionOptions, type PermissionOutcome } from '../permission-utils';
 import { getOptimisticPermissionOutcome, type OptimisticPermissionDecision } from '../optimisticPermission';
 
@@ -88,6 +88,7 @@ export function CompactToolCall({
     lowerToolName === 'patch';
 
   const commandDescription = getToolDescription(lowerToolName, displayInput);
+  const diffStats = shouldUseDiffView ? toolInputDiffStats(toolName, displayInput) : null;
 
   const line = (
     <ToolLine
@@ -97,6 +98,11 @@ export function CompactToolCall({
       status={toolTraceStatus(state)}
       trailing={state === 'output-denied' ? (
         <TraceDescription><FormattedMessage id="editor.confirm.denied" defaultMessage="Denied" /></TraceDescription>
+      ) : diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) ? (
+        <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+          {diffStats.additions > 0 && <span className="text-diff-add">+{diffStats.additions}</span>}
+          {diffStats.deletions > 0 && <span className="text-diff-remove">-{diffStats.deletions}</span>}
+        </span>
       ) : undefined}
     />
   );
