@@ -11,7 +11,7 @@ export const IOS_APP_STORE_URL = 'https://apps.apple.com/us/app/operon-ai/id6797
  * or a browser that cached the previous build can never hand someone a stale
  * APK. Update this and drop the new file into `public/download/` together.
  */
-export const ANDROID_APK_URL = '/download/operon-1.0.5.apk'
+export const ANDROID_APK_URL = '/download/operon-1.0.6.apk'
 
 export const GITHUB_URL = 'https://github.com/Nickqiaoo/Operon'
 export const DISCORD_URL = 'https://discord.gg/2BuvC6v3B'

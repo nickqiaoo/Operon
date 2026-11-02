@@ -111,6 +111,11 @@ codex-chat-ui/
 *.keystore
 keystore.properties
 
+# Deployment-specific Firebase client configuration and Admin SDK credentials.
+google-services.json
+GoogleService-Info.plist
+*firebase-adminsdk*.json
+
 # Built APKs served from the landing page. Rebuild with
 # `npm run android:sync && (cd android && ./gradlew assembleRelease)` and copy
 # the result into web/public/download/ before deploying — a 7MB binary per
