@@ -138,6 +138,12 @@ npm run ios:sync       # build and sync into the iOS project
 npm run android:sync   # build and sync into the Android project
 ```
 
+Android builds require your own Firebase Android app configuration at
+`android/app/google-services.json`, registered with the application ID in
+`android/app/build.gradle` (`top.chatcode.operon.app` by default). The Google
+Services task validates this file when packaging the app. Firebase configuration
+and signing credentials stay local and are ignored by Git.
+
 ## Repository layout
 
 ```
