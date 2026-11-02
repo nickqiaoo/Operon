@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { BrowserWindow, session as electronSession, type Session } from 'electron'
+import { HTML_RENDER_CDN_ORIGINS, HTML_RENDER_CSP, HTML_RENDER_FONT_ORIGINS } from '@shared/html-render'
 import { setHtmlSnapshotter, type HtmlSnapshot, type HtmlSnapshotInput } from '../server/src/services/visual/html-snapshot.js'
 
 /**
@@ -8,7 +9,10 @@ import { setHtmlSnapshotter, type HtmlSnapshot, type HtmlSnapshotInput } from '.
  * iframe gets and no more:
  *
  *  - its own in-memory session, so it shares no cookies or storage with the app;
- *  - served with `CSP: sandbox allow-scripts`, an opaque origin like the iframe;
+ *  - served with `CSP: sandbox allow-scripts` plus the page policy, an opaque
+ *    origin like the iframe;
+ *  - no network but the CDNs the policy allows, enforced again on the session,
+ *    which also stops a navigation from carrying data out;
  *  - no navigation, popups, downloads or permission prompts.
  *
  * It loads through a scheme on that session rather than a data: URL, which
@@ -36,13 +40,27 @@ function getPreviewSession(): Session {
     const html = pages.get(new URL(request.url).hostname)
     if (html === undefined) return new Response('Not found', { status: 404 })
     return new Response(html, {
-      headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': 'sandbox allow-scripts' },
+      headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': `sandbox allow-scripts; ${HTML_RENDER_CSP}` },
     })
+  })
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    callback({ cancel: !isAllowedPreviewRequest(details.url) })
   })
   ses.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   ses.on('will-download', (event) => event.preventDefault())
   previewSession = ses
   return ses
+}
+
+const ALLOWED_ORIGINS: readonly string[] = [...HTML_RENDER_CDN_ORIGINS, ...HTML_RENDER_FONT_ORIGINS]
+
+function isAllowedPreviewRequest(url: string): boolean {
+  if (/^(?:operon-preview|data|blob):/i.test(url)) return true
+  try {
+    return ALLOWED_ORIGINS.includes(new URL(url).origin)
+  } catch {
+    return false
+  }
 }
 
 let running = 0

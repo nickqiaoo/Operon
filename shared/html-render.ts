@@ -28,6 +28,41 @@ export const HTML_RENDER_PREVIEW_MIN_WIDTH = 240
 export const HTML_RENDER_PREVIEW_MAX_WIDTH = 1600
 export const HTML_RENDER_PREVIEW_TOOL_NAME = 'html_preview'
 
+/**
+ * Where a page may load from. The page is untrusted (a prompt injection can
+ * write it), so it gets no network beyond these CDNs: no fetch, no remote
+ * images, nothing that could carry data out. The CDNs only serve published
+ * packages, so a request to them reaches no one an attacker can read.
+ */
+export const HTML_RENDER_CDN_ORIGINS = [
+  'https://cdn.jsdelivr.net',
+  'https://cdnjs.cloudflare.com',
+  'https://unpkg.com',
+  'https://esm.sh',
+] as const
+export const HTML_RENDER_FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'] as const
+
+/** The page's Content-Security-Policy: injected as a meta tag, and sent as a header where there is one (html_preview). */
+export const HTML_RENDER_CSP = [
+  "default-src 'none'",
+  `script-src 'unsafe-inline' 'unsafe-eval' blob: ${HTML_RENDER_CDN_ORIGINS.join(' ')}`,
+  `style-src 'unsafe-inline' ${[...HTML_RENDER_CDN_ORIGINS, HTML_RENDER_FONT_ORIGINS[0]].join(' ')}`,
+  `font-src data: ${[...HTML_RENDER_CDN_ORIGINS, HTML_RENDER_FONT_ORIGINS[1]].join(' ')}`,
+  // Map and dataset files that chart libraries fetch from the same CDNs.
+  `connect-src ${HTML_RENDER_CDN_ORIGINS.join(' ')}`,
+  'img-src data: blob:',
+  'media-src data: blob:',
+  'worker-src blob:',
+  "frame-src 'none'",
+  "form-action 'none'",
+  "base-uri 'none'",
+].join('; ')
+
+/** What the agent is told about the policy above. */
+export const HTML_RENDER_NETWORK_GUIDE =
+  `The page has no network access except scripts, styles, fonts and data files from ${HTML_RENDER_CDN_ORIGINS.map((o) => o.slice(8)).join(', ')} and Google Fonts: ` +
+  'remote images and requests to any other host are blocked, so inline all data and reference images by local path.'
+
 /** What `html_render` returns, under `visual` in its JSON result. */
 export interface HtmlRenderRef {
   /** `/api/attachments/<sha256>`, resolved against the current base URL at render time. */
@@ -152,7 +187,6 @@ export const SIZE_CHANGED_METHOD = 'ui/notifications/size-changed'
 export const OPEN_LINK_METHOD = 'ui/open-link'
 // Not in MCP Apps: our own additions to the bridge.
 export const OPEN_IMAGE_METHOD = 'operon/open-image'
-export const KEY_DOWN_METHOD = 'operon/keydown'
 export const SET_ZOOM_METHOD = 'operon/set-zoom'
 
 function rpc(data: unknown): Record<string, unknown> | null {
@@ -175,31 +209,17 @@ export function readHtmlRenderLinkRequest(data: unknown): string | undefined {
   return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : undefined
 }
 
-/** Images the page shows are remote or inlined `data:image/` URLs; nothing else opens. */
+/**
+ * Only inlined `data:image/` URLs open: the page can show no other image, and a
+ * remote one would be fetched by the app, outside the page's network policy.
+ */
 export function readHtmlRenderImageRequest(data: unknown): { src: string; name: string } | undefined {
   const message = rpc(data)
   if (message?.method !== OPEN_IMAGE_METHOD) return undefined
   const { src, name } = (message.params ?? {}) as { src?: unknown; name?: unknown }
-  if (typeof src !== 'string' || !/^(?:https?:\/\/|data:image\/)/i.test(src)) return undefined
+  if (typeof src !== 'string' || !/^data:image\//i.test(src)) return undefined
   const label = typeof name === 'string' ? name.trim().slice(0, HTML_RENDER_MAX_TITLE_LENGTH) : ''
   return { src, name: label || 'Image' }
-}
-
-export interface HtmlRenderKeyDown {
-  key: string
-  code: string
-  metaKey: boolean
-  ctrlKey: boolean
-  shiftKey: boolean
-  altKey: boolean
-}
-
-export function readHtmlRenderKeyDown(data: unknown): HtmlRenderKeyDown | undefined {
-  const message = rpc(data)
-  if (message?.method !== KEY_DOWN_METHOD) return undefined
-  const p = (message.params ?? {}) as Record<string, unknown>
-  if (typeof p.key !== 'string' || typeof p.code !== 'string') return undefined
-  return { key: p.key, code: p.code, metaKey: p.metaKey === true, ctrlKey: p.ctrlKey === true, shiftKey: p.shiftKey === true, altKey: p.altKey === true }
 }
 
 export function htmlRenderZoomMessage(zoom: number) {
@@ -237,8 +257,9 @@ function rootRule(theme: HtmlRenderTheme): string {
 // Runs in the page. Re-applies the theme when the host sends a new one, reports
 // the content height so the frame never scrolls, and hands to the host what a
 // sandboxed frame cannot do itself: http(s) links (no popups, and it must not
-// navigate itself away), opening an image large, and app shortcuts (a focused
-// frame keeps its keys). Saved as a standalone file, only the theme part runs.
+// navigate itself away) and opening an image large. The page's own scripts can
+// post these too, so the host only acts on them right after a click in the frame.
+// Saved as a standalone file, only the theme part runs.
 const BOOTSTRAP_SCRIPT = `(function(){
 var s=document.getElementById("operon-theme"),B=${JSON.stringify(BASE_CSS)},P=window.parent,F=P!==window;
 function post(m,p){P.postMessage({jsonrpc:"2.0",method:m,params:p},"*");}
@@ -249,8 +270,6 @@ if(!F)return;
 document.addEventListener("click",function(e){if(!e.isTrusted||e.defaultPrevented)return;var path=e.composedPath(),l=path.find(function(t){return t&&t.matches&&t.matches("a[href]");}),u;
 if(!l){var t=path[0];if(e.button===0&&t&&t.tagName==="IMG"&&!t.closest("button")){u=t.currentSrc||t.src;if(u)setTimeout(function(){if(!e.defaultPrevented)post(${JSON.stringify(OPEN_IMAGE_METHOD)},{src:u,name:t.alt||t.title||""});});}return;}
 var h=l.getAttribute("href")||"";if(h.charAt(0)==="#")return;e.preventDefault();try{u=new URL(h,document.baseURI);}catch(x){return;}if(/^https?:$/.test(u.protocol))post(${JSON.stringify(OPEN_LINK_METHOD)},{url:u.href});});
-window.addEventListener("keydown",function(e){var t=e.composedPath()[0];if(!e.isTrusted||e.isComposing||/^(?:Meta|Control|Shift|Alt)$/.test(e.key)||!(e.metaKey||e.ctrlKey||e.key==="Escape")||t&&(t.isContentEditable||/^(?:INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;
-setTimeout(function(){if(!e.defaultPrevented)post(${JSON.stringify(KEY_DOWN_METHOD)},{key:e.key,code:e.code,metaKey:e.metaKey,ctrlKey:e.ctrlKey,shiftKey:e.shiftKey,altKey:e.altKey});});});
 var last,z=function(){var r=document.documentElement,v=Math.ceil(r.scrollHeight>r.clientHeight?r.scrollHeight:r.getBoundingClientRect().height);if(v===last)return;last=v;post(${JSON.stringify(SIZE_CHANGED_METHOD)},{height:v});};
 if(window.ResizeObserver){var o=new ResizeObserver(z);o.observe(document.documentElement);document.addEventListener("DOMContentLoaded",function(){if(document.body)o.observe(document.body);});}
 document.addEventListener("DOMContentLoaded",z);window.addEventListener("load",z);
@@ -273,6 +292,27 @@ function blankNonMarkup(html: string): string {
  * its transparent background: it paints the theme's own.
  */
 export function buildHtmlRenderDocument(html: string, theme: HtmlRenderTheme, options?: { standalone?: boolean }): string {
+  return withPolicy(injectHead(html, theme, options))
+}
+
+const POLICY_MARKUP =
+  `<meta http-equiv="Content-Security-Policy" content="${HTML_RENDER_CSP}">` +
+  '<meta http-equiv="x-dns-prefetch-control" content="off">'
+
+/**
+ * Puts the policy before anything else in the document. A meta CSP covers only
+ * what follows it, and the agent's markup may load a script before its own
+ * `<head>`; ahead of everything, the parser opens an implied head for it and the
+ * page's `<html>`/`<head>` tags merge into those. Only a doctype (and comments
+ * before it) stays ahead, so the page keeps standards mode.
+ */
+function withPolicy(doc: string): string {
+  const doctype = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(doc)
+  const at = doctype ? doctype[0].length : 0
+  return doc.slice(0, at) + POLICY_MARKUP + doc.slice(at)
+}
+
+function injectHead(html: string, theme: HtmlRenderTheme, options?: { standalone?: boolean }): string {
   const scan = blankNonMarkup(html)
   const markup = [
     /<meta\s[^>]*charset/i.test(scan.slice(0, 4096)) ? '' : '<meta charset="utf-8">',

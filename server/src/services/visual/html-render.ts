@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import {
   HTML_RENDER_COLUMN_WIDTH,
@@ -64,14 +65,35 @@ function isImageBytes(bytes: Buffer): boolean {
   return /^<svg[\s/>]/.test(rest)
 }
 
-async function readImage(file: string): Promise<Buffer | null> {
+/**
+ * Where a page's images may come from: the conversation's workspace and the temp
+ * directories agents write screenshots to. The tool needs no approval, so it must
+ * not reach the rest of the disk (a photo in ~/Pictures). Real paths on both
+ * sides, so a symlink inside a root cannot point out of it.
+ */
+export async function imageRoots(cwd: string | undefined): Promise<string[]> {
+  const candidates = [cwd, os.tmpdir(), process.platform === 'win32' ? undefined : '/tmp']
+  const roots = await Promise.all(
+    candidates.map((dir) => (dir && path.isAbsolute(dir) ? fs.realpath(dir).catch(() => null) : null)),
+  )
+  return [...new Set(roots.filter((root): root is string => root !== null))]
+}
+
+function isInside(file: string, root: string): boolean {
+  const relative = path.relative(root, file)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+async function readImage(file: string, roots: readonly string[]): Promise<Buffer | null> {
   try {
-    const stat = await fs.stat(file)
+    const real = await fs.realpath(file)
+    if (!roots.some((root) => isInside(real, root))) return null
+    const stat = await fs.stat(real)
     if (!stat.isFile()) return null
     if (stat.size > MAX_IMAGE_BYTES) {
       throw new HtmlRenderError(`${file} is ${(stat.size / 1024 / 1024).toFixed(1)} MB; images are limited to ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`)
     }
-    const bytes = await fs.readFile(file)
+    const bytes = await fs.readFile(real)
     return isImageBytes(bytes) ? bytes : null
   } catch (error) {
     if (error instanceof HtmlRenderError) throw error
@@ -79,8 +101,8 @@ async function readImage(file: string): Promise<Buffer | null> {
   }
 }
 
-/** Replaces each local image path with a data URL; returns the paths that were not readable images. */
-export async function inlineLocalImages(html: string): Promise<{ html: string; missing: string[] }> {
+/** Replaces each local image path with a data URL; returns the paths that were not readable images inside `roots`. */
+export async function inlineLocalImages(html: string, roots: readonly string[]): Promise<{ html: string; missing: string[] }> {
   const references = [...html.matchAll(LOCAL_IMAGE_PATTERN)].map((match) => {
     const value = match[2] ?? match[3]
     const start = (match.index ?? 0) + match[0].indexOf(value)
@@ -90,7 +112,7 @@ export async function inlineLocalImages(html: string): Promise<{ html: string; m
   const dataUrls = new Map<string, string>()
   let total = Buffer.byteLength(html)
   for (const file of paths) {
-    const bytes = await readImage(path.normalize(file))
+    const bytes = await readImage(path.normalize(file), roots)
     if (!bytes) continue
     const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase()
     const dataUrl = `data:${IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream'};base64,${bytes.toString('base64')}`
@@ -124,15 +146,15 @@ function checkSource(html: unknown): string {
   return html
 }
 
-export async function publishHtmlRender(input: { html: unknown; title: unknown; height: unknown }): Promise<HtmlRenderRef> {
+export async function publishHtmlRender(input: { html: unknown; title: unknown; height: unknown; cwd?: string }): Promise<HtmlRenderRef> {
   const html = checkSource(input.html)
   const { title, height } = input
   if (typeof title !== 'string' || !title.trim()) throw new HtmlRenderError('title is required.')
   if (typeof height !== 'number' || !Number.isFinite(height)) throw new HtmlRenderError('height is required, in CSS pixels.')
 
-  const inlined = await inlineLocalImages(html)
+  const inlined = await inlineLocalImages(html, await imageRoots(input.cwd))
   if (inlined.missing.length > 0) {
-    throw new HtmlRenderError(`These image paths are not readable image files: ${inlined.missing.join(', ')}`)
+    throw new HtmlRenderError(`These image paths are not readable image files in the workspace or the temp directory: ${inlined.missing.join(', ')}`)
   }
   const name = title.trim().slice(0, HTML_RENDER_MAX_TITLE_LENGTH)
   const stored = putAttachment(Buffer.from(inlined.html), {
@@ -145,12 +167,12 @@ export async function publishHtmlRender(input: { html: unknown; title: unknown; 
 export interface HtmlRenderPreview extends Omit<HtmlSnapshot, 'jpeg'> {
   width: number
   jpeg: Buffer
-  /** Local image paths that would make html_render fail. */
+  /** Local image paths that would make html_render fail: not images, or outside the workspace and temp directory. */
   missingImages: string[]
 }
 
 /** Renders the page the way the chat will show it, without publishing. Null when this host cannot render. */
-export async function previewHtmlRender(input: { html: unknown; width: unknown; appearance: unknown }): Promise<HtmlRenderPreview | null> {
+export async function previewHtmlRender(input: { html: unknown; width: unknown; appearance: unknown; cwd?: string }): Promise<HtmlRenderPreview | null> {
   const snapshot = getHtmlSnapshotter()
   if (!snapshot) return null
   const html = checkSource(input.html)
@@ -158,7 +180,7 @@ export async function previewHtmlRender(input: { html: unknown; width: unknown; 
     ? Math.min(HTML_RENDER_PREVIEW_MAX_WIDTH, Math.max(HTML_RENDER_PREVIEW_MIN_WIDTH, Math.round(input.width)))
     : HTML_RENDER_COLUMN_WIDTH
   const theme = HTML_RENDER_DEFAULT_THEMES[input.appearance === 'light' ? 'light' : 'dark']
-  const inlined = await inlineLocalImages(html)
+  const inlined = await inlineLocalImages(html, await imageRoots(input.cwd))
   const shot = await snapshot({
     html: buildHtmlRenderDocument(inlined.html, theme),
     width,
