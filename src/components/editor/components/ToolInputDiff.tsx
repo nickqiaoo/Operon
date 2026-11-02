@@ -1,4 +1,6 @@
 import { useIntl } from 'react-intl';
+import { diffLines } from 'diff';
+import { ensureTrailingNewline } from '@shared/tool-rendering/diff';
 import { EditDiffViewer, WriteDiffViewer } from './FileDiffViewer';
 import { DiffPreview } from '@/components/editor/DiffPreview';
 import { ToolInput } from '@/components/ai-elements/tool';
@@ -45,6 +47,41 @@ function normalizeWriteInput(input: Record<string, unknown>): Partial<FileWriteI
   };
 }
 
+function isEditTool(lowerToolName: string) {
+  return lowerToolName === 'edit' || lowerToolName === 'tool-edit' || lowerToolName === 'replace';
+}
+
+function isWriteTool(lowerToolName: string) {
+  return lowerToolName === 'write' || lowerToolName === 'tool-write' || lowerToolName === 'write_file';
+}
+
+function countLineChanges(oldText: string, newText: string) {
+  let additions = 0;
+  let deletions = 0;
+  for (const change of diffLines(ensureTrailingNewline(oldText), ensureTrailingNewline(newText))) {
+    if (change.added) additions += change.count ?? 0;
+    else if (change.removed) deletions += change.count ?? 0;
+  }
+  return { additions, deletions };
+}
+
+/**
+ * Line counts for an Edit / Write call, shown on its tool line. The diff below
+ * has no file header (the line already names the file), so the counts move up.
+ */
+export function toolInputDiffStats(toolName: string, input: Record<string, unknown>) {
+  const lowerToolName = toolName.toLowerCase();
+  if (isEditTool(lowerToolName)) {
+    const { old_string, new_string } = normalizeEditInput(input);
+    return old_string && new_string ? countLineChanges(old_string, new_string) : null;
+  }
+  if (isWriteTool(lowerToolName)) {
+    const { content } = normalizeWriteInput(input);
+    return content ? countLineChanges('', content) : null;
+  }
+  return null;
+}
+
 /**
  * Specialized renderer for tool inputs that shows diff view for Edit and Write tools.
  * Falls back to the generic ToolInput for other tools. It sits inside a Tool
@@ -55,7 +92,7 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
   const lowerToolName = toolName.toLowerCase();
 
   // Check if this is an Edit tool (including Gemini's replace, OpenCode's edit)
-  if (lowerToolName === 'edit' || lowerToolName === 'tool-edit' || lowerToolName === 'replace') {
+  if (isEditTool(lowerToolName)) {
     const editInput = normalizeEditInput(input);
 
     if (editInput.file_path && editInput.old_string && editInput.new_string) {
@@ -77,7 +114,7 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
   }
 
   // Check if this is a Write tool (including Gemini's write_file, OpenCode's write)
-  if (lowerToolName === 'write' || lowerToolName === 'tool-write' || lowerToolName === 'write_file') {
+  if (isWriteTool(lowerToolName)) {
     const writeInput = normalizeWriteInput(input);
 
     if (writeInput.file_path && writeInput.content) {

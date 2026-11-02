@@ -35,6 +35,20 @@ function scrollGeometry(viewport: HTMLElement, contentStyle: CSSStyleDeclaration
   return `${viewport.clientWidth} ${viewport.clientHeight} ${contentStyle.paddingTop} ${contentStyle.paddingBottom}`;
 }
 
+/** Distance from the viewport's bottom edge to the end, synthetic turn space included. */
+function distanceToEnd(viewport: HTMLElement) {
+  return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+}
+
+/**
+ * Height of the synthetic space below a short new turn, which keeps its prompt
+ * at the top. While it shows, the turn is anchored: `scrollToEnd` and
+ * `scrollToMessage` both drop it and drag the turn down to the end.
+ */
+function spacerHeight(viewport: HTMLElement) {
+  return viewport.querySelector<HTMLElement>("[data-message-scroller-spacer]")?.offsetHeight ?? 0;
+}
+
 type ConversationRefs = {
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
@@ -74,10 +88,11 @@ function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandl
   atBottomRef.current = isAtBottom;
 
   // Reaching the actual end also resumes native following after a manual jump
-  // or scrollbar drag. A newly anchored turn already at the end keeps its mode.
+  // or scrollbar drag. A newly anchored turn already at the end keeps its mode:
+  // with its spacer showing, scrolling to the end would drag the turn down.
   useEffect(() => {
     const viewport = scrollRef.current;
-    if (isAtBottom && viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) {
+    if (isAtBottom && viewport && distanceToEnd(viewport) <= 2 && !spacerHeight(viewport)) {
       scrollToEnd({ behavior: "instant" });
     }
   }, [isAtBottom, scrollRef, scrollToEnd]);
@@ -89,7 +104,7 @@ function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandl
     if (!viewport) return;
     let dragging = false;
     let anchorSelectionTop: number | undefined;
-    const hasSpacer = () => !!viewport.querySelector<HTMLElement>("[data-message-scroller-spacer]")?.offsetHeight;
+    const hasSpacer = () => spacerHeight(viewport) > 0;
     const onSelectionChange = () => {
       const selection = window.getSelection();
       const ancestor = selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : null;
@@ -161,9 +176,16 @@ export function Conversation({ className, children, contextRef, positionKey, ...
     if (!viewport || !content) return;
     const contentStyle = getComputedStyle(content);
     let geometry = scrollGeometry(viewport, contentStyle);
+    let lastScrollTop = viewport.scrollTop;
     const onScroll = () => {
+      const movedUp = viewport.scrollTop < lastScrollTop - 1;
+      lastScrollTop = viewport.scrollTop;
       if (geometry !== scrollGeometry(viewport, contentStyle)) return;
-      setIsAtBottom(viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2);
+      // Only moving up leaves the end. Streamed output can land between a
+      // follow scroll and its scroll event, so a gap measured here may be
+      // content the reader never scrolled away from.
+      if (distanceToEnd(viewport) <= 2) setIsAtBottom(true);
+      else if (movedUp) setIsAtBottom(false);
     };
     const observer = new ResizeObserver(() => {
       geometry = scrollGeometry(viewport, contentStyle);
@@ -265,17 +287,42 @@ export function ConversationContent({ className, scrollClassName, children, ...p
     let geometry = scrollGeometry(viewport, contentStyle);
     const observer = new ResizeObserver(() => {
       const next = scrollGeometry(viewport, contentStyle);
-      if (next === geometry) return;
-      geometry = next;
       // A short new turn has synthetic space below it. It reports no unread
       // content too, but must keep its turn anchor rather than jump to the end.
-      const spacer = viewport.querySelector<HTMLElement>("[data-message-scroller-spacer]");
-      if (followingRef.current && !spacer?.offsetHeight) scrollToEnd({ behavior: "instant" });
+      const spacer = spacerHeight(viewport);
+      if (next !== geometry) {
+        geometry = next;
+        if (followingRef.current && !spacer) scrollToEnd({ behavior: "instant" });
+        return;
+      }
+      // Content grew past the bottom edge while the reader follows. The
+      // primitive normally scrolls on its own next frame, but it silently stops
+      // following after a key or touch that never moved the viewport, leaving
+      // streamed output below the fold with no scroll button (the reader never
+      // left the end). Real content is measured without the spacer, which the
+      // primitive only resizes next frame: a turn still inside it stays anchored.
+      if (followingRef.current && distanceToEnd(viewport) - spacer > 2) scrollToEnd({ behavior: "instant" });
     });
     observer.observe(viewport);
     observer.observe(content, { box: "border-box" });
     return () => observer.disconnect();
   }, [scrollRef, contentRef, scrollToEnd]);
+
+  // The primitive also drops out of following on any wheel over the transcript,
+  // even one that cannot move it: pushing further down at the end (a trackpad's
+  // momentum keeps doing this after the reader arrives) or a sideways swipe over
+  // a wide code block. Keep those from reaching its handler (React's, delegated
+  // at the root). Listeners on the viewport itself still see them.
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent) => {
+      const sideways = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      if (sideways || (event.deltaY >= 0 && distanceToEnd(viewport) <= 2)) event.stopPropagation();
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: true });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [scrollRef]);
 
   // A disclosure is deliberate reading, not streamed output. Leave following
   // mode before it grows, without moving the viewport from its current bottom.
@@ -285,18 +332,25 @@ export function ConversationContent({ className, scrollClassName, children, ...p
     let restoreTimer: ReturnType<typeof setTimeout> | undefined;
     const onClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest("[aria-expanded]")) return;
-      if (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 2) return;
-      const rows = contentRef.current?.querySelectorAll<HTMLElement>("[data-message-id]");
-      const lastId = rows?.[rows.length - 1]?.dataset.messageId;
-      if (!lastId) return;
+      if (distanceToEnd(viewport) > 2) return;
+      // A short new turn sits at the top of its spacer. Pausing alone keeps it
+      // there: the primitive re-anchors as the disclosure resizes, and without
+      // following it does not jump to the end once the spacer runs out.
+      // Aligning the last row to the end would drop the spacer and drag the
+      // turn down, as would scrolling to the end when following resumes.
+      const anchored = spacerHeight(viewport) > 0;
+      if (!anchored) {
+        const rows = contentRef.current?.querySelectorAll<HTMLElement>("[data-message-id]");
+        const lastId = rows?.[rows.length - 1]?.dataset.messageId;
+        if (!lastId) return;
+        scrollToMessage(lastId, { align: "end", behavior: "instant" });
+      }
       setIsAtBottom(false);
-      scrollToMessage(lastId, { align: "end", behavior: "instant" });
       clearTimeout(restoreTimer);
       restoreTimer = setTimeout(() => {
-        if (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) {
-          setIsAtBottom(true);
-          scrollToEnd({ behavior: "instant" });
-        }
+        if (distanceToEnd(viewport) > 2) return;
+        setIsAtBottom(true);
+        if (!spacerHeight(viewport)) scrollToEnd({ behavior: "instant" });
       }, 400);
     };
     viewport.addEventListener("click", onClick, true);

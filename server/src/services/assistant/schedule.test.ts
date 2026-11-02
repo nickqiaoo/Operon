@@ -112,10 +112,11 @@ describe('buildHeartbeatInstructions', () => {
     Object.entries(DEFAULT_PROFILE_FILES).map(([name, content]) => [name, { name, content, updatedAt: 0, updatedBy: 'user' }]),
   ) as Parameters<typeof buildHeartbeatInstructions>[0]
 
-  it('keeps an ending quiet unless the checklist asks to hear it, and then says it once', () => {
+  it('carries the checklist and the contract the runtime parses (told section, Later, heartbeat_done)', () => {
     const instructions = buildHeartbeatInstructions(files, [])
-    expect(instructions).toContain('Something ending is not news')
-    expect(instructions).toContain('dropped from told, not reported')
-    expect(instructions).toContain('only when its checklist section explicitly asks to hear it, and only once')
+    expect(instructions).toContain('<heartbeat.md>')
+    expect(instructions).toContain('## Already told')
+    expect(instructions).toContain('### Later')
+    expect(instructions).toContain('heartbeat_done')
   })
 })

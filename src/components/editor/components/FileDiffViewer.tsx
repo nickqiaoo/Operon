@@ -64,7 +64,9 @@ export function FileDiffViewer({
       <PatchDiff
         patch={patch}
         className="pierre-diff-file-view rounded-lg overflow-hidden text-sm"
-        options={createPierreDiffOptions(themeType, diffStyle)}
+        // Shown inside a tool line that already names the file and carries the
+        // line counts; pierre's header would repeat both.
+        options={{ ...createPierreDiffOptions(themeType, diffStyle), disableFileHeader: true }}
       />
     </div>
   );

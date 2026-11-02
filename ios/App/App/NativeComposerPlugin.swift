@@ -196,7 +196,9 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private let suggestionPanel = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let suggestions = UIScrollView()
     private var state: JSObject = [:]
-    private var tokenItems: [(id: String, title: String)] = []
+    private var tokenItems: [(id: String, title: String, thumbnail: String?)] = []
+    private var hasThumbnails: Bool { tokenItems.contains { $0.thumbnail != nil } }
+    private static let thumbnailSize: CGFloat = 80
     private var inlineTokenItems: [(id: String, title: String)] = []
     private var suggestionItems: [JSObject] = []
     private var draftSync: DispatchWorkItem?
@@ -315,7 +317,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         placeholder.text = next["placeholder"] as? String ?? "Message…"
         tokenItems = (next["attachments"] as? [JSObject] ?? []).compactMap { item in
             guard let id = item["id"] as? String, let title = item["title"] as? String else { return nil }
-            return ("attachment:\(id)", title)
+            return ("attachment:\(id)", title, item["thumbnail"] as? String)
         }
         inlineTokenItems = (next["skills"] as? [JSObject] ?? []).compactMap { item in
             guard let id = item["id"] as? String, let title = item["title"] as? String else { return nil }
@@ -365,13 +367,23 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         guard let parent = superview, anchorWidth > 0 else { return }
         let isExpanded = expanded
         let leading: CGFloat = isExpanded || attach.isHidden ? 16 : 52
-        let trailing: CGFloat = isExpanded ? 16 : showsSteer ? 90 : 50
+        // Collapsed and idle there is nothing to send (no draft, no focus), so
+        // the greyed send button is dropped; it stays only as the stop button.
+        let showsSend = isExpanded || running
+        let trailing: CGFloat = isExpanded || !showsSend ? 16 : showsSteer ? 90 : 50
         let textWidth = max(40, anchorWidth - leading - trailing)
         let inlineHeight = layoutInlineTokens(width: textWidth)
-        let textHeight = min(140, max(40, inlineHeight + 20, ceil(textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)))
-        let tokensHeight: CGFloat = tokenItems.isEmpty ? 0 : 34
+        // Compact means empty and unfocused, so nothing is typed in it yet: a
+        // single 46pt capsule (grows only with Dynamic Type), the size of the
+        // system's own message bars. Expanded keeps the fitted text height.
+        let compactHeight = max(46, ceil(placeholder.font.lineHeight) + 24)
+        let textHeight = isExpanded
+            ? min(140, max(40, inlineHeight + 20, ceil(textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)))
+            : compactHeight - 16
+        let tokensHeight: CGFloat = tokenItems.isEmpty ? 0 : hasThumbnails ? Self.thumbnailSize + 6 : 34
         let controlsHeight: CGFloat = isExpanded ? 44 : 0
         let total = 16 + tokensHeight + textHeight + controlsHeight
+        glass.layer.cornerRadius = isExpanded ? 28 : total / 2
         var bottom = parent.bounds.height - max(8, closedBottom)
         if let keyboardTop, keyboardTop < parent.bounds.height - parent.safeAreaInsets.bottom - 1 {
             bottom = min(bottom, keyboardTop - 6)
@@ -385,7 +397,9 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         suggestionPanel.frame = CGRect(x: 0, y: 0, width: anchorWidth, height: panelHeight)
         suggestionPanel.isHidden = panelHeight == 0
         suggestions.frame = CGRect(x: 4, y: 4, width: anchorWidth - 8, height: max(0, panelHeight - 8))
-        tokens.frame = CGRect(x: 12, y: 8, width: anchorWidth - 24, height: tokensHeight)
+        // Thumbnails sit 8pt in from the glass so their corners stay concentric with its 28pt ones.
+        let tokensInset: CGFloat = hasThumbnails ? 8 : 12
+        tokens.frame = CGRect(x: tokensInset, y: 8, width: anchorWidth - tokensInset * 2, height: tokensHeight)
         tokens.isHidden = tokenItems.isEmpty
         let rowY = 8 + tokensHeight
         textView.frame = CGRect(x: leading, y: rowY, width: textWidth, height: textHeight)
@@ -394,7 +408,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         // UITextView's fitted height includes extra layout space. Align controls
         // to the actual text line rather than the bottom of that fitted box.
         let caret = textView.caretRect(for: textView.endOfDocument)
-        let lineCenter = min(max(caret.midY, 20), textHeight - 20)
+        let lineCenter = isExpanded ? min(max(caret.midY, 20), textHeight - 20) : textHeight / 2
         let placeholderHeight = textView.font?.lineHeight ?? 22
         placeholder.frame = CGRect(x: leading, y: rowY + lineCenter - placeholderHeight / 2, width: textWidth, height: placeholderHeight)
         placeholder.isHidden = !textView.text.isEmpty || !inlineTokenItems.isEmpty
@@ -403,6 +417,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         let controlsCenterY = isExpanded ? rowY + textHeight + controlsHeight / 2 : rowY + lineCenter
         attach.frame = CGRect(x: 8, y: controlsCenterY - 20, width: 40, height: 40)
         send.frame = CGRect(x: anchorWidth - 44, y: controlsCenterY - 16, width: 32, height: 32)
+        send.isHidden = !showsSend
         options.isHidden = !isExpanded || (state["menu"] as? [JSObject] ?? []).isEmpty
         options.frame = CGRect(x: anchorWidth - 92, y: controlsCenterY - 22, width: 44, height: 44)
         steer.frame = CGRect(x: (isExpanded && !options.isHidden ? anchorWidth - 134 : anchorWidth - 86), y: controlsCenterY - 20, width: 40, height: 40)
@@ -447,7 +462,11 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private func rebuildTokens() {
         tokens.subviews.forEach { $0.removeFromSuperview() }
         inlineTokens.subviews.forEach { $0.removeFromSuperview() }
-        for item in tokenItems + inlineTokenItems {
+        for item in tokenItems {
+            guard let thumbnail = item.thumbnail, let image = Self.decodeImage(thumbnail) else { continue }
+            tokens.addSubview(thumbnailTile(id: item.id, title: item.title, image: image))
+        }
+        for item in tokenItems.filter({ $0.thumbnail == nil }).map({ (id: $0.id, title: $0.title) }) + inlineTokenItems {
             let button = UIButton(type: .system)
             let isInline = item.id.hasPrefix("skill:")
             let font = isInline ? UIFont.preferredFont(forTextStyle: .body) : UIFont.systemFont(ofSize: 14, weight: .medium)
@@ -524,12 +543,54 @@ final class NativeComposerView: UIView, UITextViewDelegate {
 
     private func layoutTokenButtons() {
         var x: CGFloat = 0
-        for button in tokens.subviews {
-            let width = min(220, button.sizeThatFits(CGSize(width: 220, height: 28)).width)
-            button.frame = CGRect(x: x, y: 2, width: width, height: 28)
-            x += width + 6
+        let rowHeight = tokens.bounds.height
+        for view in tokens.subviews {
+            if view.tag == Self.thumbnailTag {
+                view.frame = CGRect(x: x, y: 0, width: Self.thumbnailSize, height: Self.thumbnailSize)
+                x += Self.thumbnailSize + 8
+            } else if let button = view as? UIButton {
+                let width = min(220, button.sizeThatFits(CGSize(width: 220, height: 28)).width)
+                button.frame = CGRect(x: x, y: (rowHeight - 28) / 2, width: width, height: 28)
+                x += width + 6
+            }
         }
-        tokens.contentSize = CGSize(width: x, height: 32)
+        tokens.contentSize = CGSize(width: x, height: rowHeight)
+    }
+
+    private static let thumbnailTag = 0x7468
+    private static func decodeImage(_ dataURL: String) -> UIImage? {
+        guard let comma = dataURL.firstIndex(of: ","),
+              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { return nil }
+        return UIImage(data: data)
+    }
+
+    /// An image attachment as a rounded tile with a remove button in its corner.
+    private func thumbnailTile(id: String, title: String, image: UIImage) -> UIView {
+        let size = Self.thumbnailSize
+        let tile = UIView(frame: CGRect(x: 0, y: 0, width: size, height: size))
+        tile.tag = Self.thumbnailTag
+        let imageView = UIImageView(image: image)
+        imageView.frame = tile.bounds
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = 20
+        imageView.layer.cornerCurve = .continuous
+        imageView.isAccessibilityElement = true
+        imageView.accessibilityLabel = title
+        tile.addSubview(imageView)
+        let remove = UIButton(type: .system)
+        var config = UIButton.Configuration.filled()
+        config.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .bold))
+        config.baseBackgroundColor = UIColor.black.withAlphaComponent(0.55)
+        config.baseForegroundColor = .white
+        config.cornerStyle = .capsule
+        config.contentInsets = .zero
+        remove.configuration = config
+        remove.frame = CGRect(x: size - 24 - 6, y: 6, width: 24, height: 24)
+        remove.accessibilityLabel = "Remove \(title)"
+        remove.addAction(UIAction { [weak self] _ in self?.emitAction(id) }, for: .touchUpInside)
+        tile.addSubview(remove)
+        return tile
     }
 
     private func rebuildSuggestions() {

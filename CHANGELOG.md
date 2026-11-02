@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-02
+
+### Changed
+
+- The iOS composer uses a smaller capsule when idle and shows image attachments as removable thumbnails.
+- Edit and Write tool rows show added and removed line counts, with duplicate file headers removed from their diff previews.
+- Assistant instructions are shorter and require choosing a coding agent and model in the current conversation.
+
+### Fixed
+
+- Conversations keep following streamed replies after downward trackpad momentum, sideways scrolling or input that does not move the transcript.
+- Expanding tool details in a short new turn preserves its position at the top of the conversation.
+
 ## [1.5.0] - 2026-11-01
 
 ### Added

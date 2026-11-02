@@ -16,6 +16,7 @@
   function Harness() {
     const [rows, setRows] = React.useState(() => Array.from({ length: 25 }, (_, i) => ({ id: 'row-' + i, height: 100 })));
     const [expanded, setExpanded] = React.useState(false);
+    const [expandBy, setExpandBy] = React.useState(600);
     const Item = ui.ConversationItem ?? 'div';
     window.__conversationScrollTest = {
       grow: (height) => setRows(current => current.map((r, i) => i === current.length - 1 ? { ...r, height: r.height + height } : r)),
@@ -23,12 +24,13 @@
       trim: () => setRows(current => current.slice(8)),
       append: () => setRows(current => [...current, { id: 'appended', height: 180 }]),
       anchor: () => setRows(current => [...current, { id: current.some(row => row.id === 'anchored') ? 'anchored-next' : 'anchored', height: 100, anchor: true }]),
+      expandBy: setExpandBy,
       cleanup: () => { root.unmount(); host.remove(); delete window.__conversationScrollTest; window.getSelection()?.removeAllRanges(); },
     };
     return h(ui.Conversation, ui.ConversationItem ? {} : { initial: 'instant' },
       h(ui.ConversationContent, { className: 'gap-2 p-4' }, rows.map((row, i) => h(Item, {
         key: row.id, ...(ui.ConversationItem ? { messageId: row.id, scrollAnchor: row.anchor ?? false } : {}), 'data-message-id': row.id,
-        style: { height: row.height + (i === rows.length - 1 && expanded ? 600 : 0), flexShrink: 0 },
+        style: { height: row.height + (i === rows.length - 1 && expanded ? expandBy : 0), flexShrink: 0 },
       }, h('p', null, 'Message ' + row.id + ': content for reading and selection.'), i === rows.length - 1 ? h('button', { type: 'button', 'aria-expanded': expanded, onClick: () => setExpanded(v => !v) }, 'Expand details') : null))),
       h(ui.ConversationScrollButton),
     );

@@ -253,7 +253,7 @@ export function AssistantChat({
 
       <div
         ref={composerRoot}
-        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? "px-2 pb-2" : "px-6 pb-5", nativeComposer && 'absolute inset-x-0 bottom-0')}
+        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? (nativeComposer ? "px-4 pb-2" : "px-2 pb-2") : "px-6 pb-5", nativeComposer && 'absolute inset-x-0 bottom-0')}
         onFocus={() => setComposerFocused(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setComposerFocused(false)
