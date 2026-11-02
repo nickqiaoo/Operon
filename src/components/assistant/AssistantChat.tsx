@@ -253,7 +253,7 @@ export function AssistantChat({
 
       <div
         ref={composerRoot}
-        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? (nativeComposer ? "px-4 pb-2" : "px-2 pb-2") : "px-6 pb-5", nativeComposer && 'absolute inset-x-0 bottom-0')}
+        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? (nativeComposer ? "px-4 pb-2" : "px-3 pb-2") : "px-6 pb-5", nativeComposer && 'absolute inset-x-0 bottom-0')}
         onFocus={() => setComposerFocused(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setComposerFocused(false)
@@ -274,6 +274,7 @@ export function AssistantChat({
           multiple
           className={cn(
             "rounded-xl border border-border/60 bg-popover/90 shadow-input dark:border-border/35 dark:bg-popover/85",
+            compact && "rounded-2xl border-border/40",
             "[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-none [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:shadow-none",
             "[&_[data-slot=input-group]]:focus-within:border-none [&_[data-slot=input-group]]:focus-within:ring-0",
           )}
@@ -377,8 +378,8 @@ function RevealOlderOnScroll({
 }
 
 /**
- * The composer's inside. Collapsed it is one line with the attach button at
- * its end; otherwise the full box with the toolbar underneath.
+ * The composer's inside. Collapsed it is one line with the attach button on
+ * the left; otherwise the full box with the toolbar underneath.
  */
 function ComposerFields({
   canCollapse,
@@ -400,13 +401,13 @@ function ComposerFields({
           placeholder={placeholder}
           // Fixed height too: older WebKit has no field-sizing and would size by rows.
           rows={collapsed ? 1 : undefined}
-          className={collapsed ? "h-10 min-h-10 py-2.5" : "min-h-12"}
+          className={collapsed ? "h-12 min-h-12 overflow-hidden py-3 pl-1 pr-4 leading-6" : "min-h-12"}
           onChange={(e) => onTextChange(e.currentTarget.value !== "")}
         />
       </PromptInputBody>
       {collapsed ? (
-        <InputGroupAddon align="inline-end" className="py-1">
-          <AttachButton />
+        <InputGroupAddon align="inline-start" className="py-1 pl-2">
+          <AttachButton className="size-10 rounded-full" />
         </InputGroupAddon>
       ) : (
         <PromptInputFooter>
@@ -420,11 +421,13 @@ function ComposerFields({
   )
 }
 
-function AttachButton() {
+function AttachButton({ className }: { className?: string }) {
   const intl = useIntl()
   const attachments = usePromptInputAttachments()
   return (
     <PromptInputButton
+      className={className}
+      aria-label={intl.formatMessage({ id: "assistant.chat.attach", defaultMessage: "Attach files" })}
       title={intl.formatMessage({ id: "assistant.chat.attach", defaultMessage: "Attach files" })} onClick={() => attachments.openFileDialog()}>
       <PaperclipIcon className="h-4 w-4" />
     </PromptInputButton>

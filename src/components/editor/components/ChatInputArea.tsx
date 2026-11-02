@@ -85,7 +85,7 @@ interface ChatInputAreaProps {
   visible?: boolean;
 }
 
-function AttachmentButton() {
+function AttachmentButton({ compact = false }: { compact?: boolean }) {
   const attachments = usePromptInputAttachments();
   return (
     <PromptInputButton
@@ -93,10 +93,14 @@ function AttachmentButton() {
       // alone: opening a file picker needs a real user activation, which a
       // synthetic .click() dispatched from touchstart does not carry.
       data-composer-attach
+      aria-label="Attach files"
+      title="Attach files"
       onClick={() => attachments.openFileDialog()}
-      className="h-8 shrink-0 gap-1.5 rounded-full border border-transparent bg-muted/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted hover:text-foreground dark:hover:border-border/35"
+      className={compact
+        ? "size-10 shrink-0 rounded-full text-muted-foreground"
+        : "h-8 shrink-0 gap-1.5 rounded-full border border-transparent bg-muted/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted hover:text-foreground dark:hover:border-border/35"}
     >
-      <PaperclipIcon className="size-3.5" />
+      <PaperclipIcon className={compact ? "size-4" : "size-3.5"} />
     </PromptInputButton>
   );
 }
@@ -471,7 +475,9 @@ export function ChatInputArea({
         // gone missing.
         // Floating (phone): the frosted `liquid-glass` brings its own tint, rim and
         // lift, so none of the solid card's ground, border or shadow is stacked on it.
-        floating
+        floating && composerCompact
+          ? 'rounded-2xl overflow-hidden border border-border/40 bg-popover/90 shadow-input dark:border-border/35 dark:bg-popover/85'
+          : floating
           ? 'rounded-xl overflow-hidden liquid-glass transition-[min-height] duration-300 ease-out'
           : cn(
               'rounded-xl bg-popover/90 overflow-hidden border border-border/60 transition-[box-shadow,min-height] duration-300 ease-out dark:border-border/35 dark:bg-popover/85',
@@ -502,11 +508,12 @@ export function ChatInputArea({
         <div
           ref={textareaContainerRef}
           className={cn(
-            "flex w-full items-start gap-1.5 px-3 transition-[min-height,padding] duration-200 ease-out",
+            "flex w-full gap-1.5 transition-[min-height,padding] duration-200 ease-out",
             compactStopVisible ? "flex-nowrap" : "flex-wrap",
-            composerCompact ? "min-h-0 py-2" : "min-h-[60px] pt-2 pb-1.5"
+            composerCompact ? "min-h-12 items-center py-1 pl-1 pr-3" : "min-h-[60px] items-start px-3 pt-2 pb-1.5"
           )}
         >
+          {composerCompact && <AttachmentButton compact />}
           <SkillChips skills={selectedSkills} onRemove={removeSkill} />
           <div className="relative min-w-0 flex-1">
             {mentionOverlayParts.length > 0 && (
