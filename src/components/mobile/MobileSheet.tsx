@@ -14,10 +14,12 @@ interface MobileSheetProps {
   sheetClassName?: string
   bodyClassName?: string
   contentRef?: Ref<HTMLDivElement>
+  /** False when the content's own header carries the close button. */
+  showClose?: boolean
 }
 
 /** Radix owns modal focus, dismissal and scroll locking; Motion owns the drag gesture. */
-export function MobileSheet({ open, onClose, title, children, sheetClassName, bodyClassName, contentRef }: MobileSheetProps) {
+export function MobileSheet({ open, onClose, title, children, sheetClassName, bodyClassName, contentRef, showClose = true }: MobileSheetProps) {
   const intl = useIntl()
   const dragControls = useDragControls()
   const openerRef = useRef<HTMLElement | null>(null)
@@ -89,10 +91,10 @@ export function MobileSheet({ open, onClose, title, children, sheetClassName, bo
             dragElastic={{ top: 0, bottom: 0.6 }}
             onDragEnd={handleDragEnd}
           >
-            <DialogPrimitive.Close aria-label={intl.formatMessage({ id: "mobile.sheet.close", defaultMessage: "Close" })}
+            {showClose && <DialogPrimitive.Close aria-label={intl.formatMessage({ id: "mobile.sheet.close", defaultMessage: "Close" })}
               className="absolute right-3 top-3 z-10 flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-row-hover focus-visible:ring-2 focus-visible:ring-ring">
               <X className="size-4" />
-            </DialogPrimitive.Close>
+            </DialogPrimitive.Close>}
             <div
               onPointerDown={(event) => dragControls.start(event)}
               className="flex cursor-grab touch-none flex-col items-center pt-2.5 active:cursor-grabbing"

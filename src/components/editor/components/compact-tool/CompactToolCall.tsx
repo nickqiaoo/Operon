@@ -15,6 +15,7 @@ import { Tool, ToolContent, ToolInput, ToolLine, ToolOutput, toolTraceStatus } f
 import type { ToolPart } from '@/components/ai-elements/tool';
 import { TraceCollapsibleTrigger, TraceDescription } from '@/components/ui/trace';
 import { ToolIcon } from './ToolIcon';
+import { ReadImageLarge, imageReadPathOf } from '../ReadImages';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
 import { ToolInputDiff, toolInputDiffStats } from '../ToolInputDiff';
@@ -45,6 +46,7 @@ export function CompactToolCall({
   const rawInput = (toolPart.args || toolPart.input || {}) as Record<string, unknown>;
   const output = toolPart.result ?? toolPart.output;
   const hasOutput = output !== undefined && output !== null;
+  const imagePath = imageReadPathOf(toolPart);
   // Permission options live on the outer envelope, so they are extracted before
   // unwrapping; only the displayed name/args are unwrapped.
   const { options, displayInput: envelopeInput } = extractPermissionOptions(rawInput);
@@ -117,7 +119,10 @@ export function CompactToolCall({
           ) : (
             <ToolInput input={displayInput} />
           )}
-          {(hasOutput || toolPart.errorText) && (
+          {/* A Read of an image: the picture, read again from disk, in place of its "[image]" result. */}
+          {imagePath !== null ? (
+            <ReadImageLarge path={imagePath} />
+          ) : (hasOutput || toolPart.errorText) && (
             <ToolOutput output={output} errorText={toolPart.errorText} />
           )}
         </ToolContent>

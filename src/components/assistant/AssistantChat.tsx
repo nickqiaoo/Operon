@@ -3,7 +3,7 @@ import { BookmarkCheck, PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
 import { Conversation, ConversationContent, ConversationItem, ConversationScrollButton, useConversationScroll } from "@/components/ai-elements/conversation"
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
+import { Message, MessageContent, MessageResponse, PHONE_REPLY_TEXT } from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputBody,
@@ -507,9 +507,7 @@ const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecid
       {/* An approval card is a message with nothing to say besides the card. */}
       {message.text && (
         <MessageContent variant="muted" className="px-3.5 py-2.5">
-          {/* Phone: 17px at 1.4, the system's own reading size — the desktop's
-              0.9rem at prose's loose leading reads small and airy at arm's length. */}
-          <MessageResponse className={cn(compact && "text-[17px] leading-[1.4] [&_li]:leading-[1.4] [&_p]:leading-[1.4]")}>
+          <MessageResponse className={cn(compact && PHONE_REPLY_TEXT)}>
             {messageText(intl, message.text)}
           </MessageResponse>
         </MessageContent>

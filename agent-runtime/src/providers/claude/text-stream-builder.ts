@@ -137,6 +137,19 @@ function truncateForLog(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength)}... (+${remaining} chars)`
 }
 
+/**
+ * A Read of an image returns the picture as a base64 content block. The UI shows
+ * it by reading the file again from its path, so the bytes (often megabytes) stay
+ * out of the stream and the stored transcript; a short note takes their place.
+ */
+export function stripReadImageBlocks(toolName: string, result: unknown): unknown {
+  if (toolName !== 'Read' || !Array.isArray(result)) return result
+  if (!result.some((block) => isRecord(block) && block.type === 'image')) return result
+  return result.map((block) =>
+    isRecord(block) && block.type === 'image' ? { type: 'text', text: '[image]' } : block,
+  )
+}
+
 function truncateToolResultForStream(result: unknown, maxSize = MAX_TOOL_RESULT_SIZE): unknown {
   if (typeof result === 'string') {
     if (result.length <= maxSize) return result
@@ -855,15 +868,16 @@ export class ClaudeTextStreamBuilder {
       }
       state.name = toolName
       this.emitToolCall(result.id, state)
-      const normalizedResult = this.normalizeToolResult(result.result)
+      const resultContent = stripReadImageBlocks(toolName, result.result)
+      const normalizedResult = this.normalizeToolResult(resultContent)
       const rawResult =
-        typeof result.result === 'string'
-          ? result.result
+        typeof resultContent === 'string'
+          ? resultContent
           : (() => {
               try {
-                return JSON.stringify(result.result)
+                return JSON.stringify(resultContent)
               } catch {
-                return String(result.result)
+                return String(resultContent)
               }
             })()
       const truncatedRaw = truncateToolResultForStream(rawResult, MAX_TOOL_RESULT_SIZE) as string

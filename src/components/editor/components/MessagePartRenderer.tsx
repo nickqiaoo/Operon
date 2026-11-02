@@ -7,6 +7,7 @@ import {
   Message,
   MessageContent,
   MessageResponse,
+  PHONE_REPLY_TEXT_MD,
   MessageActions,
   MessageAction,
 } from '@/components/ai-elements/message';
@@ -37,6 +38,7 @@ import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
 import { ScheduleTaskRenderer, isScheduleTaskResult } from './ScheduleTaskRenderer';
 import { HtmlRenderRenderer, isHtmlRenderResult } from './HtmlRenderFrame';
+import { ImageReadRenderer, imageReadPathOf } from './ImageReadRenderer';
 import { CodeProgramRenderer } from './CodeProgramRenderer';
 import { isCodeProgramTool } from './codeProgram';
 import { UserMessageText } from './UserMessageText';
@@ -235,6 +237,20 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     // only once the page was published, so a streaming or failed call stays a tool row.
     if (isHtmlRenderResult(toolPart)) {
       return <HtmlRenderRenderer toolPart={toolPart} />;
+    }
+
+    // A Read of an image shows the picture under its row, read again from disk by path.
+    const imageReadPath = imageReadPathOf(toolPart);
+    if (imageReadPath !== null) {
+      return (
+        <ImageReadRenderer
+          toolPart={toolPart}
+          path={imageReadPath}
+          messageId={message.id}
+          partIndex={partIndex}
+          onPermissionDecide={onPermissionDecide}
+        />
+      );
     }
 
     // Render Workflow tool with dedicated card (phases skeleton + highlighted script +
@@ -568,7 +584,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
           /* Always the streaming renderer: Streamdown's static mode is a different tree, so
               switching to it when the reply finished rebuilt the whole message (every block
               re-parsed, code re-highlighted) in one blocking render. */
-          <MessageResponse mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
+          <MessageResponse className={PHONE_REPLY_TEXT_MD} mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
             {displayText}
           </MessageResponse>
         )}

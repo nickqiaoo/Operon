@@ -293,6 +293,17 @@ function contentBlock(value: unknown): ToolOutputBlock | undefined {
       src: `data:${record.mimeType};base64,${record.data}`,
     };
   }
+  // Anthropic's own shape (Claude Code tool results): { source: { type: "base64", media_type, data } }.
+  const source = asRecord(record.source);
+  if (
+    record.type === "image"
+    && source?.type === "base64"
+    && typeof source.data === "string"
+    && typeof source.media_type === "string"
+    && source.media_type.startsWith("image/")
+  ) {
+    return { kind: "image", src: `data:${source.media_type};base64,${source.data}` };
+  }
   if (record.type === "image") {
     const src = safeImageSource(record.url ?? record.image_url);
     return src == null ? undefined : { kind: "image", src };
