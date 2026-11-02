@@ -6,6 +6,7 @@ import { FileDiff } from "lucide-react"
 import { useThemeStore } from "@/stores/theme-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useIsMobile } from "@/hooks/useIsMobile"
+import { cn } from "@/lib/utils"
 import {
   createPierreDiffOptions,
   getDiffStats,
@@ -61,7 +62,7 @@ export function DiffPreview({ path, content }: DiffPreviewProps) {
       // characters wide and wraps every line. Annotations are positioned by
       // `{ side, lineNumber }`, which unified resolves the same way, so the
       // line comments keep working across the switch.
-      ...createPierreDiffOptions(themeType, isMobile ? "unified" : "split"),
+      ...createPierreDiffOptions(themeType, isMobile ? "unified" : "split", isMobile ? "scroll" : "wrap"),
       enableGutterUtility: true,
       onGutterUtilityClick,
     }),
@@ -91,7 +92,7 @@ export function DiffPreview({ path, content }: DiffPreviewProps) {
           <div className="text-[11px] text-muted-foreground truncate">{path}</div>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-auto code-scrollbar px-3 py-2">
+      <div className={cn("flex-1 min-h-0 overflow-auto code-scrollbar px-3 py-2", isMobile && "pierre-hscroll")}>
         {hasDiffContent ? (
           <PatchDiff<CommentMeta>
             patch={normalizedContent}

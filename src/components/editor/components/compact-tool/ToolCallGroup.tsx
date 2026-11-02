@@ -22,6 +22,8 @@ import { CompactToolCall } from './CompactToolCall';
 import type { PermissionOutcome } from '../permission-utils';
 import { isCodeProgramTool } from '../codeProgram';
 import { TodoWriteRenderer, isTodoWriteTool } from '../TodoWriteRenderer';
+import { ImageReadRenderer } from '../ImageReadRenderer';
+import { ReadImagesRow, imageReadPathOf } from '../ReadImages';
 
 type MessagePart = UIMessage['parts'][number];
 
@@ -61,12 +63,15 @@ function GroupItem({
   messageId,
   onPermissionDecide,
   renderProgram,
+  standalone = false,
 }: {
   part: MessagePart;
   partIndex: number;
   messageId: string;
   onPermissionDecide: ToolCallGroupProps['onPermissionDecide'];
   renderProgram: ToolCallGroupProps['renderProgram'];
+  /** Drawn in place of a group of one, so no summary row carries its images. */
+  standalone?: boolean;
 }) {
   if (isToolPart(part) && isCodeProgramTool(part as ToolPartLike)) {
     return renderProgram(partIndex);
@@ -74,6 +79,21 @@ function GroupItem({
   // A todo update reads as the list it set, here as when it stands alone.
   if (isToolPart(part) && isTodoWriteTool(part as ToolPartLike)) {
     return <TodoWriteRenderer toolPart={part as ToolInvocationPart} messageId={messageId} partIndex={partIndex} />;
+  }
+  // A Read of an image standing alone (a group of one) keeps its picture in view,
+  // as a folded group would. Inside an opened group it is a plain row; opening
+  // the row shows the picture.
+  const imagePath = standalone && isToolPart(part) ? imageReadPathOf(part as ToolInvocationPart) : null;
+  if (imagePath !== null) {
+    return (
+      <ImageReadRenderer
+        toolPart={part as ToolInvocationPart}
+        path={imagePath}
+        messageId={messageId}
+        partIndex={partIndex}
+        onPermissionDecide={onPermissionDecide}
+      />
+    );
   }
   if (isReasoningPart(part)) {
     return (
@@ -101,10 +121,12 @@ export function ToolCallGroup({
   renderProgram,
   hasPendingApproval = false,
 }: ToolCallGroupProps) {
+  const [open, setOpen] = useState(false);
   // Single item: render directly without the group wrapper.
   if (parts.length === 1 && !isCodeProgramTool(parts[0] as ToolPartLike)) {
     return (
       <GroupItem
+        standalone
         part={parts[0]}
         partIndex={partIndices[0]}
         messageId={messageId}
@@ -121,18 +143,27 @@ export function ToolCallGroup({
   const failed = states.filter((s) => s === 'output-error').length;
   const hasApproval = hasPendingApproval || states.includes('approval-requested');
   const summary = buildGroupSummary(toolParts, reasoningCount);
+  const isOpen = hasApproval || open;
+  // Images the group read stay in view while it is folded: small beside the
+  // summary on desktop, a gallery under it on a phone. Opened, they go: each
+  // Read row shows its image when that row is opened.
+  const imagePaths = isOpen
+    ? []
+    : [...new Set(toolParts.map((p) => imageReadPathOf(p)).filter((p): p is string => p !== null))];
 
   return (
-    <ToolGroupCollapsible forceOpen={hasApproval}>
-      <TraceCollapsibleTrigger>
-        <TraceLine status={running ? 'running' : undefined}>
-          <TraceIcon><ListTreeIcon /></TraceIcon>
-          <TraceTitle>{summary}</TraceTitle>
-          {failed > 0 && !running && (
-            <TraceDescription className="text-status-error">{failed} failed</TraceDescription>
-          )}
-        </TraceLine>
-      </TraceCollapsibleTrigger>
+    <ToolGroupCollapsible open={isOpen} onOpenChange={setOpen}>
+      <ReadImagesRow paths={imagePaths}>
+        <TraceCollapsibleTrigger>
+          <TraceLine status={running ? 'running' : undefined}>
+            <TraceIcon><ListTreeIcon /></TraceIcon>
+            <TraceTitle>{summary}</TraceTitle>
+            {failed > 0 && !running && (
+              <TraceDescription className="text-status-error">{failed} failed</TraceDescription>
+            )}
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+      </ReadImagesRow>
       <TraceCollapsibleContent>
         <Trace>
           {parts.map((part, i) => (
@@ -152,8 +183,9 @@ export function ToolCallGroup({
 }
 
 /**
- * The group's open state: closed unless the person opens it, or one of its steps
- * waits on an approval (so the question is in view).
+ * The group's open state (held by ToolCallGroup, whose folded summary depends on
+ * it): closed unless the person opens it, or one of its steps waits on an
+ * approval (so the question is in view).
  *
  * It does not open while a step runs. The step streaming right now always sits
  * outside the group (segmentMessageParts keeps the active tail as its own
@@ -162,16 +194,17 @@ export function ToolCallGroup({
  * The header's shimmer says the group is still working.
  */
 function ToolGroupCollapsible({
-  forceOpen,
+  open,
+  onOpenChange,
   children,
 }: {
-  forceOpen: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   return (
     <Trace>
-      <TraceCollapsible open={forceOpen || open} onOpenChange={setOpen}>
+      <TraceCollapsible open={open} onOpenChange={onOpenChange}>
         {children}
       </TraceCollapsible>
     </Trace>

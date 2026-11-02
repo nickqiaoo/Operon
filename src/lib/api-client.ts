@@ -424,9 +424,14 @@ export async function readFile(filePath: string): Promise<string> {
   return res.content
 }
 
+/**
+ * A URL an `<img>` can load the file from. Desktop carries the API token as a
+ * query param, since an image load can't set the header (without it the server
+ * answers 401). Web loads go through useAuthedObjectUrl instead.
+ */
 export async function getFileUrl(filePath: string): Promise<string> {
   const baseUrl = await getBaseUrl()
-  return `${baseUrl}/fs/file?path=${encodeURIComponent(filePath)}`
+  return withApiTokenQuery(`${baseUrl}/fs/file?path=${encodeURIComponent(filePath)}`)
 }
 
 export function writeFile(filePath: string, content: string) {

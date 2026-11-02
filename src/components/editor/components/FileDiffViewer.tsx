@@ -61,13 +61,16 @@ export function FileDiffViewer({
 
   return (
     <div className={className}>
-      <PatchDiff
-        patch={patch}
-        className="pierre-diff-file-view rounded-lg overflow-hidden text-sm"
-        // Shown inside a tool line that already names the file and carries the
-        // line counts; pierre's header would repeat both.
-        options={{ ...createPierreDiffOptions(themeType, diffStyle), disableFileHeader: true }}
-      />
+      {/* Phone: the rounded clip moves to the sideways scroller, which the view now outgrows. */}
+      <div className={isMobile ? 'pierre-hscroll rounded-lg' : undefined}>
+        <PatchDiff
+          patch={patch}
+          className={isMobile ? 'pierre-diff-file-view text-sm' : 'pierre-diff-file-view rounded-lg overflow-hidden text-sm'}
+          // Shown inside a tool line that already names the file and carries the
+          // line counts; pierre's header would repeat both.
+          options={{ ...createPierreDiffOptions(themeType, diffStyle, isMobile ? 'scroll' : 'wrap'), disableFileHeader: true }}
+        />
+      </div>
     </div>
   );
 }

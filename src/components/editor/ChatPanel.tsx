@@ -99,6 +99,9 @@ import { usePageVisible } from '@/lib/page-visibility';
 import { useChatReadOnlyReason } from '@/lib/chat-read-only';
 import { useSessionPanelStore } from '@/stores/session-panel-store';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
+import { MobileFilePreviewSheet, type MobileFilePreview } from '@/components/mobile/MobileFilePreviewSheet';
+import { FileOpenProvider, useFileOpenHandler, type FileOpenHandler } from '@/lib/file-open-context';
+import { resolveCitationFile } from '@/lib/file-citation';
 import {
   getRecentChatOptions,
   updateRecentChatOptions,
@@ -695,6 +698,13 @@ function ChatPanelContent({
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
   const reviewCwd = useProjectStore((s) => s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
+  // Phone: there is no side file viewer, so a file the chat cites opens in a sheet over it.
+  const inheritedOpenFile = useFileOpenHandler();
+  const [mobilePreview, setMobilePreview] = useState<MobileFilePreview | null>(null);
+  const openFileOnMobile = useCallback<FileOpenHandler>((path, options) => {
+    const absolute = resolveCitationFile(reviewCwd, path);
+    if (absolute) setMobilePreview({ path: absolute, line: options?.line, nonce: Date.now() });
+  }, [reviewCwd]);
   // thinkingEffortOptions is a fresh array each render; key on the label instead.
   const thinkingEffortLabel = thinkingEffortOptions.find((option) => option.value === thinkingEffort)?.label;
   const sessionFacts = useMemo(() => ({
@@ -1071,6 +1081,7 @@ function ChatPanelContent({
   }, [chatId]);
 
   return (
+    <FileOpenProvider value={isMobile ? openFileOnMobile : inheritedOpenFile}>
     <div
       ref={transcriptRef}
       className={cn(
@@ -1412,17 +1423,23 @@ function ChatPanelContent({
           open
           onClose={() => setMobileReviewMessageUid(null)}
           bodyClassName="px-0 pb-0"
+          showClose={false}
         >
           <Suspense fallback={<div className="h-[70vh] p-4 text-xs text-muted-foreground/70">Loading review...</div>}>
             <MobileTurnDiffReview
               chatId={dbChatId}
               rootPath={reviewCwd}
               messageUid={mobileReviewMessageUid}
+              onClose={() => setMobileReviewMessageUid(null)}
             />
           </Suspense>
         </MobileSheet>
       ) : null}
+      {isMobile && (
+        <MobileFilePreviewSheet preview={mobilePreview} rootPath={reviewCwd} onClose={() => setMobilePreview(null)} />
+      )}
     </div>
+    </FileOpenProvider>
   );
 }
 

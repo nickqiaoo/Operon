@@ -194,6 +194,45 @@ describe('ClaudeTextStreamBuilder', () => {
     expect(toolErrors.map((part) => part.toolName)).toEqual(['Read', 'Read'])
   })
 
+  it('keeps an image Read result out of the stream', () => {
+    const parts: RuntimeStreamPart[] = []
+    const builder = createBuilder(parts)
+    const bytes = 'iVBORw0KGgo'.repeat(2000)
+
+    builder.emitStart()
+    builder.handleAssistantMessage(
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'img-1', name: 'Read', input: { file_path: '/tmp/shot.png' } }],
+        },
+        parent_tool_use_id: null,
+        session_id: 'session-1',
+      } as never,
+      false,
+    )
+    builder.handleUserMessage({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'img-1',
+            content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: bytes } }],
+          },
+        ],
+      },
+      parent_tool_use_id: null,
+      session_id: 'session-1',
+    } as never)
+
+    const result = parts.find((part): part is Extract<RuntimeStreamPart, { type: 'tool-result' }> => part.type === 'tool-result')
+    expect(result?.output).toBe('[image]')
+    expect(JSON.stringify(result)).not.toContain(bytes.slice(0, 40))
+  })
+
   it('does not emit duplicate text-end when a text block is closed before content_block_stop', () => {
     const parts: RuntimeStreamPart[] = []
     const builder = createBuilder(parts)

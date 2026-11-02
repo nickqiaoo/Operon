@@ -33,20 +33,33 @@ export function getDiffStats(content: string): DiffStats {
   return { additions, deletions }
 }
 
+/** 'wrap' folds long lines; 'scroll' keeps one line per line and scrolls sideways (phones). */
+export type PierreOverflow = 'wrap' | 'scroll'
+
+/**
+ * With overflow 'scroll', for a view inside a `.pierre-hscroll` wrapper: the
+ * wrapper does the sideways scrolling, so pierre's code grid must neither scroll
+ * nor size-contain itself (its `contain: content` would clip the long lines and
+ * hide their width from the wrapper).
+ */
+export const PIERRE_HSCROLL_CSS = '[data-code]{overflow:visible;contain:none;container-type:normal}'
+
 export function createPierreDiffOptions(
   themeType: PierreDiffThemeType,
   diffStyle: PierreDiffStyle = 'split',
+  overflow: PierreOverflow = 'wrap',
 ) {
   return {
     diffStyle,
     diffIndicators: 'bars' as const,
     lineDiffType: 'none' as const,
-    overflow: 'wrap' as const,
+    overflow,
     themeType,
     theme: {
       light: 'pierre-light',
       dark: 'pierre-dark',
     },
+    ...(overflow === 'scroll' ? { unsafeCSS: PIERRE_HSCROLL_CSS } : {}),
   }
 }
 
@@ -55,14 +68,15 @@ export function createPierreDiffOptions(
  * the file preview and the diff render in the same typeface/colors. The file
  * preview draws its own header, so pierre's is disabled.
  */
-export function createPierreFileOptions(themeType: PierreDiffThemeType) {
+export function createPierreFileOptions(themeType: PierreDiffThemeType, overflow: PierreOverflow = 'wrap') {
   return {
-    overflow: 'wrap' as const,
+    overflow,
     themeType,
     disableFileHeader: true,
     theme: {
       light: 'pierre-light',
       dark: 'pierre-dark',
     },
+    ...(overflow === 'scroll' ? { unsafeCSS: PIERRE_HSCROLL_CSS } : {}),
   }
 }

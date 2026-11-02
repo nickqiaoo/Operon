@@ -10,9 +10,10 @@ interface MobileTurnDiffReviewProps {
   chatId: number
   rootPath: string
   messageUid: string
+  onClose?: () => void
 }
 
-export function MobileTurnDiffReview({ chatId, rootPath, messageUid }: MobileTurnDiffReviewProps) {
+export function MobileTurnDiffReview({ chatId, rootPath, messageUid, onClose }: MobileTurnDiffReviewProps) {
   const [files, setFiles] = useState<TurnDiffFile[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +52,7 @@ export function MobileTurnDiffReview({ chatId, rootPath, messageUid }: MobileTur
       loadingLabel="Loading review..."
       diffErrorMessage="Couldn't load diff."
       onRefresh={() => void refresh()}
+      onClose={onClose}
       className="h-[70vh]"
     />
   )

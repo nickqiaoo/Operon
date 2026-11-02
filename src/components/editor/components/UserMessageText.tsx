@@ -131,7 +131,7 @@ export function UserMessageText({ text, className }: UserMessageTextProps) {
     <div className={cn('flex min-w-0 flex-col', className)}>
       <div
         ref={bodyRef}
-        className="whitespace-pre-wrap break-words text-[0.9rem] leading-relaxed max-md:text-base"
+        className="whitespace-pre-wrap break-words text-[0.9rem] leading-relaxed max-md:text-[17px] max-md:leading-[1.4]"
         style={
           collapsed
             ? {

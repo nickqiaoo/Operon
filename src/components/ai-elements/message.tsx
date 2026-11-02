@@ -223,6 +223,13 @@ export const MessageAction = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
+/** Phone reading size for chat replies: 17px at 1.4, the iOS body size — the desktop's
+ *  0.9rem at tight leading reads small at arm's length. Prose sets its own p/li leading,
+ *  so those are overridden too, and blocks get 12px apart (the desktop's 8px runs
+ *  paragraphs together at this size). */
+export const PHONE_REPLY_TEXT = "text-[17px] leading-[1.4] [&_li]:leading-[1.4] [&_p]:leading-[1.4] space-y-3!";
+export const PHONE_REPLY_TEXT_MD = "max-md:text-[17px] max-md:leading-[1.4] max-md:[&_li]:leading-[1.4] max-md:[&_p]:leading-[1.4] max-md:space-y-3!";
+
 const MessageResponseInner = ({ className, children, ...props }: MessageResponseProps) => {
 
   return (

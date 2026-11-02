@@ -3,7 +3,7 @@ import type { UIMessage } from 'ai';
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { CornerDownRight } from 'lucide-react';
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { Message, MessageContent, MessageResponse, PHONE_REPLY_TEXT_MD } from '@/components/ai-elements/message';
 import { Checkpoint, CheckpointIcon, CheckpointTrigger } from '@/components/ai-elements/checkpoint';
 import { TurnDiffCard, type TurnDiffFile } from './TurnDiffCard';
 import { AssistantMessageActions, MessagePartRenderer } from './MessagePartRenderer';
@@ -411,7 +411,9 @@ const MessageItem = memo(function MessageItem({
       // Anchor for the left-hand turn rail (ChatNavigator), which locates each
       // prompt by id to compute its scroll offset.
       data-message-id={message.id}
-      className="space-y-1"
+      // Phone: 12px between a reply's parts so a text block doesn't sit flush
+      // against the tool row under it at the 17px reading size.
+      className="space-y-1 max-md:space-y-3"
       style={deferOffscreen ? OFFSCREEN_DEFER_STYLE : LIVE_ROW_STYLE}
     >
       {sortedParts.length > 0 ? (
@@ -450,7 +452,7 @@ const MessageItem = memo(function MessageItem({
               /* Always the streaming renderer: Streamdown's static mode is a different tree, so
                   switching to it when the reply finished rebuilt the whole message (every block
                   re-parsed, code re-highlighted) in one blocking render. */
-              <MessageResponse mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
+              <MessageResponse className={PHONE_REPLY_TEXT_MD} mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
                 {getMessageText(message)}
               </MessageResponse>
             )}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { ArrowLeft, ChevronDown, ChevronRight, FileDiff, ListCollapse, ListRestart, RefreshCw } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronRight, FileDiff, ListCollapse, ListRestart, RefreshCw, X } from "lucide-react"
 import { PatchDiff } from "@pierre/diffs/react"
+import { PIERRE_HSCROLL_CSS } from "@shared/tool-rendering/diff"
 import { cn } from "@/lib/utils"
 import type { MobileHeaderAction } from "./MobileHeader"
 import { useThemeStore } from "@/stores/theme-store"
@@ -33,6 +34,8 @@ interface MobileDiffBrowserProps<TFile extends MobileDiffFileBase> {
   loadingLabel?: ReactNode
   diffErrorMessage?: string
   onRefresh?: () => void
+  /** In a sheet: a close button at the end of the title row, so it lines up with the others. */
+  onClose?: () => void
   autoSelectFirst?: boolean
   className?: string
   /**
@@ -67,6 +70,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
   loadingLabel = "Loading changes...",
   diffErrorMessage = "Couldn't load diff.",
   onRefresh,
+  onClose,
   autoSelectFirst = false,
   className,
   renderHeader,
@@ -95,6 +99,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
       disableBackground: false,
       themeType,
       theme: { light: "pierre-light", dark: "pierre-dark" },
+      unsafeCSS: PIERRE_HSCROLL_CSS,
     }),
     [themeType]
   )
@@ -275,7 +280,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
           <span className="ml-1 min-w-0 truncate font-mono text-[13px] text-foreground/85">{selectedFile.path}</span>
         </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="pierre-hscroll min-h-0 flex-1 overflow-auto">
           {diffLoading ? (
             <p className="p-4 text-[13px] text-muted-foreground/70">Loading diff...</p>
           ) : diffError ? (
@@ -314,6 +319,15 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
       icon: <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />,
       symbol: "arrow.clockwise",
       onClick: onRefresh,
+    })
+  }
+  if (onClose) {
+    headerActionSpecs.push({
+      id: "close",
+      label: "Close",
+      icon: <X className="size-4" />,
+      symbol: "xmark",
+      onClick: onClose,
     })
   }
   const headerActions = headerActionSpecs.map((action) => (
@@ -402,11 +416,13 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
                   ) : !loaded.diff.trim() ? (
                     <p className="p-4 text-[13px] text-muted-foreground/70">No diff to show.</p>
                   ) : (
-                    <PatchDiff
-                      patch={normalizePatch(file.path, loaded.diff)}
-                      className="pierre-diff-file-view"
-                      options={diffOptions}
-                    />
+                    <div className="pierre-hscroll">
+                      <PatchDiff
+                        patch={normalizePatch(file.path, loaded.diff)}
+                        className="pierre-diff-file-view"
+                        options={diffOptions}
+                      />
+                    </div>
                   )}
                 </section>
               )

@@ -1513,6 +1513,33 @@ body > div > button[title="Exit fullscreen"] {
   --diffs-line-height: 17px;
 }
 
+/*
+ * Phone: one source line per line, swiped sideways. The scroller is this
+ * light-DOM wrapper, not pierre's own [data-code] — that one sits in a shadow
+ * root, where a modal sheet's scroll lock (react-remove-scroll) can't see it
+ * and cancels the swipe. The view takes its content's width so nothing inside
+ * scrolls (the view's options carry PIERRE_HSCROLL_CSS for its shadow root),
+ * and the gutter sticks to this wrapper's left edge.
+ */
+.pierre-hscroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.pierre-hscroll > .pierre-diff-file-view {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Phone: code at arm's length reads small at 11–12px. */
+@media (max-width: 768px) {
+  .pierre-diff-file-view,
+  .dark .pierre-diff-file-view,
+  .pierre-file-preview-view {
+    --diffs-font-size: 13px;
+    --diffs-line-height: 20px;
+  }
+}
+
 /* ── Sonner toast overrides ── */
 [data-sonner-toaster] {
   --normal-bg: var(--color-popover);

@@ -14,11 +14,12 @@ import { getImageMediaType, readFileForPreview } from "@/lib/file-preview"
 import { basename } from "@/lib/workspace-files"
 import { useEditorStore } from "@/stores/editor-store"
 import { useThemeStore } from "@/stores/theme-store"
-import { createPierreDiffOptions, createPierreFileOptions } from "@shared/tool-rendering/diff"
+import { createPierreDiffOptions, createPierreFileOptions, PIERRE_HSCROLL_CSS } from "@shared/tool-rendering/diff"
 import { useLineComments, type CommentMeta } from "@/components/editor/comments/useLineComments"
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl"
 import { isMacPlatform } from "@/lib/shortcuts/accelerator"
 import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/useIsMobile"
 import { useFilePreviewDiffStore } from "@/stores/file-preview-diff-store"
 import { ChangeNavigator, DiffBasePill } from "./DiffControls"
 import { FindBar } from "./FindBar"
@@ -179,30 +180,33 @@ export function FilePreviewPane({
     })),
     [entries, workspaceTools]
   )
+  // Phone: long lines stay whole and scroll sideways (see .pierre-hscroll).
+  const isMobile = useIsMobile()
+  const overflow = isMobile ? "scroll" : "wrap"
   const diffOptions = useMemo<FileDiffOptions<CommentMeta>>(
     () => ({
-      ...createPierreDiffOptions(themeType, "unified"),
+      ...createPierreDiffOptions(themeType, "unified", overflow),
       disableFileHeader: true,
       // The whole file, changed lines marked in place — not hunks of context.
       expandUnchanged: true,
       enableGutterUtility: workspaceTools,
       lineHoverHighlight: "line" as const,
       onGutterUtilityClick,
-      unsafeCSS: FIND_HIGHLIGHT_CSS,
+      unsafeCSS: overflow === "scroll" ? FIND_HIGHLIGHT_CSS + PIERRE_HSCROLL_CSS : FIND_HIGHLIGHT_CSS,
     }),
-    [themeType, onGutterUtilityClick, workspaceTools]
+    [themeType, overflow, onGutterUtilityClick, workspaceTools]
   )
   const fileOptions = useMemo(
     () => ({
-      ...createPierreFileOptions(themeType),
+      ...createPierreFileOptions(themeType, overflow),
       enableGutterUtility: workspaceTools,
       lineHoverHighlight: "line" as const,
       onGutterUtilityClick,
       // The source view lives in a shadow root, out of reach of the document's
       // `::highlight()` rules.
-      unsafeCSS: FIND_HIGHLIGHT_CSS,
+      unsafeCSS: overflow === "scroll" ? FIND_HIGHLIGHT_CSS + PIERRE_HSCROLL_CSS : FIND_HIGHLIGHT_CSS,
     }),
-    [themeType, onGutterUtilityClick, workspaceTools]
+    [themeType, overflow, onGutterUtilityClick, workspaceTools]
   )
   const previewFile = useMemo(
     () => ({
@@ -560,7 +564,7 @@ export function FilePreviewPane({
             </div>
           </div>
         ) : (
-          <div ref={contentRef} className="h-full w-full overflow-auto code-scrollbar">
+          <div ref={contentRef} className={cn("h-full w-full overflow-auto code-scrollbar", isMobile && "pierre-hscroll")}>
             {showingDiff && diff.status === "ready" ? (
               <FileDiff<CommentMeta>
                 fileDiff={diff.fileDiff}
