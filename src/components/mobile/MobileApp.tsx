@@ -343,9 +343,9 @@ export function MobileApp() {
     void loadProjects().catch((e) => console.error("Failed to load projects:", e))
   }, [loadProjects])
 
-  // Keep the phone shell locked to the largest known closed height. The keyboard
-  // is treated as an overlay: we expose its height via CSS so only the composer
-  // moves above it instead of compressing the whole app.
+  // iOS and browsers keep the closed shell height and lift composers over the
+  // keyboard. Android's native WebView already resizes, so its shell follows
+  // the visible viewport without adding another keyboard offset.
   useEffect(() => {
     const root = document.documentElement
     const body = document.body
@@ -403,11 +403,8 @@ export function MobileApp() {
     // (capacitor.config.ts) stops the web view from resizing at all, leaving
     // `visualViewport.height` constant with the keyboard up.
     //
-    // Android deliberately keeps the web path. `resize` is an iOS-only option,
-    // so the Android web view still resizes for the IME exactly like a mobile
-    // browser — which is what the code below already handles. Taking the native
-    // branch there would offset the composer twice: once by the shrinking
-    // viewport, once by `--keyboard-height`.
+    // Android uses viewport events below to detect keyboard visibility, but
+    // lets the resized WebView position both fixed and absolute composers.
     if (nativePlatform() === "ios") {
       // The input accessory bar (the "Done" / prev-next strip UIKit stacks on
       // top of the keyboard) is dead weight in an app with its own composer.
@@ -442,6 +439,7 @@ export function MobileApp() {
     let width = window.innerWidth
     let closedHeight = readVisibleHeight()
     let keyboardVisible = false
+    const resizedWebView = nativePlatform() === "android"
 
     const isEditableFocused = () => {
       const active = document.activeElement
@@ -450,8 +448,10 @@ export function MobileApp() {
     }
 
     const setViewportMetrics = (height: number, keyboardHeight: number) => {
-      root.style.setProperty("--app-height", `${Math.round(height)}px`)
-      root.style.setProperty("--keyboard-height", `${Math.round(Math.max(0, keyboardHeight))}px`)
+      // Fixed elements already use Android's shrunken layout viewport. Keeping
+      // the closed shell height and lifting again would move them up twice.
+      root.style.setProperty("--app-height", `${Math.round(resizedWebView ? readVisibleHeight() : height)}px`)
+      root.style.setProperty("--keyboard-height", `${Math.round(resizedWebView ? 0 : Math.max(0, keyboardHeight))}px`)
       if (window.scrollY !== 0) window.scrollTo(0, 0)
       if (root.scrollTop !== 0) root.scrollTop = 0
       if (body.scrollTop !== 0) body.scrollTop = 0
