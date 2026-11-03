@@ -57,6 +57,12 @@ import type {
 
 interface AgentPanelProps {
   open: boolean
+  /**
+   * Whether this chat is the one on screen. A background tab keeps the panel laid
+   * out (so switching back doesn't slide the chat over again) but stops polling and
+   * listening for Escape. Defaults to `open`.
+   */
+  live?: boolean
   chatId: number | undefined
   providerId: string | undefined
   onClose: () => void
@@ -139,7 +145,7 @@ function isMcpProblem(server: McpServerDTO): boolean {
  */
 // Memoized: ChatPanel re-renders on every streamed chunk, and redrawing the open
 // panel (MCP rows, skills, usage cards) each time cost ~30ms a chunk in dev.
-export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts }: AgentPanelProps) {
+export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, providerId, onClose, onUseSkill, variant = 'inline', usageCards = EMPTY_USAGE_CARDS, facts }: AgentPanelProps) {
   const intl = useIntl()
   // Two-phase open/close so the panel can animate both IN and OUT:
   //   `render` keeps it mounted a beat longer than `open`, so the slide-out has
@@ -147,13 +153,14 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
   //   `active` drives the on-screen position — it flips on one frame AFTER mount
   //            (so the browser animates from off-screen) and off the moment we close.
   const [render, setRender] = useState(open)
-  const [active, setActive] = useState(false)
+  // Mounted already open (a tab first shown with the panel up): no slide-in.
+  const [active, setActive] = useState(open)
   /** The panel's second layer: a skill read out in full. `null` = the list. */
   const [skillDetail, setSkillDetail] = useState<OperonSkillDTO | null>(null)
   const overlay = variant === 'overlay'
   // On the phone the native back button (iOS bar, Android key) steps out of a
   // skill, then out of the panel, before it leaves the conversation.
-  useBackHandler(open && overlay, () => (skillDetail ? setSkillDetail(null) : onClose()))
+  useBackHandler(open && live && overlay, () => (skillDetail ? setSkillDetail(null) : onClose()))
   const overlayTop = useMobileBackBarOffset()
 
   // Mount immediately on open; on close, defer the unmount until the exit finishes.
@@ -178,13 +185,13 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
 
   // Close on Escape while open.
   useEffect(() => {
-    if (!open) return
+    if (!open || !live) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, live, onClose])
 
   // Fetching lives up here rather than per-section so the summary strip, the
   // single refresh control and the no-session check all see the same data.
@@ -195,7 +202,7 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
   const { mcp, tasks, subagents, skills, cron, extensions, peers, plugins } = useAgentSessionState({
     providerId,
     chatId,
-    open,
+    open: open && live,
     fullInspector: fullSessionInspector,
     pollMs: LIVE_POLL_MS,
   })
@@ -224,7 +231,7 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
   // The branch can change under the chat (a checkout in the terminal), so read it
   // from git while the panel is up instead of trusting the workspace record.
   const cwd = facts?.cwd ?? null
-  const git = useGitStatus(cwd ?? '', { enabled: open && cwd != null, refetchInterval: open ? GIT_POLL_MS : undefined })
+  const git = useGitStatus(cwd ?? '', { enabled: open && live && cwd != null, refetchInterval: open && live ? GIT_POLL_MS : undefined })
 
   const reloadAll = useCallback(() => {
     if (cwd != null) void git.refetch()
