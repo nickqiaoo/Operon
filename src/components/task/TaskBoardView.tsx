@@ -17,7 +17,7 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
 import { useTaskStore } from '@/stores/task-store'
 import { PriorityIcon, LabelChip, TaskRef, type TaskGroup } from './task-meta'
-import { SpecCardBadge } from '@/components/spec/spec-shared'
+import { SpecCardBadge, specCardBadgeShown } from '@/components/spec/spec-shared'
 import type { TaskListItem } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
 
@@ -213,7 +213,7 @@ function CardBody({ task, agents, dragging }: CardBodyProps) {
       </div>
       {/* anywhere: a path or file name in the title has no spaces to break at, and would run out of the card. */}
       <div className="text-sm text-foreground/90 leading-snug line-clamp-3 [overflow-wrap:anywhere]">{task.title}</div>
-      <TaskExecutionIndicator task={task} className="flex w-full" />
+      {!specCardBadgeShown(task) && <TaskExecutionIndicator task={task} className="flex w-full" />}
       {task.labels.length > 0 && (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
           {task.labels.slice(0, 2).map((l) => (

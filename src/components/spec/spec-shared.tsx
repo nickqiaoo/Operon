@@ -18,6 +18,7 @@ import { formatDuration } from '@/lib/format'
 import type { SpecChatRef, SpecRole, SpecSeat, SpecSeatView, SpecStage, SpecSwitch, SpecTicketBuild, SpecTicketState, SpecView } from '@shared/spec'
 import { SeatPicker, seatName } from './SeatPicker'
 import type { TaskListItem } from '@/types/task'
+import { isTaskRunning, RunningBars } from '@/components/task/TaskExecutionIndicator'
 
 /** Stages in which the server is working and the view changes on its own. */
 const LIVE_STAGES: readonly SpecStage[] = ['grounding', 'designing', 'reviewing']
@@ -1112,25 +1113,41 @@ export function SpecBuildSummary({ spec }: { spec: SpecView }) {
  * building), or "Blocked" when something waits on a person. A ticket shows only
  * "Blocked" — its column already says the rest.
  */
-export function SpecCardBadge({ task }: { task: Pick<TaskListItem, 'specStage' | 'specProgress' | 'ticketState'> }) {
+type SpecCardTask = Pick<TaskListItem, 'specStage' | 'specProgress' | 'ticketState' | 'status' | 'archivedAt' | 'executionStatus'>
+
+function specCardBlocked(task: SpecCardTask): boolean {
+  return task.ticketState === 'blocked' || (task.specProgress?.blocked ?? 0) > 0
+}
+
+/**
+ * Whether `SpecCardBadge` shows anything. When it does, the card leaves out the
+ * running chip: the badge carries the live state, and the chip only repeated it
+ * (and named one agent while the arena ran two).
+ */
+export function specCardBadgeShown(task: SpecCardTask): boolean {
+  if (specCardBlocked(task)) return true
+  // A finished spec says nothing its task status doesn't already say.
+  if (task.specStage == null || task.specStage === 'done') return false
+  // Approved before the build stage existed: nothing is being built by it.
+  return !(task.specStage === 'building' && !task.specProgress)
+}
+
+export function SpecCardBadge({ task, className }: { task: SpecCardTask; className?: string }) {
   const intl = useIntl()
-  const blocked = task.ticketState === 'blocked' || (task.specProgress?.blocked ?? 0) > 0
-  if (blocked) {
+  if (specCardBlocked(task)) {
     return (
-      <span className="inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-medium text-status-error bg-status-error/10">
+      <span className={cn('inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-medium text-status-error bg-status-error/10', className)}>
         <AlertCircle className="h-2.5 w-2.5" aria-hidden />
         <FormattedMessage id="spec.card.blocked" defaultMessage="Blocked" />
       </span>
     )
   }
-  // A finished spec says nothing its task status doesn't already say.
-  if (task.specStage == null || task.specStage === 'done') return null
-  // Approved before the build stage existed: nothing is being built by it.
-  if (task.specStage === 'building' && !task.specProgress) return null
+  if (!specCardBadgeShown(task) || task.specStage == null) return null
   const progress =
     task.specStage === 'building' && task.specProgress ? ` ${task.specProgress.merged}/${task.specProgress.total}` : ''
   return (
-    <span className={cn('rounded px-1 text-[10px] font-medium tabular-nums', STAGE_TONE[task.specStage])}>
+    <span className={cn('inline-flex items-center gap-1 rounded px-1 text-[10px] font-medium tabular-nums', STAGE_TONE[task.specStage], className)}>
+      {isTaskRunning(task) && <RunningBars small />}
       {stageLabel(intl, task.specStage)}
       {progress}
     </span>
