@@ -1,7 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppServerClient, REQUEST_NOT_HANDLED } from './app-server-client.js'
 import { acquireAppServerClient, disposeAllAppServerClients } from './client-registry.js'
 import type { CodexAppServerSettings } from './types/index.js'
+import { listModels, listSkills } from './discovery.js'
+import { getCodexAccountUsage } from '../usage-probe.js'
+import { createRuntimeContext } from '../../../context.js'
+
+afterEach(() => {
+  disposeAllAppServerClients()
+  vi.restoreAllMocks()
+})
 
 const settings = (over: Partial<CodexAppServerSettings> = {}): CodexAppServerSettings => ({
   codexPath: '/usr/local/bin/codex',
@@ -133,15 +141,34 @@ describe('app-server connection sharing', () => {
     expect(dispose).toHaveBeenCalledOnce()
   })
 
-  it('separates connections whose process-level config differs', () => {
+  it('shares one host connection despite different environment and binary settings', () => {
     const a = acquireAppServerClient(settings())
-    const b = acquireAppServerClient(settings({ env: { OPERON_TEST: '1' } }))
+    const b = acquireAppServerClient(settings({ codexPath: '/other/codex', env: { OPERON_TEST: '1' } }))
     try {
-      expect(b.client).not.toBe(a.client)
+      expect(b.client).toBe(a.client)
     } finally {
       a.release()
       b.release()
     }
+  })
+
+  it('keeps different hosts separate', () => {
+    const a = acquireAppServerClient(settings())
+    const b = acquireAppServerClient(settings(), 'remote')
+    expect(b.client).not.toBe(a.client)
+    a.release()
+    b.release()
+  })
+
+  it('does not remove a new connection when an old lease releases after disposal', () => {
+    const old = acquireAppServerClient(settings())
+    disposeAllAppServerClients()
+    const current = acquireAppServerClient(settings())
+    old.release()
+    const next = acquireAppServerClient(settings())
+    expect(next.client).toBe(current.client)
+    current.release()
+    next.release()
   })
 
   it('shares across workspaces — cwd travels with the thread, not the process', () => {
@@ -165,5 +192,46 @@ describe('app-server connection sharing', () => {
       second.release()
       disposeAllAppServerClients()
     }
+  })
+})
+
+describe('account queries and discovery share the conversation connection', () => {
+  it.each(['usage first', 'conversation first'])('%s retains one client until runtime and chats release it', async (order) => {
+    const ctx = createRuntimeContext({
+      resolveBinary: () => '/usr/local/bin/codex',
+      env: () => ({ OPERON_TEST: 'usage' }),
+    })
+    const readUsage = vi.spyOn(AppServerClient.prototype, 'readRateLimits').mockResolvedValue(null)
+    if (order === 'usage first') await getCodexAccountUsage(ctx)
+    const chat = acquireAppServerClient(settings({ cwd: '/repo/one', env: { OPERON_TEST: 'chat' } }))
+    const otherChat = acquireAppServerClient(settings({ cwd: '/repo/two' }))
+    if (order === 'conversation first') await getCodexAccountUsage(ctx)
+    expect(readUsage.mock.instances[0]).toBe(chat.client)
+    expect(otherChat.client).toBe(chat.client)
+    const dispose = vi.spyOn(chat.client, 'dispose')
+    chat.release()
+    otherChat.release()
+    expect(dispose).not.toHaveBeenCalled()
+    await getCodexAccountUsage(ctx)
+    expect(readUsage.mock.instances[1]).toBe(chat.client)
+    await ctx.disposeShared()
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('borrows the conversation client for model and skill discovery without disposing it', async () => {
+    const chat = acquireAppServerClient(settings())
+    const models = vi.spyOn(chat.client, 'listModels').mockResolvedValue({ data: [], nextCursor: null })
+    const skills = vi.spyOn(chat.client, 'listSkills').mockResolvedValue({ data: [] })
+    const dispose = vi.spyOn(chat.client, 'dispose')
+    await expect(listModels({ env: { OPERON_TEST: 'models' } })).resolves.toEqual({ models: [], defaultModel: undefined })
+    await expect(listSkills({ cwds: ['/repo/two'] })).resolves.toEqual([])
+    expect(models).toHaveBeenCalledOnce()
+    expect(skills).toHaveBeenCalledWith({ cwds: ['/repo/two'] })
+    expect(dispose).not.toHaveBeenCalled()
+    models.mockRejectedValueOnce(new Error('discovery failed'))
+    await expect(listModels()).rejects.toThrow('discovery failed')
+    expect(dispose).not.toHaveBeenCalled()
+    chat.release()
+    expect(dispose).toHaveBeenCalledOnce()
   })
 })

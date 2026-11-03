@@ -24,10 +24,24 @@ interface UseSlashCommandOptions {
   cursorPos: number;
   slashCommands: SlashCommandItem[];
   inlineCommands?: boolean;
+  /** Chips restored from a saved draft when the composer remounts. */
+  initialSkills?: SlashCommandItem[];
+  onSkillsChange?: (skills: SlashCommandItem[]) => void;
 }
 
-export function useSlashCommand({ input, setInput, cursorPos, slashCommands, inlineCommands = false }: UseSlashCommandOptions) {
-  const [selectedSkills, setSelectedSkills] = useState<SlashCommandItem[]>([]);
+export function useSlashCommand({
+  input,
+  setInput,
+  cursorPos,
+  slashCommands,
+  inlineCommands = false,
+  initialSkills,
+  onSkillsChange,
+}: UseSlashCommandOptions) {
+  const [selectedSkills, setSelectedSkills] = useState<SlashCommandItem[]>(initialSkills ?? []);
+  useEffect(() => {
+    onSkillsChange?.(selectedSkills);
+  }, [selectedSkills, onSkillsChange]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissedMatchKey, setDismissedMatchKey] = useState<string | null>(null);
 

@@ -7,15 +7,14 @@
  *
  * Where Claude needs a dedicated process, Codex does not. `account/rateLimits/read`
  * is a plain request on the thread-multiplexed app-server, so this reuses a
- * connection some conversation already opened and only starts its own when
- * nothing is connected.
+ * connection some conversation already opened, or opens that same shared
+ * connection before the first conversation.
  */
 
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import {
   acquireAppServerClient,
-  peekAnyAppServerClient,
   type AppServerLease,
 } from './sdk/client-registry.js'
 import type { AccountRateLimitsReadResult } from './sdk/protocol/index.js'
@@ -23,7 +22,7 @@ import type { AccountRateLimitsReadResult } from './sdk/protocol/index.js'
 const logger = createRuntimeLogger('codex-usage')
 
 /**
- * The probe's own connection, held per runtime for as long as the runtime lives
+ * The probe's lease on the shared connection, held as long as the runtime lives
  * once taken, rather than acquired and released per read: releasing the last
  * lease disposes the server, so a per-read lease would spawn and kill a process
  * on every poll. Disposed with the runtime (`RuntimeContext.disposeShared`).
@@ -33,23 +32,14 @@ class CodexUsageProbe {
 
   constructor(private readonly ctx: RuntimeContext) {}
 
-  /**
-   * Reuse whatever a conversation already has open; fall back to a connection of
-   * our own. The env is deliberately left empty — it takes part in the registry's
-   * connection key, and a probe that guessed at one would key to its own entry
-   * and start a second server beside the one already running.
-   */
-  client(): ReturnType<typeof peekAnyAppServerClient> {
-    const shared = peekAnyAppServerClient()
-    if (shared) return shared
-
+  client(): AppServerLease['client'] | undefined {
     if (!this.lease) {
       const codexPath = this.ctx.resolveBinary('codex')
       if (!codexPath) {
         logger.info('Codex CLI not available, skipping usage probe')
         return undefined
       }
-      this.lease = acquireAppServerClient({ codexPath })
+      this.lease = acquireAppServerClient({ codexPath, env: this.ctx.env() })
       logger.info('Usage probe connection opened')
     }
 

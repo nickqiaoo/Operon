@@ -14,6 +14,45 @@ vi.stubGlobal("window", { localStorage })
 vi.stubGlobal("localStorage", localStorage)
 
 const { useAppShellStore } = await import("./app-shell-store")
+const { useSessionPanelStore } = await import("./session-panel-store")
+
+describe("right panel and session panel", () => {
+  beforeEach(() => {
+    storage.clear()
+    useAppShellStore.setState({ rightPanelOpen: false, rightPanelExpanded: false })
+    useSessionPanelStore.setState({ open: true, owner: "chat-1" })
+  })
+
+  it.each(["setRightPanelOpen", "toggleRightPanel"] as const)(
+    "collapses the session panel when opening with %s without restoring on close",
+    (action) => {
+      const store = useAppShellStore.getState()
+      if (action === "setRightPanelOpen") store.setRightPanelOpen(true)
+      else store.toggleRightPanel()
+
+      expect(useAppShellStore.getState().rightPanelOpen).toBe(true)
+      expect(useSessionPanelStore.getState()).toMatchObject({ open: false, owner: "chat-1" })
+
+      if (action === "setRightPanelOpen") store.setRightPanelOpen(false)
+      else store.toggleRightPanel()
+
+      expect(useAppShellStore.getState().rightPanelOpen).toBe(false)
+      expect(useSessionPanelStore.getState().open).toBe(false)
+    },
+  )
+
+  it("preserves an explicitly reopened session panel when the right panel is already open", () => {
+    const store = useAppShellStore.getState()
+    store.setRightPanelOpen(true)
+    useSessionPanelStore.getState().setOpen(true)
+
+    store.setRightPanelOpen(true)
+    expect(useSessionPanelStore.getState().open).toBe(true)
+
+    store.setRightPanelOpen(false)
+    expect(useSessionPanelStore.getState().open).toBe(true)
+  })
+})
 
 describe("app shell right panel width", () => {
   beforeEach(() => {

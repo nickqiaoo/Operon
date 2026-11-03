@@ -15,6 +15,7 @@ vi.mock("@/lib/analytics", () => ({
 }))
 
 import { useEditorStore } from "./editor-store"
+import { getChatDraft, setChatDraft } from "@/lib/chat-drafts"
 
 const chatTab = (id: string, chatId: number) => ({
   id,
@@ -103,6 +104,20 @@ describe("editor chat tab identity", () => {
 })
 
 describe("editor chat session cleanup", () => {
+  it("drops the closed tab's draft and preserves drafts in other workspaces", () => {
+    useEditorStore.setState({ tabs: [chatTab("chat:draft-one", 1)], currentWorkspaceId: 1 })
+    setChatDraft("chat:draft-one", "Workspace one")
+    useEditorStore.getState().setWorkspace(2, 7)
+    setChatDraft("chat:draft-two", "Workspace two")
+    useEditorStore.getState().setWorkspace(1, 7)
+    expect(getChatDraft("chat:draft-one")).toBe("Workspace one")
+
+    useEditorStore.getState().closeTab("chat:draft-one")
+
+    expect(getChatDraft("chat:draft-one")).toBe("")
+    expect(getChatDraft("chat:draft-two")).toBe("Workspace two")
+  })
+
   it("does not clean up a session while another current tab references it", () => {
     useEditorStore.setState({
       tabs: [chatTab("chat:original", 42), chatTab("chat:duplicate", 42)],

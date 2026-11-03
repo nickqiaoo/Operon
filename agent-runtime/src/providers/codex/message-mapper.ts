@@ -73,7 +73,7 @@ function toLocalOrRemoteImageInput(
       return { type: 'localImage', path: fileURLToPath(data) }
     }
     if (data.protocol === 'http:' || data.protocol === 'https:' || data.protocol === 'data:') {
-      return { type: 'image', imageUrl: data.href }
+      return { type: 'image', url: data.href }
     }
     warnings.push({ type: 'other', message: `Unsupported image URL protocol "${data.protocol}".` })
     return undefined
@@ -81,7 +81,7 @@ function toLocalOrRemoteImageInput(
 
   if (typeof data === 'string') {
     if (data.startsWith('data:') || data.startsWith('http://') || data.startsWith('https://')) {
-      return { type: 'image', imageUrl: data }
+      return { type: 'image', url: data }
     }
     if (data.startsWith('file://')) {
       try {

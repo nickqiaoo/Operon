@@ -205,7 +205,8 @@ export interface UserInputText {
 
 export interface UserInputImage {
   type: 'image';
-  imageUrl: string;
+  /** App-server wire field; the public SDK input calls this imageUrl. */
+  url: string;
 }
 
 export interface UserInputLocalImage {
