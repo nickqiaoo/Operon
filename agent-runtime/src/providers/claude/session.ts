@@ -8,10 +8,6 @@ import type {
   SDKMessage,
   SDKRateLimitEvent,
   SDKSystemMessage,
-  SDKTaskNotificationMessage,
-  SDKTaskProgressMessage,
-  SDKTaskStartedMessage,
-  SDKTaskUpdatedMessage,
   SDKUserMessage,
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk'
@@ -25,7 +21,6 @@ import type {
   McpServerInfo,
   PermissionDecision,
   RuntimeBackgroundEvent,
-  RuntimeBackgroundTask,
   SendOptions,
   SessionCloseReason,
   SessionOptions,
@@ -33,6 +28,7 @@ import type {
   SessionPatchApplied,
   RuntimeStreamPart,
   SlashCommandItem,
+  TaskControl,
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
 import { toUserMessages } from '../../utils/agent-input.js'
@@ -43,6 +39,7 @@ import { buildClaudeRuntimeSettings } from './config.js'
 import type { RuntimeContext } from '../../context.js'
 import { convertToClaudeMessages } from './message-mapper.js'
 import { ClaudeTextStreamBuilder } from './text-stream-builder.js'
+import { ClaudeTaskTracker, isTaskMessage } from './task-tracker.js'
 import { applyClaudeUsagePush, peekClaudeAccountUsage } from './usage-probe.js'
 import type { ClaudeRuntimeSettings, PendingApproval } from './types.js'
 import { createRuntimeLogger } from '../../logger.js'
@@ -72,21 +69,6 @@ interface TurnState {
   /** Started by the agent itself (see `openBackgroundTurn`), not by a `stream()` call. */
   background?: { finished: Promise<void> }
 }
-
-type SDKTaskMessage =
-  | SDKTaskStartedMessage
-  | SDKTaskProgressMessage
-  | SDKTaskUpdatedMessage
-  | SDKTaskNotificationMessage
-
-const TASK_SUBTYPES = new Set(['task_started', 'task_progress', 'task_updated', 'task_notification'])
-
-function isTaskMessage(message: SDKMessage): message is SDKTaskMessage {
-  return message.type === 'system' && TASK_SUBTYPES.has(message.subtype)
-}
-
-/** Finished tasks kept for the UI; the oldest are dropped past this. */
-const MAX_SETTLED_TASKS = 50
 
 // ---------------------------------------------------------------------------
 // buildQueryOptions
@@ -139,6 +121,7 @@ function buildQueryOptions(
 /** What only Claude Code sessions offer. */
 export interface ClaudeSessionNative {
   mcp: McpControl
+  tasks: TaskControl
 }
 
 export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
@@ -169,9 +152,9 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
 
   private readonly pendingApprovals = new Map<string, PendingApproval>()
 
-  // Between-turn output (background sub-agents, replies the agent starts itself)
+  // Between-turn output (the task list, replies the agent starts itself)
   private backgroundListener: ((event: RuntimeBackgroundEvent) => void) | null = null
-  private readonly backgroundTasks = new Map<string, RuntimeBackgroundTask>()
+  private readonly tasks = new ClaudeTaskTracker((tasks) => this.backgroundListener?.({ type: 'tasks', tasks }))
   private cachedInitData: Record<string, unknown> | null = null
 
   // Side chat state. `boundaryPending` is true only until the branch's first
@@ -335,8 +318,11 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
           continue
         }
 
+        // Every message, sub-agents' included: a task's command and output ride
+        // on the tool calls around it.
+        this.tasks.observeToolBlocks(message)
         if (isTaskMessage(message)) {
-          this.handleTaskMessage(message)
+          this.tasks.handle(message)
           continue
         }
 
@@ -448,68 +434,6 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     return () => {
       if (this.backgroundListener === listener) this.backgroundListener = null
     }
-  }
-
-  /**
-   * Keep the background-agent list current and report it whole.
-   *
-   * Only sub-agents are tracked (`local_agent`): they are what renders as a card.
-   * Background shells and housekeeping tasks have their own surfaces, or none.
-   * Foreground agents are skipped too — their steps stream inside the turn.
-   */
-  private handleTaskMessage(message: SDKTaskMessage): void {
-    const now = Date.now()
-    const existing = this.backgroundTasks.get(message.task_id)
-    let next: RuntimeBackgroundTask | undefined
-
-    switch (message.subtype) {
-      case 'task_started': {
-        if (message.task_type !== 'local_agent' || message.skip_transcript || !message.tool_use_id) return
-        if (!message.is_backgrounded) return
-        next = {
-          taskId: message.task_id,
-          toolUseId: message.tool_use_id,
-          description: message.description,
-          status: 'running',
-          startedAt: now,
-        }
-        break
-      }
-      case 'task_updated': {
-        if (!existing) return
-        if (message.patch.description) next = { ...existing, description: message.patch.description }
-        break
-      }
-      case 'task_progress': {
-        if (!existing) return
-        next = {
-          ...existing,
-          toolUses: message.usage.tool_uses,
-          lastToolName: message.last_tool_name ?? existing.lastToolName,
-          summary: message.summary ?? existing.summary,
-        }
-        break
-      }
-      case 'task_notification': {
-        if (!existing) return
-        next = {
-          ...existing,
-          status: message.status,
-          summary: message.summary || existing.summary,
-          toolUses: message.usage?.tool_uses ?? existing.toolUses,
-          endedAt: now,
-        }
-        break
-      }
-    }
-    if (!next) return
-
-    this.backgroundTasks.set(next.taskId, next)
-    const settled = [...this.backgroundTasks.values()].filter((task) => task.status !== 'running')
-    for (const task of settled.slice(0, Math.max(0, settled.length - MAX_SETTLED_TASKS))) {
-      this.backgroundTasks.delete(task.taskId)
-    }
-    this.backgroundListener?.({ type: 'tasks', tasks: [...this.backgroundTasks.values()] })
   }
 
   /**
@@ -838,6 +762,11 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
       list: () => this.listMcpServers(),
       reconnect: (name) => this.mutateMcp(true, (query) => query.reconnectMcpServer(name)),
       toggle: (name, enabled) => this.mutateMcp(enabled, (query) => query.toggleMcpServer(name, enabled)),
+    },
+    tasks: {
+      stop: (taskId) => this.liveQuery().stopTask(taskId),
+      output: (taskId) => this.tasks.output(taskId),
+      clearFinished: () => this.tasks.clearFinished(),
     },
   }
 

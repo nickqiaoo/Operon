@@ -16,6 +16,31 @@ export const agentSessionKeys = {
   session: (providerId: string | undefined, chatId: number) => ['agent-session', providerId ?? 'none', chatId] as const,
   section: (providerId: string | undefined, chatId: number, section: AgentSessionSection) =>
     ['agent-session', providerId ?? 'none', chatId, section] as const,
+  taskOutput: (providerId: string | undefined, chatId: number, taskId: string) =>
+    ['agent-session', providerId ?? 'none', chatId, 'task-output', taskId] as const,
+}
+
+/** How often an open, still-running task's output is re-read. */
+const TASK_OUTPUT_POLL_MS = 1500
+
+/**
+ * What a Claude Code task has printed (`tasks.output`): read while its row is
+ * open, and re-read while it runs, so a background command's tail stays live.
+ */
+export function useTaskOutput(
+  providerId: string | undefined,
+  chatId: number,
+  taskId: string,
+  { enabled, live }: { enabled: boolean; live: boolean },
+) {
+  return useQuery({
+    queryKey: agentSessionKeys.taskOutput(providerId, chatId, taskId),
+    queryFn: async () => (await agent.tasksOutput(chatId, taskId)).output,
+    enabled,
+    refetchInterval: live ? TASK_OUTPUT_POLL_MS : false,
+    refetchIntervalInBackground: false,
+    retry: false,
+  })
 }
 
 type AgentSessionSection = 'mcp' | 'tasks' | 'subagents' | 'skills' | 'cron' | 'extensions' | 'peers'

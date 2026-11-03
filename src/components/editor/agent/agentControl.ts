@@ -123,10 +123,13 @@ export const cronDelete = (chatId: number, id: string) =>
 // ── Background tasks ──
 export const tasksList = (chatId: number) =>
   call<{ tasks: OperonBackgroundTaskDTO[] }>(chatId, 'tasks.list')
+/** Operon's own tasks answer with a string; Claude Code's with `null` when there is nothing to read yet. */
 export const tasksOutput = (chatId: number, taskId: string) =>
-  call<{ output: string }>(chatId, 'tasks.output', { taskId })
+  call<{ output: string | null }>(chatId, 'tasks.output', { taskId })
 export const tasksStop = (chatId: number, taskId: string, reason?: string) =>
-  call<{ task: OperonBackgroundTaskDTO | null }>(chatId, 'tasks.stop', { taskId, reason })
+  call<{ task?: OperonBackgroundTaskDTO | null }>(chatId, 'tasks.stop', { taskId, reason })
+/** Claude Code: drop the finished entries from the session's task list. */
+export const tasksClearFinished = (chatId: number) => call<{ ok: true }>(chatId, 'tasks.clearFinished')
 
 // ── Subagents ──
 export const subagentsList = (chatId: number) =>

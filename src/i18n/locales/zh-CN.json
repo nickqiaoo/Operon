@@ -2211,5 +2211,12 @@
   "spec.agents.calls": "{count} 次 agent 调用",
   "task.execution.running": "运行中",
   "editor.steerNotice.done": "完成",
-  "editor.steerNotice.failed": "失败"
+  "editor.steerNotice.failed": "失败",
+  "editor.session.tasksFinished": "已完成 {count}",
+  "editor.session.clearFinished": "清除已完成的任务",
+  "editor.session.showMore": "显示更多",
+  "editor.session.outputPending": "命令结束后显示输出。",
+  "editor.session.noOutput": "没有输出。",
+  "editor.session.toolUses": "{count} 次工具调用",
+  "editor.session.badgeTitle": "{active, plural, =0 {} other {# 个运行中 · }}{problems, plural, =0 {} other {# 项需要处理 · }}共 {total} 项"
 }
