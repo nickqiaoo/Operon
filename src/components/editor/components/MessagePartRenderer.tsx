@@ -60,15 +60,6 @@ function parseSkillTags(text: string): { skills: string[]; cleanText: string } {
   return { skills, cleanText };
 }
 
-function isSteerUserMessage(message: UIMessage): boolean {
-  if (message.role !== 'user' || !message.metadata || typeof message.metadata !== 'object') {
-    return false;
-  }
-
-  const metadata = message.metadata as Record<string, unknown>;
-  return metadata.steer === true;
-}
-
 function SkillTag({ name }: { name: string }) {
   // items-baseline + a self-centered icon keeps the tag's baseline on its text,
   // so it still lines up with the message text beside it (the parent row is
@@ -493,7 +484,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   if (injected) {
     return (
       <Message key={`${message.id}-${partIndex}`} from="user" data-testid="injected-steer">
-        <MessageContent variant="tint">
+        <MessageContent>
           <UserMessageText text={injected.text} />
         </MessageContent>
       </Message>
@@ -556,7 +547,6 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   }
 
   const text = displayText;
-  const isSteerMessage = isSteerUserMessage(message);
 
   // Split the context the user attached (selected text, line comments…) off
   // the front of the prompt, then parse skill tags from what remains.
@@ -569,9 +559,9 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
 
   return (
     <Message key={`${message.id}-${partIndex}`} from={message.role}>
-      <MessageContent variant={isSteerMessage ? 'tint' : undefined}>
+      <MessageContent>
         {message.role === 'user' && <UserContextBlocks blocks={contextBlocks} />}
-        {skillTags.length > 0 && !isSteerMessage ? (
+        {skillTags.length > 0 ? (
           <div className="flex items-baseline flex-wrap gap-1">
             {skillTags.map((name) => (
               <SkillTag key={name} name={name} />
