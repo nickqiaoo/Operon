@@ -342,15 +342,29 @@ export type SessionCloseReason = 'discard' | 'rebuild'
 export class RuntimeInjectionUnavailableError extends Error {}
 
 /**
- * A sub-agent the session left running in the background (Claude Code's
- * `Agent` with `run_in_background`). Keyed for the UI by `toolUseId` — the
- * spawning tool call, which is the card it renders under.
+ * Work a session runs as a task of its own (Claude Code's task list): shell
+ * commands, sub-agents, workflows, monitors. A background `Agent` is keyed for
+ * its chat card by `toolUseId` — the spawning tool call.
+ *
+ * Claude Code registers a foreground command only once it has run for a few
+ * seconds, so quick commands never appear here. Housekeeping tasks the CLI marks
+ * ambient are left out.
  */
 export interface RuntimeBackgroundTask {
-  /** The provider's task id; for Claude Code this is also the sub-agent's transcript id. */
+  /** The provider's task id; for a Claude Code sub-agent this is also its transcript id. */
   taskId: string
-  toolUseId: string
+  /** The tool call that started it, when one did. */
+  toolUseId?: string
+  /** The provider's task kind — Claude Code: `local_bash`, `local_agent`, `local_workflow`, `monitor`, `mcp_task`… */
+  taskType: string
+  /**
+   * Running apart from the turn: launched in the background, or moved there
+   * later. A foreground task's tool call is still waiting on it.
+   */
+  backgrounded: boolean
   description: string
+  /** The command line, for tasks a shell command started. */
+  command?: string
   status: 'running' | 'completed' | 'failed' | 'stopped'
   /** Tool calls the sub-agent has made so far. */
   toolUses?: number
@@ -359,6 +373,20 @@ export interface RuntimeBackgroundTask {
   summary?: string
   startedAt: number
   endedAt?: number
+}
+
+/** Claude Code's control over its task list (`native.tasks`). */
+export interface TaskControl {
+  /** Stop a running task; its list entry settles as `stopped`. */
+  stop(taskId: string): Promise<void>
+  /**
+   * What a shell task has printed: the live tail of a background command's
+   * output file, or a finished foreground command's result. `null` when there
+   * is nothing to read (not a shell task, or a foreground command still running).
+   */
+  output(taskId: string): Promise<string | null>
+  /** Drop every finished task from the list. */
+  clearFinished(): void
 }
 
 /**

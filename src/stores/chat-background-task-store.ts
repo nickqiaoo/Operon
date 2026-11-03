@@ -2,7 +2,7 @@ import { create } from "zustand"
 import type { BackgroundTaskSummary } from "@shared/background-tasks"
 
 /**
- * Background sub-agents per conversation, mirrored from the live-status stream
+ * Each conversation's Claude Code task list, mirrored from the live-status stream
  * (see lib/live-turn-events.ts). A chat absent from the map has none the server
  * knows of — which after a restart includes ones that did run and finished.
  */
@@ -24,11 +24,21 @@ export const useChatBackgroundTaskStore = create<{
     }),
 }))
 
-/** The background task an `Agent` call spawned, if the chat reported one. */
+const NO_TASKS: BackgroundTaskSummary[] = []
+
+/** A chat's whole task list, as the session reported it (empty when it has none). */
+export function useChatTasks(chatId: number | undefined): BackgroundTaskSummary[] {
+  return useChatBackgroundTaskStore((state) => (chatId == null ? NO_TASKS : state.tasksByChat.get(chatId) ?? NO_TASKS))
+}
+
+/**
+ * The background task an `Agent` call spawned, if the chat reported one. A
+ * foreground agent's steps stream inside the turn, so its entry is not one.
+ */
 export function useBackgroundTask(chatId: number | undefined, toolUseId: string | undefined): BackgroundTaskSummary | undefined {
   return useChatBackgroundTaskStore((state) =>
     chatId == null || !toolUseId
       ? undefined
-      : state.tasksByChat.get(chatId)?.find((task) => task.toolUseId === toolUseId),
+      : state.tasksByChat.get(chatId)?.find((task) => task.toolUseId === toolUseId && task.backgrounded),
   )
 }

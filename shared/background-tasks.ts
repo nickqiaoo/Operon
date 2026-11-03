@@ -1,13 +1,21 @@
 /**
- * A sub-agent a conversation left running in the background (Claude Code's
- * `Agent` with `run_in_background`), carried per chat on the live-status stream
- * (`GET /api/ai/chat/live-status`). `toolUseId` is the spawning tool call — the
- * card it renders under.
+ * One entry of a Claude Code session's task list — a command that ran for more
+ * than a few seconds, a sub-agent, a workflow, a monitor — carried per chat on
+ * the live-status stream (`GET /api/ai/chat/live-status`). Mirrors the runtime's
+ * `RuntimeBackgroundTask`. A background `Agent`'s card finds its entry by
+ * `toolUseId`, the spawning tool call.
  */
 export interface BackgroundTaskSummary {
   taskId: string
-  toolUseId: string
+  /** The tool call that started it, when one did. */
+  toolUseId?: string
+  /** Claude Code's task kind: `local_bash`, `local_agent`, `local_workflow`, `monitor`, `mcp_task`… */
+  taskType: string
+  /** Running apart from the turn (launched in the background, or moved there). */
+  backgrounded: boolean
   description: string
+  /** The command line, for tasks a shell command started. */
+  command?: string
   status: 'running' | 'completed' | 'failed' | 'stopped'
   /** Tool calls made so far. */
   toolUses?: number

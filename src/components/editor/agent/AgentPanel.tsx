@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ChevronRight,
@@ -32,7 +32,10 @@ import { openExternalUrl } from '@/lib/open-external'
 import { openPluginsPage, openSettingsTab } from '@/lib/open-settings'
 import { api } from '@/lib/api'
 import { useGitStatus } from '@/lib/git-queries'
-import { useAgentSessionState, type SessionResource } from '@/lib/agent-session-queries'
+import { useAgentSessionState, useTaskOutput, type SessionResource } from '@/lib/agent-session-queries'
+import { formatDuration } from '@/lib/format'
+import { useChatTasks } from '@/stores/chat-background-task-store'
+import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import { useEditorStore } from '@/stores/editor-store'
 import { hasNativeTabBar } from '@/lib/native'
 import { useBackHandler } from '@/hooks/useAndroidBackButton'
@@ -197,6 +200,10 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
     pollMs: LIVE_POLL_MS,
   })
 
+  // Claude Code's task list arrives on the live-status stream, not from a poll.
+  const claudeTasks = useChatTasks(providerId === 'claude-code' ? chatId : undefined)
+  const claudeRunning = claudeTasks.filter((t) => t.status === 'running').length
+
   const servers = mcp.data?.servers ?? []
   const skillList = skills.data?.skills ?? []
   const taskList = tasks.data?.tasks ?? []
@@ -297,11 +304,16 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
                     </Stat>
                   )}
                 </>
-              ) : mcpProblems > 0 ? (
-                <Stat tone="danger" dot="bg-destructive">
-                  <FormattedMessage id="editor.session.stat.attention" defaultMessage="{count} need attention" values={{ count: mcpProblems }} />
-                </Stat>
-              ) : null}
+              ) : (
+                <>
+                  {claudeRunning > 0 && <Stat dot="bg-status-info animate-pulse"><FormattedMessage id="editor.session.stat.running" defaultMessage="{count} running" values={{ count: claudeRunning }} /></Stat>}
+                  {mcpProblems > 0 && (
+                    <Stat tone="danger" dot="bg-destructive">
+                      <FormattedMessage id="editor.session.stat.attention" defaultMessage="{count} need attention" values={{ count: mcpProblems }} />
+                    </Stat>
+                  )}
+                </>
+              )}
             </>
           )}
         </div>
@@ -351,6 +363,11 @@ export const AgentPanel = memo(function AgentPanel({ open, chatId, providerId, o
               subagents, schedules) is most of a screen. MCP is the exception — a
               session's servers are worth a glance even when all is well. */}
           {fullSessionInspector && <GroupHeader label={<FormattedMessage id="editor.session.now" defaultMessage="Now" />} />}
+          {/* Running work first: it changes while you watch, the server list rarely does.
+              Its own key — a sibling sharing McpSection's would make React mix the two up. */}
+          {providerId === 'claude-code' && claudeTasks.length > 0 && (
+            <ClaudeTasksSection key={`tasks:${sessionKey}`} chatId={id} providerId={providerId} tasks={claudeTasks} />
+          )}
           <McpSection
             key={sessionKey}
             chatId={id}
@@ -535,8 +552,17 @@ function Stat({ dot, tone, children }: { dot?: string; tone?: 'danger'; children
  * counts called out ahead of it when they're non-zero.
  */
 function Badge({ total, active, problems }: { total: number; active?: number; problems?: number }) {
+  const intl = useIntl()
+  // Two bare numbers side by side ("● 1  2") read as one ("12"); say what each is.
+  const label = intl.formatMessage(
+    {
+      id: 'editor.session.badgeTitle',
+      defaultMessage: '{active, plural, =0 {} other {# running · }}{problems, plural, =0 {} other {# need attention · }}{total} total',
+    },
+    { active: active ?? 0, problems: problems ?? 0, total },
+  )
   return (
-    <span className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
+    <span title={label} aria-label={label} className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
       {!!active && (
         <span className="flex items-center gap-1 text-status-info">
           <Dot className="bg-status-info animate-pulse" />
@@ -1056,6 +1082,192 @@ function TaskRow({ chatId, task, onChanged }: { chatId: number; task: OperonBack
         <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 text-[11px] leading-relaxed">
           {output}
         </pre>
+      )}
+    </div>
+  )
+}
+
+// ── Claude Code tasks ────────────────────────────────────────────────────────
+// Claude Code's own task list — commands that ran for more than a few seconds,
+// background shells, sub-agents — pushed on the live-status stream rather than
+// polled. Running work on top; finished work below, folded under a count, the
+// way Claude's app lists it.
+
+/** Finished rows shown before "Show more". */
+const FINISHED_PREVIEW = 5
+
+const CLAUDE_TASK_DOT: Record<BackgroundTaskSummary['status'], string> = {
+  running: 'bg-status-info animate-pulse',
+  completed: 'bg-status-ok/70',
+  failed: 'bg-status-error',
+  stopped: 'bg-muted-foreground/30',
+}
+
+/** Claude Code's task kinds, in the panel's words. */
+const CLAUDE_TASK_KIND: Record<string, string> = {
+  local_bash: 'shell',
+  local_agent: 'agent',
+  local_workflow: 'workflow',
+  monitor: 'monitor',
+  mcp_task: 'MCP',
+}
+
+const byNewest = (a: BackgroundTaskSummary, b: BackgroundTaskSummary) =>
+  (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt)
+
+function ClaudeTasksSection({ chatId, providerId, tasks }: { chatId: number; providerId: string; tasks: BackgroundTaskSummary[] }) {
+  const intl = useIntl()
+  const [expanded, setExpanded] = useState(true)
+  const [finishedOpen, setFinishedOpen] = useState(true)
+  const [showAll, setShowAll] = useState(false)
+  const running = useMemo(() => tasks.filter((t) => t.status === 'running').sort(byNewest), [tasks])
+  const finished = useMemo(() => tasks.filter((t) => t.status !== 'running').sort(byNewest), [tasks])
+  const failed = finished.filter((t) => t.status === 'failed').length
+  const shownFinished = showAll ? finished : finished.slice(0, FINISHED_PREVIEW)
+
+  return (
+    <Section
+      icon={SquareStack}
+      title={<FormattedMessage id="editor.session.tasks" defaultMessage="Background tasks" />}
+      badge={<Badge total={tasks.length} active={running.length} problems={failed} />}
+      expanded={expanded}
+      onToggle={() => setExpanded((v) => !v)}
+    >
+      {running.length > 0 && (
+        <div className={ROWS}>
+          {running.map((t) => (
+            <ClaudeTaskRow key={t.taskId} chatId={chatId} providerId={providerId} task={t} />
+          ))}
+        </div>
+      )}
+      {finished.length > 0 && (
+        <>
+          <div className={cn(INDENT, 'flex h-6 items-center gap-2', running.length > 0 && 'mt-1')}>
+            <button
+              onClick={() => setFinishedOpen((v) => !v)}
+              aria-expanded={finishedOpen}
+              className="relative flex min-w-0 flex-1 items-center text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {/* In the status-dot column, like the rows' dots, so the label starts
+                  where their commands do. */}
+              <ChevronRight className={cn('absolute -left-4 h-3 w-3 shrink-0 transition-transform', finishedOpen && 'rotate-90')} />
+              <FormattedMessage id="editor.session.tasksFinished" defaultMessage="Finished {count}" values={{ count: finished.length }} />
+            </button>
+            <IconButton
+              onClick={() => void agent.tasksClearFinished(chatId)}
+              label={intl.formatMessage({ id: 'editor.session.clearFinished', defaultMessage: 'Clear finished tasks' })}
+            >
+              <Trash2 className="h-3 w-3" />
+            </IconButton>
+          </div>
+          {finishedOpen && (
+            <div className={ROWS}>
+              {shownFinished.map((t) => (
+                <ClaudeTaskRow key={t.taskId} chatId={chatId} providerId={providerId} task={t} />
+              ))}
+              {finished.length > shownFinished.length && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <FormattedMessage id="editor.session.showMore" defaultMessage="Show more" />
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  )
+}
+
+function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerId: string; task: BackgroundTaskSummary }) {
+  const intl = useIntl()
+  const [open, setOpen] = useState(false)
+  const [stopRequested, setStopRequested] = useState(false)
+  const isRunning = task.status === 'running'
+  const isShell = task.taskType === 'local_bash'
+  const output = useTaskOutput(providerId, chatId, task.taskId, { enabled: open && isShell, live: isRunning })
+  const title = task.command ?? task.description
+  const kind = CLAUDE_TASK_KIND[task.taskType] ?? task.taskType
+  const stopping = stopRequested && isRunning
+
+  // A live tail reads from the bottom: keep it pinned there as lines arrive.
+  const outputRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    const el = outputRef.current
+    if (el && isRunning) el.scrollTop = el.scrollHeight
+  }, [output.data, isRunning])
+
+  const stop = async () => {
+    setStopRequested(true)
+    try {
+      await agent.tasksStop(chatId, task.taskId)
+    } catch {
+      setStopRequested(false)
+    }
+  }
+
+  return (
+    <div className={ROW}>
+      <div className="flex items-center gap-2">
+        <RowDot className={CLAUDE_TASK_DOT[task.status]} />
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={title}
+          className={cn('min-w-0 flex-1 truncate text-left text-foreground/85 transition-colors hover:text-foreground', task.command && 'font-mono text-[12px]')}
+        >
+          {title}
+        </button>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
+          {isRunning || task.endedAt == null ? kind : formatDuration(task.endedAt - task.startedAt)}
+        </span>
+        {isRunning && (
+          <IconButton onClick={stop} disabled={stopping} label={intl.formatMessage({ id: 'editor.session.stopTask', defaultMessage: 'Stop task' })}>
+            {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <StopCircle className="h-3 w-3" />}
+          </IconButton>
+        )}
+      </div>
+      {open && (
+        <div className="mt-1 space-y-1.5 pb-1">
+          {/* The row shows the command; the model's own words for it go here. */}
+          {task.command && task.description && <div className="text-xs text-muted-foreground">{task.description}</div>}
+          {isShell ? (
+            output.isPending ? (
+              <div className="text-[11px] text-muted-foreground">
+                <FormattedMessage id="editor.session.loadingOutput" defaultMessage="Loading output…" />
+              </div>
+            ) : output.error ? (
+              <div className="text-[11px] text-status-error">{output.error.message}</div>
+            ) : output.data ? (
+              <pre
+                ref={outputRef}
+                className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-2 font-mono text-[11px] leading-relaxed"
+              >
+                {output.data}
+              </pre>
+            ) : (
+              <div className="text-[11px] text-muted-foreground">
+                {isRunning && !task.backgrounded ? (
+                  <FormattedMessage id="editor.session.outputPending" defaultMessage="Output shows when the command finishes." />
+                ) : (
+                  <FormattedMessage id="editor.session.noOutput" defaultMessage="No output." />
+                )}
+              </div>
+            )
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              {task.summary ?? (
+                <FormattedMessage
+                  id="editor.session.toolUses"
+                  defaultMessage="{count, plural, one {# tool call} other {# tool calls}}"
+                  values={{ count: task.toolUses ?? 0 }}
+                />
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

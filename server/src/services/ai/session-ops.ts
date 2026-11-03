@@ -5,6 +5,7 @@ import { getRuntime, getSessionManager, getChatStorage, getProjectStorage } from
 import { runSessionControl, supportsSessionControl } from './session-control.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessageWithRetry } from './persistence.js'
+import { getLiveTurn } from './live-turn-hub.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
 import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
 import type { AccountRateLimitsReadResult } from '@operon/agent-runtime/codex'
@@ -90,7 +91,11 @@ export async function injectIntoChat(
     return { success: false, delivery: 'not-sent', error: 'Session not found' }
   }
 
-  if (!session.activeRequest) {
+  // A turn the agent started on its own (Claude answering a finished background
+  // agent) runs on the same live session but through no `/chat` request, so it
+  // has no `activeRequest`. Its live turn is what the open tab is streaming.
+  const liveTurn = getLiveTurn(chatId)
+  if (!session.activeRequest && !(liveTurn && !liveTurn.isDone)) {
     console.warn(`[AI] injectIntoChat(${chatId}): no active request — session may have already finished`)
     return { success: false, delivery: 'not-sent', error: 'Session is not currently generating' }
   }
@@ -100,7 +105,7 @@ export async function injectIntoChat(
     return { success: false, delivery: 'not-sent', error: 'Current provider does not support steer' }
   }
 
-  if (options?.expectedRequestId && session.activeRequest.requestId !== options.expectedRequestId) {
+  if (options?.expectedRequestId && session.activeRequest?.requestId !== options.expectedRequestId) {
     return { success: false, delivery: 'not-sent', error: 'Active request changed' }
   }
 

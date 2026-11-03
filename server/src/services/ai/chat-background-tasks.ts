@@ -1,11 +1,12 @@
-// Background sub-agents per conversation, as the runtime last reported them.
+// Each conversation's Claude Code task list, as the runtime last reported it.
 //
 // A Claude Code `Agent` launched with `run_in_background` returns at once and
 // keeps working after the turn that started it has ended. Its card needs to know
 // it is still running, what it is doing and when it finishes — none of which
-// reaches the chat's message stream. The runtime reports the whole list on every
-// change (`RuntimeBackgroundEvent` `tasks`); this keeps the latest per chat and
-// fans it out to the live-status stream.
+// reaches the chat's message stream. The Session panel lists every task (slow
+// commands, background shells, sub-agents). The runtime reports the whole list
+// on every change (`RuntimeBackgroundEvent` `tasks`); this keeps the latest per
+// chat and fans it out to the live-status stream.
 //
 // Process-local, like the CLI processes whose agents it mirrors: a session that is
 // torn down reports an empty list, and a restart starts from nothing.

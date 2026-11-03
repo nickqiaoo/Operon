@@ -44,6 +44,14 @@ vi.mock('./persistence.js', () => ({
   persistInjectedUserMessageWithRetry: persistenceMock.persistInjectedUserMessageWithRetry,
 }));
 
+const liveTurnMock = vi.hoisted(() => ({
+  getLiveTurn: vi.fn<(chatId: number) => { isDone: boolean } | undefined>(() => undefined),
+}));
+
+vi.mock('./live-turn-hub.js', () => ({
+  getLiveTurn: liveTurnMock.getLiveTurn,
+}));
+
 vi.mock('../channel/agent-orchestrator.js', () => ({
   isAgentOwnedChat: stateMock.isAgentOwnedChat,
 }));
@@ -69,6 +77,7 @@ describe('injectIntoChat', () => {
     stateMock.getSession.mockReset();
     helpersMock.createSteerUserMessage.mockReset();
     persistenceMock.persistInjectedUserMessageWithRetry.mockReset();
+    liveTurnMock.getLiveTurn.mockReset();
   });
 
   it('returns the durable steer message with its target turn metadata', async () => {
@@ -150,6 +159,33 @@ describe('injectIntoChat', () => {
     expect(injectMessage).not.toHaveBeenCalled();
     await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ delivery: 'unknown' });
     expect(persistenceMock.persistInjectedUserMessageWithRetry).not.toHaveBeenCalled();
+  });
+
+  it('steers a turn the agent started on its own, which has no active request', async () => {
+    const injectMessage = vi.fn().mockResolvedValue(undefined);
+    stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { inject: injectMessage } });
+    liveTurnMock.getLiveTurn.mockReturnValue({ isDone: false });
+    helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-1', role: 'user', parts: [] });
+    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: true });
+    const { injectIntoChat } = await loadSessionOps();
+
+    await expect(injectIntoChat(7, 'also check logs')).resolves.toMatchObject({ success: true, delivery: 'accepted' });
+    expect(injectMessage).toHaveBeenCalledWith('also check logs', { id: expect.any(String) });
+    // A caller pinned to a specific request still never lands in an agent-started turn.
+    await expect(injectIntoChat(7, 'x', undefined, { expectedRequestId: 'request-1' }))
+      .resolves.toMatchObject({ delivery: 'not-sent', error: 'Active request changed' });
+  });
+
+  it('does not steer once the agent-started turn has finished', async () => {
+    const injectMessage = vi.fn();
+    stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { inject: injectMessage } });
+    liveTurnMock.getLiveTurn.mockReturnValue({ isDone: true });
+    const { injectIntoChat } = await loadSessionOps();
+
+    await expect(injectIntoChat(7, 'late')).resolves.toMatchObject({
+      delivery: 'not-sent', error: 'Session is not currently generating',
+    });
+    expect(injectMessage).not.toHaveBeenCalled();
   });
 
 });
