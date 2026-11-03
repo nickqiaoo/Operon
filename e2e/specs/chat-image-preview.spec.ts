@@ -21,6 +21,8 @@ test('image preview: zoom, pan, reset and reopen before and after sending', asyn
   const canvas = dialog.getByLabel('Image canvas')
   const image = dialog.getByRole('img', { name: 'details.svg' })
   await expect(dialog.getByText('1,600 × 1,000 px')).toBeVisible()
+  // Measure after the dialog's zoom-in entrance (95% → 100%), not during it.
+  await dialog.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
   const fitted = await image.boundingBox()
   if (!fitted) throw new Error('Image is not visible')
 
@@ -71,7 +73,8 @@ test('image preview: zoom, pan, reset and reopen before and after sending', asyn
 
   await chat.sendMessage(page, 'See attached image')
   await waitForStreamIdle(page)
-  await page.getByTestId('message-user').last().getByRole('button', { name: 'Preview details.svg' }).click()
+  // Attachments render as their own user Message (no bubble), before the text bubble.
+  await page.getByTestId('message-user').getByRole('button', { name: 'Preview details.svg' }).click()
   await expect(dialog.getByText('1,600 × 1,000 px')).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
   await expect.poll(async () => (await dialog.boundingBox())?.width ?? 1000).toBeLessThan(390)

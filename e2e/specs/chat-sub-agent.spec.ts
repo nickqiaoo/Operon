@@ -16,12 +16,8 @@ test('SubAgent renders parent Agent task with child step count', async ({ page }
   await chat.sendMessage(page, 'investigate failing test')
   await waitForStreamIdle(page)
 
-  // Parent task title + Agent badge
-  await expect(page.getByText('Investigate the failing test').first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText(/^Agent$/).first()).toBeVisible()
-
-  // Child step count: "2 steps"
-  await expect(page.getByText(/^2 steps$/).first()).toBeVisible()
+  // One TraceLine: the task title, with the child step count as its description.
+  await expect(page.getByRole('button', { name: 'Investigate the failing test 2 steps' })).toBeVisible({ timeout: 10_000 })
 })
 
 test('SubAgent expands to reveal child tool calls', async ({ page }) => {

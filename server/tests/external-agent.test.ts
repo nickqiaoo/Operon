@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UIMessage } from 'ai'
-import { FakeRuntimeProvider, type RuntimeStreamPart } from '@operon/agent-runtime'
+import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { makeTestApp, registerFakeScript, type TestApp } from './helpers/make-app.js'
 import { getSessionManager, shutdown } from '../src/services/ai/state.js'
 import { handleChat } from '../src/services/ai/chat-flow.js'
@@ -9,6 +9,17 @@ import { beginChatTurn, emitChatTurnFinished, isChatTurnBusy } from '../src/serv
 import { clearExternalAgentNotifications } from '../src/services/external-agent-notifications.js'
 import { handleSessionCleanup } from '../src/services/ai/session-ops.js'
 import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalAgentStatus } from '../src/services/external-agent.js'
+
+vi.mock('@operon/agent-runtime/codex', async () => {
+  const { fakeAgent } = await import('@operon/agent-runtime/testing')
+  return {
+    codex: () => ({
+      ...fakeAgent(),
+      id: 'codex',
+      info: { id: 'codex', label: 'Codex', logo: 'codex' },
+    }),
+  }
+})
 
 vi.mock('../src/services/ai/rewind.js', async (original) => ({
   ...await original<typeof import('../src/services/ai/rewind.js')>(),
@@ -31,7 +42,6 @@ describe('server-owned external agent conversations', () => {
   let unblockParent: (() => void) | undefined
   beforeEach(async () => {
     ctx = await makeTestApp()
-    getSessionManager().register('codex', () => new FakeRuntimeProvider(), { id: 'codex', label: 'Codex', logo: 'codex' })
     const created = ctx.storage.patchChatEntry(null, { baseRevision: 0, replaceFrom: 0,
       tailMessages: [], tp: 'chat', providerId: 'fake', model: 'fake-1',
       workspaceId: ctx.workspaceId, updatedAt: Date.now() })
@@ -63,12 +73,12 @@ describe('server-owned external agent conversations', () => {
   it('runs without a tab, exposes replayable output, queues delivery and follows up in the same session', async () => {
     beginChatTurn(parentChatId, 'busy-parent')
     unblockParent = () => emitChatTurnFinished({ chatId: parentChatId, turnId: 'busy-parent', status: 'completed' })
-    const child = await createExternalAgent({ parentChatId, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'first' })
+    const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'first' })
     await until(() => getExternalAgentStatus(parentChatId, child.agent_id).status === 'completed')
     expect(parentResults()).toHaveLength(0)
     expect(await new Response(getLiveTurn(child.chat_id)!.toReadableStream()).text()).toContain('first')
     const session = getSessionManager().get(child.chat_id)
-    expect(session?.params.modelId).toBe('fake-1')
+    expect(session?.params.model).toBe('fake-1')
     handleSessionCleanup(child.chat_id)
     expect(getSessionManager().get(child.chat_id)).toBe(session)
     const next = sendExternalAgent(parentChatId, child.agent_id, 'second')
@@ -87,7 +97,7 @@ describe('server-owned external agent conversations', () => {
   })
 
   it('cancels the old turn and queued messages; a prompt from the child tab still reports to the parent', async () => {
-    const child = await createExternalAgent({ parentChatId, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'slow' })
+    const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'slow' })
     await until(() => getLiveTurnStatus(child.chat_id).active)
     sendExternalAgent(parentChatId, child.agent_id, 'must not execute')
     expect(stopExternalAgent(parentChatId, child.agent_id).stopped).toBe(true)
@@ -100,7 +110,7 @@ describe('server-owned external agent conversations', () => {
     const completed = parentResults().find((message) => text(message).includes('<status>completed</status>'))!
     expect(text(completed)).toContain('<prompt-source>user in child chat</prompt-source>')
     expect(text(completed)).toContain('revised')
-    expect(getSessionManager().get(child.chat_id)?.params.modelId).toBe('fake-1')
+    expect(getSessionManager().get(child.chat_id)?.params.model).toBe('fake-1')
     const history = ctx.storage.getChatEntry(child.chat_id)?.messages as UIMessage[]
     expect(history.filter((message) => message.role === 'user').map(text)).toEqual(['slow', 'revised'])
   })
@@ -133,9 +143,9 @@ describe('server-owned external agent conversations', () => {
     await until(() => getLiveTurnStatus(parentChatId).active)
     const session = getSessionManager().get(parentChatId)!
     const requestId = session.activeRequest!.requestId
-    const inject = vi.spyOn(session.runtime, 'injectMessage')
+    const inject = vi.spyOn(session.runtime, 'inject')
     const children = await Promise.all(['A', 'B', 'C'].map((prompt) => createExternalAgent({
-      parentChatId, providerId: 'codex', model: 'fake-1', description: prompt, prompt,
+      parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: prompt, prompt,
     })))
     await until(() => parentResults().length === 1)
     expect(inject).toHaveBeenCalledTimes(1)
@@ -146,7 +156,7 @@ describe('server-owned external agent conversations', () => {
   })
 
   it('reports a provider stream failure as failed, not a successful partial reply', async () => {
-    const child = await createExternalAgent({ parentChatId, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'fail' })
+    const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'fail' })
     await until(() => parentResults().length === 1 && !isChatTurnBusy(parentChatId))
     expect(getExternalAgentStatus(parentChatId, child.agent_id).status).toBe('failed')
     expect(text(parentResults()[0])).toContain('<status>failed</status>')
@@ -158,7 +168,7 @@ describe('server-owned external agent conversations', () => {
     const reader = response.body!.getReader()
     const decode = new TextDecoder()
     expect(decode.decode((await reader.read()).value)).toContain('"type":"sync"')
-    const child = await createExternalAgent({ parentChatId, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'first' })
+    const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'first' })
     let frames = ''
     while (!frames.includes('"type":"created"')) frames += decode.decode((await reader.read()).value)
     expect(frames).toContain(`"childChatId":${child.chat_id}`)

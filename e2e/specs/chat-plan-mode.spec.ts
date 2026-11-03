@@ -17,8 +17,10 @@ test('claude-plan: ExitPlanMode renders Plan card with permission actions', asyn
   await chat.sendMessage(page, 'plan a refactor')
 
   // Plan card should render with the markdown title
-  await expect(page.locator('[data-slot="plan"]').first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.locator('[data-slot="plan-title"]').first()).toContainText(/Refactor auth module/i)
+  // (A TraceLine since the Trace migration: the title is its trace-title.)
+  const plan = page.locator('[data-slot="plan"]').first()
+  await expect(plan).toBeVisible({ timeout: 10_000 })
+  await expect(plan.locator('[data-slot="trace-title"]').first()).toContainText(/Refactor auth module/i)
 
   // Permission dialog (allow/deny) should be present inside the plan card
   await expect(page.locator('[data-testid="permission-dialog"]').first()).toBeVisible()
