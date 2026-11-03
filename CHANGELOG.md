@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-11-03
+
+### Added
+
+- The Claude Code session panel lists its tasks (shell commands, sub-agents, workflows, monitors) with live output, stop and clear-finished actions.
+
+### Changed
+
+- Times show in 24-hour format.
+
+### Fixed
+
+- Answering an approval or steering a running chat no longer hangs while several live panels are open.
+- Scrolling up while a reply streams is no longer pulled back to the bottom, and the scroll-to-bottom button shows reliably.
+- Sideways swipes, scrolling inside code blocks and typing in fields no longer stop a chat from following new output.
+- Jumping to a turn, loading older history and returning to a phone tab keep the message you were reading in place.
+
 ## [1.5.2] - 2026-11-02
 
 ### Added
