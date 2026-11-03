@@ -18,10 +18,12 @@ import {
 // Types
 // ============================================================================
 
+export type PromptInputFile = FileUIPart & { id: string; content?: string; asText?: boolean };
+
 export type AttachmentInput = File | { url: string; name: string; type: string; id?: string; content?: string; asText?: boolean };
 
 export interface AttachmentsContext {
-  files: (FileUIPart & { id: string; content?: string; asText?: boolean })[];
+  files: PromptInputFile[];
   add: (files: AttachmentInput[] | FileList) => void;
   remove: (id: string) => void;
   clear: () => void;
@@ -126,18 +128,32 @@ export const usePromptInputReferencedSources = () => {
 
 export type PromptInputProviderProps = PropsWithChildren<{
   initialInput?: string;
+  onInputChange?: (value: string) => void;
+  initialAttachments?: PromptInputFile[];
+  /**
+   * Hands the attachment list to the caller on every change. Passing it means the
+   * caller owns the blob URLs after unmount (a saved draft), so unmount leaves them alive.
+   */
+  onAttachmentsChange?: (files: PromptInputFile[]) => void;
 }>;
 
 export function PromptInputProvider({
   initialInput: initialTextInput = "",
+  onInputChange,
+  initialAttachments,
+  onAttachmentsChange,
   children,
 }: PromptInputProviderProps) {
   const [textInput, setTextInput] = useState(initialTextInput);
-  const clearInput = useCallback(() => setTextInput(""), []);
+  const setInput = useCallback((value: string) => {
+    setTextInput(value);
+    onInputChange?.(value);
+  }, [onInputChange]);
+  const clearInput = useCallback(() => setInput(""), [setInput]);
 
-  const [attachmentFiles, setAttachmentFiles] = useState<
-    (FileUIPart & { id: string; content?: string; asText?: boolean })[]
-  >([]);
+  const [attachmentFiles, setAttachmentFiles] = useState<PromptInputFile[]>(
+    initialAttachments ?? []
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const openRef = useRef<() => void>(() => undefined);
 
@@ -190,9 +206,17 @@ export function PromptInputProvider({
 
   const attachmentsRef = useRef(attachmentFiles);
   attachmentsRef.current = attachmentFiles;
+  const keepUrlsOnUnmount = onAttachmentsChange !== undefined;
+  const keepUrlsOnUnmountRef = useRef(keepUrlsOnUnmount);
+  keepUrlsOnUnmountRef.current = keepUrlsOnUnmount;
+
+  useEffect(() => {
+    onAttachmentsChange?.(attachmentFiles);
+  }, [attachmentFiles, onAttachmentsChange]);
 
   useEffect(
     () => () => {
+      if (keepUrlsOnUnmountRef.current) return;
       for (const f of attachmentsRef.current) {
         if (f.url) URL.revokeObjectURL(f.url);
       }
@@ -228,13 +252,13 @@ export function PromptInputProvider({
     () => ({
       textInput: {
         value: textInput,
-        setInput: setTextInput,
+        setInput,
         clear: clearInput,
       },
       attachments,
       __registerFileInput,
     }),
-    [textInput, clearInput, attachments, __registerFileInput]
+    [textInput, setInput, clearInput, attachments, __registerFileInput]
   );
 
   return (

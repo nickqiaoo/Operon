@@ -16,7 +16,6 @@ import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavig
 import { nativeTopBarTakesSpace } from '@/lib/native';
 import { useConversationScroll } from '@/components/ai-elements/conversation';
 import {
-  PromptInputProvider,
   usePromptInputController,
 } from '@/components/ai-elements/prompt-input';
 import { api } from '@/lib/api';
@@ -63,6 +62,7 @@ import { useChatPanelEffects } from './hooks/useChatPanelEffects';
 import { useSendToModels } from './hooks/useSendToModels';
 import { useChatRuntime } from './hooks/useChatRuntime';
 import { useClaudeUsagePolling } from './hooks/useClaudeUsagePolling';
+import { useCodexUsagePolling } from './hooks/useCodexUsagePolling';
 import { useCacheExpiryNotice } from './hooks/useCacheExpiryNotice';
 import { useChatSessionControls } from './hooks/useChatSessionControls';
 import { MessagesList } from './components/MessagesList';
@@ -102,6 +102,8 @@ import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { MobileFilePreviewSheet, type MobileFilePreview } from '@/components/mobile/MobileFilePreviewSheet';
 import { FileOpenProvider, useFileOpenHandler, type FileOpenHandler } from '@/lib/file-open-context';
 import { resolveCitationFile } from '@/lib/file-citation';
+import { claimChatInput, getChatDraftSkills, setChatDraftSkills } from '@/lib/chat-drafts';
+import { ChatInputProvider } from './components/ChatInputProvider';
 import {
   getRecentChatOptions,
   updateRecentChatOptions,
@@ -124,9 +126,9 @@ interface ChatPanelProps {
 export const ChatPanel = memo(function ChatPanel(props: ChatPanelProps) {
   const pageVisible = usePageVisible();
   return (
-    <PromptInputProvider>
+    <ChatInputProvider chatId={props.chatId}>
       <ChatPanelContent {...props} visible={props.visible !== false && pageVisible} />
-    </PromptInputProvider>
+    </ChatInputProvider>
   );
 });
 
@@ -296,8 +298,6 @@ function ChatPanelContent({
     updateRecentChatOptions(providerId, patch);
   }, [providerId, recentOptionsState.remember]);
 
-  const appliedTabInputKeyRef = useRef<string | null>(null);
-
   const modelManagement = useModelManagement(
     tab?.options?.modelId ?? recentOptionsState.options.modelId ?? '',
     providerId,
@@ -403,11 +403,11 @@ function ChatPanelContent({
     if (!tab?.options?.input) return;
 
     const inputKey = `${chatId}:${tab.options.timestamp ?? 'no-ts'}:${tab.options.input}`;
-    if (appliedTabInputKeyRef.current === inputKey) return;
-
-    appliedTabInputKeyRef.current = inputKey;
+    if (!claimChatInput(chatId, inputKey)) return;
     setInput(tab.options.input);
   }, [chatId, setInput, tab?.options?.input, tab?.options?.timestamp]);
+
+  const saveDraftSkills = useCallback((skills: SlashCommandItem[]) => setChatDraftSkills(chatId, skills), [chatId]);
 
   const setThinkingEffortAndRemember = useCallback((nextEffort: string) => {
     if (!thinkingEffortOptions.some((option) => option.value === nextEffort)) return;
@@ -521,7 +521,7 @@ function ChatPanelContent({
     compactedInfo,
     latestTodos,
     contextUsage,
-    codexUsageDetails,
+    codexUsageDetails: messageCodexUsageDetails,
   } = useRecentDerivedState({
     chatId,
     messages,
@@ -529,6 +529,11 @@ function ChatPanelContent({
     isTodoWriteTool,
     extractTodosFromPart,
   });
+  const isCodex = providerId === 'codex' || selectedModel?.providerId === 'codex';
+  const { data: polledCodexRateLimits } = useCodexUsagePolling(isCodex && visible, isGenerating);
+  const codexUsageDetails = useMemo(() => polledCodexRateLimits
+    ? { account: messageCodexUsageDetails?.account, rateLimits: polledCodexRateLimits }
+    : messageCodexUsageDetails, [polledCodexRateLimits, messageCodexUsageDetails]);
   const displayedContextUsage = useMemo(() => polledContextUsage
     ? {
         usage: contextUsage?.usage,
@@ -1409,6 +1414,8 @@ function ChatPanelContent({
           hasPendingContext={pendingAnnotationCount > 0 || pendingLineCommentCount > 0}
           pendingSkill={pendingSkill}
           onPendingSkillConsumed={() => setPendingSkill(null)}
+          initialSkills={getChatDraftSkills(chatId)}
+          onSkillsChange={saveDraftSkills}
         />}
       </div>
       <AgentPanel

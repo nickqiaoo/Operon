@@ -82,6 +82,9 @@ interface ChatInputAreaProps {
   pendingSkill?: SlashCommandItem | null;
   /** Called once `pendingSkill` has been taken, so the owner can clear it. */
   onPendingSkillConsumed?: () => void;
+  /** Skill chips saved with the chat's draft, restored on remount. */
+  initialSkills?: SlashCommandItem[];
+  onSkillsChange?: (skills: SlashCommandItem[]) => void;
   visible?: boolean;
 }
 
@@ -147,6 +150,8 @@ export function ChatInputArea({
   hasPendingContext = false,
   pendingSkill = null,
   onPendingSkillConsumed,
+  initialSkills,
+  onSkillsChange,
   visible = true,
 }: ChatInputAreaProps) {
   const intl = useIntl();
@@ -174,7 +179,7 @@ export function ChatInputArea({
     selectItem,
     removeSkill,
     clearSkills,
-  } = useSlashCommand({ input, setInput, cursorPos, slashCommands, inlineCommands: floating && hasNativeComposer() });
+  } = useSlashCommand({ input, setInput, cursorPos, slashCommands, inlineCommands: floating && hasNativeComposer(), initialSkills, onSkillsChange });
 
   // A skill chosen in the session panel becomes a chip here, then is cleared upstream so
   // reopening the panel does not re-add it.
