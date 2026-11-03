@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import { api } from '@/lib/api';
+import { useCodexUsagePolling } from '@/components/editor/hooks/useCodexUsagePolling';
 import type { ClaudeRateLimits, CodexRateLimits, RateLimitSnapshot } from '@/components/editor/utils/chatMetadata';
 
 /**
@@ -92,17 +93,7 @@ export function useAccountUsage(): {
     refetchIntervalInBackground: false,
   });
 
-  const codex = useQuery({
-    queryKey: codexUsageQueryKey,
-    queryFn: async (): Promise<CodexRateLimits | null> => {
-      const result = await api.aiGetCodexUsage();
-      return result.success ? (result.data ?? null) : null;
-    },
-    retry: false,
-    staleTime: USAGE_POLL_MS,
-    refetchInterval: USAGE_POLL_MS,
-    refetchIntervalInBackground: false,
-  });
+  const codex = useCodexUsagePolling();
 
   const queryClient = useQueryClient();
   const [isForcing, setIsForcing] = useState(false);
