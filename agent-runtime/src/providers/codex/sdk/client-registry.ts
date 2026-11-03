@@ -9,14 +9,14 @@
  * the Codex desktop app does (its `AppServerConnectionRegistry` is keyed by host
  * id: one for `local`, one per remote SSH host).
  *
- * Only three inputs are genuinely process-level: the codex binary, the
- * environment, and the spawn cwd. The binary and environment form the key here;
- * the spawn cwd is left to whichever session opens the connection, because
- * threads always pass their own.
+ * The first caller supplies the binary and process environment. Later callers
+ * reuse that process even when their environment or workspace differs. Changing
+ * process-level configuration takes effect after all holders release it.
  */
 
 import { AppServerClient, REQUEST_NOT_HANDLED } from './app-server-client.js';
 import type { CodexAppServerSettings } from './types/index.js';
+import { withLocalMcpNoProxy } from '../local-mcp-env.js';
 
 /** A borrowed connection. Call `release` exactly once when the session ends. */
 export interface AppServerLease {
@@ -33,23 +33,26 @@ const connections = new Map<string, Entry>();
 
 /**
  * The Codex desktop app keys connections by host id. We only ever talk to the
- * local machine, so the host part is constant; the binary and environment are
- * folded in so a session configured differently gets its own server instead of
- * silently inheriting another one's.
+ * local machine, so all projects and account queries share the local entry.
  */
-function connectionKey(settings: CodexAppServerSettings, hostId: string): string {
-  return JSON.stringify([hostId, settings.codexPath ?? 'codex', settings.env ?? {}]);
-}
-
 export function acquireAppServerClient(
   settings: CodexAppServerSettings,
   hostId = 'local',
 ): AppServerLease {
-  const key = connectionKey(settings, hostId);
+  const key = hostId;
   let entry = connections.get(key);
 
   if (!entry) {
-    const client = new AppServerClient(settings);
+    const client = new AppServerClient({
+      ...settings,
+      // Discovery or quota polling can open the connection before any chat.
+      // They need the same localhost proxy bypass as a conversation does.
+      env: withLocalMcpNoProxy({
+        ...settings.env,
+        NO_PROXY: settings.env?.NO_PROXY ?? process.env.NO_PROXY ?? '',
+        no_proxy: settings.env?.no_proxy ?? process.env.no_proxy ?? '',
+      }),
+    });
     // Registered once for the connection rather than once per session: it is
     // thread-agnostic, and as a fallback it only runs after every live turn has
     // declined the request.
@@ -80,24 +83,10 @@ export function acquireAppServerClient(
       released = true;
       held.refCount -= 1;
       if (held.refCount > 0) return;
-      connections.delete(key);
+      if (connections.get(key) === held) connections.delete(key);
       held.client.dispose();
     },
   };
-}
-
-/**
- * Any live connection, for account-scoped questions that belong to no thread.
- *
- * Rate limits are a property of the signed-in account, so any server can answer
- * them — and reusing one costs nothing, where `acquire` with a different `env`
- * would key to a second entry and spawn a second process for the same answer.
- * Returns undefined when nothing is connected; the caller decides whether that
- * is worth starting a server for.
- */
-export function peekAnyAppServerClient(): AppServerClient | undefined {
-  for (const entry of connections.values()) return entry.client;
-  return undefined;
 }
 
 /** Test seam — drops every connection without waiting for its holders. */

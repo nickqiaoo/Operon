@@ -17,7 +17,7 @@ function toProtocolInput(input: UserInput): ProtocolUserInput {
     case 'text':
       return { type: 'text', text: input.text };
     case 'image':
-      return { type: 'image', imageUrl: input.imageUrl };
+      return { type: 'image', url: input.imageUrl };
     case 'localImage':
       return { type: 'localImage', path: input.path };
   }

@@ -38,7 +38,7 @@ describe('normalizeUiMessagesFileAttachments — stored attachments', () => {
     const codex = convertPrompt(messages, 'persistent')
     try {
       expect(codex.warnings).toEqual([])
-      expect(codex.inputs).toContainEqual({ type: 'image', imageUrl: dataUrl })
+      expect(codex.inputs).toContainEqual({ type: 'image', url: dataUrl })
       expect(codex.inputs).toContainEqual({ type: 'text', text: 'Describe this image' })
     } finally {
       cleanupTempFiles(codex.tempFiles)

@@ -2,7 +2,7 @@
  * Discovery APIs for Codex app-server
  */
 
-import { AppServerClient } from './app-server-client.js';
+import { acquireAppServerClient } from './client-registry.js';
 import type { ModelInfo, ModelListResult, SkillListItem } from './protocol/index.js';
 
 export interface ListModelsOptions {
@@ -30,8 +30,7 @@ export interface ListModelsResult {
 /**
  * List available models from the Codex app-server.
  *
- * This is a standalone function that spawns a temporary app-server process
- * to query available models, then disposes of it.
+ * Borrows the host's shared app-server while querying available models.
  *
  * @example
  * ```typescript
@@ -47,7 +46,7 @@ export interface ListModelsResult {
  * ```
  */
 export async function listModels(options: ListModelsOptions = {}): Promise<ListModelsResult> {
-  const client = new AppServerClient({
+  const { client, release } = acquireAppServerClient({
     codexPath: options.codexPath,
     env: options.env,
     logger: false,
@@ -63,7 +62,7 @@ export async function listModels(options: ListModelsOptions = {}): Promise<ListM
 
     return { models, defaultModel };
   } finally {
-    client.dispose();
+    release();
   }
 }
 
@@ -74,7 +73,7 @@ export interface ListSkillsOptions {
 }
 
 export async function listSkills(options: ListSkillsOptions = {}): Promise<SkillListItem[]> {
-  const client = new AppServerClient({
+  const { client, release } = acquireAppServerClient({
     codexPath: options.codexPath,
     env: options.env,
     logger: false,
@@ -84,6 +83,6 @@ export async function listSkills(options: ListSkillsOptions = {}): Promise<Skill
     const result = await client.listSkills({ cwds: options.cwds });
     return result.data.flatMap((d) => d.skills.filter((s) => s.enabled));
   } finally {
-    client.dispose();
+    release();
   }
 }
