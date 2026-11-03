@@ -24,7 +24,7 @@ const FEATURES = [
 
 export function PluginsSection() {
   return (
-    <Section id="plugins">
+    <Section id="plugins" tone="sidebar">
       <Reveal>
         <Split
           reverse

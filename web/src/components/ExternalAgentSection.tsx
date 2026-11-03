@@ -17,8 +17,8 @@ const FEATURES = [
     desc: 'When a helper finishes, its answer lands in the conversation that asked for it, ready for the next step.',
   },
   {
-    title: 'Approve from the card',
-    desc: 'If a helper needs permission or has a question, you answer it right on its card — and pick its reasoning effort up front.',
+    title: 'Approve in place',
+    desc: 'If a helper needs permission or has a question, you answer it right under its step in the conversation — and pick its reasoning effort up front.',
   },
 ]
 
@@ -41,8 +41,8 @@ export function ExternalAgentSection() {
           <ThemedShot
             light={trioLight}
             dark={trioDark}
-            alt="One Operon conversation where Claude Code plans a change, Codex builds it and Antigravity reviews it, each shown as a card with its status"
-            aspect="2880 / 2080"
+            alt="One Operon conversation where Claude Code plans a change, Codex builds it and Antigravity reviews it, each handoff a step with its agent, model and status"
+            aspect="1440 / 978"
           />
         </div>
 

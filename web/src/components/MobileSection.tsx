@@ -1,7 +1,12 @@
 import { Reveal } from './Reveal'
 import { Eyebrow, FeatureList, Lead, Muted, Section, Split, Title } from './ui'
-import phoneLight from '../assets/shots/phone-light.webp'
-import phoneDark from '../assets/shots/phone-dark.webp'
+import { cn } from '../lib/styles'
+import boardLight from '../assets/shots/phone-board-light.webp'
+import boardDark from '../assets/shots/phone-board-dark.webp'
+import chatLight from '../assets/shots/phone-chat-light.webp'
+import chatDark from '../assets/shots/phone-chat-dark.webp'
+import diffLight from '../assets/shots/phone-diff-light.webp'
+import diffDark from '../assets/shots/phone-diff-dark.webp'
 
 const FEATURES = [
   {
@@ -24,7 +29,7 @@ const FEATURES = [
 
 export function MobileSection() {
   return (
-    <Section id="mobile" tone="sidebar">
+    <Section id="mobile">
       <Reveal>
         <Split
           copy={
@@ -43,8 +48,28 @@ export function MobileSection() {
             </>
           }
           visual={
-            <div className="flex justify-center">
-              <PhoneMock />
+            /* Left to right, the trip a phone check takes: the board, the
+               conversation that finished, the diff it left. The middle one leads;
+               on a phone-width page only it is shown. */
+            <div className="flex items-start justify-center gap-3 sm:gap-4">
+              <PhoneMock
+                light={boardLight}
+                dark={boardDark}
+                alt="Operon on iPhone: tasks grouped by status, one of them a spec that agents are still designing"
+                className="mt-10 hidden w-[180px] sm:block lg:w-[190px]"
+              />
+              <PhoneMock
+                light={chatLight}
+                dark={chatDark}
+                alt="A Codex conversation on iPhone that added a CSV export, ending with the card of files it edited"
+                className="relative z-10 w-[240px] sm:w-[210px] lg:w-[220px]"
+              />
+              <PhoneMock
+                light={diffLight}
+                dark={diffDark}
+                alt="The diff of src/server.ts from that conversation, on iPhone"
+                className="mt-10 hidden w-[180px] sm:block lg:w-[190px]"
+              />
             </div>
           }
         />
@@ -53,19 +78,18 @@ export function MobileSection() {
   )
 }
 
-function PhoneMock() {
+/**
+ * An iPhone frame around a light and a dark capture. The radii are a share of
+ * the frame's own size, so any width reads as the same phone; the bezel is in
+ * px because a padding percentage is taken from the parent's width.
+ */
+function PhoneMock({ light, dark, alt, className }: { light: string; dark: string; alt: string; className?: string }) {
   return (
-    <div className="w-[290px] rounded-[44px] border border-border/60 bg-background p-2.5 shadow-modal">
-      <div className="overflow-hidden rounded-[36px] border border-border/50 bg-background" style={{ aspectRatio: '1206 / 2622' }}>
+    <div className={cn('shrink-0 rounded-[15%/7%] border border-border/60 bg-background p-[7px] shadow-modal', className)}>
+      <div className="overflow-hidden rounded-[12%/5.5%] border border-border/50 bg-background" style={{ aspectRatio: '1206 / 2622' }}>
         <picture>
-          <source srcSet={phoneDark} media="(prefers-color-scheme: dark)" />
-          <img
-            src={phoneLight}
-            alt="Operon on iPhone: the task list grouped by status, with the native tab bar"
-            loading="lazy"
-            decoding="async"
-            className="block h-full w-full object-cover object-top"
-          />
+          <source srcSet={dark} media="(prefers-color-scheme: dark)" />
+          <img src={light} alt={alt} loading="lazy" decoding="async" className="block h-full w-full object-cover object-top" />
         </picture>
       </div>
     </div>

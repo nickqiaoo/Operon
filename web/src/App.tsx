@@ -30,13 +30,13 @@ function App() {
         <AdaptersSection />
         <AssistantSection />
         <ExternalAgentSection />
-        <WorkflowSection />
         <TasksSection />
         <SddSection />
         <PluginsSection />
+        <MobileSection />
+        <WorkflowSection />
         <BrowserComputerSection />
         <MemoryChannelsSection />
-        <MobileSection />
         <FeaturesSection />
         <DownloadSection />
       </main>

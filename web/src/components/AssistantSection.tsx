@@ -52,7 +52,7 @@ export function AssistantSection() {
             light={assistantLight}
             dark={assistantDark}
             alt="The Operon assistant reporting a Codex code review of a rate-limit change, with its activity list beside it"
-            aspect="1440 / 830"
+            aspect="1440 / 900"
           />
         </div>
 

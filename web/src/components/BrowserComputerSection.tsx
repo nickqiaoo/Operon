@@ -65,7 +65,7 @@ export function BrowserComputerSection() {
   const active = TARGETS.find((t) => t.id === activeId) ?? TARGETS[0]
 
   return (
-    <Section id="automation" tone="sidebar">
+    <Section id="automation">
       <Reveal>
         <div className="max-w-2xl">
           <Eyebrow>Browser and Computer Use</Eyebrow>
