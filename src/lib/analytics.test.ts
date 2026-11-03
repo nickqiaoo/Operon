@@ -125,6 +125,18 @@ describe('analytics privacy', () => {
     })?.properties['$referrer']).toBe('https://referrer.example/path')
     expect(sanitizeAnalyticsEvent(null)).toBeNull()
   })
+
+  it('drops the ResizeObserver loop notice but keeps real exceptions', async () => {
+    const { sanitizeAnalyticsEvent } = await import('./analytics')
+    const exception = (value: string) => ({
+      uuid: 'event-id',
+      event: '$exception' as const,
+      properties: { $exception_list: [{ type: 'Error', value }] },
+    })
+
+    expect(sanitizeAnalyticsEvent(exception('ResizeObserver loop completed with undelivered notifications.'))).toBeNull()
+    expect(sanitizeAnalyticsEvent(exception('TypeError: x is undefined'))).not.toBeNull()
+  })
 })
 
 describe('analytics platform attribution', () => {

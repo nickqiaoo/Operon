@@ -221,6 +221,37 @@ test.describe('Conversation scroll regression', () => {
     }
   })
 
+  test('folding details inside a short anchored turn never paints the turn lower', async ({ appPage: page }) => {
+    await page.evaluate(() => window.__conversationScrollTest!.expandBy(80))
+    await page.evaluate(() => window.__conversationScrollTest!.anchor())
+    await expectTurnNearTop(page, 'anchored')
+    const toggle = page.locator('#conversation-scroll-test').getByRole('button', { name: 'Expand details', exact: true })
+    await toggle.click()
+    await page.waitForTimeout(500)
+    // Sample after every other ResizeObserver: the value painted that frame. The
+    // browser clamps scrollTop as content shrinks; the primitive restores the
+    // spacer only next frame, which used to show the turn one frame low.
+    await page.evaluate(() => {
+      const viewport = document.querySelector<HTMLElement>('#conversation-scroll-test [data-conversation-scroller]')!
+      const row = viewport.querySelector<HTMLElement>('[data-message-id="anchored"]')!
+      const offset = () => row.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+      const samples: number[] = [offset()]
+      const observer = new ResizeObserver(() => samples.push(offset()))
+      observer.observe(viewport.querySelector('[data-testid="message-list"]')!, { box: 'border-box' })
+      Object.assign(window, { __foldSamples: samples, __foldObserver: observer })
+    })
+    await toggle.click()
+    await frames(page)
+    await page.waitForTimeout(500)
+    const samples = await page.evaluate(() => {
+      const w = window as unknown as { __foldSamples: number[]; __foldObserver: ResizeObserver }
+      w.__foldObserver.disconnect()
+      return w.__foldSamples
+    })
+    expect(samples.length).toBeGreaterThan(1)
+    expect(Math.max(...samples.map(s => Math.abs(s - samples[0])))).toBeLessThanOrEqual(2)
+  })
+
   test('a short anchored turn follows once streamed output fills its spacer after a toggle', async ({ appPage: page }) => {
     await page.evaluate(() => window.__conversationScrollTest!.expandBy(80))
     await page.evaluate(() => window.__conversationScrollTest!.anchor())
@@ -593,7 +624,9 @@ test.describe('Main transcript integration', () => {
     expect(Math.abs(await row.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(2)
   })
 
-  test('a fresh wheel gesture cancels the navigator layout correction', async ({ appPage: page }) => {
+  // The scroller holds a jump's row while the rows around it settle; the
+  // reader's next gesture must end that hold rather than be pulled back.
+  test('a fresh wheel gesture ends the hold on a navigator jump', async ({ appPage: page }) => {
     await page.locator('#conversation-scroll-test [data-testid="chat-navigator"]')
       .getByRole('button', { name: 'Question 10: verify navigation and history.', exact: true })
       .evaluate(el => {

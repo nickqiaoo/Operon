@@ -193,7 +193,7 @@ export function AssistantChat({
     <div ref={chatRoot} className="relative flex h-full min-h-0 flex-col">
       <Conversation positionKey={positionKey}>
         <ConversationContent
-          scrollClassName="scroll-fade-y"
+          fadeEdges
           className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}
           style={{
             ...(insetTop ? { paddingTop: insetTop + 8 + (compact ? 0 : 16) } : {}),

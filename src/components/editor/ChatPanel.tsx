@@ -1134,7 +1134,8 @@ function ChatPanelContent({
           // overscroll-y-contain: wheeling down at the bottom otherwise latches the
           // gesture to the viewport, so reversing straight away scrolled nothing
           // until the wheel paused and a new gesture started.
-          scrollClassName={cn("[scrollbar-gutter:stable_both-edges]", !isMobile && "scroll-fade-y overscroll-y-contain")}
+          scrollClassName={cn("[scrollbar-gutter:stable_both-edges]", !isMobile && "overscroll-y-contain")}
+          fadeEdges={!isMobile}
           // The viewport already clears the keyboard; leave room only for the
           // composer floating over the remaining visible part of the transcript.
           style={isMobile ? { paddingBottom: "calc(var(--composer-height, 0px) + 16px)" } : undefined}
