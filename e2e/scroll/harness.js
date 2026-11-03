@@ -28,7 +28,7 @@
       cleanup: () => { root.unmount(); host.remove(); delete window.__conversationScrollTest; window.getSelection()?.removeAllRanges(); },
     };
     return h(ui.Conversation, ui.ConversationItem ? {} : { initial: 'instant' },
-      h(ui.ConversationContent, { className: 'gap-2 p-4' }, rows.map((row, i) => h(Item, {
+      h(ui.ConversationContent, { className: 'gap-2 p-4', fadeEdges: true }, rows.map((row, i) => h(Item, {
         key: row.id, ...(ui.ConversationItem ? { messageId: row.id, scrollAnchor: row.anchor ?? false } : {}), 'data-message-id': row.id,
         style: { height: row.height + (i === rows.length - 1 && expanded ? expandBy : 0), flexShrink: 0 },
       }, h('p', null, 'Message ' + row.id + ': content for reading and selection.'), i === rows.length - 1 ? h('button', { type: 'button', 'aria-expanded': expanded, onClick: () => setExpanded(v => !v) }, 'Expand details') : null))),

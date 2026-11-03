@@ -192,8 +192,23 @@ function currentPlatform(): AppPlatform {
   return cachedPlatform
 }
 
+/**
+ * The browser reports a ResizeObserver whose callback resized what it observes
+ * as an uncaught error, but it is only a notice: the change is delivered next
+ * frame. The chat scroller used to raise it once per streamed chunk; its fork
+ * (src/lib/shadcn-react/message-scroller) now suspends observation around its
+ * own spacer writes, but any other observer can still trip it harmlessly.
+ */
+function isResizeObserverLoopNotice(event: CaptureResult): boolean {
+  if (event.event !== '$exception') return false
+  const list: unknown = event.properties?.$exception_list
+  return Array.isArray(list) && list.some((entry: unknown) =>
+    typeof entry === 'object' && entry !== null && 'value' in entry &&
+    typeof entry.value === 'string' && entry.value.includes('ResizeObserver loop'))
+}
+
 export function sanitizeAnalyticsEvent(event: CaptureResult | null): CaptureResult | null {
-  if (!event) return null
+  if (!event || isResizeObserverLoopNotice(event)) return null
   event.properties = sanitizeAnalyticsProperties(event.properties)
   event.properties = { app_platform: currentPlatform(), ...event.properties }
   return event

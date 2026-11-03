@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageScroller as MessageScrollerPrimitive } from "@shadcn/react/message-scroller";
+import { MessageScroller as MessageScrollerPrimitive } from "@/lib/shadcn-react/message-scroller";
 import { Button } from "@/components/ui/button";
 import {
   MessageScroller,
@@ -9,31 +9,23 @@ import {
   MessageScrollerViewport,
   messageScrollerButtonClassName,
   useMessageScroller,
+  useMessageScrollerScrollable,
 } from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
-import { useReadingScrollAnchor } from "./use-reading-scroll-anchor";
+import { useScrollFade } from "./use-scroll-fade";
 import { useNativeScrollButton } from "@/hooks/useNativeScrollButton";
 import {
-  createContext, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
+  createContext, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
   type ComponentProps, type Ref, type RefObject,
 } from "react";
 
-export type ConversationScrollHandle = ReturnType<typeof useMessageScroller>;
+export type ConversationScrollHandle = Pick<ReturnType<typeof useMessageScroller>, "scrollToEnd" | "scrollToStart" | "scrollToMessage">;
 
 /** A row and its distance from the viewport's top edge. */
 type ReadingPoint = { messageId: string; offset: number };
 /** Where readers left transcripts that unmounted mid-history, by `positionKey`. */
 const savedReadingPoints = new Map<string, ReadingPoint>();
-
-/**
- * What moves scroll offsets without the reader: the viewport's size, and the
- * content's padding (insets for chrome floating over the transcript). The
- * primitive observes only the content box, which padding never changes.
- */
-function scrollGeometry(viewport: HTMLElement, contentStyle: CSSStyleDeclaration) {
-  return `${viewport.clientWidth} ${viewport.clientHeight} ${contentStyle.paddingTop} ${contentStyle.paddingBottom}`;
-}
 
 /** Distance from the viewport's bottom edge to the end, synthetic turn space included. */
 function distanceToEnd(viewport: HTMLElement) {
@@ -49,14 +41,31 @@ function spacerHeight(viewport: HTMLElement) {
   return viewport.querySelector<HTMLElement>("[data-message-scroller-spacer]")?.offsetHeight ?? 0;
 }
 
+/*
+ * Following the live end, releasing it, re-arming it and the scroll button all
+ * belong to the scroller (the fork in src/lib/shadcn-react, see its UPSTREAM.md).
+ * This file only pauses it for the reader's own actions (selecting text, opening
+ * a disclosure) through its `autoScroll` switch and public commands. Keep it that
+ * way: a second "is the reader at the end" kept here, in React state, lags the
+ * scroller by a render, and every bug the transcript had came from the two
+ * disagreeing for a frame.
+ */
+
 type ConversationRefs = {
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
-  selecting: boolean;
+  /** Pause following while the reader drags a text selection. */
   setSelecting: (selecting: boolean) => void;
-  isAtBottom: boolean;
-  setIsAtBottom: (atBottom: boolean) => void;
-  programmaticScrollRef: RefObject<boolean>;
+  /** Pause following while a disclosure the reader opened settles. */
+  setHolding: (holding: boolean) => void;
+  /**
+   * A remount is returning to a saved reading point and the scroller has not
+   * published where it landed yet. Its first snapshot says "at the end", which
+   * would tell the transcript (e.g. the assistant's render window) the reader
+   * is at the newest message and trim the row being returned to.
+   */
+  restoring: boolean;
+  setRestoring: (restoring: boolean) => void;
   positionKey?: string;
   restorePoint: ReadingPoint | null;
 };
@@ -66,39 +75,18 @@ export function useConversationScroll() {
   const refs = useContext(ConversationContext);
   if (!refs) throw new Error("useConversationScroll must be used within Conversation");
   const controls = useMessageScroller();
-  const scrollToEnd = useCallback((...args: Parameters<typeof controls.scrollToEnd>) => {
-    refs.programmaticScrollRef.current = true;
-    return controls.scrollToEnd(...args);
-  }, [controls.scrollToEnd, refs.programmaticScrollRef]);
-  const scrollToStart = useCallback((...args: Parameters<typeof controls.scrollToStart>) => {
-    refs.programmaticScrollRef.current = true;
-    return controls.scrollToStart(...args);
-  }, [controls.scrollToStart, refs.programmaticScrollRef]);
-  const scrollToMessage = useCallback((...args: Parameters<typeof controls.scrollToMessage>) => {
-    refs.programmaticScrollRef.current = true;
-    return controls.scrollToMessage(...args);
-  }, [controls.scrollToMessage, refs.programmaticScrollRef]);
-  return { ...refs, scrollToEnd, scrollToStart, scrollToMessage };
+  // Nothing below the viewport but (at most) the reserved turn space.
+  const end = useMessageScrollerScrollable().end;
+  const isAtBottom = !refs.restoring && !end;
+  return { ...refs, ...controls, isAtBottom };
 }
 
 function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandle> }) {
-  const { scrollRef, setSelecting, isAtBottom, scrollToEnd, scrollToStart, scrollToMessage } = useConversationScroll();
+  const { scrollRef, setSelecting, scrollToEnd, scrollToStart, scrollToMessage } = useConversationScroll();
   useImperativeHandle(contextRef, () => ({ scrollToEnd, scrollToStart, scrollToMessage }), [scrollToEnd, scrollToStart, scrollToMessage]);
-  const atBottomRef = useRef(isAtBottom);
-  atBottomRef.current = isAtBottom;
-
-  // Reaching the actual end also resumes native following after a manual jump
-  // or scrollbar drag. A newly anchored turn already at the end keeps its mode:
-  // with its spacer showing, scrolling to the end would drag the turn down.
-  useEffect(() => {
-    const viewport = scrollRef.current;
-    if (isAtBottom && viewport && distanceToEnd(viewport) <= 2 && !spacerHeight(viewport)) {
-      scrollToEnd({ behavior: "instant" });
-    }
-  }, [isAtBottom, scrollRef, scrollToEnd]);
 
   // Match the previous scroller: a mouse drag may select streamed text without
-  // moving it underneath the pointer. Releasing the mouse resumes native following.
+  // moving it underneath the pointer. Releasing the mouse resumes following.
   useEffect(() => {
     const viewport = scrollRef.current;
     if (!viewport) return;
@@ -110,7 +98,7 @@ function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandl
       const ancestor = selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : null;
       const selecting = dragging && !!ancestor && !selection?.isCollapsed &&
         (viewport.contains(ancestor) || ancestor.contains(viewport));
-      if (selecting && anchorSelectionTop === undefined && atBottomRef.current && hasSpacer()) {
+      if (selecting && anchorSelectionTop === undefined && distanceToEnd(viewport) <= 2 && hasSpacer()) {
         anchorSelectionTop = viewport.scrollTop;
       }
       setSelecting(selecting);
@@ -120,9 +108,9 @@ function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandl
       onSelectionChange();
     };
     const onRelease = () => {
-      // The primitive normally starts following when a turn consumes its spacer.
-      // If that happened while paused, finish the transition on release, unless
-      // the reader moved away in the meantime.
+      // An anchored turn hands off to following when its reply consumes the
+      // spacer, but only while following is allowed. If that happened during the
+      // drag, finish the hand-off on release, unless the reader moved away.
       if (anchorSelectionTop !== undefined && Math.abs(viewport.scrollTop - anchorSelectionTop) <= 2 && !hasSpacer()) {
         scrollToEnd({ behavior: "instant" });
       }
@@ -156,50 +144,16 @@ export type ConversationProps = ComponentProps<typeof MessageScroller> & {
 export function Conversation({ className, children, contextRef, positionKey, ...props }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const programmaticScrollRef = useRef(false);
   const [selecting, setSelecting] = useState(false);
+  const [holding, setHolding] = useState(false);
   const [restorePoint] = useState(() => (positionKey && savedReadingPoints.get(positionKey)) || null);
-  const [isAtBottom, setIsAtBottom] = useState(!restorePoint);
+  const [restoring, setRestoring] = useState(() => restorePoint !== null);
   const refs = useMemo(
-    () => ({ scrollRef, contentRef, selecting, setSelecting, isAtBottom, setIsAtBottom, programmaticScrollRef, positionKey, restorePoint }),
-    [selecting, isAtBottom, positionKey, restorePoint],
+    () => ({ scrollRef, contentRef, setSelecting, setHolding, restoring, setRestoring, positionKey, restorePoint }),
+    [restoring, positionKey, restorePoint],
   );
-
-  // Include synthetic turn space when deciding whether the reader is at the end.
-  // The primitive's `end` flag only measures real content, so it can report no
-  // hidden content even after the reader scrolls upward within a short turn.
-  // A layout effect, so a parent measuring its chrome right after mount (and
-  // resizing the insets) is already seen as geometry rather than as scrolling.
-  useLayoutEffect(() => {
-    const viewport = scrollRef.current;
-    const content = contentRef.current;
-    if (!viewport || !content) return;
-    const contentStyle = getComputedStyle(content);
-    let geometry = scrollGeometry(viewport, contentStyle);
-    let lastScrollTop = viewport.scrollTop;
-    const onScroll = () => {
-      const movedUp = viewport.scrollTop < lastScrollTop - 1;
-      lastScrollTop = viewport.scrollTop;
-      if (geometry !== scrollGeometry(viewport, contentStyle)) return;
-      // Only moving up leaves the end. Streamed output can land between a
-      // follow scroll and its scroll event, so a gap measured here may be
-      // content the reader never scrolled away from.
-      if (distanceToEnd(viewport) <= 2) setIsAtBottom(true);
-      else if (movedUp) setIsAtBottom(false);
-    };
-    const observer = new ResizeObserver(() => {
-      geometry = scrollGeometry(viewport, contentStyle);
-    });
-    observer.observe(viewport);
-    observer.observe(content, { box: "border-box" });
-    viewport.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      observer.disconnect();
-      viewport.removeEventListener("scroll", onScroll);
-    };
-  }, []);
   return (
-    <MessageScrollerProvider autoScroll={isAtBottom && !selecting} defaultScrollPosition="end">
+    <MessageScrollerProvider autoScroll={!selecting && !holding && !restoring} defaultScrollPosition="end">
       <ConversationContext.Provider value={refs}>
         <MessageScroller data-testid="conversation" className={cn("flex-1", className)} {...props}>
           <ScrollHandle contextRef={contextRef} />
@@ -213,43 +167,48 @@ export function Conversation({ className, children, contextRef, positionKey, ...
 // Preserve the transcript's own deferred-rendering policy (including the mobile
 // exceptions). Only register rows here; don't add a second content-visibility policy.
 export function ConversationItem({ scrollAnchor = false, ...props }: ComponentProps<typeof MessageScrollerPrimitive.Item>) {
-  const context = useContext(ConversationContext);
-  if (!context) throw new Error("ConversationItem must be used within Conversation");
-  // Once the reader leaves a turn, history loading must not treat that old
-  // prompt as a new jump target. Returning to the end never rearms it.
-  const [canAnchor, setCanAnchor] = useState(() => context.isAtBottom);
+  const { isAtBottom } = useConversationScroll();
+  // A prompt sent while the reader is up in the history keeps them there. Once
+  // the reader leaves a turn, history loading must not treat that old prompt as
+  // a new jump target either; returning to the end never rearms it.
+  const [canAnchor, setCanAnchor] = useState(() => isAtBottom);
   useEffect(() => {
-    if (!context.isAtBottom) setCanAnchor(false);
-  }, [context.isAtBottom]);
+    if (!isAtBottom) setCanAnchor(false);
+  }, [isAtBottom]);
   return <MessageScrollerPrimitive.Item {...props} scrollAnchor={scrollAnchor && canAnchor} />;
 }
 
-export type ConversationContentProps = ComponentProps<"div"> & { scrollClassName?: string };
+export type ConversationContentProps = ComponentProps<"div"> & {
+  scrollClassName?: string;
+  /**
+   * Fade the edges that have content beyond them (`scroll-fade-y`), with sizes
+   * measured after layout: don't put the class in `scrollClassName`, whose
+   * scroll-linked sizes lag a frame and flicker while content shrinks.
+   */
+  fadeEdges?: boolean;
+};
 
-export function ConversationContent({ className, scrollClassName, children, ...props }: ConversationContentProps) {
-  const { scrollRef, contentRef, scrollToMessage, scrollToEnd, isAtBottom, setIsAtBottom, selecting, programmaticScrollRef, positionKey, restorePoint } = useConversationScroll();
-  const followingRef = useRef(isAtBottom && !selecting);
-  followingRef.current = isAtBottom && !selecting;
-  const atBottomRef = useRef(isAtBottom);
-  atBottomRef.current = isAtBottom;
+export function ConversationContent({ className, scrollClassName, fadeEdges = false, children, ...props }: ConversationContentProps) {
+  const { scrollRef, contentRef, scrollToEnd, scrollToMessage, stopFollowing, setHolding, setRestoring, positionKey, restorePoint } = useConversationScroll();
 
   // Return a remounted transcript to the row its reader left it at, in place of
   // the primitive's default position (a jump it is asked for first replaces that).
-  // The primitive's own call, not the wrapped one: the reading anchor must take
-  // its first snapshot right after, so later inset changes keep the row in place.
-  const { scrollToMessage: jumpToMessage } = useMessageScroller();
+  // The jump holds the row where it lands until the reader scrolls, so insets
+  // measured after mount do not move it.
+  // When the row is gone (reloaded or trimmed), stay at the end the primitive chose.
   useLayoutEffect(() => {
     const content = contentRef.current;
     if (!restorePoint || !content) return;
-    if (!content.querySelector(`[data-message-id="${CSS.escape(restorePoint.messageId)}"]`)) {
-      // The row is gone (reloaded or trimmed): stay at the end the primitive chose.
-      setIsAtBottom(true);
-      return;
+    if (content.querySelector(`[data-message-id="${CSS.escape(restorePoint.messageId)}"]`)) {
+      // `start` alignment measures from the content's top padding.
+      const scrollMargin = restorePoint.offset - Number.parseFloat(getComputedStyle(content).paddingTop);
+      scrollToMessage(restorePoint.messageId, { align: "start", behavior: "instant", scrollMargin });
     }
-    // `start` alignment measures from the content's top padding.
-    const scrollMargin = restorePoint.offset - Number.parseFloat(getComputedStyle(content).paddingTop);
-    jumpToMessage(restorePoint.messageId, { align: "start", behavior: "instant", scrollMargin });
-  }, [contentRef, restorePoint, setIsAtBottom, jumpToMessage]);
+    // The scroller publishes its state on the next frame; this frame callback is
+    // queued after its own, so the snapshot is current when the hold lifts.
+    const frame = requestAnimationFrame(() => setRestoring(false));
+    return () => cancelAnimationFrame(frame);
+  }, [contentRef, restorePoint, scrollToMessage, setRestoring]);
 
   // Unmount still has the DOM laid out: the layout cleanup runs before it is removed.
   useLayoutEffect(() => {
@@ -257,7 +216,7 @@ export function ConversationContent({ className, scrollClassName, children, ...p
     const content = contentRef.current;
     if (!positionKey || !viewport || !content) return;
     return () => {
-      if (atBottomRef.current) {
+      if (distanceToEnd(viewport) <= 2) {
         savedReadingPoints.delete(positionKey);
         return;
       }
@@ -273,59 +232,10 @@ export function ConversationContent({ className, scrollClassName, children, ...p
     };
   }, [scrollRef, contentRef, positionKey]);
 
-  useReadingScrollAnchor(scrollRef, contentRef, followingRef, programmaticScrollRef);
+  useScrollFade(scrollRef, contentRef, fadeEdges);
 
-  // The primitive schedules resize handling in rAF, and never sees the content's
-  // padding change. Pin a following viewport before paint on both, so neither a
-  // keyboard/side-panel resize nor a late-measured header or composer inset
-  // exposes a gap. Reading-position compensation runs separately while browsing.
-  useLayoutEffect(() => {
-    const viewport = scrollRef.current;
-    const content = contentRef.current;
-    if (!viewport || !content) return;
-    const contentStyle = getComputedStyle(content);
-    let geometry = scrollGeometry(viewport, contentStyle);
-    const observer = new ResizeObserver(() => {
-      const next = scrollGeometry(viewport, contentStyle);
-      // A short new turn has synthetic space below it. It reports no unread
-      // content too, but must keep its turn anchor rather than jump to the end.
-      const spacer = spacerHeight(viewport);
-      if (next !== geometry) {
-        geometry = next;
-        if (followingRef.current && !spacer) scrollToEnd({ behavior: "instant" });
-        return;
-      }
-      // Content grew past the bottom edge while the reader follows. The
-      // primitive normally scrolls on its own next frame, but it silently stops
-      // following after a key or touch that never moved the viewport, leaving
-      // streamed output below the fold with no scroll button (the reader never
-      // left the end). Real content is measured without the spacer, which the
-      // primitive only resizes next frame: a turn still inside it stays anchored.
-      if (followingRef.current && distanceToEnd(viewport) - spacer > 2) scrollToEnd({ behavior: "instant" });
-    });
-    observer.observe(viewport);
-    observer.observe(content, { box: "border-box" });
-    return () => observer.disconnect();
-  }, [scrollRef, contentRef, scrollToEnd]);
-
-  // The primitive also drops out of following on any wheel over the transcript,
-  // even one that cannot move it: pushing further down at the end (a trackpad's
-  // momentum keeps doing this after the reader arrives) or a sideways swipe over
-  // a wide code block. Keep those from reaching its handler (React's, delegated
-  // at the root). Listeners on the viewport itself still see them.
-  useEffect(() => {
-    const viewport = scrollRef.current;
-    if (!viewport) return;
-    const onWheel = (event: WheelEvent) => {
-      const sideways = Math.abs(event.deltaX) > Math.abs(event.deltaY);
-      if (sideways || (event.deltaY >= 0 && distanceToEnd(viewport) <= 2)) event.stopPropagation();
-    };
-    viewport.addEventListener("wheel", onWheel, { passive: true });
-    return () => viewport.removeEventListener("wheel", onWheel);
-  }, [scrollRef]);
-
-  // A disclosure is deliberate reading, not streamed output. Leave following
-  // mode before it grows, without moving the viewport from its current bottom.
+  // A disclosure is deliberate reading, not streamed output: opening one at the
+  // end must not drag the reader down to its last line.
   useEffect(() => {
     const viewport = scrollRef.current;
     if (!viewport) return;
@@ -333,24 +243,21 @@ export function ConversationContent({ className, scrollClassName, children, ...p
     const onClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest("[aria-expanded]")) return;
       if (distanceToEnd(viewport) > 2) return;
-      // A short new turn sits at the top of its spacer. Pausing alone keeps it
-      // there: the primitive re-anchors as the disclosure resizes, and without
-      // following it does not jump to the end once the spacer runs out.
-      // Aligning the last row to the end would drop the spacer and drag the
-      // turn down, as would scrolling to the end when following resumes.
-      const anchored = spacerHeight(viewport) > 0;
-      if (!anchored) {
-        const rows = contentRef.current?.querySelectorAll<HTMLElement>("[data-message-id]");
-        const lastId = rows?.[rows.length - 1]?.dataset.messageId;
-        if (!lastId) return;
-        scrollToMessage(lastId, { align: "end", behavior: "instant" });
-      }
-      setIsAtBottom(false);
       clearTimeout(restoreTimer);
+      // A short new turn sits at the top of its spacer and stays there as the
+      // disclosure resizes (the scroller re-anchors it). Only hold off the
+      // hand-off to following, which would drag the turn down once the spacer
+      // runs out.
+      if (spacerHeight(viewport) > 0) {
+        setHolding(true);
+        restoreTimer = setTimeout(() => setHolding(false), 400);
+        return;
+      }
+      // Otherwise leave following before the content grows. If the disclosure
+      // fit without pushing anything below the fold, resume once it settles.
+      stopFollowing();
       restoreTimer = setTimeout(() => {
-        if (distanceToEnd(viewport) > 2) return;
-        setIsAtBottom(true);
-        if (!spacerHeight(viewport)) scrollToEnd({ behavior: "instant" });
+        if (distanceToEnd(viewport) <= 2) scrollToEnd({ behavior: "instant" });
       }, 400);
     };
     viewport.addEventListener("click", onClick, true);
@@ -358,15 +265,13 @@ export function ConversationContent({ className, scrollClassName, children, ...p
       viewport.removeEventListener("click", onClick, true);
       clearTimeout(restoreTimer);
     };
-  }, [scrollRef, contentRef, scrollToMessage, scrollToEnd, setIsAtBottom]);
+  }, [scrollRef, stopFollowing, scrollToEnd, setHolding]);
 
   return (
     <MessageScrollerViewport
       ref={scrollRef}
       data-conversation-scroller
-      // The reading anchor owns compensation, including deferred row resizes.
-      preserveScrollOnPrepend={false}
-      className={cn("[overflow-anchor:none]", scrollClassName)}
+      className={cn(fadeEdges && "scroll-fade-y", scrollClassName)}
     >
       <MessageScrollerContent
         ref={contentRef}
@@ -418,7 +323,7 @@ export const ConversationEmptyState = ({
 export type ConversationScrollButtonProps = ComponentProps<typeof Button> & { glass?: boolean };
 
 export function ConversationScrollButton({ className, glass, variant: _variant, size: _size, asChild: _asChild, onClick, ...props }: ConversationScrollButtonProps) {
-  const { isAtBottom, setIsAtBottom, scrollRef, scrollToEnd } = useConversationScroll();
+  const { isAtBottom, scrollToEnd } = useConversationScroll();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const native = useNativeScrollButton(buttonRef, !isAtBottom);
   return (
@@ -444,8 +349,6 @@ export function ConversationScrollButton({ className, glass, variant: _variant, 
         onClick?.(event);
         if (event.defaultPrevented) return;
         event.currentTarget.blur();
-        const viewport = scrollRef.current;
-        if (viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2) setIsAtBottom(true);
         scrollToEnd({ behavior: "smooth" });
       }}
     >

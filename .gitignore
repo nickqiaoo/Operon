@@ -52,6 +52,8 @@ next-env.d.ts
 
 playwright-report/
 test-results/
+# vitest browser-mode failure screenshots
+__screenshots__/
 .mcp.json
 .codex/
 playwright
