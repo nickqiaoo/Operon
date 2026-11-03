@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-11-03
+
+### Changed
+
+- Messages sent while a reply is streaming look like any other message.
+- Spec tasks show their running state on the stage badge, and the mobile task list shows the badge under the title.
+
+### Fixed
+
+- Switching back to a chat with the session panel open no longer slides the conversation over again.
+- iOS tab titles update when the app language changes.
+
 ## [1.5.3] - 2026-11-03
 
 ### Added
