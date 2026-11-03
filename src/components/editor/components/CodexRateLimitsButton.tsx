@@ -15,6 +15,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { nativeUsageTones, usageBarTone, usageTextTone } from './rate-limit-tone';
 import { cn } from '@/lib/utils';
+import { CLOCK_24H } from '@/lib/format';
 import { hasNativeTabBar, NativeShell, type NativeInfoSection } from '@/lib/native';
 import type { ContextUsageMetadata, RateLimitSnapshot } from '../utils/chatMetadata';
 
@@ -51,12 +52,13 @@ const formatWindowLabel = (value: number | null | undefined, intl: IntlShape): s
 const formatResetTime = (value: number | null | undefined, intl: IntlShape): string => {
   if (!value) return intl.formatMessage({ id: 'editor.codex.unknown', defaultMessage: 'Unknown' });
   const timestamp = value > 1_000_000_000_000 ? value : value * 1000;
-  return new Intl.DateTimeFormat('en-US', {
+  return intl.formatDate(timestamp, {
     month: 'short',
     day: 'numeric',
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(timestamp));
+    ...CLOCK_24H,
+  });
 };
 
 const getSnapshotKey = (snapshot: RateLimitSnapshot): string =>

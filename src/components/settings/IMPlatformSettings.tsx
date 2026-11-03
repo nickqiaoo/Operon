@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
+import { formatDateTime } from "@/lib/format"
 import type {
   IMChannelBinding,
   IMCredentialField,
@@ -739,6 +740,4 @@ function safeParseCreds(raw: string): Record<string, unknown> {
   }
 }
 
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleString()
-}
+const formatDate = (ts: number): string => formatDateTime(ts)

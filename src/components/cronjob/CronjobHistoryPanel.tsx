@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { formatDateTime as formatClockDateTime } from "@/lib/format"
 import { describeSchedule, formatDateTime } from "./cronjobUtils"
 
 interface CronjobHistoryPanelProps {
@@ -21,7 +22,7 @@ export function CronjobHistoryPanel({ job, onOpenChat }: CronjobHistoryPanelProp
 
   const handleOpenChat = (item: CronjobExecutionHistoryItem) => {
     if (!item.chatId) return
-    onOpenChat(item.chatId, `${job.name} - ${new Date(item.timestamp).toLocaleString()}`, item.providerId)
+    onOpenChat(item.chatId, `${job.name} - ${formatClockDateTime(item.timestamp)}`, item.providerId)
   }
 
   return (
@@ -106,7 +107,7 @@ export function CronjobHistoryPanel({ job, onOpenChat }: CronjobHistoryPanelProp
                     )} />
                     <div>
                       <div className="font-medium text-sm text-foreground">
-                        {new Date(item.timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })}
+                        {formatClockDateTime(item.timestamp, { dateStyle: 'medium', timeStyle: 'medium' })}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <Badge variant="secondary" className="text-[10px] px-1.5 h-4 font-normal bg-muted/50 text-muted-foreground border-transparent">

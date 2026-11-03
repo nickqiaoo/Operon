@@ -28,7 +28,7 @@ import { api, type MemoryMaintenanceConfig, type MemoryMaintenanceRun } from "@/
 import { useProviders } from "@/lib/provider-queries"
 import { setSettingsData, settingsKeys, useMemoryMaintenanceConfig, useMemoryMaintenanceRuns } from "@/lib/settings-queries"
 import { SettingsRow, SettingsSection } from "./SettingsSection"
-import { formatDuration } from "@/lib/format"
+import { formatDateTime, formatDuration } from "@/lib/format"
 
 const NO_PROVIDERS: { id: string; label: string; available: boolean }[] = []
 const NO_RUNS: MemoryMaintenanceRun[] = []
@@ -38,10 +38,6 @@ const CLEAN_INPUT_CLASS =
 
 const CLEAN_SELECT_CLASS =
   "bg-muted/30 border-transparent hover:bg-row-hover focus:bg-background shadow-none transition-colors"
-
-function formatDateTime(ts: number): string {
-  return new Date(ts).toLocaleString()
-}
 
 function statusColor(status: MemoryMaintenanceRun["status"]): string {
   switch (status) {

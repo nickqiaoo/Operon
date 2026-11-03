@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { ArrowLeft, X } from 'lucide-react'
 import { AgentAvatar, UserAvatar } from '@/components/icons/AgentAvatar'
 import { cn } from '@/lib/utils'
+import { formatDateTime } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
@@ -178,7 +179,7 @@ function MessageBubble({ message, agents, isRoot = false }: { message: ChannelMe
           {agent?.name ?? message.senderName}
         </span>
         <span className="text-[10px] text-muted-foreground/50">
-          {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {formatDateTime(message.createdAt, { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
       <div className="text-sm text-foreground/90 leading-relaxed break-words">

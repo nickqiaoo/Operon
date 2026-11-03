@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from '
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Check, Copy, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatDateTime } from '@/lib/format'
 import type { ChannelMessage, Agent } from '@/types/channel'
 import type { TaskListItem } from '@/types/task'
 import { StatusIcon, TaskRef } from '@/components/task/task-meta'
@@ -221,7 +222,7 @@ function ActionButton({ icon, label, onClick }: { icon: ReactNode; label: string
 }
 
 function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(ts, { hour: '2-digit', minute: '2-digit' })
 }
 
 /** Same-day replies show just the clock; older ones add the date so "14:49" can't be mistaken for today. */
@@ -230,5 +231,5 @@ function formatReplyTime(ts: number): string {
   const now = new Date()
   const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
   if (sameDay) return formatTime(ts)
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(d, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
