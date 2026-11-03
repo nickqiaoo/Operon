@@ -75,7 +75,11 @@ export async function secureBrokerFetch(
   if (response.headers.get(E2EE_HEADER) !== REMOTE_E2EE_VERSION) {
     if (!response.ok) {
       const body = await response.clone().json().catch(() => null) as { error?: unknown } | null
-      if (response.status === 403 && body?.error === 'e2ee_device_untrusted') {
+      // `key_invalid`: the machine knows this device id under a different key — the
+      // device re-paired elsewhere (another profile sharing this machine identity) or
+      // reinstalled. The stored key can never work here again, so drop it and re-pair;
+      // pairing upserts by device id, replacing the stale key on the machine too.
+      if (response.status === 403 && (body?.error === 'e2ee_device_untrusted' || body?.error === 'e2ee_key_invalid')) {
         await removeRemotePairing(remote.nodeId)
         window.dispatchEvent(new CustomEvent(E2EE_PAIRING_REQUIRED_EVENT, { detail: { nodeId: remote.nodeId } }))
       }
