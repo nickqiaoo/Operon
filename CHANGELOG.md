@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-11-03
+
+### Added
+
+- The mobile image viewer supports pinch zoom, double-tap zoom, tap-to-toggle controls and drag-down dismissal.
+
+### Changed
+
+- Codex conversations, account usage queries and model and skill discovery share one app-server connection per host.
+- Workspaces with streaming replies show an activity animation even when they are not selected.
+- Opening the right panel collapses the session panel to keep the conversation readable.
+
+### Fixed
+
+- Chat drafts retain text, attachments and selected skills when switching workspaces, and previously applied prompts no longer overwrite edited drafts.
+- Codex image attachments use the correct app-server protocol field.
+- Codex account limits appear in new chats, share the top bar's cache and refresh after a reply finishes.
+- Full-screen mobile image previews hide native navigation and composer controls.
+- Remote connections request pairing again when the stored encryption key is no longer valid.
+
 ## [1.5.4] - 2026-11-03
 
 ### Changed
