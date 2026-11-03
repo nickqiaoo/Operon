@@ -67,6 +67,7 @@ jobs:
           echo "Intentionally not run here:"
           echo "  packages/computer-use/desktop-*.e2e — needs Accessibility permission (OPERON_RUN_COMPUTER_USE_*)"
           echo "  e2e/*.spec.ts (dev project) — drives live provider CLIs over CDP, local only"
+          echo "  *.browser.test.tsx (npm run test:browser) — real-browser scroll suite, run locally"
 
   # The e2e/specs UI suite: Playwright starts the test server (fake runtime, its own HOME and
   # DB) and the vite renderer, then drives headless Chromium. A separate job so it runs
@@ -106,27 +107,3 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
-
-  # Real-browser vitest suite (MessageScroller scroll anchoring); jsdom cannot prove it.
-  browser:
-    name: Browser tests (vitest)
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-        env:
-          SKIP_ELECTRON_REBUILD: '1'
-
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
-
-      - name: Run browser-mode vitest
-        run: npm run test:browser
