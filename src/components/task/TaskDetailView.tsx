@@ -57,7 +57,7 @@ import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
 import { cn } from '@/lib/utils'
 import { toastTaskError } from './task-error-toast'
 import type { SpecChatRef } from '@shared/spec'
-import { formatRelativeTime } from '@/lib/format'
+import { formatDateTime, formatRelativeTime } from '@/lib/format'
 
 interface TaskDetailViewProps {
   detail: TaskDetail
@@ -1165,7 +1165,7 @@ function ActivityItem({ activity: a, taskId }: { activity: TaskActivity; taskId:
   const intl = useIntl()
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
-  const absoluteTime = new Date(a.createdAt).toLocaleString()
+  const absoluteTime = formatDateTime(a.createdAt)
   if (a.kind === 'comment') {
     const meta = a.meta ?? {}
     const source = meta.source === 'github_pr' ? 'GitHub' : meta.source ? 'Linear' : null

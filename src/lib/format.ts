@@ -12,6 +12,25 @@ function toMs(time: TimeInput): number {
   return time instanceof Date ? time.getTime() : typeof time === "string" ? new Date(time).getTime() : time
 }
 
+/**
+ * Clock times are always 24-hour ("00:20", never "12:20 AM"), in every UI
+ * language — `en` would otherwise default to 12-hour. Spread this into any
+ * `intl.formatDate` / `Intl.DateTimeFormat` options that include an hour.
+ */
+export const CLOCK_24H = { hourCycle: "h23" } as const satisfies Intl.DateTimeFormatOptions
+
+/**
+ * An absolute date/time in the system locale with a 24-hour clock. With no
+ * `options` it prints date + time ("2026/11/3 00:20:05"); pass fields to narrow
+ * it, e.g. `{ hour: "2-digit", minute: "2-digit" }` for just the time.
+ * An unparseable input yields "".
+ */
+export function formatDateTime(time: TimeInput, options: Intl.DateTimeFormatOptions = {}): string {
+  const ms = toMs(time)
+  if (Number.isNaN(ms)) return ""
+  return new Date(ms).toLocaleString(undefined, { ...options, ...CLOCK_24H })
+}
+
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
@@ -37,7 +56,7 @@ export function formatRelativeTime(
   const diff = Math.max(0, Date.now() - ms)
 
   if (dateAfterDays != null && diff >= dateAfterDays * DAY) {
-    return intl.formatDate(ms, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    return intl.formatDate(ms, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", ...CLOCK_24H })
   }
 
   if (compact) {

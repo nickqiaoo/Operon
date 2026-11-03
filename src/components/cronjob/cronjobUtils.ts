@@ -1,3 +1,4 @@
+import { formatDateTime as formatClockDateTime } from "@/lib/format"
 import type { CronjobSchedule, CronjobTask, CronjobUpsertInput } from "@/types/cronjob"
 
 export interface ProviderInfo {
@@ -92,7 +93,7 @@ export const getScheduleValidationError = (
 
 export const formatDateTime = (value?: number) => {
   if (!value) return "-"
-  return new Date(value).toLocaleString()
+  return formatClockDateTime(value)
 }
 
 export const describeSchedule = (schedule: CronjobSchedule) => {

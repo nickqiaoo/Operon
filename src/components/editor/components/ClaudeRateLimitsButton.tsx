@@ -15,6 +15,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { nativeUsageTones, usageBarTone, usageTextTone } from './rate-limit-tone';
 import { cn } from '@/lib/utils';
+import { CLOCK_24H } from '@/lib/format';
 import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import type { ClaudeRateLimits, ClaudeRateLimitWindow } from '../utils/chatMetadata';
 
@@ -44,12 +45,13 @@ const formatResetTime = (value: number | undefined, intl: IntlShape): string => 
   if (!value) return intl.formatMessage({ id: 'editor.claude.unknown', defaultMessage: 'Unknown' });
   // The SDK may hand back epoch seconds or milliseconds — normalize to ms.
   const timestamp = value > 1_000_000_000_000 ? value : value * 1000;
-  return new Intl.DateTimeFormat('en-US', {
+  return intl.formatDate(timestamp, {
     month: 'short',
     day: 'numeric',
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(timestamp));
+    ...CLOCK_24H,
+  });
 };
 
 // Per-model weekly windows (e.g. Fable) come through with the server-supplied
