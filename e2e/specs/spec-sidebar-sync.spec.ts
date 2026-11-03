@@ -32,11 +32,13 @@ test('Spec appears and updates in project navigation without opening the Board',
       ? { ...project, specs: spec ? [spec] : [] }
       : project), { ...projects[0], id: 9000, name: 'Unrelated project', workspaces: [], specs: [] }] } })
   })
-  await page.route('**/api/tasks/stream*', async (route) => {
+  // The task feed rides the shared event stream (src/lib/event-stream.ts).
+  await page.route('**/api/events?*', async (route) => {
     streamReads++
     // The production SSE reader reconnects after this finite stream. Each new
     // connection receives the latest snapshot, just like the server endpoint.
-    const data = spec ? `data: ${JSON.stringify({ type: 'task_upsert', task: { ...spec, projectId, workspaceId: null } })}\n\n` : ': ready\n\n'
+    const frame = { ch: 'tasks', data: { type: 'task_upsert', task: { ...spec, projectId, workspaceId: null } } }
+    const data = spec ? `data: ${JSON.stringify(frame)}\n\n` : ': ready\n\n'
     await route.fulfill({ contentType: 'text/event-stream', body: data })
   })
   await page.reload()

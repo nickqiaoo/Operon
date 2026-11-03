@@ -7,12 +7,11 @@ const mocks = vi.hoisted(() => ({
   projects: [] as Project[],
   loadProjects: vi.fn<() => Promise<void>>(),
   applyUpsert: vi.fn(),
-  subscribeSse: vi.fn(),
+  subscribeEvents: vi.fn(),
   close: vi.fn(),
 }))
 vi.mock('react', () => ({ useEffect: (effect: () => void | (() => void)) => mocks.effects.push(effect) }))
-vi.mock('@/lib/api', () => ({ api: { taskStreamUrl: vi.fn() } }))
-vi.mock('@/lib/sse', () => ({ subscribeSse: mocks.subscribeSse }))
+vi.mock('@/lib/event-stream', () => ({ subscribeEvents: mocks.subscribeEvents }))
 vi.mock('@/stores/task-store', () => ({
   useTaskStore: (select: (state: { applyUpsert: typeof mocks.applyUpsert }) => unknown) => select({ applyUpsert: mocks.applyUpsert }),
 }))
@@ -41,14 +40,15 @@ beforeEach(() => {
   mocks.effects = []
   mocks.projects = [project]
   mocks.loadProjects.mockResolvedValue()
-  mocks.subscribeSse.mockReturnValue({ close: mocks.close })
+  mocks.subscribeEvents.mockReturnValue({ close: mocks.close })
 })
 afterEach(() => vi.useRealTimers())
 
 function mount() {
-  useTaskStream(null)
+  useTaskStream()
   const cleanup = mocks.effects[0]()
-  const { onEvent } = mocks.subscribeSse.mock.calls[0][0] as { onEvent: (event: { type: 'task_upsert'; task: TaskListItem }) => void }
+  expect(mocks.subscribeEvents.mock.calls[0][0]).toBe('tasks')
+  const { onEvent } = mocks.subscribeEvents.mock.calls[0][1] as { onEvent: (event: { type: 'task_upsert'; task: TaskListItem }) => void }
   return { cleanup, emit: (next: TaskListItem) => onEvent({ type: 'task_upsert', task: next }) }
 }
 

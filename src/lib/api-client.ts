@@ -777,11 +777,6 @@ export function taskComment(taskId: number, body: string, actorName?: string) {
   })
 }
 
-export async function taskStreamUrl(projectId: number | null): Promise<string> {
-  const baseUrl = await getBaseUrl()
-  return `${baseUrl}/tasks/stream${projectQuery(projectId)}`
-}
-
 // ---- Notification inbox ----
 
 export interface InboxListFilter {
@@ -830,11 +825,6 @@ export function inboxSetViewing(payload: { clientId: string; chatIds: number[]; 
     method: 'POST',
     body: JSON.stringify(payload),
   })
-}
-
-export async function inboxStreamUrl(): Promise<string> {
-  const baseUrl = await getBaseUrl()
-  return `${baseUrl}/inbox/stream`
 }
 
 export function taskDispatch(taskId: number, assignedAgentId: number) {

@@ -51,7 +51,7 @@ const FULL_PAGE_ORDER: readonly FullPageKind[] = ["settings", "plugins", "canvas
 const FULL_PAGE_ANALYTICS = { settings: "settings", plugins: "plugins", canvas: "canvas", schedule: "cronjob" } as const satisfies Record<FullPageKind, string>
 
 export default function App() {
-  useTaskStream(null)
+  useTaskStream()
   const intl = useIntl()
   // Where the shell is: see navigation-store.ts.
   const mainView = useNavigationStore((s) => s.main)

@@ -493,15 +493,14 @@ export const api = {
   /** Hand a running sub-agent's work to another provider; the same prompt starts over there. */
   aiWorkflowAgentReplace: (runId: string, agentIndex: number, providerId: string) =>
     post<{ success: true }>(`/ai/workflow/run/${encodeURIComponent(runId)}/agent/${agentIndex}/replace`, { providerId }),
-  externalAgentFeedUrl: async () => `${await getBaseUrl()}/external-agents/feed`,
-  aiWorkflowFeedUrl: async (limit = 30) => `${await getBaseUrl()}/ai/workflow/feed?limit=${limit}`,
   /** A sub-agent's steps, from its transcript — for background agents' cards. */
   aiSubagentTranscript: (chatId: number, toolUseId: string) =>
     softGet<SubagentTranscript & { error?: string }>(
       `/ai/chat/${chatId}/subagent/${encodeURIComponent(toolUseId)}`,
     ),
-  /** Presence for every chat on one stream — see `lib/live-turn-events.ts`. */
-  aiLiveStatusStreamUrl: async () => `${await getBaseUrl()}/ai/chat/live-status`,
+  /** The always-open feeds on one stream — see `lib/event-stream.ts`. */
+  eventStreamUrl: async (channels: readonly string[]) =>
+    `${await getBaseUrl()}/events?ch=${channels.map(encodeURIComponent).join(',')}&limit=30`,
   /** `since` resumes an interrupted connection; omit it to replay the run's whole log. */
   aiWorkflowRunFeedUrl: async (runId: string, since?: number) => {
     const baseUrl = await getBaseUrl()
@@ -1226,7 +1225,6 @@ export const api = {
   taskComment: httpClient.taskComment,
   taskDispatch: httpClient.taskDispatch,
   taskResume: httpClient.taskResume,
-  taskStreamUrl: httpClient.taskStreamUrl,
 
   // --- Notification inbox ---
   inboxList: httpClient.inboxList,
@@ -1234,7 +1232,6 @@ export const api = {
   inboxMarkRead: httpClient.inboxMarkRead,
   inboxArchive: httpClient.inboxArchive,
   inboxSetViewing: httpClient.inboxSetViewing,
-  inboxStreamUrl: httpClient.inboxStreamUrl,
   // --- OperonSpec ---
   specGet: httpClient.specGet,
   specApprove: httpClient.specApprove,

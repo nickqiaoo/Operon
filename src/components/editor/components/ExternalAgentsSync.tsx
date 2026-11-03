@@ -1,15 +1,13 @@
 import { useEffect } from 'react'
 import type { ExternalAgentFrame } from '@shared/external-agent'
-import { api } from '@/lib/api'
-import { subscribeSse } from '@/lib/sse'
+import { subscribeEvents } from '@/lib/event-stream'
 import { useEditorStore } from '@/stores/editor-store'
 import { useExternalAgentsStore } from '@/stores/external-agents-store'
 
 /** One app-level subscription. A chat tab observes work; it never launches it. */
 export function ExternalAgentsSync() {
   useEffect(() => {
-    const subscription = subscribeSse<ExternalAgentFrame>({
-      url: () => api.externalAgentFeedUrl(),
+    const subscription = subscribeEvents<ExternalAgentFrame>('external-agents', {
       onEvent: (frame) => {
         if (frame.type === 'sync') {
           useExternalAgentsStore.getState().sync(frame.agents)

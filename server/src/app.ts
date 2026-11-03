@@ -26,6 +26,7 @@ import { workspaceChatMcpRoutes } from './routes/workspace-chat-mcp.js'
 import { taskBoardMcpRoutes } from './routes/task-board-mcp.js'
 import { mcpRoutes } from './routes/mcp.js'
 import { externalAgentRoutes } from './routes/external-agent.js'
+import { eventRoutes } from './routes/events.js'
 import { externalAgentMcpRoutes } from './routes/external-agent-mcp.js'
 import { scheduleMcpRoutes } from './routes/schedule-mcp.js'
 import { visualMcpRoutes } from './routes/visual-mcp.js'
@@ -282,7 +283,19 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/fs', fsWatchRoutes())
   app.route('/api/attachments', attachmentRoutes())
   app.route('/api/chat-history', chatHistoryRoutes(deps.storage))
-  app.route('/api/ai', aiRoutes(deps.storage))
+  // Kept as values: /api/events opens their feeds in process (see routes/events.ts).
+  const ai = aiRoutes(deps.storage)
+  const tasks = taskRoutes(deps.storage)
+  const inbox = notificationRoutes(deps.storage)
+  const externalAgents = externalAgentRoutes()
+  app.route('/api/events', eventRoutes({
+    'live-status': () => ai.request('/chat/live-status'),
+    workflow: (query) => ai.request(`/workflow/feed?limit=${encodeURIComponent(query.get('limit') ?? '30')}`),
+    'external-agents': () => externalAgents.request('/feed'),
+    tasks: () => tasks.request('/stream'),
+    inbox: () => inbox.request('/stream'),
+  }))
+  app.route('/api/ai', ai)
   app.route('/api/terminal', terminalRoutes(upgradeWebSocket))
   if (__ENABLE_MEMORY__) {
     const { memoryMcpRoutes } = await import('./routes/memory-mcp.js')
@@ -301,8 +314,8 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/agents', agentRoutes(deps.storage))
   app.route('/api/agent-bindings', agentBindingRoutes(deps.storage))
   app.route('/api/channels', channelRoutes(deps.storage))
-  app.route('/api/tasks', taskRoutes(deps.storage))
-  app.route('/api/inbox', notificationRoutes(deps.storage))
+  app.route('/api/tasks', tasks)
+  app.route('/api/inbox', inbox)
   app.route('/api/spec', specRoutes(deps.storage))
   app.route('/api/workspace-chat-mcp', workspaceChatMcpRoutes(deps.storage))
   app.route('/api/task-board-mcp', taskBoardMcpRoutes(deps.storage))
@@ -329,7 +342,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/visual-mcp', visualMcpRoutes())
   app.route('/api/assistant', assistantRoutes(deps.storage))
   app.route('/api/assistant-mcp', assistantMcpRoutes())
-  app.route('/api/external-agents', externalAgentRoutes())
+  app.route('/api/external-agents', externalAgents)
   app.route('/api/workflow-mcp', workflowMcpRoutes())
   app.route('/api/provider-configs', providerConfigRoutes())
   app.route('/api/env', envRoutes())

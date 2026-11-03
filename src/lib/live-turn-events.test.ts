@@ -8,15 +8,14 @@ const sseHandles: Array<{
   closed: boolean
 }> = []
 
-vi.mock('./sse.js', () => ({
-  subscribeSse: ({ onEvent, onError }: { onEvent: (e: unknown) => void; onError?: () => void }) => {
+vi.mock('./event-stream', () => ({
+  subscribeEvents: (channel: string, { onEvent, onError }: { onEvent: (e: unknown) => void; onError?: () => void }) => {
+    expect(channel).toBe('live-status')
     const handle = { emit: onEvent, fail: () => onError?.(), closed: false }
     sseHandles.push(handle)
     return { close: () => { handle.closed = true } }
   },
 }))
-
-vi.mock('./api', () => ({ api: { aiLiveStatusStreamUrl: async () => '/stream' } }))
 
 const { subscribeChatPresence, watchPendingInput } = await import('./live-turn-events')
 const { useChatPendingInputStore } = await import('@/stores/chat-pending-input-store')

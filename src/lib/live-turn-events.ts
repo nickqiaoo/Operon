@@ -2,20 +2,18 @@ import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import type { PendingInputSummary } from '@shared/pending-input'
 import { useChatBackgroundTaskStore } from '@/stores/chat-background-task-store'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
-import { api } from './api'
-import { subscribeSse, type SseSubscription } from './sse.js'
+import { subscribeEvents } from './event-stream'
+import type { SseSubscription } from './sse.js'
 
 /**
  * One stream carrying turn presence for EVERY chat, fanned out to per-chat
  * listeners here.
  *
- * This used to be one SSE connection per open conversation. It was merged when
- * the desktop renderer was still bound by Chromium's 6-sockets-per-origin cap on
- * the plain HTTP/1.1 local API, where per-chat streams filled the pool and queued
- * every other request. That cap is now lifted for the local API
- * (`ignore-connections-limit` in `electron/main.ts`), so the merge is no longer
- * load-bearing; it stays because one stream per window is still cheaper than one
- * per conversation and nothing needs the per-chat connection back.
+ * This used to be one SSE connection per open conversation, which filled
+ * Chromium's 6-connections-per-host budget on the plain HTTP/1.1 local API and
+ * queued every other request. It is now one channel of the app's shared event
+ * stream (`lib/event-stream.ts`), for the same reason: Electron lifts the cap
+ * (`ignore-connections-limit` in `electron/main.ts`), a plain browser cannot.
  *
  * The per-chat contract is preserved exactly, so callers did not have to change:
  * subscribing yields a status for that chat immediately, then one per turn
@@ -82,8 +80,7 @@ function deliver(status: LiveTurnStatus): void {
 
 function ensureStream(): void {
   if (subscription != null) return
-  subscription = subscribeSse<Frame>({
-    url: () => api.aiLiveStatusStreamUrl(),
+  subscription = subscribeEvents<Frame>('live-status', {
     onEvent: (frame) => {
       if (frame.type === 'sync') {
         useChatPendingInputStore.getState().sync(frame.pendingInput ?? [])
