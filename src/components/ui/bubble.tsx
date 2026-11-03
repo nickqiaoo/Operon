@@ -26,9 +26,6 @@ const bubbleVariants = cva(
           "*:data-[slot=bubble-content]:bg-muted [&>[data-slot=bubble-content]:is(button,a):hover]:bg-accent-hover",
         brand:
           "*:data-[slot=bubble-content]:bg-brand-fill *:data-[slot=bubble-content]:text-white",
-        // A follow-up sent mid-turn (steer): tinted so it reads apart from a normal turn.
-        tint:
-          "*:data-[slot=bubble-content]:border-tint/35 *:data-[slot=bubble-content]:bg-tint/20 *:data-[slot=bubble-content]:text-foreground",
         outline:
           "*:data-[slot=bubble-content]:border-border/60 *:data-[slot=bubble-content]:bg-background dark:*:data-[slot=bubble-content]:border-border/35 [&>[data-slot=bubble-content]:is(button,a):hover]:bg-row-hover [&>[data-slot=bubble-content]:is(button,a):hover]:text-foreground",
         ghost:
