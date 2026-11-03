@@ -7,6 +7,19 @@ import { streamSSE } from 'hono/streaming'
  */
 export type EventChannelSource = (query: URLSearchParams) => Response | Promise<Response>
 
+/** Ends each open response; a response removes itself when it ends. */
+const openStreams = new Set<() => void>()
+
+/**
+ * End every open event stream, as a dropped connection would. Clients reconnect
+ * and get each channel's snapshot again. Used by the e2e test server.
+ */
+export function endEventStreams(): number {
+  const count = openStreams.size
+  for (const end of [...openStreams]) end()
+  return count
+}
+
 /**
  * GET /api/events?ch=inbox,tasks,… — the app's always-open feeds on ONE stream.
  *
@@ -43,6 +56,7 @@ export function eventRoutes(channels: Record<string, EventChannelSource>) {
       let finish!: () => void
       const finished = new Promise<void>((resolve) => { finish = resolve })
       stream.onAbort(finish)
+      openStreams.add(finish)
 
       const pump = async (name: string, body: ReadableStream<Uint8Array>) => {
         const reader = body.getReader()
@@ -77,6 +91,7 @@ export function eventRoutes(channels: Record<string, EventChannelSource>) {
         }
         await finished
       } finally {
+        openStreams.delete(finish)
         // Cancelling a channel's body is what runs its own cleanup (unsubscribe).
         await Promise.allSettled(readers.map((reader) => reader.cancel()))
       }
