@@ -361,6 +361,10 @@ final class ShellChromeController: UINavigationController {
                 }
                 segmentIds = items.map(\.id)
             }
+            // Same ids can still carry new titles (the app's language changed).
+            for (index, entry) in items.enumerated() where segmentedControl.titleForSegment(at: index) != entry.title {
+                segmentedControl.setTitle(entry.title, forSegmentAt: index)
+            }
             segmentedControl.selectedSegmentIndex = segmentIds.firstIndex(of: selected) ?? UISegmentedControl.noSegment
             let segmentsItem = UIBarButtonItem(customView: segmentedControl)
             // The control draws its own track; the bar's glass around it would be a second one.
