@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { subscribeSse } from '@/lib/sse';
-import { api, type WorkflowFeedFrame } from '@/lib/api';
+import { subscribeEvents } from '@/lib/event-stream';
+import type { WorkflowFeedFrame } from '@/lib/api';
 import { useWorkflowRunsStore } from '@/stores/workflow-runs-store';
 import { useWorkflowStream } from '../hooks/useWorkflowStream';
 
@@ -23,8 +23,7 @@ export function WorkflowRunsSync() {
   const runs = useWorkflowRunsStore((s) => s.runs);
 
   useEffect(() => {
-    const subscription = subscribeSse<WorkflowFeedFrame>({
-      url: () => api.aiWorkflowFeedUrl(30),
+    const subscription = subscribeEvents<WorkflowFeedFrame>('workflow', {
       onEvent: (frame) => {
         if (frame.t === 'sync' && Array.isArray(frame.runs)) setRuns(frame.runs);
         else if (frame.t === 'run') {

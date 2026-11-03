@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
-import { api } from '@/lib/api'
-import { subscribeSse } from '@/lib/sse'
+import { subscribeEvents } from '@/lib/event-stream'
 import { useInboxStore } from '@/stores/inbox-store'
 import type { InboxEvent } from '@/types/notification'
 
@@ -13,10 +12,7 @@ export function useInboxStream() {
   const applyEvent = useInboxStore((s) => s.applyEvent)
 
   useEffect(() => {
-    const subscription = subscribeSse<InboxEvent>({
-      url: () => api.inboxStreamUrl(),
-      onEvent: applyEvent,
-    })
+    const subscription = subscribeEvents<InboxEvent>('inbox', { onEvent: applyEvent })
     return () => subscription.close()
   }, [applyEvent])
 }

@@ -67,7 +67,7 @@ function readSavedTab(): MobileTab {
  * the desktop multi-pane app is left completely untouched.
  */
 export function MobileApp() {
-  useTaskStream(null)
+  useTaskStream()
   const [tab, setTab] = useState<MobileTab>(readSavedTab)
   useEffect(() => {
     try {

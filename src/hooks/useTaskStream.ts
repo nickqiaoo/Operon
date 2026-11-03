@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
-import { api } from '@/lib/api'
-import { subscribeSse } from '@/lib/sse'
+import { subscribeEvents } from '@/lib/event-stream'
 import { useTaskStore } from '@/stores/task-store'
 import { useProjectStore, type Project } from '@/stores/project-store'
 import type { TaskListItem } from '@/types/task'
@@ -23,8 +22,9 @@ export function taskChangesProjectTree(task: TaskListItem, projects: readonly Pr
 /**
  * Mount once per shell, including while chatting: task changes update the board,
  * open detail and project navigation without requiring a visit to the board.
+ * Covers every project — the board filters, the stream does not.
  */
-export function useTaskStream(projectId: number | null) {
+export function useTaskStream() {
   const applyUpsert = useTaskStore((s) => s.applyUpsert)
 
   useEffect(() => {
@@ -52,8 +52,7 @@ export function useTaskStream(projectId: number | null) {
         }
       }, 100)
     }
-    const subscription = subscribeSse<TaskStreamEvent>({
-      url: () => api.taskStreamUrl(projectId),
+    const subscription = subscribeEvents<TaskStreamEvent>('tasks', {
       onEvent: (event) => {
         if (event.type !== 'task_upsert') return
         if (pending.has(event.task.id) || taskChangesProjectTree(event.task, useProjectStore.getState().projects)) {
@@ -68,5 +67,5 @@ export function useTaskStream(projectId: number | null) {
       if (timer != null) clearTimeout(timer)
       subscription.close()
     }
-  }, [projectId, applyUpsert])
+  }, [applyUpsert])
 }
