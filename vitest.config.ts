@@ -18,6 +18,7 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    setupFiles: ['./server/tests/setup.ts'],
     include: [
       'src/**/*.{test,spec}.ts',
       'src/**/*.{test,spec}.tsx',
@@ -28,7 +29,8 @@ export default defineConfig({
       'packages/*/**/*.{test,spec}.ts',
       'electron/**/*.{test,spec}.ts',
     ],
-    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/vendor/**'],
+    // Browser-mode tests run in real Chromium via vitest.browser.config.ts.
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/vendor/**', '**/*.browser.test.*'],
     testTimeout: 10_000,
     hookTimeout: 10_000,
     env: {

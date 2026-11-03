@@ -1,3 +1,6 @@
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
 
 const TEST_MODE = process.env.OPERON_TEST_MODE === 'real' ? 'real' : 'fake'
@@ -6,6 +9,15 @@ const TEST_MODE = process.env.OPERON_TEST_MODE === 'real' ? 'real' : 'fake'
 const ENABLE_AUTOSTART = TEST_MODE === 'fake' && (process.env.PLAYWRIGHT_CI === '1' || process.env.CI === '1' || !process.env.OPERON_TEST_MODE_NO_AUTOSTART)
 const CI_RENDERER_PORT = Number(process.env.PW_CI_RENDERER_PORT ?? 4101)
 const CI_SERVER_PORT = Number(process.env.PW_CI_SERVER_PORT ?? 4100)
+
+// The test server gets its own HOME. The server reads the machine's SaaS identity
+// from ~/.operon/saas.json — not from its data dir — so under the real HOME it
+// held the developer's node token: every approval or "waiting on you" a spec
+// produced was pushed to their phone (no desktop-presence probe outside Electron,
+// so nothing was held back), and a spec reaching sign-in or sign-out would
+// rewrite their real SaaS config.
+const TEST_SERVER_HOME = join(tmpdir(), 'operon-e2e-home')
+mkdirSync(TEST_SERVER_HOME, { recursive: true })
 
 export default defineConfig({
   testDir: './e2e',
@@ -54,6 +66,12 @@ export default defineConfig({
             PORT: String(CI_SERVER_PORT),
             HOST: '127.0.0.1',
             OPERON_ENABLE_FAKE_RUNTIME: '1',
+            HOME: TEST_SERVER_HOME,
+            // No ~/.gitconfig under that HOME: specs that commit still need an identity.
+            GIT_AUTHOR_NAME: 'operon-e2e',
+            GIT_AUTHOR_EMAIL: 'e2e@operon.invalid',
+            GIT_COMMITTER_NAME: 'operon-e2e',
+            GIT_COMMITTER_EMAIL: 'e2e@operon.invalid',
           },
           url: `http://127.0.0.1:${CI_SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,

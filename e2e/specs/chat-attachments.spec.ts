@@ -42,8 +42,10 @@ test('chat-attachments: sending a message with an attachment keeps it in the use
   await chat.sendMessage(page, 'see attached')
   await waitForStreamIdle(page)
 
-  // User message bubble carries the attachment preview alongside the typed text.
+  // The sent message shows the attachment as a file chip next to the typed text…
   const userMsg = page.locator('[data-testid="message-user"]').last()
   await expect(userMsg).toContainText(/see attached/i)
-  await expect(userMsg.getByText(/note from test/)).toBeVisible()
+  await expect(userMsg.getByRole('button', { name: 'File note.md' })).toBeVisible()
+  // …and its contents reached the agent (verbatim-echo repeats the prompt).
+  await expect(page.locator('[data-testid="message-assistant"]').last()).toContainText(/note from test/)
 })

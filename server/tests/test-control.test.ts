@@ -5,7 +5,7 @@ import path from 'path'
 import { Hono } from 'hono'
 import { SqliteStorage } from '../src/storage/sqlite.js'
 import { testControlRoutes } from '../src/routes/test-control.js'
-import { FakeRuntimeProvider } from '@operon/agent-runtime'
+import { FakeRuntimeProvider } from '@operon/agent-runtime/testing'
 
 describe('/api/test routes', () => {
   let storage: SqliteStorage

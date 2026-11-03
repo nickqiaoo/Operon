@@ -396,7 +396,9 @@ function describeProbeFailure(command: string, error: unknown): string {
  * Note what this does NOT claim: these still need credentials before a turn
  * will run. `available` answers "is the code here", not "is it usable".
  */
-const BUNDLED_RUNTIME_ADAPTERS = new Set(['custom'])
+// `fake` runs in-process from scripts and is only registered under
+// OPERON_ENABLE_FAKE_RUNTIME=1, so it never shows up in a real build.
+const BUNDLED_RUNTIME_ADAPTERS = new Set(['custom', 'fake'])
 
 /**
  * Check if an adapter's CLI dependency is available.

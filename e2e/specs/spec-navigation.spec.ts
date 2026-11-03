@@ -149,7 +149,10 @@ test('phone completed Spec keeps conversations available without execution workt
   await expect(screen.getByText(/workspaces for this Spec have been removed/)).toBeVisible()
   await screen.getByRole('button', { name: 'Sessions', exact: true }).click()
   await screen.getByRole('button', { name: 'T1 · Implement post links', exact: true }).click()
-  await expect(screen.getByRole('textbox', { name: /Ask anything/ })).toBeVisible()
+  // Its worktree is gone, so the session is history: readable, but no composer.
+  await expect(screen.getByText('Implement adjacent navigation transcript', { exact: true })).toBeVisible()
+  await expect(screen.getByRole('status').filter({ hasText: "This session's worktree has been removed." })).toBeVisible()
+  await expect(screen.getByRole('textbox', { name: /Ask anything/ })).toHaveCount(0)
 })
 
 test('Spec conversations share the original chat, files and terminal workbench', async ({ page }, testInfo) => {
@@ -194,7 +197,10 @@ test('Spec conversations share the original chat, files and terminal workbench',
   await page.screenshot({ path: testInfo.outputPath('spec-session-workbench.png') })
   await page.keyboard.press(`${mod}+j`)
 
-  await task.getByRole('combobox', { name: 'Spec session', exact: true }).selectOption({ label: 'Review navigation links' })
+  // The open right panel narrows the page below the session list's breakpoint,
+  // so sessions are switched from the header's Select instead.
+  await task.getByRole('combobox', { name: 'Spec session', exact: true }).click()
+  await page.getByRole('option', { name: 'Review navigation links', exact: true }).click()
   await expect(task.getByText('Review navigation links transcript', { exact: true })).toBeVisible()
   await task.getByRole('tab', { name: 'discussion', exact: true }).click()
   await expect(draft).toHaveValue('Keep the original discussion draft')
@@ -239,16 +245,19 @@ test('Board keeps its original task detail while the sidebar opens the dedicated
 
 test('completed Spec logs remain accessible after all execution worktrees are removed', async ({ page }) => {
   fakeOnly()
-  const { main, implementer } = await installSpec(page, true)
+  const { main, spec } = await installSpec(page, true)
   await page.getByTestId('sidebar-spec-100').click()
   const task = page.getByTestId('spec-page')
   await task.getByRole('tab', { name: 'sessions', exact: false }).click()
   await expect(task.getByText('Implement adjacent navigation transcript', { exact: true })).toBeVisible()
-  await expect(task.getByRole('textbox', { name: /Ask anything/ })).toBeVisible()
+  // A session whose worktree is gone is history: readable, and follow-ups go to Discussion.
+  await expect(task.getByRole('status').filter({ hasText: "This session's worktree has been removed. Follow up in Discussion." })).toBeVisible()
+  await expect(task.getByRole('textbox', { name: /Ask anything/ })).toHaveCount(0)
+  await task.getByRole('tab', { name: 'discussion', exact: true }).click()
   await task.getByRole('textbox', { name: /Ask anything/ }).fill('Continue after integration')
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/ai/chat') && request.method() === 'POST')
   await task.getByRole('button', { name: 'Submit', exact: true }).click()
-  expect((await sent).postDataJSON()).toMatchObject({ chatId: implementer.chatId, workspaceId: main.id })
+  expect((await sent).postDataJSON()).toMatchObject({ chatId: spec.sourceChat!.chatId, workspaceId: main.id })
   await expect(task.getByRole('log').locator('[data-testid="message-assistant"]').last()).toContainText(/fake runtime/i)
   await task.getByRole('tab', { name: 'changes', exact: true }).click()
   await expect(task.getByText('The workspaces for this Spec have been removed. Sessions and review documents remain available.')).toBeVisible()
