@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { api } from "@/lib/api"
 import { trackEvent } from "@/lib/analytics"
+import { clearChatDraft } from "@/lib/chat-drafts"
 import type { EditorTab } from "@/types/editor"
 
 interface EditorState {
@@ -150,6 +151,7 @@ export const useEditorStore = create<EditorStore>()(
   },
 
   closeTab: (id) => {
+    clearChatDraft(id)
     const state = get()
     const closedTab = state.tabs.find((tab) => tab.id === id)
     const shouldCleanupChat =

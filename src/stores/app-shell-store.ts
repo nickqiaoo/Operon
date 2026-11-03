@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { useSessionPanelStore } from "./session-panel-store"
 import {
   BOTTOM_PANEL_DEFAULT_HEIGHT,
   RIGHT_PANEL_AUTO_CLOSE_BELOW,
@@ -90,18 +91,19 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
       workspacePreviewHistory: {},
       skipSideChatCloseConfirm: false,
 
-      setRightPanelOpen: (rightPanelOpen) =>
+      setRightPanelOpen: (rightPanelOpen) => {
+        // Keep the transcript readable when the right panel takes its space.
+        if (rightPanelOpen && !get().rightPanelOpen) {
+          useSessionPanelStore.getState().setOpen(false)
+        }
         set((s) => ({
           rightPanelOpen,
           // Auto-collapse expansion when the panel itself closes.
           rightPanelExpanded: rightPanelOpen ? s.rightPanelExpanded : false,
-        })),
+        }))
+      },
       setBottomPanelOpen: (bottomPanelOpen) => set({ bottomPanelOpen }),
-      toggleRightPanel: () =>
-        set((s) => ({
-          rightPanelOpen: !s.rightPanelOpen,
-          rightPanelExpanded: s.rightPanelOpen ? false : s.rightPanelExpanded,
-        })),
+      toggleRightPanel: () => get().setRightPanelOpen(!get().rightPanelOpen),
       toggleBottomPanel: () =>
         set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen })),
       setRightPanelWidth: (rightPanelWidth) => set({ rightPanelWidth }),
