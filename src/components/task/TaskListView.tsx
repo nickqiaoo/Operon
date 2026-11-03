@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { PriorityIcon, LabelChip, TaskRef, type TaskGroup } from './task-meta'
 import type { TaskListItem } from '@/types/task'
-import { SpecCardBadge } from '@/components/spec/spec-shared'
+import { SpecCardBadge, specCardBadgeShown } from '@/components/spec/spec-shared'
 import type { Agent, AgentSession } from '@/types/channel'
 import { formatRelativeTime } from '@/lib/format'
 
@@ -90,13 +90,19 @@ function TaskRow({
       {archived && <Archive className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
       <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
         <span className="w-full truncate text-sm text-foreground/90">{task.title}</span>
-        <TaskExecutionIndicator task={task} />
+        {/* On the phone the spec badge sits under the title: as a column of its
+            own it squeezed the title to a few letters. A spec task's badge also
+            carries its running state, so it never shows the chip as well. */}
+        <span className="flex w-full min-w-0 items-center gap-1.5 empty:hidden md:contents">
+          {!specCardBadgeShown(task) && <TaskExecutionIndicator task={task} className="max-w-full overflow-hidden" />}
+          <SpecCardBadge task={task} className="shrink-0 md:hidden" />
+        </span>
       </span>
       {/* Badges hug the timestamp: a fixed column of its own left the spec
           badge floating mid-row whenever the row had no labels. A spec at a
           gate is waiting on the reader — on the phone this list is the only board. */}
       <div className="flex shrink-0 items-center justify-end gap-1.5 overflow-hidden md:w-60">
-        <SpecCardBadge task={task} />
+        <SpecCardBadge task={task} className="hidden md:inline-flex" />
         <span className="hidden md:contents">
           {task.labels.slice(0, 3).map((l) => (
             <LabelChip key={l.id} label={l} />

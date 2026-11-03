@@ -9,21 +9,31 @@ export function isTaskRunning(task: Pick<TaskListItem, 'status' | 'archivedAt' |
   return task.executionStatus === 'active' && task.archivedAt == null && task.status !== 'done' && task.status !== 'cancelled'
 }
 
-/** Driven by the task's binding, never another task using the same agent. */
+/** The pulsing bars that mean "an agent is working on this right now". `small` fits a 10px badge. */
+export function RunningBars({ small = false }: { small?: boolean }) {
+  return (
+    <span className={cn('flex shrink-0 items-center gap-0.5', small ? 'h-2.5' : 'h-3')} aria-hidden>
+      {(small ? [6, 9, 5] : [8, 12, 6]).map((height, i) => (
+        <span
+          key={i}
+          className="w-0.5 rounded-full bg-current motion-safe:animate-pulse"
+          style={{ height, animationDelay: `${i * 180}ms`, animationDuration: '1s' }}
+        />
+      ))}
+    </span>
+  )
+}
+
+/**
+ * Driven by the task's binding, never another task using the same agent.
+ * A spec task shows its running state on its stage badge instead (`SpecCardBadge`).
+ */
 export function TaskExecutionIndicator({ task, className }: { task: TaskListItem; className?: string }) {
   if (!isTaskRunning(task)) return null
   const agent = task.executionAgent
   return (
     <span className={cn('inline-flex min-w-0 items-center gap-2 rounded-md bg-status-info/8 px-2 py-1 text-[11px] text-status-info', className)}>
-      <span className="flex h-3 shrink-0 items-center gap-0.5" aria-hidden>
-        {[8, 12, 6].map((height, i) => (
-          <span
-            key={i}
-            className="w-0.5 rounded-full bg-current motion-safe:animate-pulse"
-            style={{ height, animationDelay: `${i * 180}ms`, animationDuration: '1s' }}
-          />
-        ))}
-      </span>
+      <RunningBars />
       {agent && <ProviderLabel id={agent.provider} size={12} />}
       <span className="shrink-0"><FormattedMessage id="task.execution.running" defaultMessage="Running" /></span>
     </span>
