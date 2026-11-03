@@ -4,7 +4,7 @@ import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
 import { useIntl } from "react-intl"
 import { hasNativeAssistantBar, hasNativeHeaderBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace, type NativeMenuNode, type NativeTopBarHeader } from "@/lib/native"
-import { useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
+import { useNativeShellFullscreenCount, useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
 import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
 import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
 import { useNativeStatusBar } from "@/hooks/useNativeStatusBar"
@@ -117,6 +117,7 @@ export function MobileApp() {
   const [assistantHeader, setAssistantHeader] = useState<AssistantHeader | null>(null)
   const [nativeTopBarHeight, setNativeTopBarHeight] = useState(44)
   const overlayCount = useNativeShellOverlayCount()
+  const fullscreenOverlayCount = useNativeShellFullscreenCount()
   const tabBarVisible = !keyboardOpen && !immersive
   const assistantUnread = useInboxStore((s) => s.counts.assistantTotal ?? 0)
 
@@ -603,6 +604,11 @@ export function MobileApp() {
   const topBarSubtitle = specTitle ?? activeInfo?.workspace.name
   useEffect(() => {
     if (!nativeTabBar) return
+    // A whole-screen overlay (image viewer) draws its own controls where the bar would be.
+    if (fullscreenOverlayCount > 0) {
+      void NativeShell.setTopBar({ mode: "hidden", title: topBarTitle, unread: false, interactive: true }).catch(() => {})
+      return
+    }
     if (tab === "assistant") {
       // Off while one of its pages is pushed: those are web pages over the
       // whole screen, and the bar would float on top of them.
@@ -653,7 +659,7 @@ export function MobileApp() {
         ? [{ id: SESSION_PANEL_ACTION, symbol: "waveform.path.ecg", label: intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" }) }]
         : [],
     }).catch(() => {})
-  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, headerKey, sessionPanelOffered, showBell, intl])
+  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, fullscreenOverlayCount, headerKey, sessionPanelOffered, showBell, intl])
 
   // On iOS the top safe-area inset already includes the native navigation
   // bar, so list screens just pad by it; immersive screens carry their own
