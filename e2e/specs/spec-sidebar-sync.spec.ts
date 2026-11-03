@@ -1,12 +1,20 @@
-import type { Project, WorkspaceTask } from '../../src/stores/project-store'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Page } from '@playwright/test'
+import type { Project } from '../../src/stores/project-store'
 import { test, expect, fakeOnly } from '../ci-fixtures'
+
+const apiUrl = `http://127.0.0.1:${process.env.PW_CI_SERVER_PORT ?? 4100}/api`
+
+/** Move the task's Spec run to `stage`; the test server announces it on the task feed. */
+async function setSpecStage(page: Page, taskId: number, stage: string) {
+  const response = await page.request.post(`${apiUrl}/test/spec-run`, { data: { taskId, stage } })
+  expect(response.ok()).toBe(true)
+}
 
 test('Spec appears and updates in project navigation without opening the Board', async ({ page }) => {
   fakeOnly()
-  let spec: WorkspaceTask | null = null
-  let projectId = 0
-  let treeReads = 0
-  let streamReads = 0
   // Other tasks may edit the shared checkout while this scenario runs.
   await page.routeWebSocket(/ws:\/\/127\.0\.0\.1:4101\//, (socket) => socket.close())
   await page.route('**/src/components/project/ProjectSidebar.tsx*', async (route) => {
@@ -23,49 +31,63 @@ test('Spec appears and updates in project navigation without opening the Board',
       ${marker}
     `) })
   })
-  await page.route('**/api/projects?include=workspaces', async (route) => {
-    treeReads++
-    const response = await route.fetch()
-    const { projects } = await response.json() as { projects: Project[] }
-    projectId = projects[0].id
-    await route.fulfill({ json: { projects: [...projects.map((project, index) => index === 0
-      ? { ...project, specs: spec ? [spec] : [] }
-      : project), { ...projects[0], id: 9000, name: 'Unrelated project', workspaces: [], specs: [] }] } })
+  // Counted, not intercepted: the server answers both.
+  let treeReads = 0
+  let streamReads = 0
+  page.on('request', (request) => {
+    const url = request.url()
+    if (url.endsWith('/api/projects?include=workspaces')) treeReads++
+    if (url.includes('/api/events?') && url.includes('tasks')) streamReads++
   })
-  // The task feed rides the shared event stream (src/lib/event-stream.ts).
-  await page.route('**/api/events?*', async (route) => {
-    streamReads++
-    // The production SSE reader reconnects after this finite stream. Each new
-    // connection receives the latest snapshot, just like the server endpoint.
-    const frame = { ch: 'tasks', data: { type: 'task_upsert', task: { ...spec, projectId, workspaceId: null } } }
-    const data = spec ? `data: ${JSON.stringify(frame)}\n\n` : ': ready\n\n'
-    await route.fulfill({ contentType: 'text/event-stream', body: data })
-  })
+
+  const { projects } = await (await page.request.get(`${apiUrl}/projects?include=workspaces`)).json() as { projects: Project[] }
+  const projectId = projects[0].id
+  const unrelated = await (await page.request.post(`${apiUrl}/projects`, {
+    data: { name: 'Unrelated project', rootPath: mkdtempSync(join(tmpdir(), 'operon-e2e-unrelated-')) },
+  })).json() as { project: Project }
+  // A task with no Spec run yet: not in the project's specs until one starts.
+  const { task } = await (await page.request.post(`${apiUrl}/tasks`, {
+    data: { projectId, title: 'Reading time' },
+  })).json() as { task: { id: number } }
+
   await page.reload()
-  await expect.poll(() => projectId).toBeGreaterThan(0)
-  const unrelatedRenders = () => page.evaluate(() =>
-    (window as unknown as { __sidebarProjectRenders: Record<string, number> }).__sidebarProjectRenders?.[9000] ?? 0)
+  const unrelatedRenders = () => page.evaluate((id) =>
+    (window as unknown as { __sidebarProjectRenders?: Record<string, number> }).__sidebarProjectRenders?.[id] ?? 0, unrelated.project.id)
   await expect.poll(unrelatedRenders).toBeGreaterThan(0)
   // Let the initial diff-stat request settle before measuring task updates.
-  await page.waitForFunction(() => performance.now() -
-    (window as unknown as { __sidebarProjectRenderTime: Record<string, number> }).__sidebarProjectRenderTime[9000] > 750)
+  await page.waitForFunction((id) => performance.now() -
+    (window as unknown as { __sidebarProjectRenderTime: Record<string, number> }).__sidebarProjectRenderTime[id] > 750, unrelated.project.id)
   const rendersBeforeSpec = await unrelatedRenders()
   const selectedWorkspace = await page.evaluate(() => window.__operon?.workspace?.())
-  spec = { id: 2500, number: 25, title: 'Reading time', status: 'in_progress', parentTaskId: null, specStage: 'grounding', archivedAt: null }
-  const row = page.getByTestId('sidebar-spec-2500')
+
+  const row = page.getByTestId(`sidebar-spec-${task.id}`)
+  await expect(row).toHaveCount(0)
+  await setSpecStage(page, task.id, 'grounding')
   await expect(row).toBeVisible()
   await expect(row).toContainText('Running')
-  spec = { ...spec, specStage: 'stopped' }
+  await setSpecStage(page, task.id, 'stopped')
   await expect(row).toContainText('Stopped')
+  // A stage change re-reads the tree (that is where the row comes from), but the
+  // unrelated project's row is not rendered again.
   expect(await unrelatedRenders()).toBe(rendersBeforeSpec)
   expect(await page.evaluate(() => window.__operon?.workspace?.())).toEqual(selectedWorkspace)
 
-  // Repeated reconnect snapshots must leave project navigation alone.
-  const readsAfterStop = treeReads
-  const streamsAfterStop = streamReads
-  await expect.poll(() => streamReads).toBeGreaterThan(streamsAfterStop)
-  expect(treeReads).toBe(readsAfterStop)
+  // A dropped connection comes back with the server's full task snapshot. Nothing
+  // in it changed, so project navigation is left alone.
+  const readsBeforeDrop = treeReads
+  const streamsBeforeDrop = streamReads
+  // (Offline emulation leaves an established stream open, so the server ends it.)
+  const dropped = await (await page.request.post(`${apiUrl}/test/events/drop`)).json() as { ended: number }
+  expect(dropped.ended).toBeGreaterThan(0)
+  await expect.poll(() => streamReads).toBeGreaterThan(streamsBeforeDrop)
+  await expect(row).toContainText('Stopped')
+  // The snapshot is applied 100ms after it lands (useTaskStream); give a refresh
+  // that should not happen the time to show up.
+  await page.waitForTimeout(500)
+  expect(treeReads).toBe(readsBeforeDrop)
   expect(await unrelatedRenders()).toBe(rendersBeforeSpec)
-  spec = { ...spec, archivedAt: Date.now() }
+
+  const archived = await page.request.post(`${apiUrl}/tasks/${task.id}/archive`, { data: { archived: true } })
+  expect(archived.ok()).toBe(true)
   await expect(row).toHaveCount(0)
 })

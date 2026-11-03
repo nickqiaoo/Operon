@@ -2,6 +2,18 @@ import { Hono } from 'hono'
 import type { SqliteStorage } from '../storage/sqlite.js'
 import { BUILTIN_SCRIPT_NAMES, FakeRuntimeProvider } from '@operon/agent-runtime/testing'
 import { getSessionManager } from '../services/ai/state.js'
+import { broadcastTask } from '../services/task-events.js'
+import { endEventStreams } from './events.js'
+import { isSpecStage, type SpecRunConfig } from '../types/spec.js'
+
+/** Every seat on the fake runtime: a seeded run never starts an agent. */
+const FAKE_SPEC_CONFIG: SpecRunConfig = {
+  lead: { providerId: 'fake' },
+  explorer: { providerId: 'fake' },
+  candidates: [{ providerId: 'fake' }],
+  judge: { providerId: 'fake' },
+  builder: { providerId: 'fake' },
+}
 
 /**
  * Test-control routes mounted only when `OPERON_ENABLE_FAKE_RUNTIME=1`.
@@ -11,6 +23,8 @@ import { getSessionManager } from '../services/ai/state.js'
  *   - POST /script        body { name } switch the active fake script
  *   - POST /reset                    re-install built-in scripts and select default
  *   - POST /db/reset                 truncate user-data tables and re-seed
+ *   - POST /spec-run      body { taskId, stage } put a task's Spec run at a stage
+ *   - POST /events/drop              end every open /api/events stream (clients reconnect)
  */
 export interface TestControlDeps {
   storage: SqliteStorage
@@ -55,6 +69,24 @@ export function testControlRoutes(deps: TestControlDeps) {
     FakeRuntimeProvider.resetScripts()
     return c.json({ ok: true, ...seed })
   })
+
+  // A real Spec run takes a multi-agent workflow to reach any stage. This writes
+  // only the run row, then announces the task the way the Spec service does after
+  // each stage change, so the project tree, the task feed and the UI downstream
+  // of it are the real ones.
+  app.post('/spec-run', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { taskId?: unknown; stage?: unknown }
+    const taskId = typeof body.taskId === 'number' ? body.taskId : NaN
+    if (!deps.storage.taskGet(taskId)) return c.json({ error: 'unknown_task' }, 404)
+    if (!isSpecStage(body.stage)) return c.json({ error: 'unknown_stage' }, 400)
+    const run = deps.storage.specRunGet(taskId)
+      ? deps.storage.specRunUpdate(taskId, { stage: body.stage })
+      : deps.storage.specRunCreate({ taskId, stage: body.stage, config: FAKE_SPEC_CONFIG })
+    broadcastTask(deps.storage, taskId)
+    return c.json({ run })
+  })
+
+  app.post('/events/drop', (c) => c.json({ ended: endEventStreams() }))
 
   return app
 }
