@@ -5,8 +5,8 @@ import boardDark from '../assets/shots/board-dark.webp'
 
 const FEATURES = [
   {
-    title: 'A board for every project',
-    desc: 'You and your agents create, assign and move tasks. Agents show up as avatars, and the toolbar takes you straight to managing them.',
+    title: 'One board, every project',
+    desc: 'You and your agents create, assign and move tasks. See every project at once or filter to one; agents show up as avatars, and the toolbar takes you straight to managing them.',
   },
   {
     title: 'Linear, both ways',
@@ -24,7 +24,7 @@ const FEATURES = [
 
 export function TasksSection() {
   return (
-    <Section id="tasks">
+    <Section id="tasks" tone="sidebar">
       <Reveal>
         <div className="max-w-2xl">
           <Eyebrow>Tasks</Eyebrow>
@@ -32,7 +32,7 @@ export function TasksSection() {
             Turn decisions <Muted>into tracked work.</Muted>
           </Title>
           <Lead>
-            Every project gets a durable board shared by people and agents. Work comes in from chats, from
+            One durable board across your projects, shared by people and agents. Work comes in from chats, from
             the assistant or from Linear, gets its own branch, and leaves as a pull request.
           </Lead>
         </div>
@@ -41,7 +41,7 @@ export function TasksSection() {
           <ThemedShot
             light={boardLight}
             dark={boardDark}
-            alt="Operon task board for acme-web with tasks assigned to Claude Code, Codex and Cursor"
+            alt="Operon task board across two projects, with tasks assigned to Claude Code, Codex and Cursor"
             aspect="1440 / 520"
           />
         </div>

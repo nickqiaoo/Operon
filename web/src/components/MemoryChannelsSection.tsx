@@ -21,7 +21,7 @@ const MESSAGES: { from: string; text: string; you?: boolean }[] = [
  */
 export function MemoryChannelsSection() {
   return (
-    <Section id="memory">
+    <Section id="memory" tone="sidebar">
       <Reveal>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card
@@ -31,7 +31,7 @@ export function MemoryChannelsSection() {
           >
             <div className="space-y-2">
               {MEMORIES.map((m) => (
-                <div key={m.text} className="flex items-center gap-3 rounded-lg border border-border/50 bg-background px-3 py-2.5">
+                <div key={m.text} className="flex items-center gap-3 rounded-lg border border-border/50 bg-sidebar px-3 py-2.5">
                   <span className="w-12 shrink-0 text-[11.5px] text-muted-foreground">{m.kind}</span>
                   <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{m.text}</span>
                   <span className="shrink-0 text-[11.5px] text-muted-foreground">{m.date}</span>
@@ -71,7 +71,7 @@ export function MemoryChannelsSection() {
 
 function Card({ eyebrow, title, desc, children }: { eyebrow: string; title: string; desc: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col rounded-xl border border-border/60 bg-sidebar p-6 md:p-8">
+    <div className="flex flex-col rounded-xl border border-border/60 bg-background p-6 md:p-8">
       <Eyebrow>{eyebrow}</Eyebrow>
       <h3 className="font-display text-[22px] leading-[1.2] font-semibold tracking-[-0.02em] text-foreground md:text-[26px]">{title}</h3>
       <p className="mt-3 text-[14.5px] leading-[1.65] text-muted-foreground">{desc}</p>
