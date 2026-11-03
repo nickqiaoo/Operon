@@ -589,7 +589,9 @@ function ChatPanelContent({
   // only offers the button while the visible chat has claimed it.
   const sessionPanelOpen = useSessionPanelStore((s) => s.open);
   const setSessionPanelOpen = useSessionPanelStore((s) => s.setOpen);
-  const agentPanelOpen = sessionPanelOpen && visible && sessionPanelProviderId != null;
+  // Not gated on `visible`: a background tab keeps the panel's room, otherwise
+  // switching back slid the chat over again (and back) as the padding re-animated.
+  const agentPanelOpen = sessionPanelOpen && sessionPanelProviderId != null;
   useEffect(() => {
     if (!visible || !sessionPanelProviderId) return;
     const { claim, release } = useSessionPanelStore.getState();
@@ -1411,6 +1413,7 @@ function ChatPanelContent({
       </div>
       <AgentPanel
         open={agentPanelOpen}
+        live={visible}
         chatId={tab?.chatId ?? dbChatIdRef.current}
         providerId={sessionPanelProviderId}
         variant={isMobile ? 'overlay' : 'inline'}
