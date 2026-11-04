@@ -63,6 +63,7 @@ describe('resolveMcpServersForSession', () => {
     'cursor',
     'grok',
     'copilot',
+    'antigravity',
     'custom',
   ])('injects the conversation-scoped node_repl into %s', (providerId) => {
     const servers = resolveMcpServersForSession(providerId, { chatId: 42 })
