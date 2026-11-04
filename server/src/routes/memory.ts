@@ -116,7 +116,7 @@ export function memoryRoutes() {
 
     const body = await c.req.json<{
       truth: string
-      timeline_entry: { entry: string; occurred_at?: number }
+      timeline_entry: { entry: string; reason?: string; occurred_at?: number }
     }>()
     if (!body.truth?.trim()) return c.json({ error: 'truth is required' }, 400)
     if (!body.timeline_entry?.entry?.trim()) {
@@ -126,6 +126,8 @@ export function memoryRoutes() {
     try {
       const result = await engine.upsert(type, slugHint, body.truth, {
         entry: body.timeline_entry.entry,
+        reason: body.timeline_entry.reason,
+        source: 'manual',
         occurred_at: body.timeline_entry.occurred_at,
       })
       return c.json(result)

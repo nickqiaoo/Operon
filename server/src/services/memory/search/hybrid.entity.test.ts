@@ -82,7 +82,7 @@ describe('resultMentionsEntity', () => {
 
     const inTimeline = result({
       truth: 'unrelated',
-      timeline: [{ id: 1, occurred_at: 0, entry: 'alice smith joined the channel', matched: true }],
+      timeline: [{ id: 1, occurred_at: 0, entry: 'alice smith joined the channel', reason: null, matched: true }],
     })
     expect(resultMentionsEntity(inTimeline, entity('alice-smith'))).toBe(true)
   })

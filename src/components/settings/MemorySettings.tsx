@@ -23,6 +23,39 @@ function formatDate(ts: number): string {
     return new Date(ts).toLocaleDateString()
 }
 
+interface TimelineListEntry {
+    id: number
+    occurred_at: number | null
+    entry: string
+    reason: string | null
+    matched?: boolean
+}
+
+/** Timeline rows: what happened, with the evidence the writer relied on beneath it. */
+function TimelineList({ entries }: { entries: TimelineListEntry[] }) {
+    return (
+        <ul className="space-y-2">
+            {entries.map((t) => (
+                <li key={t.id} className="text-sm leading-relaxed">
+                    <div className={t.matched ? "text-foreground" : "text-muted-foreground"}>
+                        {t.occurred_at != null && <span className="text-[10px] text-muted-foreground mr-2">{formatDate(t.occurred_at)}</span>}
+                        {t.entry}
+                    </div>
+                    {t.reason && (
+                        <div className="mt-0.5 text-xs text-muted-foreground/70">
+                            <FormattedMessage
+                                id="settings.memory.page.reason"
+                                defaultMessage="Evidence: {reason}"
+                                values={{ reason: t.reason }}
+                            />
+                        </div>
+                    )}
+                </li>
+            ))}
+        </ul>
+    )
+}
+
 export function MemorySettings() {
     const intl = useIntl()
     const [activeMemoryTab, setActiveMemoryTab] = useState<"embedding" | "memory" | "maintenance">("embedding")
@@ -242,17 +275,7 @@ export function MemorySettings() {
                                                     <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                                                         <FormattedMessage id="settings.memory.page.timeline" defaultMessage="Timeline" />
                                                     </div>
-                                                    <ul className="space-y-1">
-                                                        {r.timeline.map((t) => (
-                                                            <li key={t.id} className={cn(
-                                                                "text-sm leading-relaxed",
-                                                                t.matched ? "text-foreground" : "text-muted-foreground",
-                                                            )}>
-                                                                {t.occurred_at != null && <span className="text-[10px] text-muted-foreground mr-2">{formatDate(t.occurred_at)}</span>}
-                                                                {t.entry}
-                                                            </li>
-                                                        ))}
-                                                    </ul>
+                                                    <TimelineList entries={r.timeline} />
                                                 </div>
                                             )}
                                         </div>
@@ -335,14 +358,7 @@ export function MemorySettings() {
                                                         <FormattedMessage id="settings.memory.page.noTimeline" defaultMessage="No timeline entries." />
                                                     </div>
                                                 ) : (
-                                                    <ul className="space-y-1">
-                                                        {timeline.map((t) => (
-                                                            <li key={t.id} className="text-sm leading-relaxed text-muted-foreground">
-                                                                {t.occurred_at != null && <span className="text-[10px] text-muted-foreground mr-2">{formatDate(t.occurred_at)}</span>}
-                                                                {t.entry}
-                                                            </li>
-                                                        ))}
-                                                    </ul>
+                                                    <TimelineList entries={timeline} />
                                                 )}
                                             </div>
                                         </div>

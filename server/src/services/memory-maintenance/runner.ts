@@ -4,6 +4,8 @@ import type { MemoryMaintenanceTrigger } from '../../types/memory-maintenance.js
 import { createMaintenanceLogger } from './logger.js'
 import { withRunLog } from './run-log.js'
 import { runExtractor } from './extractor.js'
+import { maintenanceWorkdir } from './extraction-source.js'
+import { resolveMcpServersForSession } from '../mcp-config.js'
 
 const logger = createMaintenanceLogger('memory-maintenance')
 
@@ -18,10 +20,35 @@ export interface MaintenanceRunOutcome {
   sessionsProcessed: number
   chunksProcessed: number
   memoriesWritten: number
-  memoriesMerged: number
-  tokensInput: number
-  tokensOutput: number
   error?: string
+}
+
+/**
+ * One run at a time, whoever triggers it (schedule or the Settings button).
+ * The extractor's write attribution relies on it: the memory MCP route reads
+ * the conversation being extracted from a single process-wide slot.
+ */
+let activeRun = false
+
+export function isMemoryMaintenanceRunning(): boolean {
+  return activeRun
+}
+
+/**
+ * Development aid for tuning the extraction prompt: with
+ * `OPERON_MEMORY_EVAL_CHATS=1136,1143,…` set on the server, a manual run
+ * ("Run now") extracts exactly those chats from the start and moves no
+ * watermark, so a fixed set of conversations can be re-run in a minute instead
+ * of waiting on a full pass. Scheduled runs ignore it.
+ */
+function evalChatIdsFromEnv(): number[] | undefined {
+  const raw = process.env.OPERON_MEMORY_EVAL_CHATS?.trim()
+  if (!raw) return undefined
+  const ids = raw
+    .split(/[\s,]+/)
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+  return ids.length > 0 ? ids : undefined
 }
 
 /**
@@ -33,6 +60,19 @@ export interface MaintenanceRunOutcome {
 export async function runMemoryMaintenance(
   storage: MemoryMaintenanceStorageAdapter,
   options: MaintenanceRunOptions = {}
+): Promise<MaintenanceRunOutcome> {
+  if (activeRun) throw new Error('A maintenance run is already in progress')
+  activeRun = true
+  try {
+    return await runOnce(storage, options)
+  } finally {
+    activeRun = false
+  }
+}
+
+async function runOnce(
+  storage: MemoryMaintenanceStorageAdapter,
+  options: MaintenanceRunOptions
 ): Promise<MaintenanceRunOutcome> {
   const config = storage.getMemoryMaintenanceConfig()
   if (!config.enabled) {
@@ -63,15 +103,19 @@ export async function runMemoryMaintenance(
     let sessionsProcessed = 0
     let chunksProcessed = 0
     let memoriesWritten = 0
-    // Cross-page merges now happen at write time, not in a consolidation pass —
-    // this stat stays for the run-record schema but is always 0.
-    const memoriesMerged = 0
-    let tokensInput = 0
-    let tokensOutput = 0
     const errors: string[] = []
 
     try {
-      const cwd = process.cwd()
+      const cwd = maintenanceWorkdir()
+
+      // The extractor only acts through the memory MCP server. A provider that
+      // gets none (no MCP support, or memory switched off) would otherwise read
+      // every chat, find no tools, and finish "successfully" with 0 writes.
+      if (config.layer1Enabled && !resolveMcpServersForSession(providerId)?.memory) {
+        throw new Error(
+          `Provider "${providerId}" gets no memory MCP server (it is not wired for MCP, or memory/embedding is disabled), so it cannot write memories`
+        )
+      }
 
       if (config.layer1Enabled) {
         const extractStats = await runExtractor(storage, {
@@ -79,13 +123,14 @@ export async function runMemoryMaintenance(
           modelId: config.modelId,
           cwd,
           maxSessionsPerRun: config.maxSessionsPerRun,
+          // Manual runs only: a variable left set must never turn the daily
+          // run into a re-run of the fixed set that moves no watermark.
+          evalChatIds: trigger === 'manual' ? evalChatIdsFromEnv() : undefined,
           signal: options.signal,
         })
         sessionsProcessed += extractStats.sessionsProcessed
         chunksProcessed += extractStats.chunksProcessed
         memoriesWritten += extractStats.memoriesWritten
-        tokensInput += extractStats.tokensInput
-        tokensOutput += extractStats.tokensOutput
         errors.push(...extractStats.errors)
       } else {
         logger.info('layer1 (extract) disabled — skipping')
@@ -102,15 +147,12 @@ export async function runMemoryMaintenance(
         sessionsProcessed,
         chunksProcessed,
         memoriesWritten,
-        memoriesMerged,
-        tokensInput,
-        tokensOutput,
         status,
         error: errors.length > 0 ? errors.slice(0, 5).join(' | ') : undefined,
       })
 
       logger.info(
-        `done run=${run.id} status=${status} sessions=${sessionsProcessed} chunks=${chunksProcessed} written=${memoriesWritten} merged=${memoriesMerged} tokens=${tokensInput}/${tokensOutput}`
+        `done run=${run.id} status=${status} sessions=${sessionsProcessed} chunks=${chunksProcessed} written=${memoriesWritten}`
       )
 
       return {
@@ -119,9 +161,6 @@ export async function runMemoryMaintenance(
         sessionsProcessed,
         chunksProcessed,
         memoriesWritten,
-        memoriesMerged,
-        tokensInput,
-        tokensOutput,
         error: errors.length > 0 ? errors.slice(0, 5).join(' | ') : undefined,
       }
     } catch (err) {
@@ -132,9 +171,6 @@ export async function runMemoryMaintenance(
         sessionsProcessed,
         chunksProcessed,
         memoriesWritten,
-        memoriesMerged,
-        tokensInput,
-        tokensOutput,
         status: 'error',
         error: msg,
       })
@@ -144,9 +180,6 @@ export async function runMemoryMaintenance(
         sessionsProcessed,
         chunksProcessed,
         memoriesWritten,
-        memoriesMerged,
-        tokensInput,
-        tokensOutput,
         error: msg,
       }
     }

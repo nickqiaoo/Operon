@@ -50,6 +50,8 @@ interface MemoryTimelineRow {
   page_type: string
   page_slug: string
   entry: string
+  reason: string | null
+  source: string | null
   occurred_at: number | null // NULL = event time unknown
   created_at: number
 }
@@ -248,7 +250,7 @@ export class MemoryEngine {
   getTimelineRecent(type: MemoryType, slug: string, limit: number): MemoryTimelineEntry[] {
     const rows = this.db
       .prepare(
-        `SELECT id, page_type, page_slug, entry, occurred_at, created_at
+        `SELECT id, page_type, page_slug, entry, reason, source, occurred_at, created_at
            FROM memory_timeline
           WHERE page_type = ? AND page_slug = ?
           ORDER BY COALESCE(occurred_at, created_at) DESC, id DESC
@@ -286,7 +288,7 @@ export class MemoryEngine {
 
     const rows = this.db
       .prepare(
-        `SELECT id, page_type, page_slug, entry, occurred_at, created_at
+        `SELECT id, page_type, page_slug, entry, reason, source, occurred_at, created_at
            FROM memory_timeline
           WHERE ${clauses.join(' AND ')}
           ORDER BY COALESCE(occurred_at, created_at) DESC, id DESC
@@ -301,12 +303,24 @@ export class MemoryEngine {
     const placeholders = ids.map(() => '?').join(',')
     const rows = this.db
       .prepare(
-        `SELECT id, page_type, page_slug, entry, occurred_at, created_at
+        `SELECT id, page_type, page_slug, entry, reason, source, occurred_at, created_at
            FROM memory_timeline
           WHERE id IN (${placeholders})`,
       )
       .all(...ids) as MemoryTimelineRow[]
     return rows.map((r) => this.rowToTimeline(r))
+  }
+
+  /**
+   * Timeline entries written from `source` at or after `since` (epoch ms). Every
+   * successful write — create or merge — inserts exactly one entry, so this is
+   * the write count for a run, independent of how a provider names its tools.
+   */
+  countTimelineEntries(opts: { source: string; since: number }): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM memory_timeline WHERE source = ? AND created_at >= ?')
+      .get(opts.source, opts.since) as { n: number }
+    return row.n
   }
 
   // ---------------------------------------------------------------------------
@@ -344,10 +358,18 @@ export class MemoryEngine {
 
       const r = this.db
         .prepare(
-          `INSERT INTO memory_timeline (page_type, page_slug, entry, occurred_at, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO memory_timeline (page_type, page_slug, entry, reason, source, occurred_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(type, resolved.slug, timeline.entry, occurredAt, now)
+        .run(
+          type,
+          resolved.slug,
+          timeline.entry,
+          timeline.reason?.trim() || null,
+          timeline.source?.trim() || null,
+          occurredAt,
+          now,
+        )
       return Number(r.lastInsertRowid)
     })
 
@@ -411,10 +433,18 @@ export class MemoryEngine {
 
       const r = this.db
         .prepare(
-          `INSERT INTO memory_timeline (page_type, page_slug, entry, occurred_at, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO memory_timeline (page_type, page_slug, entry, reason, source, occurred_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(type, resolved.slug, timeline.entry, occurredAt, now)
+        .run(
+          type,
+          resolved.slug,
+          timeline.entry,
+          timeline.reason?.trim() || null,
+          timeline.source?.trim() || null,
+          occurredAt,
+          now,
+        )
 
       return { timelineId: Number(r.lastInsertRowid), revision: nextRevision }
     })
@@ -773,6 +803,8 @@ export class MemoryEngine {
       page_type: r.page_type,
       page_slug: r.page_slug,
       entry: r.entry,
+      reason: r.reason,
+      source: r.source,
       occurred_at: r.occurred_at,
       created_at: r.created_at,
     }

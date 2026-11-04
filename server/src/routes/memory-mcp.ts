@@ -20,13 +20,21 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
 import { MemoryService } from '../services/memory/index.js'
-import { MEMORY_MCP_TOOLS, dispatchMemoryTool } from '../services/memory/operations.js'
+import {
+  MEMORY_MCP_TOOLS,
+  dispatchMemoryTool,
+  type MemoryToolContext,
+} from '../services/memory/operations.js'
 import { createRuntimeLogger } from '@operon/agent-runtime'
+import {
+  MAINTENANCE_ORIGIN,
+  getExtractionSource,
+} from '../services/memory-maintenance/extraction-source.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 
 const logger = createRuntimeLogger('memory-mcp')
 
-function buildMemoryMcpServer(): Server {
+function buildMemoryMcpServer(ctx: MemoryToolContext): Server {
   const server = new Server(
     { name: 'memory', version: '1.0.0' },
     { capabilities: { tools: {} } },
@@ -51,7 +59,7 @@ function buildMemoryMcpServer(): Server {
     }
 
     try {
-      const text = await dispatchMemoryTool(engine, name, args ?? {})
+      const text = await dispatchMemoryTool(engine, name, args ?? {}, ctx)
       return { content: [{ type: 'text', text }] }
     } catch (err) {
       const stack = err instanceof Error ? err.stack ?? err.message : String(err)
@@ -63,11 +71,22 @@ function buildMemoryMcpServer(): Server {
   return withCodexElicitationFallback(server)
 }
 
+/**
+ * Writes over a connection marked `?origin=maintenance` come from the background
+ * extractor; record the conversation it is reading. Live sessions carry no
+ * marker and get no source.
+ */
+function readContext(c: Context): MemoryToolContext {
+  if (c.req.query('origin') !== MAINTENANCE_ORIGIN) return {}
+  const source = getExtractionSource()
+  return source ? { source } : {}
+}
+
 // ---- Hono router ----
 
 export function memoryMcpRoutes() {
   const router = new Hono()
-  const handle = (c: Context) => serveMcpOverHono(c, buildMemoryMcpServer())
+  const handle = (c: Context) => serveMcpOverHono(c, buildMemoryMcpServer(readContext(c)))
   router.post('/', handle)
   router.get('/', handle)
   router.delete('/', handle)

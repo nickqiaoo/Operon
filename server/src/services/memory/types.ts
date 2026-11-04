@@ -35,13 +35,20 @@ export interface MemoryTimelineEntry {
   id: number
   page_type: MemoryType
   page_slug: string
+  /** What happened / what changed — the incoming fact. Indexed for search. */
   entry: string
+  /** The evidence the writer relied on (ideally the user's own words). Not indexed. */
+  reason: string | null
+  /** Where the write came from, e.g. "chat:123" / "assistant". Not indexed. */
+  source: string | null
   occurred_at: number | null // NULL = event time unknown (use created_at for ordering)
   created_at: number
 }
 
 export interface TimelineInput {
   entry: string
+  reason?: string
+  source?: string
   occurred_at?: number
 }
 
@@ -66,6 +73,8 @@ export interface MemoryPageResult {
     id: number
     occurred_at: number | null // NULL = event time unknown
     entry: string
+    /** Evidence behind the entry. Shown in the settings UI; left out of the model-facing search result. */
+    reason: string | null
     matched: boolean
   }>
 }

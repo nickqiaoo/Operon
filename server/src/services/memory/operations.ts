@@ -209,6 +209,7 @@ export async function execMemoryUpsert(
 	    /** Second-call decision after a needs_reconcile response. */
 	    decision?: unknown
 	  },
+  ctx: MemoryToolContext = {},
 ): Promise<string> {
   const type = parseType(args.type)
   const rawHint = args.slug_hint ?? args.slug ?? ''
@@ -223,8 +224,13 @@ export async function execMemoryUpsert(
 	    throw new Error('reason is required — every memory write must be explained')
 	  }
 
+	  // The timeline records WHAT was learned (the incoming content); the reason is
+	  // the evidence behind it and is kept beside the entry, not as the entry —
+	  // otherwise the history reads as a list of "worth remembering because…".
 	  const timeline: TimelineInput = {
-	    entry: reason,
+	    entry: content,
+	    reason,
+	    source: ctx.source,
 	    occurred_at: parseOccurredAt(args.occurred_at),
 	  }
 
@@ -351,6 +357,12 @@ export async function execMemoryUpsert(
   return j({ status: 'written', action: 'created', ...result })
 }
 
+/** Caller-side facts about a write that the model does not (and should not) supply. */
+export interface MemoryToolContext {
+  /** Where the write came from, e.g. "chat:123" — recorded on the timeline entry. */
+  source?: string
+}
+
 type ReconcileCandidate = {
   slug: string
   truth: string
@@ -434,11 +446,12 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
         content: {
           type: 'string',
           description:
-            'New fact or observation to remember. On the first call this is not the full page truth.',
+            'The new fact / observation / change, stated on its own (what happened, or old → new). It is recorded as the timeline entry, so make it readable without the conversation. On the first call this is not the full page truth.',
         },
         reason: {
           type: 'string',
-          description: 'Why this memory should be written.',
+          description:
+            "Evidence for the write: quote the user's own words that establish it (e.g. 'User: \"always use pnpm\"'). Not a value judgement like \"useful later\". Stored beside the entry for audit, not searched.",
         },
         occurred_at: {
           type: 'string',
@@ -470,12 +483,13 @@ export async function dispatchMemoryTool(
   engine: MemoryEngine,
   name: string,
   args: Record<string, unknown>,
+  ctx: MemoryToolContext = {},
 ): Promise<string> {
   switch (name) {
     case 'memory_search':
       return execMemorySearch(engine, args as Parameters<typeof execMemorySearch>[1])
     case 'memory_upsert':
-      return execMemoryUpsert(engine, args as Parameters<typeof execMemoryUpsert>[1])
+      return execMemoryUpsert(engine, args as Parameters<typeof execMemoryUpsert>[1], ctx)
     default:
       throw new Error(`Unknown memory tool: ${name}`)
   }

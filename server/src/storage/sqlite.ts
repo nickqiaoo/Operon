@@ -1150,32 +1150,48 @@ export class SqliteStorage
     this.set(ASSISTANT_EXTRACTED_KEY, at)
   }
 
-  listMemoryMaintenanceCandidates(opts: { olderThanMs: number; newerThanMs?: number; limit: number }): ChatExtractionCandidate[] {
+  listMemoryMaintenanceCandidates(opts: {
+    olderThanMs: number
+    newerThanMs?: number
+    limit: number
+    /** Evaluation: exactly these chats, regardless of activity window and watermark. */
+    chatIds?: number[]
+  }): ChatExtractionCandidate[] {
     const now = Date.now()
     const upperCutoff = now - opts.olderThanMs
     const lowerCutoff = opts.newerThanMs != null ? now - opts.newerThanMs : null
 
-    const clauses = ['c.updated_at <= ?']
-    const params: unknown[] = [upperCutoff]
-    if (lowerCutoff != null) {
-      clauses.push('c.updated_at >= ?')
-      params.push(lowerCutoff)
+    const clauses: string[] = []
+    const params: unknown[] = []
+    if (opts.chatIds) {
+      clauses.push(`c.id IN (${opts.chatIds.map(() => '?').join(',') || 'NULL'})`)
+      params.push(...opts.chatIds)
+    } else {
+      clauses.push('c.updated_at <= ?')
+      params.push(upperCutoff)
+      if (lowerCutoff != null) {
+        clauses.push('c.updated_at >= ?')
+        params.push(lowerCutoff)
+      }
+      clauses.push(
+        `EXISTS (
+          SELECT 1 FROM chat_messages m
+          WHERE m.chat_id = c.id
+            AND (c.last_extracted_message_index IS NULL OR m.message_index > c.last_extracted_message_index)
+        )`
+      )
     }
-    clauses.push(
-      `EXISTS (
-        SELECT 1 FROM chat_messages m
-        WHERE m.chat_id = c.id
-          AND (c.last_extracted_message_index IS NULL OR m.message_index > c.last_extracted_message_index)
-      )`
-    )
     params.push(opts.limit)
 
     const rows = this.db
       .prepare(
         `SELECT c.id, c.title, c.provider_id, c.updated_at, c.last_extracted_message_index,
                 (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS total_messages,
-                (SELECT MAX(m.message_index) FROM chat_messages m WHERE m.chat_id = c.id) AS max_index
+                (SELECT MAX(m.message_index) FROM chat_messages m WHERE m.chat_id = c.id) AS max_index,
+                w.worktree_path AS workspace_path, p.name AS project_name
          FROM chats c
+         LEFT JOIN workspaces w ON w.id = c.workspace_id
+         LEFT JOIN projects p ON p.id = w.project_id
          WHERE ${clauses.join(' AND ')}
          ORDER BY c.updated_at DESC
          LIMIT ?`
@@ -1188,6 +1204,8 @@ export class SqliteStorage
         last_extracted_message_index: number | null
         total_messages: number
         max_index: number | null
+        workspace_path: string | null
+        project_name: string | null
       }>
 
     return rows.map((row) => ({
@@ -1197,6 +1215,8 @@ export class SqliteStorage
       updatedAt: row.updated_at,
       totalMessages: row.total_messages,
       lastExtractedMessageIndex: row.last_extracted_message_index,
+      projectName: row.project_name ?? undefined,
+      workspacePath: row.workspace_path ?? undefined,
     }))
   }
 
@@ -1240,9 +1260,6 @@ export class SqliteStorage
       sessionsProcessed: 0,
       chunksProcessed: 0,
       memoriesWritten: 0,
-      memoriesMerged: 0,
-      tokensInput: 0,
-      tokensOutput: 0,
       status: 'running',
       trigger: input.trigger,
     }
@@ -1257,9 +1274,6 @@ export class SqliteStorage
       ['sessionsProcessed', 'sessions_processed'],
       ['chunksProcessed', 'chunks_processed'],
       ['memoriesWritten', 'memories_written'],
-      ['memoriesMerged', 'memories_merged'],
-      ['tokensInput', 'tokens_input'],
-      ['tokensOutput', 'tokens_output'],
       ['status', 'status'],
       ['error', 'error'],
     ]
@@ -1276,12 +1290,22 @@ export class SqliteStorage
     this.db.prepare(`UPDATE memory_maintenance_runs SET ${fields.join(', ')} WHERE id = ?`).run(...values)
   }
 
+  abortInterruptedMemoryMaintenanceRuns(): number {
+    return this.db
+      .prepare(
+        `UPDATE memory_maintenance_runs
+            SET status = 'aborted', finished_at = ?, error = COALESCE(error, 'Interrupted: the server stopped during the run')
+          WHERE status = 'running'`
+      )
+      .run(Date.now()).changes
+  }
+
   listMemoryMaintenanceRuns(limit = 20): MemoryMaintenanceRun[] {
     const rows = this.db
       .prepare(
         `SELECT id, started_at, finished_at, layer, provider_id, model_id,
-                sessions_processed, chunks_processed, memories_written, memories_merged,
-                tokens_input, tokens_output, status, trigger, error
+                sessions_processed, chunks_processed, memories_written,
+                status, trigger, error
          FROM memory_maintenance_runs
          ORDER BY started_at DESC
          LIMIT ?`
@@ -1296,9 +1320,6 @@ export class SqliteStorage
         sessions_processed: number
         chunks_processed: number
         memories_written: number
-        memories_merged: number
-        tokens_input: number
-        tokens_output: number
         status: string
         trigger: string
         error: string | null
@@ -1314,9 +1335,6 @@ export class SqliteStorage
       sessionsProcessed: row.sessions_processed,
       chunksProcessed: row.chunks_processed,
       memoriesWritten: row.memories_written,
-      memoriesMerged: row.memories_merged,
-      tokensInput: row.tokens_input,
-      tokensOutput: row.tokens_output,
       status: row.status as MemoryMaintenanceRun['status'],
       trigger: row.trigger as MemoryMaintenanceRun['trigger'],
       error: row.error ?? undefined,

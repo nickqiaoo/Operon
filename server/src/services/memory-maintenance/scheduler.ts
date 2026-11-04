@@ -1,6 +1,6 @@
 import type { MemoryMaintenanceStorageAdapter } from '../../storage/interface.js'
 import { createRuntimeLogger } from '@operon/agent-runtime'
-import { runMemoryMaintenance } from './runner.js'
+import { isMemoryMaintenanceRunning, runMemoryMaintenance } from './runner.js'
 
 const logger = createRuntimeLogger('memory-maintenance-scheduler')
 
@@ -43,6 +43,15 @@ export function startMemoryMaintenanceScheduler(
   options: SchedulerOptions = {}
 ): () => void {
   const intervalMs = options.intervalMs ?? TICK_INTERVAL_MS
+
+  // Runs live in this process, so any row still `running` at startup belongs to
+  // a server that stopped mid-run (restart, crash) and will never finish.
+  try {
+    const closed = storage.abortInterruptedMemoryMaintenanceRuns()
+    if (closed > 0) logger.info(`marked ${closed} interrupted run(s) as aborted`)
+  } catch (err) {
+    logger.warn(`closing interrupted runs failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
   let running = false
   let lastFiredDay = ''
 
@@ -83,6 +92,10 @@ export function startMemoryMaintenanceScheduler(
       )
       return
     }
+
+    // A manual run is in progress: try again on the next tick instead of
+    // burning today's slot on an immediate "already running" failure.
+    if (isMemoryMaintenanceRunning()) return
 
     lastFiredDay = todayKey
     running = true

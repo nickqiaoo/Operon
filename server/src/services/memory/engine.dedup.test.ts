@@ -19,7 +19,7 @@ import { MemoryEngine, normalizeSlugKey } from './engine.js'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const migration = (file: string) =>
   readFileSync(path.join(here, '../../storage/migrations', file), 'utf-8')
-const SCHEMA = migration('0001_schema.sql')
+const SCHEMA = migration('0001_schema.sql') + migration('0023_memory_timeline_provenance.sql')
 
 function makeEngine(): MemoryEngine {
   const db = new Database(':memory:')
