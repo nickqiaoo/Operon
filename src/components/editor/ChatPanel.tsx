@@ -1,5 +1,6 @@
 'use client';
 
+import { useChatPromptSuggestion } from '@/stores/chat-prompt-suggestion-store';
 import { toast } from 'sonner';
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
@@ -206,6 +207,8 @@ function ChatPanelContent({
     return undefined;
   });
   const dbChatId = tab?.chatId;
+  // Claude Code's guess at what the user types next, pushed after each turn.
+  const promptSuggestion = useChatPromptSuggestion(dbChatId);
   const readOnlyReason = useChatReadOnlyReason(dbChatId);
 
   // Selection toolbar over the transcript. The container is the whole panel and
@@ -306,7 +309,7 @@ function ChatPanelContent({
   const {
     model, setModel, availableModels, selectedModel,
     modeOptions, currentMode, setMode, serviceTierOptions, currentServiceTier, toggleFastMode, thinkingEffortOptions,
-    modeButtonClass, cycleMode, slashCommands, supportsInjection, supportsGoal,
+    modeButtonClass, slashCommands, supportsInjection, supportsGoal,
     supportsDynamicSwitch, supportsContextUsage,
   } = modelManagement;
   const { sendToAvailableModels, loadGlobalModels } = useSendToModels({
@@ -418,12 +421,6 @@ function ChatPanelContent({
     }
   }, [canDynamicSwitch, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffortOptions]);
 
-  const cycleThinkingEffort = useCallback(() => {
-    const idx = thinkingEffortOptions.findIndex((option) => option.value === thinkingEffort);
-    const next = thinkingEffortOptions[(idx + 1) % thinkingEffortOptions.length];
-    if (next) setThinkingEffortAndRemember(next.value);
-  }, [thinkingEffortOptions, thinkingEffort, setThinkingEffortAndRemember]);
-
   useEffect(() => {
     if (!thinkingEffortOptions.length) return;
     if (thinkingEffortOptions.some((option) => option.value === thinkingEffort)) return;
@@ -439,22 +436,10 @@ function ChatPanelContent({
     rememberRecentOptions({ modeId: nextMode });
   }, [rememberRecentOptions, setMode]);
 
-  const cycleModeAndRemember = useCallback(() => {
-    if (!modeOptions.length) {
-      cycleMode();
-      return;
-    }
-    const currentIndex = modeOptions.findIndex((option) => option.value === currentMode);
-    const nextMode = modeOptions[(currentIndex + 1) % modeOptions.length];
-    cycleMode();
-    if (nextMode) rememberRecentOptions({ modeId: nextMode.value });
-  }, [currentMode, cycleMode, modeOptions, rememberRecentOptions]);
-
   const {
     handlePermissionDecide,
     handleSetModel,
     handleSetMode,
-    handleCycleMode,
   } = useChatSessionControls({
     providerId,
     selectedModelProviderId: selectedModel?.providerId,
@@ -466,9 +451,7 @@ function ChatPanelContent({
     chatBodyRef,
     setModel,
     canDynamicSwitch: canDynamicSwitch && tab?.isSubAgent !== true,
-    cycleMode: cycleModeAndRemember,
     modeOptions,
-    currentMode,
   });
 
   const handleSetModelAndRemember = useCallback((modelId: string) => {
@@ -1374,6 +1357,7 @@ function ChatPanelContent({
           </div>
         ) : <ChatInputArea
           visible={visible}
+          promptSuggestion={promptSuggestion}
           input={input}
           setInput={setInput}
           attachments={attachments}
@@ -1388,12 +1372,10 @@ function ChatPanelContent({
           model={model}
           setModel={handleSetModelAndRemember}
           thinkingEffort={thinkingEffort}
-          cycleThinkingEffort={cycleThinkingEffort}
           setThinkingEffort={setThinkingEffortAndRemember}
           thinkingEffortOptions={thinkingEffortOptions}
           modeOptions={modeOptions}
           currentMode={currentMode}
-          cycleMode={handleCycleMode}
           setMode={handleSetMode}
           modeButtonClass={modeButtonClass}
           supportsDynamicSwitch={canDynamicSwitch && tab?.isSubAgent !== true}

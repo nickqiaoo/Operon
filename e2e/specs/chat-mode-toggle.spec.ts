@@ -5,13 +5,18 @@ test.beforeEach(async () => {
   await resetServerState()
 })
 
-test('mode toggle and fast toggle are reachable when present', async ({ page }) => {
+test('mode picker and fast toggle are reachable when present', async ({ page }) => {
   await setFakeScript('verbatim-echo')
   await chat.openNewChat(page)
 
   const modeBtn = page.getByTestId('chat-mode-toggle')
   if ((await modeBtn.count()) > 0) {
     await modeBtn.first().click()
+    // The picker opens a menu of modes; choosing one closes it.
+    const option = page.getByRole('menuitemradio', { checked: false }).first()
+    if ((await option.count()) > 0) await option.click()
+    else await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toBeHidden()
   }
 
   const fastBtn = page.getByTestId('chat-fast-toggle')

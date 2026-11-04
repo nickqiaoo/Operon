@@ -20,6 +20,7 @@ export {
   type PendingInputSummary,
 } from './ai/chat-pending-input.js'
 export { listChatBackgroundTasks, subscribeBackgroundTasks } from './ai/chat-background-tasks.js'
+export { listChatPromptSuggestions, subscribePromptSuggestions } from './ai/chat-prompt-suggestions.js'
 export { getSubagentTranscript } from './ai/background-events.js'
 
 // Rewind / Checkpoints

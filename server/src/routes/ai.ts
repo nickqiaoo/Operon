@@ -141,6 +141,12 @@ export function aiRoutes(storage: AiRouteStorage) {
         if (closed) return
         stream.writeSSE({ data: JSON.stringify({ type: 'background-tasks', chatId: change.chatId, tasks: change.tasks }) }).catch(close)
       })
+      // Claude Code's next-prompt guess per chat (chat-prompt-suggestions.ts);
+      // `text: null` clears it.
+      const unsubSuggestions = aiService.subscribePromptSuggestions((change) => {
+        if (closed) return
+        stream.writeSSE({ data: JSON.stringify({ type: 'prompt-suggestion', chatId: change.chatId, text: change.text }) }).catch(close)
+      })
 
       // Every chat currently running a turn. A chat missing from this list has no
       // live turn, which is how one stream answers for conversations the client
@@ -152,6 +158,7 @@ export function aiRoutes(storage: AiRouteStorage) {
             statuses: aiService.listActiveLiveTurnStatuses(),
             pendingInput: aiService.listChatsAwaitingInput(),
             backgroundTasks: aiService.listChatBackgroundTasks(),
+            promptSuggestions: aiService.listChatPromptSuggestions(),
           }),
         })
         .catch(close)
@@ -159,6 +166,7 @@ export function aiRoutes(storage: AiRouteStorage) {
       unsub()
       unsubPending()
       unsubBackground()
+      unsubSuggestions()
     })
   })
 
