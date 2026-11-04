@@ -105,6 +105,10 @@ function buildQueryOptions(
     // A running sub-agent's card shows what it is doing; the summary is a cheap
     // fork on the sub-agent's own prompt cache, roughly every 30s.
     agentProgressSummaries: true,
+    // After each turn the CLI predicts the user's next prompt (the grey hint the
+    // Claude apps show in an empty composer). It rides on the turn's prompt cache,
+    // so it is nearly free; it arrives after `result` — see runMessageLoop.
+    promptSuggestions: true,
     disallowedTools: settings.disallowedTools,
     mcpServers: settings.mcpServers,
     env: settings.env,
@@ -315,6 +319,13 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
         // other clients, and windows resetting while this app sends nothing.
         if (message.type === 'rate_limit_event') {
           this.handleRateLimitEvent(message)
+          continue
+        }
+
+        // Comes after the turn's `result`, when its stream is already closed.
+        if (message.type === 'prompt_suggestion') {
+          const text = message.suggestion.trim()
+          if (text) this.backgroundListener?.({ type: 'prompt-suggestion', text })
           continue
         }
 

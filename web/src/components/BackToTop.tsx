@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { cn } from '../lib/styles'
+import { useLocale } from '../lib/i18n'
 
 /** A long page needs a way back. Appears once the reader is well past the hero. */
 export function BackToTop() {
   const [visible, setVisible] = useState(false)
+  const { locale } = useLocale()
 
   useEffect(() => {
     let frame = 0
@@ -29,7 +31,7 @@ export function BackToTop() {
   return (
     <button
       type="button"
-      aria-label="Back to top"
+      aria-label={locale === 'zh' ? '回到顶部' : 'Back to top'}
       onClick={() => {
         window.scrollTo({
           top: 0,

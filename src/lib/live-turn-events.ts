@@ -2,6 +2,7 @@ import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import type { PendingInputSummary } from '@shared/pending-input'
 import { useChatBackgroundTaskStore } from '@/stores/chat-background-task-store'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
+import { useChatPromptSuggestionStore } from '@/stores/chat-prompt-suggestion-store'
 import { subscribeEvents } from './event-stream'
 import type { SseSubscription } from './sse.js'
 
@@ -35,12 +36,16 @@ type Frame =
       pendingInput?: Array<{ chatId: number; pending: PendingInputSummary[] }>
       /** Absent from servers that predate background tasks. */
       backgroundTasks?: Array<{ chatId: number; tasks: BackgroundTaskSummary[] }>
+      /** Absent from servers that predate prompt suggestions. */
+      promptSuggestions?: Array<{ chatId: number; text: string }>
     }
   | { type: 'presence'; status: LiveTurnStatus }
   /** A chat's whole pending list after any change; empty means nothing left. */
   | { type: 'pending-input'; chatId: number; pending: PendingInputSummary[] }
   /** A chat's whole background sub-agent list after any change. */
   | { type: 'background-tasks'; chatId: number; tasks: BackgroundTaskSummary[] }
+  /** A chat's next-prompt guess; null once its next turn starts. */
+  | { type: 'prompt-suggestion'; chatId: number; text: string | null }
 
 interface Subscriber {
   onStatus: (status: LiveTurnStatus) => void
@@ -85,6 +90,7 @@ function ensureStream(): void {
       if (frame.type === 'sync') {
         useChatPendingInputStore.getState().sync(frame.pendingInput ?? [])
         useChatBackgroundTaskStore.getState().sync(frame.backgroundTasks ?? [])
+        useChatPromptSuggestionStore.getState().sync(frame.promptSuggestions ?? [])
         const next = new Map<number, LiveTurnStatus>()
         for (const status of frame.statuses) next.set(status.chatId, status)
         const previous = activeByChat
@@ -102,6 +108,10 @@ function ensureStream(): void {
       }
       if (frame.type === 'background-tasks') {
         useChatBackgroundTaskStore.getState().set(frame.chatId, frame.tasks)
+        return
+      }
+      if (frame.type === 'prompt-suggestion') {
+        useChatPromptSuggestionStore.getState().set(frame.chatId, frame.text)
         return
       }
       if (frame.type !== 'presence') return
@@ -127,6 +137,7 @@ function releaseStream(): void {
   activeByChat = new Map()
   useChatPendingInputStore.getState().sync([])
   useChatBackgroundTaskStore.getState().sync([])
+  useChatPromptSuggestionStore.getState().sync([])
 }
 
 /**

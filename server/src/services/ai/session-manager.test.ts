@@ -180,3 +180,31 @@ describe('SessionManager reconfigure', () => {
     expect(close).toHaveBeenLastCalledWith('discard')
   })
 })
+
+describe('SessionManager provider env', () => {
+  it('adds the host variables to every session of that provider, under the caller env', async () => {
+    const { manager, created } = stubProvider({ set: acceptAll })
+    manager.setProviderEnv((providerId) => (providerId === 'stub' ? { FLAG: '1', SHARED: 'host' } : undefined))
+
+    await manager.getOrCreate(1, 'stub', { cwd: '/tmp', env: { SHARED: 'caller' } })
+    await manager.createStandaloneSession('stub', { cwd: '/tmp' })
+
+    expect(created[0].env).toEqual({ FLAG: '1', SHARED: 'caller' })
+    expect(created[1].env).toEqual({ FLAG: '1', SHARED: 'host' })
+  })
+
+  it('rebuilds a live session on its next turn when the host variables change', async () => {
+    const { manager, created } = stubProvider({ set: acceptAll })
+    let flag = '1'
+    manager.setProviderEnv(() => ({ FLAG: flag }))
+
+    const first = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
+    const same = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
+    flag = '0'
+    const rebuilt = await manager.getOrCreate(1, 'stub', { cwd: '/tmp' })
+
+    expect(same.runtime).toBe(first.runtime)
+    expect(rebuilt.runtime).not.toBe(first.runtime)
+    expect(created.map((p) => p.env)).toEqual([{ FLAG: '1' }, { FLAG: '0' }])
+  })
+})

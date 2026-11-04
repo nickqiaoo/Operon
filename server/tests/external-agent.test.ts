@@ -42,11 +42,8 @@ describe('server-owned external agent conversations', () => {
   let unblockParent: (() => void) | undefined
   beforeEach(async () => {
     ctx = await makeTestApp()
-    const created = ctx.storage.patchChatEntry(null, { baseRevision: 0, replaceFrom: 0,
-      tailMessages: [], tp: 'chat', providerId: 'fake', model: 'fake-1',
+    parentChatId = ctx.storage.createChat({ tp: 'chat', title: 'Chat', providerId: 'fake', model: 'fake-1',
       workspaceId: ctx.workspaceId, updatedAt: Date.now() })
-    if (!created.success) throw new Error('Could not create parent')
-    parentChatId = created.chatId
     registerFakeScript('external', async function* ({ session, delay }) {
       yield { type: 'start' } as RuntimeStreamPart
       yield { type: 'text-start', id: 'text' } as RuntimeStreamPart

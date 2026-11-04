@@ -10,10 +10,10 @@ const scripted: Record<string, Array<{ type: string; [key: string]: unknown }>> 
 
 vi.mock('../ai/state.js', () => ({
   getChatStorage: () => ({
-    patchChatEntry: (_id: null, input: { tp?: string; title?: string; providerId?: string; workspaceId?: number; metadata?: unknown }) => {
+    createChat: (input: { tp?: string; title?: string; providerId?: string; workspaceId?: number; metadata?: unknown }) => {
       const chatId = chats.size + 1
       chats.set(chatId, input)
-      return { success: true, chatId, revision: 1 }
+      return chatId
     },
     getChatMeta: (chatId: number) => (chatId === 7 ? { workspaceId: 3 } : undefined),
   }),

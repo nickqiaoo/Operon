@@ -34,9 +34,13 @@ import { captureCheckpointIfNeeded, captureTurnEndSnapshot } from './rewind.js'
 import {
   prepareChatRecord,
   persistSessionId,
-  persistAssistantMessageWithRetry,
+  createReplyWriter,
   hasPersistableAssistantMessage,
+  hasCheckpointContent,
+  checkpointGapMs,
   mergeAssistantMetadata,
+  beginAssistantMessage,
+  endAssistantMessage,
 } from './persistence.js'
 import { preparedToUIChunks, runAgentTurn, writePreparedPartToUiStream } from './agent-turn.js'
 import { startLiveTurn, pumpToLiveTurn } from './live-turn-hub.js'
@@ -97,7 +101,6 @@ export async function startChat(
       continuation = findLastAssistantMessage(dbHistory)
       chatRecord = {
         chatId: payload.chatId!,
-        baseRevision: meta.revision,
         sessionId: meta.sessionId,
       }
       if (providerId === 'custom') messagesForModel = buildCompactAwareView(dbHistory)
@@ -108,7 +111,6 @@ export async function startChat(
     const existingMeta = chatHistoryService?.getChatMeta(payload.chatId ?? 0)
     chatRecord = {
       chatId: payload.chatId ?? 0,
-      baseRevision: existingMeta?.revision ?? 0,
       sessionId: existingMeta?.sessionId,
     }
     if (providerId === 'custom') {
@@ -127,7 +129,6 @@ export async function startChat(
     const existingMeta = chatHistoryService?.getChatMeta(payload.chatId ?? 0)
     chatRecord = {
       chatId: payload.chatId ?? 0,
-      baseRevision: existingMeta?.revision ?? 0,
       sessionId: existingMeta?.sessionId,
     }
   }
@@ -215,20 +216,23 @@ export async function startChat(
   let turnError: string | undefined
   const sessionIdRef: { value?: string } = { value: chatRecord.sessionId }
 
+  // Keyed by the reply's id: the first save adds it (or updates the assistant
+  // message a continuation picked up), later ones update it in place.
+  const replyWriter = createReplyWriter({
+    chatId,
+    modelId: payload.modelId,
+    providerId: payload.providerId,
+    assistantMetadata: options?.assistantMetadata,
+  })
+
   const persistResponseMessage = async (responseMessage: UIMessage): Promise<void> => {
     try {
-      const messageToPersist = mergeAssistantMetadata(responseMessage, options?.assistantMetadata)
-      if (chatHistoryService && chatId > 0 && hasPersistableAssistantMessage(messageToPersist)) {
-        const saved = await persistAssistantMessageWithRetry({
-          chatId,
-          baseRevision: chatRecord.baseRevision,
-          assistantMessage: messageToPersist,
-          replaceFrom: continuation?.assistantIndex,
-          modelId: payload.modelId,
-          providerId: payload.providerId,
-          sessionId: sessionIdRef.value,
-        })
-        if (!saved) turnError = 'Failed to save the assistant response'
+      if (
+        chatHistoryService && chatId > 0 &&
+        hasPersistableAssistantMessage(mergeAssistantMetadata(responseMessage, options?.assistantMetadata))
+      ) {
+        const result = replyWriter.save(responseMessage, sessionIdRef.value)
+        if (!result.saved) turnError = 'Failed to save the assistant response'
       }
     } catch (err) {
       turnError = err instanceof Error ? err.message : String(err)
@@ -241,11 +245,25 @@ export async function startChat(
     }
   }
 
+  // Save the reply as it settles, not only when the turn ends, so a turn that
+  // dies with the process keeps what it had done. Not for a turn that keeps its
+  // prompt out of the transcript until it succeeds (compact): a half-written
+  // summary saved mid-turn is exactly what it is avoiding.
+  const checkpointEnabled = chatHistoryService != null && chatId > 0 && !options?.skipUserMessagePersistence
+  const onCheckpoint = checkpointEnabled
+    ? (message: UIMessage): number | void => {
+        if (!hasCheckpointContent(message)) return
+        const result = replyWriter.save(message, sessionIdRef.value)
+        if (result.saved) return checkpointGapMs(result.bytes)
+      }
+    : undefined
+
   request.abortController.signal.throwIfAborted()
 
   // Execution + normalization is the shared core; chat-specific persistence and
   // SSE wrapping stay here (and in handleChat).
   if (chatId > 0) clearPendingApprovals(chatId)
+  if (checkpointEnabled) beginAssistantMessage(chatId, assistantMessageId)
   const { preparedParts, done } = runAgentTurn(session.runtime, {
     requestId,
     input: latestUserInput(messages),
@@ -253,6 +271,7 @@ export async function startChat(
     assistantMessageId,
     originalMessages: normalizedMessages,
     onSessionId: (sessionId) => persistSessionId(chatId, sessionIdRef, sessionId),
+    onCheckpoint,
     onPart: (part: RuntimeStreamPart) => {
       if (part.type === 'error') turnError = 'error' in part ? String(part.error) : 'Agent execution failed'
       if (chatId > 0) observePendingInputPart(chatId, part, { userFacing: options?.notifyInbox === true })
@@ -291,6 +310,7 @@ export async function startChat(
       console.error('[AI] Persistence stream error:', err)
     })
     .finally(async () => {
+      endAssistantMessage(chatId, assistantMessageId)
       // Close this turn's diff interval. Must land before the SSE stream ends
       // (handleChat awaits persistDone in its finally), because the client
       // refetches turn diffs the moment the stream settles — a later capture

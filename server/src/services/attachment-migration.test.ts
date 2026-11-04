@@ -17,7 +17,8 @@ afterAll(() => {
 })
 
 /**
- * In-memory stand-in for the two statements the migration issues. better-sqlite3
+ * In-memory stand-in for the two statements the migration issues: one row per
+ * stored message part. better-sqlite3
  * is compiled for Electron's ABI and can't load under plain node, and the logic
  * under test is JSON rewriting rather than SQL — so a fake keeps this hermetic.
  */
@@ -63,11 +64,11 @@ beforeEach(() => {
   db = store.db
 })
 
-const insert = (parts: unknown[]) =>
-  store.insertRaw(JSON.stringify({ id: 'm', role: 'user', parts }))
+/** Stores each part as its own row, as `chat_message_parts` does. */
+const insert = (parts: unknown[]) => parts.map((part) => store.insertRaw(JSON.stringify(part)))
 
-const partsOf = (id: number) =>
-  (JSON.parse(store.payloadOf(id)) as { parts: Array<Record<string, string>> }).parts
+const partsOf = (ids: number[]) =>
+  ids.map((id) => JSON.parse(store.payloadOf(id)) as Record<string, string>)
 
 // Long enough to clear the migration's bare-base64 length guard.
 const IMAGE_BYTES = Buffer.alloc(1024, 0x7f)
@@ -147,7 +148,7 @@ describe('migrateInlineAttachments', () => {
     const hashes = new Set(
       store
         .allPayloads()
-        .map((p) => parseAttachmentUrl((JSON.parse(p) as { parts: Array<{ url: string }> }).parts[0].url)),
+        .map((p) => parseAttachmentUrl((JSON.parse(p) as { url: string }).url)),
     )
     expect(hashes.size).toBe(1)
   })

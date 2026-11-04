@@ -19,7 +19,7 @@ const helpersMock = vi.hoisted(() => ({
 }));
 
 const persistenceMock = vi.hoisted(() => ({
-  persistInjectedUserMessageWithRetry: vi.fn(),
+  persistInjectedUserMessage: vi.fn(),
 }));
 
 vi.mock('./state.js', () => ({
@@ -41,7 +41,7 @@ vi.mock('./helpers.js', () => ({
 }));
 
 vi.mock('./persistence.js', () => ({
-  persistInjectedUserMessageWithRetry: persistenceMock.persistInjectedUserMessageWithRetry,
+  persistInjectedUserMessage: persistenceMock.persistInjectedUserMessage,
 }));
 
 const liveTurnMock = vi.hoisted(() => ({
@@ -76,7 +76,7 @@ describe('injectIntoChat', () => {
   beforeEach(() => {
     stateMock.getSession.mockReset();
     helpersMock.createSteerUserMessage.mockReset();
-    persistenceMock.persistInjectedUserMessageWithRetry.mockReset();
+    persistenceMock.persistInjectedUserMessage.mockReset();
     liveTurnMock.getLiveTurn.mockReset();
   });
 
@@ -93,7 +93,7 @@ describe('injectIntoChat', () => {
       runtime: { inject: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue(steerMessage);
-    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: true });
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
     const { injectIntoChat } = await loadSessionOps();
 
     await expect(injectIntoChat(7, ' Focus on edge cases ', 'user-1')).resolves.toEqual({
@@ -108,7 +108,7 @@ describe('injectIntoChat', () => {
       'user-1',
       injectedId,
     );
-    expect(persistenceMock.persistInjectedUserMessageWithRetry).toHaveBeenCalledWith(
+    expect(persistenceMock.persistInjectedUserMessage).toHaveBeenCalledWith(
       7,
       steerMessage,
     );
@@ -120,7 +120,7 @@ describe('injectIntoChat', () => {
       activeRequest: { requestId: 'request-1' }, runtime: { inject: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-abc', role: 'user', parts: [] });
-    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: true });
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
     const { injectIntoChat } = await loadSessionOps();
     await injectIntoChat(7, 'result', undefined, { messageId: 'steer-abc' });
     expect(injectMessage).toHaveBeenCalledWith('result', { id: 'steer-abc' });
@@ -133,7 +133,7 @@ describe('injectIntoChat', () => {
       activeRequest: { requestId: 'request-1' }, runtime: { inject: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer', role: 'user', parts: [] });
-    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: false, error: 'disk full' });
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: false, error: 'disk full' });
     const { injectIntoChat } = await loadSessionOps();
     await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ success: false, delivery: 'accepted', error: 'disk full' });
     expect(injectMessage).toHaveBeenCalledTimes(1);
@@ -158,7 +158,7 @@ describe('injectIntoChat', () => {
       .resolves.toMatchObject({ delivery: 'not-sent' });
     expect(injectMessage).not.toHaveBeenCalled();
     await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ delivery: 'unknown' });
-    expect(persistenceMock.persistInjectedUserMessageWithRetry).not.toHaveBeenCalled();
+    expect(persistenceMock.persistInjectedUserMessage).not.toHaveBeenCalled();
   });
 
   it('steers a turn the agent started on its own, which has no active request', async () => {
@@ -166,7 +166,7 @@ describe('injectIntoChat', () => {
     stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { inject: injectMessage } });
     liveTurnMock.getLiveTurn.mockReturnValue({ isDone: false });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-1', role: 'user', parts: [] });
-    persistenceMock.persistInjectedUserMessageWithRetry.mockReturnValue({ success: true });
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
     const { injectIntoChat } = await loadSessionOps();
 
     await expect(injectIntoChat(7, 'also check logs')).resolves.toMatchObject({ success: true, delivery: 'accepted' });

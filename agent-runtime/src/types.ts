@@ -400,6 +400,12 @@ export interface TaskControl {
 export type RuntimeBackgroundEvent =
   | { type: 'tasks'; tasks: RuntimeBackgroundTask[] }
   | { type: 'turn'; parts: AsyncIterable<RuntimeStreamPart> }
+  /**
+   * A guess at what the user will type next, offered once a turn has ended
+   * (Claude Code's prompt suggestions). It arrives after the turn's stream has
+   * closed, so it cannot ride on it.
+   */
+  | { type: 'prompt-suggestion'; text: string }
 
 /** A persisted thread goal the agent pursues on its own (`features.goal`). */
 export interface GoalControl {

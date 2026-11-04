@@ -82,18 +82,7 @@ function patchChatConfig(
   chatId: number,
   patch: { model?: string; providerId?: string; workspaceId?: number },
 ): void {
-  const meta = storage.getChatMeta(chatId)
-  if (!meta) return
-  storage.patchChatEntry(chatId, {
-    baseRevision: meta.revision,
-    replaceFrom: -1,
-    tailMessages: [],
-    model: patch.model,
-    providerId: patch.providerId,
-    workspaceId: patch.workspaceId,
-    // Config-only patch (no tailMessages): keep the existing timestamp so
-    // switching model doesn't jump the chat to the top of the list or reset
-    // the client's prompt-cache expiry clock.
-    updatedAt: meta.updatedAt,
-  })
+  // Leaves `updated_at` alone, so switching model doesn't jump the chat to the
+  // top of the list or reset the client's prompt-cache expiry clock.
+  storage.updateChatConfig(chatId, patch)
 }

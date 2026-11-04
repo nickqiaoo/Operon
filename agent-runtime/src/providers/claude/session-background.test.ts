@@ -125,7 +125,7 @@ describe('ClaudeRuntimeSession between turns', () => {
     let agentTurn: Promise<RuntimeStreamPart[]> | undefined;
     session.onBackground((event: RuntimeBackgroundEvent) => {
       if (event.type === 'tasks') taskSnapshots.push(event.tasks);
-      else agentTurn = collect(event.parts);
+      else if (event.type === 'turn') agentTurn = collect(event.parts);
     });
 
     const launch = await collect(session.send('go'));
@@ -147,5 +147,39 @@ describe('ClaudeRuntimeSession between turns', () => {
     ]);
 
     await session.close();
+  });
+
+  it('passes on the next-prompt suggestion that follows a turn', async () => {
+    let release!: () => void;
+    const suggested = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    sdkMock.query.mockImplementation(({ prompt }: { prompt: AsyncIterable<SDKUserMessage> }) => ({
+      async *[Symbol.asyncIterator]() {
+        const iterator = prompt[Symbol.asyncIterator]();
+        await iterator.next();
+        yield assistant([{ type: 'text', text: 'Fixed the test.' }]);
+        yield result();
+        // Real shape: it follows the turn's `result`, outside any turn.
+        yield { type: 'prompt_suggestion', suggestion: ' run the full suite ', uuid: 'u2', session_id: 'session-1' } as unknown as SDKMessage;
+        release();
+        await iterator.next();
+      },
+      initializationResult: vi.fn().mockResolvedValue({}),
+      mcpServerStatus: vi.fn().mockResolvedValue([]),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as Query);
+
+    const session = new ClaudeRuntimeSession({ cwd: '/tmp', model: 'claude-sonnet-4-5', mode: 'default' }, ctx);
+    const events: RuntimeBackgroundEvent[] = [];
+    session.onBackground((event) => events.push(event));
+
+    expect(text(await collect(session.send('go')))).toBe('Fixed the test.');
+    await suggested;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sdkMock.query.mock.calls[0][0].options).toMatchObject({ promptSuggestions: true });
+    expect(events).toEqual([{ type: 'prompt-suggestion', text: 'run the full suite' }]);
+    await session.close?.();
   });
 });

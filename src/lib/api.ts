@@ -1,4 +1,5 @@
 import type { WorkspaceTask } from '@/stores/project-store'
+import type { ClaudeToggles } from '@shared/claude-toggles'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import type { CustomProviderInfo } from '@shared/provider-config'
 import * as httpClient from './api-client.js'
@@ -435,8 +436,6 @@ export const api = {
 
   // --- Chat History (HTTP) ---
   chatHistoryGet: httpClient.chatHistoryGet,
-  chatHistoryCreate: httpClient.chatHistoryCreate,
-  chatHistoryPatch: httpClient.chatHistoryPatch,
   chatHistoryClear: httpClient.chatHistoryClear,
   chatHistoryList: httpClient.chatHistoryList,
   chatHistorySideCreate: httpClient.chatHistorySideCreate,
@@ -982,6 +981,10 @@ export const api = {
     post<{ ok: true }>(`/e2ee/pair/session/${encodeURIComponent(pairingId)}/reject`, {}),
   remoteE2eeDevices: () => get<{ devices: MobilePairingSummary[] }>('/e2ee/devices'),
   remoteE2eeRevokeDevice: (id: number) => del<{ ok: true }>(`/e2ee/devices/${id}`),
+
+  // --- Claude Code switches (Settings → Claude Code), injected into Claude sessions as env vars ---
+  claudeTogglesGet: () => get<ClaudeToggles>('/claude-toggles'),
+  claudeTogglesSave: (patch: Partial<ClaudeToggles>) => put<ClaudeToggles>('/claude-toggles', patch),
 
   // --- Diff Preview (HTTP) — shared across all gateway providers ---
   diffPreviewGetConfig: () =>

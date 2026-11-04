@@ -305,13 +305,6 @@ export function useModelManagement(
 
   const setModel = useCallback((newModel: string) => { setModelState(newModel); }, []);
 
-  const cycleMode = () => {
-    if (!modeOptions.length || !currentProviderId) return;
-    const idx = modeOptions.findIndex((o) => o.value === currentMode);
-    const next = modeOptions[(idx + 1) % modeOptions.length];
-    setCurrentModes((prev) => ({ ...prev, [currentProviderId]: next.value }));
-  };
-
   const setMode = useCallback(
     (nextMode: string) => {
       if (!currentProviderId) return;
@@ -346,7 +339,7 @@ export function useModelManagement(
     serviceTierOptions, currentServiceTier,
     thinkingEffortOptions,
     modeButtonClass,
-    cycleMode, setMode,
+    setMode,
     setServiceTier, toggleFastMode,
     commands,
     skills,

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Link } from 'react-router'
+import { useLocale, type Locale } from '../lib/i18n'
 
 // English docs
 import gettingStartedEn from '@doc/getting-started.md?raw'
@@ -61,7 +62,7 @@ import configurationZh from '@doc/zh/configuration.md?raw'
 import environmentZh from '@doc/zh/environment.md?raw'
 import appearanceZh from '@doc/zh/appearance.md?raw'
 
-type Lang = 'en' | 'zh'
+type Lang = Locale
 
 interface DocSection {
   slug: string
@@ -120,10 +121,7 @@ function extractHeadings(md: string): { id: string; text: string; level: number 
 }
 
 export function Docs() {
-  const [lang, setLang] = useState<Lang>(() => {
-    const saved = localStorage.getItem('docs-lang')
-    return (saved === 'zh' ? 'zh' : 'en') as Lang
-  })
+  const { locale: lang, setLocale } = useLocale()
   const [activeSlug, setActiveSlug] = useState(docs[0].slug)
   const [activeHeading, setActiveHeading] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -133,11 +131,7 @@ export function Docs() {
   const activeContent = activeDoc.content[lang]
   const headings = useMemo(() => extractHeadings(activeContent), [activeContent])
 
-  const toggleLang = () => {
-    const next = lang === 'en' ? 'zh' : 'en'
-    setLang(next)
-    localStorage.setItem('docs-lang', next)
-  }
+  const toggleLang = () => setLocale(lang === 'en' ? 'zh' : 'en')
 
   useEffect(() => {
     const container = contentRef.current
@@ -510,7 +504,7 @@ export function Docs() {
           }}
         >
           <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
-            {lang === 'en' ? 'On this page' : 'On this page'}
+            {lang === 'en' ? 'On this page' : '本页内容'}
           </div>
           {headings.map((h) => (
             <button

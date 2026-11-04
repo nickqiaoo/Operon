@@ -468,47 +468,9 @@ export function chatHistoryGet(chatId: number, opts?: { before?: number; limit?:
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts?.before !== undefined) params.set('before', String(opts.before))
   const qs = params.toString() ? `?${params.toString()}` : ''
-  return request<{ messages: UIMessage[]; model?: string; providerId?: string; thinkingLevel?: string; revision: number; total?: number; hasMore?: boolean; nextCursor?: number; updatedAt?: number }>(
+  return request<{ messages: UIMessage[]; model?: string; providerId?: string; thinkingLevel?: string; total?: number; hasMore?: boolean; nextCursor?: number; updatedAt?: number }>(
     `/chat-history/${chatId}${qs}`
   )
-}
-
-export function chatHistoryCreate(input: {
-  baseRevision: number
-  replaceFrom: number
-  tailMessages: UIMessage[]
-  tp?: string
-  workspaceId?: number
-  model?: string
-  providerId?: string
-}) {
-  return request<
-    | { success: true; chatId: number; revision: number }
-    | { success: false; conflict: true; revision: number }
-  >('/chat-history', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  })
-}
-
-export function chatHistoryPatch(
-  chatId: number,
-  input: {
-    baseRevision: number
-    replaceFrom: number
-    tailMessages: UIMessage[]
-    workspaceId?: number
-    model?: string
-    providerId?: string
-  }
-) {
-  return request<
-    | { success: true; chatId: number; revision: number }
-    | { success: false; conflict: true; revision: number }
-  >(`/chat-history/${chatId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(input),
-  })
 }
 
 export function chatHistoryClear(chatId: number) {

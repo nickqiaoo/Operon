@@ -26,7 +26,7 @@ const job = (over: Partial<CronjobTask> = {}): CronjobTask => ({
   workspaceId: 3, createdAt: 0, updatedAt: 0, ...over,
 })
 
-const callerMeta: ChatMeta = { revision: 1, tp: 'chat', providerId: 'claude-code', model: 'opus', workspaceId: 3, thinkingLevel: 'high', updatedAt: 0 }
+const callerMeta: ChatMeta = { tp: 'chat', providerId: 'claude-code', model: 'opus', workspaceId: 3, thinkingLevel: 'high', updatedAt: 0 }
 
 async function connect(meta: ChatMeta | undefined) {
   const storage = { getChatMeta: () => meta } as unknown as ScheduleMcpStorage

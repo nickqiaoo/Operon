@@ -8,9 +8,11 @@ import { Privacy } from './pages/Privacy.tsx'
 import { Terms } from './pages/Terms.tsx'
 import { Docs } from './pages/Docs.tsx'
 import { Support } from './pages/Support.tsx'
+import { LocaleProvider } from './lib/locale-provider.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <LocaleProvider>
     <ImageZoomProvider>
     <BrowserRouter>
       <Routes>
@@ -22,5 +24,6 @@ createRoot(document.getElementById('root')!).render(
       </Routes>
     </BrowserRouter>
     </ImageZoomProvider>
+    </LocaleProvider>
   </StrictMode>,
 )

@@ -19,9 +19,7 @@ export function useChatSessionControls({
   chatBodyRef,
   setModel,
   canDynamicSwitch,
-  cycleMode,
   modeOptions,
-  currentMode,
 }: {
   providerId?: string
   selectedModelProviderId?: string
@@ -33,9 +31,7 @@ export function useChatSessionControls({
   chatBodyRef: MutableRefObject<Record<string, unknown>>
   setModel: (modelId: string) => void
   canDynamicSwitch: boolean
-  cycleMode: () => void
   modeOptions: ModeOption[]
-  currentMode: string
 }) {
   const handlePermissionDecide = useCallback(async (
     id: string,
@@ -110,32 +106,9 @@ export function useChatSessionControls({
     }
   }, [modeOptions, setMode, chatBodyRef, canDynamicSwitch, currentDbChatId])
 
-  const handleCycleMode = useCallback(() => {
-    if (!modeOptions.length) {
-      cycleMode()
-      return
-    }
-
-    if (!canDynamicSwitch) {
-      cycleMode()
-      return
-    }
-
-    const currentIndex = modeOptions.findIndex((option) => option.value === currentMode)
-    const nextMode = modeOptions[(currentIndex + 1) % modeOptions.length]
-    if (!nextMode || nextMode.value === currentMode) return
-
-    setMode(nextMode.value)
-    chatBodyRef.current.modeId = nextMode.value
-    if (currentDbChatId) {
-      void api.aiCCDynamicSet({ chatId: currentDbChatId, modeId: nextMode.value })
-    }
-  }, [canDynamicSwitch, chatBodyRef, currentDbChatId, currentMode, cycleMode, modeOptions, setMode])
-
   return {
     handlePermissionDecide,
     handleSetModel,
     handleSetMode,
-    handleCycleMode,
   }
 }

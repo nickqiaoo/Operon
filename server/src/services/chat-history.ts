@@ -1,8 +1,9 @@
 import type { ChatStorageAdapter } from '../storage/interface.js'
 import type {
   ChatHistoryListItem,
-  ChatHistoryPatchResult,
-  ChatType,
+  CreateChatInput,
+  PutChatMessageInput,
+  PutChatMessageResult,
 } from '../types/chat.js'
 
 // Mirrors `parseContextBlocks` in src/lib/context-blocks.ts: quoted context
@@ -11,7 +12,7 @@ import type {
 const stripContextBlocks = (text: string): string =>
   text.replace(/^(?:\[File: [^\]\n]+\]\n[\s\S]*?\n\[\/File\]\n*)+/, '')
 
-const extractTitle = (messages: unknown[]): string => {
+export const extractTitle = (messages: readonly unknown[]): string => {
   const findText = (message: unknown) => {
     if (!message || typeof message !== 'object') return ''
     const msg = message as Record<string, unknown>
@@ -36,7 +37,7 @@ const extractTitle = (messages: unknown[]): string => {
 export class ChatHistoryService {
   constructor(private chatStorage: ChatStorageAdapter) {}
 
-  getChat(chatId: number): { messages: unknown[]; model?: string; providerId?: string; sessionId?: string; thinkingLevel?: string; revision: number } {
+  getChat(chatId: number): { messages: unknown[]; model?: string; providerId?: string; sessionId?: string; thinkingLevel?: string } {
     const entry = this.chatStorage.getChatEntry(chatId)
     return {
       messages: entry?.messages ?? [],
@@ -44,7 +45,6 @@ export class ChatHistoryService {
       providerId: entry?.providerId,
       sessionId: entry?.sessionId,
       thinkingLevel: entry?.thinkingLevel,
-      revision: entry?.revision ?? 0,
     }
   }
 
@@ -53,38 +53,21 @@ export class ChatHistoryService {
     return this.chatStorage.getChatMeta(chatId)
   }
 
-  patchChat(
-    chatId: number | null,
-    baseRevision: number,
-    replaceFrom: number,
-    tailMessages: unknown[],
-    tp?: ChatType,
-    workspaceId?: number,
-    model?: string,
-    providerId?: string,
-    sessionId?: string,
-    thinkingLevel?: string
-  ): ChatHistoryPatchResult {
-    const existing = chatId !== null ? this.chatStorage.getChatMeta(chatId) : undefined
-
-    const nextTitle = replaceFrom === 0
-      ? extractTitle(tailMessages)
-      : existing?.title
-
-    return this.chatStorage.patchChatEntry(chatId, {
-      baseRevision,
-      replaceFrom,
-      tailMessages,
-      tp: tp ?? existing?.tp,
-      title: nextTitle,
-      workspaceId: workspaceId ?? existing?.workspaceId,
-      model: model ?? existing?.model,
-      providerId: providerId ?? existing?.providerId,
-      sessionId: sessionId ?? existing?.sessionId,
-      thinkingLevel: thinkingLevel ?? existing?.thinkingLevel,
+  /** Create a chat; without a title it is named after its first user message. */
+  createChat(input: Omit<CreateChatInput, 'title' | 'updatedAt'> & { title?: string }): number {
+    return this.chatStorage.createChat({
+      ...input,
+      title: input.title?.trim() || extractTitle(input.messages ?? []),
       updatedAt: Date.now(),
-      metadata: existing?.metadata,
     })
+  }
+
+  /**
+   * Add or replace one message by id; see `PutChatMessageInput`. Stamps the
+   * chat's `updated_at`. Undefined when the chat does not exist.
+   */
+  putMessage(chatId: number, input: Omit<PutChatMessageInput, 'updatedAt'>): PutChatMessageResult | undefined {
+    return this.chatStorage.putChatMessage(chatId, { ...input, updatedAt: Date.now() })
   }
 
   clearChat(chatId: number): boolean {

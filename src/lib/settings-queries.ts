@@ -24,7 +24,16 @@ export const settingsKeys = {
   /** MCP servers enabled plugins contribute — changes when a plugin is toggled. */
   mcpPluginServers: () => ['settings', 'mcp', 'plugin-servers'] as const,
   diffPreview: () => ['settings', 'diff-preview'] as const,
+  claudeToggles: () => ['settings', 'claude-toggles'] as const,
   specRoles: () => ['settings', 'spec-roles'] as const,
+}
+
+/** Operon's Claude Code switches; saving writes the server's answer back. */
+export function useClaudeToggles() {
+  return useQuery({
+    queryKey: settingsKeys.claudeToggles(),
+    queryFn: () => api.claudeTogglesGet(),
+  })
 }
 
 export function useCommitMessageConfig() {

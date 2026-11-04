@@ -2,85 +2,142 @@ import { useState, type ReactNode } from 'react'
 import { Reveal } from './Reveal'
 import { Eyebrow, FeatureList, Lead, Muted, Section, Title, Window } from './ui'
 import { cn } from '../lib/styles'
-
-const FEATURES = [
-  {
-    title: 'In-app browser',
-    desc: 'A browser beside the chat. Agents navigate, click, type and screenshot it — including your localhost dev server — and you can pin comments on elements to send back.',
-  },
-  {
-    title: 'Your Chrome',
-    desc: 'Drive your own Chrome with your real logins. Agents can take over a tab you already have open; permissions for both browsers live on one page.',
-  },
-  {
-    title: 'Mac apps',
-    desc: 'Computer Use reads and operates native apps in the background — clicks, keyboard shortcuts, menu bar items, window sizes and the clipboard — and checks that each action took effect.',
-  },
-  {
-    title: 'You decide where',
-    desc: 'Allow or block Computer Use app by app. Several conversations can use it at once, and the agent’s pointer shows on screen as it works.',
-  },
-]
+import { useCopy } from '../lib/i18n'
 
 type TargetId = 'browser' | 'chrome' | 'mac'
 
-const TARGETS: { id: TargetId; label: string; icon: ReactNode; steps: { call: string; result: string; active?: boolean }[] }[] = [
+/**
+ * Tool calls stay as code in every language; their results come from `COPY`
+ * by position. The last call is always the one still running.
+ */
+const TARGETS: { id: TargetId; icon: ReactNode; calls: string[] }[] = [
   {
     id: 'browser',
-    label: 'In-app browser',
     icon: <GlobeIcon />,
-    steps: [
-      { call: "browser.navigate('localhost:3000/checkout')", result: 'loaded in 240 ms' },
-      { call: 'browser.snapshot()', result: '38 interactive elements' },
-      { call: "browser.click('Place order')", result: 'navigated to /confirm' },
-      { call: 'browser.screenshot()', result: 'running…', active: true },
+    calls: [
+      "browser.navigate('localhost:3000/checkout')",
+      'browser.snapshot()',
+      "browser.click('Place order')",
+      'browser.screenshot()',
     ],
   },
   {
     id: 'chrome',
-    label: 'Your Chrome',
     icon: <TabIcon />,
-    steps: [
-      { call: 'chrome.tabs()', result: '7 open tabs' },
-      { call: "chrome.claim('Analytics · Weekly')", result: 'tab claimed' },
-      { call: "chrome.click('Export CSV')", result: 'download started' },
-      { call: 'chrome.read()', result: 'running…', active: true },
+    calls: [
+      'chrome.tabs()',
+      "chrome.claim('Analytics · Weekly')",
+      "chrome.click('Export CSV')",
+      'chrome.read()',
     ],
   },
   {
     id: 'mac',
-    label: 'Mac apps',
     icon: <WindowIcon />,
-    steps: [
-      { call: "app.open('Numbers')", result: 'in the background' },
-      { call: "app.menu('File › Export To › PDF')", result: 'dialog opened' },
-      { call: "app.hotkey('cmd+s')", result: 'saved' },
-      { call: 'app.verify()', result: 'running…', active: true },
+    calls: [
+      "app.open('Numbers')",
+      "app.menu('File › Export To › PDF')",
+      "app.hotkey('cmd+s')",
+      'app.verify()',
     ],
   },
 ]
 
+const COPY = {
+  en: {
+    eyebrow: 'Browser and Computer Use',
+    titleA: 'Your agents ',
+    titleB: 'have hands.',
+    lead: 'Not just a panel to look at. Operon agents drive a built-in browser, your real Chrome and native Mac apps — clicking, typing and checking their own work.',
+    window: 'Agent session',
+    tablist: 'Target',
+    targets: { browser: 'In-app browser', chrome: 'Your Chrome', mac: 'Mac apps' } as Record<TargetId, string>,
+    running: 'running…',
+    results: {
+      browser: ['loaded in 240 ms', '38 interactive elements', 'navigated to /confirm'],
+      chrome: ['7 open tabs', 'tab claimed', 'download started'],
+      mac: ['in the background', 'dialog opened', 'saved'],
+    } as Record<TargetId, string[]>,
+    preview: { numbers: 'Numbers — Q3 report', export: 'Export' },
+    features: [
+      {
+        title: 'In-app browser',
+        desc: 'A browser beside the chat. Agents navigate, click, type and screenshot it — including your localhost dev server — and you can pin comments on elements to send back.',
+      },
+      {
+        title: 'Your Chrome',
+        desc: 'Drive your own Chrome with your real logins. Agents can take over a tab you already have open; permissions for both browsers live on one page.',
+      },
+      {
+        title: 'Mac apps',
+        desc: 'Computer Use reads and operates native apps in the background — clicks, keyboard shortcuts, menu bar items, window sizes and the clipboard — and checks that each action took effect.',
+      },
+      {
+        title: 'You decide where',
+        desc: 'Allow or block Computer Use app by app. Several conversations can use it at once, and the agent’s pointer shows on screen as it works.',
+      },
+    ],
+  },
+  zh: {
+    eyebrow: '浏览器与 Computer Use',
+    titleA: '你的 Agent ',
+    titleB: '有手了。',
+    lead: '不只是一块拿来看的面板。Operon 的 Agent 能操作内置浏览器、你真实的 Chrome 和原生 Mac 应用——点击、输入，并自己检查结果。',
+    window: 'Agent 会话',
+    tablist: '目标',
+    targets: { browser: '内置浏览器', chrome: '你的 Chrome', mac: 'Mac 应用' } as Record<TargetId, string>,
+    running: '执行中…',
+    results: {
+      browser: ['240 ms 加载完成', '38 个可交互元素', '已跳转到 /confirm'],
+      chrome: ['7 个打开的 tab', '已接管 tab', '开始下载'],
+      mac: ['在后台打开', '已弹出对话框', '已保存'],
+    } as Record<TargetId, string[]>,
+    preview: { numbers: 'Numbers — 第三季度报告', export: '导出' },
+    features: [
+      {
+        title: '内置浏览器',
+        desc: '对话旁边就是浏览器。Agent 可以在里面跳转、点击、输入、截图——包括你本地的 localhost 开发服务器——你也可以在元素上钉评论发回给它。',
+      },
+      {
+        title: '你的 Chrome',
+        desc: '用你真实的登录态驱动你自己的 Chrome。Agent 可以接管你已经打开的 tab；两个浏览器的权限都在同一个页面里管理。',
+      },
+      {
+        title: 'Mac 应用',
+        desc: 'Computer Use 在后台读取并操作原生应用——点击、快捷键、菜单栏、窗口大小和剪贴板——并确认每一步都生效了。',
+      },
+      {
+        title: '由你决定范围',
+        desc: '逐个应用允许或禁止 Computer Use。多个对话可以同时使用，Agent 工作时它的指针会显示在屏幕上。',
+      },
+    ],
+  },
+}
+
+
 export function BrowserComputerSection() {
   const [activeId, setActiveId] = useState<TargetId>('browser')
-  const active = TARGETS.find((t) => t.id === activeId) ?? TARGETS[0]
+  const active = TARGETS.find((target) => target.id === activeId) ?? TARGETS[0]
+  const t = useCopy(COPY)
+  const steps = active.calls.map((call, i) => {
+    const last = i === active.calls.length - 1
+    return { call, result: last ? t.running : t.results[active.id][i], active: last }
+  })
 
   return (
     <Section id="automation">
       <Reveal>
         <div className="max-w-2xl">
-          <Eyebrow>Browser and Computer Use</Eyebrow>
+          <Eyebrow>{t.eyebrow}</Eyebrow>
           <Title>
-            Your agents <Muted>have hands.</Muted>
+            {t.titleA}<Muted>{t.titleB}</Muted>
           </Title>
-          <Lead>
-            Not just a panel to look at. Operon agents drive a built-in browser, your real Chrome and native
-            Mac apps — clicking, typing and checking their own work.
-          </Lead>
+          <Lead>{t.lead}</Lead>
         </div>
 
         <div className="mt-10">
-          <Window title="Agent session">
-            <div className="flex gap-1 border-b border-border/50 px-3 py-2" role="tablist" aria-label="Target">
+          <Window title={t.window}>
+            <div className="flex gap-1 border-b border-border/50 px-3 py-2" role="tablist" aria-label={t.tablist}>
               {TARGETS.map((target) => (
                 <button
                   key={target.id}
@@ -94,13 +151,13 @@ export function BrowserComputerSection() {
                   )}
                 >
                   {target.icon}
-                  {target.label}
+                  {t.targets[target.id]}
                 </button>
               ))}
             </div>
             <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-2 p-4 font-mono text-[12px] md:p-5">
-                {active.steps.map((step) => (
+                {steps.map((step) => (
                   <div key={step.call} className="flex items-start gap-2.5">
                     <span
                       className={cn(
@@ -116,21 +173,21 @@ export function BrowserComputerSection() {
                 ))}
               </div>
               <div className="hidden border-l border-border/50 bg-sidebar p-5 md:block">
-                <TargetPreview id={activeId} />
+                <TargetPreview id={activeId} labels={t.preview} />
               </div>
             </div>
           </Window>
         </div>
 
         <div className="mt-10">
-          <FeatureList items={FEATURES} columns={2} />
+          <FeatureList items={t.features} columns={2} />
         </div>
       </Reveal>
     </Section>
   )
 }
 
-function TargetPreview({ id }: { id: TargetId }) {
+function TargetPreview({ id, labels }: { id: TargetId; labels: { numbers: string; export: string } }) {
   const url = id === 'browser' ? 'localhost:3000/checkout' : id === 'chrome' ? 'analytics.example.com/weekly' : null
 
   return (
@@ -139,7 +196,7 @@ function TargetPreview({ id }: { id: TargetId }) {
         {url ? (
           <span className="flex-1 truncate rounded bg-muted px-2 py-0.5">{url}</span>
         ) : (
-          <span>Numbers — Q3 report</span>
+          <span>{labels.numbers}</span>
         )}
       </div>
       <div className="space-y-2.5 p-4">
@@ -148,7 +205,7 @@ function TargetPreview({ id }: { id: TargetId }) {
         <div className="h-2 w-2/3 rounded bg-muted/70" />
         <div className="relative pt-2">
           <div className="inline-flex h-7 items-center rounded-lg bg-foreground px-3 text-[11px] text-background">
-            {id === 'browser' ? 'Place order' : id === 'chrome' ? 'Export CSV' : 'Export'}
+            {id === 'browser' ? 'Place order' : id === 'chrome' ? 'Export CSV' : labels.export}
           </div>
           {/* The agent's pointer */}
           <svg width="16" height="16" viewBox="0 0 24 24" className="absolute top-7 left-[84px] text-brand" aria-hidden>

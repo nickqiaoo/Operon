@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { ChatStatus } from 'ai';
-import { BrainIcon, Loader2, MessageSquarePlus, PaperclipIcon, Target, Zap } from 'lucide-react';
+import { Loader2, MessageSquarePlus, PaperclipIcon, Target, Zap } from 'lucide-react';
 
 import {
   PromptInput,
@@ -24,6 +24,8 @@ import { cn } from '@/lib/utils';
 import type { SlashCommandItem } from '../hooks/useModelManagement';
 import { MentionPopup } from './MentionPopup';
 import { ModelSelectorPanel, type DynamicModel } from './ModelSelectorPanel';
+import { ComposerOptionPicker } from './ComposerOptionPicker';
+import { ThinkingEffortPicker } from './ThinkingEffortPicker';
 import { useMentionOverlay } from './useMentionOverlay';
 import { formatSlashCommandPrefix, useSlashCommand } from './useSlashCommand';
 import { SlashCommandPopup } from './SlashCommandPopup';
@@ -47,12 +49,10 @@ interface ChatInputAreaProps {
   model: string;
   setModel: (id: string) => void;
   thinkingEffort: string;
-  cycleThinkingEffort: () => void;
   setThinkingEffort: (value: string) => void;
   thinkingEffortOptions: { value: string; label: string }[];
   modeOptions: { value: string; label: string; description?: string }[];
   currentMode: string;
-  cycleMode: () => void;
   setMode: (value: string) => void;
   modeButtonClass?: string;
   serviceTierOptions: { value: string; label: string; description?: string }[];
@@ -78,6 +78,11 @@ interface ChatInputAreaProps {
   mobileKeyboardOpen?: boolean;
   /** Queued review comments or browser annotations sent with the next message. */
   hasPendingContext?: boolean;
+  /**
+   * Claude Code's guess at the next prompt. Shown as the placeholder of an empty
+   * composer; Tab or → fills it in (without sending), as in the Claude apps.
+   */
+  promptSuggestion?: string | null;
   /** A skill picked outside the composer (session panel) waiting to become a chip. */
   pendingSkill?: SlashCommandItem | null;
   /** Called once `pendingSkill` has been taken, so the owner can clear it. */
@@ -108,6 +113,17 @@ function AttachmentButton({ compact = false }: { compact?: boolean }) {
   );
 }
 
+// Dot colours mirror the mode pill's colour for the same position
+// (`modeButtonColorClasses` in useModelManagement): category colours, not status.
+const MODE_DOT_CLASSES = [
+  'bg-muted-foreground/50',
+  'bg-blue-500',
+  'bg-purple-500',
+  'bg-orange-500',
+  'bg-green-500',
+  'bg-pink-500',
+];
+
 const btnCn =
   'h-8 shrink-0 gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-muted/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted hover:text-foreground dark:hover:border-border/35';
 
@@ -124,12 +140,10 @@ export function ChatInputArea({
   model,
   setModel,
   thinkingEffort,
-  cycleThinkingEffort,
   setThinkingEffort,
   thinkingEffortOptions,
   modeOptions,
   currentMode,
-  cycleMode,
   setMode,
   serviceTierOptions,
   currentServiceTier,
@@ -145,6 +159,7 @@ export function ChatInputArea({
   steerPending = false,
   onSteer,
   compactWhenIdle = false,
+  promptSuggestion = null,
   floating = false,
   mobileKeyboardOpen = false,
   hasPendingContext = false,
@@ -172,6 +187,10 @@ export function ChatInputArea({
 
   const [cursorPos, setCursorPos] = useState(0);
   const [mobileActionExpanded, setMobileActionExpanded] = useState(false);
+  // One footer picker open at a time: the composer sits inside a container with
+  // an inline `pointer-events: auto`, which defeats Radix's modal click shield,
+  // so a second pill stays clickable while the first menu is open.
+  const [openPicker, setOpenPicker] = useState<'thinking' | 'mode' | null>(null);
   const {
     slashCommand,
     selectedSkills,
@@ -203,9 +222,24 @@ export function ChatInputArea({
     clearSkills();
   }, [clearSkills, input, onSteer, selectedSkills]);
 
+  // Only offered when it can be taken with a key: not on the phone composer, not
+  // while a reply runs (it would answer a turn that is about to change), and not
+  // over a draft or an open / or @ menu, which own Tab.
+  const activeSuggestion = !compactWhenIdle && !isGenerating && !input && !mention.isOpen && !slashCommand.isOpen
+    ? promptSuggestion
+    : null;
+
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Skip all custom key handling during IME composition (e.g. Chinese input)
     if (e.nativeEvent.isComposing) return;
+
+    // Tab or → takes the suggestion into the box; the user still sends it.
+    if (activeSuggestion && ((e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      setInput(activeSuggestion);
+      setCursorPos(activeSuggestion.length);
+      return;
+    }
 
     // Backspace on empty input removes last skill chip
     if (e.key === 'Backspace' && !input && selectedSkills.length > 0) {
@@ -246,7 +280,7 @@ export function ChatInputArea({
     // another turn. Empty drafts and unavailable/pending injection do nothing.
     e.preventDefault();
     if (canSteer && !steerPending) void handleSteer();
-  }, [slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
+  }, [activeSuggestion, setInput, slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCursorPos(e.target.selectionStart ?? e.target.value.length);
@@ -380,6 +414,10 @@ export function ChatInputArea({
   const fastOption = serviceTierOptions.find((option) => option.value === 'fast');
   const fastEnabled = currentServiceTier === 'fast';
   const thinkingLabel = thinkingEffortOptions.find((o) => o.value === thinkingEffort)?.label ?? thinkingEffort;
+  const modePickerOptions = modeOptions.map((option, index) => ({
+    ...option,
+    icon: <span className={cn('size-2 rounded-full', MODE_DOT_CLASSES[index] ?? MODE_DOT_CLASSES[0])} />,
+  }));
   const modeLabel = modeOptions.find((o) => o.value === currentMode)?.label ?? currentMode;
   const modeDescription = modeOptions.find((o) => o.value === currentMode)?.description;
   const steerLabel = steerPending
@@ -494,6 +532,9 @@ export function ChatInputArea({
       )}
       onClick={(e) => {
         const target = e.target as HTMLElement
+        // React bubbles clicks from portaled popovers (thinking slider, mode
+        // menu) up to here; focusing the textarea then would close them.
+        if (!e.currentTarget.contains(target)) return
         if (!target.closest('button, a, select, [role="button"], [role="combobox"], [data-slot="submit"]') && target.tagName !== 'TEXTAREA') {
           textareaContainerRef.current?.querySelector('textarea')?.focus()
         }
@@ -546,12 +587,23 @@ export function ChatInputArea({
               onSelect={handleSelect}
               onScroll={handleTextareaScroll}
               value={input}
-              placeholder={composerCompact ? compactPlaceholder : fullPlaceholder}
+              placeholder={activeSuggestion ?? (composerCompact ? compactPlaceholder : fullPlaceholder)}
+              aria-description={activeSuggestion ? 'Suggested prompt. Press Tab to use it.' : undefined}
               className={cn(
                 "relative z-10 self-stretch resize-none field-sizing-content bg-transparent p-0 text-base leading-6",
-                composerCompact ? "max-h-6 min-h-6 overflow-hidden" : "min-h-[32px]"
+                composerCompact ? "max-h-6 min-h-6 overflow-hidden" : "min-h-[32px]",
+                activeSuggestion && "pr-12"
               )}
             />
+            {activeSuggestion && (
+              <kbd
+                data-testid="chat-prompt-suggestion-hint"
+                aria-hidden
+                className="pointer-events-none absolute right-0 top-0.5 z-10 rounded border border-border/50 px-1.5 py-px font-sans text-xs text-muted-foreground dark:border-border/35"
+              >
+                Tab
+              </kbd>
+            )}
           </div>
           {compactStopVisible && (
             <PromptInputSubmit
@@ -605,30 +657,33 @@ export function ChatInputArea({
           />
 
           {selectedModel?.hasThinking && thinkingEffortOptions.length > 0 && (
-            <PromptInputButton
-              data-testid="chat-thinking-toggle"
-              onClick={cycleThinkingEffort}
+            <ThinkingEffortPicker
+              options={thinkingEffortOptions}
+              value={thinkingEffort}
+              onChange={setThinkingEffort}
+              open={openPicker === 'thinking'}
+              onOpenChange={(next) => setOpenPicker((cur) => (next ? 'thinking' : cur === 'thinking' ? null : cur))}
               disabled={isGenerating && !canEditTurnSettings}
-              aria-label={`Thinking level: ${thinkingLabel}`}
-              className={btnCn}
-              title={`Thinking level: ${thinkingLabel}`}
-            >
-              <BrainIcon className="size-3.5" />
-              <span>{thinkingLabel}</span>
-            </PromptInputButton>
+              buttonClassName={btnCn}
+            />
           )}
 
           {modeOptions.length > 0 && currentMode && (
-            <PromptInputButton
+            <ComposerOptionPicker
               data-testid="chat-mode-toggle"
-              onClick={cycleMode}
+              title="Mode"
+              aria-label={`Mode: ${modeLabel}`}
+              tooltip={modeDescription}
+              options={modePickerOptions}
+              value={currentMode}
+              open={openPicker === 'mode'}
+              onOpenChange={(next) => setOpenPicker((cur) => (next ? 'mode' : cur === 'mode' ? null : cur))}
+              onSelect={setMode}
               disabled={isGenerating && !supportsDynamicSwitch && !canEditTurnSettings}
-              size="sm"
-              className={cn(btnCn, modeButtonClass)}
-              title={modeDescription}
+              buttonClassName={cn(btnCn, modeButtonClass)}
             >
               <span className="max-w-20 truncate @max-[420px]:max-w-14">{modeLabel}</span>
-            </PromptInputButton>
+            </ComposerOptionPicker>
           )}
 
           {fastOption && (
@@ -683,10 +738,10 @@ export function ChatInputArea({
               type="button"
               data-testid="chat-steer"
               variant="default"
-              size="sm"
+              size="icon-sm"
               disabled={steerPending || !input.trim()}
               onClick={() => void handleSteer()}
-              className="h-9 shrink-0 rounded-lg px-2.5 @max-[440px]:size-9 @max-[440px]:p-0"
+              className="shrink-0 rounded-lg"
               title={intl.formatMessage({ id: 'editor.input.steerHint', defaultMessage: 'Send a follow-up while the model is responding' })}
               aria-label={steerLabel}
             >
@@ -695,9 +750,6 @@ export function ChatInputArea({
               ) : (
                 <MessageSquarePlus className="size-4" />
               )}
-              <span className="@max-[440px]:sr-only">
-                {steerLabel}
-              </span>
             </PromptInputButton>
           )}
           {!compactStopVisible && (

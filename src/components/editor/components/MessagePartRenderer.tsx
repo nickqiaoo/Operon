@@ -583,7 +583,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
           MessagesList) so they stay at the bottom even when the turn ends on a
           tool call. Only the user action row is anchored to its text part. */}
       {message.role === 'user' && partIndex === lastTextPartIndex && (
-        <MessageActions className={cn('-ml-2.5 flex-row-reverse -mr-2.5 ml-0')}>
+        <MessageActions className="flex-row-reverse">
           <CopyButton text={text} onCopy={onCopy} />
           <SendToButton
             availableModels={availableModels}

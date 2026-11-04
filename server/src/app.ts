@@ -42,6 +42,8 @@ import { cliPathConfigRoutes } from './routes/cli-path-config.js'
 import { acpAgentRoutes } from './routes/acp-agents.js'
 import { initCliPathConfigService } from './services/cli-path-config.js'
 import { diffPreviewConfigRoutes } from './routes/diff-preview-config.js'
+import { claudeTogglesRoutes } from './routes/claude-toggles.js'
+import { initClaudeTogglesService } from './services/claude-toggles.js'
 import { initDiffPreviewConfigService, getDiffPreviewConfig } from './services/diff-preview-config.js'
 import { commitMessageConfigRoutes } from './routes/commit-message-config.js'
 import { initCommitMessageConfigService } from './services/commit-message-config.js'
@@ -190,6 +192,7 @@ export async function createApp(deps: AppDeps) {
   }
   initCliPathConfigService(deps.storage)
   initDiffPreviewConfigService(deps.storage)
+  initClaudeTogglesService(deps.storage)
   initCommitMessageConfigService(deps.storage)
   initSpecRoleSettings(deps.storage)
   setUsableProviderSource(() =>
@@ -349,6 +352,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/cli-paths', cliPathConfigRoutes())
   app.route('/api/acp-agents', acpAgentRoutes())
   app.route('/api/diff-preview', diffPreviewConfigRoutes())
+  app.route('/api/claude-toggles', claudeTogglesRoutes())
   app.route('/api/commit-message', commitMessageConfigRoutes())
   app.route('/api/saas', saasRoutes())
   app.route('/api/integrations', integrationsRoutes(deps.storage))

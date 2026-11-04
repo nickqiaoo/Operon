@@ -1,18 +1,62 @@
 import type { ReactNode } from 'react'
 import { Reveal } from './Reveal'
 import { AgentAvatar, Eyebrow, Section } from './ui'
+import { useCopy } from '../lib/i18n'
 
-const MEMORIES = [
-  { kind: 'User', text: 'Prefers pnpm and small, focused pull requests', date: 'Oct 2' },
-  { kind: 'Event', text: 'Shipped the billing refactor (PR #212)', date: 'Oct 14' },
-  { kind: 'Case', text: 'Duplicate webhooks fixed with an idempotency key', date: 'Sep 28' },
-]
+const COPY = {
+  en: {
+    memory: {
+      eyebrow: 'Memory',
+      title: 'Every conversation builds on the last.',
+      desc: 'Operon remembers people, projects, what happened and how problems were solved — in your language, with dates — and brings the relevant bits into new conversations.',
+      items: [
+        { kind: 'User', text: 'Prefers pnpm and small, focused pull requests', date: 'Oct 2' },
+        { kind: 'Event', text: 'Shipped the billing refactor (PR #212)', date: 'Oct 14' },
+        { kind: 'Case', text: 'Duplicate webhooks fixed with an idempotency key', date: 'Sep 28' },
+      ],
+    },
+    channels: {
+      eyebrow: 'Channels',
+      title: 'Agents, treated like teammates.',
+      desc: 'Bring several agents into one room, @mention them like coworkers and let them disagree. Turn a thread into a task, or do the same inside your team’s Slack.',
+      you: 'You',
+      messages: [
+        { from: 'You', text: '@codex @kimi which retry strategy for the webhooks?', you: true },
+        { from: 'Codex', text: 'Exponential backoff, capped at five tries.' },
+        { from: 'Kimi', text: 'Agree — and key each delivery so retries can’t double-charge.' },
+      ] as Message[],
+    },
+  },
+  zh: {
+    memory: {
+      eyebrow: '记忆',
+      title: '每次对话都建立在上一次之上。',
+      desc: 'Operon 会记住人、项目、发生过的事以及问题是怎么解决的——用你的语言、带上日期——并把相关的部分带进新的对话。',
+      items: [
+        { kind: '用户', text: '偏好 pnpm 和小而聚焦的 PR', date: '10月2日' },
+        { kind: '事件', text: '计费重构已上线（PR #212）', date: '10月14日' },
+        { kind: '案例', text: '用幂等键修复了重复的 webhook', date: '9月28日' },
+      ],
+    },
+    channels: {
+      eyebrow: '频道',
+      title: '把 Agent 当队友。',
+      desc: '把几个 Agent 拉进同一个房间，像同事一样 @ 它们，让它们各抒己见。一个讨论串可以直接转成任务，在团队的 Slack 里也能这么用。',
+      you: '我',
+      messages: [
+        { from: '我', text: '@codex @kimi webhook 的重试该用什么策略？', you: true },
+        { from: 'Codex', text: '指数退避，最多重试五次。' },
+        { from: 'Kimi', text: '同意——再给每次投递加个唯一键，免得重试导致重复扣款。' },
+      ] as Message[],
+    },
+  },
+}
 
-const MESSAGES: { from: string; text: string; you?: boolean }[] = [
-  { from: 'You', text: '@codex @kimi which retry strategy for the webhooks?', you: true },
-  { from: 'Codex', text: 'Exponential backoff, capped at five tries.' },
-  { from: 'Kimi', text: 'Agree — and key each delivery so retries can’t double-charge.' },
-]
+interface Message {
+  from: string
+  text: string
+  you?: boolean
+}
 
 /**
  * Two features that matter but no longer need a chapter each: memory now
@@ -20,17 +64,19 @@ const MESSAGES: { from: string; text: string; you?: boolean }[] = [
  * agents. Side by side, each says what it is in one card.
  */
 export function MemoryChannelsSection() {
+  const t = useCopy(COPY)
+
   return (
     <Section id="memory" tone="sidebar">
       <Reveal>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card
-            eyebrow="Memory"
-            title="Every conversation builds on the last."
-            desc="Operon remembers people, projects, what happened and how problems were solved — in your language, with dates — and brings the relevant bits into new conversations."
+            eyebrow={t.memory.eyebrow}
+            title={t.memory.title}
+            desc={t.memory.desc}
           >
             <div className="space-y-2">
-              {MEMORIES.map((m) => (
+              {t.memory.items.map((m) => (
                 <div key={m.text} className="flex items-center gap-3 rounded-lg border border-border/50 bg-sidebar px-3 py-2.5">
                   <span className="w-12 shrink-0 text-[11.5px] text-muted-foreground">{m.kind}</span>
                   <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{m.text}</span>
@@ -41,16 +87,16 @@ export function MemoryChannelsSection() {
           </Card>
 
           <Card
-            eyebrow="Channels"
-            title="Agents, treated like teammates."
-            desc="Bring several agents into one room, @mention them like coworkers and let them disagree. Turn a thread into a task, or do the same inside your team’s Slack."
+            eyebrow={t.channels.eyebrow}
+            title={t.channels.title}
+            desc={t.channels.desc}
           >
             <div className="space-y-2.5">
-              {MESSAGES.map((m) => (
+              {t.channels.messages.map((m) => (
                 <div key={m.text} className="flex items-start gap-2.5">
                   {m.you ? (
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
-                      Y
+                      {t.channels.you.charAt(0)}
                     </span>
                   ) : (
                     <AgentAvatar name={m.from} size={20} />

@@ -14,6 +14,9 @@ import { SessionManager } from './session-manager.js'
 import { resolveHostApproval } from './host-approval-broker.js'
 import { resolveDetachedApproval } from '../agents/detached-approvals.js'
 import { handleRuntimeBackgroundEvent } from './background-events.js'
+import { setChatPromptSuggestion } from './chat-prompt-suggestions.js'
+import { claudeToggleEnv } from '../claude-toggles.js'
+import { subscribeAllLiveTurnPresence } from './live-turn-hub.js'
 import { operonAgent } from '../operon-runtime/index.js'
 import { withAgentPrompts } from './agent-prompts.js'
 import type { ChatStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
@@ -98,6 +101,13 @@ export function getSessionManager(): SessionManager {
     )
     // Background sub-agents and replies the agent starts on its own, between turns.
     sessionManager.setBackgroundHandler(handleRuntimeBackgroundEvent)
+    // Settings → Claude Code switches, as the env vars that decide them.
+    sessionManager.setProviderEnv((providerId) => (providerId === 'claude-code' ? claudeToggleEnv() : undefined))
+    // A next-prompt guess answers the reply before it; once a new turn starts it
+    // is stale, whoever started that turn.
+    subscribeAllLiveTurnPresence((status) => {
+      if (status.active) setChatPromptSuggestion(status.chatId, null)
+    })
   }
   return sessionManager
 }

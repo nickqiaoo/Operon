@@ -3,9 +3,9 @@
  *
  * The run panel folds an agent's work through one reducer over UI message
  * chunks (`reduceAgentChunk` on the client). Agents now run as chats, so their
- * output is the chats' stored messages — plus, while a turn is still going, what
- * that turn has streamed so far, which only the live-turn buffer holds until the
- * turn ends and its reply is saved. Both are turned back into the same chunks
+ * output is the chats' stored messages — except that, while a turn is still
+ * going, its reply comes from the live-turn buffer: the stored copy is only its
+ * last checkpoint. Both are turned back into the same chunks
  * here, so a chat-backed agent and an older recorded one render alike.
  */
 
@@ -122,10 +122,13 @@ export function readAgentChatChunks(chatIds: readonly number[]): unknown[] {
     const provider = entry.providerId ?? '?'
     if (previousProvider !== undefined) chunks.push({ type: 'data-replaced', data: { from: previousProvider, to: provider } })
     previousProvider = provider
-    chunks.push(...chunksFromMessages(entry.messages as UIMessage[]))
-    // A turn still going has not saved its reply yet; what it has said so far is in its live buffer.
+    // A turn still going has said more in its live buffer than its last saved
+    // checkpoint of the reply, so the buffer stands in for that message.
     const turn = getLiveTurn(chatId)
-    if (turn && !turn.isDone) chunks.push(...chunksFromSse(turn.snapshot()))
+    const live = turn && !turn.isDone ? turn : undefined
+    const messages = entry.messages as UIMessage[]
+    chunks.push(...chunksFromMessages(live?.messageId ? messages.filter((m) => m.id !== live.messageId) : messages))
+    if (live) chunks.push(...chunksFromSse(live.snapshot()))
   }
   return chunks
 }

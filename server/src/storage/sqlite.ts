@@ -2,11 +2,14 @@ import { broadcastTask } from '../services/task-events.js'
 import fs from 'fs'
 import Database from 'better-sqlite3'
 import type {
+  ChatConfigPatch,
   ChatHistoryEntry,
   ChatHistoryListItem,
-  ChatHistoryPatchInput,
-  ChatHistoryPatchResult,
+  ChatMeta,
   ChatType,
+  CreateChatInput,
+  PutChatMessageInput,
+  PutChatMessageResult,
 } from '../types/chat.js'
 import type { CronjobExecutionHistoryItem, CronjobRunResult, CronjobSchedule, CronjobTask } from '../types/cronjob.js'
 import type {
@@ -157,8 +160,49 @@ interface ChatRow {
   thinking_level: string | null
   updated_at: number
   metadata: string | null
-  revision: number
 }
+
+/** A `chat_messages` row: the message minus its parts (see migration 0022). */
+interface MessageHeadRow {
+  id: number
+  message_index?: number
+  head: string
+}
+
+function prepareChatStatements(db: Database.Database) {
+  return {
+    selectChatId: db.prepare('SELECT id FROM chats WHERE id = ?'),
+    insertChat: db.prepare(`
+      INSERT INTO chats (tp, title, workspace_id, model, provider_id, session_id, thinking_level, updated_at, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    updateConfig: db.prepare(`
+      UPDATE chats SET
+        tp = COALESCE(@tp, tp),
+        workspace_id = COALESCE(@workspaceId, workspace_id),
+        model = COALESCE(@model, model),
+        provider_id = COALESCE(@providerId, provider_id),
+        session_id = COALESCE(@sessionId, session_id),
+        thinking_level = COALESCE(@thinkingLevel, thinking_level),
+        updated_at = COALESCE(@updatedAt, updated_at)
+      WHERE id = @id
+    `),
+    selectMessage: db.prepare('SELECT id FROM chat_messages WHERE chat_id = ? AND uid = ?'),
+    selectLastMessage: db.prepare(
+      'SELECT id, uid, message_index FROM chat_messages WHERE chat_id = ? ORDER BY message_index DESC LIMIT 1'
+    ),
+    insertMessage: db.prepare('INSERT INTO chat_messages (chat_id, uid, message_index, head) VALUES (?, ?, ?, ?)'),
+    updateHead: db.prepare('UPDATE chat_messages SET head = ? WHERE id = ?'),
+    moveMessage: db.prepare('UPDATE chat_messages SET message_index = ? WHERE id = ?'),
+    upsertPart: db.prepare(`
+      INSERT INTO chat_message_parts (message_id, idx, payload) VALUES (?, ?, ?)
+      ON CONFLICT (message_id, idx) DO UPDATE SET payload = excluded.payload
+    `),
+    deletePartsFrom: db.prepare('DELETE FROM chat_message_parts WHERE message_id = ? AND idx >= ?'),
+  }
+}
+
+type ChatStatements = ReturnType<typeof prepareChatStatements>
 
 interface ChatListRow {
   id: number
@@ -305,6 +349,11 @@ export class SqliteStorage
           "DELETE FROM chat_messages WHERE chat_id NOT IN (SELECT id FROM chats)",
         )
         .run()
+      this.db
+        .prepare(
+          "DELETE FROM chat_message_parts WHERE message_id NOT IN (SELECT id FROM chat_messages)",
+        )
+        .run()
     }
   }
 
@@ -387,31 +436,12 @@ export class SqliteStorage
   // ---- Chat ----
 
   getChatEntry(chatId: number): ChatHistoryEntry | undefined {
-    const row = this.db
-      .prepare('SELECT id, tp, title, workspace_id, model, provider_id, session_id, thinking_level, updated_at, metadata, revision FROM chats WHERE id = ?')
-      .get(chatId) as ChatRow | undefined
-
-    if (!row) return undefined
-
-    const messageRows = this.db
-      .prepare('SELECT payload FROM chat_messages WHERE chat_id = ? ORDER BY message_index ASC')
-      .all(chatId) as Array<{ payload: string }>
-
-    const messages = messageRows.map((message) => parseJsonOrRaw(message.payload))
-
-    return {
-      messages,
-      tp: row.tp as ChatType,
-      title: row.title,
-      workspaceId: row.workspace_id ?? undefined,
-      model: row.model ?? undefined,
-      providerId: row.provider_id ?? undefined,
-      sessionId: row.session_id ?? undefined,
-      thinkingLevel: row.thinking_level ?? undefined,
-      updatedAt: row.updated_at,
-      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-      revision: row.revision,
-    }
+    const meta = this.getChatMeta(chatId)
+    if (!meta) return undefined
+    const rows = this.db
+      .prepare('SELECT id, head FROM chat_messages WHERE chat_id = ? ORDER BY message_index ASC')
+      .all(chatId) as MessageHeadRow[]
+    return { ...meta, messages: this.assembleMessages(rows) }
   }
 
   getChatMessages(chatId: number, opts?: { before?: number; limit?: number }): { messages: unknown[]; total: number; hasMore: boolean; nextCursor?: number } | undefined {
@@ -425,15 +455,15 @@ export class SqliteStorage
 
     const limit = opts?.limit ?? 50
     const fetchLimit = limit + 1
-    let messageRows: Array<{ message_index: number; payload: string }>
+    let messageRows: MessageHeadRow[]
     if (opts?.before !== undefined) {
       messageRows = this.db
-        .prepare('SELECT message_index, payload FROM chat_messages WHERE chat_id = ? AND message_index < ? ORDER BY message_index DESC LIMIT ?')
-        .all(chatId, opts.before, fetchLimit) as Array<{ message_index: number; payload: string }>
+        .prepare('SELECT id, message_index, head FROM chat_messages WHERE chat_id = ? AND message_index < ? ORDER BY message_index DESC LIMIT ?')
+        .all(chatId, opts.before, fetchLimit) as MessageHeadRow[]
     } else {
       messageRows = this.db
-        .prepare('SELECT message_index, payload FROM chat_messages WHERE chat_id = ? ORDER BY message_index DESC LIMIT ?')
-        .all(chatId, fetchLimit) as Array<{ message_index: number; payload: string }>
+        .prepare('SELECT id, message_index, head FROM chat_messages WHERE chat_id = ? ORDER BY message_index DESC LIMIT ?')
+        .all(chatId, fetchLimit) as MessageHeadRow[]
     }
 
     const hasMore = messageRows.length > limit
@@ -441,34 +471,37 @@ export class SqliteStorage
     messageRows.reverse()
     // nextCursor is the message_index of the first returned row (to pass as `before` for next page)
     const nextCursor = hasMore && messageRows.length > 0 ? messageRows[0].message_index : undefined
-
-    // Dedup by message id: a client/server desync (e.g. a bad `replaceFrom`
-    // during rewind/steer) can store the same message at two message_index
-    // rows. Keep the first (lowest-index) occurrence so the API never returns
-    // duplicate ids — which would break React keys on the client.
-    const seenIds = new Set<string>()
-    const messages: unknown[] = []
-    for (const r of messageRows) {
-      const msg = parseJsonOrRaw(r.payload)
-      const id = (msg as { id?: string })?.id
-      if (id) {
-        if (seenIds.has(id)) continue
-        seenIds.add(id)
-      }
-      messages.push(msg)
-    }
-    return { messages, total, hasMore, nextCursor }
+    return { messages: this.assembleMessages(messageRows), total, hasMore, nextCursor }
   }
 
-  getChatMeta(chatId: number): import('../types/chat.js').ChatMeta | undefined {
+  /** The given messages in the given order, each with its parts put back in. */
+  private assembleMessages(rows: readonly MessageHeadRow[]): unknown[] {
+    if (rows.length === 0) return []
+    const partRows = this.db
+      .prepare(
+        'SELECT message_id, payload FROM chat_message_parts WHERE message_id IN (SELECT value FROM json_each(?)) ORDER BY message_id, idx'
+      )
+      .all(JSON.stringify(rows.map((row) => row.id))) as Array<{ message_id: number; payload: string }>
+    const partsByMessage = new Map<number, unknown[]>()
+    for (const part of partRows) {
+      let parts = partsByMessage.get(part.message_id)
+      if (!parts) partsByMessage.set(part.message_id, (parts = []))
+      parts.push(JSON.parse(part.payload))
+    }
+    return rows.map((row) => ({
+      ...(JSON.parse(row.head) as Record<string, unknown>),
+      parts: partsByMessage.get(row.id) ?? [],
+    }))
+  }
+
+  getChatMeta(chatId: number): ChatMeta | undefined {
     const row = this.db
-      .prepare('SELECT id, tp, title, workspace_id, model, provider_id, session_id, thinking_level, updated_at, metadata, revision FROM chats WHERE id = ?')
+      .prepare('SELECT id, tp, title, workspace_id, model, provider_id, session_id, thinking_level, updated_at, metadata FROM chats WHERE id = ?')
       .get(chatId) as ChatRow | undefined
     if (!row) return undefined
 
     return {
-      revision: row.revision,
-      tp: row.tp as import('../types/chat.js').ChatType,
+      tp: row.tp as ChatType,
       title: row.title,
       workspaceId: row.workspace_id ?? undefined,
       model: row.model ?? undefined,
@@ -480,119 +513,92 @@ export class SqliteStorage
     }
   }
 
-  patchChatEntry(chatId: number | null, input: ChatHistoryPatchInput): ChatHistoryPatchResult {
-    const selectChat = this.db.prepare(
-      'SELECT id, tp, title, workspace_id, model, provider_id, session_id, thinking_level, updated_at, metadata, revision FROM chats WHERE id = ?'
-    )
-    const selectMessageCount = this.db.prepare(
-      'SELECT COUNT(*) as count FROM chat_messages WHERE chat_id = ?'
-    )
-    const insertChat = this.db.prepare(`
-      INSERT INTO chats (tp, title, workspace_id, model, provider_id, session_id, thinking_level, updated_at, metadata, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    const updateChat = this.db.prepare(`
-      UPDATE chats
-      SET tp = ?, title = ?, workspace_id = ?, model = ?, provider_id = ?, session_id = ?, thinking_level = ?, updated_at = ?, metadata = ?, revision = ?
-      WHERE id = ?
-    `)
-    const deleteMessagesFrom = this.db.prepare(
-      'DELETE FROM chat_messages WHERE chat_id = ? AND message_index >= ?'
-    )
-    const insertMessage = this.db.prepare(
-      'INSERT INTO chat_messages (chat_id, uid, message_index, payload) VALUES (?, ?, ?, ?)'
-    )
+  private chatStatements?: ChatStatements
 
-    const run = this.db.transaction((patch: { id: number | null; value: ChatHistoryPatchInput }): ChatHistoryPatchResult => {
-      if (patch.value.replaceFrom < -1) {
-        return { success: false, conflict: true, revision: 0 }
-      }
+  /** Prepared once: a running turn writes its reply every second or so. */
+  private get chatSt(): ChatStatements {
+    return (this.chatStatements ??= prepareChatStatements(this.db))
+  }
 
-      // Create new chat
-      if (patch.id === null) {
-        if (patch.value.baseRevision !== 0) {
-          return { success: false, conflict: true, revision: 0 }
-        }
-
-        const title = patch.value.title?.trim() || 'Chat'
-        const nextRevision = 1
-        const tp = patch.value.tp || 'chat'
-        const result = insertChat.run(
-          tp,
-          title,
-          patch.value.workspaceId ?? null,
-          patch.value.model ?? null,
-          patch.value.providerId ?? null,
-          patch.value.sessionId ?? null,
-          patch.value.thinkingLevel ?? null,
-          patch.value.updatedAt,
-          patch.value.metadata ? JSON.stringify(patch.value.metadata) : null,
-          nextRevision
-        )
-
-        const newChatId = Number(result.lastInsertRowid)
-
-        for (const [offset, message] of patch.value.tailMessages.entries()) {
-          const uid = (message as { id?: string })?.id ?? ''
-          insertMessage.run(newChatId, uid, patch.value.replaceFrom + offset, JSON.stringify(message))
-        }
-
-        return { success: true, chatId: newChatId, revision: nextRevision }
-      }
-
-      // Update existing chat
-      const existingChat = selectChat.get(patch.id) as ChatRow | undefined
-      if (!existingChat) {
-        return { success: false, conflict: true, revision: 0 }
-      }
-
-      const currentRevision = existingChat.revision
-      if (currentRevision !== patch.value.baseRevision) {
-        return { success: false, conflict: true, revision: currentRevision }
-      }
-
-      const messageCountRow = selectMessageCount.get(patch.id) as { count: number }
-
-      // replaceFrom = -1 means "append to end"
-      const replaceFrom = patch.value.replaceFrom === -1
-        ? messageCountRow.count
-        : patch.value.replaceFrom
-
-      if (replaceFrom > messageCountRow.count) {
-        return { success: false, conflict: true, revision: currentRevision }
-      }
-
-      const nextRevision = currentRevision + 1
-      const title = (patch.value.title ?? existingChat.title).trim() || 'Chat'
-      const tp = patch.value.tp ?? existingChat.tp
-      const metadataJson = patch.value.metadata
-        ? JSON.stringify(patch.value.metadata)
-        : existingChat.metadata
-
-      updateChat.run(
-        tp,
-        title,
-        patch.value.workspaceId ?? existingChat.workspace_id,
-        patch.value.model ?? existingChat.model,
-        patch.value.providerId ?? existingChat.provider_id,
-        patch.value.sessionId ?? existingChat.session_id,
-        patch.value.thinkingLevel ?? existingChat.thinking_level,
-        patch.value.updatedAt,
-        metadataJson,
-        nextRevision,
-        patch.id
+  createChat(input: CreateChatInput): number {
+    return this.db.transaction((): number => {
+      const result = this.chatSt.insertChat.run(
+        input.tp,
+        input.title,
+        input.workspaceId ?? null,
+        input.model ?? null,
+        input.providerId ?? null,
+        input.sessionId ?? null,
+        input.thinkingLevel ?? null,
+        input.updatedAt,
+        input.metadata ? JSON.stringify(input.metadata) : null,
       )
+      const chatId = Number(result.lastInsertRowid)
+      for (const message of input.messages ?? []) this.writeMessage(chatId, { message })
+      return chatId
+    })()
+  }
 
-      deleteMessagesFrom.run(patch.id, replaceFrom)
-      for (const [offset, message] of patch.value.tailMessages.entries()) {
-        const uid = (message as { id?: string })?.id ?? ''
-        insertMessage.run(patch.id, uid, replaceFrom + offset, JSON.stringify(message))
-      }
+  putChatMessage(chatId: number, input: PutChatMessageInput): PutChatMessageResult | undefined {
+    return this.db.transaction((): PutChatMessageResult | undefined => {
+      if (!this.chatSt.selectChatId.get(chatId)) return undefined
+      const result = this.writeMessage(chatId, input)
+      if (result.written) this.runUpdateConfig(chatId, input.chat ?? {}, input.updatedAt)
+      return result
+    })()
+  }
 
-      return { success: true, chatId: patch.id, revision: nextRevision }
+  updateChatConfig(chatId: number, patch: ChatConfigPatch): void {
+    this.runUpdateConfig(chatId, patch, undefined)
+  }
+
+  private runUpdateConfig(chatId: number, patch: ChatConfigPatch, updatedAt: number | undefined): void {
+    this.chatSt.updateConfig.run({
+      id: chatId,
+      tp: patch.tp ?? null,
+      workspaceId: patch.workspaceId ?? null,
+      model: patch.model ?? null,
+      providerId: patch.providerId ?? null,
+      sessionId: patch.sessionId ?? null,
+      thinkingLevel: patch.thinkingLevel ?? null,
+      updatedAt: updatedAt ?? null,
     })
+  }
 
-    return run({ id: chatId, value: input })
+  /** The body of `putChatMessage`; the caller holds the transaction and has checked the chat exists. */
+  private writeMessage(chatId: number, input: PutChatMessageInput): PutChatMessageResult {
+    const st = this.chatSt
+    const { parts, ...head } = input.message
+    const uid = input.message.id
+    if (!uid) throw new Error('A chat message needs an id')
+
+    let messageId = (st.selectMessage.get(chatId, uid) as { id: number } | undefined)?.id
+    if (messageId !== undefined && input.ifAbsent) return { written: false, bytes: 0 }
+
+    const headJson = JSON.stringify(head)
+    let bytes = headJson.length
+    if (messageId !== undefined) {
+      st.updateHead.run(headJson, messageId)
+    } else {
+      const last = st.selectLastMessage.get(chatId) as { id: number; uid: string; message_index: number } | undefined
+      let index = last ? last.message_index + 1 : 0
+      if (last && input.before === last.uid) {
+        // Only ever the reply a turn is writing, which is the chat's last
+        // message: it moves one place down and the new message takes its slot.
+        st.moveMessage.run(index, last.id)
+        index = last.message_index
+      }
+      messageId = Number(st.insertMessage.run(chatId, uid, index, headJson).lastInsertRowid)
+    }
+
+    for (const i of input.partIndices ?? parts.keys()) {
+      if (i < 0 || i >= parts.length) continue
+      const payload = JSON.stringify(parts[i]) ?? 'null'
+      st.upsertPart.run(messageId, i, payload)
+      bytes += payload.length
+    }
+    st.deletePartsFrom.run(messageId, parts.length)
+    return { written: true, bytes }
   }
 
   // `updated_at` means "when this conversation last gained a message" — the
@@ -781,8 +787,13 @@ export class SqliteStorage
   }
 
   deleteChatEntry(chatId: number): void {
-    this.db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId)
-    this.db.prepare('DELETE FROM chats WHERE id = ?').run(chatId)
+    this.db.transaction(() => {
+      this.db
+        .prepare('DELETE FROM chat_message_parts WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)')
+        .run(chatId)
+      this.db.prepare('DELETE FROM chat_messages WHERE chat_id = ?').run(chatId)
+      this.db.prepare('DELETE FROM chats WHERE id = ?').run(chatId)
+    })()
   }
 
   listChatEntries(query?: ListChatEntriesQuery): ChatHistoryListItem[] {
@@ -1200,13 +1211,14 @@ export class SqliteStorage
     const afterIndex = opts.afterIndex ?? -1
     const rows = this.db
       .prepare(
-        'SELECT message_index, payload FROM chat_messages WHERE chat_id = ? AND message_index > ? ORDER BY message_index ASC LIMIT ?'
+        'SELECT id, message_index, head FROM chat_messages WHERE chat_id = ? AND message_index > ? ORDER BY message_index ASC LIMIT ?'
       )
-      .all(chatId, afterIndex, limit) as Array<{ message_index: number; payload: string }>
+      .all(chatId, afterIndex, limit) as Array<MessageHeadRow & { message_index: number }>
 
-    return rows.map((row) => ({
+    const messages = this.assembleMessages(rows)
+    return rows.map((row, i) => ({
       messageIndex: row.message_index,
-      payload: parseJsonOrRaw(row.payload),
+      payload: messages[i],
     }))
   }
 
@@ -3622,14 +3634,6 @@ function parseAgentEnv(raw: unknown): Agent['env'] {
     return out
   } catch {
     return []
-  }
-}
-
-function parseJsonOrRaw(value: string): unknown {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
   }
 }
 
