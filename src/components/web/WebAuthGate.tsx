@@ -5,7 +5,8 @@ import { Loader2, Monitor, LogOut, RefreshCw, ChevronUp, Github } from 'lucide-r
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { OperonMark } from './OperonMark'
-import { LandingIntro } from './LandingIntro'
+import { ConnectionStrip, DETAILED_GUIDE_URL } from './LandingIntro'
+import { isNativeApp } from '@/lib/native'
 import { useThemeStore, applyTheme } from '@/stores/theme-store'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import {
@@ -466,12 +467,14 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The marketing-grade login page. On desktop it's two columns: brand + product
- * intro on the left, the sign-in box in a right rail. On mobile it collapses to a
- * single cohesive column — brand, then the sign-in block inline, then the intro —
- * rather than a separate boxed panel. The outer container owns its own scroll
- * because the global `body` is `overflow:hidden` (for the app shell); without it
- * the content below the fold would be unreachable on a phone.
+ * Desktop / tablet sign-in: one centered column on a quiet canvas — brand,
+ * the auth card, a compact "how it connects" strip, then footer links.
+ *
+ * It used to be a two-column page (a long product intro on the left, the
+ * buttons alone in a right rail); the rail read as empty and the intro as an
+ * article nobody came here to read. The pitch lives on the marketing site.
+ * The outer container owns its own scroll because the global `body` is
+ * `overflow:hidden` (for the app shell).
  */
 function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => void | Promise<void> }) {
   const intl = useIntl()
@@ -480,64 +483,76 @@ function LoginLanding({ onSignedIn }: { onSignedIn: (result: CallbackResult) => 
   if (isMobile) return <MobileLogin onSignedIn={onSignedIn} />
 
   return (
-    <div className="h-[100dvh] overflow-y-auto bg-background [scroll-padding-top:env(safe-area-inset-top)]">
-      <div className="flex min-h-full flex-col lg:grid lg:min-h-[100dvh] lg:grid-cols-[1.05fr_0.95fr]">
-        {/* Left on desktop; the whole single column on mobile — brand, then the
-            sign-in block inline, then the product intro. */}
-        <main
-          className="flex flex-col px-6 pb-12 pt-[calc(env(safe-area-inset-top)+3rem)] sm:px-10 lg:min-h-[100dvh] lg:justify-center lg:px-14 lg:py-16"
-          style={{ backgroundImage: 'var(--gradient-glow)' }}
-        >
-          <div className="mx-auto w-full max-w-2xl space-y-10">
-            <header className="space-y-5">
-              <OperonMark className="h-14 w-14 drop-shadow-[0_0_24px_rgba(99,88,220,0.2)]" />
-              <div className="space-y-2">
-                <h1 className="logo text-3xl uppercase text-foreground">operon</h1>
-                <p className="text-lg font-light tracking-wide text-muted-foreground/90">
-                  {intl.formatMessage({
-                    id: 'web.auth.login.tagline',
-                    defaultMessage: 'One Interface. Every Agent.',
-                  })}
-                </p>
-              </div>
-            </header>
+    <div className="relative h-[100dvh] overflow-y-auto bg-background">
+      {/* Backdrop: a faint grid fading out from the top, under one soft pool of
+          brand color — gives the page a center without competing with the card. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'linear-gradient(to right, color-mix(in srgb, var(--color-foreground) 4%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in srgb, var(--color-foreground) 4%, transparent) 1px, transparent 1px)',
+          backgroundSize: '48px 48px',
+          maskImage: 'radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 100%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 100%)',
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[480px]"
+        style={{
+          background:
+            'radial-gradient(40% 60% at 50% 0%, color-mix(in srgb, var(--color-brand) 14%, transparent) 0%, transparent 100%)',
+        }}
+      />
 
-            {/* Mobile: sign-in inline right under the brand so the page reads as one
-                cohesive column. Hidden on desktop, where it lives in the right rail. */}
-            <div className="lg:hidden">
-              <LoginCard onSignedIn={onSignedIn} />
+      <div className="relative flex min-h-full flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+4rem)] pb-8">
+        <div className="flex w-full max-w-[380px] flex-1 flex-col justify-center gap-8 py-8">
+          <header className="flex flex-col items-center gap-4 text-center">
+            <OperonMark className="h-12 w-12 drop-shadow-[0_6px_20px_rgba(99,88,220,0.3)]" />
+            <div className="space-y-1.5">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                {intl.formatMessage({ id: 'web.auth.login.heading', defaultMessage: 'Sign in to operon' })}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {intl.formatMessage({ id: 'web.auth.login.tagline', defaultMessage: 'One Interface. Every Agent.' })}
+              </p>
             </div>
+          </header>
 
-            <LandingIntro />
-
-            {/* These live on the marketing site, not here: this origin is the
-                app, and the store listings point at operon.chatcode.top. */}
-            <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/40 pt-5 text-xs text-muted-foreground">
-              <a
-                className="transition-colors hover:text-foreground"
-                href="https://operon.chatcode.top/support"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {intl.formatMessage({ id: 'web.auth.footer.support', defaultMessage: 'Support' })}
-              </a>
-              <a
-                className="transition-colors hover:text-foreground"
-                href="https://operon.chatcode.top/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {intl.formatMessage({ id: 'web.auth.footer.privacy', defaultMessage: 'Privacy' })}
-              </a>
-            </footer>
-          </div>
-        </main>
-
-        {/* Desktop only — sign-in box in the right rail (mobile renders it inline
-            under the brand above). */}
-        <aside className="hidden bg-muted/10 px-6 py-12 lg:flex lg:sticky lg:top-0 lg:h-[100dvh] lg:items-center lg:justify-center lg:border-l lg:border-border/50">
           <LoginCard onSignedIn={onSignedIn} />
-        </aside>
+
+          <ConnectionStrip />
+        </div>
+
+        <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground/80">
+          <a
+            className="transition-colors hover:text-foreground"
+            href={DETAILED_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {intl.formatMessage({ id: 'web.auth.footer.guide', defaultMessage: 'Setup guide' })}
+          </a>
+          <span aria-hidden="true">·</span>
+          <a
+            className="transition-colors hover:text-foreground"
+            href="https://operon.chatcode.top/support"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {intl.formatMessage({ id: 'web.auth.footer.support', defaultMessage: 'Support' })}
+          </a>
+          <span aria-hidden="true">·</span>
+          <a
+            className="transition-colors hover:text-foreground"
+            href="https://operon.chatcode.top/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {intl.formatMessage({ id: 'web.auth.footer.privacy', defaultMessage: 'Privacy' })}
+          </a>
+        </footer>
       </div>
     </div>
   )
@@ -613,7 +628,7 @@ function MobileLogin({ onSignedIn }: { onSignedIn: (result: CallbackResult) => v
           </button>
         </div>
 
-        <ReviewerSignIn onSignedIn={onSignedIn} compact />
+        {isNativeApp() && <ReviewerSignIn onSignedIn={onSignedIn} compact />}
 
         <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground/70">
           <a href="https://operon.chatcode.top/support" target="_blank" rel="noopener noreferrer">
@@ -633,24 +648,16 @@ function LoginCard({ onSignedIn }: { onSignedIn: (result: CallbackResult) => voi
   const intl = useIntl()
 
   return (
-    <div className="w-full max-w-sm space-y-6">
+    <div className="space-y-4 rounded-xl border border-border/60 bg-popover p-6 shadow-card dark:border-border/35">
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-foreground">
-          {intl.formatMessage({ id: 'web.auth.login.title', defaultMessage: 'Sign in' })}
-        </h2>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {intl.formatMessage({
-            id: 'web.auth.login.desc',
-            defaultMessage: 'Connect your account to reach and control the machines running operon.',
-          })}
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <Button className="h-10 w-full gap-2" onClick={() => void login('github')}>
+        <button
+          type="button"
+          onClick={() => void login('github')}
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-brand-fill text-sm font-medium text-white transition-opacity hover:opacity-90"
+        >
           <Github className="h-4 w-4" />
           {intl.formatMessage({ id: 'web.auth.login.github', defaultMessage: 'Continue with GitHub' })}
-        </Button>
+        </button>
 
         {/*
           Guideline 4.8: an app that offers third-party sign-in must also offer
@@ -661,20 +668,29 @@ function LoginCard({ onSignedIn }: { onSignedIn: (result: CallbackResult) => voi
         <button
           type="button"
           onClick={() => void login('apple')}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-black text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-black"
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-black text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-black"
         >
           <AppleMark className="h-4 w-4" />
           {intl.formatMessage({ id: 'web.auth.login.apple', defaultMessage: 'Sign in with Apple' })}
         </button>
       </div>
 
-      <ReviewerSignIn onSignedIn={onSignedIn} />
+      <p className="text-center text-xs leading-relaxed text-muted-foreground">
+        {intl.formatMessage({
+          id: 'web.auth.login.desc',
+          defaultMessage: 'Connect your account to reach and control the machines running operon.',
+        })}
+      </p>
+
+      {isNativeApp() && <ReviewerSignIn onSignedIn={onSignedIn} />}
     </div>
   )
 }
 
 /**
  * Password sign-in for an App Store reviewer, collapsed behind a link.
+ * Rendered only inside the native app shell (`isNativeApp()`): App Review
+ * happens there, and on the public web page it is just noise.
  *
  * Visible rather than hidden on purpose: a reviewer has to be able to find it
  * from the review notes, and a genuinely concealed path would itself be a
