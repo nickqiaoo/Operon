@@ -1,111 +1,176 @@
-<p align="center">
-  <img src="./.github/assets/readme-banner.png" alt="Operon" width="1200" />
-</p>
+<h1 align="center">Operon</h1>
+<p align="center"><strong>One interface. Every coding agent.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/Nickqiaoo/Operon/releases/latest"><img src="https://img.shields.io/github/v/release/Nickqiaoo/Operon?include_prereleases&label=download&color=blue" alt="Latest Release" /></a>
+  <a href="https://github.com/Nickqiaoo/Operon/releases/latest"><img src="https://img.shields.io/github/v/release/Nickqiaoo/Operon?include_prereleases&amp;label=download&amp;color=blue" alt="Latest Release" /></a>
   <a href="https://github.com/Nickqiaoo/Operon/releases"><img src="https://img.shields.io/github/downloads/Nickqiaoo/Operon/total?color=green" alt="Downloads" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20iOS%20%7C%20Android-lightgrey" alt="Platform" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0" />
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20iOS%20%7C%20Android%20%7C%20Web-lightgrey" alt="Platforms: macOS, iOS, Android and Web" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/price-free-brightgreen" alt="Free" />
 </p>
 
----
+Run Claude Code, Codex, Cursor, OpenCode and more side by side. Hand work between
+agents, review their changes, and let an assistant keep things moving across
+your projects — on your Mac, in the browser and on your phone.
 
-A desktop UI for AI coding agents that isn't tied to any one of them.
+Operon connects to the agents on your machine through their SDKs, app servers
+and CLI protocols. Bring the subscriptions you already use, or configure an API
+key for the built-in Operon Agent. Operon does not resell model access.
 
-Operon gives Claude Code, Codex, Gemini CLI, Copilot CLI and others a proper
-window — tabs, per-turn diff review, a file tree, a real editor — and lets
-several of them work on the same repository **together**.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/hero-dark.webp" />
+    <img src="./web/src/assets/shots/hero-light.webp" alt="A Codex conversation in Operon with the files it changed and the diff open in the review panel" width="1100" />
+  </picture>
+</p>
 
-It drives the official CLIs on your machine. You use whichever subscriptions you
-already pay for; Operon does not resell model access, and agent execution stays
-on your machine. When you connect from the web or a mobile app, remote request
-and response content is end-to-end encrypted between the approved device and
-your desktop.
+<p align="center">
+  <a href="https://operon.chatcode.top">Website</a> ·
+  <a href="https://operon.chatcode.top/docs">Documentation</a> ·
+  <a href="https://github.com/Nickqiaoo/Operon/releases/latest">Download</a> ·
+  <a href="https://app.operon.chatcode.top/">Open web app</a>
+</p>
 
 ## Download
 
-**Desktop — macOS** (Apple Silicon & Intel), from the
-[latest release](https://github.com/Nickqiaoo/Operon/releases/latest). Windows and
-Linux are not available.
+| Platform | Get Operon |
+|---|---|
+| macOS | [Latest release](https://github.com/Nickqiaoo/Operon/releases/latest) — Apple Silicon and Intel |
+| iOS | [App Store](https://apps.apple.com/us/app/operon-ai/id6797370866) |
+| Android | Signed APK from [the website](https://operon.chatcode.top) |
+| Web | [app.operon.chatcode.top](https://app.operon.chatcode.top/) |
 
-**Mobile** — the agent keeps running on your Mac, and the phone reaches the same
-session — approve a diff or steer a run from anywhere.
+The desktop app currently supports macOS. Windows and Linux desktop builds are
+not available. Web and mobile clients connect to your Mac; your repositories
+and agent processes stay there. Pair a new device from the desktop to access
+your sessions remotely.
 
-- **iOS** — on the App Store:
+## An assistant across your projects
 
-  <a href="https://apps.apple.com/us/app/operon-ai/id6797370866"><img src="./.github/assets/app-store-badge.svg" alt="Download on the App Store" height="44" /></a>
+Ask the assistant to check a project, start a coding task or get a second
+opinion. It can create workspaces, delegate to coding agents, follow their
+progress and bring results back to one conversation.
 
-- **Android** — a signed APK from [operon.chatcode.top](https://operon.chatcode.top)
-
-There is also a web client and Telegram and Slack bridges if you'd rather not
-install anything.
+- **Approvals in context** — answer an agent's permission request or question
+  directly on its activity card.
+- **Memory** — keep project facts, preferences and daily notes across sessions.
+- **Heartbeat and schedules** — maintain a recurring checklist and schedule work
+  for later.
+- **Your choice of agent** — configure the assistant to run on an agent you
+  already use or on Operon's built-in agent.
 
 <p align="center">
-  <img src="./.github/assets/web-client.png" alt="Operon web client running in a browser" width="660" />
-  <img src="./.github/assets/mobile-client.png" alt="Operon running as an installed PWA on a phone" width="161" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/assistant-dark.webp" />
+    <img src="./web/src/assets/shots/assistant-light.webp" alt="The assistant reporting a code review with delegated agent activities beside the conversation" width="1100" />
+  </picture>
 </p>
+
+## Let agents work together
+
+Have one agent plan, another implement and another review. Handoffs happen in
+the conversation; helpers work in their own background tabs and return their
+results to the agent that asked. Questions and approvals stay attached to the
+step that needs them.
+
+For repeatable work, use the visual workflow canvas or JavaScript workflows to
+express dependencies and run independent steps in parallel.
 
 <p align="center">
-  <sub>The same session in a browser and on a phone. The agent keeps running on your Mac.</sub>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/trio-dark.webp" />
+    <img src="./web/src/assets/shots/trio-light.webp" alt="Claude Code planning, Codex implementing and Antigravity reviewing in one conversation" width="1100" />
+  </picture>
 </p>
 
-## Multiple agents, working together
+## Track work from request to review
 
-This is the part Operon is built around, rather than being a single-agent
-wrapper with extra tabs.
+The **Taskboard** is shared by you and your agents across projects. Create and
+assign tasks, track status and priority, and dispatch work into separate Git
+worktrees. Linear integration brings delegated issues into the board and keeps
+status, priority and comments in sync.
 
-- **Multi-agent threads** — pull two or more agents into one conversation and let
-  them disagree about an approach. You moderate and decide.
-- **Canvas workflows** — describe a pipeline in plain text, no code or config. A
-  node starts the moment *its own* inputs are ready, not when the whole stage
-  finishes, so independent branches genuinely run in parallel. Reference any
-  upstream output with `{{nodeName}}`.
-- **Isolated worktrees** — dispatched tasks each land in their own git worktree,
-  so parallel agents never step on each other. Inspect exactly which files came
-  back changed.
-- **Delegation** — one agent can hand work to others, which run in background
-  tabs without blocking the conversation you're in.
-- **Spec-driven changes** — spec, plan and acceptance each get a human sign-off
-  before work moves on, and an independent verifier agent can check the result
-  before you approve it.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/board-dark.webp" />
+    <img src="./web/src/assets/shots/board-light.webp" alt="The task board across projects with work assigned to Claude Code, Codex and Cursor" width="1100" />
+  </picture>
+</p>
 
-## Also in the app
+For larger changes, **OperonSpec** turns an agreed request into competing
+designs, a reviewed plan and implementation tickets. You approve the design
+and sign off the finished change; agents handle ticket implementation and
+review in between, with reviews from a different model family.
 
-- **Per-turn diff review** — every turn pins exactly the files it touched, so you
-  read the change before it goes near a commit
-- **Live context & usage tracking** — see the context window filling up while the
-  agent works
-- **Skills** — pluggable instruction packs, installable globally or per project
-- **Long-term memory** — local hybrid vector + keyword search, so preferences and
-  project facts survive across sessions
-- **MCP servers** — connect any Model Context Protocol server (stdio / HTTP / SSE)
-- **Browser & Computer Use** — the agent can drive a built-in browser, your own
-  Chrome via an extension, or operate native macOS apps
-- **Cron jobs** — schedule recurring prompts or whole workflows
-- **Integrated terminal** — full PTY inside the app
-- **Auto-update**
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/spec-dark.webp" />
+    <img src="./web/src/assets/shots/spec-light.webp" alt="An OperonSpec design awaiting approval with design agents, review results and implementation tickets" width="850" />
+  </picture>
+</p>
+
+## Connect your tools once
+
+Plugins bundle **MCP servers, skills and sign-in** into one install, making the
+same tools available across agents. Browse the plugin marketplace, install
+skills globally or per project, or connect an MCP server directly over stdio,
+HTTP or SSE.
+
+Agents can also use the built-in browser, your own Chrome through the Operon
+extension, and native macOS apps through Computer Use. An integrated editor,
+file tree, Git review panel and terminal keep the rest of the work in the app.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/plugins-dark.webp" />
+    <img src="./web/src/assets/shots/plugins-light.webp" alt="The Operon plugin marketplace with integrations including Linear, Slack, GitHub and Notion" width="850" />
+  </picture>
+</p>
+
+## Continue on your phone
+
+Read the same conversations, answer approvals, check the task board and review
+diffs from iOS, Android or a browser. Remote request and response content is
+end-to-end encrypted between an approved device and your Mac. Telegram and
+Slack integrations are also available for messaging your agents.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/phone-board-dark.webp" />
+    <img src="./web/src/assets/shots/phone-board-light.webp" alt="Task board on iPhone" width="240" />
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/phone-chat-dark.webp" />
+    <img src="./web/src/assets/shots/phone-chat-light.webp" alt="Coding conversation and changed files on iPhone" width="240" />
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./web/src/assets/shots/phone-diff-dark.webp" />
+    <img src="./web/src/assets/shots/phone-diff-light.webp" alt="Code diff review on iPhone" width="240" />
+  </picture>
+</p>
 
 ## Supported agents
 
-Claude Code · Codex · Gemini CLI · GitHub Copilot CLI · Cursor Agent · Kimi ·
-Grok · OpenCode · any custom agent speaking ACP
+Claude Code · Codex · Cursor Agent · OpenCode · GitHub Copilot · Antigravity ·
+Kimi Code · Grok · Qoder · custom ACP agents
 
-Bring your own subscription or API key for whichever you use.
+The built-in **Operon Agent** can use API providers configured in Settings.
+Model, reasoning, mode and session features depend on the selected provider.
+Live context and account usage are shown where supported; Claude Code also
+supports prompt suggestions and a session task panel.
 
 ## Documentation
 
-Full documentation is at **[operon.chatcode.top/docs](https://operon.chatcode.top/docs)**.
+Start with [Getting Started](https://operon.chatcode.top/docs/getting-started),
+or browse the [full documentation](https://operon.chatcode.top/docs).
 
-- [Getting Started](https://operon.chatcode.top/docs/getting-started) — installation, first workspace, connecting agents
-- [Chat](https://operon.chatcode.top/docs/chat) — multi-agent chat, streaming, tool execution, attachments, session resume
-- [Canvas Workflows](https://operon.chatcode.top/docs/workflow) — visual DAG editor, node types, template variables, execution monitoring
-- [Skills](https://operon.chatcode.top/docs/skills) — browse, install, and create skill packs
-- [MCP Servers](https://operon.chatcode.top/docs/mcp-servers) — stdio, HTTP, and SSE servers
-- [Memory](https://operon.chatcode.top/docs/memory) — vector, keyword, and hybrid retrieval
-- [Cron Jobs](https://operon.chatcode.top/docs/cronjob) — scheduled prompts and workflows
-- [External Agents](https://operon.chatcode.top/docs/external-agents) — delegation and orchestration
+- [Assistant](https://operon.chatcode.top/docs/assistant) — delegation, memory and recurring work
+- [Chat](https://operon.chatcode.top/docs/chat) — conversations, tools, attachments and session controls
+- [Tasks](https://operon.chatcode.top/docs/tasks) and [OperonSpec](https://operon.chatcode.top/docs/sdd) — tracked work and design approval
+- [Workflows](https://operon.chatcode.top/docs/workflow) and [External Agents](https://operon.chatcode.top/docs/external-agents) — orchestration
+- [Plugins](https://operon.chatcode.top/docs/plugins), [Skills](https://operon.chatcode.top/docs/skills) and [MCP Servers](https://operon.chatcode.top/docs/mcp-servers) — tools and integrations
+- [Mobile](https://operon.chatcode.top/docs/mobile) and [Remote Access](https://operon.chatcode.top/docs/remote-access) — pairing and remote sessions
+- [Changelog](CHANGELOG.md) — release history
 
 ## Build from source
 
@@ -115,7 +180,9 @@ Requires macOS, Node 22 or newer, and the Xcode command line tools.
 npm install
 npm run dev            # desktop app in development
 npm test               # unit tests
-npm run build:mac      # signed .dmg (needs Apple credentials in .env)
+npm run build:mac:unsigned  # Apple Silicon build without a signing identity
+npm run build:mac           # signed Apple Silicon build (requires Apple credentials)
+npm run build:mac:intel     # Intel build
 ```
 
 The Computer Use engine is fetched automatically by `npm run dev` when missing.
@@ -157,6 +224,9 @@ packages/
   computer-use/      The node_repl runtime: a persistent JS session with a
                      privileged surface, plus the macOS Computer Use client.
   site-adapters/     Deterministic commands for specific sites.
+  external-agent/    Delegate work to coding agents in background tabs.
+  workflow/          JavaScript workflow orchestration.
+  spec/              OperonSpec skill instructions.
   chrome-extension/  The extension that lets an agent drive your own Chrome.
 electron/            Electron main process, and the only place that touches it.
 native/
@@ -174,8 +244,9 @@ ios/ android/        Capacitor shells around the web bundle.
 phone or browser  ->  broker (relay)  ->  tunnel-agent  ->  your desktop
 ```
 
-The broker forwards bytes. It runs no application logic and does not hold the
-content-encryption keys, so a compromised relay learns nothing about your code.
+The broker relays encrypted application content without the device content keys.
+Agent execution stays on the Mac. See [Remote Access](https://operon.chatcode.top/docs/remote-access) for pairing
+and connection details.
 
 ## Contributing
 
@@ -186,9 +257,10 @@ change:
   `agent-runtime` and `packages`, the tests are the type check that matters.
 - Some suites drive a real headless Chrome and exclude each other through a
   cross-process lock. Run them with `npx vitest run packages/browser-use`.
-- The two packages under `packages/` carry long comments explaining why a piece
-  of protocol looks the way it does. They are usually load-bearing; read one
-  before changing the code under it.
+- Browser and Computer Use protocol code includes comments explaining its
+  constraints; read them before changing the surrounding implementation.
+- `npm run test:e2e:ci` runs the Playwright suite with the fake runtime and an
+  isolated test server. Tests that use real agents require separate setup.
 
 Found a bug or have a feature request?
 [Open an issue](https://github.com/Nickqiaoo/Operon/issues).
