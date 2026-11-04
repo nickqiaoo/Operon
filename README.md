@@ -1,5 +1,6 @@
-<h1 align="center">Operon</h1>
-<p align="center"><strong>One interface. Every coding agent.</strong></p>
+<p align="center">
+  <img src="./.github/assets/readme-banner.png" alt="Operon — One Interface. Every Agent." width="1200" />
+</p>
 
 <p align="center">
   <a href="https://github.com/Nickqiaoo/Operon/releases/latest"><img src="https://img.shields.io/github/v/release/Nickqiaoo/Operon?include_prereleases&amp;label=download&amp;color=blue" alt="Latest Release" /></a>
