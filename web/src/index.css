@@ -16,8 +16,8 @@
  * the app's dark values. Keep the two in step with the app when its tokens move.
  */
 @theme {
-  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
-  --font-display: "General Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "General Sans", "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Menlo, Monaco, ui-monospace, monospace;
 
   --color-background: #ffffff;
@@ -170,4 +170,22 @@ body {
   .pulse-dot {
     animation: none;
   }
+}
+
+/*
+ * The display headings are set with tight negative tracking for Latin type;
+ * applied to CJK it crowds the characters together. Chinese runs at the
+ * font's own spacing instead. Unlayered, so it wins over the utilities.
+ */
+html:lang(zh) .font-display {
+  letter-spacing: 0;
+}
+
+/*
+ * Chinese can break between any two characters, so a title's quieter second
+ * half would split mid-phrase ("照样掌控 / 全局"). As an inline block it moves
+ * to the next line whole, and still wraps inside itself when wider than a line.
+ */
+html:lang(zh) .title-tail {
+  display: inline-block;
 }

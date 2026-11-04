@@ -5,18 +5,39 @@ import { SocialLinks } from './SocialLinks'
 import { Wordmark } from './Logo'
 import { buttonPrimary, buttonSecondary, cn } from '../lib/styles'
 import { APP_URL } from '../lib/links'
+import { useCopy, useLocale } from '../lib/i18n'
 
 /** Section anchors; plain hash links so the browser's own smooth scrolling does the work. */
-const ANCHORS = [
-  { label: 'Agents', href: '#agents' },
-  { label: 'Assistant', href: '#assistant' },
-  { label: 'Tasks', href: '#tasks' },
-  { label: 'Plugins', href: '#plugins' },
-  { label: 'Mobile', href: '#mobile' },
-]
+const COPY = {
+  en: {
+    anchors: [
+      { label: 'Agents', href: '#agents' },
+      { label: 'Assistant', href: '#assistant' },
+      { label: 'Tasks', href: '#tasks' },
+      { label: 'Plugins', href: '#plugins' },
+      { label: 'Mobile', href: '#mobile' },
+    ],
+    docs: 'Docs',
+    download: 'Download',
+    openApp: 'Open app',
+  },
+  zh: {
+    anchors: [
+      { label: 'Agent', href: '#agents' },
+      { label: '助理', href: '#assistant' },
+      { label: '任务', href: '#tasks' },
+      { label: '插件', href: '#plugins' },
+      { label: '移动端', href: '#mobile' },
+    ],
+    docs: '文档',
+    download: '下载',
+    openApp: '打开应用',
+  },
+}
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false)
+  const t = useCopy(COPY)
   const downloadHref = getDownloadHref('navbar')
 
   useEffect(() => {
@@ -52,7 +73,7 @@ export function Navbar() {
         </a>
 
         <div className="hidden flex-1 items-center justify-center gap-1 lg:flex">
-          {ANCHORS.map((anchor) => (
+          {t.anchors.map((anchor) => (
             <a
               key={anchor.href}
               href={anchor.href}
@@ -65,14 +86,15 @@ export function Navbar() {
             to="/docs"
             className="rounded-lg px-3 py-1.5 text-[13.5px] text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
           >
-            Docs
+            {t.docs}
           </Link>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="mr-2 hidden md:block">
+          <div className="mr-1 hidden md:block">
             <SocialLinks variant="navbar" />
           </div>
+          <LanguageToggle />
           <a
             href={downloadHref}
             className={cn(buttonSecondary, 'h-8 px-3 text-[13px]')}
@@ -83,7 +105,7 @@ export function Navbar() {
             }}
           >
             <DownloadIcon />
-            <span className="hidden min-[400px]:inline">Download</span>
+            <span className="hidden min-[400px]:inline">{t.download}</span>
           </a>
           <a
             href={APP_URL}
@@ -92,11 +114,39 @@ export function Navbar() {
               window.gtag?.('event', 'click_open_app', { event_category: 'engagement', event_label: 'navbar' })
             }}
           >
-            Open app
+            {t.openApp}
           </a>
         </div>
       </div>
     </nav>
+  )
+}
+
+/** Names the other language in that language, so a reader who can't read the current one still finds it. */
+export function LanguageToggle() {
+  const { locale, setLocale } = useLocale()
+  const next = locale === 'en' ? 'zh' : 'en'
+
+  return (
+    <button
+      type="button"
+      onClick={() => setLocale(next)}
+      aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}
+      title={locale === 'en' ? '切换到中文' : 'Switch to English'}
+      className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+    >
+      <GlobeIcon />
+      <span className="hidden sm:inline">{locale === 'en' ? '中文' : 'EN'}</span>
+    </button>
+  )
+}
+
+function GlobeIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+    </svg>
   )
 }
 

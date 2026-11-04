@@ -58,9 +58,12 @@ export function Title({ children, center = false }: { children: ReactNode; cente
   )
 }
 
-/** Second half of a title, one step quieter. */
+/**
+ * Second half of a title, one step quieter. Callers put the separating space
+ * in the English copy only: Chinese halves meet at a full-width comma.
+ */
 export function Muted({ children }: { children: ReactNode }) {
-  return <span className="text-muted-foreground">{children}</span>
+  return <span className="title-tail text-muted-foreground">{children}</span>
 }
 
 export function Lead({ children, center = false }: { children: ReactNode; center?: boolean }) {

@@ -6,20 +6,38 @@ import { Reveal } from './Reveal'
 import { Lead, Section, Title } from './ui'
 import { buttonPrimary, buttonSecondary, cn } from '../lib/styles'
 import appStoreBadge from '../assets/app-store-badge.svg'
+import { useCopy } from '../lib/i18n'
+
+const COPY = {
+  en: {
+    title: 'Ready when you are.',
+    lead: 'Install Operon on your Mac and start running agents in minutes. Pair your phone or open the web app to keep going away from your desk.',
+    download: 'Download for macOS',
+    openWeb: 'Open web app',
+    appStore: 'Download on the App Store',
+    android: 'Android (APK)',
+  },
+  zh: {
+    title: '随时可以开始。',
+    lead: '在 Mac 上装好 Operon，几分钟就能跑起 Agent。配对手机或打开网页版，离开工位也能继续。',
+    download: '下载 macOS 版',
+    openWeb: '打开网页版',
+    appStore: '在 App Store 下载',
+    android: 'Android（APK）',
+  },
+}
 
 export function DownloadSection() {
   const downloadHref = getDownloadHref('bottom_cta')
+  const t = useCopy(COPY)
 
   return (
     <Section id="download" width="narrow" className="border-t border-border/40">
       <Reveal>
         <div className="text-center">
           <OperonGlyph size={40} className="mx-auto mb-6 text-brand" />
-          <Title center>Ready when you are.</Title>
-          <Lead center>
-            Install Operon on your Mac and start running agents in minutes. Pair your phone or open the
-            web app to keep going away from your desk.
-          </Lead>
+          <Title center>{t.title}</Title>
+          <Lead center>{t.lead}</Lead>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <a
@@ -32,7 +50,7 @@ export function DownloadSection() {
               }}
             >
               <DownloadIcon />
-              Download for macOS
+              {t.download}
             </a>
             <a
               href={APP_URL}
@@ -41,7 +59,7 @@ export function DownloadSection() {
                 window.gtag?.('event', 'click_open_app', { event_category: 'engagement', event_label: 'bottom_cta' })
               }}
             >
-              Open web app
+              {t.openWeb}
               <ArrowIcon />
             </a>
           </div>
@@ -57,7 +75,7 @@ export function DownloadSection() {
                 window.gtag?.('event', 'click_download_ios', { event_category: 'engagement', event_label: 'bottom_cta' })
               }}
             >
-              <img src={appStoreBadge} alt="Download on the App Store" className="block h-10" />
+              <img src={appStoreBadge} alt={t.appStore} className="block h-10" />
             </a>
             <a
               href={ANDROID_APK_URL}
@@ -67,7 +85,7 @@ export function DownloadSection() {
               }}
             >
               <AndroidIcon />
-              Android (APK)
+              {t.android}
             </a>
           </div>
         </div>
