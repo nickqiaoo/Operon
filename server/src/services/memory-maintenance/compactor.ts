@@ -141,21 +141,29 @@ function compactMessage(message: UIMessage): string | null {
   return pieces.join('\n')
 }
 
+export interface CompactedMessage {
+  message: ModelMessage
+  /** Position of the source message in the input array. */
+  sourcePosition: number
+}
+
 /**
  * Turn a UIMessage transcript into ModelMessage[] ready for an LLM call.
- * Each original message becomes one compacted user/assistant message.
+ * Each original message becomes one compacted user/assistant message; system
+ * and empty messages are dropped, and each kept one says which input it came
+ * from (the extractor maps that back to a message_index for its watermark).
  */
-export function compactTranscript(messages: UIMessage[]): ModelMessage[] {
-  const out: ModelMessage[] = []
-  for (const msg of messages) {
+export function compactTranscript(messages: UIMessage[]): CompactedMessage[] {
+  const out: CompactedMessage[] = []
+  messages.forEach((msg, i) => {
+    if (msg.role === 'system') return
     const body = compactMessage(msg)
-    if (!body) continue
-    if (msg.role === 'system') continue
+    if (!body) return
     out.push({
-      role: msg.role === 'assistant' ? 'assistant' : 'user',
-      content: body,
-    } as ModelMessage)
-  }
+      message: { role: msg.role === 'assistant' ? 'assistant' : 'user', content: body },
+      sourcePosition: i,
+    })
+  })
   return out
 }
 

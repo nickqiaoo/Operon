@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { MemoryMaintenanceStorageAdapter } from '../storage/interface.js'
 import type { MemoryMaintenanceConfig } from '../types/memory-maintenance.js'
-import { runMemoryMaintenance } from '../services/memory-maintenance/runner.js'
+import { isMemoryMaintenanceRunning, runMemoryMaintenance } from '../services/memory-maintenance/runner.js'
 import { readRunLog } from '../services/memory-maintenance/run-log.js'
 
 interface UpdateBody {
@@ -72,7 +72,7 @@ export function memoryMaintenanceRoutes(storage: MemoryMaintenanceStorageAdapter
   })
 
   router.post('/run', async (c) => {
-    if (activeRun) {
+    if (activeRun || isMemoryMaintenanceRunning()) {
       return c.json({ error: 'A maintenance run is already in progress' }, 409)
     }
     const abort = new AbortController()

@@ -196,7 +196,13 @@ export interface ChatMessageRow {
 export interface MemoryMaintenanceStorageAdapter {
   getMemoryMaintenanceConfig(): MemoryMaintenanceConfig
   updateMemoryMaintenanceConfig(updates: Partial<Omit<MemoryMaintenanceConfig, 'updatedAt'>>): MemoryMaintenanceConfig
-  listMemoryMaintenanceCandidates(opts: { olderThanMs: number; newerThanMs?: number; limit: number }): ChatExtractionCandidate[]
+  listMemoryMaintenanceCandidates(opts: {
+    olderThanMs: number
+    newerThanMs?: number
+    limit: number
+    /** Evaluation: exactly these chats, regardless of activity window and watermark. */
+    chatIds?: number[]
+  }): ChatExtractionCandidate[]
   getChatMessagesWithIndex(chatId: number, opts: { afterIndex: number | null; limit?: number }): ChatMessageRow[]
   setChatLastExtractedMessageIndex(chatId: number, messageIndex: number): void
   /** The personal assistant's thread and finished tasks with `after < at <= before`, oldest first. */
@@ -207,6 +213,8 @@ export interface MemoryMaintenanceStorageAdapter {
   createMemoryMaintenanceRun(input: CreateMemoryMaintenanceRunInput): MemoryMaintenanceRun
   updateMemoryMaintenanceRun(id: number, updates: UpdateMemoryMaintenanceRunInput): void
   listMemoryMaintenanceRuns(limit?: number): MemoryMaintenanceRun[]
+  /** Close runs left `running` by a server that stopped mid-run; returns how many. */
+  abortInterruptedMemoryMaintenanceRuns(): number
 }
 
 export interface CheckpointRecord {

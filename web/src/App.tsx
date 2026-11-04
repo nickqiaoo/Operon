@@ -12,6 +12,7 @@ import { PluginsSection } from './components/PluginsSection'
 import { BrowserComputerSection } from './components/BrowserComputerSection'
 import { MemoryChannelsSection } from './components/MemoryChannelsSection'
 import { MobileSection } from './components/MobileSection'
+import { SiteAdaptersSection } from './components/SiteAdaptersSection'
 import { FeaturesSection } from './components/FeaturesSection'
 import { DownloadSection } from './components/DownloadSection'
 
@@ -34,6 +35,7 @@ function App() {
         <SddSection />
         <PluginsSection />
         <MobileSection />
+        <SiteAdaptersSection />
         <WorkflowSection />
         <BrowserComputerSection />
         <MemoryChannelsSection />

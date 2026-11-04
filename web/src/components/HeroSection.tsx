@@ -20,10 +20,10 @@ const COPY = {
     alt: 'Operon with a Codex conversation that added a CSV export, and its diff open in the review panel',
   },
   zh: {
-    badge: '一个替你调度编程 Agent 的助理',
+    badge: '帮你指挥编程 Agent 的助理',
     titleA: '一个界面，',
     titleB: '用上所有编程 Agent。',
-    lead: 'Claude Code、Codex、Cursor、OpenCode 等并排运行，工作在它们之间自由交接，再让助理替你推进各个项目——Mac、浏览器、手机上都能用。',
+    lead: 'Claude Code、Codex、Cursor、OpenCode 可以同时开着用，活儿能在它们之间来回交接，还有个助理帮你盯着各个项目的进度。Mac、浏览器、手机都能用。',
     download: '下载 macOS 版',
     openWeb: '打开网页版',
     platforms: '免费 · macOS · iOS · Android · 网页',

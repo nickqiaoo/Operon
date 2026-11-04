@@ -237,6 +237,10 @@ export interface MemoryTimelineEntry {
   page_type: MemoryType
   page_slug: string
   entry: string
+  /** Evidence the writer relied on (ideally the user's own words). */
+  reason: string | null
+  /** Where the write came from, e.g. "chat:123", "assistant", "manual". */
+  source: string | null
   occurred_at: number | null // null = event time unknown
   created_at: number
 }
@@ -261,9 +265,6 @@ export interface MemoryMaintenanceRun {
   sessionsProcessed: number
   chunksProcessed: number
   memoriesWritten: number
-  memoriesMerged: number
-  tokensInput: number
-  tokensOutput: number
   status: 'running' | 'success' | 'error' | 'aborted'
   trigger: 'scheduled' | 'manual'
   error?: string
@@ -285,6 +286,7 @@ export interface MemorySearchResult {
     id: number
     occurred_at: number | null // null = event time unknown
     entry: string
+    reason: string | null
     matched: boolean
   }>
 }

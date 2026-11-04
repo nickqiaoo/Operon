@@ -48,7 +48,7 @@ const COPY = {
     eyebrow: 'Browser and Computer Use',
     titleA: 'Your agents ',
     titleB: 'have hands.',
-    lead: 'Not just a panel to look at. Operon agents drive a built-in browser, your real Chrome and native Mac apps — clicking, typing and checking their own work.',
+    lead: 'Not just a panel to look at. Operon agents drive a built-in browser, your real Chrome and native Mac apps — clicking, typing and checking their own work. On popular sites they skip the clicking altogether.',
     window: 'Agent session',
     tablist: 'Target',
     targets: { browser: 'In-app browser', chrome: 'Your Chrome', mac: 'Mac apps' } as Record<TargetId, string>,
@@ -80,9 +80,9 @@ const COPY = {
   },
   zh: {
     eyebrow: '浏览器与 Computer Use',
-    titleA: '你的 Agent ',
-    titleB: '有手了。',
-    lead: '不只是一块拿来看的面板。Operon 的 Agent 能操作内置浏览器、你真实的 Chrome 和原生 Mac 应用——点击、输入，并自己检查结果。',
+    titleA: 'Agent 不只会写代码，',
+    titleB: '还能上手操作。',
+    lead: 'Operon 的 Agent 能操作内置浏览器、你自己的 Chrome，还有 Mac 上的原生应用：点击、输入，做完自己检查结果。常用网站还有现成的 Site Adapter，连点都不用点。',
     window: 'Agent 会话',
     tablist: '目标',
     targets: { browser: '内置浏览器', chrome: '你的 Chrome', mac: 'Mac 应用' } as Record<TargetId, string>,
@@ -96,19 +96,19 @@ const COPY = {
     features: [
       {
         title: '内置浏览器',
-        desc: '对话旁边就是浏览器。Agent 可以在里面跳转、点击、输入、截图——包括你本地的 localhost 开发服务器——你也可以在元素上钉评论发回给它。',
+        desc: '浏览器就在对话旁边，Agent 可以在里面打开网页、点击、输入、截图，本地的 localhost 开发服务器也行。你也可以在页面元素上加评论，发给 Agent 去改。',
       },
       {
         title: '你的 Chrome',
-        desc: '用你真实的登录态驱动你自己的 Chrome。Agent 可以接管你已经打开的 tab；两个浏览器的权限都在同一个页面里管理。',
+        desc: 'Agent 直接操作你自己的 Chrome，登录状态都是现成的，也可以接手你已经打开的 tab。两个浏览器的权限在同一个页面里管。',
       },
       {
         title: 'Mac 应用',
-        desc: 'Computer Use 在后台读取并操作原生应用——点击、快捷键、菜单栏、窗口大小和剪贴板——并确认每一步都生效了。',
+        desc: 'Computer Use 在后台读取和操作原生应用，点击、快捷键、菜单栏、调整窗口、剪贴板都支持，每一步做完都会确认是否生效。',
       },
       {
-        title: '由你决定范围',
-        desc: '逐个应用允许或禁止 Computer Use。多个对话可以同时使用，Agent 工作时它的指针会显示在屏幕上。',
+        title: '能碰哪些应用你说了算',
+        desc: '每个应用单独设置是否允许 Computer Use。多个对话可以同时用，Agent 操作时屏幕上会显示它的指针。',
       },
     ],
   },
@@ -125,7 +125,7 @@ export function BrowserComputerSection() {
   })
 
   return (
-    <Section id="automation">
+    <Section id="automation" tone="sidebar">
       <Reveal>
         <div className="max-w-2xl">
           <Eyebrow>{t.eyebrow}</Eyebrow>

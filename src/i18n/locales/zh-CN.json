@@ -379,7 +379,6 @@
   "web.auth.login.desc": "连接账号，即可访问并控制正在运行 operon 的机器。",
   "web.auth.login.github": "使用 GitHub 继续",
   "web.auth.login.tagline": "One Interface. Every Agent.",
-  "web.auth.login.title": "登录",
   "web.auth.machineFallback": "机器",
   "web.auth.noMachines": "还没有机器。请在你的电脑上打开 operon app 并连接到 SaaS，然后刷新。",
   "web.auth.noMachines.otherProvider": "你当前使用 {current} 登录。用 {other} 登录会得到一个独立的账号——如果你的机器是用那个方式配对的，请退出后改用 {other}。",
@@ -897,7 +896,6 @@
   "settings.maintenance.col.started": "开始时间",
   "settings.maintenance.col.duration": "耗时",
   "settings.maintenance.col.sessions": "会话数",
-  "settings.maintenance.col.tokens": "Token 数",
   "settings.maintenance.col.written": "写入数",
   "settings.maintenance.runError": "错误：{error}",
   "settings.maintenance.runFailed": "运行失败",
@@ -2226,5 +2224,8 @@
   "settings.claudeToggles.promptSuggestions.title": "输入预测",
   "settings.claudeToggles.promptSuggestions.desc": "每次回复后预测你接下来可能想问的内容，按 Tab 填入。对话的第一轮、Plan 模式下或额度用尽时不会出现。",
   "settings.claudeToggles.autoMemory.title": "自动记忆",
-  "settings.claudeToggles.autoMemory.desc": "让 Claude Code 在不同对话之间记录并调用关于你项目的笔记。"
+  "settings.claudeToggles.autoMemory.desc": "让 Claude Code 在不同对话之间记录并调用关于你项目的笔记。",
+  "web.auth.login.heading": "登录 operon",
+  "web.auth.footer.guide": "设置指南",
+  "settings.memory.page.reason": "依据：{reason}"
 }

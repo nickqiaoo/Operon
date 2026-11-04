@@ -168,6 +168,7 @@ export async function memorySearch(
           id: r.id,
           occurred_at: r.occurred_at,
           entry: r.entry,
+          reason: r.reason,
           matched: true,
         }))
     } else {
@@ -177,6 +178,7 @@ export async function memorySearch(
         id: r.id,
         occurred_at: r.occurred_at,
         entry: r.entry,
+        reason: r.reason,
         matched: false,
       }))
     }

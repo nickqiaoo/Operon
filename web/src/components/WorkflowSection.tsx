@@ -32,24 +32,24 @@ const COPY = {
     eyebrow: '工作流',
     titleA: '在画布上',
     titleB: '搭 AI 流水线。',
-    lead: '一件事每次都该按同样的步骤跑，那就把它画出来。把 Agent 和 shell 命令、HTTP 调用、分支组合起来，一键运行或按计划定时跑。',
+    lead: '每次都按同样步骤做的事，就把它画成流程。Agent、shell 命令、HTTP 请求、条件分支随意组合，可以一键运行，也可以定时跑。',
     window: '夜间测试分诊',
     features: [
       {
         title: '十二种节点',
-        desc: 'AI、会话、Shell、代码、HTTP、模板、条件分支、循环分组、子工作流、审批等等——确定性的步骤不花一分 token。',
+        desc: 'AI、会话、Shell、代码、HTTP、模板、条件分支、循环分组、子工作流、审批等。不需要 AI 的步骤不消耗 token。',
       },
       {
         title: '每个节点任选 Agent',
-        desc: '每个 AI 节点单独选 Agent 和模型，可选 JSON Schema，下一个节点直接读字段。',
+        desc: '每个 AI 节点都能单独选 Agent 和模型。设了 JSON Schema，下一个节点就能直接读里面的字段。',
       },
       {
         title: '变量不用手敲',
-        desc: '每个字段都能从上游输出里点选，条件一行一行搭，失效的引用在保存前就会标出来。',
+        desc: '字段都能从上游输出里直接选，条件一行行加，引用失效了保存前就会提示。',
       },
       {
         title: '并行、定时、审批',
-        desc: '输入一就绪节点立刻开跑，运行可以定时，审批节点会停下来等你在桌面或手机上确认。',
+        desc: '节点的输入一齐就开始跑，整条流程可以定时运行。遇到审批节点会停下来，等你在桌面或手机上确认。',
       },
     ],
   },
@@ -59,7 +59,7 @@ export function WorkflowSection() {
   const t = useCopy(COPY)
 
   return (
-    <Section id="workflow" tone="sidebar">
+    <Section id="workflow">
       <Reveal>
         <div className="max-w-2xl">
           <Eyebrow>{t.eyebrow}</Eyebrow>

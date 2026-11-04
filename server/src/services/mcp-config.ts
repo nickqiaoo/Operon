@@ -322,6 +322,9 @@ const MCP_CLI_NAME_BY_PROVIDER: Record<string, string> = {
   grok: 'grok',
   qoder: 'qoder',
   copilot: 'copilot',
+  // agy_acp_server advertises mcpCapabilities {http, sse}; it was left out when
+  // Antigravity replaced Gemini CLI, so its sessions silently had no MCP tools.
+  antigravity: 'antigravity',
   custom: 'operon',
 }
 

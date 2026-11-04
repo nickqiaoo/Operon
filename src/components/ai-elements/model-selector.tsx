@@ -25,13 +25,36 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ComponentProps, ReactNode } from "react";
+import { createContext, useContext, useState, type ComponentProps, type ReactNode } from "react";
+
+/** Closes the enclosing selector; picking a model is the end of the interaction. */
+const ModelSelectorCloseContext = createContext<(() => void) | null>(null);
 
 export type ModelSelectorProps = ComponentProps<typeof Dialog>;
 
-export const ModelSelector = (props: ModelSelectorProps) => (
-  <Dialog {...props} />
-);
+/**
+ * Works controlled (`open` + `onOpenChange`) or uncontrolled; either way an item
+ * selection closes it. Uncontrolled callers used to get a dialog that stayed
+ * open after every pick.
+ */
+export const ModelSelector = ({
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
+  ...props
+}: ModelSelectorProps) => {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? false);
+  const open = openProp ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (openProp === undefined) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
+  return (
+    <ModelSelectorCloseContext.Provider value={() => setOpen(false)}>
+      <Dialog open={open} onOpenChange={setOpen} {...props} />
+    </ModelSelectorCloseContext.Provider>
+  );
+};
 
 export type ModelSelectorTriggerProps = ComponentProps<typeof DialogTrigger>;
 
@@ -92,9 +115,19 @@ export const ModelSelectorGroup = (props: ModelSelectorGroupProps) => (
 
 export type ModelSelectorItemProps = ComponentProps<typeof CommandItem>;
 
-export const ModelSelectorItem = (props: ModelSelectorItemProps) => (
-  <CommandItem {...props} />
-);
+export const ModelSelectorItem = ({ onSelect, ...props }: ModelSelectorItemProps) => {
+  // Null outside a ModelSelector (e.g. the list reused inside a Popover).
+  const close = useContext(ModelSelectorCloseContext);
+  return (
+    <CommandItem
+      onSelect={(value) => {
+        onSelect?.(value);
+        close?.();
+      }}
+      {...props}
+    />
+  );
+};
 
 export type ModelSelectorShortcutProps = ComponentProps<typeof CommandShortcut>;
 

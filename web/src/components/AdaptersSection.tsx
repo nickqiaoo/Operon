@@ -28,8 +28,8 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: '内置 · 任意模型',
         description:
-          'Operon 自研的 Agent，不是套在别人 CLI 外面的壳。填上 8+ 家模型供应商任意一家的 key，内置工具、Skills、MCP、记忆、浏览器和 Computer Use 开箱即用。',
-        features: ['8+ 家模型供应商', '内置工具体系', 'Skills、MCP 与插件', '浏览器与 Computer Use'],
+          'Operon 自己写的 Agent，不依赖任何第三方 CLI。支持 8 家以上的模型供应商，填上 key 就能用，工具、Skills、MCP、记忆、浏览器和 Computer Use 都是现成的。',
+        features: ['8+ 家模型供应商', '内置工具', 'Skills、MCP 与插件', '浏览器与 Computer Use'],
       },
     },
   },
@@ -47,7 +47,7 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: 'Anthropic',
         description:
-          '基于 Claude Agent SDK，用你自己的订阅。权限模式、思考强度、子 Agent、后台 Agent 和斜杠命令都有完整界面，5 小时和每周额度就显示在标题栏。',
+          '基于 Claude Agent SDK，用的是你自己的订阅。权限模式、思考强度、子 Agent、后台 Agent、斜杠命令都能在界面里操作，5 小时额度和周额度直接显示在标题栏。',
         features: ['权限模式（含 auto）', '子 Agent 与后台 Agent', '斜杠命令', '实时额度'],
       },
     },
@@ -66,8 +66,8 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: 'OpenAI',
         description:
-          '基于 Codex App Server，会话管理完整。Plan 模式、Fast 模式、旁支对话、Goal 和沙箱模式都支持，套餐额度鼠标一悬停就能看到。',
-        features: ['Plan 与 Fast 模式', '旁支对话', '沙箱模式', '额度徽标'],
+          '基于 Codex App Server，会话管理一样不少。支持 Plan 模式、Fast 模式、旁支对话、Goal 和沙箱模式，鼠标移上去就能看到套餐额度。',
+        features: ['Plan 与 Fast 模式', '旁支对话', '沙箱模式', '额度提示'],
       },
     },
   },
@@ -85,7 +85,7 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: 'Cursor',
         description:
-          '基于 cursor-agent。支持 Plan、Ask、Agent 三种模式，模型列表实时取自你的账号，重启后对话也能接着上次继续。',
+          '基于 cursor-agent，支持 Plan、Ask、Agent 三种模式。模型列表直接读你账号里的，重启之后对话还能接着聊。',
         features: ['Plan · Ask · Agent', '你账号下的模型', '会话恢复', '完整工具界面'],
       },
     },
@@ -104,7 +104,7 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: '开源',
         description:
-          '基于 OpenCode SDK，功能完全对齐。GLM、DeepSeek 以及 OpenCode 支持的所有供应商都能用，同时开多个 tab 也互不串线。',
+          '基于 OpenCode SDK，功能和原版一致。GLM、DeepSeek 等 OpenCode 支持的供应商都能用，多开几个 tab 也不会串。',
         features: ['OpenCode SDK', '任意 OpenCode 供应商', '多 tab 并行', '完整工具界面'],
       },
     },
@@ -123,7 +123,7 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: 'GitHub',
         description:
-          '基于 Copilot SDK。支持 Interactive、Plan、Autopilot 三种模式，推理强度可调，模型列表跟随你的套餐。',
+          '基于 Copilot SDK，支持 Interactive、Plan、Autopilot 三种模式。推理强度可调，能用哪些模型取决于你的套餐。',
         features: ['Interactive · Plan · Autopilot', '推理强度', '套餐专属模型', '完整工具界面'],
       },
     },
@@ -142,7 +142,7 @@ const ADAPTERS: Adapter[] = [
       zh: {
         vendor: 'Google',
         description:
-          '通过 ACP 接入 Google Antigravity。设置页帮你一键安装并显示登录状态，聊到一半不会突然跳出登录页。',
+          '通过 ACP 接入 Google Antigravity。在设置页一键安装，还能看到有没有登录，不会聊到一半突然让你去登录。',
         features: ['一键安装', '登录状态', '会话恢复', '支持 Skills'],
       },
     },
@@ -160,8 +160,8 @@ const ADAPTERS: Adapter[] = [
       },
       zh: {
         vendor: 'xAI',
-        description: '通过 ACP 接入 Grok。可以直接和它对话，也可以让别的 Agent 把一块活交给它、做完再汇报。',
-        features: ['ACP 接入', '会话恢复', '可接受委派', '完整工具界面'],
+        description: '通过 ACP 接入 Grok。可以直接跟它聊，也可以让别的 Agent 把活儿分给它，做完再回来汇报。',
+        features: ['ACP 接入', '会话恢复', '可接委派任务', '完整工具界面'],
       },
     },
   },
@@ -178,7 +178,7 @@ const ADAPTERS: Adapter[] = [
       },
       zh: {
         vendor: '月之暗面',
-        description: '月之暗面的编程 Agent。支持 Default、Plan、Full Access 三种模式，/compact 等斜杠命令，以及流式工具调用。',
+        description: '月之暗面出的编程 Agent。支持 Default、Plan、Full Access 三种模式，能用 /compact 这类斜杠命令，工具调用也是流式显示的。',
         features: ['Default · Plan · Full Access', '斜杠命令', '会话恢复', '流式工具调用'],
       },
     },
@@ -194,9 +194,9 @@ const COPY = {
   },
   zh: {
     eyebrow: 'Agent',
-    titleA: '有自研 Agent，',
-    titleB: '也接上你已经付费的每个 CLI。',
-    lead: '每个 Agent 都跑在官方 SDK 或协议上，用你自己的登录和订阅。Operon 给它们同一套对话、diff、审阅、终端和审批，还能让它们协同干活。',
+    titleA: '有自家的 Agent，',
+    titleB: '也能接你已经在付费的 CLI。',
+    lead: '每个 Agent 都走官方的 SDK 或协议，用的是你自己的账号和订阅。对话、diff、审阅、终端、审批，在 Operon 里都是同一套界面，它们之间还能互相配合。',
   },
 }
 

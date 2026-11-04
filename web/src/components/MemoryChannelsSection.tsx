@@ -30,23 +30,23 @@ const COPY = {
   zh: {
     memory: {
       eyebrow: '记忆',
-      title: '每次对话都建立在上一次之上。',
-      desc: 'Operon 会记住人、项目、发生过的事以及问题是怎么解决的——用你的语言、带上日期——并把相关的部分带进新的对话。',
+      title: '聊过的事，下次还记得。',
+      desc: 'Operon 会记下人、项目、发生过的事，还有问题当时是怎么解决的，用你习惯的语言，并标好日期。开新对话时，相关的内容会自动带上。',
       items: [
-        { kind: '用户', text: '偏好 pnpm 和小而聚焦的 PR', date: '10月2日' },
+        { kind: '用户', text: '习惯用 pnpm，PR 喜欢拆小', date: '10月2日' },
         { kind: '事件', text: '计费重构已上线（PR #212）', date: '10月14日' },
-        { kind: '案例', text: '用幂等键修复了重复的 webhook', date: '9月28日' },
+        { kind: '案例', text: '用幂等键解决了 webhook 重复投递', date: '9月28日' },
       ],
     },
     channels: {
       eyebrow: '频道',
-      title: '把 Agent 当队友。',
-      desc: '把几个 Agent 拉进同一个房间，像同事一样 @ 它们，让它们各抒己见。一个讨论串可以直接转成任务，在团队的 Slack 里也能这么用。',
+      title: '把 Agent 当同事。',
+      desc: '把几个 Agent 拉进一个频道，像找同事一样 @ 它们，让它们各自说说看法。讨论完可以直接转成任务，在团队的 Slack 里也能这么用。',
       you: '我',
       messages: [
         { from: '我', text: '@codex @kimi webhook 的重试该用什么策略？', you: true },
         { from: 'Codex', text: '指数退避，最多重试五次。' },
-        { from: 'Kimi', text: '同意——再给每次投递加个唯一键，免得重试导致重复扣款。' },
+        { from: 'Kimi', text: '同意。每次投递再加个唯一键，免得重试的时候重复扣款。' },
       ] as Message[],
     },
   },
@@ -67,7 +67,7 @@ export function MemoryChannelsSection() {
   const t = useCopy(COPY)
 
   return (
-    <Section id="memory" tone="sidebar">
+    <Section id="memory">
       <Reveal>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card

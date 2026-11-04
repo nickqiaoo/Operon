@@ -9,7 +9,7 @@ import { execMemoryUpsert } from './operations.js'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const migration = (file: string) =>
   readFileSync(path.join(here, '../../storage/migrations', file), 'utf-8')
-const SCHEMA = migration('0001_schema.sql')
+const SCHEMA = migration('0001_schema.sql') + migration('0023_memory_timeline_provenance.sql')
 
 function makeEngine(): MemoryEngine {
   const db = new Database(':memory:')
@@ -179,5 +179,63 @@ describe('execMemoryUpsert reconcile flow', () => {
     expect(result.status).toBe('needs_reconcile')
     expect(candidateAt(result, 0).truth).toBe('Acme is a robotics startup.')
     expect(engine.listPages({ type: 'entities' })).toHaveLength(1)
+  })
+})
+
+describe('execMemoryUpsert timeline provenance', () => {
+  it('records the content as the entry, with reason and source beside it', async () => {
+    const engine = makeEngine()
+    const since = Date.now()
+    await execMemoryUpsert(
+      engine,
+      {
+        type: 'entities',
+        slug_hint: 'acme',
+        content: 'Acme is a robotics startup.',
+        reason: 'User: "Acme makes warehouse robots"',
+      },
+      { source: 'chat:7' },
+    )
+    const first = parseObject(
+      await execMemoryUpsert(
+        engine,
+        {
+          type: 'entities',
+          slug_hint: 'acme',
+          content: 'Acme moved from Berlin to Munich.',
+          reason: 'User: "they relocated to Munich"',
+        },
+        { source: 'chat:7' },
+      ),
+    )
+    await execMemoryUpsert(
+      engine,
+      {
+        type: 'entities',
+        slug_hint: 'acme',
+        content: 'Acme moved from Berlin to Munich.',
+        reason: 'User: "they relocated to Munich"',
+        decision: {
+          action: 'merge',
+          target_slug: 'acme',
+          base_revision: candidateAt(first, 0).revision,
+          truth: 'Acme is a robotics startup based in Munich.',
+        },
+      },
+      { source: 'chat:7' },
+    )
+
+    const timeline = engine.getTimelineRecent('entities', 'acme', 10)
+    expect(timeline.map((t) => t.entry).sort()).toEqual([
+      'Acme is a robotics startup.',
+      'Acme moved from Berlin to Munich.',
+    ])
+    const merged = timeline.find((t) => t.entry.startsWith('Acme moved'))
+    expect(merged?.reason).toBe('User: "they relocated to Munich"')
+    expect(merged?.source).toBe('chat:7')
+
+    // The needs_reconcile round trip wrote nothing; the two writes are what counts.
+    expect(engine.countTimelineEntries({ source: 'chat:7', since })).toBe(2)
+    expect(engine.countTimelineEntries({ source: 'chat:8', since })).toBe(0)
   })
 })

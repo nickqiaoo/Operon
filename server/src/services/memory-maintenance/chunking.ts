@@ -7,6 +7,11 @@ export const CHUNK_OVERLAP_TOKENS = 5_000
 export interface TranscriptChunk {
   messages: ModelMessage[]
   lastSourceIndex: number
+  /**
+   * How many leading messages repeat the tail of the previous chunk. They are
+   * there for context only — the previous run already extracted from them.
+   */
+  overlap: number
 }
 
 /**
@@ -28,11 +33,12 @@ export function chunkTranscript(
 
   const total = estimateTokens(messages)
   if (total <= CHUNK_TARGET_TOKENS) {
-    return [{ messages, lastSourceIndex: sourceIndices[sourceIndices.length - 1] }]
+    return [{ messages, lastSourceIndex: sourceIndices[sourceIndices.length - 1], overlap: 0 }]
   }
 
   const chunks: TranscriptChunk[] = []
   let start = 0
+  let overlap = 0
   while (start < messages.length) {
     let end = start
     let tokens = 0
@@ -45,6 +51,7 @@ export function chunkTranscript(
     chunks.push({
       messages: slice,
       lastSourceIndex: sourceIndices[end - 1],
+      overlap,
     })
 
     if (end >= messages.length) break
@@ -57,6 +64,7 @@ export function chunkTranscript(
       overlapTokens += estimateTokens([messages[overlapStart]])
     }
     start = overlapStart === start ? end : overlapStart
+    overlap = end - start
   }
 
   return chunks

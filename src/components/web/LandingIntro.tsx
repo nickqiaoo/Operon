@@ -98,3 +98,54 @@ function ArchitectureDiagram() {
     </div>
   )
 }
+
+/**
+ * Compact Browser → Broker → Your machine strip for the sign-in page: the same
+ * story as `ArchitectureDiagram`, sized to sit under a 380px auth card.
+ */
+export function ConnectionStrip() {
+  const intl = useIntl()
+  const nodes = [
+    {
+      key: 'browser',
+      icon: Globe,
+      label: intl.formatMessage({ id: 'web.auth.diagram.browser.title', defaultMessage: 'Web browser' }),
+    },
+    {
+      key: 'broker',
+      icon: Cloud,
+      label: intl.formatMessage({ id: 'web.auth.diagram.broker.title', defaultMessage: 'Broker' }),
+    },
+    {
+      key: 'machine',
+      icon: Monitor,
+      label: intl.formatMessage({ id: 'web.auth.diagram.machine.title', defaultMessage: 'Your machine' }),
+    },
+  ]
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start">
+        {nodes.map((n, i) => (
+          <div key={n.key} className="contents">
+            <div className="flex w-20 shrink-0 flex-col items-center gap-1.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-background text-muted-foreground dark:border-border/35">
+                <n.icon className="h-3.5 w-3.5" />
+              </div>
+              <span className="text-[11px] text-muted-foreground">{n.label}</span>
+            </div>
+            {i < nodes.length - 1 && (
+              <div aria-hidden="true" className="mt-4 h-px flex-1 border-t border-dashed border-border/60 dark:border-border/35" />
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-center text-[11px] leading-relaxed text-muted-foreground/80">
+        {intl.formatMessage({
+          id: 'web.auth.diagram.note',
+          defaultMessage:
+            'The broker only relays — it never sees your code or runs your agents. Your machine dials out, so nothing inbound needs to be exposed.',
+        })}
+      </p>
+    </div>
+  )
+}

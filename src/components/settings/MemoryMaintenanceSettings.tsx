@@ -407,9 +407,6 @@ export function MemoryMaintenanceSettings() {
                     <FormattedMessage id="settings.maintenance.col.written" defaultMessage="Written" />
                   </th>
                   <th className="px-3 py-2 font-medium text-right">
-                    <FormattedMessage id="settings.maintenance.col.tokens" defaultMessage="Tokens" />
-                  </th>
-                  <th className="px-3 py-2 font-medium text-right">
                     <FormattedMessage id="settings.maintenance.col.duration" defaultMessage="Duration" />
                   </th>
                 </tr>
@@ -437,16 +434,13 @@ export function MemoryMaintenanceSettings() {
                         <td className="px-3 py-2 text-right">{r.sessionsProcessed}</td>
                         <td className="px-3 py-2 text-right">{r.memoriesWritten}</td>
                         <td className="px-3 py-2 text-right text-muted-foreground">
-                          {r.tokensInput + r.tokensOutput}
-                        </td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">
                           {r.finishedAt ? formatDuration(r.finishedAt - r.startedAt) : "—"}
                         </td>
                       </tr>
                       {expanded && (
                         <tr className="border-t border-border/40 bg-muted/10">
                           <td />
-                          <td colSpan={7} className="px-3 py-3">
+                          <td colSpan={6} className="px-3 py-3">
                             <div className="flex items-center justify-between mb-2">
                               <div className="text-[11px] text-muted-foreground">
                                 <FormattedMessage id="settings.maintenance.runLog" defaultMessage="Run #{id} log" values={{ id: r.id }} />

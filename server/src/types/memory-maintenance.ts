@@ -22,9 +22,6 @@ export interface MemoryMaintenanceRun {
   sessionsProcessed: number
   chunksProcessed: number
   memoriesWritten: number
-  memoriesMerged: number
-  tokensInput: number
-  tokensOutput: number
   status: MemoryMaintenanceStatus
   trigger: MemoryMaintenanceTrigger
   error?: string
@@ -43,9 +40,6 @@ export interface UpdateMemoryMaintenanceRunInput {
   sessionsProcessed?: number
   chunksProcessed?: number
   memoriesWritten?: number
-  memoriesMerged?: number
-  tokensInput?: number
-  tokensOutput?: number
   status?: MemoryMaintenanceStatus
   error?: string
 }
@@ -67,4 +61,7 @@ export interface ChatExtractionCandidate {
   updatedAt: number
   totalMessages: number
   lastExtractedMessageIndex: number | null
+  /** Project the chat ran in (a code repository), when it has one. */
+  projectName?: string
+  workspacePath?: string
 }

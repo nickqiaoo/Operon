@@ -32,26 +32,26 @@ const COPY = {
   },
   zh: {
     eyebrow: '任务',
-    titleA: '把决定',
-    titleB: '变成可追踪的工作。',
-    lead: '一块跨项目的持久看板，人和 Agent 共用。工作来自对话、助理或 Linear，各自拉一条分支，最后以 PR 交付。',
+    titleA: '定下来的事，',
+    titleB: '放到看板上跟进。',
+    lead: '一块跨项目的看板，人和 Agent 一起用。任务可以从对话、助理或 Linear 里来，每个任务单独拉一条分支，最后以 PR 交付。',
     alt: '跨两个项目的 Operon 任务看板，任务分别指派给 Claude Code、Codex 和 Cursor',
     features: [
       {
-        title: '一块看板，所有项目',
-        desc: '你和 Agent 都能创建、指派、挪动任务。可以一次看全部项目，也能只筛一个；Agent 以头像出现，工具栏一键进入管理。',
+        title: '所有项目一块看板',
+        desc: '你和 Agent 都能建任务、派任务、挪任务。可以看全部项目，也可以只看一个。Agent 显示成头像，从工具栏就能进去管理。',
       },
       {
-        title: '与 Linear 双向同步',
-        desc: '把 Linear issue 委派给 Operon，它就变成一个由默认 Agent 执行的任务。状态、优先级和评论保持同步。',
+        title: '和 Linear 双向同步',
+        desc: '在 Linear 里把 issue 指派给 Operon，它就会变成一个任务，交给默认 Agent 去做。状态、优先级、评论两边同步。',
       },
       {
-        title: '一任务一分支',
-        desc: '派发出去的工作在独立工作区里跑，你审阅的正好是这个任务改过的文件。',
+        title: '每个任务一条分支',
+        desc: '派出去的任务在单独的工作区里跑，审阅时看到的只有这个任务改的文件。',
       },
       {
         title: 'Agent 自己开 PR',
-        desc: 'Agent 会自己开 pull request，任务负责人留一条评论就能把它打回去继续改。',
+        desc: '做完 Agent 会自己开 PR。不满意的话，任务负责人留条评论就能打回去重改。',
       },
     ],
   },
