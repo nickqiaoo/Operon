@@ -4,7 +4,7 @@ import type { AgentEvent, HarnessSession } from 'operon-agents'
 import { PEER_SOURCE } from 'operon-agents-peers'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { replySnippet, runDetachedTurn } from '../ai/detached-turn.js'
-import { persistInjectedUserMessageWithRetry } from '../ai/persistence.js'
+import { persistInjectedUserMessage } from '../ai/persistence.js'
 import { getChatStorage, getNotificationStorage } from '../ai/state.js'
 import { notify } from '../notification-service.js'
 import { OperonStreamMapper } from './message-mapper.js'
@@ -135,7 +135,7 @@ export function observeSession(session: HarnessSession, options: ObserveOptions 
       if (text) {
         const chat = resolveChat(session.id)
         const from = peerSender(event as { origin?: unknown })
-        if (chat) persistInjectedUserMessageWithRetry(chat.chatId, userUiMessage(text, from))
+        if (chat) persistInjectedUserMessage(chat.chatId, userUiMessage(text, from))
       }
       return
     }

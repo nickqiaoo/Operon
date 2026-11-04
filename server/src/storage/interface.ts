@@ -1,5 +1,5 @@
 import type { Activity, ActivitySummary, AssistantMessage, AssistantScheduleRun, AuditRecord } from '../../../shared/assistant.js'
-import type { ChatHistoryEntry, ChatHistoryListItem, ChatHistoryPatchInput, ChatHistoryPatchResult, ChatMeta } from '../types/chat.js'
+import type { ChatConfigPatch, ChatHistoryEntry, ChatHistoryListItem, ChatMeta, CreateChatInput, PutChatMessageInput, PutChatMessageResult } from '../types/chat.js'
 import type { CronjobExecutionHistoryItem, CronjobTask } from '../types/cronjob.js'
 import type {
   AssistantTranscriptEntry,
@@ -105,14 +105,19 @@ export interface ChatStorageAdapter {
   getChatMessages(chatId: number, opts?: { before?: number; limit?: number }): { messages: unknown[]; total: number; hasMore: boolean; nextCursor?: number } | undefined
   /** Lightweight metadata query — no messages loaded */
   getChatMeta(chatId: number): ChatMeta | undefined
-  patchChatEntry(chatId: number | null, input: ChatHistoryPatchInput): ChatHistoryPatchResult
+  /** Create a chat row, with its first messages if any. Returns the new chat id. */
+  createChat(input: CreateChatInput): number
+  /** Add or replace one message by id (see `PutChatMessageInput`). Undefined when the chat does not exist. */
+  putChatMessage(chatId: number, input: PutChatMessageInput): PutChatMessageResult | undefined
+  /** Set chat-row fields without touching messages or `updated_at`. */
+  updateChatConfig(chatId: number, patch: ChatConfigPatch): void
   deleteChatEntry(chatId: number): void
   listChatEntries(query?: ListChatEntriesQuery): ChatHistoryListItem[]
-  /** Update only the session_id column without changing revision or messages */
+  /** Update only the session_id column */
   updateChatSessionId(chatId: number, sessionId: string): void
   /** The chat whose provider session is `sessionId`, if any (chats.session_id is unique per session). */
   findChatBySessionId(sessionId: string): (ChatMeta & { id: number }) | undefined
-  /** Update only the metadata JSON column without changing revision or messages */
+  /** Update only the metadata JSON column */
   updateChatMetadata(chatId: number, metadata: import('../types/chat.js').ChatMetadata): void
   // --- Workflow: one append-only event log + a rebuildable index (0038) ---
   /**

@@ -31,8 +31,6 @@ export interface ChatMetadata {
    *  model inherits the parent's history while this chat opens empty. The two
    *  diverge from that point on and are never merged back. */
   parentChatId?: number
-  /** How far the parent had got when this branched, for the "forked at #N" label. */
-  forkedAtMessageIndex?: number
   /** Runtime option selections (thinkingLevel, mode, etc.) bound to this chat
    * at first start so reloading from history restores the same selections.
    * Mid-conversation changes are not allowed — provider/model/runtimeOptions
@@ -66,7 +64,6 @@ export interface ChatHistoryEntry {
   thinkingLevel?: string
   updatedAt: number
   metadata?: ChatMetadata
-  revision?: number
 }
 
 export interface ChatHistoryStore {
@@ -87,7 +84,6 @@ export interface ChatHistoryListItem {
 
 /** Lightweight chat metadata (no messages loaded) */
 export interface ChatMeta {
-  revision: number
   tp: ChatType
   title?: string
   workspaceId?: number
@@ -99,29 +95,54 @@ export interface ChatMeta {
   metadata?: ChatMetadata
 }
 
-export interface ChatHistoryPatchInput {
-  baseRevision: number
-  replaceFrom: number
-  tailMessages: unknown[]
+/** A transcript message as stored: a `UIMessage`, or anything shaped like one. */
+export interface StoredChatMessage {
+  id: string
+  parts: readonly unknown[]
+}
+
+/** Chat-row fields a write may set. Fields left undefined keep their current value. */
+export interface ChatConfigPatch {
   tp?: ChatType
-  title?: string
   workspaceId?: number
   model?: string
   providerId?: string
   sessionId?: string
   thinkingLevel?: string
-  updatedAt: number
-  metadata?: ChatMetadata
 }
 
-export type ChatHistoryPatchResult =
-  | {
-    success: true
-    chatId: number
-    revision: number
-  }
-  | {
-    success: false
-    conflict: true
-    revision: number
-  }
+export interface CreateChatInput extends ChatConfigPatch {
+  tp: ChatType
+  title: string
+  metadata?: ChatMetadata
+  /** Stored in this order. */
+  messages?: readonly StoredChatMessage[]
+  updatedAt: number
+}
+
+/**
+ * Write one message by its id: replace it when the chat already has a message
+ * with that id, otherwise add it at the end.
+ */
+export interface PutChatMessageInput {
+  message: StoredChatMessage
+  /**
+   * The parts that changed since this message was last written; the others are
+   * stored as they are. Omitted: every part. Stored parts past the end of
+   * `message.parts` are removed either way.
+   */
+  partIndices?: Iterable<number>
+  /**
+   * A new message goes ahead of this one when it is the chat's last message —
+   * a steer filed ahead of the reply being written. Otherwise at the end.
+   */
+  before?: string
+  /** Keep the stored message when the chat already has one with this id. */
+  ifAbsent?: boolean
+  chat?: ChatConfigPatch
+  /** The chat's new `updated_at`; omitted, it is left as it is. */
+  updatedAt?: number
+}
+
+/** `bytes`: what this write stored, so a caller writing often can pace itself. */
+export type PutChatMessageResult = { written: boolean; bytes: number }

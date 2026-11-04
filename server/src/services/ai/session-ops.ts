@@ -4,7 +4,7 @@ import type { UIMessage } from 'ai'
 import { getRuntime, getSessionManager, getChatStorage, getProjectStorage } from './state.js'
 import { runSessionControl, supportsSessionControl } from './session-control.js'
 import { createSteerUserMessage } from './helpers.js'
-import { persistInjectedUserMessageWithRetry } from './persistence.js'
+import { persistInjectedUserMessage } from './persistence.js'
 import { getLiveTurn } from './live-turn-hub.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
 import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
@@ -119,7 +119,7 @@ export async function injectIntoChat(
     const steerMessage = options?.message
       ? { ...options.message, metadata: { ...options.message.metadata ?? {}, ...generated.metadata ?? {} } }
       : generated
-    const persistResult = persistInjectedUserMessageWithRetry(chatId, steerMessage)
+    const persistResult = persistInjectedUserMessage(chatId, steerMessage)
     if (!persistResult.success) {
       return { success: false, delivery: 'accepted', error: persistResult.error ?? 'Failed to persist steer message' }
     }

@@ -130,10 +130,7 @@ async function onTeammateCreated(sessionId: string, member: PeerMemberOptions): 
   }
 
   if (storage) {
-    const result = storage.patchChatEntry(null, {
-      baseRevision: 0,
-      replaceFrom: 0,
-      tailMessages: [],
+    storage.createChat({
       tp: 'teammate',
       title: teammateTitle(cfg, type, member.name),
       workspaceId: leadChat?.workspaceId,
@@ -151,7 +148,6 @@ async function onTeammateCreated(sessionId: string, member: PeerMemberOptions): 
         },
       },
     })
-    if (!result.success) console.warn(`[operon.peers] could not create chat row for teammate ${member.name}`)
   }
   observeSession(session)
 }

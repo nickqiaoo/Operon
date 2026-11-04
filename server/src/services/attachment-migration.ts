@@ -1,7 +1,7 @@
 import { putAttachment, putDataUrl, parseAttachmentUrl } from './attachment-store.js'
 
 /**
- * Moves inline attachment bytes out of `chat_messages` and into the
+ * Moves inline attachment bytes out of `chat_message_parts` and into the
  * content-addressed store.
  *
  * Transcripts written before the store existed carry the whole image inside the
@@ -78,60 +78,50 @@ function relocatePart(part: FilePart): FilePart | null {
 }
 
 export interface MigrationResult {
-  scannedRows: number
-  rewrittenRows: number
+  scannedParts: number
   relocatedParts: number
   freedBytes: number
 }
 
 /**
- * Rewrites every message row still holding inline attachment bytes.
+ * Rewrites every stored file part still holding inline attachment bytes.
  *
- * Each row is handled independently: one unparseable payload or undecodable
- * image is skipped, never fatal. A row that fails simply keeps its data URL,
+ * Each part is handled independently: one unparseable payload or undecodable
+ * image is skipped, never fatal. A part that fails simply keeps its data URL,
  * which still renders — the store is an optimization, not a correctness
  * requirement.
  */
 export function migrateInlineAttachments(db: MigrationDb): MigrationResult {
   const result: MigrationResult = {
-    scannedRows: 0,
-    rewrittenRows: 0,
+    scannedParts: 0,
     relocatedParts: 0,
     freedBytes: 0,
   }
 
   const rows = db
-    .prepare(`SELECT id, payload FROM chat_messages WHERE payload LIKE '%"type":"file"%'`)
+    .prepare(`SELECT id, payload FROM chat_message_parts WHERE payload LIKE '%"type":"file"%'`)
     .all() as Array<{ id: number; payload: string }>
 
-  const update = db.prepare('UPDATE chat_messages SET payload = ? WHERE id = ?')
+  const update = db.prepare('UPDATE chat_message_parts SET payload = ? WHERE id = ?')
 
   const run = db.transaction(() => {
     for (const row of rows) {
-      result.scannedRows += 1
+      result.scannedParts += 1
 
-      let message: { parts?: unknown }
+      let part: FilePart
       try {
-        message = JSON.parse(row.payload) as { parts?: unknown }
+        part = JSON.parse(row.payload) as FilePart
       } catch {
         continue
       }
-      if (!Array.isArray(message.parts)) continue
+      if (typeof part !== 'object' || part === null) continue
 
-      let changed = false
-      const parts = message.parts.map((part) => {
-        const relocated = relocatePart(part as FilePart)
-        if (!relocated) return part
-        changed = true
-        result.relocatedParts += 1
-        return relocated
-      })
+      const relocated = relocatePart(part)
+      if (!relocated) continue
 
-      if (!changed) continue
-
-      const nextPayload = JSON.stringify({ ...message, parts })
+      const nextPayload = JSON.stringify(relocated)
       update.run(nextPayload, row.id)
-      result.rewrittenRows += 1
+      result.relocatedParts += 1
       result.freedBytes += row.payload.length - nextPayload.length
     }
   })
@@ -156,8 +146,8 @@ export function migrateInlineAttachmentsOnce(
 
   if (result.relocatedParts > 0) {
     console.log(
-      `[attachments] moved ${result.relocatedParts} inline attachment(s) out of ${result.rewrittenRows} message(s), ` +
-        `freeing ${(result.freedBytes / 1024 / 1024).toFixed(1)} MB of transcript`,
+      `[attachments] moved ${result.relocatedParts} inline attachment(s) out of the transcript, ` +
+        `freeing ${(result.freedBytes / 1024 / 1024).toFixed(1)} MB`,
     )
   }
   return result

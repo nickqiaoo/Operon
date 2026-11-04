@@ -31,7 +31,7 @@ function storage(): OperonStateStorage {
     listChatEntries: (q) => chats[q?.workspaceId ?? -1] ?? [],
     getChatMeta: (id) => {
       const c = Object.entries(chats).flatMap(([ws, list]) => list.map((item) => ({ ...item, ws: Number(ws) }))).find((x) => x.id === id)
-      return c ? ({ revision: 1, tp: c.tp, title: c.title, workspaceId: c.ws, updatedAt: c.updatedAt } satisfies ChatMeta) : undefined
+      return c ? ({ tp: c.tp, title: c.title, workspaceId: c.ws, updatedAt: c.updatedAt } satisfies ChatMeta) : undefined
     },
     getChatMessages: (id) =>
       id === 1

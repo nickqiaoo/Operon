@@ -5,26 +5,44 @@
 // broker tunnel, a second desktop window, the phone — can attach to the same
 // running turn instead of staring at a stale history snapshot.
 //
-// Byte-level on purpose. The AI SDK reconciles UIMessageChunks by message/part
-// id, so replaying the raw stream from the start rebuilds the assistant message
-// exactly; no seq/snapshot bookkeeping is needed. That is the same trick the
-// broker already plays for web resume (broker/chat_buffer.go). The difference
-// is that this one sits on the node, so it also captures turns the desktop
-// started — those never touch the broker at all, which is precisely why the web
-// client could not see them.
+// Event-level on purpose. The AI SDK reconciles UIMessageChunks by message/part
+// id, so replaying the stream from its first event rebuilds the assistant
+// message exactly; no seq/snapshot bookkeeping is needed. That is the same trick
+// the broker already plays for web resume (broker/chat_buffer.go). The
+// difference is that this one sits on the node, so it also captures turns the
+// desktop started — those never touch the broker at all, which is precisely why
+// the web client could not see them.
+//
+// A replay must start at the first event: drop the head and the SDK loses the
+// `start` (so it cannot tell which message it is rebuilding) and the `*-start`
+// of parts it then sees deltas for, and it rejects the stream. So a turn that
+// outgrows its budget is compacted (`live-turn-compaction.ts` folds the delta
+// envelopes that make up most of its bytes) rather than truncated. What is left
+// is about the size of the reply itself, which this process already holds while
+// it assembles the reply.
 //
 // In-memory on purpose too: the turn itself lives in this process, so a restart
 // that loses the buffer has lost the turn with it. Persisted chat history stays
-// the durable record; this is only the live window.
+// the durable record (a running turn checkpoints its reply there as it goes);
+// this is only the live window.
 
 import { randomUUID } from 'crypto'
+import { compactSseEvents, parseSseEvent } from './live-turn-compaction.js'
 
 /** Finished turns stay replayable this long (client was offline when it ended). */
 const TURN_TTL_MS = 10 * 60_000
 /** Bounds an abandoned in-flight turn (never terminated, nobody attached). */
 const TURN_IDLE_TTL_MS = 30 * 60_000
-/** Caps one turn's buffered bytes; past this the head is evicted. */
-const TURN_MAX_BYTES = 32 * 1024 * 1024
+/** Buffered bytes past which a turn is compacted; after that, twice what compaction left. */
+const TURN_COMPACT_BYTES = 32 * 1024 * 1024
+/**
+ * Compaction leaves alone what an attacher has not read yet. One that stalls
+ * that long (its client stopped reading) is let go so the buffer can shrink; its
+ * client sees the stream end and attaches again.
+ */
+const TURN_STALLED_READER_FACTOR = 2
+
+const EVENT_SEPARATOR = '\n\n'
 
 export interface LiveTurnStatus {
   chatId: number
@@ -35,22 +53,38 @@ export interface LiveTurnStatus {
 
 type PresenceListener = (status: LiveTurnStatus) => void
 
+interface ReaderCursor {
+  /** Index of the next event to yield. */
+  pos: number
+  released: boolean
+}
+
 export class LiveTurn {
   readonly turnId = randomUUID()
   readonly chatId: number
   readonly startedAt = Date.now()
   readonly headers: Record<string, string>
 
-  private chunks: Uint8Array[] = []
+  /** Complete SSE events, in stream order. */
+  private events: Uint8Array[] = []
   private bytes = 0
-  /** Chunks evicted from the head, so readers can index absolutely. */
-  private dropped = 0
+  /** Text of an event still arriving. */
+  private pending = ''
+  private readonly decoder = new TextDecoder()
+  private readonly encoder = new TextEncoder()
+  private readonly compactBytes: number
+  private compactAt: number
+  private readers = new Set<ReaderCursor>()
+  private assistantMessageId: string | undefined
   private done = false
   private updated = Date.now()
   private waiters: Array<() => void> = []
 
-  constructor(chatId: number, headers: Record<string, string>) {
+  /** `compactBytes` overrides the compaction budget (tests). */
+  constructor(chatId: number, headers: Record<string, string>, options?: { compactBytes?: number }) {
     this.chatId = chatId
+    this.compactBytes = options?.compactBytes ?? TURN_COMPACT_BYTES
+    this.compactAt = this.compactBytes
     // Every copy of this turn's stream — the requester's response and every
     // replay — identifies which turn it is. That is what lets a surface tell
     // "the turn I started" from "a turn someone else started", which a status
@@ -67,31 +101,40 @@ export class LiveTurn {
     return this.updated
   }
 
+  /** Id of the assistant message this turn streams (from its `start` chunk), once seen. */
+  get messageId(): string | undefined {
+    return this.assistantMessageId
+  }
+
   append(data: Uint8Array): void {
     if (this.done || data.length === 0) return
-    this.chunks.push(data)
-    this.bytes += data.length
-    // Evict from the head rather than refusing new data: a reader that joins
-    // late still wants the tail. Pathologically large turns lose their opening,
-    // and the client falls back to persisted history for the rest.
-    while (this.bytes > TURN_MAX_BYTES && this.chunks.length > 1) {
-      const head = this.chunks.shift()
-      if (!head) break
-      this.bytes -= head.length
-      this.dropped += 1
+    this.pending += this.decoder.decode(data, { stream: true })
+    let added = false
+    for (;;) {
+      const end = this.pending.indexOf(EVENT_SEPARATOR)
+      if (end === -1) break
+      this.pushEvent(this.pending.slice(0, end + EVENT_SEPARATOR.length))
+      this.pending = this.pending.slice(end + EVENT_SEPARATOR.length)
+      added = true
     }
     this.updated = Date.now()
+    if (!added) return
+    if (this.bytes > this.compactAt) this.compact()
     this.wake()
   }
 
   /** Everything buffered so far, decoded — for a reader that wants the turn as it stands, not a tail. */
   snapshot(): string {
     const decoder = new TextDecoder()
-    return this.chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode()
+    return this.events.map((event) => decoder.decode(event, { stream: true })).join('') + decoder.decode()
   }
 
   finish(): void {
     if (this.done) return
+    // A stream that ends mid-event still delivers what it had.
+    this.pending += this.decoder.decode()
+    if (this.pending) this.pushEvent(this.pending)
+    this.pending = ''
     this.done = true
     this.updated = Date.now()
     this.wake()
@@ -99,22 +142,25 @@ export class LiveTurn {
 
   /**
    * Replay everything buffered so far, then tail until the turn ends or the
-   * caller disconnects. Yields raw SSE bytes.
+   * caller disconnects. Yields raw SSE bytes, one event per chunk.
    */
   async *read(signal?: AbortSignal): AsyncIterable<Uint8Array> {
-    let idx = this.dropped
-    for (;;) {
-      if (signal?.aborted) return
-      // A concurrent eviction can move the head past our cursor; skip forward
-      // rather than replaying an out-of-range slot.
-      if (idx < this.dropped) idx = this.dropped
-      while (idx - this.dropped < this.chunks.length) {
-        const chunk = this.chunks[idx - this.dropped]
-        idx += 1
-        if (chunk) yield chunk
+    const cursor: ReaderCursor = { pos: 0, released: false }
+    this.readers.add(cursor)
+    try {
+      for (;;) {
+        if (signal?.aborted || cursor.released) return
+        while (cursor.pos < this.events.length) {
+          const event = this.events[cursor.pos]
+          cursor.pos += 1
+          if (event) yield event
+          if (signal?.aborted || cursor.released) return
+        }
+        if (this.done) return
+        await this.waitForChange(signal)
       }
-      if (this.done) return
-      await this.waitForChange(signal)
+    } finally {
+      this.readers.delete(cursor)
     }
   }
 
@@ -136,6 +182,50 @@ export class LiveTurn {
       cancel() {
         void iterator.return?.(undefined)
       },
+    })
+  }
+
+  private pushEvent(text: string): void {
+    const event = this.encoder.encode(text)
+    this.events.push(event)
+    this.bytes += event.length
+    if (this.assistantMessageId === undefined && text.includes('"type":"start"')) {
+      const chunk = parseSseEvent(event)
+      if (chunk?.type === 'start' && typeof chunk.messageId === 'string') this.assistantMessageId = chunk.messageId
+    }
+  }
+
+  /**
+   * Fold the events every attacher has already read (all of them when none is
+   * attached). Readers keep their place: their cursor moves by however many
+   * events the folded prefix lost.
+   */
+  private compact(): void {
+    if (this.bytes > this.compactAt * TURN_STALLED_READER_FACTOR) {
+      // Waited a whole extra budget on an attacher that is not reading.
+      for (const reader of this.readers) {
+        if (reader.pos < this.events.length) reader.released = true
+      }
+    }
+    let upTo = this.events.length
+    for (const reader of this.readers) {
+      if (!reader.released) upTo = Math.min(upTo, reader.pos)
+    }
+    if (upTo === 0) return
+
+    const before = this.events.length
+    const folded = compactSseEvents(this.events.slice(0, upTo))
+    this.events = folded.concat(this.events.slice(upTo))
+    const shift = upTo - folded.length
+    for (const reader of this.readers) {
+      reader.pos = reader.released ? this.events.length : reader.pos - shift
+    }
+    this.bytes = this.events.reduce((sum, event) => sum + event.length, 0)
+    this.compactAt = Math.max(this.compactBytes, this.bytes * 2)
+    console.info('[ai.liveTurn.compact]', {
+      chatId: this.chatId,
+      events: `${before}→${this.events.length}`,
+      bytes: this.bytes,
     })
   }
 

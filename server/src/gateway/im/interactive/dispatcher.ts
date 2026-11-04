@@ -326,40 +326,33 @@ export class InteractiveDispatcher {
     if (!chatEntry) return
     const messages = chatEntry.messages as UIMessage[]
 
-    let assistantIndex = -1
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role !== 'assistant') continue
-      assistantIndex = i
-      for (const part of messages[i].parts) {
-        const toolPart = part as {
-          type: string
-          approval?: { id: string; approved?: boolean; reason?: string }
-          state?: string
-        }
-        if (
-          (toolPart.type === 'dynamic-tool' || toolPart.type?.startsWith('tool-')) &&
-          toolPart.approval?.id === approvalId
-        ) {
-          toolPart.state = 'approval-responded'
-          toolPart.approval = { id: approvalId, approved, reason }
-        }
-      }
-      break
+    let assistant: UIMessage | undefined
+    for (let i = messages.length - 1; i >= 0 && !assistant; i--) {
+      if (messages[i].role === 'assistant') assistant = messages[i]
     }
-    if (assistantIndex < 0) return
-
-    const meta = this.storage.getChatMeta(mapping.chatId)
-    if (!meta) return
-    const patchResult = this.storage.patchChatEntry(mapping.chatId, {
-      baseRevision: meta.revision,
-      replaceFrom: assistantIndex,
-      tailMessages: [messages[assistantIndex]],
-      // Rewrites an existing assistant message in place rather than adding one.
-      // The runStream below produces the real next turn and stamps the time
-      // when it persists.
-      updatedAt: meta.updatedAt,
+    if (!assistant) return
+    const changed: number[] = []
+    assistant.parts.forEach((part, i) => {
+      const toolPart = part as {
+        type: string
+        approval?: { id: string; approved?: boolean; reason?: string }
+        state?: string
+      }
+      if (
+        (toolPart.type === 'dynamic-tool' || toolPart.type?.startsWith('tool-')) &&
+        toolPart.approval?.id === approvalId
+      ) {
+        toolPart.state = 'approval-responded'
+        toolPart.approval = { id: approvalId, approved, reason }
+        changed.push(i)
+      }
     })
-    if (!patchResult.success) {
+
+    // Rewrites the stored assistant message's approval part(s) in place. No
+    // `updatedAt`: nothing was added; the runStream below produces the real
+    // next turn and stamps the time when it persists.
+    const written = this.storage.putChatMessage(mapping.chatId, { message: assistant, partIndices: changed })
+    if (!written) {
       console.error('[Interactive] failed to patch approval response:', {
         chatId: mapping.chatId, approvalId,
       })

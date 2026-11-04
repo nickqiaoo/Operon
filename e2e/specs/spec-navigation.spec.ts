@@ -25,9 +25,9 @@ async function installSpec(page: Page, completed = false, withCoordinator = fals
   const reviewerWorkspace = completed ? null : await makeWorkspace('review-24')
   const makeChat = async (title: string, subAgent: boolean, workspace: Workspace | null): Promise<SpecChatRef> => {
     const result = await page.request.post(`${apiUrl}/chat-history`, { data: {
-      baseRevision: 0, replaceFrom: 0, providerId: 'fake', model: 'fake-1', workspaceId: workspace?.id ?? main.id,
+      providerId: 'fake', model: 'fake-1', workspaceId: workspace?.id ?? main.id,
       tp: subAgent ? 'subagent' : 'chat',
-      tailMessages: [
+      messages: [
         { id: `user-${title}`, role: 'user', parts: [{ type: 'text', text: title }] },
         { id: `assistant-${title}`, role: 'assistant', parts: [
           ...(!subAgent ? [{ type: 'dynamic-tool', toolName: 'start_spec', toolCallId: 'start-spec', state: 'output-available', input: { title: 'Post navigation' }, output: { content: [{ type: 'text', text: 'Created task #22: Post navigation' }], structuredContent: { kind: 'created-task', taskId: 100, taskNumber: 22, title: 'Post navigation', spec: true } } }] : []),

@@ -20,6 +20,7 @@ import {
   type LanguageModelUsage,
   type UIMessage,
   type UIMessageChunk,
+  type UIMessageStreamWriterWithOutcome,
 } from 'ai'
 import type { AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { PreparedTextStreamPart } from './prepared-stream-parts.js'
@@ -167,6 +168,16 @@ export interface AgentTurnInput {
   traffic?: AgentTurnTrafficContext
   /** When true, run this turn as a goal pursuit (set active goal, stream autonomous turns). */
   asGoal?: boolean
+  /**
+   * Called with the reply as it stands each time a piece of it settles — a
+   * block of text or reasoning closes, a tool call is made, a tool returns, an
+   * approval is asked for — so the caller can save it before the turn ends.
+   * Paced: at most one call per `CHECKPOINT_MIN_INTERVAL_MS`, the last boundary
+   * in a burst always getting one. Return a number to ask for a longer gap
+   * before the next call (e.g. the reply has grown large). Never called with
+   * the final message; that is `done`.
+   */
+  onCheckpoint?: (message: UIMessage) => number | void
 }
 
 export interface AgentTurnResult {
@@ -174,6 +185,87 @@ export interface AgentTurnResult {
   preparedParts: ReadableStream<PreparedTextStreamPart<UiMessageMetadata>>
   /** Resolves when the turn finishes with the assembled assistant message. */
   done: Promise<{ message: UIMessage }>
+}
+
+/** Floor between two checkpoints of one turn. */
+const CHECKPOINT_MIN_INTERVAL_MS = 1_000
+
+/** Chunks after which a piece of the reply has settled and is worth saving. */
+const CHECKPOINT_CHUNKS = new Set<UIMessageChunk['type']>([
+  'text-end',
+  'reasoning-end',
+  'tool-input-available',
+  'tool-input-error',
+  'tool-approval-request',
+  'tool-output-available',
+  'tool-output-error',
+  'tool-output-denied',
+  'finish-step',
+])
+
+/**
+ * Turns settled chunks in the assembly stream into paced `onCheckpoint` calls.
+ *
+ * The SDK hands over the assembled message mid-stream only at a `finish-step`
+ * (`onStepEnd`), which most providers send once per turn. So this writes its own
+ * `{ type: 'finish-step' }` into the assembly branch — never the client's —
+ * right after a settling chunk. A finish-step changes nothing in the assembled
+ * message (the SDK's reducer treats it as a no-op; `start-step` is what adds a
+ * step part), and as a chunk of its own it lands between two others, never
+ * inside an open part. Provider finish-steps are swallowed here and count as a
+ * settling chunk instead, so every `onStepEnd` is one of ours and paced.
+ *
+ * Pacing keeps the clone + write per checkpoint off the per-chunk path: a burst
+ * of tool results yields one checkpoint now and one when the gap has passed.
+ */
+function createCheckpointPacer(onCheckpoint: (message: UIMessage) => number | void) {
+  let writer: UIMessageStreamWriterWithOutcome | undefined
+  let open = true
+  let lastAt = 0
+  let gapMs = CHECKPOINT_MIN_INTERVAL_MS
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const fire = (): void => {
+    timer = undefined
+    if (!open || !writer) return
+    lastAt = Date.now()
+    writer.write({ type: 'finish-step' })
+  }
+  const request = (): void => {
+    if (!open || timer) return
+    const wait = lastAt + gapMs - Date.now()
+    if (wait <= 0) fire()
+    else timer = setTimeout(fire, wait)
+  }
+
+  return {
+    attach(target: UIMessageStreamWriterWithOutcome): UIMessageStreamWriterWithOutcome {
+      writer = target
+      return {
+        write: (chunk) => {
+          if (chunk.type === 'finish-step') {
+            request()
+            return
+          }
+          target.write(chunk)
+          if (CHECKPOINT_CHUNKS.has(chunk.type)) request()
+        },
+        merge: (stream) => target.merge(stream),
+        onError: target.onError,
+        setOutcome: (outcome) => target.setOutcome(outcome),
+      }
+    },
+    deliver(message: UIMessage): void {
+      if (!open) return
+      const requested = onCheckpoint(message)
+      gapMs = typeof requested === 'number' ? Math.max(CHECKPOINT_MIN_INTERVAL_MS, requested) : CHECKPOINT_MIN_INTERVAL_MS
+    },
+    close(): void {
+      open = false
+      if (timer) clearTimeout(timer)
+      timer = undefined
+    },
+  }
 }
 
 /** Run one turn on `session` and produce the standard event stream + final message. */
@@ -249,6 +341,7 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
 
   const done = (async (): Promise<{ message: UIMessage }> => {
     let assembled: UIMessage | undefined
+    const checkpoints = input.onCheckpoint ? createCheckpointPacer(input.onCheckpoint) : undefined
     try {
       const assemblyStream = createUIMessageStream({
         originalMessages: input.originalMessages,
@@ -256,9 +349,15 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
         onFinish: ({ responseMessage }) => {
           assembled = responseMessage
         },
+        ...(checkpoints ? { onStepEnd: ({ responseMessage }: { responseMessage: UIMessage }) => checkpoints.deliver(responseMessage) } : {}),
         execute: async ({ writer }) => {
-          for await (const preparedPart of readStreamAsAsyncIterable(assemblyParts)) {
-            writePreparedPartToUiStream(writer, preparedPart, input.assistantMessageId)
+          const target = checkpoints ? checkpoints.attach(writer) : writer
+          try {
+            for await (const preparedPart of readStreamAsAsyncIterable(assemblyParts)) {
+              writePreparedPartToUiStream(target, preparedPart, input.assistantMessageId)
+            }
+          } finally {
+            checkpoints?.close()
           }
         },
       })

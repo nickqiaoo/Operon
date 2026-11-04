@@ -6,6 +6,7 @@ import { compactTranscript, estimateTokens } from './compactor.js'
 import { chunkTranscript } from './chunking.js'
 import { buildExtractSystemPrompt } from './prompt.js'
 import { runHeadlessMemoryAgent } from './headless.js'
+import { isAssistantMessageRunning } from '../ai/persistence.js'
 
 const logger = createMaintenanceLogger('memory-extractor')
 
@@ -81,6 +82,14 @@ export async function runExtractor(
 
   for (const candidate of candidates) {
     if (opts.signal?.aborted) break
+    // A turn saves its reply as it goes and keeps rewriting it in place, at the
+    // same index. Reading it now would move the watermark past a reply that is
+    // not finished, and the rest of it would never be read. A turn idle past
+    // the 2h threshold (waiting on an approval) still has one running.
+    if (isAssistantMessageRunning(candidate.chatId)) {
+      logger.info(`chat=${candidate.chatId} has a turn still running — skip`)
+      continue
+    }
 
     try {
       const raw = loadMessagesAfter(

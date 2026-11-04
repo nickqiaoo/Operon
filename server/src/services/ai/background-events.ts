@@ -8,11 +8,14 @@
 // - `turn`: the agent started a reply on its own (Claude Code answering a
 //   background agent that finished). Run as a detached turn — streamed to any
 //   open tab and persisted — and announced like a reply the user asked for.
+// - `prompt-suggestion`: Claude Code's guess at the user's next prompt, kept per
+//   chat for the composer (chat-prompt-suggestions.ts).
 
 import type { RuntimeBackgroundEvent, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { SubagentTranscript } from '../../../../shared/background-tasks.js'
 import { notify } from '../notification-service.js'
 import { setChatBackgroundTasks } from './chat-background-tasks.js'
+import { setChatPromptSuggestion } from './chat-prompt-suggestions.js'
 import { observePendingInputPart } from './chat-pending-input.js'
 import { replySnippet, runDetachedTurn } from './detached-turn.js'
 import { getChatHistoryService, getNotificationStorage, getRuntime, getSessionManager } from './state.js'
@@ -20,6 +23,10 @@ import { getChatHistoryService, getNotificationStorage, getRuntime, getSessionMa
 export function handleRuntimeBackgroundEvent(chatId: number, event: RuntimeBackgroundEvent): void {
   if (event.type === 'tasks') {
     setChatBackgroundTasks(chatId, event.tasks)
+    return
+  }
+  if (event.type === 'prompt-suggestion') {
+    setChatPromptSuggestion(chatId, event.text)
     return
   }
   runAgentStartedTurn(chatId, event.parts).catch((error: unknown) => {

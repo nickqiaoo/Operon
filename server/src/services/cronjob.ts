@@ -101,29 +101,16 @@ const persistCronjobChat = (
   storage: CronjobStorage,
   job: CronjobTask,
   messages: UIMessage[],
-  chatId: number | null = null,
-  baseRevision = 0
-): { chatId: number; revision: number } | undefined => {
+): { chatId: number } | undefined => {
   try {
-    const history = new ChatHistoryService(storage)
-    const result = history.patchChat(
-      chatId,
-      baseRevision,
-      0,
+    const chatId = new ChatHistoryService(storage).createChat({
+      tp: 'cronjob',
+      workspaceId: job.workspaceId,
+      model: job.modelId,
+      providerId: job.providerId,
       messages,
-      'cronjob',
-      job.workspaceId,
-      job.modelId,
-      job.providerId,
-    )
-    if (result.success) {
-      return {
-        chatId: result.chatId,
-        revision: result.revision,
-      }
-    }
-    console.error('[Cronjob] Failed to persist chat history: conflict')
-    return undefined
+    })
+    return { chatId }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
     console.error(`[Cronjob] Failed to persist chat history: ${errorMessage}`)

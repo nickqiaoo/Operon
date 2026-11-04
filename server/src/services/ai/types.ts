@@ -80,7 +80,6 @@ export interface AgentMcpContext {
 
 export interface ChatRecordState {
   chatId: number
-  baseRevision: number
   sessionId?: string
 }
 
@@ -105,7 +104,7 @@ export interface StartChatOptions {
    *  stamp `{ compact: true }` on the summary message so it can be located later. */
   assistantMetadata?: Record<string, unknown>
   /** When true, the user message is NOT persisted to DB before streaming.
-   *  Only the assistant response is saved (via persistAssistantMessageWithRetry).
+   *  Only the assistant response is saved (via persistAssistantMessage).
    *  This prevents orphaned user messages if the stream fails mid-way —
    *  used by compact to avoid leaving a huge prompt in DB on partial failure. */
   skipUserMessagePersistence?: boolean

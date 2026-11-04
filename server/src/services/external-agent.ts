@@ -155,21 +155,20 @@ export async function createExternalAgent(params: {
   }
   // The assistant's agents can reach the user (its card answers requests), so they ask about risky steps.
   const modeId = 'assistantActivityId' in parent ? assistantAgentMode(params.providerId) : subagentMode(params.providerId)
-  const created = storage.patchChatEntry(null, {
-    baseRevision: 0, replaceFrom: 0, tailMessages: [], tp: 'subagent',
+  const chatId = storage.createChat({
+    tp: 'subagent',
     title: `Agent: ${params.description}`, workspaceId,
     providerId: params.providerId, model: modelId,
     ...(params.effort ? { thinkingLevel: params.effort } : {}),
     updatedAt: Date.now(), metadata: { modeId },
   })
-  if (!created.success) throw new Error('Could not create external agent conversation')
-  const agentId = `ext-${created.chatId}`
-  storage.updateChatMetadata(created.chatId, { modeId, externalAgent: {
+  const agentId = `ext-${chatId}`
+  storage.updateChatMetadata(chatId, { modeId, externalAgent: {
     agentId, parentChatId, description: params.description, model: params.model,
     ...('assistantActivityId' in parent ? { assistantActivityId: parent.assistantActivityId } : {}),
   } })
   const result = sendExternalAgent(owner, agentId, params.prompt)
-  const view = externalAgentView(created.chatId)
+  const view = externalAgentView(chatId)
   if (view) publish({ type: 'created', agent: view })
   return result
 }

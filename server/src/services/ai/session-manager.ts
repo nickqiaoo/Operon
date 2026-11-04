@@ -105,6 +105,7 @@ export class SessionManager {
     | ((chatId: number, approvalId: string, decision: PermissionDecision) => boolean)
     | null = null
   private backgroundHandler: ((chatId: number, event: RuntimeBackgroundEvent) => void) | null = null
+  private providerEnv: ((providerId: string) => Record<string, string> | undefined) | null = null
 
   constructor(readonly runtime: Runtime) {}
 
@@ -113,7 +114,22 @@ export class SessionManager {
   }
 
   async createStandaloneSession(providerId: string, params: HostSessionOptions): Promise<AgentSession> {
-    return this.runtime.provider(providerId).createSession(params)
+    return this.runtime.provider(providerId).createSession(this.withProviderEnv(providerId, params))
+  }
+
+  /**
+   * Variables the host adds to every session of a provider (Operon's Claude Code
+   * switches). Merged under the caller's own `env`, so they are part of the
+   * structural key: when they change, a live session is rebuilt on its next turn.
+   */
+  setProviderEnv(resolve: (providerId: string) => Record<string, string> | undefined): void {
+    this.providerEnv = resolve
+  }
+
+  private withProviderEnv(providerId: string, params: HostSessionOptions): HostSessionOptions {
+    const extra = this.providerEnv?.(providerId)
+    if (!extra || Object.keys(extra).length === 0) return params
+    return { ...params, env: { ...extra, ...(params.env ?? {}) } }
   }
 
   listProviders(): ProviderInfo[] {
@@ -163,7 +179,8 @@ export class SessionManager {
     return undefined
   }
 
-  async getOrCreate(chatId: number, providerId: string, params: HostSessionOptions): Promise<SessionRecord> {
+  async getOrCreate(chatId: number, providerId: string, requested: HostSessionOptions): Promise<SessionRecord> {
+    const params = this.withProviderEnv(providerId, requested)
     const current = this.sessions.get(chatId)
     const reusable =
       current !== undefined &&

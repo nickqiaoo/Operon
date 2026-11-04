@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { ChatHistoryService } from '../services/chat-history.js'
 import type { ChatStorageAdapter } from '../storage/interface.js'
-import type { ChatType } from '../types/chat.js'
+import type { ChatType, StoredChatMessage } from '../types/chat.js'
 
 export function chatHistoryRoutes(storage: ChatStorageAdapter) {
   const router = new Hono()
@@ -45,7 +45,6 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
         model: meta?.model,
         providerId: meta?.providerId,
         thinkingLevel: meta?.thinkingLevel,
-        revision: meta?.revision ?? 0,
         // When the last message landed. The client times prompt-cache expiry
         // from this so a conversation reopened from history knows it went cold
         // while it was closed.
@@ -59,52 +58,32 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     return c.json(payload)
   })
 
-  // POST /api/chat-history - create new chat
+  // POST /api/chat-history - create a chat, optionally with its first messages
   router.post('/', async (c) => {
-    const {
-      baseRevision,
-      replaceFrom,
-      tailMessages,
-      tp,
-      workspaceId,
-      model,
-      providerId,
-      thinkingLevel,
-    } = await c.req.json<{
-      baseRevision: number
-      replaceFrom: number
-      tailMessages: unknown[]
+    const { messages = [], tp, title, workspaceId, model, providerId, thinkingLevel } = await c.req.json<{
+      messages?: unknown[]
       tp?: string
+      title?: string
       workspaceId?: number
       model?: string
       providerId?: string
       thinkingLevel?: string
     }>()
 
-    if (!Number.isInteger(baseRevision) || baseRevision < 0) {
-      return c.json({ success: false, error: 'baseRevision must be a non-negative integer' }, 400)
-    }
-    if (!Number.isInteger(replaceFrom) || replaceFrom < 0) {
-      return c.json({ success: false, error: 'replaceFrom must be a non-negative integer' }, 400)
-    }
-    if (!Array.isArray(tailMessages)) {
-      return c.json({ success: false, error: 'tailMessages must be an array' }, 400)
+    if (!Array.isArray(messages) || !messages.every(isStoredChatMessage)) {
+      return c.json({ success: false, error: 'messages must be an array of messages with an id and parts' }, 400)
     }
 
-    const result = service.patchChat(
-      null,
-      baseRevision,
-      replaceFrom,
-      tailMessages,
-      (tp as ChatType) ?? 'chat',
+    const chatId = service.createChat({
+      tp: (tp as ChatType) ?? 'chat',
+      title,
       workspaceId,
       model,
       providerId,
-      undefined,
-      thinkingLevel
-    )
-
-    return c.json(result)
+      thinkingLevel,
+      messages,
+    })
+    return c.json({ success: true, chatId })
   })
 
   // POST /api/chat-history/side - open a side chat branched off `parentChatId`
@@ -127,10 +106,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
       return c.json({ success: false, error: 'Cannot open a side chat from a side chat' }, 400)
     }
 
-    const result = storage.patchChatEntry(null, {
-      baseRevision: 0,
-      replaceFrom: 0,
-      tailMessages: [],
+    const chatId = storage.createChat({
       tp: 'side',
       title: title?.trim() || 'Side chat',
       workspaceId: parent.workspaceId,
@@ -140,7 +116,6 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
       updatedAt: Date.now(),
       metadata: {
         parentChatId: parentChatId as number,
-        forkedAtMessageIndex: storage.getChatMessages(parentChatId as number, { limit: 0 })?.total ?? 0,
         // The side chat inherits the parent's runtime selections: a fork that ran
         // on a different model would not share the parent's cached prefix.
         ...(parent.metadata?.chatRuntimeOptions
@@ -149,54 +124,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
       },
     })
 
-    return c.json(result)
-  })
-
-  // PATCH /api/chat-history/:chatId - update existing chat
-  router.patch('/:chatId', async (c) => {
-    const chatId = parseInt(c.req.param('chatId'), 10)
-    const {
-      baseRevision,
-      replaceFrom,
-      tailMessages,
-      workspaceId,
-      model,
-      providerId,
-      thinkingLevel,
-    } = await c.req.json<{
-      baseRevision: number
-      replaceFrom: number
-      tailMessages: unknown[]
-      workspaceId?: number
-      model?: string
-      providerId?: string
-      thinkingLevel?: string
-    }>()
-
-    if (!Number.isInteger(baseRevision) || baseRevision < 0) {
-      return c.json({ success: false, error: 'baseRevision must be a non-negative integer' }, 400)
-    }
-    if (!Number.isInteger(replaceFrom) || replaceFrom < 0) {
-      return c.json({ success: false, error: 'replaceFrom must be a non-negative integer' }, 400)
-    }
-    if (!Array.isArray(tailMessages)) {
-      return c.json({ success: false, error: 'tailMessages must be an array' }, 400)
-    }
-
-    const result = service.patchChat(
-      chatId,
-      baseRevision,
-      replaceFrom,
-      tailMessages,
-      undefined,
-      workspaceId,
-      model,
-      providerId,
-      undefined,
-      thinkingLevel
-    )
-
-    return c.json(result)
+    return c.json({ success: true, chatId })
   })
 
   // DELETE /api/chat-history/:chatId - delete chat
@@ -208,3 +136,8 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
 
   return router
 }
+
+const isStoredChatMessage = (value: unknown): value is StoredChatMessage =>
+  typeof value === 'object' && value !== null &&
+  typeof (value as { id?: unknown }).id === 'string' && (value as { id: string }).id !== '' &&
+  Array.isArray((value as { parts?: unknown }).parts)

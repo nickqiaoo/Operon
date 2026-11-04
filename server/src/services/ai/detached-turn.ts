@@ -13,8 +13,13 @@ import type { AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import { preparedToUIChunks, runAgentTurn } from './agent-turn.js'
 import { createChatResponseHeaders } from './helpers.js'
 import { pumpToLiveTurn, startLiveTurn } from './live-turn-hub.js'
-import { persistAssistantMessageWithRetry } from './persistence.js'
-import { getChatHistoryService } from './state.js'
+import {
+  beginAssistantMessage,
+  checkpointGapMs,
+  createReplyWriter,
+  endAssistantMessage,
+  hasCheckpointContent,
+} from './persistence.js'
 
 export interface DetachedTurnTarget {
   chatId: number
@@ -49,12 +54,24 @@ export async function runDetachedTurn(
   // assembled message; a turn whose model call failed would show as an empty
   // bubble. Keep the text.
   let streamError: string | undefined
+  const writer = createReplyWriter({
+    chatId: target.chatId,
+    modelId: target.modelId,
+    providerId: target.providerId,
+  })
+  const persist = (message: UIMessage) => writer.save(message, target.sessionId)
+  beginAssistantMessage(target.chatId, assistantMessageId)
   const { preparedParts, done } = runAgentTurn(detached, {
     requestId: randomUUID(),
     input: '',
     signal: new AbortController().signal,
     assistantMessageId,
     originalMessages: [],
+    onCheckpoint: (message) => {
+      if (!hasCheckpointContent(message)) return
+      const result = persist(message)
+      if (result.saved) return checkpointGapMs(result.bytes)
+    },
     onPart: (part) => {
       if (part.type === 'error') {
         const error = (part as { error?: unknown }).error
@@ -78,23 +95,19 @@ export async function runDetachedTurn(
     console.warn(`[${target.logTag}] live turn tee failed:`, error instanceof Error ? error.message : String(error))
   }
 
-  const { message } = await done
-  const hasContent = message.parts.some((p) => p.type !== 'step-start')
-  if (!hasContent && !streamError) return undefined
-  const toPersist: UIMessage = hasContent
-    ? message
-    : { ...message, parts: [...message.parts, { type: 'text', text: `Error: ${streamError}` }] }
-  if (streamError) console.warn(`[${target.logTag}] detached turn on chat ${target.chatId} failed: ${streamError}`)
-  const meta = getChatHistoryService()?.getChatMeta(target.chatId)
-  await persistAssistantMessageWithRetry({
-    chatId: target.chatId,
-    baseRevision: meta?.revision ?? 0,
-    assistantMessage: toPersist,
-    modelId: target.modelId,
-    providerId: target.providerId,
-    sessionId: target.sessionId,
-  })
-  return toPersist
+  try {
+    const { message } = await done
+    const hasContent = message.parts.some((p) => p.type !== 'step-start')
+    if (!hasContent && !streamError) return undefined
+    const toPersist: UIMessage = hasContent
+      ? message
+      : { ...message, parts: [...message.parts, { type: 'text', text: `Error: ${streamError}` }] }
+    if (streamError) console.warn(`[${target.logTag}] detached turn on chat ${target.chatId} failed: ${streamError}`)
+    persist(toPersist)
+    return toPersist
+  } finally {
+    endAssistantMessage(target.chatId, assistantMessageId)
+  }
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {
