@@ -34,19 +34,19 @@ const COPY = {
     ],
   },
   zh: {
-    titleA: '小细节，',
-    titleB: '大不同。',
-    lead: '让一整天跑 Agent 不那么累的那些细节。',
+    titleA: '这些小地方，',
+    titleB: '每天都用得上。',
+    lead: '一整天跟 Agent 打交道，这些细节能让你轻松不少。',
     features: [
-      { title: '收件箱', desc: '所有项目里完成的对话、审批和提问集中在一处——在那一行里直接回复。' },
-      { title: '额度显示', desc: 'Claude Code 和 Codex 还剩多少额度，就显示在标题栏，快用完时会变色。' },
-      { title: 'Auto 权限模式', desc: '由模型审查每个有风险的操作，安全的自动放行，其余的交给你决定。' },
-      { title: '旁支对话', desc: '在主线旁边快速问个问题，或针对选中的一段提问，不打断主线。' },
-      { title: '回退', desc: '撤销最近一轮的文件改动，或把代码回退到之前任意一条消息。' },
-      { title: 'Pull Request', desc: '标题和描述根据 diff 自动起草，在审阅工具栏里用你自己的 gh 登录直接开 PR。' },
-      { title: '上下文窗口', desc: '看清 token 都花在哪，按用途拆分并分色显示。' },
-      { title: '定时任务', desc: '任何 Agent 都能在对话里设置周期任务——每天、每周或按固定间隔。' },
-      { title: '键盘优先', desc: '文件、审阅、浏览器、终端和旁支对话都能用键盘打开，快捷键可任意改绑。' },
+      { title: '收件箱', desc: '所有项目里做完的对话、待审批的操作和提问都汇总在这里，在列表里就能直接回复。' },
+      { title: '额度显示', desc: 'Claude Code 和 Codex 还剩多少额度，标题栏上就能看到，快用完了会变色。' },
+      { title: 'Auto 权限模式', desc: '有风险的操作先让模型过一遍，安全的自动放行，剩下的再问你。' },
+      { title: '旁支对话', desc: '临时问个问题，或者选中一段内容单独问，都不会打断主对话。' },
+      { title: '回退', desc: '可以撤销上一轮的文件改动，也可以把代码退回到之前任意一条消息的状态。' },
+      { title: 'Pull Request', desc: '标题和描述会根据 diff 自动写好，在审阅工具栏里用你自己的 gh 账号直接开 PR。' },
+      { title: '上下文窗口', desc: 'token 都花在了哪儿，按用途分好类，用不同颜色标出来。' },
+      { title: '定时任务', desc: '在对话里就能让任何 Agent 定期干活：每天、每周，或者每隔一段时间。' },
+      { title: '键盘优先', desc: '文件、审阅、浏览器、终端、旁支对话都能用快捷键打开，快捷键也可以自己改。' },
     ],
   },
 }
@@ -55,7 +55,7 @@ export function FeaturesSection() {
   const t = useCopy(COPY)
 
   return (
-    <Section id="more">
+    <Section id="more" tone="sidebar">
       <Reveal>
         <div className="max-w-2xl">
           <Title>

@@ -18,8 +18,8 @@ const COPY = {
     android: 'Android (APK)',
   },
   zh: {
-    title: '随时可以开始。',
-    lead: '在 Mac 上装好 Operon，几分钟就能跑起 Agent。配对手机或打开网页版，离开工位也能继续。',
+    title: '现在就能用上。',
+    lead: '在 Mac 上装好 Operon，几分钟就能让 Agent 跑起来。手机配对一下或者打开网页版，出门在外也能接着干。',
     download: '下载 macOS 版',
     openWeb: '打开网页版',
     appStore: '在 App Store 下载',
@@ -32,7 +32,7 @@ export function DownloadSection() {
   const t = useCopy(COPY)
 
   return (
-    <Section id="download" width="narrow" className="border-t border-border/40">
+    <Section id="download" width="narrow">
       <Reveal>
         <div className="text-center">
           <OperonGlyph size={40} className="mx-auto mb-6 text-brand" />

@@ -1,4 +1,5 @@
 import { Reveal } from './Reveal'
+import { RemoteDiagram } from './RemoteDiagram'
 import { Eyebrow, FeatureList, Lead, Muted, Section, Split, Title } from './ui'
 import { cn } from '../lib/styles'
 import { useCopy } from '../lib/i18n'
@@ -41,9 +42,9 @@ const COPY = {
   },
   zh: {
     eyebrow: '移动端与网页',
-    titleA: '离开工位，',
-    titleB: '照样掌控全局。',
-    lead: '配对手机或打开网页版，就能从桌面端停下的地方接着来——在公交上批一个审批，躺床上看一眼 diff，问问助理事情进展如何。',
+    titleA: '人不在电脑前，',
+    titleB: '活儿照样推进。',
+    lead: '手机配对一下，或者直接打开网页版，就能接着桌面上的进度继续。坐公交时批个审批，睡前看一眼 diff，或者问问助理今天做得怎么样。',
     alts: {
       board: 'iPhone 上的 Operon：任务按状态分组，其中一个是 Agent 还在设计中的 Spec',
       chat: 'iPhone 上一段新增 CSV 导出的 Codex 对话，结尾是它改动的文件卡片',
@@ -52,19 +53,19 @@ const COPY = {
     features: [
       {
         title: '原生 iOS 和 Android 应用',
-        desc: '原生 tab 栏、导航和底部弹层。iOS 版已上架 App Store；Android 版可从本站下载签名 APK 安装。',
+        desc: 'tab 栏、导航、底部弹层都是原生的。iOS 版在 App Store 下载，Android 版可以从本站下载签名过的 APK。',
       },
       {
-        title: '完整的网页版',
-        desc: '任意浏览器里都是和桌面端一样的界面，会话、diff、审批和工具都相同。',
+        title: '网页版功能完整',
+        desc: '在任何浏览器里打开，界面都和桌面端一样，会话、diff、审批、工具一样不少。',
       },
       {
         title: '端到端加密',
-        desc: '每台设备与你的 Mac 之间的内容都经过加密。新手机和新浏览器只能在桌面端批准接入。',
+        desc: '每台设备和你的 Mac 之间都是加密传输。新手机、新浏览器要接入，只能在桌面端批准。',
       },
       {
         title: '离开电脑才推送',
-        desc: '你在电脑前时通知先不发，离开后才送达。快速回复还可以用 Telegram 和 Slack 机器人。',
+        desc: '人在电脑前时不推送，走开了才发到手机上。想快速回一句，也可以用 Telegram 和 Slack 机器人。',
       },
     ],
   },
@@ -115,6 +116,7 @@ export function MobileSection() {
             </div>
           }
         />
+        <RemoteDiagram />
       </Reveal>
     </Section>
   )
