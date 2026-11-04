@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-11-04
+
+### Added
+
+- Claude Code suggests the next prompt after a reply; press Tab or Right Arrow in an empty desktop composer to use it.
+- Claude Code settings include switches for prompt suggestions and auto memory.
+- The landing site supports English and Chinese, follows the browser's preferred language and remembers manual language choices.
+
+### Changed
+
+- The composer uses a slider for thinking effort and a menu for mode selection.
+- Streaming replies are saved incrementally, writing only changed message parts, and replay buffers compact long turns to reduce memory use.
+- Provider icons are refreshed across desktop, iOS and Android.
+- The follow-up action uses a compact icon button.
+
+### Fixed
+
+- Chat history updates messages by id, avoiding revision conflicts and duplicate messages during approvals and follow-ups.
+- Follow-up messages stay ahead of the reply being streamed, and memory extraction waits for running replies to finish.
+- Composer option popovers stay open when interacting with their controls.
+
 ## [1.5.5] - 2026-11-03
 
 ### Added
