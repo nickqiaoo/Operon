@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-11-04
+
+### Added
+
+- Memory timeline entries record what was learned, the supporting evidence and the source conversation; evidence is visible in memory settings.
+- The landing site showcases site adapters with interactive examples and illustrates how desktop, browser and mobile access connect through the broker.
+
+### Changed
+
+- Memory extraction focuses on durable user facts and standing preferences, preserves conversation context and distinguishes repeated chunk context from new content.
+- Memory maintenance counts actual timeline writes and removes unused token and merge counters from run history.
+- The web sign-in page uses a centered layout with a compact connection diagram and setup guide.
+- Landing page copy and social sharing artwork are refreshed.
+- Command palette search fields use softer borders and a flat background.
+
+### Fixed
+
+- Memory extraction preserves source message positions when skipping empty or system messages and considers seven days of conversations to avoid missing chats between daily runs.
+- Memory maintenance isolates background sessions from project instructions, prevents overlapping runs, closes interrupted runs on startup and reports providers without memory MCP support.
+- Antigravity sessions receive their configured MCP tools.
+- Selecting a model closes the model selector dialog.
+
 ## [1.5.6] - 2026-11-04
 
 ### Added
