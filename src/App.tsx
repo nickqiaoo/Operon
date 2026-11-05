@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { installBrowserUseBridge } from "@/components/browser/browser-use-bridge"
-import { useIntl } from "react-intl"
-import { PanelLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Toaster } from "sonner"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
@@ -9,12 +7,10 @@ import { createPortal } from "react-dom"
 import { Z_FULL_PAGE } from "@/lib/z-index"
 import { AnnotationEditorHost } from "@/components/browser/AnnotationEditorHost"
 
-import { LeftSidebar } from "@/components/app-shell/LeftSidebar"
+import { AppSidebar, SidebarToggle } from "@/components/app-shell/AppSidebar"
 import { KeepAliveView } from "@/components/app-shell/KeepAliveView"
 import { SessionPanelToggle, TopBarControls } from "@/components/app-shell/TopBarControls"
 import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
-import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
-import { ProjectSidebar } from "@/components/project/ProjectSidebar"
 import { EditorTabs } from "@/components/editor/EditorTabs"
 import { ChatPanel } from "@/components/editor/ChatPanel"
 import { TerminalTab } from "@/components/app-shell/content/TerminalTab"
@@ -52,7 +48,6 @@ const FULL_PAGE_ANALYTICS = { settings: "settings", plugins: "plugins", canvas: 
 
 export default function App() {
   useTaskStream()
-  const intl = useIntl()
   // Where the shell is: see navigation-store.ts.
   const mainView = useNavigationStore((s) => s.main)
   const pages = useNavigationStore((s) => s.pages)
@@ -74,7 +69,6 @@ export default function App() {
     if (currentTabId) setSpecChatIds((previous) => previous.has(currentTabId) ? previous : new Set([...previous, currentTabId]))
     showMain({ kind: 'spec', taskId, projectId })
   }, [showMain])
-  const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const theme = useThemeStore((state) => state.theme)
   const lightUITheme = useThemeStore((state) => state.lightUITheme)
   const darkUITheme = useThemeStore((state) => state.darkUITheme)
@@ -97,11 +91,6 @@ export default function App() {
   const loadProjects = useProjectStore((state) => state.loadProjects)
   const setActiveWorkspace = useProjectStore((state) => state.setActiveWorkspace)
   const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
-  // Shell state, not App state: an expanded right panel needs to know whether
-  // the sidebar left it sitting under the macOS traffic lights.
-  const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
-  const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
-  const handleToggleSidebar = useAppShellStore((s) => s.toggleSidebar)
 
   const specFocusedTabId = useRef<string | null>(null)
   const openWorkspace = useCallback((workspaceId: number) => {
@@ -297,7 +286,7 @@ export default function App() {
 
   // Sync active workspace with editor store
   useEffect(() => {
-    // Determine activeProjectId. 
+    // Determine activeProjectId.
     // Usually activeWorkspaceId implies a project, but we want to pass the explicit project ID if available.
     // We can find the project that contains the active workspace.
     // However, project-store keeps activeProjectId. Let's iterate projects to be safe or use activeProjectId if it aligns.
@@ -389,24 +378,9 @@ export default function App() {
   // A Spec swaps this out for its own header; see SpecPage.
   const workspaceHeader = (
     <>
-      {/* Center header (workspace breadcrumbs). The whole row is a
-          drag-region so its empty space drags the window; the inline
-          TopBarControls are `no-drag` children (macOS honors that for
-          real children of a drag bar). When the right panel is open
-          the controls move into its tab strip (window top-right), so
-          we only render them here when it's closed. */}
+      {/* The header reserves room for the persistent panel controls at the window edge. */}
       <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/50 bg-background shrink-0">
-        <div className={cn("flex flex-1 min-w-0 items-center gap-2 text-xs text-muted-foreground font-normal", sidebarCollapsed ? (__APP_TARGET__ === 'web' ? "px-4" : "pl-20 pr-4") : "px-4")}>
-          {sidebarCollapsed && (
-            <button
-              className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors"
-              style={{ viewTransitionName: "sidebar-trigger" }}
-              onClick={handleToggleSidebar}
-              title={intl.formatMessage({ id: "app.expandSidebar", defaultMessage: "Expand sidebar" })}
-            >
-              <PanelLeft className="h-4 w-4" />
-            </button>
-          )}
+        <div className="titlebar-inset flex flex-1 min-w-0 items-center gap-2 pr-4 text-xs text-muted-foreground font-normal">
           {/* Both names truncate: without it the workspace pill wraps
               onto a second line, outgrows the h-10 row and collides with
               whatever sits to its right. The project name gives way first
@@ -436,14 +410,7 @@ export default function App() {
             24px buttons 2px apart (as in the right panel's strip). */}
         <AccountUsageBar className="shrink-0 pr-0.5" />
         <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
-        {/* When the right panel is closed this row is the window's
-            top-right, so the controls live here; when it's open they
-            move into the right panel's tab strip instead. */}
-        {!rightPanelOpen && (
-          <div className="shrink-0 pr-2">
-            <TopBarControls />
-          </div>
-        )}
+        {!rightPanelOpen && <div className="w-[58px] shrink-0" aria-hidden="true" />}
       </div>
 
       <EditorTabs
@@ -493,19 +460,8 @@ export default function App() {
     <div className={`relative h-screen w-screen text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
       {/* Main Content */}
       <div className="flex h-full w-full">
-        {/* Left Panel - Project Sidebar (push-open, mirrors RightPanel) */}
-        <LeftSidebar
-          isOpen={!sidebarCollapsed}
-          width={sidebarWidth}
-          onWidthChange={setSidebarWidth}
-          onClose={() => setSidebarCollapsed(true)}
-        >
-          <ProjectSidebar
-            onOpenSpec={openSpec}
-            onCollapse={handleToggleSidebar}
-            collapsed={sidebarCollapsed}
-          />
-        </LeftSidebar>
+        {/* Left Panel - Project Sidebar (push-open; a rail when collapsed) */}
+        <AppSidebar onOpenSpec={openSpec} />
 
         {/* Main Content Area (Center + Right) */}
         <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
@@ -513,14 +469,10 @@ export default function App() {
               each stays mounted once opened, so switching back keeps its state; the browser
               webview hides itself once its placeholder has no size. */}
           <KeepAliveView mounted={visited.has('assistant')} active={mainView.kind === 'assistant'} visible={mainView.kind === 'assistant' && !isPageOpen}>
-            <AssistantPage sidebarCollapsed={sidebarCollapsed} onExpandSidebar={handleToggleSidebar} onOpenChat={openChat} />
+            <AssistantPage onOpenChat={openChat} />
           </KeepAliveView>
           <KeepAliveView mounted={visited.has('inbox')} active={mainView.kind === 'inbox'} visible={mainView.kind === 'inbox' && !isPageOpen}>
-            <InboxPage
-              sidebarCollapsed={sidebarCollapsed}
-              onExpandSidebar={handleToggleSidebar}
-              onOpenSource={handleOpenNotification}
-            />
+            <InboxPage onOpenSource={handleOpenNotification} />
           </KeepAliveView>
           {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
           <KeepAliveView mounted={lastBoardView !== null} active={mainView.kind === 'board'} visible={mainView.kind === 'board' && !isPageOpen}>
@@ -528,8 +480,6 @@ export default function App() {
               <BoardPage
                 view={lastBoardView}
                 onViewChange={(view) => showMain({ kind: 'board', view })}
-                sidebarCollapsed={sidebarCollapsed}
-                onExpandSidebar={handleToggleSidebar}
                 initialTaskId={boardTaskId}
                 onInitialTaskConsumed={clearBoardTask}
                 onOpenChat={(chat) =>
@@ -560,8 +510,6 @@ export default function App() {
           <AppShell>
             <SpecPage
               target={mainView.kind === 'spec' ? mainView : null}
-              sidebarCollapsed={sidebarCollapsed}
-              onExpandSidebar={handleToggleSidebar}
               onOpenWorkspace={openWorkspace}
               onFocusWorkspace={focusSpecWorkspace}
               onFocusChat={focusSpecChat}
@@ -625,6 +573,15 @@ export default function App() {
           </KeepAliveView>
         </div>
       </div>
+      <div
+        className={cn("no-drag absolute right-2 top-0 z-50 flex h-10 items-center border-b border-transparent", !workbenchActive && "invisible")}
+        inert={!workbenchActive}
+        aria-hidden={!workbenchActive}
+      >
+        <TopBarControls />
+      </div>
+      {/* After the titlebars: see SidebarToggle. */}
+      <SidebarToggle />
     </div>
 
     </>

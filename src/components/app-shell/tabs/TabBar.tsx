@@ -21,6 +21,11 @@ interface TabBarProps {
    * bar pinned to the window's top edge (the right panel's strip).
    */
   dragRegion?: boolean
+  /**
+   * The bar starts at the left sidebar's edge (the right panel expanded over
+   * the center): pad its left like the other titlebars (`titlebar-inset`).
+   */
+  titlebarInset?: boolean
   className?: string
 }
 
@@ -30,7 +35,7 @@ interface TabBarProps {
  * here. The "+" button is a Radix DropdownMenu that lets the user pick which
  * kind of tab to open (NewTabMenu).
  */
-export function TabBar({ panelId, accessory, dragRegion, className }: TabBarProps) {
+export function TabBar({ panelId, accessory, dragRegion, titlebarInset, className }: TabBarProps) {
   // Not `panel.tabs` — the browser is scoped to the active conversation, so the strip
   // shows only the pages in scope. See use-visible-tabs.ts.
   const { tabs, activeTabId } = useVisiblePanelTabs(panelId)
@@ -86,7 +91,8 @@ export function TabBar({ panelId, accessory, dragRegion, className }: TabBarProp
         // Canvas-coloured like EditorTabs: the bottom border already separates
         // the strip from the content, so a tint on top of it is a second
         // divider doing the same job — it just reads as a mismatched patch.
-        "flex h-10 shrink-0 items-center gap-1 border-b border-border/50 bg-background px-2",
+        "flex h-10 shrink-0 items-center gap-1 border-b border-border/50 bg-background pr-2",
+        titlebarInset ? "titlebar-inset [--titlebar-pl:0.5rem]" : "pl-2",
         // Drop-target feedback is an interaction state, so a fill is right here.
         isOver && "bg-muted/40",
         dragRegion && "drag-region",

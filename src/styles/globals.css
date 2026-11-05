@@ -1044,6 +1044,29 @@ body > div > button[title="Exit fullscreen"] {
   background-size: 32px 32px;
 }
 
+/* Left padding of a titlebar row that starts at the left sidebar's edge: its
+   usual padding, or enough to clear the fixed sidebar toggle when the sidebar
+   is narrow. LeftSidebar writes `--titlebar-toggle-clear` from its width on
+   each animation frame (only while it is narrow enough to matter: a custom
+   property on that ancestor restyles the whole subtree), so the content tracks
+   the sidebar edge instead of jumping when the collapsed flag flips.
+   `--titlebar-pl` overrides the usual padding (default 1rem). */
+@utility titlebar-inset {
+  padding-left: max(var(--titlebar-pl, 1rem), var(--titlebar-toggle-clear, 0px));
+}
+
+/* Sidebar content that only exists in the expanded layout (labels, project
+   tree, help): fades with the open/close animation. LeftSidebar sets the
+   variable on itself. */
+@utility sidebar-label-fade {
+  opacity: var(--sidebar-label-opacity, 1);
+}
+
+/* The inverse, for rail-only stand-ins shown during the same animation. */
+@utility sidebar-rail-fade {
+  opacity: calc(1 - var(--sidebar-label-opacity, 1));
+}
+
 @utility scroll-fade-y {
   --scroll-fade-size: 24px;
   mask-image:

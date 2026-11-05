@@ -1,5 +1,5 @@
 import { useIntl } from "react-intl"
-import { Activity, PanelBottom, PanelRight } from "lucide-react"
+import { Activity, Maximize2, Minimize2, PanelBottom, PanelRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
@@ -38,24 +38,32 @@ export function SessionPanelToggle({ className }: { className?: string }) {
 }
 
 /**
- * The window's top-right controls: the bottom/right panel toggles.
- * ("Open with…" lives in the file browser's
- * toolbar, next to the file it opens.)
- *
- * Rendered INLINE inside whichever bar is pinned to the window's top-right
- * (the right panel's tab strip when it's open, else the center header). Those
- * bars are `drag-region`; these controls are `no-drag`, which macOS honors
- * because they're real children of the drag bar — unlike a floating `fixed`
- * overlay, which the OS ignores (clicks fall through to the drag region).
+ * Mounted once in App's fixed titlebar layer, after the draggable headers.
+ * Panel animations never move, fade or remount these controls.
  */
 export function TopBarControls() {
   const intl = useIntl()
   const bottomPanelOpen = useAppShellStore((s) => s.bottomPanelOpen)
   const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
+  const rightPanelExpanded = useAppShellStore((s) => s.rightPanelExpanded)
   const toggleRightPanel = useAppShellStore((s) => s.toggleRightPanel)
+  const toggleRightPanelExpanded = useAppShellStore((s) => s.toggleRightPanelExpanded)
 
   return (
     <div className="no-drag flex items-center gap-0.5">
+      {rightPanelOpen && (
+        <button
+          type="button"
+          onClick={toggleRightPanelExpanded}
+          aria-label={rightPanelExpanded
+            ? intl.formatMessage({ id: "appShell.restoreRightPanel", defaultMessage: "Restore right panel" })
+            : intl.formatMessage({ id: "appShell.expandRightPanel", defaultMessage: "Expand right panel" })}
+          aria-pressed={rightPanelExpanded}
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground"
+        >
+          {rightPanelExpanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </button>
+      )}
       <button
         type="button"
         data-testid="toggle-bottom-panel"

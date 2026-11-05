@@ -1,14 +1,9 @@
-import { PanelLeft } from "lucide-react"
-import { FormattedMessage, useIntl } from "react-intl"
-import { cn } from "@/lib/utils"
+import { FormattedMessage } from "react-intl"
 import { useInboxStore } from "@/stores/inbox-store"
 import type { Notification } from "@/types/notification"
 import { InboxFilterTabs, InboxMarkAllRead, InboxPanel } from "./InboxPanel"
 
 interface InboxPageProps {
-  /** The left sidebar is collapsed: make room for the window controls and offer to expand it. */
-  sidebarCollapsed: boolean
-  onExpandSidebar: () => void
   /** Deep-link to a notification's live source (task board / workspace chat). */
   onOpenSource: (n: Notification) => void
 }
@@ -19,8 +14,7 @@ interface InboxPageProps {
  * detail pane; it only re-rendered the chat's last reply or the task's activity, a worse copy of
  * the page one click away. Approvals are the exception and are answered in the row.
  */
-export function InboxPage({ sidebarCollapsed, onExpandSidebar, onOpenSource }: InboxPageProps) {
-  const intl = useIntl()
+export function InboxPage({ onOpenSource }: InboxPageProps) {
   const markRead = useInboxStore((s) => s.markRead)
 
   const handleOpen = (n: Notification) => {
@@ -30,22 +24,8 @@ export function InboxPage({ sidebarCollapsed, onExpandSidebar, onOpenSource }: I
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div
-        className={cn(
-          "drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4",
-          sidebarCollapsed && __APP_TARGET__ !== "web" ? "pl-20" : "pl-4",
-        )}
-      >
-        {sidebarCollapsed && (
-          <button
-            type="button"
-            onClick={onExpandSidebar}
-            title={intl.formatMessage({ id: "assistant.expandSidebar", defaultMessage: "Expand sidebar" })}
-            className="no-drag flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
-        )}
+      {/* titlebar-inset: clears the fixed sidebar toggle while the sidebar is narrow. */}
+      <div className="drag-region titlebar-inset flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4">
         <span className="text-xs text-muted-foreground">
           <FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" />
         </span>

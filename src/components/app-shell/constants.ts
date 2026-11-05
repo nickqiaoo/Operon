@@ -12,6 +12,18 @@ export const CENTER_CONTENT_MIN_WIDTH = 360
 // Below this drag size the panel auto-closes. Same threshold as Codex.
 export const RIGHT_PANEL_AUTO_CLOSE_BELOW = 320
 
+export const LEFT_SIDEBAR_RAIL_WIDTH = 52
+
+// The sidebar toggle is pinned at the window's top-left (App.tsx): past the
+// macOS traffic lights on desktop, inside the rail on web.
+export const SIDEBAR_TOGGLE_LEFT = __APP_TARGET__ === "web" ? 16 : 80
+const SIDEBAR_TOGGLE_SIZE = 24
+// Titlebar rows beside the sidebar start their content this far from the
+// window's left edge at the least (`titlebar-inset` in globals.css). Web needs
+// none: its toggle sits inside the rail.
+export const TITLEBAR_TOGGLE_CLEARANCE =
+  __APP_TARGET__ === "web" ? 0 : SIDEBAR_TOGGLE_LEFT + SIDEBAR_TOGGLE_SIZE + 12
+
 // Narrower than the 256 Codex opens at: project/chat names truncate anyway, so
 // the extra width bought nothing and the centre column reads better with it.
 export const LEFT_SIDEBAR_DEFAULT_WIDTH = 224

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, Loader2, PanelLeft, Settings } from "lucide-react"
+import { AlertCircle, Loader2, Settings } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { FileOpenProvider } from "@/lib/file-open-context"
 import { openPluginsPage, openSettingsTab } from "@/lib/open-settings"
@@ -40,9 +39,6 @@ export function chatTargetOf(activity: ActivitySummary): ChatTarget | undefined 
 }
 
 interface AssistantPageProps {
-  /** With the app sidebar collapsed the header clears the traffic lights and offers to expand it. */
-  sidebarCollapsed: boolean
-  onExpandSidebar: () => void
   onOpenChat: (target: ChatTarget) => void
 }
 
@@ -55,7 +51,7 @@ function reportError(error: unknown): void {
  * app sidebar still on the left: the thread in the middle, what it is doing on the
  * right. State lives on the server (`/api/assistant`) and streams in live.
  */
-export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }: AssistantPageProps) {
+export function AssistantPage({ onOpenChat }: AssistantPageProps) {
   // Stays mounted (display:none) once opened, so ask whether it is the page on screen.
   useVisibleAssistantInboxRead(usePageVisible())
   const open = useAssistantStore((s) => s.open)
@@ -129,23 +125,9 @@ export function AssistantPage({ sidebarCollapsed, onExpandSidebar, onOpenChat }:
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div
-        className={cn(
-          // @container/topbar: the usage bar thins out by this row's width, as in the workspace top bar.
-          "@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4",
-          sidebarCollapsed && __APP_TARGET__ !== "web" ? "pl-20" : "pl-4",
-        )}
-      >
-        {sidebarCollapsed && (
-          <button
-            type="button"
-            onClick={onExpandSidebar}
-            title={intl.formatMessage({ id: "assistant.expandSidebar", defaultMessage: "Expand sidebar" })}
-            className="no-drag flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
-        )}
+      {/* @container/topbar: the usage bar thins out by this row's width, as in the workspace
+          top bar. titlebar-inset: clears the fixed sidebar toggle while the sidebar is narrow. */}
+      <div className="@container/topbar drag-region titlebar-inset flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           <FormattedMessage id="mobile.tab.assistant" defaultMessage="Assistant" />
         </span>

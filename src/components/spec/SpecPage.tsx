@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRight, GitBranch, Loader2, MessageSquareText, PanelLeft } from 'lucide-react'
+import { ArrowUpRight, GitBranch, Loader2, MessageSquareText } from 'lucide-react'
 import { SpecIcon } from '@/components/icons/SpecIcon'
 import type { SpecChatRef } from '@shared/spec'
 import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/icons/ProviderLabel'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { SessionPanelToggle, TopBarControls } from '@/components/app-shell/TopBarControls'
+import { SessionPanelToggle } from '@/components/app-shell/TopBarControls'
 import { AccountUsageBar } from '@/components/app-shell/AccountUsageBar'
 import { useAppShellStore } from '@/stores/app-shell-store'
 import { useEditorStore } from '@/stores/editor-store'
@@ -26,8 +26,6 @@ type Section = 'overview' | 'discussion' | 'sessions' | 'changes'
 
 interface SpecPageProps {
   target: { taskId: number; projectId: number } | null
-  sidebarCollapsed: boolean
-  onExpandSidebar: () => void
   onOpenWorkspace: (workspaceId: number) => void
   onFocusWorkspace: (workspaceId: number | null, projectId: number) => void
   onFocusChat: (chat: SpecChatRef, projectId: number) => void
@@ -36,7 +34,7 @@ interface SpecPageProps {
 }
 
 /** One workbench and one chat surface, reached from a directory or a Spec. */
-export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWorkspace, onFocusWorkspace, onFocusChat, workspaceHeader, children }: SpecPageProps) {
+export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusChat, workspaceHeader, children }: SpecPageProps) {
   const visible = usePageVisible()
   const taskId = target?.taskId ?? 0
   const { spec, error } = useSpecView(taskId, undefined, visible && target != null)
@@ -81,10 +79,7 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
   return (
     <div className="@container/spec flex h-full min-h-0 flex-col bg-background" data-testid={target ? 'spec-page' : undefined} data-spec-id={target?.taskId}>
       {target ? <>
-      <div className={cn('@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/40 pr-3 text-xs text-muted-foreground', sidebarCollapsed && __APP_TARGET__ !== 'web' ? 'pl-20' : 'pl-4')}>
-        {sidebarCollapsed && (
-          <Button variant="ghost" size="icon-sm" className="no-drag" onClick={onExpandSidebar} aria-label="Expand sidebar"><PanelLeft className="size-4" /></Button>
-        )}
+      <div className="@container/topbar drag-region titlebar-inset flex h-10 shrink-0 items-center gap-2 border-b border-border/50 pr-2 text-xs text-muted-foreground">
         <span className="shrink-0">{project?.name ?? 'Project'}</span>
         <span className="text-muted-foreground/40">/</span>
         <SpecIcon className="size-3.5 shrink-0" />
@@ -93,7 +88,7 @@ export function SpecPage({ target, sidebarCollapsed, onExpandSidebar, onOpenWork
         <div className="flex-1" />
         <AccountUsageBar className="shrink-0 pr-0.5" />
         <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
-        {!rightPanelOpen && <TopBarControls />}
+        {!rightPanelOpen && <div className="w-[50px] shrink-0" aria-hidden="true" />}
       </div>
 
       {spec && <Tabs value={section} onValueChange={(value) => chooseSection(value as Section)} className="shrink-0 gap-0">

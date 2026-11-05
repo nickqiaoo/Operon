@@ -1,17 +1,24 @@
-import { useCallback, useRef, type ReactNode } from "react"
-import { motion } from "motion/react"
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react"
+import { motion, useMotionValueEvent, useTransform } from "motion/react"
 import { cn } from "@/lib/utils"
 import { ResizeHandle } from "./ResizeHandle"
 import { usePanelAnimation } from "./use-panel-animation"
 import {
   LEFT_SIDEBAR_AUTO_CLOSE_BELOW,
   LEFT_SIDEBAR_DEFAULT_WIDTH,
+  LEFT_SIDEBAR_RAIL_WIDTH,
   LEFT_SIDEBAR_MAX_WIDTH,
   LEFT_SIDEBAR_MIN_WIDTH,
+  TITLEBAR_TOGGLE_CLEARANCE,
 } from "./constants"
 
 interface LeftSidebarProps {
-  children: ReactNode
+  /**
+   * `rail` turns true only once the close animation has finished, and false as
+   * soon as it reopens: in between the expanded layout is clipped by the
+   * moving edge, the same way in both directions.
+   */
+  children: (rail: boolean) => ReactNode
   /** Whether the sidebar should currently be open. */
   isOpen: boolean
   /** Target width in px when open. */
@@ -25,13 +32,12 @@ interface LeftSidebarProps {
 const clampWidth = (value: number) =>
   Math.max(LEFT_SIDEBAR_MIN_WIDTH, Math.min(LEFT_SIDEBAR_MAX_WIDTH, value))
 
-/**
- * Left project sidebar — same "push open" mechanics as {@link RightPanel} but
- * mirrored to the left edge. The outer motion.aside animates width 0 → target;
- * the inner div is pinned to the full target width (anchored left) so its
- * content doesn't squish during the animation — the parent's overflow-hidden
- * clips it, producing the slide-in/out push the right panel uses.
- */
+// Labels are gone well before the edge reaches them, and come in once the
+// sidebar is mostly open, so no half-clipped text lingers in the slow tail.
+const labelOpacity = (progress: number) =>
+  Math.max(0, Math.min(1, (progress - 0.25) / 0.75))
+
+/** Keeps the navigation rail visible while the project sidebar is collapsed. */
 export function LeftSidebar({
   children,
   isOpen,
@@ -41,10 +47,37 @@ export function LeftSidebar({
   className,
 }: LeftSidebarProps) {
   const containerRef = useRef<HTMLElement | null>(null)
-  const { hasOpened, collapsed, opacity, animatedSize } = usePanelAnimation({
-    size: width,
+  const { progress, collapsed: rail } = usePanelAnimation({
+    size: width - LEFT_SIDEBAR_RAIL_WIDTH,
     isVisible: isOpen,
   })
+
+  const animatedWidth = useTransform(progress, (value) =>
+    LEFT_SIDEBAR_RAIL_WIDTH + value * (width - LEFT_SIDEBAR_RAIL_WIDTH)
+  )
+
+  // Written straight to the DOM per frame (no React render), and only when the
+  // value changes: a custom property restyles the whole subtree below it.
+  // The parent row holds the titlebars beside the sidebar (`titlebar-inset`);
+  // the labels inside read the opacity (`sidebar-label-fade`).
+  const written = useRef({ clear: Number.NaN, opacity: Number.NaN })
+  const writeShellVars = useCallback(() => {
+    const aside = containerRef.current
+    const host = aside?.parentElement
+    if (!aside || !host) return
+    const clear = Math.max(0, TITLEBAR_TOGGLE_CLEARANCE - animatedWidth.get())
+    if (clear !== written.current.clear) {
+      written.current.clear = clear
+      host.style.setProperty("--titlebar-toggle-clear", `${clear}px`)
+    }
+    const opacity = labelOpacity(progress.get())
+    if (opacity !== written.current.opacity) {
+      written.current.opacity = opacity
+      aside.style.setProperty("--sidebar-label-opacity", String(opacity))
+    }
+  }, [animatedWidth, progress])
+  useMotionValueEvent(animatedWidth, "change", writeShellVars)
+  useLayoutEffect(writeShellVars)
 
   const handleResize = useCallback(
     (next: number) => {
@@ -57,38 +90,44 @@ export function LeftSidebar({
     [onClose, onWidthChange]
   )
 
-  if (!hasOpened) return null
-
   return (
     <motion.aside
       ref={containerRef}
-      // Kept mounted while closed; see RightPanel.
-      inert={collapsed}
-      aria-hidden={collapsed}
+      aria-label="Main navigation"
+      data-testid="left-sidebar"
       className={cn(
         "relative h-full min-h-0 min-w-0 shrink-0 overflow-visible",
-        collapsed && "invisible",
         className
       )}
-      style={{ opacity, width: animatedSize }}
+      style={{ width: animatedWidth }}
     >
-      <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
-        <div
-          className="absolute top-0 bottom-0 left-0 flex min-w-0 flex-col border-r border-border/50 bg-sidebar"
-          style={{ width, minWidth: width }}
-        >
-          {children}
-        </div>
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 flex w-full min-w-0 flex-col bg-sidebar",
+          // The edge line is drawn over the content rather than taking a pixel
+          // from it, so the content gets the full 52px rail (square 32px pills).
+          // Below the titlebar it is always there; through the titlebar
+          // (before:) only while expanded, fading with the labels, so the
+          // rail doesn't cut the titlebar band into a cross.
+          "after:pointer-events-none after:absolute after:top-10 after:bottom-0 after:right-0 after:w-px after:bg-border/50",
+          "before:pointer-events-none before:absolute before:top-0 before:right-0 before:z-10 before:h-10 before:w-px before:bg-border/50 before:opacity-[var(--sidebar-label-opacity,1)]",
+          // The rail's project preview floats out past the edge.
+          !rail && "overflow-hidden"
+        )}
+      >
+        {children(rail)}
       </div>
-      <ResizeHandle
-        edge="right"
-        defaultSize={LEFT_SIDEBAR_DEFAULT_WIDTH}
-        getSizeFromPointer={({ x }) => {
-          const left = containerRef.current?.getBoundingClientRect().left ?? 0
-          return x - left
-        }}
-        setSize={handleResize}
-      />
+      {isOpen && (
+        <ResizeHandle
+          edge="right"
+          defaultSize={LEFT_SIDEBAR_DEFAULT_WIDTH}
+          getSizeFromPointer={({ x }) => {
+            const left = containerRef.current?.getBoundingClientRect().left ?? 0
+            return x - left
+          }}
+          setSize={handleResize}
+        />
+      )}
     </motion.aside>
   )
 }

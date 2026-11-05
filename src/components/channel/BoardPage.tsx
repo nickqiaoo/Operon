@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FormattedMessage, useIntl } from 'react-intl'
-import { Bot, PanelLeft, Plus } from 'lucide-react'
+import { FormattedMessage } from 'react-intl'
+import { Bot, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -21,8 +21,6 @@ interface BoardPageProps {
   view: BoardPageView
   /** A task opens its channel, a message its task: the other sidebar entry. */
   onViewChange: (view: BoardPageView) => void
-  sidebarCollapsed: boolean
-  onExpandSidebar: () => void
   onOpenWorkspace?: (workspaceId: number) => void
   /** Opens a conversation a task links to (a spec's agents and tickets). */
   onOpenChat?: (chat: SpecChatRef) => void
@@ -39,8 +37,7 @@ interface BoardPageProps {
  * each other: a task captured from a message opens that message, a message
  * shows the tasks made from it.
  */
-export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSidebar, onOpenWorkspace, onOpenChat, initialTaskId, onInitialTaskConsumed }: BoardPageProps) {
-  const intl = useIntl()
+export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, initialTaskId, onInitialTaskConsumed }: BoardPageProps) {
   const loadAgents = useChannelStore((s) => s.loadAgents)
   const loadChannels = useChannelStore((s) => s.loadChannels)
   const loadSessions = useChannelStore((s) => s.loadSessions)
@@ -87,24 +84,9 @@ export function BoardPage({ view, onViewChange, sidebarCollapsed, onExpandSideba
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      {/* Same header as the Inbox beside the same sidebar. pl-20 clears the macOS
-          traffic lights once the sidebar is collapsed (desktop only). */}
-      <div
-        className={cn(
-          'drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-3',
-          sidebarCollapsed && __APP_TARGET__ !== 'web' ? 'pl-20' : 'pl-4',
-        )}
-      >
-        {sidebarCollapsed && (
-          <button
-            type="button"
-            onClick={onExpandSidebar}
-            title={intl.formatMessage({ id: 'assistant.expandSidebar', defaultMessage: 'Expand sidebar' })}
-            className="no-drag flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
-        )}
+      {/* Same header as the Inbox beside the same sidebar. titlebar-inset clears
+          the fixed sidebar toggle while the sidebar is narrow. */}
+      <div className="drag-region titlebar-inset flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-3">
         <span className="text-xs text-muted-foreground">
           {view === 'board'
             ? <FormattedMessage id="sidebar.board" defaultMessage="Board" />

@@ -40,6 +40,47 @@ test.beforeEach(() => {
   fakeOnly()
 })
 
+test('top-right panel toggles stay mounted and stationary during panel animations', async ({ page }) => {
+  const ids = ['toggle-bottom-panel', 'toggle-right-panel']
+  for (const id of ids) {
+    for (const open of ['true', 'false']) {
+      const measurement = page.evaluate(async ({ ids, id }) => {
+        const buttons = ids.map(testId => document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!)
+        const before = buttons.map(button => button.getBoundingClientRect())
+        const trigger = document.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!
+        await new Promise<void>(resolve => trigger.addEventListener('click', () => resolve(), { once: true }))
+        let maxMovement = 0
+        let replaced = false
+        let hidden = false
+        const start = performance.now()
+        while (performance.now() - start < 400) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+          buttons.forEach((button, index) => {
+            const rect = button.getBoundingClientRect()
+            maxMovement = Math.max(maxMovement, Math.abs(rect.x - before[index].x), Math.abs(rect.y - before[index].y))
+            replaced ||= document.querySelector(`[data-testid="${ids[index]}"]`) !== button
+            hidden ||= !button.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+          })
+        }
+        return { maxMovement, replaced, hidden }
+      }, { ids, id })
+      await page.getByTestId(id).click()
+      expect(await measurement).toEqual({ maxMovement: 0, replaced: false, hidden: false })
+      await expect(page.getByTestId(id)).toHaveAttribute('aria-pressed', open)
+    }
+  }
+  const toggle = page.getByTestId('toggle-right-panel')
+  const original = await toggle.elementHandle()
+  const before = await toggle.boundingBox()
+  await toggle.click()
+  await page.getByRole('button', { name: 'Expand right panel', exact: true }).click()
+  expect(await original!.evaluate(element => element.isConnected)).toBe(true)
+  expect(await toggle.boundingBox()).toEqual(before)
+  await page.getByRole('button', { name: 'Restore right panel', exact: true }).click()
+  expect(await toggle.boundingBox()).toEqual(before)
+  await toggle.click()
+})
+
 test('right panel opens and closes from the top-bar toggle', async ({ page }) => {
   expect((await panels(page))?.right.open).toBe(false)
 

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { motion } from "motion/react"
-import { Maximize2, Minimize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useTabsStore } from "@/stores/tabs-store"
@@ -18,7 +17,6 @@ import { TabBar } from "./tabs/TabBar"
 import { TabContent } from "./tabs/TabContent"
 import { useVisiblePanelTabs } from "./tabs/use-visible-tabs"
 import { EmptyPanelState } from "./tabs/EmptyPanelState"
-import { TopBarControls } from "./TopBarControls"
 
 interface RightPanelProps {
   className?: string
@@ -38,26 +36,23 @@ export function RightPanel({ className }: RightPanelProps) {
   const containerRef = useRef<HTMLElement | null>(null)
   const isOpen = useAppShellStore((s) => s.rightPanelOpen)
   const preferredWidth = useAppShellStore((s) => s.rightPanelWidth)
+  // The room the center leaves, measured on every parent resize. The ref is
+  // always current (resize drags clamp to it); the state only changes when it
+  // changes the rendered width, so a resize that leaves the panel within its
+  // preferred width (each frame of the left sidebar's animation) re-renders
+  // nothing.
+  const maxWidthRef = useRef(RIGHT_PANEL_MAX_WIDTH)
+  const preferredWidthRef = useRef(preferredWidth)
+  preferredWidthRef.current = preferredWidth
   const [maxWidth, setMaxWidth] = useState(RIGHT_PANEL_MAX_WIDTH)
+  // A skipped update may have left the state behind the ref; a new preferred
+  // width (a resize drag) has to clamp against the real room.
+  useLayoutEffect(() => setMaxWidth(maxWidthRef.current), [preferredWidth])
   const width = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidth, preferredWidth))
   const setOpen = useAppShellStore((s) => s.setRightPanelOpen)
   const setWidth = useAppShellStore((s) => s.setRightPanelWidth)
   const expanded = useAppShellStore((s) => s.rightPanelExpanded)
-  const toggleExpanded = useAppShellStore((s) => s.toggleRightPanelExpanded)
-  const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
-  // Expanded + sidebar collapsed means this strip is the window's top-left
-  // corner, so it has to clear the macOS traffic lights the way every other
-  // leftmost titlebar row does. Any other combination has the sidebar or the
-  // center header sitting there instead, and padding here would just be a gap.
-  const reserveTrafficLights =
-    __APP_TARGET__ !== "web" && expanded && sidebarCollapsed
   const panel = useTabsStore((s) => s.right)
-  // Render from the *visible* list: browser tabs are filtered by the active
-  // conversation (see use-visible-tabs.ts).
-  // `panel` above still drives "collapse once the last tab closes", which has to
-  // read the real count. Using the filtered one there would make the whole panel
-  // vanish the moment you switch to a conversation that has no browser tabs.
-  const { tabs: visibleTabs, activeTabId: visibleActiveTabId } = useVisiblePanelTabs("right")
 
   const { hasOpened, collapsed, opacity, animatedSize } = usePanelAnimation({
     size: width,
@@ -80,8 +75,8 @@ export function RightPanel({ className }: RightPanelProps) {
       setOpen(false)
       return
     }
-    setWidth(Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidth, next)))
-  }, [maxWidth, setOpen, setWidth])
+    setWidth(Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidthRef.current, next)))
+  }, [setOpen, setWidth])
 
   useEffect(() => {
     if (!isOpen || expanded) return
@@ -94,10 +89,15 @@ export function RightPanel({ className }: RightPanelProps) {
       // Assistant / Inbox / Board hide the mounted editor with display:none.
       // A hidden layout has no usable measurement, not a new preferred width.
       if (parentWidth <= 0) return
-      setMaxWidth(Math.max(
+      const next = Math.max(
         RIGHT_PANEL_MIN_WIDTH,
         Math.min(RIGHT_PANEL_MAX_WIDTH, Math.floor(parentWidth - CENTER_CONTENT_MIN_WIDTH))
-      ))
+      )
+      maxWidthRef.current = next
+      const preferred = preferredWidthRef.current
+      setMaxWidth((previous) =>
+        Math.min(previous, preferred) === Math.min(next, preferred) ? previous : next
+      )
     }
 
     measureAvailableWidth()
@@ -159,56 +159,59 @@ export function RightPanel({ className }: RightPanelProps) {
               : { width, minWidth: width }
           }
         >
-          {/* Right panel header: + on left, then the window's top-right
-              controls (this panel sits at the window's right edge when open).
-              The bar's empty space is a drag-region; the buttons are no-drag. */}
-          <TabBar
-            panelId="right"
-            dragRegion
-            className={reserveTrafficLights ? "pl-20" : undefined}
-            accessory={
-              <div className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={toggleExpanded}
-                  aria-label={expanded ? "Restore right panel" : "Expand right panel"}
-                  aria-pressed={expanded}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground"
-                >
-                  {expanded ? (
-                    <Minimize2 className="h-3.5 w-3.5" />
-                  ) : (
-                    <Maximize2 className="h-3.5 w-3.5" />
-                  )}
-                </button>
-                <TopBarControls />
-              </div>
-            }
-          />
-          <div className="relative min-h-0 flex-1 overflow-hidden">
-            {visibleTabs.map((tab) => {
-              const isActive = tab.tabId === visibleActiveTabId
-              return (
-                <div
-                  key={tab.tabId}
-                  className="absolute inset-0 overflow-hidden"
-                  style={{
-                    opacity: isActive ? 1 : 0,
-                    zIndex: isActive ? 1 : 0,
-                    pointerEvents: isActive ? "auto" : "none",
-                  }}
-                  aria-hidden={!isActive}
-                >
-                  {/* Browser / terminal overlays hide on !isActive, which is
-                      what unmounting used to do for them on close. */}
-                  <TabContent panelId="right" tab={tab} isActive={isActive && !collapsed} />
-                </div>
-              )
-            })}
-            {visibleTabs.length === 0 && <EmptyPanelState panelId="right" />}
-          </div>
+          <RightPanelBody expanded={expanded} collapsed={collapsed} />
         </div>
       </div>
     </motion.aside>
   )
 }
+
+/**
+ * The tab strip and tab contents. Memoized apart from the shell: the shell
+ * re-renders on every width change (a resize drag, each frame of the left
+ * sidebar's animation while the panel is clamped), and none of that reaches
+ * the tabs.
+ */
+const RightPanelBody = memo(function RightPanelBody({ expanded, collapsed }: { expanded: boolean; collapsed: boolean }) {
+  // Render from the *visible* list: browser tabs are filtered by the active
+  // conversation (see use-visible-tabs.ts). RightPanel's `panel` still drives
+  // "collapse once the last tab closes", which has to read the real count:
+  // the filtered one would make the whole panel vanish the moment you switch
+  // to a conversation that has no browser tabs.
+  const { tabs: visibleTabs, activeTabId: visibleActiveTabId } = useVisiblePanelTabs("right")
+
+  return (
+    <>
+      {/* pr: room for App's fixed panel controls at the window's top-right.
+          Expanded, the strip also starts at the sidebar's edge. */}
+      <TabBar
+        panelId="right"
+        dragRegion
+        titlebarInset={expanded}
+        className="pr-[84px]"
+      />
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {visibleTabs.map((tab) => {
+          const isActive = tab.tabId === visibleActiveTabId
+          return (
+            <div
+              key={tab.tabId}
+              className="absolute inset-0 overflow-hidden"
+              style={{
+                opacity: isActive ? 1 : 0,
+                zIndex: isActive ? 1 : 0,
+                pointerEvents: isActive ? "auto" : "none",
+              }}
+              aria-hidden={!isActive}
+            >
+              {/* Browser / terminal overlays hide on !isActive, which is
+                  what unmounting used to do for them on close. */}
+              <TabContent panelId="right" tab={tab} isActive={isActive && !collapsed} />
+            </div>
+          )
+        })}
+        {visibleTabs.length === 0 && <EmptyPanelState panelId="right" />}
+      </div>
+    </>
+  )
+})

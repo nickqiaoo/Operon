@@ -1,11 +1,11 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, PanelLeft, MessageCircle, Pin, PinOff } from "lucide-react"
+import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Inbox, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, type LucideIcon } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
-import { Fragment, memo, useCallback, useState } from "react"
-import { useIntl, FormattedMessage } from "react-intl"
+import { Fragment, memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps } from "react"
+import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -21,6 +21,7 @@ import { useInboxStore } from "@/stores/inbox-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import { trackEvent } from "@/lib/analytics"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
+import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
 import { projectSidebarEntries } from "./workspace-groups"
 
@@ -311,8 +312,8 @@ function WorkspaceListSkeleton() {
  */
 interface ProjectSidebarProps {
   onOpenSpec?: (taskId: number, projectId: number) => void
-  onCollapse?: () => void
   collapsed?: boolean
+  width?: number
 }
 
 /**
@@ -325,8 +326,82 @@ function WorkspaceDiffStatsSync() {
   return null
 }
 
-export function ProjectSidebar({ onOpenSpec, onCollapse, collapsed }: ProjectSidebarProps) {
+interface SidebarNavItemProps extends ComponentProps<"button"> {
+  icon: LucideIcon
+  label: string
+  collapsed: boolean
+  active?: boolean
+  count?: number
+  actionCount?: number
+  tooltip?: boolean
+}
+
+// One rail/row slot: 40px tall, its 4px transparent border insetting the
+// hover/selection fill to a 32px pill with an 8px radius.
+const navItemClassName = (active: boolean | undefined) => cn(
+  "relative flex h-10 w-full shrink-0 items-center gap-2 rounded-xl border-4 border-transparent bg-clip-padding px-1.5 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+  active ? "bg-row-selected text-foreground hover:bg-row-selected" : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
+)
+
+function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, className, ...props }: SidebarNavItemProps) {
+  const total = actionCount || count
+  const [tooltipOpen, setTooltipOpen] = useState(false)
+
+  useEffect(() => {
+    setTooltipOpen(false)
+  }, [collapsed, tooltip])
+
+  return (
+    <Tooltip
+      key={collapsed ? "icon" : "label"}
+      delayDuration={600}
+      open={collapsed && tooltip && tooltipOpen}
+      onOpenChange={(open) => setTooltipOpen(collapsed && tooltip && open)}
+    >
+      <TooltipTrigger
+        asChild
+        onFocus={(event) => {
+          // Window activation restores focus without a previous DOM target.
+          if (!event.relatedTarget) {
+            event.preventDefault()
+            setTooltipOpen(false)
+          }
+        }}
+        onKeyUp={(event) => {
+          if (event.key === "Tab") setTooltipOpen(collapsed && tooltip)
+        }}
+      >
+        <button
+          type="button"
+          aria-label={label}
+          aria-current={active ? "page" : undefined}
+          className={cn(navItemClassName(active), className)}
+          {...props}
+        >
+          <Icon className="size-5 shrink-0" />
+          {/* Clipped, not ellipsized: while the sidebar closes the row narrows with
+              its edge and the label fades out; "Assist…" would flash meanwhile. */}
+          {!collapsed && <span className="sidebar-label-fade min-w-0 flex-1 overflow-hidden whitespace-nowrap">{label}</span>}
+          {total > 0 && (
+            <span className={cn(
+              "shrink-0 text-[10px] font-medium tabular-nums",
+              actionCount > 0 ? "rounded-full bg-accent-warm px-1 text-white" : "text-tint",
+              collapsed ? "absolute -right-0.5 top-0 min-w-3 text-center animate-in fade-in duration-150" : "sidebar-label-fade px-1",
+            )}>
+              {total > 99 ? "99+" : total}
+            </span>
+          )}
+        </button>
+      </TooltipTrigger>
+      {collapsed && tooltip && <TooltipContent side="right">{label}</TooltipContent>}
+    </Tooltip>
+  )
+}
+
+export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH }: ProjectSidebarProps) {
   const intl = useIntl()
+  const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
+  const addRepositoryLabel = intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })
   const mainView = useNavigationStore((s) => s.main)
   const showMain = useNavigationStore((s) => s.showMain)
   const showWorkbench = useNavigationStore((s) => s.showWorkbench)
@@ -354,6 +429,55 @@ export function ProjectSidebar({ onOpenSpec, onCollapse, collapsed }: ProjectSid
   const assistantAction = useInboxStore((s) => s.counts.assistantAction ?? 0)
   const assistantTotal = useInboxStore((s) => s.counts.assistantTotal ?? 0)
 
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
+  const projectsTriggerRef = useRef<HTMLButtonElement>(null)
+  const projectTreeRef = useRef<HTMLDivElement>(null)
+  const projectTreeId = useId()
+  const floating = collapsed && previewOpen
+
+  const closePreview = useCallback(() => {
+    setPreviewOpen(false)
+    if (collapsed) projectsTriggerRef.current?.focus({ preventScroll: true })
+  }, [collapsed])
+
+  useEffect(() => {
+    if (!collapsed) setPreviewOpen(false)
+  }, [collapsed])
+
+  useEffect(() => {
+    if (!floating || newWorkspaceProjectId !== null) return
+    const tree = projectTreeRef.current
+    const trigger = projectsTriggerRef.current
+    const isInside = (target: EventTarget | null) => target instanceof Node &&
+      (tree?.contains(target) || trigger?.contains(target))
+    const dismissOutside = (event: Event) => {
+      if (!isInside(event.target)) setPreviewOpen(false)
+    }
+    const dismissEscape = (event: KeyboardEvent) => {
+      // Let an inner menu or dialog consume Escape first.
+      if (event.key !== "Escape" || event.defaultPrevented) return
+      event.preventDefault()
+      closePreview()
+    }
+    // Focus the current item without moving the saved scroll position.
+    const focusTarget = tree?.querySelector<HTMLElement>('[aria-current="page"]') ?? tree
+    focusTarget?.focus({ preventScroll: true })
+    document.addEventListener("pointerdown", dismissOutside)
+    document.addEventListener("focusin", dismissOutside)
+    window.addEventListener("keydown", dismissEscape)
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside)
+      document.removeEventListener("focusin", dismissOutside)
+      window.removeEventListener("keydown", dismissEscape)
+    }
+  }, [floating, closePreview, newWorkspaceProjectId])
+
+  const handleOpenSpec = useCallback((taskId: number, projectId: number) => {
+    onOpenSpec?.(taskId, projectId)
+    closePreview()
+  }, [onOpenSpec, closePreview])
+
   // Clear unseen when user switches to a workspace. Tabs are read at click time
   // rather than subscribed: they change on every send (chat id, title, draft),
   // and subscribing re-rendered the whole sidebar each time (~12ms in dev).
@@ -365,7 +489,8 @@ export function ProjectSidebar({ onOpenSpec, onCollapse, collapsed }: ProjectSid
     setActiveWorkspace(workspaceId, projectId)
     // Picking a workspace leaves the Assistant / Inbox / Board view.
     showWorkbench()
-  }, [clearUnseen, setActiveWorkspace, showWorkbench])
+    closePreview()
+  }, [clearUnseen, setActiveWorkspace, showWorkbench, closePreview])
 
   const handleTogglePin = useCallback((project: Project) => {
     void setProjectPinned(project.id, project.pinnedAt == null).catch((error: unknown) => {
@@ -406,8 +531,6 @@ export function ProjectSidebar({ onOpenSpec, onCollapse, collapsed }: ProjectSid
     }
   }
 
-  const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
-
   const handleOpenAddWorkspace = useCallback((project: Project) => {
     setNewWorkspaceProjectId(project.id)
   }, [])
@@ -445,213 +568,170 @@ export function ProjectSidebar({ onOpenSpec, onCollapse, collapsed }: ProjectSid
     }
   }
 
-
-
-
+  // The root follows the animated sidebar width, so the nav rows' hover and
+  // selection pills narrow with the edge into the rail's 32px ones instead of
+  // being cut off square. The project tree keeps the full width (below) and is
+  // clipped instead: reflowing it every frame would cost a layout.
   return (
-    <div className="h-full flex flex-col bg-sidebar text-sidebar-foreground">
+    <div className="relative flex h-full w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <WorkspaceDiffStatsSync />
-      {/* Top Drag Region. pl-20 reserves room for the macOS traffic lights — only
-          on the desktop app; the web build has no window controls, so it would
-          otherwise be an empty gap. */}
-      <div className={`h-10 px-4 ${__APP_TARGET__ !== 'web' ? 'pl-20 ' : ''}border-b border-border/40 bg-sidebar flex items-center justify-start drag-region shrink-0`}>
-        {onCollapse && !collapsed && (
-          <button
-            className="no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent-hover hover:text-foreground transition-colors"
-            style={{ viewTransitionName: "sidebar-trigger" }}
-            onClick={onCollapse}
-            title={intl.formatMessage({ id: "sidebar.collapse", defaultMessage: "Collapse sidebar" })}
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
+      {/* Titlebar cell. Canvas-coloured under a sidebar-coloured layer that
+          fades with the labels: expanded it is the sidebar's grey top, while
+          the rail (narrower than the traffic lights + toggle) leaves the
+          titlebar one white band across the window. Same /50 line as the
+          titlebars beside it, so the two meet as one. */}
+      <div className="drag-region relative h-10 shrink-0 border-b border-border/50 bg-background">
+        <div className="sidebar-label-fade pointer-events-none absolute inset-0 bg-sidebar" />
+      </div>
+
+      {/* Global destinations keep their labels when expanded and become a rail when collapsed. */}
+      <nav aria-label="Workspace navigation" className="relative shrink-0 space-y-1 px-1.5">
+        {/* The rail's Projects button exists only once the sidebar has finished
+            collapsing. Until then this stand-in sits in its slot (just below the
+            nav) and fades in as the labels fade out, so the real one replaces it
+            without a pop. First child, so space-y doesn't add a margin under
+            Channels. */}
+        {!collapsed && (
+          <div aria-hidden="true"
+            className={cn(navItemClassName(mainView.kind === "workbench" || mainView.kind === "spec"),
+              "sidebar-rail-fade pointer-events-none absolute left-1.5 top-full mt-1 w-10")}>
+            <Folder className="size-5 shrink-0" />
+          </div>
         )}
-      </div>
-
-      {/* Global destinations */}
-      <div className="px-2 pt-2 shrink-0">
-        <button
-          type="button"
-          onClick={() => showMain({ kind: "assistant" })}
-          className={cn(
-            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-            // Same selection fill as a workspace row, so the two read as one kind of "you are here".
-            assistantActive
-              ? "bg-row-selected text-foreground hover:bg-row-selected"
-              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-          )}
-        >
-          <MessageCircle className="h-4 w-4" />
-          <span className="flex-1"><FormattedMessage id="sidebar.assistant" defaultMessage="Assistant" /></span>
-          {assistantAction > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
-              {assistantAction > 99 ? "99+" : assistantAction}
-            </span>
-          ) : assistantTotal > 0 ? (
-            <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
-              {assistantTotal > 99 ? "99+" : assistantTotal}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => { showMain({ kind: "inbox" }); trackEvent("page_opened", { page: "inbox" }) }}
-          className={cn(
-            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-            inboxActive
-              ? "bg-row-selected text-foreground hover:bg-row-selected"
-              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-          )}
-        >
-          <Inbox className="h-4 w-4" />
-          <span className="flex-1"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
-          {inboxAction > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
-              {inboxAction > 99 ? "99+" : inboxAction}
-            </span>
-          ) : inboxTotal > 0 ? (
-            <span className="px-1 text-xs font-semibold leading-none text-tint tabular-nums">
-              {inboxTotal > 99 ? "99+" : inboxTotal}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => { showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }}
-          className={cn(
-            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-            boardActive
-              ? "bg-row-selected text-foreground hover:bg-row-selected"
-              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-          )}
-        >
-          <LayoutDashboard className="h-4 w-4" />
-          <span className="flex-1"><FormattedMessage id="sidebar.board" defaultMessage="Board" /></span>
-        </button>
-        <button
-          type="button"
-          onClick={() => { showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }}
-          className={cn(
-            "w-full flex items-center gap-2 px-2 py-2 text-sm font-medium rounded-lg transition-colors text-left",
-            channelsActive
-              ? "bg-row-selected text-foreground hover:bg-row-selected"
-              : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
-          )}
-        >
-          <Hash className="h-4 w-4" />
-          <span className="flex-1"><FormattedMessage id="sidebar.channels" defaultMessage="Channels" /></span>
-        </button>
-      </div>
-
-      {/* Secondary Header */}
-      <div className="h-9 px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 heading-section">
-          <span>Projects</span>
-        </div>
-        {canAddProject && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="mr-2 h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
-            onClick={handleAddProject}
-            title={intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })}
-            aria-label={intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+        <SidebarNavItem icon={MessageCircle} label={intl.formatMessage({ id: "sidebar.assistant", defaultMessage: "Assistant" })} collapsed={collapsed} active={assistantActive}
+          count={assistantTotal} actionCount={assistantAction}
+          onClick={() => { setPreviewOpen(false); showMain({ kind: "assistant" }) }} />
+        <SidebarNavItem icon={Inbox} label={intl.formatMessage({ id: "sidebar.inbox", defaultMessage: "Inbox" })} collapsed={collapsed} active={inboxActive}
+          count={inboxTotal} actionCount={inboxAction}
+          onClick={() => { setPreviewOpen(false); showMain({ kind: "inbox" }); trackEvent("page_opened", { page: "inbox" }) }} />
+        <SidebarNavItem icon={LayoutDashboard} label={intl.formatMessage({ id: "sidebar.board", defaultMessage: "Board" })} collapsed={collapsed} active={boardActive}
+          onClick={() => { setPreviewOpen(false); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
+        <SidebarNavItem icon={Hash} label={intl.formatMessage({ id: "sidebar.channels", defaultMessage: "Channels" })} collapsed={collapsed} active={channelsActive}
+          onClick={() => { setPreviewOpen(false); showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }} />
+        {collapsed && (
+          <SidebarNavItem ref={projectsTriggerRef} icon={Folder} label={projectsLabel} collapsed
+            active={mainView.kind === "workbench" || mainView.kind === "spec"}
+            aria-expanded={floating} aria-controls={projectTreeId} aria-haspopup="dialog" tooltip={!floating}
+            onClick={() => setPreviewOpen((open) => !open)} />
         )}
-      </div>
-      <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0" viewportClassName="scroll-fade-y [--scroll-fade-gutter:0px]">
-        <div className="space-y-0.5 pb-3 pt-0">
-          {projects.length === 0 && !projectsLoaded ? (
-            // First load with nothing cached. Without this the empty state
-            // shows while the fetch is still out — a lie on web, where it can
-            // take a second.
-            <WorkspaceListSkeleton />
-          ) : projects.length === 0 ? (
-            <div className="mx-4 mt-6 rounded-xl border border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
-              No projects yet.
-            </div>
-          ) : (
-            projects.map((project, i) => (
-              <Fragment key={project.id}>
-                {/* A hairline where the pinned ones end. */}
-                {i > 0 && projects[i - 1].pinnedAt != null && project.pinnedAt == null && (
-                  <div className="mx-4 my-1 border-t border-border/40" />
-                )}
-                <ProjectItem
-                  project={project}
-                  onSelectWorkspace={handleSelectWorkspace}
-                  // Only one place is "current": while the Assistant is showing, no workspace is.
-                  activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
-                  onAddWorkspace={handleOpenAddWorkspace}
-                  onTogglePin={handleTogglePin}
-                  error={projectErrors[String(project.id)] ?? null}
-                  workspaceDiffStats={workspaceDiffStats}
-                  activeSpecId={activeSpecId}
-                  onOpenSpec={onOpenSpec}
-                />
-              </Fragment>
-            ))
-          )}
-        </div>
-      </ScrollArea>
+      </nav>
 
-      {/* Bottom Actions */}
+      {/* One mounted tree: changing its placement preserves scroll and project state. */}
       <div
+        ref={projectTreeRef}
+        id={projectTreeId}
+        data-testid="project-tree"
+        role={collapsed ? "dialog" : "region"}
+        aria-label={projectsLabel}
+        aria-hidden={collapsed && !floating}
+        inert={collapsed && !floating}
+        tabIndex={-1}
         className={cn(
-          "px-3 pt-3 border-t border-border/40 dark:border-border/35 space-y-0.5 shrink-0",
-          __APP_TARGET__ === "web" ? "pb-12" : "pb-3"
+          "flex min-h-0 flex-col outline-none",
+          collapsed
+            ? "absolute bottom-2 left-[calc(100%+8px)] top-12 z-50 rounded-xl border border-border/60 bg-sidebar py-2 shadow-float"
+            : "sidebar-label-fade flex-1 shrink-0",
+          collapsed && !floating && "invisible pointer-events-none opacity-0",
         )}
+        style={collapsed ? { width, maxWidth: "calc(100vw - 68px)" } : { width }}
       >
-        <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-          onClick={() => openPage({ kind: "canvas" })}
-        >
-          <Network className="h-4 w-4" />
-          <FormattedMessage id="sidebar.workflow" defaultMessage="Workflow" />
-        </button>
-        <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-          onClick={() => openPage({ kind: "plugins" })}
-        >
-          <Package className="h-4 w-4" />
-          <FormattedMessage id="sidebar.plugins" defaultMessage="Plugins" />
-        </button>
-        <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-          onClick={() => openPage({ kind: "schedule" })}
-        >
-          <CalendarClock className="h-4 w-4" />
-          <FormattedMessage id="sidebar.schedule" defaultMessage="Schedule" />
-        </button>
-
-        <div className="flex items-center gap-1 mt-1">
-          <button
-            data-testid="settings-button"
-            className="flex-1 flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-foreground/85 hover:bg-row-hover hover:text-foreground"
-            onClick={() => openPage({ kind: "settings" })}
-          >
-            <Settings className="h-4 w-4" />
-            <FormattedMessage id="sidebar.settings" defaultMessage="Settings" />
-          </button>
-          <UpdateReadyPill />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}
-                className="flex items-center justify-center h-9 w-9 shrink-0 rounded-lg transition-colors text-muted-foreground hover:bg-accent-hover hover:text-foreground active:bg-accent-active"
-                onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")}
-              >
-                <CircleHelp className="h-4 w-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <FormattedMessage id="sidebar.help" defaultMessage="Help" />
-            </TooltipContent>
-          </Tooltip>
+        {/* Secondary Header */}
+        <div className="h-9 px-4 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 heading-section">
+            <span>{projectsLabel}</span>
+          </div>
+          {canAddProject && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="mr-2 h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
+              onClick={handleAddProject}
+              title={addRepositoryLabel}
+              aria-label={addRepositoryLabel}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
         </div>
+        <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0" viewportClassName="scroll-fade-y [--scroll-fade-gutter:0px]">
+          <div className="space-y-0.5 pb-3 pt-0">
+            {projects.length === 0 && !projectsLoaded ? (
+              // First load with nothing cached. Without this the empty state
+              // shows while the fetch is still out — a lie on web, where it can
+              // take a second.
+              <WorkspaceListSkeleton />
+            ) : projects.length === 0 ? (
+              <div className="mx-4 mt-6 rounded-xl border border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
+                No projects yet.
+              </div>
+            ) : (
+              projects.map((project, i) => (
+                <Fragment key={project.id}>
+                  {/* A hairline where the pinned ones end. */}
+                  {i > 0 && projects[i - 1].pinnedAt != null && project.pinnedAt == null && (
+                    <div className="mx-4 my-1 border-t border-border/40" />
+                  )}
+                  <ProjectItem
+                    project={project}
+                    onSelectWorkspace={handleSelectWorkspace}
+                    // Only one place is "current": while the Assistant is showing, no workspace is.
+                    activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
+                    onAddWorkspace={handleOpenAddWorkspace}
+                    onTogglePin={handleTogglePin}
+                    error={projectErrors[String(project.id)] ?? null}
+                    workspaceDiffStats={workspaceDiffStats}
+                    activeSpecId={activeSpecId}
+                    onOpenSpec={handleOpenSpec}
+                  />
+                </Fragment>
+              ))
+            )}
+          </div>
+        </ScrollArea>
       </div>
+      {collapsed && <div className="min-h-0 flex-1" />}
+
+      {/* Keep every bottom destination directly accessible in both modes. */}
+      <nav
+        aria-label="Tools and settings"
+        className={cn("relative shrink-0 space-y-1 border-t border-border/40 px-1.5 pt-2", __APP_TARGET__ === "web" ? "pb-12" : "pb-3")}
+      >
+        {/* The rail shows a pending update above this group. Always mounted in
+            its slot, out of the layout: expanded it fades out with the labels
+            (the row one beside Settings takes over), so the mode switch never
+            moves or remounts it. First child: see the Projects stand-in. */}
+        <div
+          className={cn("absolute bottom-full left-1.5 mb-1 w-10", !collapsed && "sidebar-rail-fade pointer-events-none")}
+          inert={!collapsed}
+          aria-hidden={!collapsed || undefined}
+        >
+          <UpdateReadyPill variant="rail" />
+        </div>
+        <SidebarNavItem icon={Network} label={intl.formatMessage({ id: "sidebar.workflow", defaultMessage: "Workflow" })} collapsed={collapsed} onClick={() => openPage({ kind: "canvas" })} />
+        <SidebarNavItem icon={Package} label={intl.formatMessage({ id: "sidebar.plugins", defaultMessage: "Plugins" })} collapsed={collapsed} onClick={() => openPage({ kind: "plugins" })} />
+        <SidebarNavItem icon={CalendarClock} label={intl.formatMessage({ id: "sidebar.schedule", defaultMessage: "Schedule" })} collapsed={collapsed} onClick={() => openPage({ kind: "schedule" })} />
+        <div className="flex items-center gap-0.5">
+          <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })} collapsed={collapsed} data-testid="settings-button"
+            // min-w-10: while the sidebar closes, Help and the update button
+            // overflow past the edge (and are clipped) rather than squeeze this.
+            className={cn("min-w-10", !collapsed && "flex-1")} onClick={() => openPage({ kind: "settings" })} />
+          {!collapsed && <UpdateReadyPill className="sidebar-label-fade" />}
+          {!collapsed && (
+            <Tooltip delayDuration={600}>
+              <TooltipTrigger asChild onFocus={(event) => {
+                if (!event.relatedTarget) event.preventDefault()
+              }}>
+                <button type="button" aria-label={intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}
+                  className="sidebar-label-fade flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground active:bg-accent-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")}>
+                  <CircleHelp className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </nav>
 
       <NewWorkspaceDialog
         open={!!newWorkspaceProjectId}

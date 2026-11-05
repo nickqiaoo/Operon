@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { CircleArrowUp, Loader2 } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 
@@ -12,24 +12,39 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import { useUpdateStore } from "@/stores/update-store"
 
 /**
  * Sidebar affordance for a downloaded-but-not-installed update.
  *
- * Renders nothing until the updater reports `downloaded`; from then on it sits
- * next to the help button as one more rail icon button — same size, radius and
- * hover as its neighbours. Only the icon carries the brand colour: that is
- * enough to be spotted in a quiet rail without a filled slab that no other
- * control in the app uses. Clicking it opens a dialog that explains the
- * restart. Dismissing the dialog keeps the button around, so the update is
- * never lost and never interrupts.
+ * Renders nothing until the updater reports `downloaded`; from then on it is
+ * one more icon button among its neighbours, in their size, radius and hover:
+ * `row` beside the help button in the expanded sidebar, `rail` a rail slot of
+ * the collapsed one. Only the icon carries the brand colour: that is enough to
+ * be spotted in a quiet rail without a filled slab that no other control in
+ * the app uses. Clicking it opens a dialog that explains the restart.
+ * Dismissing the dialog keeps the button around, so the update is never lost
+ * and never interrupts.
  */
-export function UpdateReadyPill() {
+interface UpdateReadyPillProps {
+  variant?: "row" | "rail"
+  className?: string
+}
+
+// The pop-in announces the update once per launch. Both variants mount and
+// unmount as the sidebar changes mode; replaying it there would flash.
+let introPlayed = false
+
+export function UpdateReadyPill({ variant = "row", className }: UpdateReadyPillProps) {
   const intl = useIntl()
   const downloadedVersion = useUpdateStore((state) => state.downloadedVersion)
   const [open, setOpen] = useState(false)
   const [restarting, setRestarting] = useState(false)
+  const [intro] = useState(() => !introPlayed)
+  useEffect(() => {
+    if (downloadedVersion) introPlayed = true
+  }, [downloadedVersion])
 
   if (!downloadedVersion) return null
 
@@ -40,7 +55,7 @@ export function UpdateReadyPill() {
 
   return (
     <>
-      <Tooltip>
+      <Tooltip delayDuration={600}>
         <TooltipTrigger asChild>
           <button
             type="button"
@@ -50,12 +65,20 @@ export function UpdateReadyPill() {
               { version: downloadedVersion },
             )}
             onClick={() => setOpen(true)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-brand transition-colors hover:bg-accent-hover active:bg-accent-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 animate-in fade-in zoom-in-95 duration-300"
+            className={cn(
+              "flex shrink-0 items-center text-brand transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              variant === "rail"
+                // Same slot as the rail's nav items (see ProjectSidebar).
+                ? "h-10 w-full rounded-xl border-4 border-transparent bg-clip-padding px-1.5 hover:bg-row-hover"
+                : "size-9 justify-center rounded-lg hover:bg-accent-hover active:bg-accent-active",
+              intro && "animate-in fade-in zoom-in-95 duration-300",
+              className,
+            )}
           >
-            <CircleArrowUp className="h-4 w-4" />
+            <CircleArrowUp className={variant === "rail" ? "size-5" : "size-4"} />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top">
+        <TooltipContent side={variant === "rail" ? "right" : "top"}>
           <FormattedMessage
             id="update.ready.tooltip"
             defaultMessage="Update v{version} ready"
