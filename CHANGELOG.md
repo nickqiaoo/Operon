@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.5.9] - 2026-11-05
+
+### Changed
+
+- The review toolbar removes its bottom divider to match the file browser.
+- Project, grouping and task filter controls use borderless buttons with subtle hover and open backgrounds.
+- The task list and board switch removes its outer border and selected-state shadow while keeping the selected view highlighted.
+
 ## [1.5.8] - 2026-11-05
 
 ### Added
