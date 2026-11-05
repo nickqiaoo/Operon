@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ArrowLeft, ChevronDown, ChevronRight, FileDiff, ListCollapse, ListRestart, RefreshCw, X } from "lucide-react"
 import { PatchDiff } from "@pierre/diffs/react"
 import { PIERRE_HSCROLL_CSS } from "@shared/tool-rendering/diff"
+import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
 import type { MobileHeaderAction } from "./MobileHeader"
 import { useThemeStore } from "@/stores/theme-store"
@@ -111,7 +112,7 @@ export function MobileDiffBrowser<TFile extends MobileDiffFileBase>({
       disableFileHeader: true,
       disableBackground: false,
       themeType,
-      theme: { light: "pierre-light", dark: "pierre-dark" },
+      theme: PIERRE_THEME,
       unsafeCSS: PIERRE_HSCROLL_CSS,
     }),
     [themeType]

@@ -1,3 +1,5 @@
+import { PIERRE_THEME } from './pierre-theme'
+
 export interface DiffStats {
   additions: number
   deletions: number
@@ -55,10 +57,7 @@ export function createPierreDiffOptions(
     lineDiffType: 'none' as const,
     overflow,
     themeType,
-    theme: {
-      light: 'pierre-light',
-      dark: 'pierre-dark',
-    },
+    theme: PIERRE_THEME,
     ...(overflow === 'scroll' ? { unsafeCSS: PIERRE_HSCROLL_CSS } : {}),
   }
 }
@@ -73,10 +72,7 @@ export function createPierreFileOptions(themeType: PierreDiffThemeType, overflow
     overflow,
     themeType,
     disableFileHeader: true,
-    theme: {
-      light: 'pierre-light',
-      dark: 'pierre-dark',
-    },
+    theme: PIERRE_THEME,
     ...(overflow === 'scroll' ? { unsafeCSS: PIERRE_HSCROLL_CSS } : {}),
   }
 }

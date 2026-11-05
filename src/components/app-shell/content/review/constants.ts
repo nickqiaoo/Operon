@@ -1,5 +1,6 @@
 import { defineMessages, type MessageDescriptor } from "react-intl"
 import type { WorkerInitializationRenderOptions, WorkerPoolOptions } from "@pierre/diffs/react"
+import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 // Pierre ships its own worker pool that runs shiki syntax highlighting off the
 // main thread. Vite's `?worker` bundles this entry as a standalone ES-module
 // worker; `WorkerPoolContextProvider` in ReviewTab feeds it to every
@@ -23,6 +24,7 @@ export const PIERRE_WORKER_POOL_OPTIONS: WorkerPoolOptions = {
   workerFactory: () => new PierreDiffWorker(),
 }
 export const PIERRE_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
+  theme: PIERRE_THEME,
   // Initial setting; ReviewWorkerOptionsSync applies the persisted preference
   // and updates the pool when the word-level diff toggle changes.
   lineDiffType: "none",

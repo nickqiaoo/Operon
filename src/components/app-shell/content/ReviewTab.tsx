@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Virtualizer, WorkerPoolContextProvider, useWorkerPool } from "@pierre/diffs/react"
 import type { FileDiffOptions } from "@pierre/diffs"
+import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { gitKeys, resolveDefaultBase, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
@@ -97,7 +98,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
       disableFileHeader: true,
       disableBackground: false,
       themeType,
-      theme: { light: "pierre-light", dark: "pierre-dark" },
+      theme: PIERRE_THEME,
       unsafeCSS: DIFF_SCROLLBAR_CSS,
     }),
     [themeType, viewMode, wordDiff, wordWrap],

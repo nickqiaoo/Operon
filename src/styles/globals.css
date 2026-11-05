@@ -1473,62 +1473,42 @@ body > div > button[title="Exit fullscreen"] {
   --code-diff-hunk: #268bd2;
 }
 
-/*
- * Fallback overrides for @pierre/diffs:
- * keep built-in pierre-light/dark syntax theme, but pin diff surfaces/colors
- * so older Chromium runtimes don't degrade to flat white.
- */
+/* Shared by file previews and diffs, including their shadow roots. Use the
+ * active UI preset's code palette for surfaces, syntax, and change markers. */
 .pierre-diff-file-view {
   border: 0;
-  background-color: #f8fafc;
+  background-color: var(--code-bg);
 
   --diffs-font-size: 12px;
   --diffs-line-height: 18px;
   --diffs-gap-block: 4px;
-  --diffs-light-bg: #f8fafc;
-  --diffs-gap-style: 1px solid #eef2f7;
-  --diffs-bg-context-override: #f8fafc;
-  --diffs-bg-context-gutter-override: #f1f5f9;
-  --diffs-bg-separator-override: #eef2f7;
-  --diffs-bg-hover-override: #f1f5f9;
-  --diffs-fg-number-override: #6b7280;
+  --diffs-light-bg: var(--code-bg);
+  --diffs-dark-bg: var(--code-bg);
+  --diffs-light: var(--code-fg);
+  --diffs-dark: var(--code-fg);
+  --diffs-gap-style: 1px solid var(--code-border);
+  --diffs-bg-context-override: var(--code-bg);
+  --diffs-bg-context-gutter-override: var(--code-gutter);
+  --diffs-bg-separator-override: var(--code-line);
+  --diffs-bg-hover-override: var(--code-line);
+  --diffs-fg-number-override: var(--code-muted);
+  --diffs-modified-color-override: var(--code-diff-meta);
 
   /* Pierre 1.2.x derives the row fill by mixing a small amount of the
      *saturated* base color into the surface (--diffs-bg). So we set only the
      saturated base (--diffs-*-color-override) and let it compute the tint.
      Do NOT set --diffs-bg-*-override to a pre-diluted near-white here: 1.2.x
      mixes it again and the result washes out to invisible. */
-  --diffs-addition-color-override: #3f9348;
-  --diffs-bg-addition-emphasis-override: rgba(63, 147, 72, 0.18);
+  --diffs-addition-color-override: var(--code-diff-added);
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--code-diff-added) 18%, transparent);
 
-  --diffs-deletion-color-override: #c84d4d;
-  --diffs-bg-deletion-emphasis-override: rgba(200, 77, 77, 0.16);
+  --diffs-deletion-color-override: var(--code-diff-removed);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--code-diff-removed) 16%, transparent);
 }
 
 .dark .pierre-diff-file-view {
-  /* Sit the diff surface on the app background (#0c0c0e) instead of a blue-grey
-     slate, so the card blends into the surrounding panel like codex's. Context
-     rows / gutter share the base; separator + hover are a faint NEUTRAL lift so
-     the unmodified-lines pill stays visible without reading as grey/blue. */
-  background-color: var(--color-background);
-
-  --diffs-font-size: 12px;
-  --diffs-line-height: 18px;
-  --diffs-gap-block: 4px;
-  --diffs-dark-bg: var(--color-background);
-  --diffs-gap-style: 1px solid #1c1c20;
-  --diffs-bg-context-override: var(--color-background);
-  --diffs-bg-context-gutter-override: var(--color-background);
-  --diffs-bg-separator-override: #1a1a1e;
-  --diffs-bg-hover-override: #161619;
-  --diffs-fg-number-override: #6b7280;
-
-  /* See light block: only the saturated base is set; 1.2.x mixes the fill. */
-  --diffs-addition-color-override: #77b985;
-  --diffs-bg-addition-emphasis-override: rgba(119, 185, 133, 0.32);
-
-  --diffs-deletion-color-override: #d17979;
-  --diffs-bg-deletion-emphasis-override: rgba(209, 121, 121, 0.3);
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--code-diff-added) 32%, transparent);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--code-diff-removed) 30%, transparent);
 }
 
 .pierre-file-preview-view {

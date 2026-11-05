@@ -191,7 +191,7 @@ export const FileSection = memo(function FileSection({
   return (
     <section
       ref={sectionRef}
-      className="group/file-diff flex flex-col overflow-hidden rounded-lg bg-[#f8fafc] dark:bg-[#0c0c0e]"
+      className="group/file-diff flex flex-col overflow-hidden rounded-lg bg-[var(--code-bg)]"
       data-review-path={file.path}
     >
       <header className="flex h-6 items-center gap-2 px-2 text-xs">
