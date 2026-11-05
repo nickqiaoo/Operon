@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-11-05
+
+### Added
+
+- The collapsed sidebar becomes an icon rail: every destination stays one click away, Projects opens the project tree in a popover, and a downloaded update shows above the bottom buttons.
+- The review toolbar adds word wrap, word-level diff and refresh buttons; wrap and word-level diff are remembered.
+- Theme presets include GitHub Dark, Monokai Classic, Ayu Light and Ayu Mirage, with matching file-preview and diff colors.
+
+### Changed
+
+- The sidebar toggle and the panel toggles stay fixed at the window corners while panels open and close; the right panel's maximize button sits next to them.
+- With the sidebar collapsed, the titlebar runs as one band across the window.
+
+### Fixed
+
+- Opening and closing the sidebar animates smoothly instead of stalling and jumping to the end, and titlebar text follows the sidebar edge.
+- File previews and diffs follow the selected theme, including syntax highlighting, line numbers, change markers and file headers; switching presets updates existing highlights without re-tokenizing the file.
+
 ## [1.5.7] - 2026-11-04
 
 ### Added
