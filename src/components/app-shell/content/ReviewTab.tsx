@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIntl } from "react-intl"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Virtualizer, WorkerPoolContextProvider } from "@pierre/diffs/react"
+import { Virtualizer, WorkerPoolContextProvider, useWorkerPool } from "@pierre/diffs/react"
 import type { FileDiffOptions } from "@pierre/diffs"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { gitKeys, resolveDefaultBase, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useThemeStore } from "@/stores/theme-store"
+import { useReviewDisplayStore } from "@/stores/review-display-store"
 import { useReviewTurnStore } from "@/stores/review-turn-store"
 import type { CommentMeta } from "@/components/editor/comments/useLineComments"
 import {
@@ -58,6 +59,11 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
   // Range-scope selections: base branch for `branch`, commit sha for `commit`.
   const [baseBranch, setBaseBranch] = useState<string | null>(null)
   const [commitSha, setCommitSha] = useState<string | null>(null)
+  const wordWrap = useReviewDisplayStore((s) => s.wordWrap)
+  const wordDiff = useReviewDisplayStore((s) => s.wordDiff)
+  const toggleWordWrap = useReviewDisplayStore((s) => s.toggleWordWrap)
+  const toggleWordDiff = useReviewDisplayStore((s) => s.toggleWordDiff)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified")
   // Last-turn diffs come from the sidecar repo (not the project git), so the
   // expand-unchanged loader (which reads project git refs) can't resolve them.
@@ -82,10 +88,8 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
     () => ({
       diffStyle: viewMode,
       diffIndicators: "bars" as const,
-      // No intra-line (word/char) highlighting — only the line is marked
-      // changed, not the specific tokens within it.
-      lineDiffType: "none" as const,
-      overflow: "scroll" as const,
+      lineDiffType: wordDiff ? "word" : "none",
+      overflow: wordWrap ? "wrap" : "scroll",
       hunkSeparators: "line-info" as const,
       // Pierre's built-in file header would duplicate the path we already
       // render in FileSection's <header>. Codex's review tab also disables
@@ -96,7 +100,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
       theme: { light: "pierre-light", dark: "pierre-dark" },
       unsafeCSS: DIFF_SCROLLBAR_CSS,
     }),
-    [themeType, viewMode],
+    [themeType, viewMode, wordDiff, wordWrap],
   )
 
   // Live updates: subscribe this repo to the git-repo-watcher and invalidate
@@ -287,6 +291,15 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
     () => queryClient.invalidateQueries({ queryKey: gitKeys.all(rootPath) }),
     [queryClient, rootPath],
   )
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      await refreshGit()
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [refreshGit])
 
   const runFileAction = useCallback(
     async (path: string, action: FileAction) => {
@@ -521,6 +534,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
       poolOptions={PIERRE_WORKER_POOL_OPTIONS}
       highlighterOptions={PIERRE_HIGHLIGHTER_OPTIONS}
     >
+    <ReviewWorkerOptionsSync wordDiff={wordDiff} />
     <div className="flex h-full min-h-0 flex-col">
       <ReviewToolbar
         scope={scope}
@@ -531,6 +545,12 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
         files={files ?? []}
         activePath={activePath}
         onSelectPath={handleSelectPath}
+        wordWrap={wordWrap}
+        onToggleWordWrap={toggleWordWrap}
+        wordDiff={wordDiff}
+        onToggleWordDiff={toggleWordDiff}
+        isRefreshing={isRefreshing || reviewQuery.isFetching}
+        onRefresh={handleRefresh}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         isTreeVisible={treeOpen}
@@ -706,3 +726,16 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
 
 // ---------------------------------------------------------------------------
 
+// Worker-backed highlighting uses the pool's options rather than FileDiff's.
+// Keep the shared pool in sync when the persisted word-diff preference changes.
+function ReviewWorkerOptionsSync({ wordDiff }: { wordDiff: boolean }) {
+  const pool = useWorkerPool()
+  useEffect(() => {
+    if (!pool) return
+    void pool.setRenderOptions({
+      ...pool.getDiffRenderOptions(),
+      lineDiffType: wordDiff ? "word" : "none",
+    }).catch((error: unknown) => console.error("Failed to update diff highlighting", error))
+  }, [pool, wordDiff])
+  return null
+}

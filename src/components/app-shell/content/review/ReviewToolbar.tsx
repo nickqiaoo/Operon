@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useIntl, FormattedMessage } from "react-intl"
 import {
   ArrowUpFromLine,
@@ -10,6 +10,9 @@ import {
   ListRestart,
   Loader2,
   Search,
+  RefreshCw,
+  TextCursorInput,
+  WrapText,
   Square,
 } from "lucide-react"
 import { openExternalUrl } from "@/lib/open-external"
@@ -22,6 +25,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   TOOLBAR_ICON_BUTTON,
@@ -34,6 +38,18 @@ import type { BranchInfo, DiffScope, FileChange } from "./types"
 import { SCOPE_MESSAGES } from "./constants"
 import { DiffStats } from "./DiffStats"
 import { BranchPicker, CommitPicker } from "./ReviewPickers"
+
+/** Keep hover/focus hints consistent, including when a button is disabled. */
+function ToolbarTooltip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex h-full shrink-0">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6}>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export interface ReviewToolbarProps {
   scope: DiffScope
@@ -50,6 +66,12 @@ export interface ReviewToolbarProps {
   files: FileChange[]
   activePath: string | null
   onSelectPath: (path: string | null) => void
+  wordWrap: boolean
+  onToggleWordWrap: () => void
+  wordDiff: boolean
+  onToggleWordDiff: () => void
+  isRefreshing: boolean
+  onRefresh: () => void
   viewMode: "unified" | "split"
   onViewModeChange: (mode: "unified" | "split") => void
   isTreeVisible: boolean
@@ -89,6 +111,12 @@ export function ReviewToolbar({
   files,
   activePath,
   onSelectPath,
+  wordWrap,
+  onToggleWordWrap,
+  wordDiff,
+  onToggleWordDiff,
+  isRefreshing,
+  onRefresh,
   viewMode,
   onViewModeChange,
   isTreeVisible,
@@ -170,6 +198,12 @@ export function ReviewToolbar({
           files={files}
           activePath={activePath}
           onSelectPath={onSelectPath}
+          wordWrap={wordWrap}
+          onToggleWordWrap={onToggleWordWrap}
+          wordDiff={wordDiff}
+          onToggleWordDiff={onToggleWordDiff}
+          isRefreshing={isRefreshing}
+          onRefresh={onRefresh}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
           isTreeVisible={isTreeVisible}
@@ -239,33 +273,37 @@ export function CommitSplitButton({
         })
       : prBlockedReason
 
+  const moreActionsLabel = intl.formatMessage({
+    id: "review.moreGitActions",
+    defaultMessage: "More git actions",
+  })
+
   const shellCn = cn(TOOLBAR_PILL, className)
 
   if (prPhase != null) {
     const canStop = prPhase === "summary"
     return (
       <div className={shellCn}>
-        <button
-          type="button"
-          onClick={canStop ? onStopPr : undefined}
-          disabled={!canStop}
-          title={
-            canStop
-              ? intl.formatMessage({ id: "review.pr.stop", defaultMessage: "Stop" })
-              : undefined
-          }
-          className={cn(TOOLBAR_PILL_BUTTON, "gap-1.5 px-3 font-medium")}
-        >
-          <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-          <span>
-            {prPhase === "summary" ? (
-              <FormattedMessage id="review.pr.generating" defaultMessage="Writing summary…" />
-            ) : (
-              <FormattedMessage id="review.pr.publishing" defaultMessage="Creating PR…" />
-            )}
-          </span>
-          {canStop && <Square className="h-3 w-3 fill-current" />}
-        </button>
+        <ToolbarTooltip label={canStop
+          ? intl.formatMessage({ id: "review.pr.stop", defaultMessage: "Stop" })
+          : intl.formatMessage({ id: "review.pr.publishing", defaultMessage: "Creating PR…" })}>
+          <button
+            type="button"
+            onClick={canStop ? onStopPr : undefined}
+            disabled={!canStop}
+            className={cn(TOOLBAR_PILL_BUTTON, "gap-1.5 px-3 font-medium")}
+          >
+            <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+            <span>
+              {prPhase === "summary" ? (
+                <FormattedMessage id="review.pr.generating" defaultMessage="Writing summary…" />
+              ) : (
+                <FormattedMessage id="review.pr.publishing" defaultMessage="Creating PR…" />
+              )}
+            </span>
+            {canStop && <Square className="h-3 w-3 fill-current" />}
+          </button>
+        </ToolbarTooltip>
       </div>
     )
   }
@@ -277,50 +315,50 @@ export function CommitSplitButton({
 
   return (
     <div className={shellCn}>
-      <button
-        type="button"
-        onClick={
-          showsExisting ? () => openExternalUrl(existingPr.url) : primaryIsPr ? onCreatePr : onCommit
-        }
-        disabled={!primaryIsPr && commitBlockedReason != null}
-        title={showsExisting ? existingPr.title : (commitBlockedReason ?? undefined)}
-        className={cn(TOOLBAR_PILL_BUTTON, "gap-1.5 pl-3 pr-2 font-medium text-foreground")}
-      >
-        {primaryIsPr ? (
-          <GitPullRequest className="h-3.5 w-3.5 text-muted-foreground" />
-        ) : (
-          <ArrowUpFromLine className="h-3.5 w-3.5 text-muted-foreground" />
-        )}
-        <span>
-          {showsExisting ? (
-            <FormattedMessage
-              id="review.pr.view"
-              defaultMessage="View PR #{number}"
-              values={{ number: existingPr.number }}
-            />
-          ) : primaryIsPr ? (
-            prLabel
+      <ToolbarTooltip label={showsExisting ? existingPr.title : primaryIsPr ? prLabel : (commitBlockedReason ?? commitLabel)}>
+        <button
+          type="button"
+          onClick={
+            showsExisting ? () => openExternalUrl(existingPr.url) : primaryIsPr ? onCreatePr : onCommit
+          }
+          disabled={!primaryIsPr && commitBlockedReason != null}
+          className={cn(TOOLBAR_PILL_BUTTON, "gap-1.5 pl-3 pr-2 font-medium text-foreground")}
+        >
+          {primaryIsPr ? (
+            <GitPullRequest className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (
-            commitLabel
+            <ArrowUpFromLine className="h-3.5 w-3.5 text-muted-foreground" />
           )}
-        </span>
-      </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={intl.formatMessage({
-              id: "review.moreGitActions",
-              defaultMessage: "More git actions",
-            })}
-            className={cn(
-              TOOLBAR_PILL_BUTTON,
-              "w-7 pr-0.5 data-[state=open]:bg-accent-active data-[state=open]:text-foreground"
+          <span>
+            {showsExisting ? (
+              <FormattedMessage
+                id="review.pr.view"
+                defaultMessage="View PR #{number}"
+                values={{ number: existingPr.number }}
+              />
+            ) : primaryIsPr ? (
+              prLabel
+            ) : (
+              commitLabel
             )}
-          >
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        </DropdownMenuTrigger>
+          </span>
+        </button>
+      </ToolbarTooltip>
+      <DropdownMenu>
+        <ToolbarTooltip label={moreActionsLabel}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={moreActionsLabel}
+              className={cn(
+                TOOLBAR_PILL_BUTTON,
+                "w-7 pr-0.5 data-[state=open]:bg-accent-active data-[state=open]:text-foreground"
+              )}
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenuTrigger>
+        </ToolbarTooltip>
         <DropdownMenuContent onCloseAutoFocus={(e) => e.preventDefault()} align="end" className="min-w-52">
           <DropdownMenuItem
             onSelect={onCommit}
@@ -371,6 +409,12 @@ export interface DiffToolbarControlsProps {
   files: FileChange[]
   activePath: string | null
   onSelectPath: (path: string | null) => void
+  wordWrap: boolean
+  onToggleWordWrap: () => void
+  wordDiff: boolean
+  onToggleWordDiff: () => void
+  isRefreshing: boolean
+  onRefresh: () => void
   viewMode: "unified" | "split"
   onViewModeChange: (mode: "unified" | "split") => void
   isTreeVisible: boolean
@@ -392,6 +436,12 @@ export function DiffToolbarControls({
   files,
   activePath,
   onSelectPath,
+  wordWrap,
+  onToggleWordWrap,
+  wordDiff,
+  onToggleWordDiff,
+  isRefreshing,
+  onRefresh,
   viewMode,
   onViewModeChange,
   isTreeVisible,
@@ -408,11 +458,48 @@ export function DiffToolbarControls({
   onStopPr,
   className,
 }: DiffToolbarControlsProps) {
+  const intl = useIntl()
+  const refreshLabel = intl.formatMessage({ id: "review.refreshDiff", defaultMessage: "Refresh diff" })
+  const wrapLabel = intl.formatMessage({ id: "review.wordWrap", defaultMessage: "Word wrap" })
+  const wordDiffLabel = intl.formatMessage({ id: "review.wordDiff", defaultMessage: "Word-level diff" })
   return (
     // Same order as the file browser's toolbar: icon buttons, then the split
     // capsule at the far right where "Open ▾" sits on the Files tab.
     <div className={cn("flex shrink-0 items-center gap-0.5", className)}>
       <FileJumpButton files={files} activePath={activePath} onSelectPath={onSelectPath} />
+      <ToolbarTooltip label={refreshLabel}>
+        <button
+          type="button"
+          aria-label={refreshLabel}
+          disabled={isRefreshing}
+          onClick={onRefresh}
+          className={TOOLBAR_ICON_BUTTON}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin motion-reduce:animate-none")} />
+        </button>
+      </ToolbarTooltip>
+      <ToolbarTooltip label={wrapLabel}>
+        <button
+          type="button"
+          aria-label={wrapLabel}
+          aria-pressed={wordWrap}
+          onClick={onToggleWordWrap}
+          className={cn(TOOLBAR_ICON_BUTTON, wordWrap && TOOLBAR_ICON_BUTTON_ON)}
+        >
+          <WrapText className="h-3.5 w-3.5" />
+        </button>
+      </ToolbarTooltip>
+      <ToolbarTooltip label={wordDiffLabel}>
+        <button
+          type="button"
+          aria-label={wordDiffLabel}
+          aria-pressed={wordDiff}
+          onClick={onToggleWordDiff}
+          className={cn(TOOLBAR_ICON_BUTTON, wordDiff && TOOLBAR_ICON_BUTTON_ON)}
+        >
+          <TextCursorInput className="h-3.5 w-3.5" />
+        </button>
+      </ToolbarTooltip>
       <CollapseAllDiffsButton
         disabled={files.length === 0}
         areAllDiffsCollapsed={areAllDiffsCollapsed}
@@ -458,16 +545,17 @@ export function CollapseAllDiffsButton({
   const ActionIcon = areAllDiffsCollapsed ? ListRestart : ListCollapse
 
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-label={actionLabel}
-      title={actionLabel}
-      onClick={onToggleAllDiffs}
-      className={TOOLBAR_ICON_BUTTON}
-    >
-      <ActionIcon className="h-3.5 w-3.5" />
-    </button>
+    <ToolbarTooltip label={actionLabel}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={actionLabel}
+        onClick={onToggleAllDiffs}
+        className={TOOLBAR_ICON_BUTTON}
+      >
+        <ActionIcon className="h-3.5 w-3.5" />
+      </button>
+    </ToolbarTooltip>
   )
 }
 
@@ -502,17 +590,18 @@ export function FileJumpButton({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={files.length === 0}
-          aria-label={jumpToFile}
-          title={jumpToFile}
-          className={TOOLBAR_ICON_BUTTON}
-        >
-          <FileSearch className="h-3.5 w-3.5" />
-        </button>
-      </PopoverTrigger>
+      <ToolbarTooltip label={jumpToFile}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={files.length === 0}
+            aria-label={jumpToFile}
+            className={TOOLBAR_ICON_BUTTON}
+          >
+            <FileSearch className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+      </ToolbarTooltip>
       <PopoverContent onCloseAutoFocus={(e) => e.preventDefault()} align="end" className="w-72 border-border/40 p-2">
         <div className="flex h-8 items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -580,16 +669,17 @@ export function ViewModeToggle({
         })
 
   return (
-    <button
-      type="button"
-      onClick={() => onViewModeChange(nextViewMode)}
-      aria-label={label}
-      aria-pressed={viewMode === "split"}
-      title={label}
-      className={cn(TOOLBAR_ICON_BUTTON, viewMode === "split" && TOOLBAR_ICON_BUTTON_ON)}
-    >
-      <DiffLayoutIcon targetMode={nextViewMode} />
-    </button>
+    <ToolbarTooltip label={label}>
+      <button
+        type="button"
+        onClick={() => onViewModeChange(nextViewMode)}
+        aria-label={label}
+        aria-pressed={viewMode === "split"}
+        className={cn(TOOLBAR_ICON_BUTTON, viewMode === "split" && TOOLBAR_ICON_BUTTON_ON)}
+      >
+        <DiffLayoutIcon targetMode={nextViewMode} />
+      </button>
+    </ToolbarTooltip>
   )
 }
 
@@ -643,18 +733,19 @@ export function TreeToggle({
         defaultMessage: "Show file tree",
       })
   return (
-    <button
-      type="button"
-      onClick={onToggleTree}
-      aria-label={treeLabel}
-      aria-pressed={isTreeVisible}
-      title={treeLabel}
-      // Codex pattern: same `Folders` glyph in both states; the button is
-      // filled while the tree is open and ghost (hover-only) while closed.
-      className={cn(TOOLBAR_ICON_BUTTON, isTreeVisible && TOOLBAR_ICON_BUTTON_ON)}
-    >
-      <Folders className="h-3.5 w-3.5" />
-    </button>
+    <ToolbarTooltip label={treeLabel}>
+      <button
+        type="button"
+        onClick={onToggleTree}
+        aria-label={treeLabel}
+        aria-pressed={isTreeVisible}
+        // Codex pattern: same `Folders` glyph in both states; the button is
+        // filled while the tree is open and ghost (hover-only) while closed.
+        className={cn(TOOLBAR_ICON_BUTTON, isTreeVisible && TOOLBAR_ICON_BUTTON_ON)}
+      >
+        <Folders className="h-3.5 w-3.5" />
+      </button>
+    </ToolbarTooltip>
   )
 }
 

@@ -23,8 +23,8 @@ export const PIERRE_WORKER_POOL_OPTIONS: WorkerPoolOptions = {
   workerFactory: () => new PierreDiffWorker(),
 }
 export const PIERRE_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
-  // Match the review's render options (diffOptions.lineDiffType below): no
-  // intra-line word/char diffing, only whole changed lines are marked.
+  // Initial setting; ReviewWorkerOptionsSync applies the persisted preference
+  // and updates the pool when the word-level diff toggle changes.
   lineDiffType: "none",
 }
 
