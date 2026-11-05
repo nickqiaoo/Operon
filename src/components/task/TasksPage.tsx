@@ -257,7 +257,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
       {!controls && (
       <div className="h-12 flex items-center border-b border-border/40 shrink-0 bg-background">
         <div className="h-full min-w-0 flex-1 flex items-center gap-2 px-4 overflow-x-auto [&>*]:shrink-0">
-          <div className="flex items-center rounded-lg bg-muted/25 border border-border/40 p-0.5">
+          <div className="flex items-center rounded-lg bg-muted/25 p-0.5">
             <ToolbarToggle
               active={view === 'list'}
               onClick={() => setView('list')}
@@ -398,7 +398,7 @@ function ToolbarToggle({
       onClick={onClick}
       className={cn(
         'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors',
-        active ? 'bg-popover/90 shadow-card text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-row-hover',
+        active ? 'bg-popover/90 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-row-hover',
       )}
     >
       {icon}
@@ -410,7 +410,7 @@ function ToolbarToggle({
 function GroupBySelect({ value, onChange }: { value: GroupBy; onChange: (v: GroupBy) => void }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as GroupBy)}>
-      <SelectTrigger className="h-8 w-auto gap-1.5 bg-popover/45 border-border/40 text-xs text-muted-foreground shadow-none">
+      <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-accent">
         <span className="text-muted-foreground/50">
           <FormattedMessage id="task.groupBy.label" defaultMessage="Group:" />
         </span>
@@ -443,7 +443,7 @@ function FilterSelect({
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-8 w-auto gap-1.5 bg-popover/45 border-border/40 text-xs text-muted-foreground shadow-none">
+      <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-accent">
         <SelectValue />
       </SelectTrigger>
       <SelectContent

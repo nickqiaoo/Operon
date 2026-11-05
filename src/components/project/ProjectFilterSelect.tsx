@@ -51,7 +51,7 @@ export function ProjectFilterSelect({
     <Select value={value == null ? "all" : String(value)} onValueChange={(v) => onChange(v === "all" ? null : Number(v))}>
       <SelectTrigger
         className={cn(
-          "no-drag h-7 w-auto max-w-56 gap-1.5 border-border/40 bg-popover/45 text-xs text-muted-foreground shadow-none",
+          "no-drag h-7 w-auto max-w-56 gap-1.5 border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-accent",
           className,
         )}
       >
