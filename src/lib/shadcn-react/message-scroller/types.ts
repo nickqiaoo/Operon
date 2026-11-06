@@ -64,8 +64,10 @@ type MessageScrollerScrollOptions = {
 type MessageScrollerScrollable = {
   // The viewport can scroll toward the start (content is hidden above).
   start: boolean
-  // The viewport can scroll toward the end (content is hidden below).
+  // The viewport is away from the latest reading position, including a released spacer.
   end: boolean
+  // Actual transcript content below the viewport, excluding the reserved spacer.
+  hasContentBelow: boolean
 }
 
 // Visibility snapshot from useMessageScrollerVisibility.
@@ -83,6 +85,8 @@ type MessageScrollerProviderProps = {
   children?: React.ReactNode
   // Follow new content at the bottom while the viewport is already at the end.
   autoScroll?: boolean
+  // Whether the latest turn can still fill its reserved space. Defaults to true.
+  turnActive?: boolean
   // Opening position on the first non-empty render, applied once.
   defaultScrollPosition?: MessageScrollerDefaultScrollPosition
   // Distance from an edge that still counts as at-top/at-bottom. Defaults to 8.
@@ -196,6 +200,7 @@ type MessageScrollerContextValue = {
 const EMPTY_MESSAGE_SCROLLER_SCROLLABLE: MessageScrollerScrollable = {
   start: false,
   end: false,
+  hasContentBelow: false,
 }
 
 // Shared empty array so empty visibility snapshots stay referentially stable.

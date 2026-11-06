@@ -46,7 +46,7 @@ All from `@shadcn/react/message-scroller`.
 | Hook                             | Returns                                                                     |
 | -------------------------------- | --------------------------------------------------------------------------- |
 | `useMessageScroller()`           | `{ scrollToMessage, scrollToStart, scrollToEnd }`                           |
-| `useMessageScrollerScrollable()` | `MessageScrollerScrollable` — `{ start, end }`, the edges the viewport can scroll toward |
+| `useMessageScrollerScrollable(field?)` | The scroll state or one field. `end` tracks the reading position and `hasContentBelow` drives the end button. |
 | `useMessageScrollerVisibility()` | `MessageScrollerVisibilityState` — `currentAnchorId`, `visibleMessageIds`   |
 
 ### Types

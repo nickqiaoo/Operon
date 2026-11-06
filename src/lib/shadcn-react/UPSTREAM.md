@@ -36,15 +36,18 @@ gh api "repos/shadcn-ui/ui/contents/packages/react/src/message-scroller/<file>?r
    ignored; they fired no scroll event, so nothing ever re-armed. Touch direction
    comes from `touchstart`/`touchmove`. (`getGestureDirection` in
    `components.tsx`, `userScrollIntent` in the controller)
-3. **A reader's release sticks until they come back.** After a gesture releases
-   following, a commit that merely measures the end (before the gesture's own
-   scroll lands, or after one that moved nothing) does not re-arm it; a scroll
-   that moves down onto the end, or any scroll command, does.
-   (`userReleasedFollowRef`, `reconcileFollowMode`, `scrollToPosition`)
-4. **`end` counts a released spacer.** Once the reader has left (free-scrolling),
-   a short turn's reserved spacer they can scroll back into is reported as room
-   below, so the scroll button shows and a prompt sent from there does not
-   anchor-jump them. (`commitScrollState`)
+3. **Manual scrolling owns the viewport through the end of the gesture.**
+   Following can resume when a downward scroll settles at the live end on
+   `scrollend`. A chunk arriving before then can move the live end farther
+   down, in which case the reader keeps their place. The explicit scroll to
+   end command still resumes following immediately.
+   (`syncAfterScroll`, `handleScrollEnd`, `scrollToPosition`)
+4. **The end button tracks actual content.** During an active turn, a released
+   spacer can count toward the reading position used for new-turn anchoring.
+   The button only reflects actual content below the viewport. After the turn
+   ends, the spacer is removed once the reader is within the real transcript's
+   scroll range, preserving their position.
+   (`commitScrollState`, `clearFinishedTurnSpacer`)
 5. **A settling jump holds its row.** After an instant `scrollToMessage`, resizes
    keep the target where in the viewport it landed (rows around it settling from
    estimated heights, an inset measured after mount), until a gesture or another

@@ -628,7 +628,7 @@ describe("MessageScroller", () => {
     expect(rendered.state().end).toBe(false)
   })
 
-  it("drains a released tail spacer after a manual scroll during an anchored stream", async () => {
+  it("preserves a released spacer during streaming until the reader jumps to the end", async () => {
     const rendered = await renderTestScroller({
       autoScroll: true,
       defaultScrollPosition: "end",
@@ -691,13 +691,10 @@ describe("MessageScroller", () => {
       .querySelector<HTMLElement>("[data-message-scroller-spacer]")
     expect(spacer?.hidden).toBe(false)
 
-    // Scrolling to the real bottom - contentBottom plus the remaining spacer -
-    // drains the dead space and re-engages following at the live edge (268 -
-    // 100 = 168). The reader was not yanked mid-stream - the spacer shrank to
-    // absorb the new content instead of collapsing in a single frame.
+    // The explicit jump clears the remaining spacer and resumes following at
+    // the live edge (268 - 100 = 168).
     await act(async () => {
-      rendered.viewport().scrollTop = rendered.viewport().scrollHeight
-      rendered.viewport().dispatchEvent(new Event("scroll", { bubbles: true }))
+      rendered.api().scrollToEnd()
       await flushAnimationFrames()
     })
 
@@ -712,7 +709,7 @@ describe("MessageScroller", () => {
     expect(rendered.state().end).toBe(false)
   })
 
-  it("drains a stranded tail spacer on scroll when the stream ends mid-drain", async () => {
+  it("keeps the scroll position at the spacer edge until the reader jumps to the end", async () => {
     const rendered = await renderTestScroller({
       autoScroll: true,
       defaultScrollPosition: "end",
@@ -749,19 +746,24 @@ describe("MessageScroller", () => {
       .querySelector<HTMLElement>("[data-message-scroller-spacer]")
     expect(strandedSpacer?.hidden).toBe(false)
 
-    // The stream ends before the reply drains the spacer (no further resize).
-    // A scroll to the real bottom - contentBottom plus the remaining spacer -
-    // must finish the drain: the dead space is reclaimed and following re-arms.
+    // Reaching the spacer's edge during a manual scroll leaves the turn in
+    // place and keeps the jump available.
+    const spacerEnd = rendered.viewport().scrollHeight - rendered.viewport().clientHeight
     await act(async () => {
-      rendered.viewport().scrollTop = rendered.viewport().scrollHeight
+      rendered.viewport().scrollTop = spacerEnd
       rendered.viewport().dispatchEvent(new Event("scroll", { bubbles: true }))
+      rendered.viewport().dispatchEvent(new Event("scrollend"))
       await flushAnimationFrames()
     })
+    expect(rendered.viewport().scrollTop).toBe(spacerEnd)
+    expect(strandedSpacer?.hidden).toBe(false)
+    expect(rendered.state().end).toBe(true)
 
-    const drainedSpacer = rendered
-      .content()
-      .querySelector<HTMLElement>("[data-message-scroller-spacer]")
-    expect(drainedSpacer?.hidden).toBe(true)
+    await act(async () => {
+      rendered.api().scrollToEnd()
+      await flushAnimationFrames()
+    })
+    expect(strandedSpacer?.hidden).toBe(true)
 
     // The reader reached the live edge: the spacer is gone and the viewport
     // sits at the real bottom (scrollHeight minus viewport). Following is
@@ -1229,6 +1231,7 @@ describe("MessageScroller", () => {
       rendered.viewport().scrollTop =
         rendered.viewport().scrollHeight - rendered.viewport().clientHeight
       rendered.viewport().dispatchEvent(new Event("scroll", { bubbles: true }))
+      rendered.viewport().dispatchEvent(new Event("scrollend"))
       await flushAnimationFrames()
     })
 
@@ -1302,6 +1305,7 @@ describe("MessageScroller", () => {
         .dispatchEvent(new WheelEvent("wheel", { bubbles: true }))
       rendered.viewport().scrollTop = 140
       rendered.viewport().dispatchEvent(new Event("scroll", { bubbles: true }))
+      rendered.viewport().dispatchEvent(new Event("scrollend"))
       await flushAnimationFrames()
     })
 

@@ -19,7 +19,7 @@ function getMessageScrollerScrollable({
   scrollEdgeThreshold: number
   spacer: HTMLElement | null
   viewport: HTMLElement | null
-}): MessageScrollerScrollable {
+}): Pick<MessageScrollerScrollable, "start" | "end"> {
   if (!viewport || !content) {
     return EMPTY_MESSAGE_SCROLLER_SCROLLABLE
   }

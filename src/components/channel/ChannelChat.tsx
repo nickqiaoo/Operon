@@ -289,9 +289,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     requestAnimationFrame(updateMentionFromCaret)
   }, [updateMentionFromCaret])
 
-  // Auto-grow the composer to fit its content, up to the CSS max-height (then it
-  // scrolls). Reset to 'auto' first so it also shrinks back when text is removed.
+  // Fallback for WebViews without field-sizing.
   useEffect(() => {
+    if (CSS.supports('field-sizing', 'content')) return
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
@@ -534,7 +534,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   onBlur={() => setMention((s) => ({ ...s, open: false }))}
                   placeholder={intl.formatMessage({ id: 'channel.inputPlaceholder', defaultMessage: 'Message this channel... (type @ to mention)' })}
                   rows={1}
-                  className={COMPOSER_TEXTAREA_CLASS}
+                  className={`${COMPOSER_TEXTAREA_CLASS} min-w-0 field-sizing-content`}
                 />
                 <ComposerSendButton disabled={!input.trim()} onClick={() => void handleSend()} />
               </ComposerFrame>}

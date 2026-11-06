@@ -10,6 +10,7 @@ import type {
   MessageScrollerProps,
   MessageScrollerProviderProps,
   MessageScrollerRegisterMessage,
+  MessageScrollerScrollable,
   MessageScrollerViewportProps,
 } from "./types"
 import { useMessageScrollerController } from "./use-message-scroller-controller"
@@ -57,13 +58,19 @@ function useMessageScroller() {
   )
 }
 
-function useMessageScrollerScrollable() {
+function useMessageScrollerScrollable(field: keyof MessageScrollerScrollable): boolean
+function useMessageScrollerScrollable(): MessageScrollerScrollable
+function useMessageScrollerScrollable(field?: keyof MessageScrollerScrollable) {
   const { stateStore } = useMessageScrollerContext()
+  const getSnapshot = React.useCallback(() => {
+    const state = stateStore.getSnapshot()
+    return field ? state[field] : state
+  }, [field, stateStore])
 
   return React.useSyncExternalStore(
     stateStore.subscribe,
-    stateStore.getSnapshot,
-    stateStore.getSnapshot
+    getSnapshot,
+    getSnapshot
   )
 }
 
@@ -94,6 +101,7 @@ function MessageScrollerProvider({
   scrollEdgeThreshold,
   scrollPreviousItemPeek,
   scrollMargin,
+  turnActive,
 }: MessageScrollerProviderProps) {
   const { context, registerMessage } = useMessageScrollerController({
     autoScroll,
@@ -101,6 +109,7 @@ function MessageScrollerProvider({
     scrollEdgeThreshold,
     scrollPreviousItemPeek,
     scrollMargin,
+    turnActive,
   })
 
   return (
@@ -546,22 +555,9 @@ function MessageScrollerButton({
   type = "button",
   ...props
 }: MessageScrollerButtonProps) {
-  const { scrollToEnd, scrollToStart, stateStore } = useMessageScrollerContext()
+  const { scrollToEnd, scrollToStart } = useMessageScrollerContext()
   const onClickRef = useLatest(onClick)
-  const subscribe = React.useCallback(
-    (listener: () => void) => stateStore.subscribe(listener),
-    [stateStore]
-  )
-  const getSnapshot = React.useCallback(() => {
-    const state = stateStore.getSnapshot()
-
-    return direction === "start" ? state.start : state.end
-  }, [direction, stateStore])
-  const isActive = React.useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getSnapshot
-  )
+  const isActive = useMessageScrollerScrollable(direction === "start" ? "start" : "hasContentBelow")
 
   const handleClick = React.useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {

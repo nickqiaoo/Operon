@@ -75,8 +75,7 @@ export function useConversationScroll() {
   const refs = useContext(ConversationContext);
   if (!refs) throw new Error("useConversationScroll must be used within Conversation");
   const controls = useMessageScroller();
-  // Nothing below the viewport but (at most) the reserved turn space.
-  const end = useMessageScrollerScrollable().end;
+  const end = useMessageScrollerScrollable("end");
   const isAtBottom = !refs.restoring && !end;
   return { ...refs, ...controls, isAtBottom };
 }
@@ -134,6 +133,7 @@ function ScrollHandle({ contextRef }: { contextRef?: Ref<ConversationScrollHandl
 
 export type ConversationProps = ComponentProps<typeof MessageScroller> & {
   contextRef?: Ref<ConversationScrollHandle>;
+  turnActive?: boolean;
   /**
    * Remember the reading position under this key when the transcript unmounts
    * away from its end, and return there when it mounts again (a phone tab switch).
@@ -141,7 +141,7 @@ export type ConversationProps = ComponentProps<typeof MessageScroller> & {
   positionKey?: string;
 };
 
-export function Conversation({ className, children, contextRef, positionKey, ...props }: ConversationProps) {
+export function Conversation({ className, children, contextRef, positionKey, turnActive, ...props }: ConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [selecting, setSelecting] = useState(false);
@@ -153,7 +153,7 @@ export function Conversation({ className, children, contextRef, positionKey, ...
     [restoring, positionKey, restorePoint],
   );
   return (
-    <MessageScrollerProvider autoScroll={!selecting && !holding && !restoring} defaultScrollPosition="end">
+    <MessageScrollerProvider autoScroll={!selecting && !holding && !restoring} defaultScrollPosition="end" turnActive={turnActive}>
       <ConversationContext.Provider value={refs}>
         <MessageScroller data-testid="conversation" className={cn("flex-1", className)} {...props}>
           <ScrollHandle contextRef={contextRef} />
@@ -323,9 +323,10 @@ export const ConversationEmptyState = ({
 export type ConversationScrollButtonProps = ComponentProps<typeof Button> & { glass?: boolean };
 
 export function ConversationScrollButton({ className, glass, variant: _variant, size: _size, asChild: _asChild, onClick, ...props }: ConversationScrollButtonProps) {
-  const { isAtBottom, scrollToEnd } = useConversationScroll();
+  const { scrollToEnd } = useMessageScroller();
+  const hasContentBelow = useMessageScrollerScrollable("hasContentBelow");
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const native = useNativeScrollButton(buttonRef, !isAtBottom);
+  const native = useNativeScrollButton(buttonRef, hasContentBelow);
   return (
     <Button
       {...props}
@@ -335,17 +336,17 @@ export function ConversationScrollButton({ className, glass, variant: _variant, 
       variant="ghost"
       size="icon-sm"
       aria-label="Scroll to bottom"
-      inert={isAtBottom}
+      inert={!hasContentBelow}
       data-slot="message-scroller-button"
       data-direction="end"
-      data-active={!isAtBottom}
-      tabIndex={isAtBottom ? -1 : props.tabIndex}
+      data-active={hasContentBelow}
+      tabIndex={hasContentBelow ? props.tabIndex : -1}
       className={cn(
         messageScrollerButtonClassName,
         glass && "liquid-glass size-9 border-none text-foreground/80", className,
       )}
       onClick={(event) => {
-        if (isAtBottom) return;
+        if (!hasContentBelow) return;
         onClick?.(event);
         if (event.defaultPrevented) return;
         event.currentTarget.blur();

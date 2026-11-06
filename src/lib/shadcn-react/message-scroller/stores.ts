@@ -69,7 +69,11 @@ function areScrollStatesEqual(
   current: MessageScrollerScrollable,
   next: MessageScrollerScrollable
 ) {
-  return current.start === next.start && current.end === next.end
+  return (
+    current.start === next.start &&
+    current.end === next.end &&
+    current.hasContentBelow === next.hasContentBelow
+  )
 }
 
 function areVisibilityStatesEqual(

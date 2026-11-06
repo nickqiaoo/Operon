@@ -2,7 +2,7 @@
 
 import { useChatPromptSuggestion } from '@/stores/chat-prompt-suggestion-store';
 import { toast } from 'sonner';
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
 import { ChartPie, Gauge } from 'lucide-react';
@@ -217,17 +217,16 @@ function ChatPanelContent({
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   // The transcript reserves a scrollbar gutter on both edges (see
   // ConversationContent below), so once the panel is narrower than max-w-4xl
-  // its column is one gutter narrower on each side than the composer's. Publish
-  // that gutter as a CSS variable so the composer can shrink by the same amount.
+  // its column is one gutter narrower on each side than the composer's. Apply
+  // that gutter to the composer so it can shrink by the same amount.
   // Measured rather than hard-coded: it is 11px with classic scrollbars and 0
   // with overlay ones.
+  const [transcriptGutter, setTranscriptGutter] = useState(0);
   useLayoutEffect(() => {
-    const root = transcriptRef.current;
-    const scroller = root?.querySelector<HTMLElement>('[data-conversation-scroller]');
-    if (!root || !scroller) return;
+    const scroller = transcriptRef.current?.querySelector<HTMLElement>('[data-conversation-scroller]');
+    if (!scroller) return;
     const update = () => {
-      const gutter = (scroller.offsetWidth - scroller.clientWidth) / 2;
-      root.style.setProperty('--transcript-gutter', `${gutter}px`);
+      setTranscriptGutter((scroller.offsetWidth - scroller.clientWidth) / 2);
     };
     update();
     const observer = new ResizeObserver(update);
@@ -1103,6 +1102,7 @@ function ChatPanelContent({
       />
       <Conversation
         className="flex-1 rounded-xl bg-background font-sans"
+        turnActive={isGenerating || turnSettling}
         // Resize the scrolling viewport when the keyboard appears. Padding only
         // the content leaves the viewport unchanged, so it cannot follow the end.
         style={isMobile ? { paddingBottom: 'var(--keyboard-height, 0px)' } : undefined}
@@ -1182,6 +1182,7 @@ function ChatPanelContent({
 
       <div
         ref={composerRef}
+        style={{ '--transcript-gutter': `${transcriptGutter}px` } as CSSProperties}
         className={cn(
           "relative w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-4 pt-0",
           // Phone: floats over the bottom of the transcript, which scrolls on

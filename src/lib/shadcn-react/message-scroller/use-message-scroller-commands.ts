@@ -35,8 +35,10 @@ function useMessageScrollerCommands({
     contentRef,
     itemCountRef,
     jumpTargetRef,
+    lastScrollTopRef,
     messageElementsRef,
     modeRef,
+    pendingFollowOnScrollEndRef,
     pendingScrollToMessageRef,
     prependRestoreRef,
     scrollMarginRef,
@@ -76,8 +78,8 @@ function useMessageScrollerCommands({
   // the viewport: it only writes the tail spacer's reserved height (hiding it
   // at zero). It lives on the commands surface rather than staying private to
   // the controller because the controller both reserves room for an anchored
-  // turn (via reanchorToAnchoredMessage) and consumes it while draining a
-  // released spacer (in drainReleasedSpacer), and both need the same write. It
+  // turn and consumes it as the reply grows after the reader has scrolled away.
+  // Both paths need the same write. It
   // is intentionally not a user-facing scroll command - treat it as an internal
   // handle the orchestrator threads through to keep spacer writes in one place.
   const setTailSpacerHeight = React.useCallback((height: number) => {
@@ -119,6 +121,7 @@ function useMessageScrollerCommands({
       // [operon] A scroll command is an explicit placement: it supersedes a
       // reader's earlier release, so following may re-arm from here on.
       userReleasedFollowRef.current = false
+      pendingFollowOnScrollEndRef.current = false
 
       const nextScrollTop = Math.max(0, scrollTop)
 
@@ -126,6 +129,7 @@ function useMessageScrollerCommands({
         Math.abs(viewport.scrollTop - nextScrollTop) <= SCROLL_POSITION_EPSILON
       ) {
         viewport.scrollTop = nextScrollTop
+        lastScrollTopRef.current = viewport.scrollTop
         commitScrollState()
         return
       }
@@ -141,6 +145,7 @@ function useMessageScrollerCommands({
         top: nextScrollTop,
         behavior,
       })
+      lastScrollTopRef.current = viewport.scrollTop
       scheduleStateCommit()
     },
     [commitScrollState, scheduleStateCommit, setAutoScrolling]

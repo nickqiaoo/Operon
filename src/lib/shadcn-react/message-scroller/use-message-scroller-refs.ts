@@ -34,6 +34,7 @@ type MessageScrollerRefs = {
   lastScrollTopRef: React.RefObject<number>
   messageElementsRef: React.RefObject<Map<string, HTMLElement>>
   modeRef: React.RefObject<MessageScrollerMode>
+  pendingFollowOnScrollEndRef: React.RefObject<boolean>
   pendingScrollFrameRef: React.RefObject<number | null>
   pendingScrollToMessageRef: React.RefObject<{
     messageId: string
@@ -90,8 +91,8 @@ function useMessageScrollerRefs({
   const scrollEdgeThresholdRef = React.useRef(scrollEdgeThreshold)
   const itemCountRef = React.useRef(0)
   const firstItemRef = React.useRef<HTMLElement | null>(null)
-  // The scrollTop seen by the previous state commit, so follow-release can tell
-  // a reader scrolling up from content growing past the live edge.
+  // The last handled scroll position, including programmatic placements and
+  // layout corrections. Measuring scrollability must not advance this baseline.
   const lastScrollTopRef = React.useRef(0)
   // [operon] The row an instant jump placed, and where in the viewport it
   // landed. While the jump is settling, resizes keep it there (rows around it
@@ -104,6 +105,7 @@ function useMessageScrollerRefs({
   const modeRef = React.useRef<MessageScrollerMode>(
     autoScroll ? "following-bottom" : "free-scrolling"
   )
+  const pendingFollowOnScrollEndRef = React.useRef(false)
   const messageElementsRef = React.useRef(new Map<string, HTMLElement>())
   const pendingScrollToMessageRef = React.useRef<{
     messageId: string
@@ -195,6 +197,7 @@ function useMessageScrollerRefs({
     lastScrollTopRef,
     messageElementsRef,
     modeRef,
+    pendingFollowOnScrollEndRef,
     pendingScrollFrameRef,
     pendingScrollToMessageRef,
     prependRestoreRef,

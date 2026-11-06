@@ -49,8 +49,9 @@ export function MobileNewTaskPage({
   const descriptionRef = useRef<HTMLTextAreaElement>(null)
   const topInset = useMobileTopInset()
 
-  // The description grows with its text; the page scrolls, not the field.
+  // Fallback for WebViews without field-sizing.
   useEffect(() => {
+    if (CSS.supports("field-sizing", "content")) return
     const el = descriptionRef.current
     if (!el) return
     el.style.height = "auto"
@@ -132,7 +133,7 @@ export function MobileNewTaskPage({
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
           placeholder={intl.formatMessage({ id: "task.descriptionPlaceholder", defaultMessage: "Add a description… (markdown supported)" })}
-          className="mt-3 w-full resize-none appearance-none border-0 bg-transparent p-0 text-base leading-relaxed text-foreground/90 outline-none placeholder:text-muted-foreground/40"
+          className="mt-3 min-h-[3lh] w-full resize-none field-sizing-content appearance-none border-0 bg-transparent p-0 text-base leading-relaxed text-foreground/90 outline-none placeholder:text-muted-foreground/40"
         />
       </div>
 

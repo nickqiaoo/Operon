@@ -191,7 +191,7 @@ export function AssistantChat({
 
   return (
     <div ref={chatRoot} className="relative flex h-full min-h-0 flex-col">
-      <Conversation positionKey={positionKey}>
+      <Conversation positionKey={positionKey} turnActive={typing}>
         <ConversationContent
           fadeEdges
           className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}

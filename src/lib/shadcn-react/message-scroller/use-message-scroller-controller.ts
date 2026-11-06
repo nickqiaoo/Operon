@@ -2,15 +2,18 @@ import * as React from "react"
 
 import {
   getContentBottom,
+  getElementScrollTop,
   getElementTop,
   getElementViewportTop,
   getFirstVisibleMessageItem,
   getFlexGap,
   getLastScrollAnchor,
+  getMaxScrollTop,
   getMessageScrollerItems,
   getMessageScrollerScrollable,
   getMessageScrollerVisibilityState,
   getNewScrollAnchor,
+  getTailSpacerHeight,
   getUnanchoredScrollAnchor,
   hasMultipleNewScrollAnchors,
 } from "./geometry"
@@ -60,6 +63,7 @@ function useMessageScrollerController({
   scrollEdgeThreshold = DEFAULT_SCROLL_EDGE_THRESHOLD,
   scrollPreviousItemPeek = DEFAULT_SCROLL_PREVIOUS_ITEM_PEEK,
   scrollMargin = DEFAULT_SCROLL_MARGIN,
+  turnActive = true,
 }: MessageScrollerProviderProps) {
   const refs = useMessageScrollerRefs({
     autoScroll,
@@ -81,6 +85,7 @@ function useMessageScrollerController({
     lastScrollTopRef,
     messageElementsRef,
     modeRef,
+    pendingFollowOnScrollEndRef,
     pendingScrollFrameRef,
     pendingScrollToMessageRef,
     prependRestoreRef,
@@ -105,6 +110,9 @@ function useMessageScrollerController({
     visibleMessageIdsRef,
     handledScrollAnchorsRef,
   } = refs
+
+  const turnActiveRef = React.useRef(turnActive)
+  turnActiveRef.current = turnActive
 
   const previousDefaultScrollPositionRef = React.useRef(defaultScrollPosition)
 
@@ -149,36 +157,33 @@ function useMessageScrollerController({
   // first streamed chunk yank the reader off the anchor. The hold hands back
   // to following in handleResize, once the reply consumes the tail spacer.
   const reconcileFollowMode = React.useCallback(
-    (scrollable: MessageScrollerScrollable, fromScroll: boolean) => {
-      const scrollTop = viewportRef.current?.scrollTop ?? 0
-      // Content growing past the live edge also reads as "not at the end", but
-      // only a scrollbar drag moves scrollTop up. Growth must not release
-      // follow-output: the resize handler is coalesced onto a frame, so a state
-      // commit can observe the grown content before follow catches up.
+    (hasContentBelow: boolean) => {
+      const viewport = viewportRef.current
+      if (!viewport) {
+        return
+      }
+
+      const scrollTop = viewport.scrollTop
+      // Growth can open a gap below the viewport before resize is delivered.
+      // Release only when scrollTop moved away from the previous scroll position.
       const scrolledUp =
         scrollTop < lastScrollTopRef.current - SCROLL_POSITION_EPSILON
-      const scrolledDown =
-        scrollTop > lastScrollTopRef.current + SCROLL_POSITION_EPSILON
 
-      lastScrollTopRef.current = scrollTop
-
-      // [operon] After a reader's gesture released following, only the reader
-      // arriving back at the end (a scroll that moved down onto it) lifts the
-      // hold. Any other commit that happens to measure the end - a frame before
-      // the gesture's own scroll lands, or after a gesture that moved nothing -
-      // leaves them free.
+      // [operon] A scrollbar drag can leave an anchored turn without a wheel
+      // or touch event. A layout shrink can also move scrollTop upward, but
+      // only by clamping it to the end.
       if (
-        userReleasedFollowRef.current &&
-        fromScroll &&
-        scrolledDown &&
-        !scrollable.end
+        modeRef.current === "anchored-to-message" &&
+        scrolledUp &&
+        scrollTop < getMaxScrollTop(viewport) - SCROLL_POSITION_EPSILON
       ) {
-        userReleasedFollowRef.current = false
+        modeRef.current = "free-scrolling"
+        userReleasedFollowRef.current = true
       }
 
       if (
         autoScrollRef.current &&
-        !scrollable.end &&
+        !hasContentBelow &&
         spacerHeightRef.current === 0 &&
         !userReleasedFollowRef.current &&
         modeRef.current !== "settling-jump" &&
@@ -187,24 +192,18 @@ function useMessageScrollerController({
         modeRef.current = "following-bottom"
       } else if (
         modeRef.current === "following-bottom" &&
-        scrollable.end &&
+        hasContentBelow &&
         scrolledUp &&
         !autoscrollingRef.current
       ) {
         modeRef.current = "free-scrolling"
+        userReleasedFollowRef.current = true
       }
     },
     []
   )
 
-  const commitScrollState = React.useCallback((options?: unknown) => {
-    // [operon] Only syncAfterScroll passes { fromScroll: true }; anything else
-    // (no argument, or a rAF timestamp if this is ever passed as a callback)
-    // counts as a non-scroll commit.
-    const fromScroll =
-      typeof options === "object" &&
-      options !== null &&
-      (options as { fromScroll?: unknown }).fromScroll === true
+  const commitScrollState = React.useCallback(() => {
     const nextState = getMessageScrollerScrollable({
       content: contentRef.current,
       scrollEdgeThreshold: scrollEdgeThresholdRef.current,
@@ -212,33 +211,21 @@ function useMessageScrollerController({
       viewport: viewportRef.current,
     })
 
-    reconcileFollowMode(nextState, fromScroll)
+    reconcileFollowMode(nextState.end)
 
     // While follow-output is engaged the scroller is already closing any gap a
-    // streamed chunk just opened, so publishing it as scrollable toward the
-    // end would strobe the scroll button once per chunk. Reconcile runs on the
-    // raw geometry first, so a commit that releases follow still publishes the
-    // gap it released over.
-    let publishedState =
-      modeRef.current === "following-bottom"
-        ? { ...nextState, end: false }
-        : nextState
-
-    // [operon] The end flag measures real content only, so a reader who scrolled
-    // up within a short turn's reserved spacer still reads as "at the end".
-    // Once they have left (free-scrolling), the spacer is room they can scroll
-    // back down into: report it, so the scroll button shows and a prompt sent
-    // from there does not anchor-jump them away from where they are reading.
-    const viewport = viewportRef.current
-    if (
+    // streamed chunk just opened. Suppress that transient gap for the button.
+    const hasContentBelow = modeRef.current !== "following-bottom" && nextState.end
+    // A released spacer still marks a reader as away from the live position
+    // for new-turn anchoring, even when there is nothing for the button to reveal.
+    const releasedSpacer =
       modeRef.current === "free-scrolling" &&
-      !publishedState.end &&
       spacerHeightRef.current > 0 &&
-      viewport &&
-      viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop >
-        scrollEdgeThresholdRef.current
-    ) {
-      publishedState = { ...publishedState, end: true }
+      (turnActiveRef.current || !streamingTurnRef.current)
+    const publishedState = {
+      start: nextState.start,
+      end: hasContentBelow || releasedSpacer,
+      hasContentBelow,
     }
 
     writeStateAttributes(publishedState)
@@ -359,7 +346,11 @@ function useMessageScrollerController({
       return false
     }
 
-    viewport.scrollTop += delta
+    const scrollTop = viewport.scrollTop
+    viewport.scrollTop = scrollTop + delta
+    // Offset the baseline by the applied correction, leaving the reader's
+    // own movement detectable when the scroll event is delivered.
+    lastScrollTopRef.current += viewport.scrollTop - scrollTop
     anchor.top = getElementTop(anchor.element, viewport)
     scheduleStateCommit()
     scheduleVisibilitySync()
@@ -387,7 +378,9 @@ function useMessageScrollerController({
       return false
     }
 
-    viewport.scrollTop += delta
+    const scrollTop = viewport.scrollTop
+    viewport.scrollTop = scrollTop + delta
+    lastScrollTopRef.current += viewport.scrollTop - scrollTop
     anchor.viewportTop = getElementViewportTop(anchor.element, viewport)
     scheduleStateCommit()
     scheduleVisibilitySync()
@@ -623,80 +616,23 @@ function useMessageScrollerController({
     scrollToEnd,
   ])
 
-  // A manual scroll during an anchored streaming turn releases the anchor
-  // (userScrollIntent -> free-scrolling) and strands the reserved tail spacer.
-  // Nothing re-arms follow in that mode, so the spacer would otherwise freeze
-  // at its current height and leave dead space below the reply. Drain it: as
-  // the reply grows (resize) or as the reader scrolls to the real bottom
-  // (scroll), shrink the spacer toward zero so the reserved room is consumed
-  // without moving the reader, and hand back to following once the reply fills
-  // the viewport (spacer hits zero at the real bottom). Returns true when the
-  // spacer drained to zero and the view handed off to following, so callers can
-  // skip any further state reconciliation for the frame.
-  //
-  // The drain is skipped while a programmatic scroll is in flight (autoscrolling
-  // or an anchored/settling jump): those paths already consume the spacer via
-  // reanchorToAnchoredMessage, and letting the scroll event drain it would yank
-  // the anchored turn to the bottom. The remaining room is recomputed from
-  // absolute geometry on every event (contentBottom + spacer - viewport bottom)
-  // so the drain converges instead of over-draining across inertial scroll
-  // events, and the spacer is left untouched while the reader is above the
-  // spacer zone entirely.
-  const drainReleasedSpacer = React.useCallback(() => {
-    if (
-      !autoScrollRef.current ||
-      spacerHeightRef.current <= 0 ||
-      modeRef.current === "following-bottom" ||
-      modeRef.current === "anchored-to-message" ||
-      modeRef.current === "settling-jump" ||
-      autoscrollingRef.current
-    ) {
-      return false
-    }
-
+  const clearFinishedTurnSpacer = React.useCallback(() => {
     const viewport = viewportRef.current
-    const content = contentRef.current
-
-    if (!viewport || !content) {
-      return false
+    const spacerHeight = spacerHeightRef.current
+    if (
+      !turnActiveRef.current &&
+      modeRef.current === "free-scrolling" &&
+      streamingTurnRef.current &&
+      spacerHeight > 0 &&
+      viewport &&
+      (viewport.scrollTop <= 0 ||
+        getMaxScrollTop(viewport) - viewport.scrollTop >= spacerHeight)
+    ) {
+      // The reader is back within the real transcript's scroll range. Dropping
+      // the spacer here preserves scrollTop and prevents returning to blank space.
+      setTailSpacerHeight(0)
     }
-
-    const contentBottom = getContentBottom({
-      content,
-      spacer: spacerRef.current,
-      viewport,
-    })
-
-    // How far the reader has scrolled into the reserved spacer zone. When the
-    // viewport bottom has not yet reached the content bottom the reader is
-    // above the spacer zone entirely, so the spacer must be left untouched.
-    const overlap =
-      viewport.scrollTop + viewport.clientHeight - contentBottom
-
-    if (overlap <= 0) {
-      return false
-    }
-
-    // Recompute the remaining spacer room from absolute geometry on every event
-    // so the drain converges instead of over-draining: the spacer shrinks by
-    // the amount of room the reader has already scrolled past, never by a delta
-    // that compounds across inertial scroll events.
-    const nextSpacerHeight = Math.max(
-      0,
-      contentBottom +
-        spacerHeightRef.current -
-        (viewport.scrollTop + viewport.clientHeight)
-    )
-
-    if (nextSpacerHeight === 0) {
-      scrollToEnd({ behavior: "auto" })
-      return true
-    }
-
-    setTailSpacerHeight(nextSpacerHeight)
-
-    return false
-  }, [scrollToEnd, setTailSpacerHeight])
+  }, [setTailSpacerHeight])
 
   const handleResize = React.useCallback(() => {
     if (modeRef.current === "following-bottom" && autoScrollRef.current) {
@@ -735,22 +671,46 @@ function useMessageScrollerController({
     // [operon] And a free reader keeps the row they are reading.
     restoreReadingAnchor()
 
-    // Drain a stranded spacer as the reply grows below it. Early return when
-    // it hit zero so the following hand-off owns the frame.
-    if (drainReleasedSpacer()) {
-      return
+    // [operon] Let reply growth consume a released turn's spacer using its
+    // original reading line. Basing the height on the reader's scroll instead
+    // shrinks the scroll range under them and can clamp their position.
+    const turn = streamingTurnRef.current
+    const viewport = viewportRef.current
+    const content = contentRef.current
+    const spacer = spacerRef.current
+    if (
+      turnActiveRef.current &&
+      modeRef.current === "free-scrolling" &&
+      previousSpacerHeight > 0 &&
+      turn && viewport && content?.contains(turn)
+    ) {
+      const anchorTop = getElementScrollTop({
+        align: "start",
+        element: turn,
+        scrollMargin: scrollMarginRef.current + scrollPreviousItemPeekRef.current,
+        spacer,
+        viewport,
+      })
+      setTailSpacerHeight(getTailSpacerHeight({
+        content,
+        scrollTop: Math.max(anchorTop, viewport.scrollTop),
+        spacer,
+        viewport,
+      }))
     }
 
+    clearFinishedTurnSpacer()
     scheduleStateCommit()
     scheduleVisibilitySync()
   }, [
-    drainReleasedSpacer,
+    clearFinishedTurnSpacer,
     holdJumpTarget,
     reanchorToAnchoredMessage,
     restoreReadingAnchor,
     scheduleStateCommit,
     scheduleVisibilitySync,
     scrollToEnd,
+    setTailSpacerHeight,
   ])
 
   const observeVisibility = React.useCallback(() => {
@@ -853,6 +813,9 @@ function useMessageScrollerController({
     if (direction !== 0) {
       smoothScrollRef.current = false
     }
+    if (direction === -1) {
+      pendingFollowOnScrollEndRef.current = false
+    }
 
     if (
       mode !== "following-bottom" &&
@@ -880,15 +843,15 @@ function useMessageScrollerController({
 
     // A deliberate gesture releases auto-follow, turn-anchoring, and an in-flight
     // programmatic jump so re-pinning (and re-arming) never fights the reader.
-    streamingTurnRef.current = null
+    // Keep the released turn as a geometry reference for its remaining spacer.
     modeRef.current = "free-scrolling"
     userReleasedFollowRef.current = true
   }, [])
 
   // [operon] Leave following as a reader's gesture would, without moving the
   // viewport (e.g. before a disclosure the reader opened grows the content).
-  // Following resumes once the reader scrolls back down onto the end, or on
-  // any scroll command.
+  // Following resumes when the reader settles at the live end, or on a scroll
+  // command.
   const stopFollowing = React.useCallback(() => {
     if (modeRef.current !== "following-bottom") {
       return
@@ -923,35 +886,55 @@ function useMessageScrollerController({
   )
 
   const syncAfterScroll = React.useCallback(() => {
-    // A released spacer can be stranded if the stream ends before the reply
-    // drains it (no more resizes to drive the drain). Let a scroll to the real
-    // bottom - contentBottom plus the remaining spacer - finish the job: the
-    // reader reclaims the dead space and following re-arms once it hits zero.
     // [operon] A layout shift that landed with this scroll is not the reader's.
     restoreReadingAnchor()
-    drainReleasedSpacer()
-    commitScrollState({ fromScroll: true })
+
+    const viewport = viewportRef.current
+    if (viewport && userReleasedFollowRef.current) {
+      const delta = viewport.scrollTop - lastScrollTopRef.current
+      if (Math.abs(delta) > SCROLL_POSITION_EPSILON) {
+        // Reaching the edge is provisional while a gesture is still moving.
+        pendingFollowOnScrollEndRef.current =
+          delta > 0 && spacerHeightRef.current === 0 &&
+          viewport.scrollTop >= getMaxScrollTop(viewport) - SCROLL_POSITION_EPSILON
+      }
+    }
+    commitScrollState()
+    clearFinishedTurnSpacer()
+    lastScrollTopRef.current = viewport?.scrollTop ?? 0
     scheduleVisibilitySync()
     capturePrependAnchor()
     captureReadingAnchor()
   }, [
     capturePrependAnchor,
     captureReadingAnchor,
+    clearFinishedTurnSpacer,
     commitScrollState,
-    drainReleasedSpacer,
     restoreReadingAnchor,
     scheduleVisibilitySync,
   ])
 
-  // [operon] A smooth programmatic scroll has landed: resume reading from here.
   const handleScrollEnd = React.useCallback(() => {
-    if (!smoothScrollRef.current) {
-      return
+    if (smoothScrollRef.current) {
+      smoothScrollRef.current = false
+      captureReadingAnchor()
     }
 
-    smoothScrollRef.current = false
-    captureReadingAnchor()
-  }, [captureReadingAnchor])
+    const pendingFollow = pendingFollowOnScrollEndRef.current
+    pendingFollowOnScrollEndRef.current = false
+    const viewport = viewportRef.current
+    if (
+      pendingFollow &&
+      viewport &&
+      userReleasedFollowRef.current &&
+      modeRef.current === "free-scrolling" &&
+      spacerHeightRef.current === 0 &&
+      viewport.scrollTop >= getMaxScrollTop(viewport) - SCROLL_POSITION_EPSILON
+    ) {
+      userReleasedFollowRef.current = false
+      commitScrollState()
+    }
+  }, [captureReadingAnchor, commitScrollState])
 
   const context = React.useMemo<MessageScrollerContextValue>(
     () => ({
@@ -1048,8 +1031,9 @@ function useMessageScrollerController({
       return
     }
 
+    clearFinishedTurnSpacer()
     commitScrollState()
-  }, [autoScroll, commitScrollState, scrollToEnd])
+  }, [autoScroll, turnActive, clearFinishedTurnSpacer, commitScrollState, scrollToEnd])
 
   return {
     context,

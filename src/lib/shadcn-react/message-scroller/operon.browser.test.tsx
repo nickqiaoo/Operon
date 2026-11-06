@@ -45,15 +45,17 @@ function Thread({
   paddingBottom = 0,
   extras = false,
   jumpTo,
+  turnActive,
 }: {
   items: Item[]
   paddingTop?: number
   paddingBottom?: number
   extras?: boolean
   jumpTo?: string
+  turnActive?: boolean
 }) {
   return (
-    <M.Provider autoScroll>
+    <M.Provider autoScroll turnActive={turnActive}>
       <M.Root>
         <M.Viewport
           aria-label="viewport"
@@ -75,7 +77,7 @@ function Thread({
                 scrollAnchor={item.anchor}
                 style={{ height: item.height ?? ITEM_HEIGHT, flex: "none" }}
               >
-                {item.id}
+                {item.height === 0 ? null : item.id}
               </M.Item>
             ))}
             {extras ? (
@@ -94,6 +96,7 @@ function Thread({
             ) : null}
           </M.Content>
         </M.Viewport>
+        <M.Button data-testid="scroll-to-end" />
         {jumpTo ? <JumpTo id={jumpTo} /> : null}
       </M.Root>
     </M.Provider>
@@ -394,13 +397,47 @@ test("a release stays until the reader scrolls back to the end", async () => {
   await settle()
   expect(distanceToEnd()).toBeGreaterThan(100)
 
-  // Scrolling back down onto the end resumes following.
+  // Scrolling back down onto the end resumes following, even when an empty
+  // streamed row is committed before the browser delivers the scroll event.
   target.scrollTop = target.scrollHeight
+  list = [...list, { id: "next-reply", height: 0 }]
+  rerender({ items: list })
   await settle()
   list = grow(list, 200)
   rerender({ items: list })
   await settle()
   expect(distanceToEnd()).toBeLessThanOrEqual(1)
+})
+
+test("reaching the live end during a gesture does not follow a new chunk", async () => {
+  const list = items(6)
+  await render({ items: list })
+  const target = viewport()
+
+  wheel(target, -60)
+  target.scrollTop -= 60
+  await settle()
+
+  // A scrollTop assignment ends on its own in Chromium. Hold that event
+  // while modeling a gesture that is still in progress.
+  const holdScrollEnd = (event: Event) => event.stopImmediatePropagation()
+  target.addEventListener("scrollend", holdScrollEnd, true)
+  try {
+    target.scrollTop = target.scrollHeight
+    await settle()
+    const end = target.scrollTop
+
+    rerender({ items: grow(list, 100) })
+    await settle()
+    expect(target.scrollTop).toBe(end)
+  } finally {
+    target.removeEventListener("scrollend", holdScrollEnd, true)
+  }
+
+  target.dispatchEvent(new Event("scrollend"))
+  rerender({ items: grow(list, 200) })
+  await settle()
+  expect(distanceToEnd()).toBe(200)
 })
 
 async function renderAnchoredShortTurn() {
@@ -432,17 +469,121 @@ test("a wheel toward the end of an anchored short turn keeps the anchor", async 
   expect(distanceToEnd()).toBeLessThanOrEqual(1)
 })
 
-test("leaving a short turn upward reports room below, though no content is", async () => {
-  await renderAnchoredShortTurn()
+test("scrolling up from a short turn moves it only by the scroll distance", async () => {
+  const { offset } = await renderAnchoredShortTurn()
   const target = viewport()
-  wheel(target, -60)
-  target.scrollTop -= 60
+  const before = offset()
+
+  wheel(target, -12)
+  target.scrollTop -= 12
   await settle()
+  expect(offset()).toBe(before + 12)
+
+  wheel(target, -12)
+  target.scrollTop -= 12
+  await settle()
+  expect(offset()).toBe(before + 24)
+
+  rerender({ items: [...items(4), { id: "turn", anchor: true, height: 80 }] })
+  await settle()
+  expect(offset()).toBe(before + 24)
 
   // Real content still ends inside the viewport; only the spacer is below.
-  expect(distanceToEnd(target)).toBeGreaterThan(8)
+  expect(distanceToEnd(target)).toBe(24)
   // The scroller mirrors its published state onto the viewport.
   expect(target.getAttribute("data-scrollable") ?? "").toContain("end")
+  const button = document.querySelector('[data-testid="scroll-to-end"]')
+  expect(button?.getAttribute("data-active")).toBe("false")
+
+  // Growing the reply beyond the viewport reveals the button without changing
+  // the reader's scroll position or the existing reading state.
+  rerender({ items: [...items(4), { id: "turn", anchor: true, height: 300 }] })
+  await settle()
+  expect(offset()).toBe(before + 24)
+  expect(button?.getAttribute("data-active")).toBe("true")
+})
+
+test("a finished short reply keeps its position and loses its blank scroll range once read back", async () => {
+  const { offset } = await renderAnchoredShortTurn()
+  const list = [
+    ...items(4),
+    { id: "turn", anchor: true, height: 40 },
+    { id: "reply", height: 24 },
+  ]
+  rerender({ items: list, turnActive: true })
+  await settle()
+  const target = viewport()
+  const hasContentBelow = () => target.getAttribute("data-scrollable")?.includes("end")
+  const before = offset()
+
+  wheel(target, -20)
+  target.scrollTop -= 20
+  await settle()
+  expect(hasContentBelow()).toBe(true)
+
+  rerender({ items: list, turnActive: false })
+  await settle()
+  expect(offset()).toBe(before + 20)
+  expect(hasContentBelow()).toBe(false)
+
+  // Read far enough back for the transcript itself to extend below the viewport.
+  const naturalEnd = 4 * ITEM_HEIGHT + 40 + 24 - VIEWPORT_HEIGHT
+  wheel(target, -160)
+  target.scrollTop = naturalEnd - 40
+  await settle()
+  expect(target.scrollTop).toBe(naturalEnd - 40)
+  expect(hasContentBelow()).toBe(true)
+
+  // Even a scroll beyond the end cannot bring the blank area back.
+  target.scrollTop = target.scrollHeight
+  await settle()
+  expect(target.scrollTop).toBe(naturalEnd)
+  expect(hasContentBelow()).toBe(false)
+})
+
+test("the first reply respects a native scroll away from the waiting turn", async () => {
+  const { offset } = await renderAnchoredShortTurn()
+  const target = viewport()
+  const before = offset()
+
+  // A scrollbar drag moves the viewport without a wheel or touch event.
+  target.scrollTop -= 30
+  rerender({ items: [
+    ...items(4),
+    { id: "turn", anchor: true, height: 40 },
+    { id: "reply", height: 250 },
+  ] })
+  await settle()
+
+  expect(offset()).toBe(before + 30)
+  expect(distanceToEnd()).toBeGreaterThan(30)
+})
+
+test("the first reply consuming the spacer does not resume follow during a scroll", async () => {
+  await renderAnchoredShortTurn()
+  const target = viewport()
+  const end = target.scrollTop
+
+  wheel(target, -24)
+  target.scrollTop -= 24
+  await settle()
+  wheel(target, 19)
+  target.scrollTop += 19
+  await settle()
+
+  // The first reply exactly fills the spacer while the reader is still just
+  // above the end. Subsequent text must not pull them down.
+  const list = [
+    ...items(4),
+    { id: "turn", anchor: true, height: 40 },
+    { id: "reply", height: VIEWPORT_HEIGHT - 64 - 40 },
+  ]
+  rerender({ items: list })
+  await settle()
+  rerender({ items: grow(list, 100) })
+  await settle()
+
+  expect(target.scrollTop).toBe(end - 5)
 })
 
 test("a settling jump keeps its row in place while rows around it settle", async () => {
