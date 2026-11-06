@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.5.10] - 2026-11-06
+
+### Changed
+
+- Desktop titlebars track the sidebar during its animation and keep content clear of the fixed sidebar toggle.
+- Mobile layout updates its viewport and keyboard measurements only when they change.
+
+### Fixed
+
+- Streaming replies respect manual scrolling, even when a reply arrives during a scroll gesture.
+- Chat keeps the current message in view as nearby messages resize and removes the extra scroll space after readers move away from a completed short reply.
+
 ## [1.5.9] - 2026-11-05
 
 ### Changed
