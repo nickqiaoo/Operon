@@ -19,7 +19,7 @@ export const LEFT_SIDEBAR_RAIL_WIDTH = 52
 export const SIDEBAR_TOGGLE_LEFT = __APP_TARGET__ === "web" ? 16 : 80
 const SIDEBAR_TOGGLE_SIZE = 24
 // Titlebar rows beside the sidebar start their content this far from the
-// window's left edge at the least (`titlebar-inset` in globals.css). Web needs
+// window's left edge at the least. Web needs
 // none: its toggle sits inside the rail.
 export const TITLEBAR_TOGGLE_CLEARANCE =
   __APP_TARGET__ === "web" ? 0 : SIDEBAR_TOGGLE_LEFT + SIDEBAR_TOGGLE_SIZE + 12

@@ -1,3 +1,4 @@
+import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { useCallback, useEffect, useState } from 'react'
 import { FormattedMessage } from 'react-intl'
 import { Bot, Plus } from 'lucide-react'
@@ -84,9 +85,9 @@ export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, ini
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      {/* Same header as the Inbox beside the same sidebar. titlebar-inset clears
+      {/* Same header as the Inbox beside the same sidebar. TitlebarRow clears
           the fixed sidebar toggle while the sidebar is narrow. */}
-      <div className="drag-region titlebar-inset flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-3">
+      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-3">
         <span className="text-xs text-muted-foreground">
           {view === 'board'
             ? <FormattedMessage id="sidebar.board" defaultMessage="Board" />
@@ -131,7 +132,7 @@ export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, ini
             />
           </PopoverContent>
         </Popover>
-      </div>
+      </TitlebarRow>
 
       <div className="relative flex-1 min-h-0">
         {mountedViews.has('board') && (

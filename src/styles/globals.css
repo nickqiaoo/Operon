@@ -745,6 +745,19 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Helvetica Neue", sans-serif;
 }
 
+html.mobile-shell,
+.mobile-shell body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.mobile-shell,
+.mobile-shell body,
+.mobile-shell #root {
+  height: var(--app-height, 100dvh);
+  min-height: var(--app-height, 100dvh);
+}
+
 code,
 pre,
 kbd,
@@ -1042,17 +1055,6 @@ body > div > button[title="Exit fullscreen"] {
     linear-gradient(to right, color-mix(in srgb, var(--color-foreground) 2%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in srgb, var(--color-foreground) 2%, transparent) 1px, transparent 1px);
   background-size: 32px 32px;
-}
-
-/* Left padding of a titlebar row that starts at the left sidebar's edge: its
-   usual padding, or enough to clear the fixed sidebar toggle when the sidebar
-   is narrow. LeftSidebar writes `--titlebar-toggle-clear` from its width on
-   each animation frame (only while it is narrow enough to matter: a custom
-   property on that ancestor restyles the whole subtree), so the content tracks
-   the sidebar edge instead of jumping when the collapsed flag flips.
-   `--titlebar-pl` overrides the usual padding (default 1rem). */
-@utility titlebar-inset {
-  padding-left: max(var(--titlebar-pl, 1rem), var(--titlebar-toggle-clear, 0px));
 }
 
 /* Sidebar content that only exists in the expanded layout (labels, project

@@ -10,6 +10,7 @@ import { CloseSideChatDialog } from "./CloseSideChatDialog"
 import type { PanelId, Tab } from "./types"
 import { TabBarItem } from "./TabBarItem"
 import { NewTabMenu } from "./NewTabMenu"
+import { TitlebarRow } from "../TitlebarRow"
 
 interface TabBarProps {
   panelId: PanelId
@@ -23,7 +24,7 @@ interface TabBarProps {
   dragRegion?: boolean
   /**
    * The bar starts at the left sidebar's edge (the right panel expanded over
-   * the center): pad its left like the other titlebars (`titlebar-inset`).
+   * the center): pad its left like the other titlebars.
    */
   titlebarInset?: boolean
   className?: string
@@ -84,15 +85,17 @@ export function TabBar({ panelId, accessory, dragRegion, titlebarInset, classNam
   }
 
   return (
-    <div
+    <TitlebarRow
       ref={setNodeRef}
+      clearSidebarToggle={titlebarInset ?? false}
+      defaultPadding="0.5rem"
       data-app-shell-tab-bar={panelId}
       className={cn(
         // Canvas-coloured like EditorTabs: the bottom border already separates
         // the strip from the content, so a tint on top of it is a second
         // divider doing the same job — it just reads as a mismatched patch.
         "flex h-10 shrink-0 items-center gap-1 border-b border-border/50 bg-background pr-2",
-        titlebarInset ? "titlebar-inset [--titlebar-pl:0.5rem]" : "pl-2",
+        !titlebarInset && "pl-2",
         // Drop-target feedback is an interaction state, so a fill is right here.
         isOver && "bg-muted/40",
         dragRegion && "drag-region",
@@ -127,6 +130,6 @@ export function TabBar({ panelId, accessory, dragRegion, titlebarInset, classNam
           setPendingClose(null)
         }}
       />
-    </div>
+    </TitlebarRow>
   )
 }

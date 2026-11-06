@@ -438,8 +438,10 @@ export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SID
 
   const closePreview = useCallback(() => {
     setPreviewOpen(false)
-    if (collapsed) projectsTriggerRef.current?.focus({ preventScroll: true })
-  }, [collapsed])
+    // The trigger is mounted only in rail mode. Keep this callback stable so
+    // expanding the sidebar does not invalidate the memoized project rows.
+    projectsTriggerRef.current?.focus({ preventScroll: true })
+  }, [])
 
   useEffect(() => {
     if (!collapsed) setPreviewOpen(false)

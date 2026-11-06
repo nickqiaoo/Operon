@@ -1,37 +1,63 @@
-import { memo, useState } from "react"
+import { memo, useState, type ReactNode } from "react"
+import { useTransform } from "motion/react"
 import { useIntl } from "react-intl"
 import { PanelLeft } from "lucide-react"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { ProjectSidebar } from "@/components/project/ProjectSidebar"
 import { LeftSidebar } from "./LeftSidebar"
-import { LEFT_SIDEBAR_DEFAULT_WIDTH, SIDEBAR_TOGGLE_LEFT } from "./constants"
+import {
+  LEFT_SIDEBAR_DEFAULT_WIDTH,
+  LEFT_SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_TOGGLE_LEFT,
+  TITLEBAR_TOGGLE_CLEARANCE,
+} from "./constants"
+import { TitlebarClearanceContext } from "./TitlebarRow"
+import { usePanelAnimation } from "./use-panel-animation"
 
 /*
  * The sidebar's collapsed flag is read here and in SidebarToggle only, never
  * in App: App re-rendering on a toggle re-rendered every page it hosts (the
  * right panel, the Assistant's activity, the Inbox list…), a long task that
- * swallowed the first ~160ms of the open animation. Titlebars beside the
- * sidebar follow its width through CSS variables instead (`titlebar-inset`).
+ * swallowed the first ~160ms of the open animation. Titlebars receive a
+ * stable MotionValue so their padding follows the sidebar without React renders.
  */
 
 interface AppSidebarProps {
   onOpenSpec: (taskId: number, projectId: number) => void
+  children: ReactNode
 }
 
-export const AppSidebar = memo(function AppSidebar({ onOpenSpec }: AppSidebarProps) {
+export const AppSidebar = memo(function AppSidebar({ onOpenSpec, children }: AppSidebarProps) {
   const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const [width, setWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
+  const { progress, collapsed: rail } = usePanelAnimation({
+    size: width - LEFT_SIDEBAR_RAIL_WIDTH,
+    isVisible: !sidebarCollapsed,
+  })
+  const animatedWidth = useTransform(progress, (value) =>
+    LEFT_SIDEBAR_RAIL_WIDTH + value * (width - LEFT_SIDEBAR_RAIL_WIDTH)
+  )
+  const titlebarClearance = useTransform(animatedWidth, (value) =>
+    Math.max(0, TITLEBAR_TOGGLE_CLEARANCE - value)
+  )
 
   return (
-    <LeftSidebar
-      isOpen={!sidebarCollapsed}
-      width={width}
-      onWidthChange={setWidth}
-      onClose={() => setSidebarCollapsed(true)}
-    >
-      {(rail) => <ProjectSidebar onOpenSpec={onOpenSpec} collapsed={rail} width={width} />}
-    </LeftSidebar>
+    <TitlebarClearanceContext.Provider value={titlebarClearance}>
+      <div className="flex h-full w-full">
+        <LeftSidebar
+          isOpen={!sidebarCollapsed}
+          rail={rail}
+          animatedWidth={animatedWidth}
+          progress={progress}
+          onWidthChange={setWidth}
+          onClose={() => setSidebarCollapsed(true)}
+        >
+          <ProjectSidebar onOpenSpec={onOpenSpec} collapsed={rail} width={width} />
+        </LeftSidebar>
+        {children}
+      </div>
+    </TitlebarClearanceContext.Provider>
   )
 })
 

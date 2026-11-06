@@ -1,28 +1,22 @@
-import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react"
-import { motion, useMotionValueEvent, useTransform } from "motion/react"
+import { useCallback, type ReactNode } from "react"
+import { motion, useTransform, type MotionValue } from "motion/react"
 import { cn } from "@/lib/utils"
 import { ResizeHandle } from "./ResizeHandle"
-import { usePanelAnimation } from "./use-panel-animation"
 import {
   LEFT_SIDEBAR_AUTO_CLOSE_BELOW,
   LEFT_SIDEBAR_DEFAULT_WIDTH,
-  LEFT_SIDEBAR_RAIL_WIDTH,
   LEFT_SIDEBAR_MAX_WIDTH,
   LEFT_SIDEBAR_MIN_WIDTH,
-  TITLEBAR_TOGGLE_CLEARANCE,
 } from "./constants"
 
 interface LeftSidebarProps {
-  /**
-   * `rail` turns true only once the close animation has finished, and false as
-   * soon as it reopens: in between the expanded layout is clipped by the
-   * moving edge, the same way in both directions.
-   */
-  children: (rail: boolean) => ReactNode
+  children: ReactNode
   /** Whether the sidebar should currently be open. */
   isOpen: boolean
-  /** Target width in px when open. */
-  width: number
+  /** Switch to the icon rail once the close animation finishes. */
+  rail: boolean
+  animatedWidth: MotionValue<number>
+  progress: MotionValue<number>
   onWidthChange: (width: number) => void
   /** Called when a resize drag shrinks the sidebar past the auto-close size. */
   onClose: () => void
@@ -41,43 +35,18 @@ const labelOpacity = (progress: number) =>
 export function LeftSidebar({
   children,
   isOpen,
-  width,
+  rail,
+  animatedWidth,
+  progress,
   onWidthChange,
   onClose,
   className,
 }: LeftSidebarProps) {
-  const containerRef = useRef<HTMLElement | null>(null)
-  const { progress, collapsed: rail } = usePanelAnimation({
-    size: width - LEFT_SIDEBAR_RAIL_WIDTH,
-    isVisible: isOpen,
-  })
-
-  const animatedWidth = useTransform(progress, (value) =>
-    LEFT_SIDEBAR_RAIL_WIDTH + value * (width - LEFT_SIDEBAR_RAIL_WIDTH)
-  )
-
-  // Written straight to the DOM per frame (no React render), and only when the
-  // value changes: a custom property restyles the whole subtree below it.
-  // The parent row holds the titlebars beside the sidebar (`titlebar-inset`);
-  // the labels inside read the opacity (`sidebar-label-fade`).
-  const written = useRef({ clear: Number.NaN, opacity: Number.NaN })
-  const writeShellVars = useCallback(() => {
-    const aside = containerRef.current
-    const host = aside?.parentElement
-    if (!aside || !host) return
-    const clear = Math.max(0, TITLEBAR_TOGGLE_CLEARANCE - animatedWidth.get())
-    if (clear !== written.current.clear) {
-      written.current.clear = clear
-      host.style.setProperty("--titlebar-toggle-clear", `${clear}px`)
-    }
-    const opacity = labelOpacity(progress.get())
-    if (opacity !== written.current.opacity) {
-      written.current.opacity = opacity
-      aside.style.setProperty("--sidebar-label-opacity", String(opacity))
-    }
-  }, [animatedWidth, progress])
-  useMotionValueEvent(animatedWidth, "change", writeShellVars)
-  useLayoutEffect(writeShellVars)
+  const animatedLabelOpacity = useTransform(progress, labelOpacity)
+  const style = {
+    width: animatedWidth,
+    "--sidebar-label-opacity": animatedLabelOpacity,
+  }
 
   const handleResize = useCallback(
     (next: number) => {
@@ -92,14 +61,13 @@ export function LeftSidebar({
 
   return (
     <motion.aside
-      ref={containerRef}
       aria-label="Main navigation"
       data-testid="left-sidebar"
       className={cn(
         "relative h-full min-h-0 min-w-0 shrink-0 overflow-visible",
         className
       )}
-      style={{ width: animatedWidth }}
+      style={style}
     >
       <div
         className={cn(
@@ -115,16 +83,14 @@ export function LeftSidebar({
           !rail && "overflow-hidden"
         )}
       >
-        {children(rail)}
+        {children}
       </div>
       {isOpen && (
         <ResizeHandle
           edge="right"
           defaultSize={LEFT_SIDEBAR_DEFAULT_WIDTH}
-          getSizeFromPointer={({ x }) => {
-            const left = containerRef.current?.getBoundingClientRect().left ?? 0
-            return x - left
-          }}
+          // The sidebar is docked at the viewport's left edge.
+          getSizeFromPointer={({ x }) => x}
           setSize={handleResize}
         />
       )}

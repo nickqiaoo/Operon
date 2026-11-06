@@ -8,6 +8,7 @@ import { Z_FULL_PAGE } from "@/lib/z-index"
 import { AnnotationEditorHost } from "@/components/browser/AnnotationEditorHost"
 
 import { AppSidebar, SidebarToggle } from "@/components/app-shell/AppSidebar"
+import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { KeepAliveView } from "@/components/app-shell/KeepAliveView"
 import { SessionPanelToggle, TopBarControls } from "@/components/app-shell/TopBarControls"
 import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
@@ -380,7 +381,7 @@ export default function App() {
     <>
       {/* The header reserves room for the persistent panel controls at the window edge. */}
       <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/50 bg-background shrink-0">
-        <div className="titlebar-inset flex flex-1 min-w-0 items-center gap-2 pr-4 text-xs text-muted-foreground font-normal">
+        <TitlebarRow className="flex flex-1 min-w-0 items-center gap-2 pr-4 text-xs text-muted-foreground font-normal">
           {/* Both names truncate: without it the workspace pill wraps
               onto a second line, outgrows the h-10 row and collides with
               whatever sits to its right. The project name gives way first
@@ -401,7 +402,7 @@ export default function App() {
               </span>
             </>
           )}
-        </div>
+        </TitlebarRow>
         {/* Account quota for every signed-in provider. A real child
             of the drag row (not a floating overlay) so macOS honors
             its `no-drag`; it sits before the panel toggles because it
@@ -459,10 +460,7 @@ export default function App() {
 
     <div className={`relative h-screen w-screen text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
       {/* Main Content */}
-      <div className="flex h-full w-full">
-        {/* Left Panel - Project Sidebar (push-open; a rail when collapsed) */}
-        <AppSidebar onOpenSpec={openSpec} />
-
+      <AppSidebar onOpenSpec={openSpec}>
         {/* Main Content Area (Center + Right) */}
         <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
           {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,
@@ -572,7 +570,7 @@ export default function App() {
           </AppShell>
           </KeepAliveView>
         </div>
-      </div>
+      </AppSidebar>
       <div
         className={cn("no-drag absolute right-2 top-0 z-50 flex h-10 items-center border-b border-transparent", !workbenchActive && "invisible")}
         inert={!workbenchActive}

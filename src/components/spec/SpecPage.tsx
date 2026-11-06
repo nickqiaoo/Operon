@@ -1,3 +1,4 @@
+import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowUpRight, GitBranch, Loader2, MessageSquareText } from 'lucide-react'
 import { SpecIcon } from '@/components/icons/SpecIcon'
@@ -79,7 +80,7 @@ export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusCha
   return (
     <div className="@container/spec flex h-full min-h-0 flex-col bg-background" data-testid={target ? 'spec-page' : undefined} data-spec-id={target?.taskId}>
       {target ? <>
-      <div className="@container/topbar drag-region titlebar-inset flex h-10 shrink-0 items-center gap-2 border-b border-border/50 pr-2 text-xs text-muted-foreground">
+      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 pr-2 text-xs text-muted-foreground">
         <span className="shrink-0">{project?.name ?? 'Project'}</span>
         <span className="text-muted-foreground/40">/</span>
         <SpecIcon className="size-3.5 shrink-0" />
@@ -89,7 +90,7 @@ export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusCha
         <AccountUsageBar className="shrink-0 pr-0.5" />
         <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
         {!rightPanelOpen && <div className="w-[50px] shrink-0" aria-hidden="true" />}
-      </div>
+      </TitlebarRow>
 
       {spec && <Tabs value={section} onValueChange={(value) => chooseSection(value as Section)} className="shrink-0 gap-0">
           <div className="flex shrink-0 items-center gap-3 border-b border-border/40 px-4">

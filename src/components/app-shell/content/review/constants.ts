@@ -36,6 +36,8 @@ export const DIFF_SCROLLBAR_CSS = `
    the horizontal bar would render as the native overlay). */
 [data-code] {
   background-color: var(--diffs-bg);
+  /* The Review panel owns vertical scrolling. Don't reserve a gutter per file. */
+  scrollbar-gutter: auto;
 }
 
 [data-code]::-webkit-scrollbar {

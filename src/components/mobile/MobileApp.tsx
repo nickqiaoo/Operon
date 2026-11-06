@@ -350,52 +350,21 @@ export function MobileApp() {
   useEffect(() => {
     const root = document.documentElement
     const body = document.body
-    const appRoot = document.getElementById("root")
     const vv = window.visualViewport
-    const prev = {
-      htmlOverflow: root.style.overflow,
-      htmlOverscroll: root.style.overscrollBehavior,
-      htmlHeight: root.style.height,
-      htmlMinHeight: root.style.minHeight,
-      bodyOverflow: body.style.overflow,
-      bodyOverscroll: body.style.overscrollBehavior,
-      bodyHeight: body.style.height,
-      bodyMinHeight: body.style.minHeight,
-      appRootHeight: appRoot?.style.height ?? "",
-      appRootMinHeight: appRoot?.style.minHeight ?? "",
+    const setMetric = (property: "--app-height" | "--keyboard-height", pixels: number) => {
+      const value = `${Math.round(pixels)}px`
+      if (root.style.getPropertyValue(property) !== value) {
+        root.style.setProperty(property, value)
+      }
     }
     const readVisibleHeight = () => Math.max(1, vv?.height ?? window.innerHeight)
-    root.style.setProperty("--app-height", `${Math.round(readVisibleHeight())}px`)
-    root.style.setProperty("--keyboard-height", "0px")
-    root.style.overflow = "hidden"
-    root.style.overscrollBehavior = "none"
-    root.style.height = "var(--app-height)"
-    root.style.minHeight = "var(--app-height)"
-    body.style.overflow = "hidden"
-    body.style.overscrollBehavior = "none"
-    body.style.height = "var(--app-height)"
-    body.style.minHeight = "var(--app-height)"
-    if (appRoot) {
-      appRoot.style.height = "var(--app-height)"
-      appRoot.style.minHeight = "var(--app-height)"
-    }
+    setMetric("--app-height", readVisibleHeight())
+    setMetric("--keyboard-height", 0)
 
     const restore = () => {
       root.style.removeProperty("--app-height")
       root.style.removeProperty("--keyboard-height")
       setKeyboardOpen(false)
-      root.style.overflow = prev.htmlOverflow
-      root.style.overscrollBehavior = prev.htmlOverscroll
-      root.style.height = prev.htmlHeight
-      root.style.minHeight = prev.htmlMinHeight
-      body.style.overflow = prev.bodyOverflow
-      body.style.overscrollBehavior = prev.bodyOverscroll
-      body.style.height = prev.bodyHeight
-      body.style.minHeight = prev.bodyMinHeight
-      if (appRoot) {
-        appRoot.style.height = prev.appRootHeight
-        appRoot.style.minHeight = prev.appRootMinHeight
-      }
     }
 
     // iOS only. UIKit hands us the keyboard's exact height and animation, so
@@ -411,16 +380,16 @@ export function MobileApp() {
       // top of the keyboard) is dead weight in an app with its own composer.
       void Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => {})
       const syncShellHeight = () =>
-        root.style.setProperty("--app-height", `${Math.round(Math.max(1, window.innerHeight))}px`)
+        setMetric("--app-height", Math.max(1, window.innerHeight))
       syncShellHeight()
 
       const handles = [
         Keyboard.addListener("keyboardWillShow", (info) => {
-          root.style.setProperty("--keyboard-height", `${Math.round(info.keyboardHeight)}px`)
+          setMetric("--keyboard-height", info.keyboardHeight)
           setKeyboardOpen(true)
         }),
         Keyboard.addListener("keyboardWillHide", () => {
-          root.style.setProperty("--keyboard-height", "0px")
+          setMetric("--keyboard-height", 0)
           setKeyboardOpen(false)
         }),
       ]
@@ -451,8 +420,8 @@ export function MobileApp() {
     const setViewportMetrics = (height: number, keyboardHeight: number) => {
       // Fixed elements already use Android's shrunken layout viewport. Keeping
       // the closed shell height and lifting again would move them up twice.
-      root.style.setProperty("--app-height", `${Math.round(resizedWebView ? readVisibleHeight() : height)}px`)
-      root.style.setProperty("--keyboard-height", `${Math.round(resizedWebView ? 0 : Math.max(0, keyboardHeight))}px`)
+      setMetric("--app-height", resizedWebView ? readVisibleHeight() : height)
+      setMetric("--keyboard-height", resizedWebView ? 0 : Math.max(0, keyboardHeight))
       if (window.scrollY !== 0) window.scrollTo(0, 0)
       if (root.scrollTop !== 0) root.scrollTop = 0
       if (body.scrollTop !== 0) body.scrollTop = 0
