@@ -89,10 +89,11 @@ export interface WindowComputerUseClient {
    *
    * `query` filters to matching actionable rows and their ancestors — worth
    * reaching for on a big surface (a Chrome window reports 1500+ nodes).
-   * Rows are suffixed with the state the engine reports: `(disabled)`,
-   * `(selected)`, and `(offscreen)` for a row the app has not laid out, which
-   * is in the tree but cannot be clicked until it is scrolled into view or the
-   * window is made big enough to hold it.
+   * A row reads `- [12] AXButton "Save" [enabled=false actions=[press]]`, with
+   * `(selected)` after the role on a selected row. The bracketed number is the
+   * `element_index`; a row without one is text to read. Rows the app has not
+   * laid out are mostly left out until they are scrolled into view or the
+   * window is made big enough to hold them.
    */
   get_app_state(input: {
     app: AppIdentifier;

@@ -35,7 +35,7 @@ import { fileURLToPath } from "node:url";
 
 /** Pinned deliberately: an engine that drives the user's Mac is not something to
  *  float on "latest". Bump it in a commit, with the checksum below. */
-const VERSION = "0.30.1";
+const VERSION = "0.44.0";
 const ASSET = `cua-driver-rs-${VERSION}-darwin-universal-binary.tar.gz`;
 const URL = `https://github.com/trycua/cua/releases/download/cua-driver-rs-v${VERSION}/${ASSET}`;
 

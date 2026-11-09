@@ -4,22 +4,19 @@
  * The shapes above this file do not move: the model still calls `computer.*`,
  * still gets an accessibility tree whose rows begin with an `element_index`, and
  * still addresses an app by bundle id or path. This file is where that vocabulary
- * is translated into cua-driver's, which is pid plus window id plus element
- * index against a snapshot.
+ * is translated into cua-driver's, which is pid plus window id plus an element
+ * token from a snapshot.
  *
- * Three translations carry the weight:
+ * Two translations carry the weight:
  *
  *   1. **app to (pid, window_id)**. Operon's API is app-centric and cua-driver's
  *      is window-centric, so every call resolves the app to a live window first.
  *      The resolution is cached briefly, because an app that just restarted has
  *      a new pid and a cache that outlives that is worse than no cache.
- *   2. **tree rendering**. cua-driver returns a structured `elements` array and
- *      its own markdown. We render our own text from the structured side rather
- *      than passing their markdown through, so the format the model has been
- *      trained on in this product stays byte-comparable.
- *   3. **secondary actions**. Their `click` tool takes an `action` and silently
- *      falls back to AXPress for anything it does not recognise, so an
- *      unrecognised name here must be refused rather than forwarded.
+ *   2. **tree text**. The model reads cua-driver's markdown as is: it is compact
+ *      and carries the static text the structured `elements` array leaves out.
+ *      The one thing markdown does not say is which rows are selected, so
+ *      `elements` is used for that and nothing else.
  *
  * See docs/cua-driver-migration/design.md.
  */
@@ -85,15 +82,6 @@ export const BLOCKED_BUNDLE_IDS: ReadonlySet<string> = new Set([
   "top.chatcode.operon",
 ]);
 
-/**
- * Secondary action names this backend will forward, and where each one goes.
- *
- * cua-driver's `map_action` ends in `_ => "AXPress"`: a name it does not know
- * becomes a click, succeeds, and reports success. On an element advertising both
- * AXPress and AXDecrement that turns "decrement" into "click" silently. So the
- * mapping here is a closed set and anything outside it is refused. Raise and the
- * stepping actions are not `click` at all; they have their own tools.
- */
 /** How long a resolved (app -> pid, window) mapping is trusted. */
 const RESOLUTION_TTL_MS = 1_500;
 
@@ -129,25 +117,8 @@ interface CuaWindow {
 
 interface CuaElement {
   element_index?: number;
-  role?: string;
-  label?: string;
-  value?: string;
-  depth?: number;
-  parent_index?: number;
-  /**
-   * On-screen geometry. Absent for a node the app has not laid out — a row a
-   * virtualised list has scrolled past, most often. Such a node is in the tree
-   * but cannot be acted on: the daemon's background-input gate cannot prove it
-   * belongs to the target window and refuses with `element_outside_target_window`.
-   * That is why the renderer marks it; before, the model could not tell.
-   */
-  frame?: { x: number; y: number; w: number; h: number };
-  /** False for a greyed-out control. Acting on one silently does nothing. */
-  enabled?: boolean;
   /** Current selection state, for rows, cells, tabs and radio buttons. */
   selected?: boolean;
-  /** Inside a web view rather than native AX. */
-  in_web_content?: boolean;
 }
 
 interface Resolved {
@@ -158,13 +129,14 @@ interface Resolved {
   /**
    * Handle from the last `get_window_state`, in cua-driver's `s########` form.
    *
-   * Every element-indexed action carries it, because the driver's contract is
-   * "required when targeting by element_index; stale snapshots fail closed".
-   * That is the guard against the failure Operon otherwise has no protection
-   * for now that automatic intervention detection is out of scope: the user
-   * touches the app between the snapshot and the action, the index map no
-   * longer describes the screen, and the click lands on the wrong thing. With
-   * the handle attached the driver refuses instead, and says to re-snapshot.
+   * Every element-indexed action carries it as `<snapshot_id>:<element_index>`,
+   * the `element_token` the driver addresses elements by; it accepts nothing
+   * else, and a token from a superseded snapshot fails closed. That is the guard
+   * against the failure Operon otherwise has no protection for now that
+   * automatic intervention detection is out of scope: the user touches the app
+   * between the snapshot and the action, the index map no longer describes the
+   * screen, and the click lands on the wrong thing. With the token the driver
+   * refuses instead, and says to re-snapshot.
    */
   snapshotId?: string;
 }
@@ -389,46 +361,30 @@ export class CuaDriverBackend implements ComputerUseBackend {
   // ------------------------------- tree text -------------------------------
 
   /**
-   * Render cua-driver's structured elements in the row format this product's
-   * model prompt and tests already parse: leading indent, `element_index`, role,
-   * then label and value.
+   * The model-facing tree: cua-driver's markdown, with `(selected)` added after
+   * the role on the rows that are selected.
    *
-   * Deliberately not their `tree_markdown`: it tags indices as
-   * `[element_index N]` mid-line, and every consumer here reads the index off
-   * the front of the row.
+   * After the role rather than at the end of the line because a label or an
+   * action name can contain newlines, so a row's first line may stop inside a
+   * quoted string. Rows that appear only in `elements` are ignored: every number
+   * the model can see comes from the markdown.
    */
-  static renderTree(elements: CuaElement[]): string {
-    // "No frame" only means "off screen" when the tree carries geometry at all.
-    // Some surfaces report none for any node, and marking every row `offscreen`
-    // there would be noise that says nothing.
-    const hasGeometry = elements.some((element) => element.frame != null);
-    const lines: string[] = [];
-    for (const element of elements) {
-      if (element.element_index == null) continue;
-      const indent = "\t".repeat(Math.max(0, element.depth ?? 0));
-      const parts = [String(element.element_index), element.role ?? "element"];
-      if (element.label != null && element.label !== "") parts.push(element.label);
-      if (element.value != null && element.value !== "") parts.push(element.value);
-      // Suffixed rather than inserted, so the leading `<index> <role>` shape every
-      // consumer parses is untouched.
-      const flags: string[] = [];
-      if (element.enabled === false) flags.push("disabled");
-      if (element.selected === true) flags.push("selected");
-      if (hasGeometry && element.frame == null) flags.push("offscreen");
-      if (flags.length > 0) parts.push(`(${flags.join(", ")})`);
-      lines.push(`${indent}${parts.join(" ")}`);
-    }
-    return lines.join("\n");
+  static renderTree(markdown: string, elements: CuaElement[]): string {
+    const selected = new Set(
+      elements.filter((element) => element.selected === true).map((element) => element.element_index),
+    );
+    if (selected.size === 0) return markdown;
+    return markdown.replace(/^(\s*- \[(\d+)\] \S+)/gm, (row: string, _head: string, index: string) =>
+      selected.has(Number(index)) ? `${row} (selected)` : row);
   }
 
   /**
    * A header for the tree, when there is something about it the model must know.
    *
-   * Three facts the daemon reports and this used to drop on the floor:
+   * A walk that ran out of budget needs no note here: the markdown says so
+   * itself, in a PARTIAL TREE line. That leaves two facts it does not carry:
    *
-   *  - the walk was capped, so rows the model needs may simply be missing;
-   *  - `elements_complete: false`, i.e. the daemon itself says the tree is partial
-   *    even when it returned everything it walked;
+   *  - how much of the window a `query` matched;
    *  - an input route the daemon has already refused for this window, which
    *    predicts the failure of an action rather than reporting it afterwards.
    *
@@ -438,22 +394,8 @@ export class CuaDriverBackend implements ComputerUseBackend {
     const notes: string[] = [];
     const returned = numberOr(structured.returned_element_count, NaN);
     const total = numberOr(structured.total_element_count, NaN);
-    const partial = Number.isFinite(returned) && Number.isFinite(total) && returned < total;
-    if (partial && filtered) {
-      // A filtered walk returns fewer nodes by definition. Calling that a cap
-      // would be wrong, and telling the caller to "pass query" when they just
-      // did is worse than saying nothing.
+    if (filtered && Number.isFinite(returned) && Number.isFinite(total) && returned < total) {
       notes.push(`query matched ${returned} of ${total} elements`);
-    } else if (partial) {
-      notes.push(
-        `showing ${returned} of ${total} elements (the walk was capped — raise max_elements, `
-        + `or pass query to filter)`,
-      );
-    } else if (structured.elements_complete === false && !filtered) {
-      notes.push(
-        "this tree is incomplete: the accessibility walk did not reach every node "
-        + "(pass query to filter, or max_depth / max_elements to bound it differently)",
-      );
     }
     const routes = (structured.background_input as { routes?: unknown } | undefined)?.routes;
     if (Array.isArray(routes)) {
@@ -536,7 +478,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
        * more context than finding the one row it was looking for.
        */
       query?: string;
-      /** Cap on nodes walked (daemon default is its own). */
+      /** Cap on nodes walked (daemon default 250, or its full 2000 with `query`). */
       maxElements?: number;
       /** Cap on walk depth (daemon default 25). */
       maxDepth?: number;
@@ -548,6 +490,10 @@ export class CuaDriverBackend implements ComputerUseBackend {
       pid: resolved.pid,
       window_id: resolved.windowId,
       include_screenshot: true,
+      // `both` because the markdown does not say which rows are selected, and
+      // `verbose` because the report of refused input routes is dropped without it.
+      tree_format: "both",
+      verbose: true,
     };
     if (args.query != null && args.query !== "") request.query = args.query;
     if (args.maxElements != null) request.max_elements = args.maxElements;
@@ -558,8 +504,9 @@ export class CuaDriverBackend implements ComputerUseBackend {
     // no index map, so there is nothing to hand a later action.
     resolved.snapshotId = typeof structured.snapshot_id === "string" ? structured.snapshot_id : undefined;
     const elements = (structured.elements ?? []) as CuaElement[];
+    const markdown = typeof structured.tree_markdown === "string" ? structured.tree_markdown : "";
     const notes = CuaDriverBackend.renderTreeNotes(structured, request.query != null);
-    const tree = CuaDriverBackend.renderTree(elements);
+    const tree = CuaDriverBackend.renderTree(markdown, elements);
     const text = notes === "" ? tree : `${notes}\n${tree}`;
     const screenshot = screenshotUrl(result);
     return {
@@ -568,13 +515,27 @@ export class CuaDriverBackend implements ComputerUseBackend {
     };
   }
 
-  /** Address one window and, when the target is an element, the snapshot its
-   *  index came from. */
-  private async targetArgs(app: AppIdentifier, byElement: boolean): Promise<Record<string, unknown>> {
-    const resolved = byElement ? await this.ensureSnapshot(app) : await this.resolve(app);
-    const args: Record<string, unknown> = { pid: resolved.pid, window_id: resolved.windowId };
-    if (byElement && resolved.snapshotId != null) args.snapshot_id = resolved.snapshotId;
-    return args;
+  /** Address one window and, when `elementIndex` is given, that element in the
+   *  snapshot its index came from. */
+  private async targetArgs(app: AppIdentifier, elementIndex?: number): Promise<Record<string, unknown>> {
+    if (elementIndex == null) {
+      const resolved = await this.resolve(app);
+      return { pid: resolved.pid, window_id: resolved.windowId };
+    }
+    const resolved = await this.ensureSnapshot(app);
+    if (resolved.snapshotId == null) {
+      throw new SkyComputerUseError({
+        code: -32_000,
+        message: `Computer Use has no snapshot of '${app}' to address element ${elementIndex} in. Call get_app_state and try again.`,
+        request: { app, elementIndex },
+        requestType: "resolve",
+      });
+    }
+    return {
+      pid: resolved.pid,
+      window_id: resolved.windowId,
+      element_token: `${resolved.snapshotId}:${elementIndex}`,
+    };
   }
 
   async click(
@@ -587,11 +548,8 @@ export class CuaDriverBackend implements ComputerUseBackend {
        * The AX action to invoke instead of an ordinary press.
        *
        * This is the daemon's own model: one `click` tool with an action
-       * parameter, whose values are a closed set. It used to be hidden behind a
-       * separate `performSecondaryAction` method that took a free-form name and
-       * translated it — which could not work here, because cua-driver's tree
-       * does not report which actions an element exposes, so nothing could tell
-       * the caller what to pass.
+       * parameter, whose values are a closed set. The daemon refuses a name
+       * outside it.
        */
       action?: ClickAction;
       x?: number;
@@ -609,32 +567,34 @@ export class CuaDriverBackend implements ComputerUseBackend {
       });
     }
     const payload: Record<string, unknown> = {
-      ...(await this.targetArgs(args.app, byElement)),
+      ...(await this.targetArgs(args.app, args.elementIndex)),
       count: args.clickCount ?? 1,
       button: normalizeButton(args.mouseButton),
     };
     if (args.action != null) payload.action = args.action;
-    if (byElement) payload.element_index = args.elementIndex;
-    else if (args.x != null && args.y != null) { payload.x = args.x; payload.y = args.y; }
-    else {
-      throw new SkyComputerUseError({
-        code: -32_000,
-        message: "click needs either element_index or x and y.",
-        request: args,
-        requestType: "click",
-      });
+    if (!byElement) {
+      if (args.x == null || args.y == null) {
+        throw new SkyComputerUseError({
+          code: -32_000,
+          message: "click needs either element_index or x and y.",
+          request: args,
+          requestType: "click",
+        });
+      }
+      payload.x = args.x;
+      payload.y = args.y;
     }
     await this.call("click", payload, options);
     this.invalidateSnapshot(args.app);
   }
 
   async pressKey(args: { app: AppIdentifier; key: string }, options?: RequestOptions): Promise<void> {
-    await this.call("press_key", { ...(await this.targetArgs(args.app, false)), key: args.key }, options);
+    await this.call("press_key", { ...(await this.targetArgs(args.app)), key: args.key }, options);
     this.invalidateSnapshot(args.app);
   }
 
   async typeText(args: { app: AppIdentifier; text: string }, options?: RequestOptions): Promise<void> {
-    await this.call("type_text", { ...(await this.targetArgs(args.app, false)), text: args.text }, options);
+    await this.call("type_text", { ...(await this.targetArgs(args.app)), text: args.text }, options);
     this.invalidateSnapshot(args.app);
   }
 
@@ -644,13 +604,12 @@ export class CuaDriverBackend implements ComputerUseBackend {
   ): Promise<void> {
     const byElement = args.elementIndex != null;
     const payload: Record<string, unknown> = {
-      ...(await this.targetArgs(args.app, byElement)),
+      ...(await this.targetArgs(args.app, args.elementIndex)),
       direction: normalizeDirection(args.direction),
       by: "page",
       amount: args.pages ?? 1,
     };
-    if (byElement) payload.element_index = args.elementIndex;
-    else if (args.x != null && args.y != null) { payload.x = args.x; payload.y = args.y; }
+    if (!byElement && args.x != null && args.y != null) { payload.x = args.x; payload.y = args.y; }
     await this.call("scroll", payload, options);
     this.invalidateSnapshot(args.app);
   }
@@ -661,7 +620,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
   ): Promise<void> {
     await this.call(
       "set_value",
-      { ...(await this.targetArgs(args.app, true)), element_index: args.elementIndex, value: args.value },
+      { ...(await this.targetArgs(args.app, args.elementIndex)), value: args.value },
       options,
     );
     this.invalidateSnapshot(args.app);
@@ -674,7 +633,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
     await this.call(
       "drag",
       {
-        ...(await this.targetArgs(args.app, false)),
+        ...(await this.targetArgs(args.app)),
         from_x: args.fromX, from_y: args.fromY, to_x: args.toX, to_y: args.toY,
       },
       options,
@@ -682,13 +641,9 @@ export class CuaDriverBackend implements ComputerUseBackend {
     this.invalidateSnapshot(args.app);
   }
 
-  /**
-   * Fan out by action name. See CLICK_ACTIONS for why unknown names are refused
-   * instead of forwarded.
-   */
   /** Raise the app's window without clicking in it. */
   async bringToFront(args: { app: AppIdentifier }, options?: RequestOptions): Promise<void> {
-    await this.call("bring_to_front", await this.targetArgs(args.app, false), options);
+    await this.call("bring_to_front", await this.targetArgs(args.app), options);
     this.invalidateSnapshot(args.app);
   }
 
@@ -710,11 +665,10 @@ export class CuaDriverBackend implements ComputerUseBackend {
     }
     const byElement = args.elementIndex != null;
     const payload: Record<string, unknown> = {
-      ...(await this.targetArgs(args.app, byElement)),
+      ...(await this.targetArgs(args.app, args.elementIndex)),
       keys: [...args.keys],
     };
-    if (byElement) payload.element_index = args.elementIndex;
-    else if (args.x != null && args.y != null) {
+    if (!byElement && args.x != null && args.y != null) {
       payload.x = args.x;
       payload.y = args.y;
     }
@@ -739,7 +693,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
     // not inside the window, so a snapshot handle would mean nothing here.
     await this.call(
       "invoke_menu",
-      { ...(await this.targetArgs(args.app, false)), path: [...args.path] },
+      { ...(await this.targetArgs(args.app)), path: [...args.path] },
       options,
     );
     this.invalidateSnapshot(args.app);
@@ -750,18 +704,18 @@ export class CuaDriverBackend implements ComputerUseBackend {
     options?: RequestOptions,
   ): Promise<void> {
     const byElement = args.elementIndex != null;
-    const payload: Record<string, unknown> = await this.targetArgs(args.app, byElement);
-    if (byElement) payload.element_index = args.elementIndex;
-    else if (args.x != null && args.y != null) {
+    const payload: Record<string, unknown> = await this.targetArgs(args.app, args.elementIndex);
+    if (!byElement) {
+      if (args.x == null || args.y == null) {
+        throw new SkyComputerUseError({
+          code: -32_000,
+          message: "double_click needs either element_index or x and y.",
+          request: args,
+          requestType: "double_click",
+        });
+      }
       payload.x = args.x;
       payload.y = args.y;
-    } else {
-      throw new SkyComputerUseError({
-        code: -32_000,
-        message: "double_click needs either element_index or x and y.",
-        request: args,
-        requestType: "double_click",
-      });
     }
     await this.call("double_click", payload, options);
     this.invalidateSnapshot(args.app);
@@ -772,18 +726,18 @@ export class CuaDriverBackend implements ComputerUseBackend {
     options?: RequestOptions,
   ): Promise<void> {
     const byElement = args.elementIndex != null;
-    const payload: Record<string, unknown> = await this.targetArgs(args.app, byElement);
-    if (byElement) payload.element_index = args.elementIndex;
-    else if (args.x != null && args.y != null) {
+    const payload: Record<string, unknown> = await this.targetArgs(args.app, args.elementIndex);
+    if (!byElement) {
+      if (args.x == null || args.y == null) {
+        throw new SkyComputerUseError({
+          code: -32_000,
+          message: "right_click needs either element_index or x and y.",
+          request: args,
+          requestType: "right_click",
+        });
+      }
       payload.x = args.x;
       payload.y = args.y;
-    } else {
-      throw new SkyComputerUseError({
-        code: -32_000,
-        message: "right_click needs either element_index or x and y.",
-        request: args,
-        requestType: "right_click",
-      });
     }
     // The daemon accepts modifiers on the pixel path only.
     if (args.modifiers?.length && !byElement) payload.modifier = [...args.modifiers];
@@ -798,7 +752,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
     const result = await this.call(
       "set_window_frame",
       {
-        ...(await this.targetArgs(args.app, false)),
+        ...(await this.targetArgs(args.app)),
         x: args.x,
         y: args.y,
         width: args.width,
@@ -825,7 +779,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
     const result = await this.call(
       "zoom",
       {
-        ...(await this.targetArgs(args.app, false)),
+        ...(await this.targetArgs(args.app)),
         x1: args.x1,
         y1: args.y1,
         x2: args.x2,
@@ -862,7 +816,7 @@ export class CuaDriverBackend implements ComputerUseBackend {
       });
     }
     const payload: Record<string, unknown> = {
-      ...(await this.targetArgs(args.app, false)),
+      ...(await this.targetArgs(args.app)),
       expect: [...args.expect],
     };
     if (args.timeoutMs != null) payload.timeout_ms = args.timeoutMs;

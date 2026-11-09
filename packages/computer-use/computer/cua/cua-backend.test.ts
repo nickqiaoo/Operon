@@ -148,70 +148,45 @@ describe("CuaDaemonTransport", () => {
 });
 
 describe("CuaDriverBackend.renderTree", () => {
-  it("puts element_index first so existing row parsing keeps working", () => {
-    const text = CuaDriverBackend.renderTree([
-      { element_index: 0, role: "AXWindow", label: "Fixture", depth: 0 },
-      { element_index: 1, role: "AXButton", label: "Increment", depth: 1 },
-      { element_index: 2, role: "AXTextField", label: "Input", value: "hi", depth: 2 },
-    ]);
-    const lines = text.split("\n");
-    expect(lines[0]).toBe("0 AXWindow Fixture");
-    expect(lines[1]).toBe("\t1 AXButton Increment");
-    expect(lines[2]).toBe("\t\t2 AXTextField Input hi");
-    // The row shape the fixture suites parse.
-    expect((text.match(/^\s*\d+\s/gm) ?? []).length).toBe(3);
+  const MARKDOWN = [
+    '- [0] AXWindow "Fixture" [actions=[raise]]',
+    "  - [1] AXOutline (Sidebar)",
+    "    - [2] AXRow [actions=[showdefaultui]]",
+    '      - AXStaticText = "Recents"',
+    "    - [3] AXRow [actions=[showdefaultui]]",
+  ].join("\n");
+
+  it("passes the markdown through untouched when nothing is selected", () => {
+    expect(CuaDriverBackend.renderTree(MARKDOWN, [{ element_index: 2 }, { element_index: 3, selected: false }]))
+      .toBe(MARKDOWN);
   });
 
-  it("drops rows with no element_index, which are not addressable", () => {
-    const text = CuaDriverBackend.renderTree([
-      { element_index: 0, role: "AXWindow" },
-      { role: "AXGroup" },
-    ]);
-    expect(text.split("\n")).toHaveLength(1);
+  it("marks a selected row after its role, and leaves the text rows alone", () => {
+    const lines = CuaDriverBackend.renderTree(MARKDOWN, [{ element_index: 2, selected: true }]).split("\n");
+    expect(lines[2]).toBe("    - [2] AXRow (selected) [actions=[showdefaultui]]");
+    expect(lines[3]).toBe('      - AXStaticText = "Recents"');
+    expect(lines[4]).toBe("    - [3] AXRow [actions=[showdefaultui]]");
   });
 
-  it("marks the state the daemon reports, which the model cannot otherwise see", () => {
-    const text = CuaDriverBackend.renderTree([
-      { element_index: 0, role: "AXWindow", frame: { x: 0, y: 0, w: 10, h: 10 } },
-      { element_index: 1, role: "AXButton", label: "Back", enabled: false, frame: { x: 0, y: 0, w: 1, h: 1 } },
-      { element_index: 2, role: "AXRow", selected: true, frame: { x: 0, y: 0, w: 1, h: 1 } },
-      // No frame while siblings have one: laid out nowhere, so unclickable.
-      { element_index: 3, role: "AXButton", label: "Notifications" },
-    ]);
-    const lines = text.split("\n");
-    expect(lines[1]).toBe("1 AXButton Back (disabled)");
-    expect(lines[2]).toBe("2 AXRow (selected)");
-    expect(lines[3]).toBe("3 AXButton Notifications (offscreen)");
+  it("keeps the mark on the row when its label runs over several lines", () => {
+    const multiline = '- [4] AXButton "first\nsecond" [actions=[press]]';
+    expect(CuaDriverBackend.renderTree(multiline, [{ element_index: 4, selected: true }]))
+      .toBe('- [4] AXButton (selected) "first\nsecond" [actions=[press]]');
   });
 
-  it("does not call everything offscreen when the tree carries no geometry at all", () => {
-    // Some surfaces report no frames whatsoever. Marking every row there would
-    // be noise that distinguishes nothing.
-    const text = CuaDriverBackend.renderTree([
-      { element_index: 0, role: "AXWindow" },
-      { element_index: 1, role: "AXButton", label: "Go" },
-    ]);
-    expect(text).not.toContain("offscreen");
+  it("ignores a selected element the markdown does not show", () => {
+    expect(CuaDriverBackend.renderTree(MARKDOWN, [{ element_index: 99, selected: true }])).toBe(MARKDOWN);
   });
 });
 
 describe("CuaDriverBackend.renderTreeNotes", () => {
-  it("says so when the walk was capped, naming the way out", () => {
-    const notes = CuaDriverBackend.renderTreeNotes({
-      returned_element_count: 200,
-      total_element_count: 1526,
-    });
-    expect(notes).toContain("showing 200 of 1526 elements");
-    expect(notes).toContain("query");
-  });
-
-  it("reports an incomplete walk even when everything walked was returned", () => {
-    const notes = CuaDriverBackend.renderTreeNotes({
-      returned_element_count: 246,
-      total_element_count: 246,
+  it("adds nothing for a capped walk, which the markdown already reports", () => {
+    expect(CuaDriverBackend.renderTreeNotes({
+      returned_element_count: 111,
+      total_element_count: 111,
+      truncated: true,
       elements_complete: false,
-    });
-    expect(notes).toContain("incomplete");
+    })).toBe("");
   });
 
   it("warns about a refused input route before an action tries to use it", () => {
@@ -227,21 +202,19 @@ describe("CuaDriverBackend.renderTreeNotes", () => {
     expect(notes).toContain("same_pid_keyboard_ambiguity");
   });
 
-  it("does not call a filtered walk truncated, nor suggest the filter already in use", () => {
+  it("says how much of the window a query matched", () => {
     const notes = CuaDriverBackend.renderTreeNotes(
       { returned_element_count: 11, total_element_count: 246, elements_complete: false },
       true,
     );
-    expect(notes).toContain("query matched 11 of 246");
-    expect(notes).not.toContain("capped");
-    expect(notes).not.toContain("pass query");
+    expect(notes).toBe("[query matched 11 of 246 elements]");
   });
 
-  it("stays empty for an ordinary complete tree, so no preamble is added", () => {
+  it("stays empty for an ordinary tree, so no preamble is added", () => {
     expect(CuaDriverBackend.renderTreeNotes({
       returned_element_count: 10,
       total_element_count: 10,
-      elements_complete: true,
+      elements_complete: false,
     })).toBe("");
   });
 });
@@ -419,17 +392,24 @@ describe("CuaDriverBackend app resolution", () => {
   });
 });
 
+/** A daemon that resolves the app and answers every other call with a snapshot. */
+function withSnapshot(name: string): unknown {
+  if (name === "list_apps") return APPS;
+  if (name === "list_windows") return WINDOWS;
+  return { snapshot_id: "s00000001", elements: [] };
+}
+
 describe("CuaDriverBackend action mapping", () => {
-  it("addresses the resolved window's pid and passes element_index through", async () => {
-    const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
+  it("addresses the resolved window's pid and passes the element as a token", async () => {
+    const { backend, calls } = backendWith(withSnapshot);
     await backend.click({ app: "com.apple.calculator", elementIndex: 3 });
     const click = calls.find((c) => c.name === "click");
-    expect(click?.args).toMatchObject({ pid: 42, element_index: 3, button: "left", count: 1 });
+    expect(click?.args).toMatchObject({ pid: 42, element_token: "s00000001:3", button: "left", count: 1 });
   });
 
   it("passes an AX action straight through to click, no translation table", async () => {
     for (const action of ["press", "show_menu", "pick", "confirm", "cancel", "open"] as const) {
-      const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
+      const { backend, calls } = backendWith(withSnapshot);
       await backend.click({ app: "Calculator", elementIndex: 1, action });
       expect(calls.find((c) => c.name === "click")?.args).toMatchObject({ action });
     }
@@ -451,7 +431,7 @@ describe("CuaDriverBackend action mapping", () => {
   });
 
   it("normalises mouse buttons and scroll directions to the driver's spelling", async () => {
-    const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
+    const { backend, calls } = backendWith(withSnapshot);
     await backend.click({ app: "Calculator", elementIndex: 1, mouseButton: "r" });
     await backend.scroll({ app: "Calculator", direction: "d", elementIndex: 1, pages: 2 });
     expect(calls.find((c) => c.name === "click")?.args).toMatchObject({ button: "right" });
@@ -463,10 +443,9 @@ describe("CuaDriverBackend action mapping", () => {
     await expect(backend.click({ app: "Calculator" })).rejects.toThrow(/element_index or x and y/);
   });
 
-  it("carries the snapshot handle on element-indexed actions", async () => {
-    // The driver's contract: "required when targeting by element_index; stale
-    // snapshots fail closed". That refusal is what stands in for the automatic
-    // intervention detection this migration drops.
+  it("carries the snapshot in the token on element-indexed actions", async () => {
+    // The driver refuses a token from a superseded snapshot. That refusal is what
+    // stands in for the automatic intervention detection this migration drops.
     const { backend, calls } = backendWith((name) => {
       if (name === "list_apps") return APPS;
       if (name === "list_windows") return WINDOWS;
@@ -477,9 +456,37 @@ describe("CuaDriverBackend action mapping", () => {
     expect(calls.find((c) => c.name === "click")?.args).toMatchObject({
       pid: 42,
       window_id: 7,
-      element_index: 2,
-      snapshot_id: "sdeadbeef",
+      element_token: "sdeadbeef:2",
     });
+  });
+
+  it("sends only the token: the driver rejects element_index and snapshot_id as unknown", async () => {
+    const { backend, calls } = backendWith(withSnapshot);
+    await backend.click({ app: "Calculator", elementIndex: 1 });
+    await backend.scroll({ app: "Calculator", direction: "d", elementIndex: 1 });
+    await backend.setValue({ app: "Calculator", elementIndex: 1, value: "x" });
+    await backend.hotkey({ app: "Calculator", keys: ["cmd", "c"], elementIndex: 1 });
+    await backend.doubleClick({ app: "Calculator", elementIndex: 1 });
+    await backend.rightClick({ app: "Calculator", elementIndex: 1 });
+    for (const name of ["click", "scroll", "set_value", "hotkey", "double_click", "right_click"]) {
+      const args = calls.find((c) => c.name === name)?.args;
+      expect(args, name).toHaveProperty("element_token");
+      expect(args, name).not.toHaveProperty("element_index");
+      expect(args, name).not.toHaveProperty("snapshot_id");
+    }
+  });
+
+  it("refuses an element action when the window yields no snapshot to address it in", async () => {
+    const { backend, calls } = backendWith((name) => (name === "list_apps" ? APPS : WINDOWS));
+    await expect(backend.click({ app: "Calculator", elementIndex: 1 })).rejects.toThrow(/no snapshot/);
+    expect(calls.some((c) => c.name === "click")).toBe(false);
+  });
+
+  it("asks for both tree formats and the input route report", async () => {
+    const { backend, calls } = backendWith(withSnapshot);
+    await backend.getAppState({ app: "Calculator" });
+    expect(calls.find((c) => c.name === "get_window_state")?.args)
+      .toMatchObject({ tree_format: "both", verbose: true });
   });
 
   it("takes a snapshot first when an element action arrives without one", async () => {
@@ -492,7 +499,7 @@ describe("CuaDriverBackend action mapping", () => {
     // Mirrors the Swift engine's currentSnapshot: an action that follows no
     // explicit get_app_state still works.
     expect(calls.map((c) => c.name)).toContain("get_window_state");
-    expect(calls.find((c) => c.name === "set_value")?.args).toMatchObject({ snapshot_id: "s00000001" });
+    expect(calls.find((c) => c.name === "set_value")?.args).toMatchObject({ element_token: "s00000001:1" });
   });
 
   it("drops the snapshot after an action, because the index map is now stale", async () => {
@@ -508,10 +515,10 @@ describe("CuaDriverBackend action mapping", () => {
     await backend.click({ app: "Calculator", elementIndex: 1 });
     await backend.click({ app: "Calculator", elementIndex: 1 });
     const clicks = calls.filter((c) => c.name === "click");
-    expect(clicks[0]?.args).toMatchObject({ snapshot_id: "s00000001" });
+    expect(clicks[0]?.args).toMatchObject({ element_token: "s00000001:1" });
     // The second click re-snapshotted rather than reusing a map the first click
     // invalidated.
-    expect(clicks[1]?.args).toMatchObject({ snapshot_id: "s00000002" });
+    expect(clicks[1]?.args).toMatchObject({ element_token: "s00000002:1" });
   });
 
   it("does not attach a snapshot to a coordinate action", async () => {
@@ -523,7 +530,7 @@ describe("CuaDriverBackend action mapping", () => {
     await backend.click({ app: "Calculator", x: 10, y: 20 });
     const click = calls.find((c) => c.name === "click");
     expect(click?.args).toMatchObject({ x: 10, y: 20, window_id: 7 });
-    expect(click?.args).not.toHaveProperty("snapshot_id");
+    expect(click?.args).not.toHaveProperty("element_token");
     // A pixel click needs no index map, so it must not trigger a tree walk.
     expect(calls.some((c) => c.name === "get_window_state")).toBe(false);
   });
@@ -575,20 +582,20 @@ describe("CuaDriverBackend action mapping", () => {
     expect(calls.find((call) => call.name === "get_window_state")?.args).toMatchObject({ include_screenshot: true });
   });
 
-  it("builds app state from the structured elements, not their markdown", async () => {
+  it("gives the model the markdown, with selection filled in from the elements", async () => {
     const { backend } = backendWith((name) => {
       if (name === "list_apps") return APPS;
       if (name === "list_windows") return WINDOWS;
       return {
         elements: [
           { element_index: 0, role: "AXWindow", label: "Calculator", depth: 0 },
-          { element_index: 1, role: "AXButton", label: "5", depth: 1 },
+          { element_index: 1, role: "AXButton", label: "5", depth: 1, selected: true },
         ],
-        tree_markdown: "should not be used",
+        tree_markdown: '- [0] AXWindow "Calculator"\n  - [1] AXButton "5" [actions=[press]]',
       };
     });
     const state = await backend.getAppState({ app: "Calculator" });
-    expect(state.skyshot?.text).toBe("0 AXWindow Calculator\n\t1 AXButton 5");
+    expect(state.skyshot?.text).toBe('- [0] AXWindow "Calculator"\n  - [1] AXButton (selected) "5" [actions=[press]]');
     expect(state.app).toMatchObject({ bundleIdentifier: "com.apple.calculator", pid: 42 });
   });
 });

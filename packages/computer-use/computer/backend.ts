@@ -35,7 +35,15 @@ export type DirectionName = "up" | "down" | "left" | "right" | "u" | "d" | "l" |
  * daemon's tree does not report which actions an element exposes, so a
  * free-form name would be something the caller could only guess at.
  */
-export type ClickAction = "press" | "show_menu" | "pick" | "confirm" | "cancel" | "open";
+export type ClickAction =
+  | "press"
+  | "show_menu"
+  | "pick"
+  | "confirm"
+  | "cancel"
+  | "open"
+  | "show_alternate_ui"
+  | "show_default_ui";
 
 export interface SkyDiscoveredApp {
   appPath?: string | null;
