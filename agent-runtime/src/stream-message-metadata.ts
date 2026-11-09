@@ -12,6 +12,13 @@ import type { RuntimeGoal, RuntimeUsageLimits } from './types.js'
  * the same on every provider; what only one provider reports sits under its id.
  */
 export type StreamMessageMetadata = {
+  /** Current automatic model retry; null clears the live status. */
+  retry?: {
+    attempt: number
+    maxAttempts: number
+    retryAt: number
+    reason?: string
+  } | null
   usage?: LanguageModelUsage
   contextUsage?: Record<string, number>
   compacted?: Record<string, unknown>

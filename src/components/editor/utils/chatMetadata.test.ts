@@ -1,12 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
-import { extractContextCompaction, extractPeerMessage } from './chatMetadata';
+import { extractContextCompaction, extractPeerMessage, extractRetry } from './chatMetadata';
 
 const messageWithMetadata = (metadata: Record<string, unknown>): UIMessage => ({
   id: 'assistant-1',
   role: 'assistant',
   parts: [],
   metadata,
+});
+
+describe('extractRetry', () => {
+  it('reads retry state and accepts explicit clearing', () => {
+    const retry = { attempt: 2, maxAttempts: 10, retryAt: 12345, reason: '429 Too Many Requests' };
+    expect(extractRetry(messageWithMetadata({ retry }))).toEqual(retry);
+    expect(extractRetry(messageWithMetadata({ retry: null }))).toBeNull();
+    expect(extractRetry({ ...messageWithMetadata({ retry }), role: 'user' })).toBeNull();
+  });
+
+  it('ignores missing and malformed retry metadata', () => {
+    expect(extractRetry(undefined)).toBeNull();
+    expect(extractRetry(messageWithMetadata({}))).toBeNull();
+    expect(extractRetry(messageWithMetadata({ retry: { attempt: '1', maxAttempts: 10, retryAt: 100 } }))).toBeNull();
+    expect(extractRetry(messageWithMetadata({ retry: { attempt: 1, maxAttempts: 10, retryAt: NaN } }))).toBeNull();
+  });
 });
 
 describe('extractContextCompaction', () => {

@@ -1,5 +1,21 @@
 import type { LanguageModelUsage, UIMessage } from 'ai';
 import type { DetailedContextUsage } from '@/types/context-usage';
+import type { StreamMessageMetadata } from '@operon/agent-runtime';
+
+export const extractRetry = (message: UIMessage | undefined): NonNullable<StreamMessageMetadata['retry']> | null => {
+  if (message?.role !== 'assistant' || !isRecord(message.metadata)) return null;
+  const value = message.metadata.retry;
+  if (!isRecord(value)
+    || typeof value.attempt !== 'number' || !Number.isFinite(value.attempt)
+    || typeof value.maxAttempts !== 'number' || !Number.isFinite(value.maxAttempts)
+    || typeof value.retryAt !== 'number' || !Number.isFinite(value.retryAt)) return null;
+  return {
+    attempt: value.attempt,
+    maxAttempts: value.maxAttempts,
+    retryAt: value.retryAt,
+    ...(typeof value.reason === 'string' ? { reason: value.reason } : {}),
+  };
+};
 
 export type AuthMode = 'apikey' | 'chatgpt' | 'chatgptAuthTokens';
 

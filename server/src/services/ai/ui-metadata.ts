@@ -8,6 +8,7 @@ import type { RuntimeGoal, RuntimeUsageLimits, StreamMessageMetadata } from '@op
  * translated here, at the one place a turn's parts become UI chunks.
  */
 export type UiMessageMetadata = {
+  retry?: StreamMessageMetadata['retry']
   usage?: LanguageModelUsage
   contextUsage?: Record<string, number>
   compacted?: Record<string, unknown>

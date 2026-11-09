@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FormattedMessage } from 'react-intl';
 import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
 import { Spinner } from '@/components/ui/spinner';
+import type { StreamMessageMetadata } from '@operon/agent-runtime';
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -11,7 +12,7 @@ function formatElapsed(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-export function ChatWaitingIndicator({ active }: { active: boolean }) {
+export function ChatWaitingIndicator({ active, retry }: { active: boolean; retry?: StreamMessageMetadata['retry'] }) {
   const startRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -37,13 +38,16 @@ export function ChatWaitingIndicator({ active }: { active: boolean }) {
   }, [active]);
 
   if (!active) return null;
+  const retrySeconds = retry ? Math.max(0, Math.ceil((retry.retryAt - Date.now()) / 1000)) : 0;
 
   // shadcn's live-status Marker: a spinner and shimmering text while the agent works.
   return (
-    <Marker role="status" className="text-xs">
+    <Marker role="status" className="text-xs" title={retry?.reason}>
       <MarkerIcon className="size-3.5"><Spinner className="size-3.5" /></MarkerIcon>
       <MarkerContent className="shimmer">
-        <FormattedMessage id="editor.waiting.working" defaultMessage="Working" />
+        {retry
+          ? `${retrySeconds > 0 ? `Retrying in ${retrySeconds}s` : 'Retrying'} (${retry.attempt}/${retry.maxAttempts})`
+          : <FormattedMessage id="editor.waiting.working" defaultMessage="Working" />}
       </MarkerContent>
       <span className="tabular-nums text-muted-foreground/70">{formatElapsed(elapsedMs)}</span>
     </Marker>

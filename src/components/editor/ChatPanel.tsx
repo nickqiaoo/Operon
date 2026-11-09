@@ -12,7 +12,9 @@ import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
+  type ConversationScrollHandle,
 } from '@/components/ai-elements/conversation';
+import { useNavigationStore } from '@/stores/navigation-store';
 import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavigator';
 import { nativeTopBarTakesSpace } from '@/lib/native';
 import { useConversationScroll } from '@/components/ai-elements/conversation';
@@ -56,7 +58,7 @@ import {
 import { useAnnotationSendStore } from '@/stores/annotation-send-store';
 import { useChatActions } from './hooks/useChatActions';
 import { useRecentDerivedState } from './hooks/useRecentDerivedState';
-import { extractContextCompaction, extractContextUsage } from './utils/chatMetadata';
+import { extractContextCompaction, extractContextUsage, extractRetry } from './utils/chatMetadata';
 import { useChatIndexState } from './hooks/useChatIndexState';
 import { useRewindController } from './hooks/useRewindController';
 import { useChatPanelEffects } from './hooks/useChatPanelEffects';
@@ -498,6 +500,16 @@ function ChatPanelContent({
   useEffect(() => {
     if (historyLoaded) resumeOnAttach();
   }, [historyLoaded, historyDbChatId, resumeOnAttach]);
+
+  const conversationRef = useRef<ConversationScrollHandle>(null);
+  const latestRequested = useNavigationStore(
+    (state) => state.latestChatRequest != null && state.latestChatRequest === tab?.chatId,
+  );
+  useEffect(() => {
+    if (!latestRequested || !visible || !historyLoaded) return;
+    conversationRef.current?.scrollToEnd({ behavior: 'instant' });
+    useNavigationStore.getState().clearChatLatestRequest();
+  }, [latestRequested, visible, historyLoaded]);
   const {
     firstUserTitle,
     compactedInfo,
@@ -1106,6 +1118,7 @@ function ChatPanelContent({
         actions={selectionActions}
       />
       <Conversation
+        contextRef={conversationRef}
         className="flex-1 rounded-xl bg-background font-sans"
         turnActive={isGenerating || turnSettling}
         // Resize the scrolling viewport when the keyboard appears. Padding only
@@ -1166,7 +1179,7 @@ function ChatPanelContent({
             />
             </ChatDbIdContext.Provider>
           )}
-          <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} />
+          <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} retry={extractRetry(messages.at(-1))} />
         </ConversationContent>
         {chatLoadingMore && (
           <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">
