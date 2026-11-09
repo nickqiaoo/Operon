@@ -58,6 +58,19 @@ export interface ReferencedSourcesContext {
 // ============================================================================
 
 export const PromptInputController = createContext<PromptInputControllerProps | null>(null);
+export interface PromptInputActionsProps {
+  setInput: (value: string) => void;
+  getInput: () => string;
+  attachments: AttachmentsContext;
+}
+
+const PromptInputActionsContext = createContext<PromptInputActionsProps | null>(null);
+export const usePromptInputActions = () => {
+  const ctx = useContext(PromptInputActionsContext);
+  if (!ctx) throw new Error("Wrap your component inside <PromptInputProvider> to use usePromptInputActions().");
+  return ctx;
+};
+
 export const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(null);
 export const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null);
 export const LocalReferencedSourcesContext = createContext<ReferencedSourcesContext | null>(null);
@@ -145,7 +158,11 @@ export function PromptInputProvider({
   children,
 }: PromptInputProviderProps) {
   const [textInput, setTextInput] = useState(initialTextInput);
+  const inputRef = useRef(textInput);
+  inputRef.current = textInput;
+  const getInput = useCallback(() => inputRef.current, []);
   const setInput = useCallback((value: string) => {
+    inputRef.current = value;
     setTextInput(value);
     onInputChange?.(value);
   }, [onInputChange]);
@@ -261,11 +278,15 @@ export function PromptInputProvider({
     [textInput, setInput, clearInput, attachments, __registerFileInput]
   );
 
+  const actions = useMemo(() => ({ setInput, getInput, attachments }), [setInput, getInput, attachments]);
+
   return (
-    <PromptInputController.Provider value={controller}>
-      <ProviderAttachmentsContext.Provider value={attachments}>
-        {children}
-      </ProviderAttachmentsContext.Provider>
-    </PromptInputController.Provider>
+    <PromptInputActionsContext.Provider value={actions}>
+      <PromptInputController.Provider value={controller}>
+        <ProviderAttachmentsContext.Provider value={attachments}>
+          {children}
+        </ProviderAttachmentsContext.Provider>
+      </PromptInputController.Provider>
+    </PromptInputActionsContext.Provider>
   );
 }

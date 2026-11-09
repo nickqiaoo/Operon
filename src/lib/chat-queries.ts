@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import type { ChatStatus } from 'ai'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import { api } from './api'
 
@@ -128,4 +129,28 @@ export function useSubagentTranscript(
   const last = useRef<{ identity: string; transcript: SubagentTranscript } | null>(null)
   if (data) last.current = { identity, transcript: data }
   return data ?? (last.current?.identity === identity ? last.current.transcript : undefined)
+}
+
+export const turnDiffKeys = {
+  all: ['turn-diffs'] as const,
+  detail: (chatId: number | undefined, cwd: string | null) =>
+    ['turn-diffs', chatId ?? null, cwd] as const,
+}
+
+export function turnDiffsEnabled(chatId: number | undefined, cwd: string | null, status: ChatStatus, liveTurnActive: boolean | null) {
+  // Reopened chats start locally ready before resume attaches. Wait for presence:
+  // null means the node has not yet answered whether a turn is still running.
+  return chatId !== undefined && !!cwd && status !== 'streaming' && status !== 'submitted' && liveTurnActive === false
+}
+
+export function useTurnDiffs(chatId: number | undefined, cwd: string | null, status: ChatStatus, liveTurnActive: boolean | null) {
+  const { data } = useQuery({
+    queryKey: turnDiffKeys.detail(chatId, cwd),
+    queryFn: () => api.aiGetTurnDiffs(chatId!, cwd!),
+    enabled: turnDiffsEnabled(chatId, cwd, status, liveTurnActive),
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+  return chatId === undefined || !cwd ? null : data ?? null
 }

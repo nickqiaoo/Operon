@@ -17,5 +17,5 @@ export const useAnnotationSendStore = create<AnnotationSendState>((set) => ({
   workspaceId: null,
   nonce: 0,
   requestSend: (workspaceId) => set((s) => ({ workspaceId, nonce: s.nonce + 1 })),
-  consume: () => set({ workspaceId: null }),
+  consume: () => set({ workspaceId: null, nonce: 0 }),
 }))

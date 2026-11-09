@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import type { SkillScope } from '@/types/skill'
+import { skillsList } from '@/components/editor/agent/agentControl'
 import { api } from './api'
 import { queryClient } from './query-client'
 
@@ -11,6 +12,7 @@ import { queryClient } from './query-client'
 
 export const skillKeys = {
   all: ['skills'] as const,
+  operon: (chatId: number | undefined) => ['skills', 'operon', chatId ?? null] as const,
   installedAll: () => ['skills', 'installed'] as const,
   installed: (scope: SkillScope, projectPath: string | undefined) =>
     ['skills', 'installed', scope, projectPath ?? ''] as const,
@@ -75,4 +77,14 @@ export function invalidateInstalledSkills() {
     queryClient.invalidateQueries({ queryKey: skillKeys.installedAll() }),
     queryClient.invalidateQueries({ queryKey: skillKeys.detailAll() }),
   ])
+}
+
+export function useOperonSkills(chatId: number | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: skillKeys.operon(chatId),
+    queryFn: async () => (await skillsList(chatId!)).skills,
+    enabled: chatId !== undefined && enabled,
+    staleTime: Infinity,
+    retry: false,
+  })
 }

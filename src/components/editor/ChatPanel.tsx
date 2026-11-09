@@ -7,7 +7,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
 import { ChartPie, Gauge } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
-import { skillsList, type OperonSkillDTO } from './agent/agentControl';
+import type { OperonSkillDTO } from './agent/agentControl';
 import {
   Conversation,
   ConversationContent,
@@ -19,7 +19,7 @@ import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavig
 import { nativeTopBarTakesSpace } from '@/lib/native';
 import { useConversationScroll } from '@/components/ai-elements/conversation';
 import {
-  usePromptInputController,
+  usePromptInputActions,
 } from '@/components/ai-elements/prompt-input';
 import { api } from '@/lib/api';
 import { useEditorStore } from '@/stores/editor-store';
@@ -70,8 +70,8 @@ import { useCacheExpiryNotice } from './hooks/useCacheExpiryNotice';
 import { useChatSessionControls } from './hooks/useChatSessionControls';
 import { MessagesList } from './components/MessagesList';
 import { ChatDbIdContext } from './components/chat-db-id-context';
-import type { TurnDiffFile } from './components/TurnDiffCard';
-import { ChatInputArea } from './components/ChatInputArea';
+import { useTurnDiffs } from '@/lib/chat-queries';
+import { ChatComposer } from './components/ChatComposer';
 import { SteerTray } from './components/SteerTray';
 import {
   findLatestTurnMessageId,
@@ -142,8 +142,9 @@ function ChatPanelContent({
   visible = true,
 }: ChatPanelProps) {
   const intl = useIntl();
-  const { textInput: { value: input, setInput: setInputState }, attachments } = usePromptInputController();
-  const setInput = (val: string) => setInputState(val);
+  const { setInput, getInput, attachments } = usePromptInputActions();
+  // The keyed prompt provider remounts this content when chatId changes.
+  const [initialSkills] = useState(() => getChatDraftSkills(chatId));
 
   const [selectorOpen, setSelectorOpen] = useState(false);
   /** Skill chosen in the session panel, handed to the composer as a chip on the next render. */
@@ -549,7 +550,7 @@ function ChatPanelContent({
       (displayedContextUsage.usage?.outputTokens ?? 0) > 0);
   // One source on screen: the poll's cache, which the push above is folded into.
   const displayedClaudeRateLimits = isClaudeCode ? polledClaudeRateLimits : null;
-  const showCodexRateLimits = (providerId === 'codex' || selectedModel?.providerId === 'codex') && !!codexUsageDetails;
+  const showCodexRateLimits = isCodex && !!codexUsageDetails;
   const showContextUsage = !!displayedContextUsage && hasContextUsageData;
 
   const {
@@ -564,19 +565,14 @@ function ChatPanelContent({
   const [compactLoading, setCompactLoading] = useState(false);
   const contextCompaction = extractContextCompaction(messages[messages.length - 1]);
   const isCompacting = compactLoading || contextCompaction?.status === 'in_progress';
-  // Operon skills surfaced into the composer's `/` menu (same slash-command flow
-  // as built-ins). Lazily fetched the first time a slash command is started.
-  const [operonSkillCommands, setOperonSkillCommands] = useState<SlashCommandItem[]>([]);
-  const operonSkillsLoadedRef = useRef(false);
   const isOperonProvider = providerId === 'custom' || selectedModel?.providerId === 'custom';
-  const isCodexProvider = providerId === 'codex' || selectedModel?.providerId === 'codex';
   const isOpencodeProvider = providerId === 'opencode' || selectedModel?.providerId === 'opencode';
   const isQoderProvider = providerId === 'qoder' || selectedModel?.providerId === 'qoder';
   const sessionPanelProviderId = isClaudeCode
     ? 'claude-code'
     : isOperonProvider
       ? 'custom'
-      : isCodexProvider
+      : isCodex
         ? 'codex'
         : isOpencodeProvider
           ? 'opencode'
@@ -648,34 +644,6 @@ function ChatPanelContent({
     setSessionPanelOpen(false);
   }, [setSessionPanelOpen]);
 
-  // Reset the skill cache when switching chats or away from operon.
-  useEffect(() => {
-    operonSkillsLoadedRef.current = false;
-    setOperonSkillCommands([]);
-  }, [chatId, isOperonProvider]);
-
-  // Fetch the session's skills the first time the user starts a slash command so
-  // they show up in the `/` menu. Sending one injects a `[skill:name]` marker
-  // (existing chip flow) which operon expands into a skill-invocation hint.
-  useEffect(() => {
-    if (!isOperonProvider || operonSkillsLoadedRef.current || !input.startsWith('/')) return;
-    const id = tab?.chatId ?? dbChatIdRef.current;
-    if (id == null) return;
-    operonSkillsLoadedRef.current = true;
-    skillsList(id)
-      .then((res) =>
-        setOperonSkillCommands(
-          res.skills.map((s) => ({ name: s.name, description: s.description, type: 'skill' as const })),
-        ),
-      )
-      .catch(() => {
-        operonSkillsLoadedRef.current = false;
-      });
-  }, [input, isOperonProvider, tab?.chatId]);
-
-  const mergedSlashCommands = operonSkillCommands.length
-    ? [...slashCommands, ...operonSkillCommands]
-    : slashCommands;
   const [liveSteers, setLiveSteers] = useState<LiveSteerItem[]>([]);
   const steerPending = liveSteers.some((item) => item.status === 'sending');
   const showCompactBanner = compactedInfo && compactDismissed !== JSON.stringify(compactedInfo);
@@ -706,7 +674,6 @@ function ChatPanelContent({
     const absolute = resolveCitationFile(reviewCwd, path);
     if (absolute) setMobilePreview({ path: absolute, line: options?.line, nonce: Date.now() });
   }, [reviewCwd]);
-  // thinkingEffortOptions is a fresh array each render; key on the label instead.
   const thinkingEffortLabel = thinkingEffortOptions.find((option) => option.value === thinkingEffort)?.label;
   const sessionFacts = useMemo(() => ({
     cwd: reviewCwd,
@@ -715,25 +682,8 @@ function ChatPanelContent({
   }), [reviewCwd, selectedModel?.label, thinkingEffortLabel]);
   const openTab = useTabsStore((s) => s.openTab);
   const setRightPanelOpen = useAppShellStore((s) => s.setRightPanelOpen);
-  const [turnDiffs, setTurnDiffs] = useState<{
-    turns: Array<{ messageUid: string; snapshotId: string; files: TurnDiffFile[]; overlapped?: boolean }>;
-  } | null>(null);
+  const turnDiffs = useTurnDiffs(dbChatId, reviewCwd, status, liveTurnActive);
   const [mobileReviewMessageUid, setMobileReviewMessageUid] = useState<string | null>(null);
-  useEffect(() => {
-    if (dbChatId === undefined || !reviewCwd) { setTurnDiffs(null); return; }
-    if (status === 'streaming' || status === 'submitted') return; // wait until the turn settles
-    // Local status alone is not enough. Reopening a chat remounts this panel with
-    // a fresh 'ready' status while the node is still mid-turn, and resume takes a
-    // moment to reattach — long enough to fetch and render the running turn's
-    // card early. `liveTurnActive` is the node's answer: `null` means presence
-    // has not reported yet, so nothing is known and the fetch waits.
-    if (liveTurnActive !== false) return;
-    let cancelled = false;
-    void api.aiGetTurnDiffs(dbChatId, reviewCwd)
-      .then((res) => { if (!cancelled) setTurnDiffs(res); })
-      .catch(() => { /* non-fatal */ });
-    return () => { cancelled = true; };
-  }, [dbChatId, status, reviewCwd, liveTurnActive]);
 
   // Open (or focus) the Review tab and point it at the clicked turn.
   const handleReviewTurn = useCallback((messageUid: string) => {
@@ -915,6 +865,8 @@ function ChatPanelContent({
   // immediately so only one panel acts.
   const handleSubmitRef = useRef(handleSubmit);
   handleSubmitRef.current = handleSubmit;
+  const handleStop = useCallback(() => { void stop(); }, [stop]);
+  const consumePendingSkill = useCallback(() => setPendingSkill(null), []);
   const sendNonce = useAnnotationSendStore((s) => s.nonce);
   useEffect(() => {
     if (sendNonce === 0 || !visible) return;
@@ -925,8 +877,8 @@ function ChatPanelContent({
     const anns = annotationsForWorkspace(useAnnotationsStore.getState().items, currentWorkspaceId);
     if (anns.length === 0) { consume(); return; }
     consume();
-    handleSubmitRef.current({ text: input.trim(), files: [] });
-  }, [sendNonce, currentWorkspaceId, input, visible]);
+    handleSubmitRef.current({ text: getInput().trim(), files: [] });
+  }, [sendNonce, currentWorkspaceId, getInput, visible]);
 
   const submitSteerItem = useCallback(async (item: LiveSteerItem) => {
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
@@ -1156,9 +1108,7 @@ function ChatPanelContent({
             isMobile && !nativeTopBarTakesSpace() && "pt-[calc(env(safe-area-inset-top)+3rem)]"
           )}
         >
-          {messages.length === 0 ? (
-            historyDbChatId && !historyLoaded ? null : null
-          ) : (
+          {messages.length > 0 && (
             <ChatDbIdContext.Provider value={dbChatId}>
             <MessagesList
               messages={messages}
@@ -1375,15 +1325,14 @@ function ChatPanelContent({
           >
             {readOnlyReason}
           </div>
-        ) : <ChatInputArea
+        ) : <ChatComposer
           visible={visible}
           promptSuggestion={promptSuggestion}
-          input={input}
-          setInput={setInput}
-          attachments={attachments}
+          isOperonProvider={isOperonProvider}
+          dbChatId={tab?.chatId ?? dbChatIdRef.current}
           onSubmit={handleSubmitOrGoal}
           status={status}
-          onStop={() => void stop()}
+          onStop={handleStop}
           isGenerating={isGenerating}
           selectorOpen={selectorOpen}
           setSelectorOpen={setSelectorOpen}
@@ -1409,14 +1358,14 @@ function ChatPanelContent({
           goalSupported={supportsGoal}
           goalArmed={goalArmed}
           onToggleGoal={handleToggleGoal}
-          slashCommands={mergedSlashCommands}
+          slashCommands={slashCommands}
           compactWhenIdle={isMobile}
           floating={isMobile}
           mobileKeyboardOpen={isMobile && mobileKeyboardOpen}
           hasPendingContext={pendingAnnotationCount > 0 || pendingLineCommentCount > 0}
           pendingSkill={pendingSkill}
-          onPendingSkillConsumed={() => setPendingSkill(null)}
-          initialSkills={getChatDraftSkills(chatId)}
+          onPendingSkillConsumed={consumePendingSkill}
+          initialSkills={initialSkills}
           onSkillsChange={saveDraftSkills}
         />}
       </div>

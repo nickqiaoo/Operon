@@ -85,6 +85,7 @@ interface ProviderCatalog {
 const EMPTY_MODELS_RESPONSE: ProviderModelsResponse = {};
 // Stable identities: `availableModels` feeds effect deps and memoized rows.
 const NO_MODELS: DynamicModel[] = [];
+const NO_SLASH_COMMANDS: SlashCommandItem[] = [];
 const NO_CONFIGS: Record<string, ProviderConfig> = {};
 
 /** Turns the raw `/ai/providers/:id/models` payload into what the pickers render. Pure. */
@@ -259,28 +260,28 @@ export function useModelManagement(
     }
   }, [currentProviderId, selectedModel?.supportsFastMode, currentServiceTiers]);
   const currentProviderConfig = currentProviderId ? providerConfigs[currentProviderId] : undefined;
-  const modeOptions = (() => {
+  const modeOptions = useMemo(() => {
     const all = currentProviderConfig?.modes ?? [];
     // Hide 'auto' on models that don't support it (capability advertised by init).
     if (selectedModel?.supportsAutoMode === false) return all.filter((o) => o.value !== 'auto');
     return all;
-  })();
+  }, [currentProviderConfig?.modes, selectedModel?.supportsAutoMode]);
   const currentMode = currentProviderId ? (currentModes[currentProviderId] ?? '') : '';
-  const serviceTierOptions = (() => {
+  const serviceTierOptions = useMemo(() => {
     const all = currentProviderConfig?.serviceTiers ?? [];
     // Hide the Fast toggle on models that don't support fast mode.
     if (selectedModel?.supportsFastMode === false) return all.filter((o) => o.value !== 'fast');
     return all;
-  })();
+  }, [currentProviderConfig?.serviceTiers, selectedModel?.supportsFastMode]);
   const currentServiceTier = currentProviderId ? (currentServiceTiers[currentProviderId] ?? '') : '';
-  const thinkingEffortOptions = effortOptionsForModel(
+  const thinkingEffortOptions = useMemo(() => effortOptionsForModel(
     currentProviderConfig?.thinkingEfforts ?? [],
     selectedModel?.id,
     selectedModel?.supportedEffortLevels,
-  );
+  ), [currentProviderConfig?.thinkingEfforts, selectedModel?.id, selectedModel?.supportedEffortLevels]);
   const commands = currentProviderConfig?.commands ?? [];
   const skills = currentProviderConfig?.skills ?? [];
-  const slashCommands = currentProviderConfig?.slashCommands ?? [];
+  const slashCommands = currentProviderConfig?.slashCommands ?? NO_SLASH_COMMANDS;
   const supportsInjection = currentProviderConfig?.supportsInjection ?? false;
   const supportsGoal = currentProviderConfig?.supportsGoal ?? false;
   const supportsDynamicSwitch = currentProviderConfig?.supportsDynamicSwitch ?? false;
