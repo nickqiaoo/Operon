@@ -49,6 +49,8 @@ interface NavigationStore {
   lastBoardView: BoardPageView | null
   /** A task the Board should open its detail on; cleared once the Board consumes it. */
   boardTaskId: number | null
+  /** A chat to show at its newest message; cleared once its transcript has moved there. */
+  latestChatRequest: number | null
 
   showMain: (view: MainView) => void
   /** Back to the editor. */
@@ -56,6 +58,8 @@ interface NavigationStore {
   /** The Board with one task's detail open (an inbox notification, a task card in a chat). */
   openTask: (taskId: number) => void
   clearBoardTask: () => void
+  requestChatLatest: (chatId: number) => void
+  clearChatLatestRequest: () => void
   /** Open a full-screen page on top. One already in the stack moves to the top. */
   openPage: (page: FullPage) => void
   closePage: (kind: FullPageKind) => void
@@ -67,6 +71,7 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
   visited: new Set<MainViewKind>(["workbench"]),
   lastBoardView: null,
   boardTaskId: null,
+  latestChatRequest: null,
 
   showMain: (view) =>
     set((state) => ({
@@ -80,6 +85,8 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
     useNavigationStore.getState().showMain({ kind: "board", view: "board" })
   },
   clearBoardTask: () => set({ boardTaskId: null }),
+  requestChatLatest: (chatId) => set({ latestChatRequest: chatId }),
+  clearChatLatestRequest: () => set({ latestChatRequest: null }),
 
   openPage: (page) =>
     set((state) => ({ pages: [...state.pages.filter((p) => p.kind !== page.kind), page] })),

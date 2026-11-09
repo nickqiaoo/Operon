@@ -59,6 +59,7 @@ export default function App() {
   const showWorkbench = useNavigationStore((s) => s.showWorkbench)
   const openTask = useNavigationStore((s) => s.openTask)
   const clearBoardTask = useNavigationStore((s) => s.clearBoardTask)
+  const requestChatLatest = useNavigationStore((s) => s.requestChatLatest)
   const closePage = useNavigationStore((s) => s.closePage)
   const isPageOpen = pages.length > 0
   const workbenchActive = mainView.kind === 'workbench' || mainView.kind === 'spec'
@@ -165,9 +166,13 @@ export default function App() {
       }
       // Also when the source is the tab already active: no tab change would bring the editor back.
       showWorkbench()
-      if (n.chatId != null) openChat({ chatId: n.chatId, workspaceId: n.workspaceId ?? undefined, title: n.title })
+      if (n.chatId != null) {
+        // A notification is about what just happened, so it lands on the newest message.
+        requestChatLatest(n.chatId)
+        openChat({ chatId: n.chatId, workspaceId: n.workspaceId ?? undefined, title: n.title })
+      }
     },
-    [openChat, openTask, showMain, showWorkbench],
+    [openChat, openTask, requestChatLatest, showMain, showWorkbench],
   )
 
   // A full-screen page that opens a chat (a workflow node's, a scheduled run's) closes itself and
