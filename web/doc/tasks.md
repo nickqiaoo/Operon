@@ -31,7 +31,7 @@ Each task carries:
 
 ### Creating
 
-Click **New Task** to open the task dialog. Give it a title, an optional description, priority, and assignee, then save. Agents can also create tasks on their own when they decide to split work into steps.
+Click **New Task** to open the task dialog. Give it a title, an optional description, priority, and assignee, then save. You can also talk it through in a workspace chat or with [Assistant](assistant), have it create the task, and pick an agent to dispatch it to without leaving the conversation.
 
 ### Dispatching to an agent
 
@@ -45,7 +45,7 @@ The task detail view has a comment composer. Leaving a comment on a dispatched t
 
 From a task you can jump straight into the workspace/worktree where the agent is doing the work, to inspect files or take over manually.
 
-You can also ask [Assistant](assistant) to inspect the board, create or update tasks, and leave comments. Its coding activities are separate from board dispatch: opening a coding conversation does not automatically attach it to a board task.
+You can also ask [Assistant](assistant) to inspect the board, create or update tasks, leave comments, and dispatch tasks to agents. A coding conversation it opens directly is separate from board dispatch and is not attached to a board task.
 
 ## Live updates
 

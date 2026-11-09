@@ -186,6 +186,13 @@ npm run build:mac           # signed Apple Silicon build (requires Apple credent
 npm run build:mac:intel     # Intel build
 ```
 
+Desktop development runs as **Operon Dev**, with its own database, browser profile,
+and app state under `~/.operon-dev/`. It can run alongside the installed Operon;
+its first launch starts with empty data and a separate cloud login. Set
+`OPERON_HOME` to use another app-state directory without changing CLI logins.
+The Dev window keeps its CDP endpoint at `http://127.0.0.1:9223`, so a
+`chrome-devtools-mcp` configured in the installed app can debug it.
+
 The Computer Use engine is fetched automatically by `npm run dev` when missing.
 You can also fetch it explicitly; native addons are built separately:
 
@@ -222,7 +229,7 @@ agent-runtime/       Provider implementations. One directory per agent.
 packages/
   browser-use/       Browser control: the wire protocol, the in-app browser
                      backend, and the SDK the model drives it with.
-  computer-use/      The node_repl runtime: a persistent JS session with a
+  computer-use/      The operonrepl runtime: a persistent JS session with a
                      privileged surface, plus the macOS Computer Use client.
   site-adapters/     Deterministic commands for specific sites.
   external-agent/    Delegate work to coding agents in background tabs.

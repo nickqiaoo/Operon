@@ -27,7 +27,8 @@ Ask which workspaces have running conversations, what is waiting for you, or wha
 - Start a coding agent in a selected workspace, then report its result. You choose the agent and model; if they are not specified or remembered, it asks first.
 - Continue or stop coding conversations it started. Each is an ordinary workspace chat you can open and take over.
 - Create a workspace with its own branch when isolation is needed, or add a local repository or clone a project.
-- Create, update, and comment on board tasks when asked.
+- Create, update, and comment on board tasks, and dispatch them to the agent you choose, when asked.
+- Start an OperonSpec when asked: several agents design the change, and it is built ticket by ticket once you approve it.
 - Read GitHub pull requests, reviews, and checks, or create a pull request when requested, using your local `gh` login.
 
 Coding cards show the workspace, agent, model, and current state. Questions and approvals can be answered on the card, or you can use **Open conversation** to handle them there. Assistant does not answer on your behalf.
