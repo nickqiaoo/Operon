@@ -17,6 +17,8 @@ const ASKED_LIMIT = 4_000
 export interface WorkerAgent {
   providerId: AssistantProviderId
   modelId: string
+  /** Unset: the model's own default. */
+  effort?: string
 }
 
 /** The agent session a worker ran in — what "continue this task" resumes. */
@@ -304,6 +306,7 @@ export class WorkerPool {
     return {
       providerId: agent.providerId,
       modelId: agent.modelId,
+      ...(agent.effort ? { effort: agent.effort } : {}),
       kind: unattended ? 'unattended' : 'worker',
       caller: { role: 'worker', id },
       cwd: this.host.cwd,

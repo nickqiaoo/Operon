@@ -13,7 +13,7 @@ const { getModelCapabilities, resolveModel } = await import('./resolve-model.js'
 
 describe('getModelCapabilities', () => {
   it('offers only the thinking levels the catalog does not mark as unsupported', () => {
-    expect(getModelCapabilities('mistral/mistral-large-4').effortLevels).toEqual(['high'])
+    expect(getModelCapabilities('mistral/mistral-large-4').effortLevels).toEqual(['low', 'medium', 'high'])
     expect(getModelCapabilities('mistral/zai-glm-5-3').effortLevels).toEqual(['low', 'high'])
   })
 
@@ -45,6 +45,32 @@ describe('resolveModel on Mistral', () => {
 
   it('sends a model newer than the catalog the same way', async () => {
     expect(await firstRequest('mistral/mistral-not-in-the-catalog')).toEqual(expected)
+  })
+
+  const sentEffort = async (thinking?: 'high') => {
+    let body = ''
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      body = await new Request(input, init).text()
+      return new Response('{"error":{"message":"stub"}}', { status: 400, headers: { 'content-type': 'application/json' } })
+    })
+    try {
+      const model = await resolveModel('mistral/mistral-large-4')
+      await model.complete({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }], timestamp: 0 }],
+        ...(thinking ? { params: { thinking } } : {}),
+      })
+      return (JSON.parse(body) as { reasoning_effort?: string }).reasoning_effort
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('leaves reasoning_effort out when no effort was chosen, since mistral-large-4 rejects "none"', async () => {
+    expect(await sentEffort()).toBeUndefined()
+  })
+
+  it('still sends the effort the user chose', async () => {
+    expect(await sentEffort('high')).toBe('high')
   })
 })
 

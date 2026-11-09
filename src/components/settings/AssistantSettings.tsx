@@ -4,7 +4,7 @@ import { FormattedMessage, useIntl } from "react-intl"
 import type { AssistantAgentChoice, AssistantConfig } from "@shared/assistant"
 import { assistantApi } from "@/lib/assistant-api"
 import { useDraft } from "@/hooks/useDraft"
-import { useProviderModelOptions, useProviders } from "@/lib/provider-queries"
+import { useProviderEffortOptions, useProviderModelOptions, useProviders } from "@/lib/provider-queries"
 import { setSettingsData, settingsKeys, useAssistantConfig } from "@/lib/settings-queries"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,7 @@ const AGENTS: Array<{ id: string; label: string }> = [
 
 /** Radix Select reserves the empty value; this stands for "the agent's own default". */
 const DEFAULT_MODEL = "__default__"
+const DEFAULT_EFFORT = "__default__"
 
 const EMPTY: AssistantConfig = {
   main: { providerId: "custom", modelId: "" },
@@ -32,7 +33,7 @@ const EMPTY: AssistantConfig = {
 }
 
 function sameChoice(a: AssistantAgentChoice | null, b: AssistantAgentChoice | null): boolean {
-  return (a?.providerId ?? "") === (b?.providerId ?? "") && (a?.modelId ?? "") === (b?.modelId ?? "")
+  return (a?.providerId ?? "") === (b?.providerId ?? "") && (a?.modelId ?? "") === (b?.modelId ?? "") && (a?.effort ?? "") === (b?.effort ?? "")
 }
 
 /**
@@ -221,12 +222,16 @@ function AgentField({
   const models = useProviderModelOptions(providerId)
 
   const modelId = value?.modelId ?? ""
-  // A saved model that is no longer offered still shows, so the user sees why.
-  const unavailable = intl.formatMessage(
-    { id: "assistant.settings.modelUnavailable", defaultMessage: "{model} (unavailable)" },
-    { model: modelId },
-  )
-  const options = models && modelId && !models.some((m) => m.modelId === modelId) ? [{ modelId, name: unavailable }, ...models] : (models ?? [])
+  const effort = value?.effort ?? ""
+  const offeredEfforts = useProviderEffortOptions(providerId, modelId)
+  // A saved model or effort that is no longer offered still shows, so the user sees why.
+  const unavailableLabel = (model: string) =>
+    intl.formatMessage({ id: "assistant.settings.modelUnavailable", defaultMessage: "{model} (unavailable)" }, { model })
+  const options = models && modelId && !models.some((m) => m.modelId === modelId) ? [{ modelId, name: unavailableLabel(modelId) }, ...models] : (models ?? [])
+  const effortOptions =
+    effort && offeredEfforts.length > 0 && !offeredEfforts.some((o) => o.value === effort)
+      ? [{ value: effort, label: unavailableLabel(effort) }, ...offeredEfforts]
+      : offeredEfforts
   const defaultLabel =
     providerId === "custom"
       ? intl.formatMessage({ id: "assistant.settings.firstModel", defaultMessage: "First model set up" })
@@ -280,6 +285,31 @@ function AgentField({
               {options.map((m) => (
                 <SelectItem key={m.modelId} value={m.modelId} className="text-xs">
                   {m.name === m.modelId ? m.modelId : `${m.name} · ${m.modelId}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {value && effortOptions.length > 0 && (
+          <Select
+            value={effort || DEFAULT_EFFORT}
+            onValueChange={(next) =>
+              onChange({ providerId: value.providerId, modelId: value.modelId, ...(next === DEFAULT_EFFORT ? {} : { effort: next }) })
+            }
+          >
+            <SelectTrigger
+              aria-label={intl.formatMessage({ id: "assistant.settings.effort", defaultMessage: "Effort" })}
+              className="h-8 w-[150px] border-border/50 bg-background/80 text-xs"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DEFAULT_EFFORT} className="text-xs">
+                <FormattedMessage id="assistant.settings.effortDefault" defaultMessage="Default effort" />
+              </SelectItem>
+              {effortOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value} className="text-xs">
+                  {o.label}
                 </SelectItem>
               ))}
             </SelectContent>

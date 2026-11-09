@@ -157,10 +157,10 @@ export function assistantRoutes(storage: StorageAdapter & AssistantStorageAdapte
     const body = await c.req.json<Body>().catch((): Body => ({}))
     const patch: Partial<AssistantConfig> = {}
     const choice = (value: unknown) => {
-      const v = value as { providerId?: unknown; modelId?: unknown } | null
-      return v && typeof v.providerId === 'string' && v.providerId.trim()
-        ? { providerId: v.providerId.trim(), modelId: typeof v.modelId === 'string' ? v.modelId.trim() : '' }
-        : undefined
+      const v = value as { providerId?: unknown; modelId?: unknown; effort?: unknown } | null
+      if (!v || typeof v.providerId !== 'string' || !v.providerId.trim()) return undefined
+      const effort = typeof v.effort === 'string' ? v.effort.trim() : ''
+      return { providerId: v.providerId.trim(), modelId: typeof v.modelId === 'string' ? v.modelId.trim() : '', ...(effort ? { effort } : {}) }
     }
     for (const key of ['main', 'worker'] as const) {
       if (body[key] === undefined) continue

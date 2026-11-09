@@ -129,6 +129,7 @@ interface StoredSession {
   generation: string
   providerId: string
   modelId: string
+  effort?: string
   sessionId?: string
   /** `MAIN_PROMPT_REVISION` when it was opened; a different one means its instructions are stale. */
   promptRevision?: string
@@ -209,7 +210,7 @@ const END_LABEL: Record<WorkerOutcome['end'], string> = {
 }
 
 function sameChoice(a: AssistantAgentChoice | null | undefined, b: AssistantAgentChoice | null | undefined): boolean {
-  return (a?.providerId ?? '') === (b?.providerId ?? '') && (a?.modelId ?? '') === (b?.modelId ?? '')
+  return (a?.providerId ?? '') === (b?.providerId ?? '') && (a?.modelId ?? '') === (b?.modelId ?? '') && (a?.effort ?? '') === (b?.effort ?? '')
 }
 
 /**
@@ -531,12 +532,17 @@ export class AssistantRuntime {
     type Legacy = { mainModel?: string; workerModel?: string }
     const stored = this.storage.get<Partial<AssistantConfig> & Legacy>(CONFIG_KEY) ?? {}
     // Before any agent could be picked, both ran on operon with a `provider/model` id.
+    const saved = (value: AssistantAgentChoice): AssistantAgentChoice => ({
+      providerId: value.providerId,
+      modelId: value.modelId ?? '',
+      ...(value.effort ? { effort: value.effort } : {}),
+    })
     const choice = (value: AssistantAgentChoice | undefined, legacy: string | undefined): AssistantAgentChoice =>
-      value && typeof value.providerId === 'string' ? { providerId: value.providerId, modelId: value.modelId ?? '' } : { providerId: 'custom', modelId: legacy ?? '' }
+      value && typeof value.providerId === 'string' ? saved(value) : { providerId: 'custom', modelId: legacy ?? '' }
     return {
       main: choice(stored.main, stored.mainModel),
       worker: choice(stored.worker, stored.workerModel),
-      background: stored.background && typeof stored.background.providerId === 'string' ? { providerId: stored.background.providerId, modelId: stored.background.modelId ?? '' } : null,
+      background: stored.background && typeof stored.background.providerId === 'string' ? saved(stored.background) : null,
       quietStart: stored.quietStart ?? QUIET_DEFAULT.quietStart,
       quietEnd: stored.quietEnd ?? QUIET_DEFAULT.quietEnd,
     }
@@ -561,7 +567,7 @@ export class AssistantRuntime {
         reason: { kind: 'not-installed', agent: PROVIDER_LABEL[providerId] },
       }
     }
-    if (providerId !== 'custom' || choice.modelId) return { providerId, modelId: choice.modelId }
+    if (providerId !== 'custom' || choice.modelId) return { providerId, modelId: choice.modelId, ...(choice.effort ? { effort: choice.effort } : {}) }
     const models = await listOperonModels().catch(() => [])
     const fallback = models[0]?.id
     return fallback ? { providerId, modelId: fallback } : { blocker: NO_MODEL, reason: { kind: 'no-model' } }
@@ -861,6 +867,7 @@ export class AssistantRuntime {
       stored?.sessionId &&
       stored.providerId === agent.providerId &&
       stored.modelId === agent.modelId &&
+      (stored.effort ?? '') === (agent.effort ?? '') &&
       stored.promptRevision === MAIN_PROMPT_REVISION &&
       !rotationDue(startedAt, Date.now())
     ) {
@@ -901,6 +908,7 @@ export class AssistantRuntime {
     const session = await openRuntimeSession({
       providerId: agent.providerId as WorkerAgent['providerId'],
       modelId: agent.modelId,
+      ...(agent.effort ? { effort: agent.effort } : {}),
       kind: 'main',
       caller: { role: 'main' },
       cwd: ASSISTANT_DIR,
@@ -912,6 +920,7 @@ export class AssistantRuntime {
       generation,
       providerId: agent.providerId,
       modelId: agent.modelId,
+      ...(agent.effort ? { effort: agent.effort } : {}),
       promptRevision: MAIN_PROMPT_REVISION,
       ...(resumed ? { sessionId: from.sessionId } : {}),
     }
@@ -980,6 +989,7 @@ export class AssistantRuntime {
         const session = await openRuntimeSession({
           providerId: agent.providerId,
           modelId: agent.modelId,
+          ...(agent.effort ? { effort: agent.effort } : {}),
           kind: 'unattended',
           caller: { role: 'wrapup', id },
           cwd: ASSISTANT_WRAPUP_DIR,

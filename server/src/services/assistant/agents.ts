@@ -150,6 +150,8 @@ export interface OpenParams {
   providerId: AssistantProviderId
   /** Empty: the agent's own default model. */
   modelId: string
+  /** Unset: the model's own default. */
+  effort?: string
   kind: SessionKind
   caller: AssistantCaller
   cwd: string
@@ -173,6 +175,7 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
   const runtimeParams: HostSessionOptions = {
     cwd: params.cwd,
     ...(params.modelId ? { model: params.modelId } : {}),
+    ...(params.effort ? { effort: params.effort } : {}),
     mode: modeFor(params.providerId, params.kind),
     instructions: params.instructions,
     mcpServers,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useProviderModels, type ProviderModelsResponse } from '@/lib/provider-queries';
+import { effortOptionsForModel, useProviderModels, type ProviderModelsResponse } from '@/lib/provider-queries';
 
 export interface DynamicModel {
   id: string;
@@ -273,17 +273,11 @@ export function useModelManagement(
     return all;
   })();
   const currentServiceTier = currentProviderId ? (currentServiceTiers[currentProviderId] ?? '') : '';
-  const thinkingEffortOptions = (() => {
-    const all = currentProviderConfig?.thinkingEfforts ?? [];
-    const supported = selectedModel?.supportedEffortLevels;
-    // Prefer the per-model effort list when the provider advertises it.
-    if (supported) return all.filter((o) => supported.includes(o.value));
-    // Fallback heuristic for providers without per-model capability data.
-    const modelId = selectedModel?.id?.toLowerCase() ?? '';
-    if (modelId.includes('haiku')) return [];
-    if (!modelId.includes('opus')) return all.filter((o) => o.value !== 'xhigh' && o.value !== 'max');
-    return all;
-  })();
+  const thinkingEffortOptions = effortOptionsForModel(
+    currentProviderConfig?.thinkingEfforts ?? [],
+    selectedModel?.id,
+    selectedModel?.supportedEffortLevels,
+  );
   const commands = currentProviderConfig?.commands ?? [];
   const skills = currentProviderConfig?.skills ?? [];
   const slashCommands = currentProviderConfig?.slashCommands ?? [];

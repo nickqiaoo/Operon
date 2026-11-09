@@ -1950,6 +1950,8 @@
   "assistant.settings.backgroundHint": "心跳和定时任务，在无人值守时运行——心跳每 30 分钟一次。",
   "assistant.settings.conversation": "对话",
   "assistant.settings.conversationHint": "和你对话、记住事情、分派任务。用快一点的模型就够了。更改后，从你的下一条消息起会换一个新会话，之前的对话内容会带过去。",
+  "assistant.settings.effort": "思考等级",
+  "assistant.settings.effortDefault": "默认思考等级",
   "assistant.settings.firstModel": "第一个配置好的模型",
   "assistant.settings.loadingModels": "正在加载模型…",
   "assistant.settings.modelUnavailable": "{model}（不可用）",

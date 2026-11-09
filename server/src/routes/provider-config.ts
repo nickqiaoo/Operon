@@ -12,6 +12,15 @@ import {
 import { invalidateProviderModels } from '../services/ai.js'
 import { isCustomProviderApi, isCustomProviderId, type CustomProviderInfo } from '../../../shared/provider-config.js'
 
+/**
+ * Drop the cached models a provider's config feeds. Operon's own agent (`custom`) lists the models
+ * of every enabled provider, so its catalog changes along with the provider's own.
+ */
+function dropCachedModels(providerId: string): void {
+  invalidateProviderModels(providerId)
+  invalidateProviderModels('custom')
+}
+
 /** `{ name, api }` from a request body, or a message saying what is wrong with it. */
 function parseCustom(value: unknown): CustomProviderInfo | string {
   const v = value as { name?: unknown; api?: unknown } | null
@@ -84,7 +93,7 @@ export function providerConfigRoutes() {
     setProviderConfig(providerId, updated)
     // Drop the cached descriptor so the model picker reflects the new config
     // (apiKey / baseUrl / manualModels / enabled) on next read.
-    invalidateProviderModels(providerId)
+    dropCachedModels(providerId)
     return c.json({ success: true })
   })
 
@@ -93,7 +102,7 @@ export function providerConfigRoutes() {
     const providerId = c.req.param('providerId')
     if (!isCustomProviderId(providerId)) return c.json({ error: 'only custom-* providers can be removed' }, 400)
     deleteProviderConfig(providerId)
-    invalidateProviderModels(providerId)
+    dropCachedModels(providerId)
     return c.json({ success: true })
   })
 

@@ -156,6 +156,42 @@ export function useProviderModelOptions(providerId: string | undefined): Provide
   }, [providerId, data, isError])
 }
 
+export interface ProviderEffortOption {
+  value: string
+  label: string
+}
+
+/** Which of a provider's effort levels a model offers. Pure: the chat composer and the settings pickers share it. */
+export function effortOptionsForModel(
+  all: ProviderEffortOption[],
+  modelId: string | undefined,
+  supported: string[] | undefined,
+): ProviderEffortOption[] {
+  // Prefer the per-model effort list when the provider advertises it.
+  if (supported) return all.filter((o) => supported.includes(o.value))
+  // Fallback heuristic for providers without per-model capability data.
+  const id = modelId?.toLowerCase() ?? ''
+  if (id.includes('haiku')) return []
+  if (!id.includes('opus')) return all.filter((o) => o.value !== 'xhigh' && o.value !== 'max')
+  return all
+}
+
+const NO_EFFORT_OPTIONS: ProviderEffortOption[] = []
+
+/**
+ * The effort levels a settings picker offers for a model. Empty until a model is picked, or when
+ * the model has none. Reads the same cache entry as `useProviderModels`.
+ */
+export function useProviderEffortOptions(providerId: string | undefined, modelId: string | undefined): ProviderEffortOption[] {
+  const { data } = useProviderModels(providerId)
+  return useMemo(() => {
+    if (!data || !modelId) return NO_EFFORT_OPTIONS
+    const levels = data.configOptions?.find((c) => c.category === 'thought_level')?.options ?? []
+    const model = data.configOptions?.find((c) => c.category === 'model')?.options.find((o) => o.value === modelId)
+    return effortOptionsForModel(levels.map((o) => ({ value: o.value, label: o.name })), modelId, model?.supportedEffortLevels)
+  }, [data, modelId])
+}
+
 /**
  * Call whenever provider configs are saved, toggled or deleted: refreshes the
  * provider list and every provider's model catalog for all mounted consumers.

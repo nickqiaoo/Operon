@@ -264,6 +264,8 @@ export interface AssistantWorkspaceFile {
 export interface AssistantAgentChoice {
   providerId: string
   modelId: string
+  /** Thinking effort, one of the levels the model offers. Unset: the model's own default. */
+  effort?: string
 }
 
 export interface AssistantConfig {
