@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.5.13] - 2026-11-09
+
+### Added
+
+- Hover over Projects or Inbox in the collapsed sidebar to preview the project tree or notifications. Open a notification from the preview to jump to its source.
+- Press Escape in the chat composer to stop a running reply and keep your draft. If a composer menu is open, Escape closes it first.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.26`.
+
+### Fixed
+
+- The desktop composer keeps focus after clicking Send, so you can immediately type a follow-up.
+- The copy button is visible again in code block headers.
+
 ## [1.5.12] - 2026-11-09
 
 ### Added
