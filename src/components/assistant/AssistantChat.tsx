@@ -63,6 +63,7 @@ const savedStartAt = new Map<string, number>()
 const ATTACH_ACCEPT =
   "image/*,application/pdf,.txt,.md,.csv,.json,.xml,.yaml,.yml,.html,.css,.js,.ts,.jsx,.tsx,.py,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,.log,.env,.toml,.ini,.cfg"
 const ATTACH_MAX_BYTES = 10 * 1024 * 1024
+const DESKTOP_CHAT_COLUMN = "max-w-3xl px-6"
 
 interface AssistantChatProps {
   messages: AssistantMessage[]
@@ -173,6 +174,19 @@ export function AssistantChat({
   const chatRoot = useRef<HTMLDivElement>(null)
   const composerRoot = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
+    const root = chatRoot.current
+    const scroller = root?.querySelector<HTMLElement>("[data-conversation-scroller]")
+    if (compact || !root || !scroller) return
+
+    // Match the space reserved on both sides of the transcript when the column is narrower than its max width.
+    const measure = () => root.style.setProperty("--assistant-transcript-gutters", `${scroller.offsetWidth - scroller.clientWidth}px`)
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroller)
+    measure()
+    return () => observer.disconnect()
+  }, [compact])
+
+  useLayoutEffect(() => {
     if (!nativeComposer || !composerRoot.current) return
     const measure = () => chatRoot.current?.style.setProperty('--assistant-composer-height', `${composerRoot.current?.offsetHeight ?? 0}px`)
     const observer = new ResizeObserver(measure)
@@ -200,7 +214,8 @@ export function AssistantChat({
       <Conversation positionKey={positionKey} turnActive={typing}>
         <ConversationContent
           fadeEdges
-          className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : "max-w-[calc(48rem+2rem)] px-10 pt-8 pb-10")}
+          scrollClassName={compact ? undefined : "[scrollbar-gutter:stable_both-edges]"}
+          className={cn("mx-auto w-full gap-3", compact ? "max-w-3xl px-3 pt-4 pb-4" : [DESKTOP_CHAT_COLUMN, "pt-8 pb-10"])}
           style={{
             ...(insetTop ? { paddingTop: insetTop + 8 + (compact ? 0 : 16) } : {}),
             ...(nativeComposer ? { paddingBottom: 'calc(var(--assistant-composer-height, 64px) + 16px)' } : {}),
@@ -261,7 +276,12 @@ export function AssistantChat({
 
       <div
         ref={composerRoot}
-        className={cn("mx-auto w-full max-w-3xl shrink-0", compact ? (nativeComposer ? "px-4 pb-2" : "px-3 pb-2") : "px-6 pb-5", nativeComposer && 'absolute inset-x-0 bottom-0')}
+        className={cn(
+          "mx-auto shrink-0",
+          compact
+            ? ["w-full max-w-3xl pb-2", nativeComposer ? "absolute inset-x-0 bottom-0 px-4" : "px-3"]
+            : [DESKTOP_CHAT_COLUMN, "w-[calc(100%-var(--assistant-transcript-gutters,0px))] pb-5"],
+        )}
         onFocus={() => setComposerFocused(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setComposerFocused(false)
