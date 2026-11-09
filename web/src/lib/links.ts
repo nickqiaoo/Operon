@@ -14,5 +14,3 @@ export const IOS_APP_STORE_URL = 'https://apps.apple.com/us/app/operon-ai/id6797
 export const ANDROID_APK_URL = '/download/operon-1.0.6.apk'
 
 export const GITHUB_URL = 'https://github.com/Nickqiaoo/Operon'
-export const DISCORD_URL = 'https://discord.gg/2BuvC6v3B'
-export const X_URL = 'https://x.com/operon_ai'
