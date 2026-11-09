@@ -1,6 +1,6 @@
 ---
 name: operon-site-adapters
-description: Ready-made functions for reading popular sites through the user's logged-in Chrome or public APIs via node_repl — Xiaohongshu (小红书) note text and video subtitles/transcripts (no Chrome needed), search, comments, media download, Bilibili, Zhihu, Twitter/X, Reddit, YouTube, GitHub, Wikipedia, arXiv, Stack Overflow, Bluesky, Product Hunt, HN, V2EX. Prefer over generic browsing when a function below fits the task.
+description: Ready-made functions for reading popular sites through the user's logged-in Chrome or public APIs via operonrepl — Xiaohongshu (小红书) note text and video subtitles/transcripts (no Chrome needed), search, comments, media download, Bilibili, Zhihu, Twitter/X, Reddit, YouTube, GitHub, Wikipedia, arXiv, Stack Overflow, Bluesky, Product Hunt, HN, V2EX. Prefer over generic browsing when a function below fits the task.
 ---
 
 <!-- OPERON_MANAGED_SITE_ADAPTERS_SKILL -->
@@ -18,7 +18,7 @@ user logged in to that site in Chrome. The rest call public APIs.
 
 ## Connect (once per JS session)
 
-Run through the `node_repl` MCP `js` tool only.
+Run through the `operonrepl` MCP `js` tool only.
 
 ```js
 if (globalThis.agent?.browsers == null) {

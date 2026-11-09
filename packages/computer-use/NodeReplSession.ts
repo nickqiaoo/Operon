@@ -69,7 +69,7 @@ export interface NodeReplRunResult {
 }
 
 /**
- * One persistent node_repl session, corresponding to a single task or
+ * One persistent operonrepl session, corresponding to a single task or
  * conversation.
  *
  * The same kernel keeps `globalThis` across calls, so globals and variables
@@ -198,7 +198,7 @@ export class NodeReplSession {
     try {
       await host.exec(this.ctx, banner);
     } catch (e) {
-      return `node_repl runtime setup failed: ${e instanceof Error ? e.message : String(e)}\n`;
+      return `operonrepl runtime setup failed: ${e instanceof Error ? e.message : String(e)}\n`;
     }
     return this.output;
   }

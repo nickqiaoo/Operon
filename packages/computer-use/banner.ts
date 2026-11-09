@@ -90,7 +90,7 @@ export function buildNodeReplBanner(surfaces: readonly NodeReplSurface[]): strin
     `
 if (__operonSetupErrors.length > 0) {
   nodeRepl.write(
-    "node_repl runtime setup incomplete:\\n- " + __operonSetupErrors.join("\\n- ") + "\\n",
+    "operonrepl runtime setup incomplete:\\n- " + __operonSetupErrors.join("\\n- ") + "\\n",
   );
 }`,
   ].join("\n");

@@ -1,6 +1,6 @@
 /**
  * Operon site-adapters index skill — discovery layer over
- * `@operon/site-adapters` (node_repl + Chrome / public APIs).
+ * `@operon/site-adapters` (operonrepl + Chrome / public APIs).
  *
  * Installed when Chrome Use is enabled.
  */

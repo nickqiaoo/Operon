@@ -74,7 +74,7 @@ export function installBrowserUseBridge(): () => void {
 }
 
 /**
- * Owner given to pages opened by a personal-assistant worker (node_repl session `assistant:<id>`).
+ * Owner given to pages opened by a personal-assistant worker (operonrepl session `assistant:<id>`).
  * No conversation has this id, so the pages run in the background and never show up in — or
  * take over — a workspace's browser panel.
  */

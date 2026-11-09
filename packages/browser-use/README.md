@@ -10,7 +10,7 @@
 
 Browser control for operon: driving the in-app browser, or the user's own Chrome.
 
-It sits alongside `@operon/computer-use` and reuses its node_repl runtime,
+It sits alongside `@operon/computer-use` and reuses its operonrepl runtime,
 nativePipe, framing and MCP adapter, supplying only the SDK and the backend.
 Framework-agnostic: confirmation goes through `nodeRepl.createElicitation` and the
 host decides how to present it, with no dependency on any agent framework.
@@ -212,7 +212,7 @@ new IabBackend({ driver, sessionId }) // pinned to one session (rarely needed)
 ## Architecture
 
 ```
-model -> node_repl (the kernel from @operon/computer-use) -> import the browser client
+model -> operonrepl (the kernel from @operon/computer-use) -> import the browser client
   -> agent.browsers.get("iab" | "extension")
   -> tab.playwright.* / tab.cua.*
   -> nodeRepl.nativePipe -> readdir /tmp/operon-browser-use/ -> connect to each

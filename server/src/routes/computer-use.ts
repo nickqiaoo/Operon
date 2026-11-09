@@ -1,7 +1,7 @@
 /**
  * Computer Use settings: the master switch, macOS grants, and app approvals.
  *
- * App approvals are decided in the conversation (a node_repl elicitation the
+ * App approvals are decided in the conversation (a operonrepl elicitation the
  * host approval broker answers) and remembered in `computer-use-config`: apps
  * and cross-app capabilities approved with "Always allow", plus apps the user
  * blocked here. This route lets Settings show and edit that record. The
@@ -134,7 +134,7 @@ export function computerUseRoutes() {
    *
    *  - The skill is a file on disk that agents find by scanning directories, so
    *    it has to be installed or deleted right here.
-   *  - The MCP needs nothing: node_repl is shared by both features and mounted
+   *  - The MCP needs nothing: operonrepl is shared by both features and mounted
    *    on an OR in `mcp-config.ts`, so it is already there if Browser Use is on.
    *  - Kernels for running sessions are long-lived and had the daemon socket
    *    baked into their env at fork time, which the switch cannot reach. They

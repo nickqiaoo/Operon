@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import os from "node:os";
+import { getOperonHome } from "../../shared/operon-home.js";
 import path from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
@@ -57,7 +57,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
  * `permissions.<profile>.network.allowed_domains`.
  */
 export function createTomlConfigStore(opts: TomlConfigStoreOptions = {}): NodeReplConfigStore {
-  const root = path.resolve(opts.root ?? path.join(os.homedir(), ".operon"));
+  const root = path.resolve(opts.root ?? getOperonHome());
   const configFile = opts.configFile ?? "config.toml";
 
   /**

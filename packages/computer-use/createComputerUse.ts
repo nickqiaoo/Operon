@@ -50,9 +50,9 @@ export interface CreateComputerUseOptions {
 
 export interface ComputerUseHandle {
   service: CuaDriverService;
-  /** Create a persistent node_repl session, normally one per conversation. */
+  /** Create a persistent operonrepl session, normally one per conversation. */
   createSession(): NodeReplSession;
-  /** Convenience: the `mcp__node_repl__js` tool over the default session, via the
+  /** Convenience: the `mcp__operonrepl__js` tool over the default session, via the
    *  zod adapter. */
   tool: NodeReplTool;
   dispose(): Promise<void>;

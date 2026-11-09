@@ -94,7 +94,7 @@ On search results, product grids, carousels, and modal-heavy pages, repeated `hr
 - Do not add explicit `timeoutMs` to routine `click`, `fill`, `check`, or `setChecked` calls unless you have a concrete reason the target is slow to become actionable.
 - Reserve explicit timeout values for navigation, state transitions, or other known slow operations.
 - If you already know the exact destination URL and no click-side effect matters, prefer `tab.goto(url)` over a brittle locator click.
-- Do not reacquire `tab` inside each `node_repl` call. Reuse the existing `tab` binding to save tokens and preserve state. Only reacquire or reassign it when you intentionally switch tabs, after a kernel reset, or after a failed call that did not create the binding.
+- Do not reacquire `tab` inside each `operonrepl` call. Reuse the existing `tab` binding to save tokens and preserve state. Only reacquire or reassign it when you intentionally switch tabs, after a kernel reset, or after a failed call that did not create the binding.
 - Do not use fixed sleeps as a default waiting strategy. After an action, prefer a concrete state check or targeted wait. Take a fresh snapshot when you need new locator ground truth.
 - If a fixed delay is truly unavoidable for a known transition, keep it short and follow it immediately with a specific verification step.
 

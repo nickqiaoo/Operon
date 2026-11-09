@@ -2,14 +2,14 @@
  * Computer Use master switch.
  *
  * Mirrors `browser-use-config.ts`, but the two features are *not* symmetric under the
- * hood — see the gate in `mcp-config.ts`. `node_repl` is a single MCP server whose one
+ * hood — see the gate in `mcp-config.ts`. `operonrepl` is a single MCP server whose one
  * `js` tool exposes both `computer.*` (Computer Use) and `agent.browsers` (Browser Use), so
  * this switch cannot inject or withhold an MCP server of its own. What it owns is:
  *
  *   1. the `operon-computer-use` skill file, and
  *   2. whether the cua-driver daemon starts at all — no daemon, no `computer.*`.
  *
- * `node_repl` itself is mounted when *either* feature is on.
+ * `operonrepl` itself is mounted when *either* feature is on.
  */
 import type { StorageAdapter } from '../storage/interface.js'
 

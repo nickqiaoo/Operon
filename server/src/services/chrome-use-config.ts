@@ -3,7 +3,7 @@
  *
  * Gates three things, and unlike the other two features one of them reaches outside the app:
  *
- *   1. the `node_repl` MCP server (`mcp-config.ts`) — the browser client runs inside that
+ *   1. the `operonrepl` MCP server (`mcp-config.ts`) — the browser client runs inside that
  *      kernel, same as the in-app browser, so Chrome joins the OR that mounts it;
  *   2. the `operon-chrome` skill (`chrome-use-skill.ts`) — a *file* under
  *      `~/.agents/skills`, `~/.grok/skills`, and `~/.claude/skills`, so turning

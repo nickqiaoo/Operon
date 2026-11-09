@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import matter from 'gray-matter'
 import { syncManagedSkills, type ManagedSkillSpec } from '../skill.js'
 import type { OperonPluginManager } from './codex-plugin-apps.js'
+import { isDevelopmentProfile } from '../../../../shared/operon-home.js'
 
 /**
  * Lands every enabled plugin's skills into the shared skill directories (`~/.agents/skills` and
@@ -22,6 +23,9 @@ export function pluginSkillConflicts(pluginId: string): string[] {
 }
 
 export function syncPluginSkills(manager: OperonPluginManager, homeDir?: string): Promise<void> {
+  // Dev uses its own plugin store and must not reconcile the installed app's
+  // global CLI skill links against an initially empty plugin list.
+  if (isDevelopmentProfile() && !homeDir) return Promise.resolve()
   // Serialized: two overlapping syncs would both see "not landed yet" and race on the same links.
   const run = chain.then(() => runSync(manager, homeDir))
   chain = run.catch(() => {})

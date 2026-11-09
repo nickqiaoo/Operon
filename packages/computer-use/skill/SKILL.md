@@ -5,18 +5,18 @@ description: Control local Mac apps through Operon Computer Use for tasks that r
 
 <!-- OPERON_MANAGED_COMPUTER_SKILL -->
 
-## node_repl + computer (Operon Computer Use)
+## operonrepl + computer (Operon Computer Use)
 
-* Use `node_repl` (JavaScript) for all Computer Use actions.
-* Do not use other technologies besides `node_repl` for computer interactions, unless specifically requested by the user (e.g. AppleScript, `osascript`, JXA, System Events, CGEvent synthesis).
+* Use the `operonrepl` MCP `js` tool (namespaced as `mcp__operonrepl__js`) for all Computer Use actions. To reset this session, use its `js_reset` tool (`mcp__operonrepl__js_reset`).
+* Do not use other technologies besides `operonrepl` for computer interactions, unless specifically requested by the user (e.g. AppleScript, `osascript`, JXA, System Events, CGEvent synthesis).
 * Prefer a dedicated plugin or skill when it can complete the task; use Computer Use for app interactions that are not exposed through a more specific interface.
-* `node_repl` state is persistent across calls.
+* `operonrepl` state is persistent across calls.
 * For text output, use `nodeRepl.write(...)`. `nodeRepl.write(...)` takes a string. If you would like to read a whole object, wrap it with `JSON.stringify(...)`.
 * **Work in the background; leave the user's foreground alone.** Every action — `click`, `type_text`, `press_key`, `hotkey`, `set_value`, `scroll` — is delivered straight to the target app's window, whether or not it is frontmost. The user keeps working in whatever app they have open while you do this, and raising a window takes it away from them. So never call `bring_to_front` as a warm-up before an action; that is not how this runtime works. Use it only as a last resort, when the target window really cannot be operated from the background — for example it is on another Space or minimized, so the tree comes back empty or with an unresolved note, or an action has already failed because of it, and the fixes below (`set_window_frame`, scrolling, a fresh `get_app_state`) have not helped. Once the step that needed it is done, carry on in the background.
 
 ## Bootstrap
 
-None. `computer` is already installed in every `node_repl` session before your first line of code runs, and stays for the life of the session. Call it directly.
+None. `computer` is already installed in every `operonrepl` session before your first line of code runs, and stays for the life of the session. Call it directly.
 
 Do not import the Computer Use client yourself, and do not write a setup guard — an import of the internal client from the JavaScript session is refused. If `computer` is somehow missing, the first tool result of the session says why; report that instead of trying to install it.
 

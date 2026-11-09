@@ -1,3 +1,4 @@
+import { getOperonHome } from "../../shared/operon-home.js";
 /**
  * Lifecycle for the `cua-driver serve` daemon: the Computer Use engine.
  *
@@ -29,7 +30,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CuaDaemonTransport, type CuaToolResult } from "./computer/cua/daemon.ts";
@@ -65,7 +65,7 @@ function defaultBinaryPath(): string {
 /** Same reasoning as the Swift service: `~/.operon/run` is 0700 and short, while
  *  the macOS temp dir overruns the ~104-byte sun_path limit. */
 function defaultSocketPath(): string {
-  return path.join(os.homedir(), ".operon", "run", `cua-${process.pid}.sock`);
+  return path.join(getOperonHome(), "run", `cua-${process.pid}.sock`);
 }
 
 function canConnect(socketPath: string, timeoutMs: number): Promise<boolean> {

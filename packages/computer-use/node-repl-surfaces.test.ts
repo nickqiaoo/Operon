@@ -4,7 +4,7 @@ import { buildNodeReplBanner } from "./banner.ts";
 import { buildNodeReplToolDescription, clampNodeReplOutput } from "./adapters/tool.ts";
 
 /**
- * node_repl is mounted when *any* of Computer Use, Browser Use or Chrome is on,
+ * operonrepl is mounted when *any* of Computer Use, Browser Use or Chrome is on,
  * but the kernel only has the globals for the ones that are. Two things have to
  * follow from the same surface list or the model is lied to:
  *
@@ -74,7 +74,7 @@ describe("output clamping", () => {
     const clamped = clampNodeReplOutput(text, 100); // 400 chars
     expect(clamped.startsWith("HEAD")).toBe(true);
     expect(clamped.endsWith("TAIL")).toBe(true);
-    expect(clamped).toContain("node_repl truncated");
+    expect(clamped).toContain("operonrepl truncated");
     expect(clamped.length).toBeLessThan(text.length);
   });
 });

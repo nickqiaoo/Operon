@@ -19,9 +19,9 @@ Read `await agent.documentation.get("<name>")` only when one of these topics app
 
 ## Connect
 
-Run all browser setup and browser API calls through the `node_repl` MCP `js` tool. Its visible name may be namespaced, such as `mcp__node_repl__js`. Do not replace this path with standalone Playwright, shell-launched browsers, or Computer Use.
+Run all browser setup and browser API calls through the `operonrepl` MCP `js` tool. Its visible name may be namespaced, such as `mcp__operonrepl__js`. Do not replace this path with standalone Playwright, shell-launched browsers, or Computer Use.
 
-`agent` is already installed in every `node_repl` session before your first line of code runs. Do not import the browser client or write a setup guard; if `agent` is somehow missing, the first tool result of the session says why.
+`agent` is already installed in every `operonrepl` session before your first line of code runs. Do not import the browser client or write a setup guard; if `agent` is somehow missing, the first tool result of the session says why.
 
 Bind the in-app browser once, then print and read its complete documentation before the first interaction:
 

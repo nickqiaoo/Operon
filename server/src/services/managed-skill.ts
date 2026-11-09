@@ -21,6 +21,7 @@ import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { SKILL_TARGETS } from './skill-targets.js'
+import { isDevelopmentProfile } from '../../../shared/operon-home.js'
 
 export interface ManagedSkill {
   /** Directory name under the skill roots, and the skill's `name:` in frontmatter. */
@@ -151,6 +152,9 @@ export async function syncManagedSkill(
   enabled: boolean,
   options: ManagedSkillOptions = {},
 ): Promise<void> {
+  // These are shared CLI skill directories. A fresh Dev DB must not remove
+  // the installed app's skills just because its feature switches start off.
+  if (isDevelopmentProfile() && !options.homeDir) return
   if (enabled) await installManagedSkill(skill, options)
   else await uninstallManagedSkill(skill, options)
 }

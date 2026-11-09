@@ -68,17 +68,17 @@ vi.mock('../services/computer-use-lifecycle.js', () => ({ setComputerUseServiceS
 const { nodeReplMcpRoutes, disposeAllNodeReplSessions } = await import('./node-repl-mcp.js')
 const { UNKNOWN_CALLER_MESSAGE } = await import('./mcp-caller.js')
 
-describe('node_repl caller-routed endpoint', () => {
+describe('operonrepl caller-routed endpoint', () => {
   const closers: Array<() => Promise<void>> = []
 
   async function connect(query = ''): Promise<Client> {
     const app = new Hono()
-    app.route('/api/node-repl-mcp', nodeReplMcpRoutes())
+    app.route('/api/operonrepl-mcp', nodeReplMcpRoutes())
     const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' })
     await new Promise<void>((resolve) => server.once('listening', () => resolve()))
     const { port } = server.address() as AddressInfo
     const client = new Client({ name: 'node-repl-test', version: '1' })
-    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/api/node-repl-mcp${query}`)))
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/api/operonrepl-mcp${query}`)))
     closers.push(async () => {
       await client.close()
       await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -101,6 +101,7 @@ describe('node_repl caller-routed endpoint', () => {
     bindings.set('ses_a', '101')
     bindings.set('ses_b', '202')
     const client = await connect()
+    expect(client.getServerVersion()?.name).toBe('operonrepl')
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['js'])
 
     expect(text(await client.callTool({ name: 'js', arguments: { source: 'a = 1', [CALLER_ARG]: 'ses_a' } }))).toContain('ran in 101')

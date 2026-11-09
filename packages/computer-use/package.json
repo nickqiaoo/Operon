@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "operon Computer Use — codex-compatible node_repl runtime + @oai/sky over a domain socket to the native mac engine. Framework-agnostic; plug in via ComputerUseIntegration.",
+  "description": "operon Computer Use — codex-compatible operonrepl runtime + @oai/sky over a domain socket to the native mac engine. Framework-agnostic; plug in via ComputerUseIntegration.",
   "main": "./index.ts",
   "exports": {
     ".": "./index.ts"

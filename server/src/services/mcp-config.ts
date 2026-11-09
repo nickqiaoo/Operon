@@ -1,6 +1,6 @@
+import { getOperonHome } from '../../../shared/operon-home.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 import { getEmbeddingConfig } from './vector/embeddings.js'
 import { getBrowserUseConfig } from './browser-use-config.js'
 import { getComputerUseConfig } from './computer-use-config.js'
@@ -9,7 +9,7 @@ import type { AgentMcpContext } from './ai/types.js'
 import { getApiToken, isApiTokenAuthDisabled } from './api-token.js'
 import { listPluginMcpMounts } from './operon-runtime/plugin-mcp.js'
 
-const DATA_DIR = process.env.OPERON_DATA_DIR || path.join(os.homedir(), '.operon', 'data')
+const DATA_DIR = process.env.OPERON_DATA_DIR || path.join(getOperonHome(), 'data')
 const MCP_CONFIG_PATH = path.join(DATA_DIR, 'mcp-servers.json')
 
 export type McpStdioConfig = {
@@ -100,6 +100,22 @@ export function userMcpServersForCli(providerId: string): McpServersConfig {
   delete servers['team_inbox']
   delete servers['task_board']
 
+  // Remove only legacy Operon mounts. A user's external Node REPL keeps its
+  // own name and configuration (in particular Codex's stdio node_repl).
+  for (const name of ['node_repl', 'operon_node_repl']) {
+    const entry = servers[name]
+    if (!entry || !('url' in entry)) continue
+    try {
+      const url = new URL(entry.url)
+      if (['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+        && ['/api/node-repl-mcp', '/api/operonrepl-mcp'].includes(url.pathname)) {
+        delete servers[name]
+      }
+    } catch {
+      // Leave invalid user configuration to the client's normal validation.
+    }
+  }
+
   // Plugin MCP servers reach every agent, not just Operon. Operon (`operon`) is skipped: its
   // harness already reads them from the plugin manager, with its own OAuth. Servers that need a
   // login (or a tool filter / cwd no CLI config can express) are routed through Operon's gateway,
@@ -149,7 +165,7 @@ export function buildMcpServersForCli(
     }
   }
 
-  // node_repl backs Computer Use and Browser Use: the model runs JS inside it to
+  // operonrepl backs Computer Use and Browser Use: the model runs JS inside it to
   // drive the browser and the desktop.
   //
   // The sessionId is baked into the URL. The kernel keeps `globalThis` alive
@@ -166,11 +182,11 @@ export function buildMcpServersForCli(
   // Gated by the three master switches in Settings, the same shape as memory
   // being gated on embedding config above.
   //
-  // Note this is an OR, not one MCP per feature. node_repl is a single server
-  // exposing a single `js` tool, and Computer Use (`computer.*`), Browser Use and
+  // Note this is an OR, not one MCP per feature. operonrepl is a single server
+  // exposing `js` and `js_reset`, and Computer Use (`computer.*`), Browser Use and
   // Chrome (both `agent.browsers`, differing only in backend) all live inside the
   // same kernel. There is no such thing as "the Computer Use MCP": if any one of
-  // them is on, node_repl has to be mounted, or that feature's skill will tell the
+  // them is on, operonrepl has to be mounted, or that feature's skill will tell the
   // model to call a tool that was never mounted.
   // What differs between them lives elsewhere: Browser relies on its skill plus an
   // approval policy, Chrome adds a native host (see chrome-use.ts), and Computer
@@ -179,24 +195,21 @@ export function buildMcpServersForCli(
   // This computes mcpServers for *new* sessions. Sessions already running had
   // theirs computed at creation, and turning a switch off does not reach back to
   // them, which is why the node-repl-mcp route checks again to catch those.
-  const nodeReplEnabled =
+  const operonReplEnabled =
     getBrowserUseConfig().enabled || getComputerUseConfig().enabled || getChromeUseConfig().enabled
-  // Codex already owns a stdio `node_repl` in its user config. Passing any
-  // same-named Operon entry can merge `command` and `url` into one invalid
-  // Codex MCP config ("url is not supported for stdio").
+  // Use the same distinct name on every provider, including Codex, whose own
+  // stdio `node_repl` must never be merged with our HTTP configuration.
   //
   // OpenCode shares one MCP client per server name across a directory, so a
   // sessionId here would hand every tab the first tab's kernel. Its entry names
   // no conversation and each call carries it instead (see external_agent below).
-  if (providerId === 'codex') {
-    delete servers['node_repl']
-  } else if (options?.chatId != null && nodeReplEnabled) {
-    servers['node_repl'] = {
+  if (options?.chatId != null && operonReplEnabled) {
+    servers['operonrepl'] = {
       type: 'http',
       url: withApiToken(
         providerId === 'opencode'
-          ? `http://127.0.0.1:${appPort}/api/node-repl-mcp`
-          : `http://127.0.0.1:${appPort}/api/node-repl-mcp?sessionId=${options.chatId}`,
+          ? `http://127.0.0.1:${appPort}/api/operonrepl-mcp`
+          : `http://127.0.0.1:${appPort}/api/operonrepl-mcp?sessionId=${options.chatId}`,
       ),
     }
   }

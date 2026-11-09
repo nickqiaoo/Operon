@@ -9,13 +9,14 @@
  * means turning the feature off leaves no registration behind in the user's
  * Chrome profile that could launch operon.
  *
- * The real capability gate is still the MCP: with node_repl unmounted there is
+ * The real capability gate is still the MCP: with operonrepl unmounted there is
  * no `js` tool, the model cannot execute JavaScript at all, and so cannot
  * bootstrap a browser client (see the OR in mcp-config.ts). The skill only
  * decides whether it is told about any of this.
  */
 
 import { Hono } from 'hono'
+import { isDevelopmentProfile } from '../../../shared/operon-home.js'
 import { createRuntimeLogger } from '@operon/agent-runtime'
 import {
   CHROME_EXTENSION_IDS,
@@ -107,7 +108,7 @@ export function chromeUseRoutes() {
    *    now on" changes nothing for copies already written.
    *  - The native host is a manifest plus wrapper inside Chrome's config
    *    directory: installed when on, removed cleanly when off.
-   *  - The MCP needs nothing here. node_repl is shared by three features and
+   *  - The MCP needs nothing here. operonrepl is shared by three features and
    *    mounted on an OR in `mcp-config.ts`.
    *
    * Kernels for sessions already running are long-lived, which is exactly how
@@ -122,8 +123,12 @@ export function chromeUseRoutes() {
       await syncChromeUseSkill(enabled)
       // Site-adapter index skill depends on Chrome session; keep it in lockstep.
       await syncSiteAdaptersSkill(enabled)
-      if (enabled) await installChromeNativeHost()
-      else await uninstallChromeNativeHost()
+      // Chrome has one registration per host name. Dev can reuse the installed
+      // host, but must never replace it with a temporary Electron executable.
+      if (!isDevelopmentProfile()) {
+        if (enabled) await installChromeNativeHost()
+        else await uninstallChromeNativeHost()
+      }
       updateChromeUseConfig({ enabled })
       await disposeAllNodeReplSessions()
       logger.info(`chrome use ${enabled ? 'enabled' : 'disabled'}`)
@@ -149,6 +154,9 @@ export function chromeUseRoutes() {
    * on again, so this makes the repair explicit.
    */
   router.post('/reinstall-host', async (c) => {
+    if (isDevelopmentProfile()) {
+      return c.json({ error: 'Manage the shared Chrome connection from the installed Operon app.' }, 409)
+    }
     try {
       const result = await installChromeNativeHost()
       logger.info(`chrome native host reinstalled: ${result.manifestPaths.length} manifest(s)`)

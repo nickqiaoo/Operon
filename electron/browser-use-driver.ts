@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { isDevelopmentProfile } from '../shared/operon-home.js'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
@@ -452,7 +453,11 @@ let backend: IabBackend | null = null
 export async function startIabBackend(): Promise<string | null> {
   if (backend) return backend.path
   try {
-    const b = new IabBackend({ driver: createElectronCdpDriver(), name: 'operon' })
+    const b = new IabBackend({
+      driver: createElectronCdpDriver(),
+      name: isDevelopmentProfile() ? 'Operon Dev' : 'operon',
+      buildFlavor: isDevelopmentProfile() ? 'operon-dev' : 'operon',
+    })
     const p = await b.listen()
     backend = b
     console.log(`[browser-use] IAB backend listening: ${p}`)

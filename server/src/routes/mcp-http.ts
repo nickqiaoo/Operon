@@ -37,7 +37,7 @@ export function withCodexElicitationFallback(server: Server): Server {
  * external_agent / im_chat). They are pure request/response and were made
  * stateless deliberately; there is no reason to put them at risk.
  *
- * ## Why node_repl needs this
+ * ## Why operonrepl needs this
  * Browser Use asks for consent before every cross-origin navigation
  * (`nodeRepl.createElicitation` → MCP `elicitation/create`). That is a
  * **server→client request**, which the stateless bridge cannot carry: it builds a
@@ -100,7 +100,7 @@ async function selectStatefulTransport(
     .catch(() => {})
     .then(async () => {
       // A fresh initialize without an MCP session id belongs to a new client.
-      // Keep the Server (and therefore node_repl's kernel-backed handlers), but
+      // Keep the Server (and therefore operonrepl's kernel-backed handlers), but
       // detach the previous client's transport before accepting the replacement.
       if (startsNewClient && holder.transport?.sessionId) {
         const previous = holder.transport

@@ -75,7 +75,7 @@ export interface WorkerPoolHost {
   cwd: string
   /** Outside `cwd`, writable as freely: the assistant's day notes. */
   writableDirs?: string[]
-  /** Whether workers get node_repl (browser, Chrome, Mac apps). */
+  /** Whether workers get operonrepl (browser, Chrome, Mac apps). */
   nodeRepl(): boolean
   /** Open (or resume) an agent session. */
   open(params: OpenParams): Promise<AgentSession>

@@ -1,6 +1,6 @@
 /**
  * Operon's Chrome skill: teaches an agent to drive the user's *own* Chrome
- * through the `node_repl` MCP.
+ * through the `operonrepl` MCP.
  *
  * It is a separate skill behind a separate switch from `operon-browser-use`,
  * because they are two backends carrying two different risks: the IAB browser is

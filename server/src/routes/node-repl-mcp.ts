@@ -1,5 +1,6 @@
+import { isDevelopmentProfile } from '../../../shared/operon-home.js'
 /**
- * node_repl MCP server: a JavaScript kernel the model drives Computer Use and
+ * operonrepl MCP server: a JavaScript kernel the model drives Computer Use and
  * Browser Use from.
  *
  *   `await import(OPERON_BROWSER_CLIENT_PATH)` -> `setupBrowserRuntime({globals: globalThis})`
@@ -31,7 +32,7 @@
  * to our own backend. If a client does supply `_meta`, the
  * `@operon/computer-use` adapter prefers that.
  *
- * Mounted at `/api/node-repl-mcp?sessionId=<id>` (see app.ts). OpenCode mounts it
+ * Mounted at `/api/operonrepl-mcp?sessionId=<id>` (see app.ts). OpenCode mounts it
  * without a sessionId and tags each call instead; see buildCallerRoutedServer.
  */
 
@@ -224,7 +225,7 @@ interface Entry extends StatefulMcpTransportHolder {
    */
 }
 
-/** sessionId -> that session's node_repl, one vm context each in the shared kernel. */
+/** sessionId -> that session's operonrepl, one vm context each in the shared kernel. */
 const bySession = new Map<string, Entry>()
 
 /**
@@ -325,7 +326,7 @@ function sharedNodeReplKernel(): NodeReplHost {
     env: {
       // `selectBackend()` reads this to reach the daemon.
       [CUA_DRIVER_SOCKET_ENV]: service.socketPath,
-      [BUILD_FLAVOR_ENV]: OPERON_BUILD_FLAVOR,
+      [BUILD_FLAVOR_ENV]: isDevelopmentProfile() ? 'operon-dev' : OPERON_BUILD_FLAVOR,
       [OPERON_BROWSER_CLIENT_PATH_ENV]: BROWSER_CLIENT_PATH,
       [OPERON_COMPUTER_USE_CLIENT_PATH_ENV]: COMPUTER_USE_CLIENT_PATH,
       [OPERON_SITE_ADAPTERS_PATH_ENV]: SITE_ADAPTERS_ENTRY,
@@ -338,7 +339,7 @@ function sharedNodeReplKernel(): NodeReplHost {
     // protocol. cua-driver authenticates by the socket's 0700 directory and
     // would treat the frame as a malformed request.
   })
-  logger.info('forked shared node_repl kernel (computer use engine: cua-driver)')
+  logger.info('forked shared operonrepl kernel (computer use engine: cua-driver)')
   return sharedKernel
 }
 
@@ -430,7 +431,7 @@ function sweepIdle() {
     if (now - e.lastUsed < IDLE_MS) continue
     bySession.delete(id)
     void e.dispose().catch(() => {})
-    logger.info(`disposed idle node_repl session ${id}`)
+    logger.info(`disposed idle operonrepl session ${id}`)
   }
   // With every conversation gone the kernel is ~63 MB serving nothing. Let it go;
   // the next session pays one fork to bring it back, which is the same cost it
@@ -439,7 +440,7 @@ function sweepIdle() {
     const kernel = sharedKernel
     sharedKernel = null
     void kernel.dispose().catch(() => {})
-    logger.info('disposed idle shared node_repl kernel')
+    logger.info('disposed idle shared operonrepl kernel')
   }
 }
 
@@ -479,7 +480,7 @@ function enabledSurfaces(): NodeReplSurface[] {
  * session built before a toggle flipped keeps the surfaces it was built with.
  */
 function buildCallerRoutedServer(sessionKey: string | null): Server {
-  const server = new Server({ name: 'node_repl', version: '0.1.0' }, { capabilities: { tools: {}, logging: {} } })
+  const server = new Server({ name: 'operonrepl', version: '0.1.0' }, { capabilities: { tools: {}, logging: {} } })
   server.setRequestHandler(ListToolsRequestSchema, async () => listNodeReplTools(enabledSurfaces()))
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     if (sessionKey == null) {
@@ -571,7 +572,7 @@ async function buildEntry(sessionId: string): Promise<Entry> {
     },
   }
   bySession.set(sessionId, entry)
-  logger.info(`created node_repl session ${sessionId} (${bySession.size} live)`)
+  logger.info(`created operonrepl session ${sessionId} (${bySession.size} live)`)
   return entry
 }
 
@@ -582,7 +583,7 @@ export function nodeReplMcpRoutes() {
     // Catches the case where the toggle was on when the session was created and
     // has since been turned off. That session's mcpServers were baked long ago,
     // so mcp-config's gating cannot reach back to it and only this check can.
-    // The condition is an OR, matching mcp-config: node_repl is the entry point
+    // The condition is an OR, matching mcp-config: operonrepl is the entry point
     // for two features, so it must keep serving while either one is enabled.
     if (
       !getBrowserUseConfig().enabled &&

@@ -1,6 +1,6 @@
 /**
  * Operon's built-in Browser skill — the instructions that teach an agent to drive the
- * in-app browser through the `node_repl` MCP.
+ * in-app browser through the `operonrepl` MCP.
  *
  * Install/remove mechanics (and why a switch has to delete files) live in
  * `managed-skill.ts`; this module only declares which skill we are talking about.

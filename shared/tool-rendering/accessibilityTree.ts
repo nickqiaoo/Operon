@@ -1,6 +1,6 @@
 /**
  * Parser for the indented accessibility snapshots that Computer Use tools print
- * (`computer.get_app_state`, surfaced through the `node_repl` MCP server):
+ * (`computer.get_app_state`, surfaced through the `operonrepl` MCP server):
  *
  *   App=com.tencent.qq (pid 9797)
  *   Window: "QQ", App: QQ.

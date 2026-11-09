@@ -1,7 +1,8 @@
+import { getOperonHome } from '../../../shared/operon-home.js'
 import { execFile } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readdir, rename, rm, stat, writeFile, readFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -27,7 +28,7 @@ const execFileAsync = promisify(execFile)
 
 /** Where installed agents live. One directory per agent id. */
 export function acpAgentsDir(): string {
-  return path.join(homedir(), '.operon', 'acp-agents')
+  return path.join(getOperonHome(), 'acp-agents')
 }
 
 interface RegistryAgent {

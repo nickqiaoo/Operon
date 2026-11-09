@@ -10,7 +10,7 @@ export interface SetupComputerUseRuntimeOptions {
 }
 
 /**
- * Install the Computer Use client into a node_repl JavaScript realm.
+ * Install the Computer Use client into an operonrepl JavaScript realm.
  *
  * This mirrors Codex's plugin wrapper: initialization is idempotent within a
  * persistent session, while every fresh session can safely run the same guard.

@@ -27,6 +27,8 @@ describe('installBrowserUseSkill', () => {
     expect(result.installed).toEqual([agentsSkill, grokSkill, claudeSkill])
     await expect(readFile(agentsSkill, 'utf8')).resolves.toContain('name: operon-browser-use')
     await expect(readFile(grokSkill, 'utf8')).resolves.toContain('name: operon-browser-use')
+    await expect(readFile(agentsSkill, 'utf8')).resolves.toContain('mcp__operonrepl__js')
+    await expect(readFile(agentsSkill, 'utf8')).resolves.not.toContain('node_repl')
     // Body marker, and the post-banner contract: the skill no longer teaches a
     // bootstrap, because `agent` is installed before the model's first line.
     await expect(readFile(claudeSkill, 'utf8')).resolves.toContain('`agent` is already installed')

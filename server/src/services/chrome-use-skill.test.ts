@@ -31,6 +31,8 @@ describe('installChromeUseSkill', () => {
       path.join(homeDir, '.claude/skills/operon-chrome/SKILL.md'),
     ])
     await expect(readSkill(homeDir)).resolves.toContain('name: operon-chrome')
+    await expect(readSkill(homeDir)).resolves.toContain('mcp__operonrepl__js')
+    await expect(readSkill(homeDir)).resolves.not.toContain('node_repl')
 
     const second = await installChromeUseSkill({ homeDir })
     expect(second.installed).toEqual([])

@@ -1,4 +1,4 @@
-// operon Computer Use: the node_repl runtime.
+// operon Computer Use: the operonrepl runtime.
 // A standalone module with no coupling to operon itself; wiring it into any
 // framework only requires implementing ComputerUseIntegration.
 
@@ -52,6 +52,6 @@ export type { NodeReplTool, NodeReplSurface } from "./adapters/tool.ts";
 // Runtime setup spliced in before the model's first cell (see banner.ts).
 export { buildNodeReplBanner } from "./banner.ts";
 
-// ---- MCP server adapter: node_repl as an MCP server exposing a `js` tool ----
+// ---- MCP server adapter: operonrepl as an MCP server exposing a `js` tool ----
 export { buildNodeReplMcpServer, listNodeReplTools } from "./adapters/mcp.ts";
 export type { NodeReplCallExtra, NodeReplMcpServer, NodeReplMcpServerOptions } from "./adapters/mcp.ts";

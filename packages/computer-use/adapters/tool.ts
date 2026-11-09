@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { NodeReplSession, NodeReplRunResult } from "../NodeReplSession.ts";
 
 // Optional zod tool adapter: wraps a persistent session as the
-// `mcp__node_repl__js` tool.
+// `mcp__operonrepl__js` tool.
 // The core (NodeReplSession, Host, kernel) does not depend on zod; only this
 // adapter does. Another framework can be supported by writing its own adapter
 // the same way, without touching the core.
@@ -10,11 +10,11 @@ import type { NodeReplSession, NodeReplRunResult } from "../NodeReplSession.ts";
 export const nodeReplInputSchema = z.object({
   code: z
     .string()
-    .describe("JavaScript to run in the persistent Computer Use node_repl session (top-level await ok)"),
+    .describe("JavaScript to run in the persistent Computer Use operonrepl session (top-level await ok)"),
 });
 
 /**
- * A capability the kernel was configured with. One node_repl backs all three,
+ * A capability the kernel was configured with. One operonrepl backs all three,
  * but which globals exist depends on the Settings toggles that were on when
  * the session was built (see `buildEntry` in server/src/routes/node-repl-mcp.ts).
  */
@@ -27,7 +27,8 @@ export const ALL_NODE_REPL_SURFACES: readonly NodeReplSurface[] = [
 ];
 
 const BASE_DESCRIPTION =
-  "Run JavaScript in a persistent node_repl session. `globalThis` and anything assigned to it " +
+  "Run JavaScript in Operon's persistent `operonrepl` MCP session (`mcp__operonrepl__js`). " +
+  "Use `mcp__operonrepl__js_reset` to reset it. `globalThis` and anything assigned to it " +
   "survive across calls; bindings declared with const/let do not, because each call runs in its " +
   "own function scope. Top-level await is supported.";
 
@@ -38,7 +39,7 @@ const OUTPUT_DESCRIPTION =
 /**
  * Per-surface paragraph, or the line that says the surface is off.
  *
- * Saying "disabled" out loud matters more than saying nothing. node_repl is
+ * Saying "disabled" out loud matters more than saying nothing. operonrepl is
  * mounted when *any* of the three toggles is on, so a Browser-only session used
  * to advertise `computer.*` — an API that did not exist in it — and the model
  * would burn a turn discovering that by ReferenceError.
@@ -96,7 +97,7 @@ export function buildNodeReplToolDescription(
 }
 
 export const JS_RESET_TOOL_DESCRIPTION =
-  "Reset the persistent node_repl session. Every global and variable is discarded and the next " +
+  "Reset the persistent operonrepl session. Every global and variable is discarded and the next " +
   "`js` call starts a fresh runtime for the enabled surfaces. This does NOT close browser tabs " +
   "or native apps, or erase their state. Use it when the session is wedged, not to tidy up.";
 
@@ -132,7 +133,7 @@ export function clampNodeReplOutput(text: string, tokenLimit: number): string {
   const dropped = text.length - limit;
   return (
     text.slice(0, head) +
-    `\n\n[node_repl truncated ${dropped} characters of output. Narrow what you emit — ` +
+    `\n\n[operonrepl truncated ${dropped} characters of output. Narrow what you emit — ` +
     `select the subtree or fields you need instead of writing everything.]\n\n` +
     text.slice(text.length - tail)
   );
@@ -147,7 +148,7 @@ export interface NodeReplTool {
 
 export function createNodeReplTool(session: NodeReplSession): NodeReplTool {
   return {
-    name: "node_repl_js", // surfaces to the model as mcp__node_repl__js
+    name: "operonrepl_js", // surfaces to the model as mcp__operonrepl__js
     description: NODE_REPL_TOOL_DESCRIPTION,
     inputSchema: nodeReplInputSchema,
     execute: (args) => session.run(args.code),

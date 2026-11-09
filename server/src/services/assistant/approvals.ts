@@ -21,7 +21,7 @@ interface Pending {
 
 /**
  * Permission prompts from the assistant's workers, shown as cards in the thread. Two sources
- * feed it — the framework's `auto` judge escalating a tool call, and node_repl asking about a
+ * feed it — the framework's `auto` judge escalating a tool call, and operonrepl asking about a
  * new site or an app — and both wait here until the user answers. There is deliberately no
  * timeout: expiring on the user's behalf would read as a refusal they never made. A worker that
  * stops (or the app restarting) is what releases an unanswered card.

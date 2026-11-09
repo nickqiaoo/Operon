@@ -165,7 +165,7 @@ export class WebviewInstance {
   readonly instanceId: string
   /**
    * Which conversation's browser this page belongs to (chat id as a string — the
-   * same value node_repl uses as its `sessionId`). The browser panel switches with
+   * same value operonrepl uses as its `sessionId`). The browser panel switches with
    * the conversation, so every page has an owner; Browser Use reads it to decide
    * which session may see/claim this tab.
    */

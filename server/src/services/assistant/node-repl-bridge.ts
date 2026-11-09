@@ -1,5 +1,5 @@
 /**
- * Who is calling: the assistant's own MCP route (routes/assistant-mcp.ts) and node_repl (browser,
+ * Who is calling: the assistant's own MCP route (routes/assistant-mcp.ts) and operonrepl (browser,
  * Chrome, Computer Use, site adapters) both need to know which of the assistant's sessions made
  * a call. Imported by the routes and the assistant runtime, so it depends on neither.
  *
@@ -15,12 +15,12 @@
 import { randomBytes, timingSafeEqual } from 'crypto'
 import type { HostElicitationRequest, HostElicitationResult } from '../ai/host-approval-broker.js'
 
-/** Session-key prefix for an assistant worker's node_repl context. */
+/** Session-key prefix for an assistant worker's operonrepl context. */
 export const ASSISTANT_NODE_REPL_PREFIX = 'assistant:'
 
 /** Query parameter carrying this process's key on every URL the assistant hands out. */
 export const ASSISTANT_KEY_PARAM = 'assistantKey'
-/** Query parameter naming the worker on its node_repl URL. */
+/** Query parameter naming the worker on its operonrepl URL. */
 export const ASSISTANT_WORKER_PARAM = 'assistantWorker'
 const ASSISTANT_KEY = randomBytes(24).toString('hex')
 
@@ -77,7 +77,7 @@ export function setAssistantElicitationHandler(next: AssistantElicitationHandler
 }
 
 /**
- * A worker's node_repl wants permission (a new site, an app). Without a live assistant there is
+ * A worker's operonrepl wants permission (a new site, an app). Without a live assistant there is
  * nobody to ask, so the answer is "not answered" — never the kernel's default of allowing.
  */
 export function requestAssistantElicitation(workerId: string, request: HostElicitationRequest): Promise<HostElicitationResult> {

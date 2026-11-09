@@ -1,4 +1,4 @@
-# @operon/computer-use — the node_repl runtime
+# @operon/computer-use — the operonrepl runtime
 
 > **On the oracle and differential suites.** Notes in this package point at recordings made
 > against a reference client. Those suites are not in this repository: they run our
@@ -8,7 +8,7 @@
 > rather than from reading a minified bundle, and that distinction is the whole point.
 
 
-A self-contained module that gives a model a persistent `node_repl` JavaScript
+A self-contained module that gives a model a persistent `operonrepl` JavaScript
 session, a privileged `globalThis.nodeRepl` surface, and a Computer Use client
 (`computer/`) that drives the `cua-driver` daemon to control macOS applications.
 
@@ -152,7 +152,7 @@ OPERON_RUN_COMPUTER_USE_ELECTRON_SMOKE=1 \
 ### Controlled end-to-end tests, with no access to real application data
 
 There are separate fixtures for AppKit and for Electron. The tests call the
-public `computer.*` API from the same persistent `node_repl` a model uses, through
+public `computer.*` API from the same persistent `operonrepl` a model uses, through
 approval, app policy, the wire, and the Swift accessibility and input engine, and
 verify the outcome against the fixture's own state file. They open no real
 applications and read no user data. The Electron fixture is copied to a temporary
@@ -210,14 +210,14 @@ confirmation, output, images, launching applications — is injected through
 
 ## Option 1: as an MCP server (recommended)
 
-node_repl is itself an MCP server exposing a single `js` tool, which the model
-sees as `mcp__node_repl__js`. A host adds one stdio server to `mcp.json` and needs
+operonrepl is itself an MCP server exposing `js` and `js_reset`, which the model
+sees as `mcp__operonrepl__js` and `mcp__operonrepl__js_reset`. A host adds one stdio server to `mcp.json` and needs
 no changes to its own tool system:
 
 ```json
 {
   "mcpServers": {
-    "node_repl": {
+    "operonrepl": {
       "command": "node",
       "args": ["--import", "tsx", "<pkg>/adapters/mcp-server.ts"],
       "env": { "OPERON_CU_BINARY": "<path to operon-computer-use>" }
@@ -228,6 +228,16 @@ no changes to its own tool system:
 
 The model can then call `tools/call js { source, description }`, where
 `description` is a few words used as a live UI title.
+
+Operon's built-in HTTP mount uses `/api/operonrepl-mcp`, with the same server
+name on every provider, including Codex and assistant workers. There are no old
+server-name or HTTP-route aliases. After upgrading, restart the host and reconnect
+existing agent sessions so they discover the new namespace and refreshed managed
+skills; kernel variables do not survive a host restart. The JavaScript helper
+remains `nodeRepl` (`nodeRepl.write`, `nodeRepl.emitImage`, etc.). External tools,
+including Codex's own Node REPL, keep their original names and configuration in
+both ordinary chats and assistant workers. Operon does not disable them when its
+own browser or computer tools are enabled.
 
 **The synchronous display stream**: during a single `tools/call`, text from
 `nodeRepl.write`, screenshots from `nodeRepl.emitImage`, and the `description`
@@ -257,7 +267,7 @@ const cu = await createComputerUse({
 });
 
 // 2) Register the tool with your agent, or wrap cu.createSession() yourself.
-myFramework.registerTool(cu.tool); // { name: "node_repl_js", inputSchema: { code }, execute }
+myFramework.registerTool(cu.tool); // { name: "operonrepl_js", inputSchema: { code }, execute }
 
 // 3) Tear down.
 await cu.dispose();
@@ -292,9 +302,9 @@ kernel/entry.ts        Kernel child process: a vm context per conversation, proc
 kernel/facade.ts       The globalThis.nodeRepl surface
 banner.ts              Runtime setup run once per kernel, before the model's first line
 adapters/tool.ts       zod tool adapter, plus the per-surface `js` description and output clamp
-adapters/mcp.ts        MCP server adapter: node_repl as an MCP server with `js` and `js_reset`
+adapters/mcp.ts        MCP server adapter: operonrepl as an MCP server with `js` and `js_reset`
 adapters/mcp-server.ts Executable stdio entry point, referenced from mcp.json
-skill/                 The Computer Use skill (SKILL.md, node-repl.md)
+skill/                 The Computer Use skill (SKILL.md, computer-use-node-repl.md)
 runtime.ts             Idempotent setupComputerUseRuntime bootstrap
 package.json           @operon/computer-use (workspace package; deps: zod)
 ```

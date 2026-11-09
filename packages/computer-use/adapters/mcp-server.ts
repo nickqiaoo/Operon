@@ -3,7 +3,7 @@ import { buildNodeReplMcpServer } from "./mcp.ts";
 
 // Executable stdio MCP server entry point. Operon, or any MCP host, points at it
 // from mcp.json:
-//   { "node_repl": { "command": "node", "args": ["--import","tsx", "<pkg>/adapters/mcp-server.ts"] } }
+//   { "operonrepl": { "command": "node", "args": ["--import","tsx", "<pkg>/adapters/mcp-server.ts"] } }
 //   In production this should point at a pre-bundled .mjs. Setting
 //   OPERON_CU_SOCKET reuses an already-running cua-driver daemon.
 

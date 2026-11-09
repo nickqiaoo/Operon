@@ -17,7 +17,7 @@ import { Hono } from 'hono'
 import { createTomlConfigStore } from '@operon/computer-use'
 import { createRuntimeLogger } from '@operon/agent-runtime'
 import fs from 'node:fs'
-import os from 'node:os'
+import { getOperonHome } from '../../../shared/operon-home.js'
 import path from 'node:path'
 import { getBrowserUseConfig, updateBrowserUseConfig } from '../services/browser-use-config.js'
 import { syncBrowserUseSkill } from '../services/browser-use-skill.js'
@@ -27,7 +27,7 @@ const logger = createRuntimeLogger('browser-use')
 
 /** Same root as the store node-repl-mcp.ts hands the kernel: both default to `~/.operon`. */
 const store = createTomlConfigStore()
-const ROOT = path.join(os.homedir(), '.operon')
+const ROOT = getOperonHome()
 const GLOBAL_TOML = 'browser/config.toml'
 const SESSIONS_DIR = 'browser/sessions'
 
@@ -94,7 +94,7 @@ export interface BrowserApprovals {
   rememberedFromConversations: number
   fullCdpAccess: boolean
   configPath: string
-  /** Master switch. Off means neither the skill nor the node_repl MCP is
+  /** Master switch. Off means neither the skill nor the operonrepl MCP is
    *  injected, and the agent cannot see a browser at all. */
   enabled: boolean
 }
@@ -161,7 +161,7 @@ export function browserUseRoutes() {
    *    switch takes effect on its own for the next new session.
    *  - Sessions already running had their mcpServers baked at creation and the
    *    switch cannot reach them, so every long-lived kernel child process is
-   *    torn down instead. Their node_repl dies immediately, and the route
+   *    torn down instead. Their operonrepl dies immediately, and the route
    *    refuses reconnects.
    */
   router.post('/enabled', async (c) => {

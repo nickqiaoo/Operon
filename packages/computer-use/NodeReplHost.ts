@@ -110,7 +110,7 @@ function defaultKernelEntry(): string {
 const DEFAULT_EXEC_ARGV = ["--import", "tsx", "--experimental-vm-modules"];
 
 /**
- * The host side of the node_repl runtime: the parent process that holds the
+ * The host side of the operonrepl runtime: the parent process that holds the
  * privileges. It spawns the kernel child process and keeps sockets, launching
  * and elicitation to itself; the kernel only sends messages (§3).
  */
@@ -172,7 +172,7 @@ export class NodeReplHost {
     // "forever" would mean every conversation at once.
     this.child.once("exit", (code, signal) => {
       this.handleChildExit(
-        `node_repl kernel exited unexpectedly (${signal ? `signal=${signal}` : `code=${code ?? "unknown"}`})`,
+        `operonrepl kernel exited unexpectedly (${signal ? `signal=${signal}` : `code=${code ?? "unknown"}`})`,
       );
     });
     this.child.on("message", (msg: { kind: string } & Record<string, unknown>) => {

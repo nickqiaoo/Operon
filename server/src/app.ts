@@ -322,13 +322,13 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/spec', specRoutes(deps.storage))
   app.route('/api/workspace-chat-mcp', workspaceChatMcpRoutes(deps.storage))
   app.route('/api/task-board-mcp', taskBoardMcpRoutes(deps.storage))
-  // node_repl (Computer Use / Browser Use). Lazy: it forks a kernel per session,
+  // operonrepl (Computer Use / Browser Use). Lazy: it forks a kernel per session,
   // so only pay for it when an agent actually calls the tool.
   {
     const { nodeReplMcpRoutes } = await import('./routes/node-repl-mcp.js')
-    app.route('/api/node-repl-mcp', nodeReplMcpRoutes())
+    app.route('/api/operonrepl-mcp', nodeReplMcpRoutes())
     // Browser Use approval management. Settings -> Browser reads and writes the
-    // same TOML file that node_repl persists.
+    // same TOML file that operonrepl persists.
     const { browserUseRoutes } = await import('./routes/browser-use.js')
     app.route('/api/browser-use', browserUseRoutes())
     // Computer Use has a single master switch. Per-app approval goes through an

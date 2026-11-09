@@ -221,20 +221,20 @@ function assertTrustedImport(specifier: string): void {
   try {
     file = specifier.startsWith("file:") ? fileURLToPath(specifier) : path.resolve(specifier);
   } catch {
-    throw new Error(`node_repl: refusing to import untrusted module "${specifier}"`);
+    throw new Error(`operonrepl: refusing to import untrusted module "${specifier}"`);
   }
   // A bare specifier such as "lodash" resolves to no absolute path and is always
   // refused: it would pull arbitrary code out of node_modules.
   if (!path.isAbsolute(file) || !existsSync(file)) {
     throw new Error(
-      `node_repl: refusing to import "${specifier}" — only node: builtins and trusted paths are importable`,
+      `operonrepl: refusing to import "${specifier}" — only node: builtins and trusted paths are importable`,
     );
   }
   if (trustedDirs.some((dir) => file === dir || file.startsWith(dir + path.sep))) return;
   const sha = createHash("sha256").update(readFileSync(file)).digest("hex");
   if (trustedSha256s.has(sha)) return;
   throw new Error(
-    `node_repl: refusing to import untrusted module ${file} (sha256 ${sha.slice(0, 12)}…). ` +
+    `operonrepl: refusing to import untrusted module ${file} (sha256 ${sha.slice(0, 12)}…). ` +
       `Add it to NODE_REPL_TRUSTED_CODE_PATHS or NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S.`,
   );
 }
@@ -246,7 +246,7 @@ async function exec(id: number, ctxId: string, code: string) {
       kind: "execResult",
       id,
       ok: false,
-      error: `node_repl: unknown context "${ctxId}"`,
+      error: `operonrepl: unknown context "${ctxId}"`,
     });
     return;
   }

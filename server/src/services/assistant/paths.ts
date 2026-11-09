@@ -1,4 +1,4 @@
-import os from 'os'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import path from 'path'
 
 /**
@@ -6,7 +6,7 @@ import path from 'path'
  * the main agent and its workers read and edit with their own file tools. The main agent's session
  * runs here.
  */
-export const ASSISTANT_DIR = process.env.OPERON_ASSISTANT_DIR || path.join(os.homedir(), '.operon', 'assistant')
+export const ASSISTANT_DIR = process.env.OPERON_ASSISTANT_DIR || path.join(getOperonHome(), 'assistant')
 
 /** One note per local day (`days/2026-10-12.md`): the details too specific for memory.md. */
 export const DAYS_DIR = path.join(ASSISTANT_DIR, 'days')

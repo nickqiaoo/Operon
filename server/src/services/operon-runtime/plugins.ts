@@ -13,6 +13,7 @@ import {
 import { mcpOAuthSettings, serverFromConfig, type MCPTool, type McpOAuthClientSettings } from 'operon-agents/mcp'
 import { access, cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'os'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { HARNESS_HOME_DIR } from './paths.js'
 import { beginMcpAuth, cancelMcpAuth, disconnectMcp, hasMcpTokens, mcpAuthPending, mcpOAuthService, type BeginMcpAuthResult } from './mcp-oauth.js'
@@ -698,7 +699,7 @@ async function configuredMarketplaces(): Promise<string[]> {
   // User-tier config (`~/.operon/config.toml`) is read regardless of cwd; pass home as a stable cwd.
   let extra: readonly string[] = []
   try {
-    const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: os.homedir() })
+    const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: os.homedir(), homeDir: getOperonHome() })
     extra = toCoreOptions(config).pluginMarketplaces
   } catch {
     // Unreadable config — the built-in marketplaces still load.

@@ -38,6 +38,8 @@ describe('installSiteAdaptersSkill', () => {
       path.join(homeDir, '.claude/skills/operon-site-adapters/SKILL.md'),
     ])
     await expect(readSkill(homeDir)).resolves.toContain('name: operon-site-adapters')
+    await expect(readSkill(homeDir)).resolves.toContain('`operonrepl` MCP `js` tool')
+    await expect(readSkill(homeDir)).resolves.not.toContain('node_repl')
     await expect(readSkill(homeDir)).resolves.toContain('OPERON_SITE_ADAPTERS_PATH')
     await expect(readSkill(homeDir)).resolves.toContain('siteAdapters.list()')
     await expect(readSkill(homeDir)).resolves.toContain('bilibili')

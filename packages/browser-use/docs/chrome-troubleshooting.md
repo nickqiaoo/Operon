@@ -8,7 +8,7 @@ On the first Chrome-backed browser task in a session, try a lightweight browser-
 
 If browser-client still reports that it cannot communicate with Chrome after that retry, confirm that Chrome is installed, running and that the extension is present in the selected Chrome profile:
 
-From the plugin root, use `node_repl` to run:
+From the plugin root, use `operonrepl` to run:
 
 ```
 scripts/chrome-is-running.js --check
@@ -71,7 +71,7 @@ If the issue is specifically the native host or extension-backed install path, o
 ### installed-browsers.js
 This script reports which browsers are installed.
 
-From the plugin root, use `node_repl` to run:
+From the plugin root, use `operonrepl` to run:
 
 ```
 scripts/installed-browsers.js
@@ -86,7 +86,7 @@ scripts/installed-browsers.js --json
 ### chrome-is-running.js
 This script checks whether Google Chrome is actively running. It exits `0` when Chrome is running, `1` when Chrome is not running, and `2` for usage or runtime errors.
 
-From the plugin root, use `node_repl` to run:
+From the plugin root, use `operonrepl` to run:
 
 ```
 scripts/chrome-is-running.js --check
@@ -101,7 +101,7 @@ scripts/chrome-is-running.js --json
 ### open-chrome-window.js
 This script opens `about:blank` in a Google Chrome window for the same selected Chrome profile used by `check-extension-installed.js`. Use it only after the User gives permission.
 
-From the plugin root, use `node_repl` to run:
+From the plugin root, use `operonrepl` to run:
 
 ```
 scripts/open-chrome-window.js
@@ -116,7 +116,7 @@ scripts/open-chrome-window.js --dry-run --json
 ### check-extension-installed.js
 This script checks every usable Google Chrome profile for the configured extension and reports whether each profile has it registered, installed, and enabled. The JSON output includes the full `profiles` array plus a `selectedProfileDirectory` hint from `Local State` when available. The top-level `installed`, `enabled`, and exit code reflect the selected profile so Chrome troubleshooting can decide whether the profile it will launch is actually ready. It exits `0` when the selected profile has the extension installed and enabled, `1` when the selected profile has it installed but not enabled, `2` when the selected profile does not have it installed, and `3` for usage or runtime errors.
 
-From the plugin root, use `node_repl` to run:
+From the plugin root, use `operonrepl` to run:
 
 ```
 scripts/check-extension-installed.js
@@ -133,7 +133,7 @@ The Operon settings check scans every `Default` or `Profile X` directory with `P
 ### check-native-host-manifest.js
 This script checks whether the Chrome Native Messaging Host manifest exists for the configured native host name and allows the Chrome extension ID from `scripts/extension-id.json`. On Windows it also checks the Chrome NativeMessagingHosts registry key. It exits `0` when correct, `1` when missing or incorrect, and `2` for usage or runtime errors.
 
-From the plugin root, use `node_repl` to run:
+From the plugin root, use `operonrepl` to run:
 
 ```
 scripts/check-native-host-manifest.js

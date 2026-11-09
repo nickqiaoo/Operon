@@ -23,8 +23,8 @@ import type { ElicitationResult } from "../NodeReplHost.ts";
 import { CODEX_TURN_METADATA_HEADER, type CodexTurnMetadata } from "../ipc.ts";
 import { formatNodeReplError } from "../error-format.ts";
 
-// MCP server adapter: node_repl exposed as an MCP server with a single tool,
-// `js`. The server is named node_repl, so the model sees mcp__node_repl__js.
+// MCP server adapter: operonrepl exposes `js` and `js_reset`.
+// The server is named operonrepl, so the model sees mcp__operonrepl__js.
 //
 // How turn metadata travels:
 //   agent loop -> `params._meta["x-codex-turn-metadata"]` on tools/call -> this
@@ -133,7 +133,7 @@ export async function buildNodeReplMcpServer(
   opts: NodeReplMcpServerOptions = {},
 ): Promise<NodeReplMcpServer> {
   const server = new Server(
-    { name: "node_repl", version: "0.1.0" },
+    { name: "operonrepl", version: "0.1.0" },
     { capabilities: { tools: {}, logging: {} } },
   );
 
@@ -144,7 +144,7 @@ export async function buildNodeReplMcpServer(
   // duration of the run. Assumes execution is serial.
   let sink: NotifySink | undefined;
   const streamMessage = (data: Record<string, unknown>) => {
-    sink?.({ level: "info", logger: "node_repl", data });
+    sink?.({ level: "info", logger: "operonrepl", data });
   };
 
   /**
@@ -209,7 +209,7 @@ export async function buildNodeReplMcpServer(
     if (req.params.name === "js_reset") {
       try {
         await session.reset();
-        return { content: [{ type: "text", text: "node_repl session reset. Browser tabs and apps are unaffected." }] };
+        return { content: [{ type: "text", text: "operonrepl session reset. Browser tabs and apps are unaffected." }] };
       } catch (e) {
         return { content: [{ type: "text", text: formatNodeReplError(e) }], isError: true };
       }

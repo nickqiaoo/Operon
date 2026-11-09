@@ -2,13 +2,13 @@
  * @operon/site-adapters
  *
  * Typed site functions and usage guides for Operon agents.
- * Import from node_repl via `nodeRepl.env.OPERON_SITE_ADAPTERS_PATH`.
+ * Import from operonrepl via `nodeRepl.env.OPERON_SITE_ADAPTERS_PATH`.
  *
  * Always pass `browser: globalThis.chrome` for cookie/UI commands — adapters run
  * in the trusted import realm and do not share the agent sandbox's globalThis.
  */
 
-/** Env key injected into node_repl so skills never hard-code app install paths. */
+/** Env key injected into operonrepl so skills never hard-code app install paths. */
 export const OPERON_SITE_ADAPTERS_PATH_ENV = "OPERON_SITE_ADAPTERS_PATH"
 
 export { defineCommand } from "./define.ts"

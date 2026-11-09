@@ -3,9 +3,9 @@
  *
  * Gates the two ways Browser Use reaches an agent:
  *
- *   1. the `node_repl` MCP server (`mcp-config.ts`) — recomputed per session, so
+ *   1. the `operonrepl` MCP server (`mcp-config.ts`) — recomputed per session, so
  *      flipping this only affects sessions started afterwards. Note this switch does
- *      not *own* node_repl: the same server also hosts Computer Use's `computer.*`, so it
+ *      not *own* operonrepl: the same server also hosts Computer Use's `computer.*`, so it
  *      is mounted when either feature is on (see the gate for the full reasoning);
  *   2. the `operon-browser-use` skill (`browser-use-skill.ts`) — a *file* under
  *      `~/.agents/skills`, `~/.grok/skills`, and `~/.claude/skills`, so turning
