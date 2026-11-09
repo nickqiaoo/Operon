@@ -90,6 +90,7 @@ export class OperonStreamMapper {
   /** Whether a text / thinking block is currently open (synthesise start/end around the flat deltas). */
   private textOpen = false
   private reasoningOpen = false
+  private retrying = false
   /** Monotonic ids per opened block — unique across the run so the UI never merges/reuses a closed part. */
   private textSeq = 0
   private reasoningSeq = 0
@@ -115,10 +116,24 @@ export class OperonStreamMapper {
    * "No tool invocation found".
    */
   private readonly emittedToolCalls = new Set<string>()
+  /** Arguments of calls still running. The engine's approval and question requests carry none. */
+  private readonly runningToolInputs = new Map<string, unknown>()
 
   constructor(private readonly takeInjection?: (steerId: string) => { id: string; text: string } | undefined) {}
 
+  /** The arguments of a call the model has made and that has no result yet. */
+  toolInput(toolCallId: string): unknown {
+    return this.runningToolInputs.get(toolCallId)
+  }
+
   map(event: AgentEvent): RuntimeStreamPart[] {
+    if (event.type === 'tool.result') this.runningToolInputs.delete(event.toolCallId)
+    // Not `tool.call.started`: a top-level call only gets that once it has been approved.
+    if (event.type === 'message.appended' && event.message.role === 'assistant') {
+      for (const part of event.message.content) {
+        if (part.type === 'toolCall') this.runningToolInputs.set(part.id, part.arguments)
+      }
+    }
     // Nested address ("main/<agentId>") = a sub-agent; surface its tool steps under
     // the spawning Agent task. Top-level ("main") feeds the main assistant message.
     return event.address.includes('/') ? this.mapNested(event) : this.mapTopLevel(event)
@@ -146,6 +161,7 @@ export class OperonStreamMapper {
       console.log(`[operon] tool ${toolName} pending ${Date.now() - pendingSince}ms before start`)
     }
     const remapped = remapTodoTool(toolName, input)
+    if (remapped.input !== undefined) this.runningToolInputs.set(toolCallId, remapped.input)
     push({
       type: 'tool-call',
       toolCallId,
@@ -165,7 +181,31 @@ export class OperonStreamMapper {
       push({ type: 'start' } as RuntimeStreamPart)
     }
 
+    // Keep the retry visible through the next request until it produces output or settles.
+    if (this.retrying && [
+      'assistant.delta', 'thinking.delta', 'tool.call.started', 'turn.step.completed',
+      'turn.ended', 'agent.ended', 'error',
+    ].includes(event.type)) {
+      this.retrying = false
+      push({ type: 'message-metadata', metadata: { retry: null } })
+    }
+
     switch (event.type) {
+      case 'turn.step.retrying':
+        this.retrying = true
+        push({
+          type: 'message-metadata',
+          metadata: {
+            retry: {
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              retryAt: Date.now() + event.delayMs,
+              ...(event.reason ? { reason: event.reason } : {}),
+            },
+          },
+        })
+        break
+
       case 'turn.step.started':
         // A new step in the run — the boundary that used to be an assistant `message_start`.
         this.stepIndex += 1
@@ -241,8 +281,9 @@ export class OperonStreamMapper {
         break
 
       case 'tool.call.started':
-        // The authoritative tool-call signal (full args). Fires once per call, before its result —
-        // and before the interrupt approval, so the approval card sees the real input, not `{}`.
+        // The authoritative tool-call signal (full args). Fires once per call, before its result.
+        // A top-level call that needs approval is asked about first, so this comes after the
+        // approval request; a nested Code Mode call announces itself before asking.
         // A Code Mode program's nested call (`parentToolCallId` at the top level) is an ordinary
         // part of its own, so its card and approval render as for a direct call; the tag only
         // records which program made it (the OpenCode provider tags its nested calls the same way).
@@ -396,7 +437,7 @@ export class OperonStreamMapper {
         break
 
       case 'tool.call.started':
-        // Authoritative tool-call signal for the sub-agent (full args), before its approval/result.
+        // Authoritative tool-call signal for the sub-agent (full args), before its result.
         this.emitToolCallOnce(push, event.toolCallId, event.toolName, event.args, meta)
         break
 

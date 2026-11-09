@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { AgentEvent } from 'operon-agents-core'
 import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 
@@ -47,6 +47,40 @@ function parentTag(part: unknown): string | undefined {
 
 // ---------------------------------------------------------------------------
 
+describe('OperonStreamMapper retry status', () => {
+  const retry = { type: 'turn.step.retrying', attempt: 1, maxAttempts: 10, delayMs: 5000, reason: '429 Too Many Requests' };
+
+  it('forwards retry details and updates them on subsequent retries', () => {
+    const m = new OperonStreamMapper();
+    m.map(ev('main', { type: 'turn.step.started' }));
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const parts = m.map(ev('main', retry));
+    clock.mockRestore();
+    expect(parts).toEqual([{
+      type: 'message-metadata',
+      metadata: { retry: { attempt: 1, maxAttempts: 10, retryAt: 6000, reason: retry.reason } },
+    }]);
+    expect(m.map(ev('main', { ...retry, attempt: 2 }))[0]).toMatchObject({ metadata: { retry: { attempt: 2 } } });
+  });
+
+  it.each(['assistant.delta', 'thinking.delta', 'turn.step.completed', 'turn.ended', 'agent.ended', 'error'])(
+    'clears retry status when %s arrives', (type) => {
+      const m = new OperonStreamMapper();
+      m.map(ev('main', retry));
+      expect(m.map(ev('main', { type, delta: 'Recovered', message: 'Failed' }))[0]).toEqual({
+        type: 'message-metadata', metadata: { retry: null },
+      });
+      expect(m.map(ev('main', { type: 'assistant.delta', delta: 'More' })))
+        .not.toContainEqual({ type: 'message-metadata', metadata: { retry: null } });
+    },
+  );
+
+  it('does not mistake a nested agent retry for the main model retry', () => {
+    const m = new OperonStreamMapper();
+    expect(m.map(ev('main/child', retry))).toEqual([]);
+  });
+});
+
 describe('OperonStreamMapper injected input boundaries', () => {
   // The framework only drains steers between steps, so `turn.step.completed` has already closed
   // the open blocks by the time the steer's `message.appended` arrives.
@@ -74,6 +108,17 @@ describe('OperonStreamMapper injected input boundaries', () => {
       { type: 'reasoning-start', id: 'r1' },
       { type: 'reasoning-delta', id: 'r1', text: 'After thinking' },
     ])
+  })
+})
+
+describe('OperonStreamMapper tool inputs', () => {
+  it('keeps a call\'s arguments for its approval request until the result arrives', () => {
+    const m = new OperonStreamMapper()
+    m.map(toolCall('main', 'call-1', 'Bash', { command: 'git push' }))
+    expect(m.toolInput('call-1')).toEqual({ command: 'git push' })
+
+    m.map(toolResult('main', { toolCallId: 'call-1', toolName: 'Bash', text: 'done' }))
+    expect(m.toolInput('call-1')).toBeUndefined()
   })
 })
 

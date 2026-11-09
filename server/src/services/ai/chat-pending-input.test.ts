@@ -3,7 +3,7 @@ import type { RuntimeStreamPart } from '@operon/agent-runtime'
 
 const inbox = vi.hoisted(() => ({ notify: vi.fn(), markRead: vi.fn((): number[] => []) }))
 vi.mock('./state.js', () => ({
-  getChatHistoryService: () => ({ getChatMeta: () => ({ title: 'Child chat' }) }),
+  getChatHistoryService: () => ({ getChatMeta: () => ({ title: 'Child chat', workspaceId: 42 }) }),
   getNotificationStorage: () => ({ notificationMarkReadBySource: inbox.markRead, notificationGet: () => undefined }),
 }))
 vi.mock('../notification-service.js', () => ({ notify: inbox.notify, emitCounts: vi.fn() }))
@@ -57,6 +57,13 @@ describe('chat pending input', () => {
     expect(registry.listChatsAwaitingInput()).toEqual([])
   })
 
+  it('previews the command from JSON-text input and hides an empty placeholder', () => {
+    registry.observePendingInputPart(7, request('a1', 'Bash', JSON.stringify({ command: 'git push', timeout: 5 })), { userFacing: true })
+    registry.observePendingInputPart(7, request('a2', 'Bash', {}), { userFacing: true })
+
+    expect(registry.listPendingApprovals(7).map((p) => p.inputPreview)).toEqual(['git push', undefined])
+  })
+
   it('keeps the full tool input off the stream summary', () => {
     registry.observePendingInputPart(8, request('q1', 'AskUserQuestion'), {
       userFacing: true, origin: 'agent-3', toolInput: { questions: [{ question: 'Which?' }] },
@@ -85,6 +92,7 @@ describe('chat pending input', () => {
       [true, 'Waiting for approval · Bash'],
       [false, 'The agent proposed a plan for review'],
     ])
+    expect(inbox.notify.mock.calls[0][1].workspaceId).toBe(42)
 
     registry.resolvePendingApproval(7, 'a1')
     expect(inbox.markRead).not.toHaveBeenCalled()

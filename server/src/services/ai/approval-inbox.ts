@@ -15,18 +15,19 @@ function announce(chatId: number, approval: PendingApproval, firstPending: boole
   const storage = getNotificationStorage()
   if (!storage) return
   const { toolName, origin } = approval
-  const title = getChatHistoryService()?.getChatMeta(chatId)?.title
+  const meta = getChatHistoryService()?.getChatMeta(chatId)
   notify(storage, {
     kind: 'chat_needs_input',
     severity: 'action',
     sourceKey: `chat:${chatId}`,
     chatId,
+    workspaceId: meta?.workspaceId ?? null,
     // A turn can request several approvals back to back; only the first one takes
     // the chat from "running" to "waiting on you", so only that one is worth a
     // phone push. The rest still refresh the inbox row (the tool name in it
     // should be current) with push suppressed.
     push: firstPending,
-    title: title?.trim() || 'Workspace chat',
+    title: meta?.title?.trim() || 'Workspace chat',
     // Name the sub-agent: this conversation launched a workflow and is now idle,
     // so an unattributed "waiting for approval" reads as if the chat itself were
     // stuck.

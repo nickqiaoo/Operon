@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Check, Loader2, MessageCircleQuestion, X } from "lucide-react"
 import { api } from "@/lib/api"
+import { inboxKeys, useInboxChatApprovals, type InboxPendingApproval } from "@/lib/inbox-queries"
 import { Button } from "@/components/ui/button"
 import {
   AskUserQuestionRenderer,
@@ -8,16 +10,6 @@ import {
 } from "@/components/editor/components/AskUserQuestionRenderer"
 import { FormattedMessage } from "react-intl"
 import { cn } from "@/lib/utils"
-
-interface PendingApproval {
-  approvalId: string
-  toolName: string
-  requestedAt: number
-  /** Set when a detached workflow sub-agent asked, not this chat's own turn. */
-  origin?: string
-  /** The asking tool's input (AskUserQuestion questions). */
-  toolInput?: unknown
-}
 
 type Decide = (
   approvalId: string,
@@ -44,40 +36,21 @@ function asToolInput(value: unknown): Record<string, unknown> | undefined {
  * opens.
  */
 export function InboxApprovals({ chatId, version }: { chatId: number; version: number }) {
-  const [approvals, setApprovals] = useState<PendingApproval[]>([])
+  const queryClient = useQueryClient()
+  // On failure the list stays empty: the row click still opens the conversation.
+  const { data: approvals = [] } = useInboxChatApprovals(chatId, version)
   const [busyId, setBusyId] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .aiPendingApprovals(chatId)
-      .then((res) => {
-        if (!cancelled) setApprovals(res.approvals ?? [])
-      })
-      .catch(() => {
-        // Row click still opens the conversation.
-      })
-    return () => {
-      cancelled = true
-    }
-    // `version` = the row's updatedAt: a new request re-raises the row.
-  }, [chatId, version])
 
   const decide: Decide = async (approvalId, outcome, updatedInput) => {
     setBusyId(approvalId)
     try {
-      const res = await api.aiPermissionResponse({
+      await api.aiPermissionResponse({
         id: approvalId,
         outcome: updatedInput ? { outcome, updatedInput } : outcome,
         chatId,
       })
-      if (res.success) {
-        setApprovals((prev) => prev.filter((a) => a.approvalId !== approvalId))
-      } else {
-        // Stale entry (e.g. the approval timed out) — resync with the server.
-        const fresh = await api.aiPendingApprovals(chatId)
-        setApprovals(fresh.approvals ?? [])
-      }
+      // Also when refused: a stale entry (e.g. timed out) drops out of the list.
+      await queryClient.invalidateQueries({ queryKey: inboxKeys.chatApprovals(chatId) })
     } finally {
       setBusyId(null)
     }
@@ -110,7 +83,7 @@ function ToolApproval({
   busy,
   onDecide,
 }: {
-  approval: PendingApproval
+  approval: InboxPendingApproval
   busy: boolean
   onDecide: Decide
 }) {
@@ -118,6 +91,11 @@ function ToolApproval({
     <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-background/40 px-2.5 py-1.5">
       <div className="min-w-0 flex-1">
         <div className="truncate font-mono text-xs text-foreground/80">{approval.toolName}</div>
+        {approval.inputPreview ? (
+          <div className="truncate font-mono text-[11px] text-muted-foreground" title={approval.inputPreview}>
+            {approval.inputPreview}
+          </div>
+        ) : null}
         {/* The chat launched a workflow and is otherwise idle — say which
             sub-agent is blocked, or the request reads as the chat being stuck. */}
         {approval.origin ? (
@@ -173,7 +151,7 @@ function QuestionApproval({
   busy,
   onDecide,
 }: {
-  approval: PendingApproval
+  approval: InboxPendingApproval
   busy: boolean
   onDecide: Decide
 }) {

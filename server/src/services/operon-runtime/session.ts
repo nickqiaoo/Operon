@@ -333,7 +333,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
           queue.push({
             type: 'tool-approval-request',
             approvalId,
-            toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: request.toolName, input: {}, dynamic: true },
+            toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: request.toolName, input: mapper.toolInput(request.toolCallId) ?? {}, dynamic: true },
           } as unknown as RuntimeStreamPart)
         }),
     )
@@ -370,7 +370,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
           queue.push({
             type: 'tool-approval-request',
             approvalId,
-            toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: 'AskUserQuestion', input: {}, dynamic: true },
+            toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: 'AskUserQuestion', input: mapper.toolInput(request.toolCallId) ?? {}, dynamic: true },
           } as unknown as RuntimeStreamPart)
         }),
     )

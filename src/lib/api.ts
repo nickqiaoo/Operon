@@ -464,7 +464,9 @@ export const api = {
         requestedAt: number
         /** Set when a detached workflow sub-agent asked, not this chat's own turn. */
         origin?: string
-        /** The asking tool's input (AskUserQuestion questions), sub-agents only. */
+        /** One line of what is being asked: a Bash command, a file path. */
+        inputPreview?: string
+        /** The asking tool's input (AskUserQuestion questions). */
         toolInput?: unknown
       }>
     }>(

@@ -101,7 +101,8 @@ function previewOf(input: unknown): string | undefined {
     text = JSON.stringify(input)
   }
   text = text.replace(/\s+/g, ' ').trim()
-  if (!text) return undefined
+  // `{}` is a placeholder for arguments the request did not carry, not something to show.
+  if (!text || text === '{}') return undefined
   return text.length > PREVIEW_LIMIT ? `${text.slice(0, PREVIEW_LIMIT)}…` : text
 }
 
@@ -139,13 +140,14 @@ export function observePendingInputPart(
   const req = part as ApprovalRequestPart
   const entries = pendingByChat.get(chatId) ?? new Map<string, PendingApproval>()
   const first = entries.size === 0
+  const toolInput = options.toolInput ?? structured(req.toolCall?.input)
   const approval: PendingApproval = {
     approvalId: req.approvalId,
     toolName: req.toolCall?.toolName || 'tool',
     requestedAt: Date.now(),
     origin: options.origin,
-    toolInput: options.toolInput ?? structured(req.toolCall?.input),
-    inputPreview: previewOf(options.toolInput ?? req.toolCall?.input),
+    toolInput,
+    inputPreview: previewOf(toolInput),
     userFacing: options.userFacing,
   }
   entries.set(req.approvalId, approval)
