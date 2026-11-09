@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { ChevronRight } from 'lucide-react'
 import { SpecIcon } from '@/components/icons/SpecIcon'
 import { useEditorStore } from '@/stores/editor-store'
+import { requestOpenTask } from '@/lib/task-navigation'
 import { noteChatSpecShown } from '@/lib/spec-queries'
 import { useChatDbId } from '@/components/editor/components/chat-db-id-context'
 import { SpecStageBadge, useSpecView } from './spec-shared'
@@ -23,7 +24,6 @@ export function SpecChatCard({ taskId, taskNumber, title, projectId: ownProjectI
   /** Where no project is open (the assistant's thread); otherwise the current one. */
   projectId?: number
 }) {
-  const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const currentProjectId = useEditorStore((s) => s.currentProjectId)
   const projectId = ownProjectId ?? currentProjectId
   const { spec } = useSpecView(taskId)

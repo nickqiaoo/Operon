@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { installBrowserUseBridge } from "@/components/browser/browser-use-bridge"
 import { cn } from "@/lib/utils"
-import { Toaster } from "sonner"
-import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
 import { createPortal } from "react-dom"
 import { Z_FULL_PAGE } from "@/lib/z-index"
 import { AnnotationEditorHost } from "@/components/browser/AnnotationEditorHost"
 
 import { AppSidebar, SidebarToggle } from "@/components/app-shell/AppSidebar"
-import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { KeepAliveView } from "@/components/app-shell/KeepAliveView"
-import { SessionPanelToggle, TopBarControls } from "@/components/app-shell/TopBarControls"
-import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
-import { EditorTabs } from "@/components/editor/EditorTabs"
+import { ThemeHost } from "@/components/app-shell/ThemeHost"
+import { TopBarControls } from "@/components/app-shell/TopBarControls"
+import { WorkspaceHeader } from "@/components/app-shell/WorkspaceHeader"
 import { ChatPanel } from "@/components/editor/ChatPanel"
 import { TerminalTab } from "@/components/app-shell/content/TerminalTab"
 import { ConversationEmptyState } from "@/components/ai-elements/conversation"
@@ -31,15 +28,14 @@ import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
 import type { Notification } from "@/types/notification"
-import { useAppShellStore } from "@/stores/app-shell-store"
-import { useTabsStore } from "@/stores/tabs-store"
-import { useThemeStore, applyTheme } from "@/stores/theme-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
 import { useNavigationStore, type FullPage, type FullPageKind } from "@/stores/navigation-store"
+import { DESKTOP_WORKSPACE_SYNC, useWorkspaceStoreSync } from "@/stores/workspace-sync"
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
+import { useTaskNavigationHandler, type TaskNavigationRequest } from "@/lib/task-navigation"
 import type { SpecChatRef } from '@shared/spec'
 
 /** Full-screen pages in the order they are rendered; which is on top comes from the stack, by z-index. */
@@ -47,8 +43,25 @@ const FULL_PAGE_ORDER: readonly FullPageKind[] = ["settings", "plugins", "canvas
 /** Their names in analytics (the Schedule page predates its name). */
 const FULL_PAGE_ANALYTICS = { settings: "settings", plugins: "plugins", canvas: "canvas", schedule: "cronjob" } as const satisfies Record<FullPageKind, string>
 
+/**
+ * A workspace a task dispatch just provisioned is not in the cached tree yet:
+ * reload, then read the *fresh* state to locate and activate it. Resolves false
+ * when the workspace does not exist.
+ */
+async function reloadAndActivateWorkspace(workspaceId: number): Promise<boolean> {
+  await useProjectStore.getState().loadProjects()
+  const { projects, setActiveWorkspace } = useProjectStore.getState()
+  const project = projects.find((item) => item.workspaces.some((workspace) => workspace.id === workspaceId))
+  if (!project) return false
+  setActiveWorkspace(workspaceId, project.id)
+  return true
+}
+
+const logOpenWorkspaceError = (error: unknown) => console.error('Could not open workspace:', error)
+
 export default function App() {
   useTaskStream()
+  useWorkspaceStoreSync(DESKTOP_WORKSPACE_SYNC)
   // Where the shell is: see navigation-store.ts.
   const mainView = useNavigationStore((s) => s.main)
   const pages = useNavigationStore((s) => s.pages)
@@ -71,45 +84,26 @@ export default function App() {
     if (currentTabId) setSpecChatIds((previous) => previous.has(currentTabId) ? previous : new Set([...previous, currentTabId]))
     showMain({ kind: 'spec', taskId, projectId })
   }, [showMain])
-  const theme = useThemeStore((state) => state.theme)
-  const lightUITheme = useThemeStore((state) => state.lightUITheme)
-  const darkUITheme = useThemeStore((state) => state.darkUITheme)
   const tabs = useEditorStore((state) => state.tabs)
   const activeTabId = useEditorStore((state) => state.activeTabId)
-  const setActiveTab = useEditorStore((state) => state.setActiveTab)
-  const closeTab = useEditorStore((state) => state.closeTab)
-  const createChatTab = useEditorStore((state) => state.createChatTab)
-  const createTerminalTab = useEditorStore((state) => state.createTerminalTab)
   const openChatTab = useEditorStore((state) => state.openChatTab)
   const setTabChatId = useEditorStore((state) => state.setTabChatId)
-  const setWorkspace = useEditorStore((state) => state.setWorkspace)
   const workspaceStates = useEditorStore((state) => state.workspaceStates)
   const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId)
-  const taskNavRequest = useEditorStore((state) => state.taskNavigationRequest)
-  const clearTaskNavRequest = useEditorStore((state) => state.clearTaskNavigationRequest)
 
-  const projects = useProjectStore((state) => state.projects)
-  const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
   const loadProjects = useProjectStore((state) => state.loadProjects)
   const setActiveWorkspace = useProjectStore((state) => state.setActiveWorkspace)
-  const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
 
   const specFocusedTabId = useRef<string | null>(null)
   const openWorkspace = useCallback((workspaceId: number) => {
-    void (async () => {
-      await loadProjects()
-      const project = useProjectStore.getState().projects.find((item) => item.workspaces.some((workspace) => workspace.id === workspaceId))
-      if (!project) return
-      setActiveWorkspace(workspaceId, project.id)
-      setWorkspace(workspaceId, project.id)
-      showWorkbench()
-    })().catch((error: unknown) => console.error('Could not open workspace:', error))
-  }, [loadProjects, setActiveWorkspace, setWorkspace, showWorkbench])
+    void reloadAndActivateWorkspace(workspaceId)
+      .then((found) => { if (found) showWorkbench() })
+      .catch(logOpenWorkspaceError)
+  }, [showWorkbench])
   const focusSpecWorkspace = useCallback((workspaceId: number | null, projectId: number) => {
     setActiveWorkspace(workspaceId, projectId)
-    setWorkspace(workspaceId, projectId)
     specFocusedTabId.current = useEditorStore.getState().activeTabId
-  }, [setActiveWorkspace, setWorkspace])
+  }, [setActiveWorkspace])
   const focusSpecChat = useCallback((chat: SpecChatRef, projectId: number) => {
     focusSpecWorkspace(chat.workspaceId, projectId)
     const tabId = openChatTab(`chat:${chat.chatId}`, chat.title, undefined, chat.providerId ?? undefined, chat.subAgent || undefined)
@@ -139,17 +133,15 @@ export default function App() {
     (target: { chatId: number; workspaceId?: number; title?: string; subAgent?: boolean }) => {
       showWorkbench()
       if (target.workspaceId != null) {
-        const project = projects.find((p) => p.workspaces.some((w) => w.id === target.workspaceId))
-        // Switch both stores before opening the tab. The project-store update
-        // drives React asynchronously; waiting for the syncing effect would
-        // otherwise open the conversation in the workspace we just left.
+        const project = useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === target.workspaceId))
+        // The editor's bucket follows synchronously (workspace-sync.ts), so the
+        // tab below opens in the destination workspace.
         setActiveWorkspace(target.workspaceId, project?.id)
-        setWorkspace(target.workspaceId, project?.id ?? null)
       }
       const tabId = openChatTab(`chat:${target.chatId}`, target.title, undefined, undefined, target.subAgent || undefined)
       setTabChatId(tabId, target.chatId)
     },
-    [projects, setActiveWorkspace, setWorkspace, openChatTab, setTabChatId, showWorkbench],
+    [setActiveWorkspace, openChatTab, setTabChatId, showWorkbench],
   )
 
   // Deep-link from an inbox notification to its source (task board / workspace chat).
@@ -194,49 +186,10 @@ export default function App() {
   // them. Panel toggles, new-tab shortcuts and ⌘W all live there.
   useGlobalShortcuts()
 
-  const handleProviderSelected = useCallback((providerId: string) => {
-    createChatTab(providerId, "Chat")
-  }, [createChatTab])
-
-  const activeWorkspaceInfo = useMemo(() => {
-    if (!activeWorkspaceId) return null
-    for (const project of projects) {
-      const workspace = project.workspaces.find(w => w.id === activeWorkspaceId)
-      if (workspace) {
-        return { project, workspace }
-      }
-    }
-    return null
-  }, [projects, activeWorkspaceId])
-
-  const handleNewTerminal = useCallback((providerId: string, label: string) => {
-    const launch = TERMINAL_CLI_LAUNCH[providerId]
-    if (!launch) return
-    createTerminalTab({
-      providerId,
-      launch,
-      cwd: activeWorkspaceInfo?.workspace.worktreePath,
-      title: label,
-    })
-  }, [createTerminalTab, activeWorkspaceInfo])
-
-  // Each workspace keeps its own panel/tab state. Switch the live bucket when
-  // the active workspace changes (codex-style per-project sidebar): leaving a
-  // project parks its tabs, returning restores them, a fresh project is empty.
-  useEffect(() => {
-    useTabsStore
-      .getState()
-      .setActiveWorkspace(activeWorkspaceId != null ? String(activeWorkspaceId) : null)
-  }, [activeWorkspaceId])
-
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
     [tabs, activeTabId]
   )
-
-  // The editor tab strip never shows side chats — they belong to the right-panel
-  // tab that opened them.
-  const editorStripTabs = useMemo(() => tabs.filter((tab) => !tab.isSideChat), [tabs])
 
   // Side chats render inside their right-panel tab, not here.
   const currentChatTabs = useMemo(() => tabs.filter(t => t.type === 'chat' && !t.isSideChat), [tabs])
@@ -273,40 +226,6 @@ export default function App() {
     })
   }, [loadProjects])
 
-
-
-  // Apply theme on mount and when theme or UI preset changes
-  useEffect(() => {
-    applyTheme(theme)
-
-    // Listen for system theme changes
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
-    const handleChange = () => {
-      if (theme === "system") {
-        applyTheme("system")
-      }
-    }
-    mediaQuery.addEventListener("change", handleChange)
-    return () => mediaQuery.removeEventListener("change", handleChange)
-  }, [theme, lightUITheme, darkUITheme])
-
-  // Sync active workspace with editor store
-  useEffect(() => {
-    // Determine activeProjectId.
-    // Usually activeWorkspaceId implies a project, but we want to pass the explicit project ID if available.
-    // We can find the project that contains the active workspace.
-    // However, project-store keeps activeProjectId. Let's iterate projects to be safe or use activeProjectId if it aligns.
-    // Actually, App.tsx already computes activeWorkspaceInfo which has project.
-
-    let projectId = null
-    if (activeWorkspaceId) {
-      const found = projects.find(p => p.workspaces.some(w => w.id === activeWorkspaceId))
-      if (found) projectId = found.id
-    }
-
-    setWorkspace(activeWorkspaceId, projectId)
-  }, [activeWorkspaceId, projects, setWorkspace])
-
   // Agent sessions the server started in this workspace (a dispatched task) get a tab.
   useOpenWorkspaceSessions(currentWorkspaceId)
 
@@ -314,12 +233,10 @@ export default function App() {
 
   // A task card in a chat transcript asked to open that task — same landing as an
   // inbox task notification: the board, detail open.
-  useEffect(() => {
-    if (!taskNavRequest) return
-    if (taskNavRequest.spec) openSpec(taskNavRequest.taskId, taskNavRequest.projectId)
-    else openTask(taskNavRequest.taskId)
-    clearTaskNavRequest()
-  }, [taskNavRequest, clearTaskNavRequest, openTask, openSpec])
+  useTaskNavigationHandler(useCallback((request: TaskNavigationRequest) => {
+    if (request.spec) openSpec(request.taskId, request.projectId)
+    else openTask(request.taskId)
+  }, [openTask, openSpec]))
 
   // Bind analytics to the broker account this desktop client is signed into, so
   // its events reconcile with the same person's web and phone sessions. The web
@@ -381,57 +298,6 @@ export default function App() {
     }
   }
 
-  // The workspace header slot of SpecPage: breadcrumbs row + editor tab strip.
-  // A Spec swaps this out for its own header; see SpecPage.
-  const workspaceHeader = (
-    <>
-      {/* The header reserves room for the persistent panel controls at the window edge. */}
-      <div className="@container/topbar drag-region h-10 flex items-center border-b border-border/50 bg-background shrink-0">
-        <TitlebarRow className="flex flex-1 min-w-0 items-center gap-2 pr-4 text-xs text-muted-foreground font-normal">
-          {/* Both names truncate: without it the workspace pill wraps
-              onto a second line, outgrows the h-10 row and collides with
-              whatever sits to its right. The project name gives way first
-              — the workspace is the more specific half of the crumb.
-              The workspace pill is also capped (max-w-44): a long branch-
-              style name would otherwise eat the room the usage bar needs. */}
-          <span className="min-w-0 shrink truncate hover:text-tint transition-colors cursor-pointer no-drag">
-            {activeWorkspaceInfo ? activeWorkspaceInfo.project.name : "OPERON"}
-          </span>
-          {activeWorkspaceInfo && (
-            <>
-              <span className="shrink-0 text-muted-foreground/40">›</span>
-              <span
-                className="min-w-0 max-w-44 shrink-[0.5] truncate hover:text-foreground/90 transition-colors cursor-pointer no-drag bg-muted/50 px-1.5 py-0.5 rounded-md text-xs"
-                title={activeWorkspaceInfo.workspace.name}
-              >
-                {activeWorkspaceInfo.workspace.name}
-              </span>
-            </>
-          )}
-        </TitlebarRow>
-        {/* Account quota for every signed-in provider. A real child
-            of the drag row (not a floating overlay) so macOS honors
-            its `no-drag`; it sits before the panel toggles because it
-            is read, not operated. */}
-        {/* Refresh, Session and the panel toggles read as one row of
-            24px buttons 2px apart (as in the right panel's strip). */}
-        <AccountUsageBar className="shrink-0 pr-0.5" />
-        <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
-        {!rightPanelOpen && <div className="w-[58px] shrink-0" aria-hidden="true" />}
-      </div>
-
-      <EditorTabs
-        tabs={editorStripTabs}
-        activeTabId={activeTabId}
-        onSelectTab={setActiveTab}
-        onCloseTab={closeTab}
-        onNewChat={handleProviderSelected}
-        onNewTerminal={handleNewTerminal}
-        onOpenChat={openChatTab}
-      />
-    </>
-  )
-
   return (
     <>
       {/* Browser annotations ride on the Electron <webview>; the web build has no
@@ -459,7 +325,7 @@ export default function App() {
               open — so every error raised from Settings / Tasks / Inbox was
               rendered and then hidden, and the action just looked like it silently
               reverted. */}
-          <Toaster position="bottom-right" closeButton theme={theme} />
+          <ThemeHost />
         </>,
         document.body
       )}
@@ -496,16 +362,7 @@ export default function App() {
                 }
                 onOpenWorkspace={(workspaceId) => {
                   showWorkbench()
-                  // The workspace was likely just provisioned by a task dispatch
-                  // and isn't in the store yet — reload, then read the *fresh*
-                  // state to locate and activate it.
-                  void (async () => {
-                    await loadProjects()
-                    const found = useProjectStore
-                      .getState()
-                      .projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
-                    if (found) setActiveWorkspace(workspaceId, found.id)
-                  })()
+                  void reloadAndActivateWorkspace(workspaceId).catch(logOpenWorkspaceError)
                 }}
               />
             )}
@@ -517,7 +374,7 @@ export default function App() {
               onOpenWorkspace={openWorkspace}
               onFocusWorkspace={focusSpecWorkspace}
               onFocusChat={focusSpecChat}
-              workspaceHeader={workspaceHeader}
+              workspaceHeader={<WorkspaceHeader />}
             >
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {/* Render chat tabs from ALL workspaces to keep streaming

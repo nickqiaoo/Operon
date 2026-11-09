@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { useChatSpecs } from '@/lib/spec-queries'
 import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/stores/editor-store'
+import { requestOpenTask } from '@/lib/task-navigation'
 import { openWorkflowPanel } from '@/components/app-shell/useWorkflowTab'
 import type { SpecStage } from '@shared/spec'
 import {
@@ -73,7 +74,6 @@ export function SpecChatBar({ chatId }: { chatId?: number | null }) {
 function SpecBar({ spec: entry, others, onNext, onDone }: { spec: ChatSpec; others: number; onNext: () => void; onDone: () => void }) {
   const intl = useIntl()
   const { spec } = useSpecView(entry.taskId, entry.stage)
-  const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const projectId = useEditorStore((s) => s.currentProjectId)
   const [expanded, setExpanded] = useState(false)
   const [resuming, setResuming] = useState(false)

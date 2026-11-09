@@ -74,7 +74,6 @@ export function MobileSpecScreen({ taskId, projectId, keyboardOpen, onExit, onOp
     const workspace = specSessionWorkspace(project, conversation)
     useProjectStore.getState().setActiveWorkspace(workspace?.id ?? null, project.id)
     const editor = useEditorStore.getState()
-    editor.setWorkspace(workspace?.id ?? null, project.id)
     const tabId = editor.openChatTab(`chat:${conversation.chatId}`, conversation.title, undefined, conversation.providerId ?? undefined, conversation.subAgent)
     editor.setTabChatId(tabId, conversation.chatId)
     editor.setActiveTab(tabId)

@@ -16,8 +16,8 @@ import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
 import type { Notification } from "@/types/notification"
 import { useProjectStore } from "@/stores/project-store"
-import { useEditorStore } from "@/stores/editor-store"
-import { useTabsStore } from "@/stores/tabs-store"
+import { MOBILE_WORKSPACE_SYNC, useWorkspaceStoreSync } from "@/stores/workspace-sync"
+import { useTaskNavigationHandler, type TaskNavigationRequest } from "@/lib/task-navigation"
 import { useThemeStore, applyTheme } from "@/stores/theme-store"
 import { MobileHeaderContext, type MobileHeaderShell, type MobileHeaderSpec, type MobileMenuNode } from "./MobileHeader"
 import { MobileTabBar, MOBILE_TABS, MOBILE_TAB_LABELS, isMobileTab, type MobileTab } from "./MobileTabBar"
@@ -92,14 +92,11 @@ export function MobileApp() {
   const [deepLink, setDeepLink] = useState<{ chatId?: number; taskId?: number; title?: string; subAgent?: boolean } | null>(null)
 
   const projects = useProjectStore((s) => s.projects)
-  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  useWorkspaceStoreSync(MOBILE_WORKSPACE_SYNC)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
   const loadProjects = useProjectStore((s) => s.loadProjects)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
-  const setWorkspace = useEditorStore((s) => s.setWorkspace)
-  const taskNavRequest = useEditorStore((s) => s.taskNavigationRequest)
-  const clearTaskNavRequest = useEditorStore((s) => s.clearTaskNavigationRequest)
   const theme = useThemeStore((s) => s.theme)
   const intl = useIntl()
 
@@ -253,11 +250,9 @@ export function MobileApp() {
       : store.projects.find((p) => p.id === selectedSpec?.projectId)
     const workspaceId = target.workspaceId ?? null
     store.setActiveWorkspace(workspaceId, project?.id)
-    // Open in the destination bucket before the screen consumes the deep link.
-    setWorkspace(workspaceId, project?.id ?? null)
     setTab("chats")
     setDeepLink({ chatId: target.chatId, title: target.title, subAgent: target.subAgent })
-  }, [setWorkspace, selectedSpec?.projectId])
+  }, [selectedSpec?.projectId])
 
   const openNativeInbox = useNativeInboxSheet(handleOpenNotification)
 
@@ -313,13 +308,11 @@ export function MobileApp() {
   // A task card in a chat transcript asked to open that task — mirrors App.tsx's
   // desktop handler, landing on the same surface as an inbox task notification:
   // Channel tab, Tasks view, detail open.
-  useEffect(() => {
-    if (!taskNavRequest) return
-    setActiveProject(taskNavRequest.projectId)
+  useTaskNavigationHandler(useCallback((request: TaskNavigationRequest) => {
+    setActiveProject(request.projectId)
     setTab("channel")
-    setDeepLink({ taskId: taskNavRequest.taskId })
-    clearTaskNavRequest()
-  }, [taskNavRequest, clearTaskNavRequest, setActiveProject])
+    setDeepLink({ taskId: request.taskId })
+  }, [setActiveProject]))
 
   // Same reason as the desktop shell: navigation is state, not URL, so the
   // screen has to be reported. `immersive` is the difference between a list and
@@ -672,16 +665,6 @@ export function MobileApp() {
     publishHeader,
     clearHeader,
   }
-
-  useEffect(() => {
-    useTabsStore
-      .getState()
-      .setActiveWorkspace(activeWorkspaceId != null ? String(activeWorkspaceId) : null)
-  }, [activeWorkspaceId])
-
-  useEffect(() => {
-    setWorkspace(activeWorkspaceId, activeProjectId)
-  }, [activeWorkspaceId, activeProjectId, setWorkspace])
 
   return (
     <div

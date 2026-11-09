@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ClipboardList, ChevronRightIcon, Loader2, AlertCircle } from 'lucide-react'
 import { useEditorStore } from '@/stores/editor-store'
+import { requestOpenTask } from '@/lib/task-navigation'
 import { api } from '@/lib/api'
 import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import {
@@ -139,7 +140,6 @@ export function createdTaskNumber(toolPart: ToolPartLike): number | null {
  *     transcript rendering free of network calls.
  */
 export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
-  const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const projectId = useEditorStore((s) => s.currentProjectId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

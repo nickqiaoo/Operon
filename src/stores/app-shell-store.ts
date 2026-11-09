@@ -9,8 +9,13 @@ import {
 } from "@/components/app-shell/constants"
 
 interface AppShellState {
+  /** Open state of the panels in the live workspace; see `switchPanelWorkspace`. */
   rightPanelOpen: boolean
   bottomPanelOpen: boolean
+  /** Parked workspaces that had a panel open when they were left. */
+  panelsOpenByWorkspace: Record<string, ParkedPanelsOpen>
+  /** Workspace the live open state belongs to; null until the shell first binds one. */
+  panelWorkspaceKey: string | null
   rightPanelWidth: number
   bottomPanelHeight: number
   /** When true the right panel takes over the center column area. */
@@ -44,6 +49,11 @@ interface AppShellState {
   skipSideChatCloseConfirm: boolean
 }
 
+interface ParkedPanelsOpen {
+  right: boolean
+  bottom: boolean
+}
+
 export interface WorkspacePreviewHistory {
   entries: string[]
   index: number
@@ -54,6 +64,12 @@ const MAX_WORKSPACE_PREVIEW_HISTORY = 50
 
 interface AppShellActions {
   setRightPanelOpen: (open: boolean) => void
+  /**
+   * Park the panels' open state under the workspace being left and restore the
+   * target's (closed if it never had one). The first call only records the key:
+   * the persisted open state belongs to the workspace the app reopens in.
+   */
+  switchPanelWorkspace: (workspaceKey: string) => void
   setBottomPanelOpen: (open: boolean) => void
   toggleRightPanel: () => void
   toggleBottomPanel: () => void
@@ -83,6 +99,8 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
     (set, get) => ({
       rightPanelOpen: false,
       bottomPanelOpen: false,
+      panelsOpenByWorkspace: {},
+      panelWorkspaceKey: null,
       rightPanelWidth: RIGHT_PANEL_DEFAULT_WIDTH,
       bottomPanelHeight: BOTTOM_PANEL_DEFAULT_HEIGHT,
       rightPanelExpanded: false,
@@ -101,6 +119,24 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
           // Auto-collapse expansion when the panel itself closes.
           rightPanelExpanded: rightPanelOpen ? s.rightPanelExpanded : false,
         }))
+      },
+      switchPanelWorkspace: (workspaceKey) => {
+        const state = get()
+        const leaving = state.panelWorkspaceKey
+        if (leaving === workspaceKey) return
+        if (leaving == null) {
+          set({ panelWorkspaceKey: workspaceKey })
+          return
+        }
+        const { [workspaceKey]: restored, ...parked } = state.panelsOpenByWorkspace
+        const { rightPanelOpen: right, bottomPanelOpen: bottom } = state
+        set({
+          panelsOpenByWorkspace: right || bottom ? { ...parked, [leaving]: { right, bottom } } : parked,
+          panelWorkspaceKey: workspaceKey,
+          bottomPanelOpen: restored?.bottom ?? false,
+        })
+        // Through the setter, so the same rules hold as for any other open or close.
+        state.setRightPanelOpen(restored?.right ?? false)
       },
       setBottomPanelOpen: (bottomPanelOpen) => set({ bottomPanelOpen }),
       toggleRightPanel: () => get().setRightPanelOpen(!get().rightPanelOpen),
@@ -169,6 +205,8 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
       partialize: (s) => ({
         rightPanelOpen: s.rightPanelOpen,
         bottomPanelOpen: s.bottomPanelOpen,
+        panelsOpenByWorkspace: s.panelsOpenByWorkspace,
+        panelWorkspaceKey: s.panelWorkspaceKey,
         rightPanelWidth: s.rightPanelWidth,
         bottomPanelHeight: s.bottomPanelHeight,
         skipSideChatCloseConfirm: s.skipSideChatCloseConfirm,

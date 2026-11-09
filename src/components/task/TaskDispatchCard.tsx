@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
 import { useAssignableAgents, useDispatchTask, useTask } from '@/lib/task-queries'
-import { useEditorStore } from '@/stores/editor-store'
+import { requestOpenTask } from '@/lib/task-navigation'
 
 /**
  * A board task created from a conversation: opens the task, and while it is still
@@ -21,7 +21,6 @@ export function TaskDispatchCard({ projectId, taskId, taskNumber, title }: {
   taskNumber: number
   title: string
 }) {
-  const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const [menuOpen, setMenuOpen] = useState(false)
   const { data: task } = useTask(taskId)
   const { data: agents, isPending: agentsLoading, isError: agentsFailed } = useAssignableAgents(menuOpen)

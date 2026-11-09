@@ -1,7 +1,7 @@
 import { ClipboardList } from "lucide-react"
 import { useIntl } from "react-intl"
 import { Button } from "@/components/ui/button"
-import { useEditorStore } from "@/stores/editor-store"
+import { requestOpenTask } from "@/lib/task-navigation"
 import { useWorkspaceTask } from "./hooks/useWorkspaceTask"
 
 /**
@@ -14,7 +14,6 @@ import { useWorkspaceTask } from "./hooks/useWorkspaceTask"
  */
 export function WorkspaceTaskButton() {
   const intl = useIntl()
-  const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
   const { task, projectId } = useWorkspaceTask()
 
   if (!task || projectId == null) return null

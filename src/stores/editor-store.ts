@@ -9,26 +9,12 @@ interface EditorState {
   activeTabId: string
 }
 
-/** Jump to a task's detail page — raised by the task card in a chat transcript. */
-export interface TaskNavigationRequest {
-  projectId: number
-  /** Database id (not the per-project `#number`), which is what TasksPage opens by. */
-  taskId: number
-  /** Open it as a spec in `projectId`, from a surface with no current project (the assistant's thread). */
-  spec?: boolean
-}
-
 interface EditorStore extends EditorState {
   currentWorkspaceId: number | null
   currentProjectId: number | null
   workspaceStates: Record<string, EditorState>
 
-  // Task navigation. Raised by task cards shared by both shells; the desktop
-  // App and MobileApp each map it to their own place (Board vs Channel tab).
-  taskNavigationRequest: TaskNavigationRequest | null
-  requestOpenTask: (request: TaskNavigationRequest) => void
-  clearTaskNavigationRequest: () => void
-
+  /** Switch tab buckets. Follows the project store; call it from workspace-sync.ts only. */
   setWorkspace: (workspaceId: number | null, projectId: number | null) => void
   setActiveTab: (id: string) => void
   closeTab: (id: string) => void
@@ -108,9 +94,6 @@ export const useEditorStore = create<EditorStore>()(
   currentWorkspaceId: null,
   currentProjectId: null,
   workspaceStates: {},
-  taskNavigationRequest: null,
-  requestOpenTask: (request) => set({ taskNavigationRequest: request }),
-  clearTaskNavigationRequest: () => set({ taskNavigationRequest: null }),
 
   setWorkspace: (workspaceId, projectId) => {
     const state = get()
