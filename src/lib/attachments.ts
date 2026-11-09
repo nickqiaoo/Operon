@@ -64,6 +64,27 @@ export async function uploadBlobUrl(
   }
 }
 
+/** Uploads begun when a file was attached, by its `blob:` URL. A failed one is dropped so a send can try again. */
+const startedUploads = new Map<string, Promise<UploadedAttachment | null>>()
+
+/**
+ * Starts uploading a file as soon as it is attached, so that sending has little
+ * or nothing left to wait for. Safe to call repeatedly for the same URL. The
+ * store is content-addressed, so a file removed again before sending costs one
+ * stored blob and nothing else.
+ */
+export function preuploadBlobUrl(
+  blobUrl: string,
+  meta?: { filename?: string; mediaType?: string },
+): void {
+  if (startedUploads.has(blobUrl)) return
+  const upload = uploadBlobUrl(blobUrl, meta).then((uploaded) => {
+    if (!uploaded) startedUploads.delete(blobUrl)
+    return uploaded
+  })
+  startedUploads.set(blobUrl, upload)
+}
+
 /** Legacy fallback: inline a `blob:` URL as a base64 data URL. */
 export async function blobUrlToDataUrl(blobUrl: string): Promise<string | null> {
   try {
@@ -87,7 +108,7 @@ export async function persistBlobUrl(
   blobUrl: string,
   meta?: { filename?: string; mediaType?: string },
 ): Promise<string | null> {
-  const uploaded = await uploadBlobUrl(blobUrl, meta)
+  const uploaded = await (startedUploads.get(blobUrl) ?? uploadBlobUrl(blobUrl, meta))
   if (uploaded) return uploaded.url
   return blobUrlToDataUrl(blobUrl)
 }

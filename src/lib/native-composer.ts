@@ -46,6 +46,8 @@ export interface NativeComposerState {
   menu: ComposerMenuItem[]
   menuTitle: string
   allowAttachments: boolean
+  /** The page may refuse this send and keep the draft, so UIKit must not clear the field itself. */
+  keepTextOnSend: boolean
 }
 
 interface NativeComposerPlugin {

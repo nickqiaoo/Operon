@@ -238,8 +238,10 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     if (!text) return
     setInput('')
     setMention((s) => ({ ...s, open: false }))
+    // Phone: sending ends the typing, so the keyboard goes. (UIKit does its own.)
+    if (isMobile) textareaRef.current?.blur()
     await sendMessage(text)
-  }, [input, sendMessage, setMention])
+  }, [input, isMobile, sendMessage, setMention])
 
   const mentionMatches = useMentionMatches(memberAgents, mention.query)
 

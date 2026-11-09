@@ -218,9 +218,10 @@ export function ChatInputArea({
       : text;
 
     setMobileActionExpanded(false);
+    if (floating) textareaContainerRef.current?.querySelector('textarea')?.blur();
     await onSteer(prefixedText);
     clearSkills();
-  }, [clearSkills, input, onSteer, selectedSkills]);
+  }, [clearSkills, floating, input, onSteer, selectedSkills, textareaContainerRef]);
 
   // Only offered when it can be taken with a key: not on the phone composer, not
   // while a reply runs (it would answer a turn that is about to change), and not
@@ -304,6 +305,8 @@ export function ChatInputArea({
 
   const handleSubmitWithSkills = useCallback((message: PromptInputMessage) => {
     setMobileActionExpanded(false);
+    // Phone: sending ends the typing, so the keyboard goes and the bar folds. (UIKit does its own.)
+    if (floating) textareaContainerRef.current?.querySelector('textarea')?.blur();
     if (selectedSkills.length > 0) {
       const skillPrefix = formatSlashCommandPrefix(selectedSkills);
       onSubmit({ ...message, text: `${skillPrefix} ${message.text}`.trim() });
@@ -311,7 +314,7 @@ export function ChatInputArea({
     } else {
       onSubmit(message);
     }
-  }, [selectedSkills, onSubmit, clearSkills]);
+  }, [floating, textareaContainerRef, selectedSkills, onSubmit, clearSkills]);
 
   const handleComposerPointerDownCapture = useCallback((event: ReactPointerEvent<HTMLFormElement>) => {
     if (!compactWhenIdle) return;
@@ -460,6 +463,8 @@ export function ChatInputArea({
         placeholder="Ask anything…"
         disabled={availableModels.length === 0}
         running={isGenerating}
+        // Goal mode can turn a send down (attachments, a goal already starting) and keep the draft.
+        keepTextOnSend={goalArmed}
         canSteer={canSteer && !steerPending}
         hasContext={hasPendingContext || selectedSkills.length > 0}
         onStop={onStop}

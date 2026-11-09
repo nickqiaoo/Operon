@@ -2,7 +2,7 @@
 
 import { InputGroup } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
-import { persistBlobUrl } from "@/lib/attachments";
+import { persistBlobUrl, preuploadBlobUrl } from "@/lib/attachments";
 import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import { nanoid } from "nanoid";
 import {
@@ -268,6 +268,16 @@ export const PromptInput = ({
     if (!usingProvider) return;
     controller.__registerFileInput(inputRef, () => inputRef.current?.click());
   }, [usingProvider, controller]);
+
+  // However a file got here (picker, paste, drop, the native composer), its upload
+  // starts now, so the send that follows doesn't have to wait for it.
+  useEffect(() => {
+    for (const file of files) {
+      if (file.url?.startsWith("blob:")) {
+        preuploadBlobUrl(file.url, { filename: file.filename, mediaType: file.mediaType });
+      }
+    }
+  }, [files]);
 
   useEffect(() => {
     if (syncHiddenInput && inputRef.current && files.length === 0) {

@@ -208,6 +208,8 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private var keyboardTop: CGFloat?
     private var lastHeight: CGFloat = 0
     private var applyingText = false
+    /// Text a send already cleared here; the page may still echo it for a moment.
+    private var sentText: String?
     private var submissionPending = false
     var onEvent: ((String, JSObject) -> Void)?
     var onPickFiles: ((Bool) -> Void)?
@@ -295,6 +297,7 @@ final class NativeComposerView: UIView, UITextViewDelegate {
             owner = nextOwner
             revision = next["revision"] as? Int ?? 0
             lastHeight = 0
+            sentText = nil
             submissionPending = false
             closedBottom = superview?.safeAreaInsets.bottom ?? 8
             isHidden = true // Wait for this owner's DOM anchor, rather than flash at the previous chat's position.
@@ -302,8 +305,10 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         let previous = state
         state = next
         let incoming = next["text"] as? String ?? ""
+        let echoesSentText = incoming == sentText
+        if !echoesSentText { sentText = nil }
         // Ignore echoes overtaken by local typing; never replace marked IME text.
-        if (changedOwner || next["revision"] as? Int == revision), textView.markedTextRange == nil, incoming != textView.text {
+        if !echoesSentText, (changedOwner || next["revision"] as? Int == revision), textView.markedTextRange == nil, incoming != textView.text {
             applyingText = true
             let oldLength = (textView.text as NSString).length
             let selection = textView.selectedRange
@@ -683,7 +688,22 @@ final class NativeComposerView: UIView, UITextViewDelegate {
         flushChange()
         var data = snapshot
         data["action"] = action
-        if action == "send" { submissionPending = true; refresh() }
+        if action == "send" {
+            submissionPending = true
+            if state["keepTextOnSend"] as? Bool != true {
+                sentText = textView.text
+                applyingText = true
+                textView.text = ""
+                applyingText = false
+            }
+        }
+        if action != "stop" {
+            // Folds alongside the keyboard (same curve), without waiting for the page to clear the draft.
+            UIView.animate(withDuration: 0.25, delay: 0, options: [UIView.AnimationOptions(rawValue: 7 << 16), .beginFromCurrentState, .allowUserInteraction]) {
+                self.textView.resignFirstResponder()
+                self.refresh()
+            }
+        }
         onEvent?("submit", data)
     }
     private func emitAction(_ action: String) {

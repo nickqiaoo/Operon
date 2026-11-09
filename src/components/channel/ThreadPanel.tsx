@@ -42,8 +42,10 @@ export function ThreadPanel({
 }: ThreadPanelProps) {
   const intl = useIntl()
   const [input, setInput] = useState('')
-  const nativeComposer = useIsMobile() && hasNativeComposer()
+  const isMobile = useIsMobile()
+  const nativeComposer = isMobile && hasNativeComposer()
   const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -54,6 +56,8 @@ export function ThreadPanel({
     if (!text) return
     onSendReply(text)
     setInput('')
+    // Phone: sending ends the typing, so the keyboard goes. (UIKit does its own.)
+    if (isMobile) textareaRef.current?.blur()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -150,6 +154,7 @@ export function ThreadPanel({
           overlayLevel={1}
         /> : <ComposerFrame>
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}

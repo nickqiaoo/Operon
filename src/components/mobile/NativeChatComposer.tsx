@@ -27,7 +27,14 @@ interface NativeChatComposerProps {
   active?: boolean
   /** A thread page already holds one shell-overlay slot itself. */
   overlayLevel?: number
+  /** The screen may refuse this send and keep the draft: leave clearing the field to it. */
+  keepTextOnSend?: boolean
 }
+
+/** UIKit's one-line capsule at the default text size (NativeComposerView.compactHeight). */
+const DEFAULT_RESTING_HEIGHT = 46
+/** The smallest height UIKit has reported: the capsule, at whatever text size this device uses. */
+let restingHeight: number | undefined
 
 /** The DOM keeps a spacer; UIKit owns editing, glass, hit testing and keyboard animation. */
 export function NativeChatComposer(props: NativeChatComposerProps) {
@@ -36,7 +43,9 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
   const revision = useRef(0)
   const latest = useRef(props)
   latest.current = props
-  const [height, setHeight] = useState(56)
+  // UIKit's first report lands a bridge round trip after mount. Starting at any other height
+  // moves the transcript pinned above this spacer each time a screen mounts (a tab switch).
+  const [height, setHeight] = useState(() => restingHeight ?? DEFAULT_RESTING_HEIGHT)
   const [ready, setReady] = useState(false)
   const pageVisible = usePageVisible()
   const overlays = useNativeShellOverlayCount()
@@ -69,7 +78,9 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
         latest.current.onAction?.(event.action)
       }))
       handles.push(await NativeComposer.addListener('resize', (event) => {
-        if (event.id === id && !disposed) setHeight(event.height)
+        if (event.id !== id || disposed) return
+        restingHeight = Math.min(restingHeight ?? event.height, event.height)
+        setHeight(event.height)
       }))
       handles.push(await NativeComposer.addListener('files', (event) => {
         if (event.id !== id || disposed) return
@@ -99,6 +110,7 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     hasContext: props.hasContext ?? false,
     attachments: props.attachments ?? [], skills: props.skills ?? [], suggestions: props.suggestions ?? [],
     menu: props.menu ?? [], menuTitle: props.menuTitle ?? 'Options', allowAttachments: !!props.onFiles,
+    keepTextOnSend: props.keepTextOnSend ?? false,
   }
   // Primitive dependency: streaming responses must not send identical menu/config payloads each frame.
   const serialized = JSON.stringify(state)
