@@ -30,7 +30,7 @@ import type {
   NotificationStorageAdapter,
   AssistantStorageAdapter,
 } from './interface.js'
-import type { Activity, ActivityCoding, ActivityStep, ActivitySummary, ApprovalIcon, AssistantApproval, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
+import type { Activity, ActivityCoding, ActivityStep, ActivitySummary, ApprovalIcon, AssistantApproval, AssistantQuestion, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
 import { MAIN_ACTIVITY_TASK_PREFIX } from '../../../shared/assistant.js'
 import type {
   AgentBinding,
@@ -2777,11 +2777,12 @@ export class SqliteStorage
   assistantMessageUpsert(message: AssistantMessage): void {
     this.db
       .prepare(
-        `INSERT INTO assistant_messages (id, role, text, created_at, trigger_json, activity_id, remembered, approval_json, attachments_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO assistant_messages (id, role, text, created_at, trigger_json, activity_id, remembered, approval_json, attachments_json, questions_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            text = excluded.text, trigger_json = excluded.trigger_json, activity_id = excluded.activity_id,
-           remembered = excluded.remembered, approval_json = excluded.approval_json, attachments_json = excluded.attachments_json`,
+           remembered = excluded.remembered, approval_json = excluded.approval_json, attachments_json = excluded.attachments_json,
+           questions_json = excluded.questions_json`,
       )
       .run(
         message.id,
@@ -2793,6 +2794,7 @@ export class SqliteStorage
         message.remembered?.length ? JSON.stringify(message.remembered) : null,
         message.approval ? JSON.stringify(message.approval) : null,
         message.attachments?.length ? JSON.stringify(message.attachments) : null,
+        message.questions?.length ? JSON.stringify(message.questions) : null,
       )
   }
 
@@ -2814,6 +2816,7 @@ export class SqliteStorage
       ...(row.remembered ? { remembered: JSON.parse(row.remembered as string) as string[] } : {}),
       ...(row.approval_json ? { approval: JSON.parse(row.approval_json as string) as AssistantApproval } : {}),
       ...(row.attachments_json ? { attachments: JSON.parse(row.attachments_json as string) as AssistantAttachment[] } : {}),
+      ...(row.questions_json ? { questions: JSON.parse(row.questions_json as string) as AssistantQuestion[] } : {}),
     }))
   }
 
