@@ -1320,6 +1320,87 @@ describe("MessageScroller", () => {
     expect(rendered.viewport().scrollTop).toBe(220)
   })
 
+  const threeMessages = [
+    { id: "message-1", height: 80 },
+    { id: "message-2", height: 80 },
+    { id: "message-3", height: 80 },
+  ]
+  const fourMessages = [...threeMessages, { id: "message-4", height: 80 }]
+
+  async function scrollViewportThrough(
+    rendered: Awaited<ReturnType<typeof renderTestScroller>>,
+    positions: number[]
+  ) {
+    await act(async () => {
+      for (const position of positions) {
+        rendered.viewport().scrollTop = position
+        rendered.viewport().dispatchEvent(new Event("scroll", { bubbles: true }))
+      }
+      rendered.viewport().dispatchEvent(new Event("scrollend"))
+      await flushAnimationFrames()
+    })
+  }
+
+  async function releaseFollow(
+    rendered: Awaited<ReturnType<typeof renderTestScroller>>
+  ) {
+    await act(async () => {
+      rendered
+        .viewport()
+        .dispatchEvent(new WheelEvent("wheel", { bubbles: true }))
+    })
+    await scrollViewportThrough(rendered, [60])
+  }
+
+  it("resumes following after an iOS rubber-band bounce settles at the end", async () => {
+    const rendered = await renderTestScroller({
+      autoScroll: true,
+      defaultScrollPosition: "end",
+      messages: threeMessages,
+    })
+    await releaseFollow(rendered)
+
+    // WebKit reports the overshoot, so the last scrolls before rest go upward.
+    await scrollViewportThrough(rendered, [140, 175, 160, 140])
+
+    await rendered.rerender(fourMessages)
+    expect(rendered.viewport().scrollTop).toBe(220)
+  })
+
+  it("resumes following when a downward scroll stops inside the edge threshold", async () => {
+    const rendered = await renderTestScroller({
+      autoScroll: true,
+      defaultScrollPosition: "end",
+      messages: threeMessages,
+    })
+    await releaseFollow(rendered)
+
+    await scrollViewportThrough(rendered, [135])
+
+    await rendered.rerender(fourMessages)
+    expect(rendered.viewport().scrollTop).toBe(220)
+  })
+
+  it("keeps a reader who scrolled up within the edge threshold in place", async () => {
+    const rendered = await renderTestScroller({
+      autoScroll: true,
+      defaultScrollPosition: "end",
+      messages: threeMessages,
+    })
+    await releaseFollow(rendered)
+    await scrollViewportThrough(rendered, [140])
+    await act(async () => {
+      rendered
+        .viewport()
+        .dispatchEvent(new WheelEvent("wheel", { bubbles: true }))
+    })
+
+    await scrollViewportThrough(rendered, [135])
+
+    await rendered.rerender(fourMessages)
+    expect(rendered.viewport().scrollTop).toBe(135)
+  })
+
   it("supports scrollToMessage alignment options", async () => {
     const rendered = await renderTestScroller({
       messages: [

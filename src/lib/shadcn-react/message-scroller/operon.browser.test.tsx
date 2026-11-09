@@ -440,6 +440,120 @@ test("reaching the live end during a gesture does not follow a new chunk", async
   expect(distanceToEnd()).toBe(200)
 })
 
+/** Older WebKit: the browser exposes no `scrollend`, and never fires one. */
+function dropScrollEnd(target: HTMLElement) {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "onscrollend")
+  Reflect.deleteProperty(window, "onscrollend")
+  const hold = (event: Event) => event.stopImmediatePropagation()
+  target.addEventListener("scrollend", hold, true)
+  return () => {
+    target.removeEventListener("scrollend", hold, true)
+    if (descriptor) {
+      Object.defineProperty(window, "onscrollend", descriptor)
+    }
+  }
+}
+
+function afterScrollSettles() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, 250))
+}
+
+test("without scrollend, a reader back at the end stays pinned as the keyboard shrinks the viewport", async () => {
+  await render({ items: items(6) })
+  const target = viewport()
+  const restore = dropScrollEnd(target)
+
+  try {
+    wheel(target, -60)
+    target.scrollTop -= 60
+    await settle()
+    target.scrollTop = target.scrollHeight
+    await settle()
+    await afterScrollSettles()
+
+    target.style.height = "120px"
+    await settle()
+    expect(distanceToEnd()).toBeLessThanOrEqual(1)
+  } finally {
+    restore()
+  }
+})
+
+test("without scrollend, a finger still on the screen keeps the reader's place until it lifts", async () => {
+  const list = items(6)
+  await render({ items: list })
+  const target = viewport()
+  const restore = dropScrollEnd(target)
+  const touch = new Touch({ identifier: 1, target, clientX: 10, clientY: 90 })
+
+  try {
+    wheel(target, -60)
+    target.scrollTop -= 60
+    await settle()
+
+    target.dispatchEvent(
+      new TouchEvent("touchstart", { bubbles: true, touches: [touch] })
+    )
+    target.scrollTop = target.scrollHeight
+    await settle()
+    await afterScrollSettles()
+    const end = target.scrollTop
+    rerender({ items: grow(list, 100) })
+    await settle()
+    expect(target.scrollTop).toBe(end)
+
+    target.scrollTop = target.scrollHeight
+    await settle()
+    target.dispatchEvent(
+      new TouchEvent("touchend", { bubbles: true, touches: [] })
+    )
+    await afterScrollSettles()
+    rerender({ items: grow(list, 200) })
+    await settle()
+    expect(distanceToEnd()).toBeLessThanOrEqual(1)
+  } finally {
+    restore()
+  }
+})
+
+test("a reader at the end who never resumed following stays at the end when the viewport shrinks", async () => {
+  await render({ items: items(6) })
+  const target = viewport()
+
+  wheel(target, -60)
+  target.scrollTop -= 60
+  await settle()
+
+  // scrollend exists here, but the follow never got re-armed by it.
+  const hold = (event: Event) => event.stopImmediatePropagation()
+  target.addEventListener("scrollend", hold, true)
+  try {
+    target.scrollTop = target.scrollHeight
+    await settle()
+
+    target.style.height = "120px"
+    await settle()
+    expect(distanceToEnd()).toBeLessThanOrEqual(1)
+  } finally {
+    target.removeEventListener("scrollend", hold, true)
+  }
+})
+
+test("a reader up in the history keeps their place when the viewport shrinks", async () => {
+  await render({ items: items(6) })
+  const target = viewport()
+
+  wheel(target, -120)
+  target.scrollTop -= 120
+  await settle()
+  const top = target.scrollTop
+
+  target.style.height = "120px"
+  await settle()
+  expect(Math.abs(target.scrollTop - top)).toBeLessThanOrEqual(1)
+  expect(distanceToEnd()).toBeGreaterThan(100)
+})
+
 async function renderAnchoredShortTurn() {
   await render({ items: items(4) })
   rerender({ items: [...items(4), { id: "turn", anchor: true, height: 40 }] })

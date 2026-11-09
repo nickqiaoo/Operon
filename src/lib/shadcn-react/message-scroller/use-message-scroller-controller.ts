@@ -634,7 +634,31 @@ function useMessageScrollerController({
     }
   }, [setTailSpacerHeight])
 
+  const viewportHeightRef = React.useRef(0)
+
   const handleResize = React.useCallback(() => {
+    const resizedViewport = viewportRef.current
+    const previousViewportHeight = viewportHeightRef.current
+    viewportHeightRef.current = resizedViewport?.clientHeight ?? 0
+
+    // [operon] A reader sitting at the live end stays there when the viewport
+    // shrinks (a keyboard opening), even if following was never re-armed after
+    // they scrolled back: keeping their first row would put the end out of view.
+    if (
+      resizedViewport &&
+      autoScrollRef.current &&
+      modeRef.current === "free-scrolling" &&
+      spacerHeightRef.current === 0 &&
+      resizedViewport.clientHeight < previousViewportHeight &&
+      resizedViewport.scrollTop >=
+        resizedViewport.scrollHeight -
+          previousViewportHeight -
+          scrollEdgeThresholdRef.current
+    ) {
+      scrollToEnd({ behavior: "auto" })
+      return
+    }
+
     if (modeRef.current === "following-bottom" && autoScrollRef.current) {
       scrollToEnd({ behavior: "auto" })
       return
@@ -893,10 +917,14 @@ function useMessageScrollerController({
     if (viewport && userReleasedFollowRef.current) {
       const delta = viewport.scrollTop - lastScrollTopRef.current
       if (Math.abs(delta) > SCROLL_POSITION_EPSILON) {
+        const maxScrollTop = getMaxScrollTop(viewport)
+        // iOS reports its rubber-band overshoot, so a scroll that reached the
+        // end finishes by moving up from past the maximum.
+        const movedToEnd = delta > 0 || lastScrollTopRef.current > maxScrollTop
         // Reaching the edge is provisional while a gesture is still moving.
         pendingFollowOnScrollEndRef.current =
-          delta > 0 && spacerHeightRef.current === 0 &&
-          viewport.scrollTop >= getMaxScrollTop(viewport) - SCROLL_POSITION_EPSILON
+          movedToEnd && spacerHeightRef.current === 0 &&
+          viewport.scrollTop >= maxScrollTop - scrollEdgeThresholdRef.current
       }
     }
     commitScrollState()
@@ -929,7 +957,7 @@ function useMessageScrollerController({
       userReleasedFollowRef.current &&
       modeRef.current === "free-scrolling" &&
       spacerHeightRef.current === 0 &&
-      viewport.scrollTop >= getMaxScrollTop(viewport) - SCROLL_POSITION_EPSILON
+      viewport.scrollTop >= getMaxScrollTop(viewport) - scrollEdgeThresholdRef.current
     ) {
       userReleasedFollowRef.current = false
       commitScrollState()

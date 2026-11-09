@@ -40,8 +40,18 @@ gh api "repos/shadcn-ui/ui/contents/packages/react/src/message-scroller/<file>?r
    Following can resume when a downward scroll settles at the live end on
    `scrollend`. A chunk arriving before then can move the live end farther
    down, in which case the reader keeps their place. The explicit scroll to
-   end command still resumes following immediately.
-   (`syncAfterScroll`, `handleScrollEnd`, `scrollToPosition`)
+   end command still resumes following immediately. "Settles at the live end"
+   means inside `scrollEdgeThreshold`, the same edge the end button uses, and
+   counts an iOS rubber-band overshoot easing back. iOS before Safari 26.2 has no
+   `scrollend`, so there the end is the finger being up plus 150ms without a
+   scroll event; otherwise a reader who scrolled away never resumed, and the
+   keyboard shrinking the viewport left the last messages under it.
+   Measured in a WKWebView on iOS 27.2: both a flick and a drag past the end
+   overshoot `scrollTop`, and the last scroll event before `scrollend` moves up
+   by about 1px. Independently of all that, a free reader at the live end stays
+   there when the viewport shrinks (a keyboard opening).
+   (`syncAfterScroll`, `handleScrollEnd`, `handleResize`, `scrollToPosition`,
+   `scheduleScrollEndFallback`)
 4. **The end button tracks actual content.** During an active turn, a released
    spacer can count toward the reading position used for new-turn anchoring.
    The button only reflects actual content below the viewport. After the turn

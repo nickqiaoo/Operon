@@ -1,7 +1,11 @@
 import * as React from "react"
 
 import { composeRefs, mergeProps, useRender } from "../use-render"
-import { SCROLL_POSITION_EPSILON, USER_SCROLL_KEYS } from "./types"
+import {
+  SCROLL_END_FALLBACK_DELAY,
+  SCROLL_POSITION_EPSILON,
+  USER_SCROLL_KEYS,
+} from "./types"
 import type {
   MessageScrollerButtonProps,
   MessageScrollerContentProps,
@@ -192,6 +196,12 @@ function getGestureDirection(
   return canMove(viewport) ? direction : 0
 }
 
+// A function so that lib.dom's always-present `onscrollend` does not narrow
+// `window` to `never` at the call site.
+function hasScrollEndEvent(): boolean {
+  return "onscrollend" in window
+}
+
 // [operon] Keys typed into a field, or Space/Enter on a control, do not scroll.
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -243,6 +253,8 @@ function MessageScrollerViewport({
   children,
   onKeyDown,
   onScroll,
+  onTouchCancel,
+  onTouchEnd,
   onTouchMove,
   onTouchStart,
   onWheel,
@@ -274,9 +286,59 @@ function MessageScrollerViewport({
     [ref, setViewportElement]
   )
 
+  // [operon] Where there is no `scrollend`, scrolling has ended once the finger
+  // is up and scroll events have stopped. Without this a reader who scrolled
+  // away could never resume following by scrolling back.
+  const touchActiveRef = React.useRef(false)
+  const scrollEndTimerRef = React.useRef<number | null>(null)
+
+  function scheduleScrollEndFallback() {
+    if (hasScrollEndEvent()) {
+      return
+    }
+
+    if (scrollEndTimerRef.current !== null) {
+      window.clearTimeout(scrollEndTimerRef.current)
+    }
+
+    scrollEndTimerRef.current = window.setTimeout(() => {
+      scrollEndTimerRef.current = null
+
+      if (!touchActiveRef.current) {
+        handleScrollEnd()
+      }
+    }, SCROLL_END_FALLBACK_DELAY)
+  }
+
+  React.useEffect(
+    () => () => {
+      if (scrollEndTimerRef.current !== null) {
+        window.clearTimeout(scrollEndTimerRef.current)
+        scrollEndTimerRef.current = null
+      }
+    },
+    []
+  )
+
   function handleScroll(event: React.UIEvent<HTMLDivElement>) {
     syncAfterScroll()
+    scheduleScrollEndFallback()
     onScroll?.(event)
+  }
+
+  function handleTouchFinished(event: React.TouchEvent<HTMLDivElement>) {
+    touchActiveRef.current = event.touches.length > 0
+    scheduleScrollEndFallback()
+  }
+
+  function handleTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    handleTouchFinished(event)
+    onTouchEnd?.(event)
+  }
+
+  function handleTouchCancel(event: React.TouchEvent<HTMLDivElement>) {
+    handleTouchFinished(event)
+    onTouchCancel?.(event)
   }
 
   // [operon] Last touch point, so a touchmove knows which way the finger went.
@@ -296,6 +358,7 @@ function MessageScrollerViewport({
 
   function handleTouchStart(event: React.TouchEvent<HTMLDivElement>) {
     const touch = event.touches[0]
+    touchActiveRef.current = true
     touchPointRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null
     onTouchStart?.(event)
   }
@@ -375,6 +438,8 @@ function MessageScrollerViewport({
       tabIndex={tabIndex ?? 0}
       onKeyDown={handleKeyDown}
       onScroll={handleScroll}
+      onTouchCancel={handleTouchCancel}
+      onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
       onTouchStart={handleTouchStart}
       onWheel={handleWheel}

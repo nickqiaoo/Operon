@@ -26,6 +26,7 @@ import { createContext, memo, useCallback, useContext } from "react";
 import { Streamdown, defaultUrlTransform } from "streamdown";
 import remarkGfm from "remark-gfm";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
+import { CODE_FENCE_LINE, decodeLocalPath, linkLocalMarkdownImages } from "@/lib/reply-images";
 import { InlineFileCode } from "@/components/editor/FileCitationChip";
 import type { PluggableList } from "unified";
 
@@ -53,7 +54,7 @@ function MessageLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnch
     if (href.startsWith("/")) {
       const hash = href.match(/#L(\d+)/);
       openFile(
-        href.split("#")[0],
+        decodeLocalPath(href.split("#")[0]),
         hash ? { line: Number.parseInt(hash[1], 10) } : undefined
       );
     }
@@ -75,12 +76,11 @@ const messageRemarkPlugins: PluggableList = [remarkGfm, remarkFileCitations];
 
 const code = safeCode;
 
-const fencePattern = /^(\s*)(`{3,}|~{3,})([^\n]*)$/;
 function closeUnterminatedCodeFence(content: string): string {
   let openFence: string | null = null;
 
   for (const line of content.split("\n")) {
-    const match = line.match(fencePattern);
+    const match = line.match(CODE_FENCE_LINE);
     if (!match) continue;
 
     const marker = match[2];
@@ -246,7 +246,7 @@ const MessageResponseInner = ({ className, children, ...props }: MessageResponse
         remarkPlugins={messageRemarkPlugins}
         urlTransform={messageUrlTransform}
         components={messageComponents}
-        children={typeof children === "string" ? closeUnterminatedCodeFence(children) : children}
+        children={typeof children === "string" ? closeUnterminatedCodeFence(linkLocalMarkdownImages(children)) : children}
         {...props}
       />
     </div>

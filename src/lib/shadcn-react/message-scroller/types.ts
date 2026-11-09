@@ -21,6 +21,11 @@ const SCROLL_POSITION_EPSILON = 0.5
 // before clearing.
 const AUTOSCROLLING_CLEAR_DELAY = 180
 
+// [operon] How long (ms) without a scroll event counts as the end of scrolling
+// where the browser has no `scrollend` (iOS before Safari 26.2). Long enough to
+// span the gap between frames of a slowing momentum scroll.
+const SCROLL_END_FALLBACK_DELAY = 150
+
 // Viewport keys that count as deliberate scroll intent and release follow-bottom.
 const USER_SCROLL_KEYS = new Set([
   "ArrowDown",
@@ -221,6 +226,7 @@ export {
   EMPTY_MESSAGE_SCROLLER_SCROLLABLE,
   EMPTY_MESSAGE_SCROLLER_VISIBILITY_STATE,
   EMPTY_VISIBLE_MESSAGE_IDS,
+  SCROLL_END_FALLBACK_DELAY,
   SCROLL_POSITION_EPSILON,
   USER_SCROLL_KEYS,
 }
