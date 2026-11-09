@@ -73,7 +73,7 @@ describe('per-call MCP caller identity', () => {
     expect(handlers.create.mock.calls.map(([input]) => input.parent.chatId)).toEqual([101, 202])
     // The routing argument never reaches the tool.
     expect(handlers.create.mock.calls[0][0]).toEqual({ parent: { chatId: 101 }, providerId: 'codex', model: 'default', prompt: 'Review', description: 'Review' })
-    expect(handlers.send).toHaveBeenCalledWith(202, 'ext-1', 'more')
+    expect(handlers.send).toHaveBeenCalledWith(202, 'ext-1', 'more', 'auto')
   })
 
   it('fails an unknown session instead of falling back to the URL', async () => {

@@ -67,6 +67,6 @@ describe('ExternalAgent MCP', () => {
     expect(handlers.create.mock.calls[0][0].model).toBe('default')
     handlers.send.mockReturnValue({ status: 'queued', agent_id: 'ext-10' })
     await client.callTool({ name: 'external_agent_send', arguments: { agent_id: 'ext-10', prompt: 'Fix it' } })
-    expect(handlers.send).toHaveBeenCalledWith(42, 'ext-10', 'Fix it')
+    expect(handlers.send).toHaveBeenCalledWith(42, 'ext-10', 'Fix it', 'auto')
   })
 })
