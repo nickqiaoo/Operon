@@ -11,6 +11,7 @@ export const fsKeys = {
   all: ['fs'] as const,
   stat: (path: string) => ['fs', 'stat', path] as const,
   file: (path: string) => ['fs', 'file', path] as const,
+  fileUrl: (path: string) => ['fs', 'file-url', path] as const,
 }
 
 /** Whether a cited file still exists. Rechecked after 30s; a click rechecks anyway. */
@@ -21,6 +22,17 @@ export function useFileStat(path: string | null) {
     enabled: !!path,
     staleTime: 30_000,
     // A missing file is an answer, not a failure worth retrying three times.
+    retry: false,
+  })
+}
+
+/** A URL an `<img>` can load the file from. */
+export function useFileUrl(path: string | null) {
+  return useQuery({
+    queryKey: fsKeys.fileUrl(path ?? ''),
+    queryFn: () => api.getFileUrl(path!),
+    enabled: !!path,
+    staleTime: 5 * 60_000,
     retry: false,
   })
 }

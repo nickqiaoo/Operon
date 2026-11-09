@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { ImageViewer } from '@/components/ai-elements/image-viewer';
 import { useAuthedObjectUrl } from '@/hooks/useAuthedObjectUrl';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { api } from '@/lib/api';
 import { getImageMediaType } from '@/lib/file-preview';
+import { useFileStat, useFileUrl } from '@/lib/fs-queries';
 import { cn } from '@/lib/utils';
 import { toolNameOf } from './TaskCreatedRenderer';
 import { unwrapToolEnvelope, type ToolPartLike } from './toolName';
@@ -98,28 +98,39 @@ function ReadImageGallery({ paths }: { paths: string[] }) {
   );
 }
 
-/** strip: a small thumbnail on a row. tile: fills a gallery cell. large: the picture itself, bounded. */
-type ThumbVariant = 'strip' | 'tile' | 'large';
+/**
+ * strip: a small thumbnail on a row. tile: fills a gallery cell. large: the
+ * picture itself, bounded. figure: a same-sized cell with the file name under it.
+ */
+type ThumbVariant = 'strip' | 'tile' | 'large' | 'figure';
 
 const BUTTON_CLASS: Record<ThumbVariant, string> = {
   strip: 'h-7 max-w-16',
   tile: 'size-full',
   large: 'max-w-full',
+  figure: 'h-32 w-full md:h-36',
 };
 const IMG_CLASS: Record<ThumbVariant, string> = {
   strip: 'h-full w-auto max-w-full object-cover',
   tile: 'size-full object-cover',
   large: 'max-h-80 max-w-full object-contain',
+  figure: 'size-full object-contain',
 };
 const PLACEHOLDER_CLASS: Record<ThumbVariant, string> = {
   strip: 'h-full w-10',
   tile: 'size-full',
   large: 'h-40 w-56',
+  figure: 'size-full',
 };
 
 /** The picture itself, bounded: what an opened Read row shows in place of its "[image]" result. */
 export function ReadImageLarge({ path }: { path: string }) {
   return <ReadImageThumb path={path} variant="large" />;
+}
+
+/** The picture with its file name under it: one cell of a reply's image gallery. */
+export function ReadImageFigure({ path }: { path: string }) {
+  return <ReadImageThumb path={path} variant="figure" />;
 }
 
 function ReadImageThumb({
@@ -131,34 +142,21 @@ function ReadImageThumb({
   variant: ThumbVariant;
   onRatio?: (path: string, ratio: number) => void;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const { data: stat, isError: statFailed } = useFileStat(path);
+  const { data: url = null, isError: urlFailed } = useFileUrl(stat?.isFile ? path : null);
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // The web client's image URLs need the bearer header; desktop's carry the token.
   const authedUrl = useAuthedObjectUrl(__APP_TARGET__ === 'web' ? url : null);
   const src = __APP_TARGET__ === 'web' ? authedUrl : url;
   const name = basename(path);
 
-  useEffect(() => {
-    let cancelled = false;
-    setUrl(null);
-    setFailed(false);
-    api.stat(path)
-      .then((stat) => (stat.isFile ? api.getFileUrl(path) : Promise.reject(new Error('not a file'))))
-      .then((resolved) => {
-        if (!cancelled) setUrl(resolved);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
+  if (statFailed || urlFailed || stat?.isFile === false || (src !== null && src === brokenSrc)) return null;
+  // A figure takes real room in the thread: a placeholder for a file that turns out
+  // to be gone would open a gap and then collapse it.
+  if (variant === 'figure' && !stat) return null;
 
-  if (failed) return null;
-
-  return (
+  const thumbnail = (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <button
@@ -167,7 +165,7 @@ function ReadImageThumb({
           title={name}
           className={cn(
             'block cursor-zoom-in overflow-hidden rounded-md border border-border/50 bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-            variant === 'large' && 'rounded-lg',
+            (variant === 'large' || variant === 'figure') && 'rounded-lg',
             BUTTON_CLASS[variant],
           )}
         >
@@ -181,7 +179,7 @@ function ReadImageThumb({
                 const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
                 if (w > 0 && h > 0) onRatio?.(path, Math.round((w / h) * 100) / 100);
               }}
-              onError={() => setFailed(true)}
+              onError={() => setBrokenSrc(src)}
             />
           ) : (
             // Holds the space while the URL resolves, so the row doesn't jump.
@@ -191,5 +189,15 @@ function ReadImageThumb({
       </DialogTrigger>
       {open && src && <ImageViewer src={src} filename={name} />}
     </Dialog>
+  );
+
+  if (variant !== 'figure') return thumbnail;
+  return (
+    <figure className="m-0 min-w-0 md:w-56">
+      {thumbnail}
+      <figcaption title={path} className="mt-1 truncate text-xs text-muted-foreground">
+        {name}
+      </figcaption>
+    </figure>
   );
 }

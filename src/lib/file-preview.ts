@@ -14,6 +14,8 @@ const IMAGE_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   webp: "image/webp",
 }
 
+export const IMAGE_EXTENSIONS = Object.keys(IMAGE_MEDIA_TYPE_BY_EXTENSION)
+
 const getFileExtension = (filePath: string): string => {
   const filename = filePath.split(/[/\\]/).pop() ?? filePath
   const dotIndex = filename.lastIndexOf(".")
