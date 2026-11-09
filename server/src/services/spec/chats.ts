@@ -15,7 +15,8 @@ export type SpecChatStorage = Pick<ProjectStorageAdapter, 'getWorkspace'> & Part
 
 export function specChatRef(storage: SpecChatStorage, chatId: number, fallbackWorkspaceId: number | null): SpecChatRef | null {
   const meta = storage.getChatMeta?.(chatId)
-  if (!meta) return null
+  // The assistant's specs are discussed in its thread; this row has nothing to open.
+  if (!meta || meta.metadata?.assistantSpec) return null
   const own = meta.workspaceId != null && storage.getWorkspace(meta.workspaceId) ? meta.workspaceId : null
   return {
     chatId,

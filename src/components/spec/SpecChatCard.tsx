@@ -16,9 +16,16 @@ import { SpecStageBadge, useSpecView } from './spec-shared'
  * wanted. Those live in the bar above the composer now (`SpecChatBar`); this
  * line is the record, and tells the bar a spec is there.
  */
-export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; taskNumber: number; title: string }) {
+export function SpecChatCard({ taskId, taskNumber, title, projectId: ownProjectId }: {
+  taskId: number
+  taskNumber: number
+  title: string
+  /** Where no project is open (the assistant's thread); otherwise the current one. */
+  projectId?: number
+}) {
   const requestOpenTask = useEditorStore((s) => s.requestOpenTask)
-  const projectId = useEditorStore((s) => s.currentProjectId)
+  const currentProjectId = useEditorStore((s) => s.currentProjectId)
+  const projectId = ownProjectId ?? currentProjectId
   const { spec } = useSpecView(taskId)
   const intl = useIntl()
 
@@ -31,7 +38,7 @@ export function SpecChatCard({ taskId, taskNumber, title }: { taskId: number; ta
     <button
       type="button"
       disabled={projectId == null}
-      onClick={() => projectId != null && requestOpenTask({ projectId, taskId })}
+      onClick={() => projectId != null && requestOpenTask({ projectId, taskId, ...(ownProjectId != null ? { spec: true } : {}) })}
       title={intl.formatMessage({ id: 'spec.bar.open', defaultMessage: 'Open the spec' })}
       className="group my-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-left text-xs transition-colors hover:bg-row-hover disabled:cursor-default"
     >

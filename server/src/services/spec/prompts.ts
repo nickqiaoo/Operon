@@ -42,7 +42,9 @@ function decisionsSince(answers: string | null): string {
 export const SPEC_CHAT_HINT = `## Project Taskboard and OperonSpec
 Project tasks are durable, shared Taskboard records. Built-in task or todo tools belong only to the agent runtime's private execution plan; never use them to create, read, update, or track project tasks.
 
-Use the \`operon-spec\` skill only when the user invokes /operon-spec or explicitly asks to use OperonSpec. Otherwise, handle the request normally without size labels or a Spec workflow.`
+Use the \`operon-spec\` skill only when the user invokes /operon-spec or explicitly asks to use OperonSpec. Otherwise, handle the request normally without size labels or a Spec workflow.
+
+When the user asks to put agreed work on the board or hand it to a board agent: \`create_project_task\` once they agree on what it says, then \`list_project_agents\`, let them choose the assignee, and \`dispatch_project_task\`. Never pick the assignee yourself.`
 
 /** The `start_spec` tool's description — also where the brief format is defined. */
 export const START_SPEC_DESCRIPTION = [
