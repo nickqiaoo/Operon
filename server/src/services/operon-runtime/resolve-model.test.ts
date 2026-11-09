@@ -4,11 +4,49 @@ const CUSTOM: Record<string, object> = {
   'custom-chat': { baseUrl: 'https://llm.example.com', custom: { name: 'Chat', api: 'openai-completions' } },
   'custom-responses': { apiKey: 'k', baseUrl: 'https://llm.example.com/v1', custom: { name: 'Responses', api: 'openai-responses' } },
   'custom-messages': { apiKey: 'k', baseUrl: 'https://llm.example.com/anthropic/v1', custom: { name: 'Messages', api: 'anthropic-messages' } },
+  mistral: { apiKey: 'mistral-key', baseUrl: 'https://api.mistral.ai/v1/' },
 }
 
 vi.mock('../provider-config.js', () => ({ getProviderConfig: (id: string) => CUSTOM[id] ?? { apiKey: 'test-key' } }))
 
-const { resolveModel } = await import('./resolve-model.js')
+const { getModelCapabilities, resolveModel } = await import('./resolve-model.js')
+
+describe('getModelCapabilities', () => {
+  it('offers only the thinking levels the catalog does not mark as unsupported', () => {
+    expect(getModelCapabilities('mistral/mistral-large-4').effortLevels).toEqual(['high'])
+    expect(getModelCapabilities('mistral/zai-glm-5-3').effortLevels).toEqual(['low', 'high'])
+  })
+
+  it('offers no levels for a model without thinking', () => {
+    expect(getModelCapabilities('mistral/codestral-latest').effortLevels).toEqual([])
+  })
+})
+
+describe('resolveModel on Mistral', () => {
+  const firstRequest = async (modelId: string) => {
+    const seen: Request[] = []
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      seen.push(new Request(input, init))
+      return new Response('{"error":{"message":"stub"}}', { status: 400, headers: { 'content-type': 'application/json' } })
+    })
+    try {
+      const model = await resolveModel(modelId)
+      await model.complete({ messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }], timestamp: 0 }] })
+      return { api: model.api, url: seen[0]?.url, auth: seen[0]?.headers.get('authorization') }
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+  const expected = { api: 'mistral-conversations', url: 'https://api.mistral.ai/v1/chat/completions', auth: 'Bearer mistral-key' }
+
+  it('sends a catalog model through the Mistral dialect, with the saved key', async () => {
+    expect(await firstRequest('mistral/mistral-large-latest')).toEqual(expected)
+  })
+
+  it('sends a model newer than the catalog the same way', async () => {
+    expect(await firstRequest('mistral/mistral-not-in-the-catalog')).toEqual(expected)
+  })
+})
 
 describe('resolveModel on a gateway', () => {
   it('sends Claude on Vercel AI Gateway through its Anthropic Messages endpoint', async () => {

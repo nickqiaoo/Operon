@@ -24,6 +24,7 @@ object ProviderLogos {
         "grok" to R.drawable.ic_provider_grok,
         "kimi" to R.drawable.ic_provider_kimi,
         "minimax" to R.drawable.ic_provider_minimax,
+        "mistral" to R.drawable.ic_provider_mistral,
         "openai" to R.drawable.ic_provider_openai,
         "opencode" to R.drawable.ic_provider_opencode,
         "openrouter" to R.drawable.ic_provider_openrouter,

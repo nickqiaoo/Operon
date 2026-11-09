@@ -1,4 +1,4 @@
-import { ProviderManager, tryGetPiModel, type ChatModel, type ProviderType } from 'operon-agents-core'
+import { ChatModel, ProviderManager, createModelRuntime, tryGetPiModel, type ProviderType } from 'operon-agents-core'
 import type { EffortLevel } from '@operon/agent-runtime'
 import { getProviderConfig, type ProviderConfig } from '../provider-config.js'
 import { customProviderBaseUrl, type CustomProviderApi } from '../../../../shared/provider-config.js'
@@ -70,6 +70,7 @@ const PI_PROVIDER_ALIAS: Record<string, string> = {
   glm: 'zai',
   minimax: 'minimax',
   grok: 'xai',
+  mistral: 'mistral',
   openrouter: 'openrouter',
   vercel: 'vercel-ai-gateway',
 }
@@ -92,7 +93,10 @@ export function getModelCapabilities(modelId: string): ModelCapabilities {
   if (piProvider) {
     const known = tryGetPiModel(piProvider, model)
     if (known) {
-      const levels = known.thinkingLevelMap ? Object.keys(known.thinkingLevelMap) : []
+      // A `null` level is one the model does not support; pi would clamp it to another.
+      const levels = Object.entries(known.thinkingLevelMap ?? {})
+        .filter(([, value]) => value !== null)
+        .map(([level]) => level)
       return {
         effortLevels: OPERON_EFFORT_LEVELS.filter((l) => levels.includes(l)),
         vision: known.input?.includes('image') ?? false,
@@ -208,9 +212,42 @@ function resolveProvider(providerId: string, model: string, cfg: ProviderConfig)
   return { ...fallback, ...catalogLimits(gateway.piProvider, model, fallback) }
 }
 
+/**
+ * Mistral runs on pi's own provider instead of a ProviderManager overlay. The overlay only
+ * implements the Anthropic, OpenAI and Google dialects, so every model in pi's Mistral catalog
+ * (`mistral-conversations`) fails with "no API implementation", and the Chat Completions
+ * fallback sends `store` and `max_completion_tokens`, which Mistral does not document.
+ * Ids newer than the catalog get the same conservative limits as any other unknown model.
+ */
+function resolveMistralModel(model: string, cfg: ProviderConfig): ChatModel {
+  const runtime = createModelRuntime({
+    authContext: {
+      env: async (name) => (name === 'MISTRAL_API_KEY' ? cfg.apiKey : undefined),
+      fileExists: async () => false,
+    },
+  })
+  // The dialect appends `v1/chat/completions` itself.
+  const baseUrl = (cfg.baseUrl ?? 'https://api.mistral.ai').replace(/\/+$/, '').replace(/\/v1$/, '')
+  const known = runtime.models.getModel('mistral', model)
+  const descriptor = known ? { ...known, baseUrl } : {
+    id: model,
+    name: model,
+    api: 'mistral-conversations' as const,
+    provider: 'mistral',
+    baseUrl,
+    reasoning: false,
+    input: ['text' as const, 'image' as const],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 16_384,
+  }
+  return new ChatModel({ runtime, descriptor })
+}
+
 export async function resolveModel(modelId: string): Promise<ChatModel> {
   const { providerId, model } = splitModelId(modelId)
   const cfg = getProviderConfig(providerId)
+  if (providerId === 'mistral') return resolveMistralModel(model, cfg)
   const provider = resolveProvider(providerId, model, cfg)
   // A self-hosted custom endpoint may take no key; pi's clients still want one to send.
   const apiKey = cfg.apiKey || (cfg.custom ? 'unused' : undefined)

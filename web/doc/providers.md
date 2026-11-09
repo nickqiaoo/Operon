@@ -36,7 +36,7 @@ The [terminal](terminal) menu can launch interactive CLIs too. Antigravity uses 
 
 Open **Settings → AI Providers**. Operon supports:
 
-**Anthropic**, **OpenAI**, **Google**, **DeepSeek**, **Kimi** (Moonshot), **GLM** (Zhipu), **MiniMax**, **Grok** (xAI), **OpenRouter**, and **Ollama** (local — no key required).
+**Anthropic**, **OpenAI**, **Google**, **DeepSeek**, **Kimi** (Moonshot), **GLM** (Zhipu), **MiniMax**, **Grok** (xAI), **Mistral**, **OpenRouter**, and **Ollama** (local — no key required).
 
 ## Configuring a provider
 

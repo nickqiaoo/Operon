@@ -1,5 +1,32 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchProviderModels } from '../src/services/provider-config.js'
 import { makeTestApp, type TestApp } from './helpers/make-app.js'
+
+describe('Mistral model list', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps base models that chat and call tools, whatever the base URL form', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', async (input: string) => {
+      urls.push(input)
+      return Response.json({
+        data: [
+          { id: 'mistral-small-latest', type: 'base', capabilities: { completion_chat: true, function_calling: true } },
+          { id: 'codestral-latest', type: 'base', capabilities: { completion_chat: true, function_calling: true } },
+          { id: 'mistral-embed', type: 'base', capabilities: { completion_chat: false, function_calling: false } },
+          { id: 'open-mistral-7b', type: 'base', capabilities: { completion_chat: true, function_calling: false } },
+        ],
+      })
+    })
+
+    const models = await fetchProviderModels('mistral', { apiKey: 'k', baseUrl: 'https://api.mistral.ai/v1/' })
+
+    expect(models.map((m) => m.id)).toEqual(['codestral-latest', 'mistral-small-latest'])
+    expect(urls).toEqual(['https://api.mistral.ai/v1/models'])
+  })
+})
 
 describe('/api/provider-configs', () => {
   let ctx: TestApp

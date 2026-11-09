@@ -18,6 +18,7 @@ import kimiLogo from '@/assets/logos/kimi.svg'
 import glmLogo from '@/assets/logos/zhipuai.svg'
 import minimaxLogo from '@/assets/logos/minimax.svg'
 import grokLogo from '@/assets/logos/xai.svg'
+import mistralLogo from '@/assets/logos/mistral.svg'
 import openrouterLogo from '@/assets/logos/openrouter.svg'
 import vercelLogo from '@/assets/logos/vercel.svg'
 import ollamaLogo from '@/assets/logos/ollama.svg'
@@ -54,6 +55,7 @@ const PROVIDERS: ProviderMeta[] = [
   { id: 'glm', label: 'GLM', logo: glmLogo, placeholder: 'API key…', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
   { id: 'minimax', label: 'MiniMax', logo: minimaxLogo, placeholder: 'API key…', defaultBaseUrl: 'https://api.minimax.chat/v1' },
   { id: 'grok', label: 'Grok', logo: grokLogo, placeholder: 'xai-…', defaultBaseUrl: 'https://api.x.ai' },
+  { id: 'mistral', label: 'Mistral', logo: mistralLogo, placeholder: 'API key…', defaultBaseUrl: 'https://api.mistral.ai' },
   { id: 'openrouter', label: 'OpenRouter', logo: openrouterLogo, placeholder: 'sk-or-…', defaultBaseUrl: 'https://openrouter.ai/api' },
   { id: 'vercel', label: 'Vercel AI Gateway', logo: vercelLogo, placeholder: 'API key…', defaultBaseUrl: 'https://ai-gateway.vercel.sh' },
   { id: 'ollama', label: 'Ollama', logo: ollamaLogo, placeholder: '(not required)', defaultBaseUrl: 'http://localhost:11434' },

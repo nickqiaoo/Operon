@@ -36,7 +36,7 @@ AI Providers 就是 **Operon Agent**（Operon 内置的 Agent）用来调模型�
 
 打开 **Settings → AI Providers**。Operon 支持：
 
-**Anthropic**、**OpenAI**、**Google**、**DeepSeek**、**Kimi**（Moonshot）、**GLM**（智谱）、**MiniMax**、**Grok**（xAI）、**OpenRouter**，以及 **Ollama**（本地，无需 key）。
+**Anthropic**、**OpenAI**、**Google**、**DeepSeek**、**Kimi**（Moonshot）、**GLM**（智谱）、**MiniMax**、**Grok**（xAI）、**Mistral**、**OpenRouter**，以及 **Ollama**（本地，无需 key）。
 
 ## 配置一个提供商
 

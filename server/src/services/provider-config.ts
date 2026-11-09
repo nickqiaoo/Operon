@@ -55,6 +55,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   glm:       { label: 'GLM',      defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', logo: 'zhipu' },
   minimax:   { label: 'MiniMax',  defaultBaseUrl: 'https://api.minimax.chat/v1', logo: 'minimax' },
   grok:      { label: 'Grok',     defaultBaseUrl: 'https://api.x.ai',            logo: 'xai' },
+  mistral:   { label: 'Mistral',  defaultBaseUrl: 'https://api.mistral.ai',      logo: 'mistral' },
   openrouter:{ label: 'OpenRouter', defaultBaseUrl: 'https://openrouter.ai/api', logo: 'openrouter' },
   vercel:    { label: 'Vercel AI Gateway', defaultBaseUrl: 'https://ai-gateway.vercel.sh', logo: 'vercel' },
   ollama:    { label: 'Ollama',     defaultBaseUrl: 'http://localhost:11434',      logo: 'ollama' },
@@ -148,6 +149,7 @@ export async function fetchProviderModels(
     case 'glm':       return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://open.bigmodel.cn/api/paas/v4', 'glm')
     case 'minimax':   return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.minimax.chat/v1', 'minimax')
     case 'grok':      return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.x.ai', 'grok')
+    case 'mistral':   return fetchMistralModels(apiKey, config.baseUrl)
     case 'openrouter': return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://openrouter.ai/api', 'openrouter')
     case 'vercel':    return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://ai-gateway.vercel.sh', 'vercel')
     default:
@@ -221,6 +223,29 @@ async function fetchOllamaModels(baseUrl?: string): Promise<ProviderModel[]> {
   return (data.models ?? [])
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((m) => ({ id: m.name, name: m.name }))
+}
+
+/**
+ * Not the generic fetcher: Mistral's cards say `type: 'base'`, which that one drops, and the
+ * list also has embedding, OCR and moderation models. Agents always send tools, so a model
+ * has to do both chat and function calling.
+ */
+async function fetchMistralModels(apiKey: string, baseUrl?: string): Promise<ProviderModel[]> {
+  const base = (baseUrl || 'https://api.mistral.ai').replace(/\/+$/, '').replace(/\/v1$/, '')
+  const res = await fetch(`${base}/v1/models`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Mistral API error ${res.status}: ${body}`)
+  }
+  const data = await res.json() as {
+    data: Array<{ id: string; capabilities?: { completion_chat?: boolean; function_calling?: boolean } }>
+  }
+  return (data.data ?? [])
+    .filter((m) => m.capabilities?.completion_chat !== false && m.capabilities?.function_calling !== false)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((m) => ({ id: m.id, name: m.id }))
 }
 
 /**
