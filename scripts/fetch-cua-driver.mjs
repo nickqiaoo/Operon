@@ -22,22 +22,25 @@
  *
  * Idempotent via the stamp file next to the binary: the arch is read with
  * `lipo`, never by executing the binary, because a cross-compiled build has a
- * driver it cannot run.
+ * driver it cannot run. The verified universal archive is cached outside
+ * `dist-operon-runtime` so both builds and the host restore can share it.
  *
  *   node scripts/fetch-cua-driver.mjs [--force]      # TARGET_ARCH=arm64|x64
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Pinned deliberately: an engine that drives the user's Mac is not something to
- *  float on "latest". Bump it in a commit, with the checksum below. */
+ *  float on "latest". Update the version, asset ID and checksum together. */
 const VERSION = "0.44.0";
 const ASSET = `cua-driver-rs-${VERSION}-darwin-universal-binary.tar.gz`;
 const URL = `https://github.com/trycua/cua/releases/download/cua-driver-rs-v${VERSION}/${ASSET}`;
+const ASSET_API_URL = "https://api.github.com/repos/trycua/cua/releases/assets/724235582";
+// SHA-256 of the universal binary archive from the upstream release metadata.
+const ARCHIVE_SHA256 = "4ad632365a32ce26f2c40bd3bc80ef76ecaf544eaeb0e47c805379a4f33ea7c3";
 
 /** Node's arch names (what TARGET_ARCH is spelled in) to Mach-O's (what lipo
  *  wants). The rest of the build speaks the left column; lipo only knows the
@@ -45,6 +48,8 @@ const URL = `https://github.com/trycua/cua/releases/download/cua-driver-rs-v${VE
 const MACHO_ARCH = { arm64: "arm64", aarch64: "arm64", x64: "x86_64", x86_64: "x86_64" };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const cacheDir = path.join(root, ".build", "cua-driver");
+const cachedArchive = path.join(cacheDir, ASSET);
 const outdir = path.join(root, "dist-operon-runtime");
 const target = path.join(outdir, "cua-driver");
 const stampPath = path.join(outdir, ".cua-driver.json");
@@ -89,14 +94,18 @@ if (
   process.exit(0);
 }
 
-/** GitHub release downloads through a proxy drop mid-handshake often enough
- *  (ECONNRESET) that one attempt fails a whole build-all; retry with backoff. */
-async function fetchWithRetry(url, read, attempts = 5) {
+/** Alternate official GitHub endpoints when one fails through the proxy. */
+async function downloadArchive() {
+  const attempts = 5;
   for (let i = 1; ; i++) {
+    const url = i % 2 === 1 ? URL : ASSET_API_URL;
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`cua-driver: ${url} returned ${res.status}`);
-      return await read(res);
+      const res = await fetch(url, { headers: { Accept: "application/octet-stream" } });
+      if (!res.ok || res.headers.get("content-type")?.includes("json")) {
+        await res.body?.cancel();
+        throw new Error(`${url} returned ${res.status} ${res.headers.get("content-type") ?? ""}`.trimEnd());
+      }
+      return Buffer.from(await res.arrayBuffer());
     } catch (err) {
       if (i >= attempts) throw err;
       const delay = 1000 * 2 ** (i - 1);
@@ -106,30 +115,42 @@ async function fetchWithRetry(url, read, attempts = 5) {
   }
 }
 
-console.log(`cua-driver: downloading ${VERSION}…`);
-const archive = await fetchWithRetry(URL, async (res) => Buffer.from(await res.arrayBuffer()));
-
-// The release publishes `checksums.txt` alongside the assets. Verifying against
-// it is what makes downloading a binary we then ship inside our own signed app
-// defensible at all.
-const checksumsText = await fetchWithRetry(URL.replace(ASSET, "checksums.txt"), (res) => res.text());
-const expected = checksumsText
-  .split("\n")
-  .map((line) => line.trim().split(/\s+/))
-  .find(([, name]) => name?.replace(/^\*/, "") === ASSET)?.[0];
-if (!expected) throw new Error(`cua-driver: ${ASSET} is not listed in checksums.txt`);
-const actual = createHash("sha256").update(archive).digest("hex");
-if (actual !== expected) {
-  throw new Error(`cua-driver: checksum mismatch\n  expected ${expected}\n  actual   ${actual}`);
+function sha256(archive) {
+  return createHash("sha256").update(archive).digest("hex");
 }
 
-const staging = mkdtempSync(path.join(os.tmpdir(), "cua-driver-"));
+function readCachedArchive() {
+  try {
+    return readFileSync(cachedArchive);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+    return undefined;
+  }
+}
+
+mkdirSync(cacheDir, { recursive: true });
+const staging = mkdtempSync(path.join(cacheDir, ".staging-"));
 try {
-  const tarball = path.join(staging, ASSET);
-  writeFileSync(tarball, archive);
+  let archive = force ? undefined : readCachedArchive();
+  const cacheHit = archive !== undefined && sha256(archive) === ARCHIVE_SHA256;
+  if (cacheHit) {
+    console.log(`cua-driver: using cached ${VERSION} archive`);
+  } else {
+    console.log(`cua-driver: downloading ${VERSION}…`);
+    archive = await downloadArchive();
+    const actual = sha256(archive);
+    if (actual !== ARCHIVE_SHA256) {
+      throw new Error(`cua-driver: checksum mismatch\n  expected ${ARCHIVE_SHA256}\n  actual   ${actual}`);
+    }
+  }
   // Only the driver: the archive also carries an SDK dylib, a node addon and a
   // cursor-theme CLI, none of which this integration goes through.
-  execFileSync("tar", ["xzf", tarball, "-C", staging, "cua-driver"]);
+  execFileSync("tar", ["xzf", "-", "-C", staging, "cua-driver"], { input: archive });
+  if (!cacheHit) {
+    const tarball = path.join(staging, ASSET);
+    writeFileSync(tarball, archive);
+    renameSync(tarball, cachedArchive);
+  }
   const extracted = path.join(staging, "cua-driver");
 
   const present = archsOf(extracted);
