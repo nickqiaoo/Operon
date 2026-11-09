@@ -65,7 +65,7 @@ it.skipIf(!binary).each([false, true])('runs V2 with usage, native switches and 
     const chunk = (delta: object, finish: string | null = null) => res.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason: finish }], ...(finish ? { usage } : {}) })}\n\n`)
     chunk({ role: 'assistant' })
     if (useTool) {
-      const args = codemode ? { code: 'console.log(await tools.node_repl.echo({ message: "hello" }))' } : { message: 'hello' }
+      const args = codemode ? { code: 'console.log(await tools.operonrepl.echo({ message: "hello" }))' } : { message: 'hello' }
       chunk({ tool_calls: [{ index: 0, id: 'echo-call', type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] })
       chunk({}, 'tool_calls')
     } else {
@@ -94,7 +94,7 @@ it.skipIf(!binary).each([false, true])('runs V2 with usage, native switches and 
   Object.assign(OpencodeClientManager.getInstance(ctx), { getClient: async () => client })
   const session = new OpencodeRuntimeSession({ cwd: root, model: 'operon-fixture/fixture', effort: 'low', instructions: 'Operon fixture instructions', opencode: { callerTag: 'test-chat' } }, ctx)
   try {
-    await client.mcp.add({ server: 'node_repl', location: { directory: root }, config: { type: 'remote', url: mcpUrl, codemode } })
+    await client.mcp.add({ server: 'operonrepl', location: { directory: root }, config: { type: 'remote', url: mcpUrl, codemode } })
     const descriptor = await listOpencodeDescriptorModels(ctx, root, 'operon-fixture/fixture')
     expect(descriptor.models).toContainEqual(expect.objectContaining({ id: 'operon-fixture/fixture', providerLabel: 'Fixture Provider' }))
     expect(await OpencodeClientManager.getInstance(ctx).listCommands(root)).toContainEqual({ name: 'fixture/check', description: 'Check fixture input' })
@@ -109,7 +109,7 @@ it.skipIf(!binary).each([false, true])('runs V2 with usage, native switches and 
     expect(parts).toContainEqual(expect.objectContaining({ type: 'finish', finishReason: 'stop' }))
     expect(parts).toContainEqual(expect.objectContaining({ type: 'text-delta', text: 'OK' }))
     expect(calls[0]?.[OPENCODE_CALLER_ARG]).toBe(session.id)
-    if (codemode) expect(parts).toContainEqual(expect.objectContaining({ type: 'tool-result', toolName: 'node_repl_echo', output: 'OK' }))
+    if (codemode) expect(parts).toContainEqual(expect.objectContaining({ type: 'tool-result', toolName: 'operonrepl_echo', output: 'OK' }))
     const usage = await session.contextUsage()
     expect(usage).toEqual(expect.objectContaining({ maxTokens: 262144, totalTokens: 40, isAutoCompactEnabled: false }))
     expect(parts).toContainEqual(expect.objectContaining({ type: 'finish', totalUsage: expect.objectContaining({ inputTokens: 80, outputTokens: 4 }) }))

@@ -79,9 +79,9 @@ export async function deliverToBinding(
     const chatId = binding.activeChatId
     debounceNotify(debounceKey, debounceMs, (count) => {
       const text = delivery.injectNotification(count)
-      injectIntoChat(chatId, text)
+      injectIntoChat(chatId, text, undefined, { mode: 'auto' })
         .then((result) => {
-          if (!result.success) {
+          if (result.delivery === 'not-sent') {
             console.warn(
               `[${tag}] inject failed for binding=${binding.id} chat=${chatId}: ${result.error} — falling back to wake`,
             )

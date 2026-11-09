@@ -147,6 +147,11 @@ class FakeRuntimeSession implements AgentSession {
     return true
   }
 
+  async steer(text: string) {
+    await this.inject(text)
+    return { delivery: 'accepted' as const, mode: 'steer' as const }
+  }
+
   async inject(_content: string): Promise<void> {
     // no-op
   }
@@ -243,6 +248,8 @@ export class FakeRuntimeProvider implements RuntimeProviderFactory {
         permissions: true,
         attachments: true,
         injection: true,
+        steer: true,
+        followup: false,
         sessionResume: false,
       },
     }

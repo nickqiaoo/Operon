@@ -1,3 +1,4 @@
+import { RuntimeInjectionUnavailableError } from '../../types.js'
 import type { McpServer, OpenCodeEvent } from '@opencode/client'
 import { NativeEventAdapter } from './native-events.js'
 import type { RuntimeContext } from '../../context.js'
@@ -19,7 +20,7 @@ import type {
   SessionPatchApplied,
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
-import { toUserMessages } from '../../utils/agent-input.js'
+import { toUserMessages, inputText } from '../../utils/agent-input.js'
 import { bindOpencodeCaller, unbindOpencodeCaller } from './caller-identity.js'
 import { OpencodeClientManager } from './client-manager.js'
 import { createAscendingMessageId } from './message-id.js'
@@ -142,6 +143,8 @@ export interface OpencodeSessionOptions {
 export interface OpencodeSessionNative {
   mcp: McpControl
 }
+
+type NativeEvent = Parameters<NativeEventAdapter['convert']>[0]
 
 export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNative> {
   private readonly cwd: string
@@ -266,6 +269,12 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     let streamFailed = false
     const turnUsage = { ...state.usage }
     let measuredSteps = 0
+    // The completion skipped for a queued input, kept in case that input's prompt fails.
+    let heldCompletion: NativeEvent | undefined
+    let completionWasReleased = false
+    const completionReleased = new Promise<'released'>((resolve) => {
+      this.releaseHeldCompletion = () => { if (heldCompletion) resolve('released') }
+    })
 
     try {
       const connected = await nativeEvents.next()
@@ -278,9 +287,10 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
         abortController.abort()
       })
       nativeLoop: while (true) {
-        const next = await nativeEvents.next()
-        if (next.done) throw new Error('OpenCode event stream disconnected before the turn completed')
-        const native = next.value
+        const next = await Promise.race([nativeEvents.next(), completionReleased])
+        if (next !== 'released' && next.done) throw new Error('OpenCode event stream disconnected before the turn completed')
+        completionWasReleased = next === 'released'
+        const native = next === 'released' ? heldCompletion! : next.value
         logProviderRaw('opencode', native)
         if (native.type === 'session.execution.interrupted' && native.data.sessionID === sessionId) {
           yield { type: 'abort' }
@@ -306,7 +316,13 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
           turnUsage.totalCost += cost
           measuredSteps++
         }
+        if (native.type === 'session.execution.succeeded' && native.data.sessionID === sessionId && this.pendingFollowups.size) {
+          heldCompletion = native
+          continue
+        }
         if (native.type === 'session.inbox.delivered' && native.data.sessionID === sessionId) {
+          heldCompletion = undefined
+          this.pendingFollowups.delete(native.data.inboxID)
           const pending = this.pendingInjections.get(native.data.inboxID)
           if (pending) {
             this.pendingInjections.delete(native.data.inboxID)
@@ -448,8 +464,12 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       }
     } finally {
       signal?.removeEventListener('abort', onAbort)
+      // A read is still pending on the subscription, and `return()` would queue behind it.
+      if (completionWasReleased) abortController.abort()
       await nativeEvents.return?.()
       this.abortController = null
+      this.pendingFollowups.clear()
+      this.releaseHeldCompletion = null
     }
   }
 
@@ -572,20 +592,44 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
    * Messages added with `inject` that no step has answered yet, by the OpenCode
    * message id they were sent with (see `StreamState.pendingInjections`).
    */
+  private readonly pendingFollowups = new Set<string>()
+  /** Ends a run whose completion was skipped for a queued input that then failed to send. */
+  private releaseHeldCompletion: (() => void) | null = null
   private readonly pendingInjections = new Map<string, { id: string; text: string }>()
 
-  async inject(content: string, options?: InjectOptions): Promise<void> {
+  async steer(content: string, options?: InjectOptions) {
+    await this.deliverInput(content, options, 'steer')
+    return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
+  async followup(content: AgentInput, options?: InjectOptions) {
+    await this.deliverInput(content, options, 'queue')
+    return { delivery: 'accepted' as const, mode: 'followup' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
+  async inject(content: string, options?: InjectOptions): Promise<void> { await this.steer(content, options) }
+
+  private async deliverInput(content: AgentInput, options: InjectOptions | undefined, delivery: 'steer' | 'queue'): Promise<void> {
+    if (!this.abortController || this.abortController.signal.aborted) {
+      throw new RuntimeInjectionUnavailableError('No active OpenCode execution')
+    }
     await this.mcpReadyPromise
     const sessionId = await this.getOrCreateSession()
     const client = await this.clientManager.getClient()
     this.logger.info(`Injecting follow-up into session ${sessionId}`)
     // Our own id, so the step that answers it (its `parentID`) can be recognised.
     const messageID = createAscendingMessageId()
-    if (options?.id) this.pendingInjections.set(messageID, { id: options.id, text: content })
+    if (delivery === 'queue') this.pendingFollowups.add(messageID)
+    if (options?.id) this.pendingInjections.set(messageID, { id: options.id, text: inputText(content) })
     try {
-      await client.session.prompt({ sessionID: sessionId, id: messageID, text: content, delivery: 'steer' })
+      const converted = convertToOpencodeMessages(toUserMessages(content), { logger: this.logger, mode: { type: 'regular' } })
+      await client.session.prompt({ sessionID: sessionId, id: messageID, text: inputText(content), delivery,
+        ...(typeof content === 'string' ? {} : { files: converted.parts.flatMap((part) => part.type === 'file' ? [{ uri: part.url, name: part.filename }] : []) }),
+      })
     } catch (error) {
       this.pendingInjections.delete(messageID)
+      this.pendingFollowups.delete(messageID)
+      if (!this.pendingFollowups.size) this.releaseHeldCompletion?.()
       throw error
     }
   }

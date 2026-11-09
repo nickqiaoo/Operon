@@ -94,6 +94,8 @@ export class QoderRuntimeProvider implements RuntimeProviderFactory<SessionOptio
         permissions: true,
         attachments: true,
         injection: true,
+        steer: true,
+        followup: true,
         sessionResume: true,
         dynamicSwitch: true,
         contextUsage: true,

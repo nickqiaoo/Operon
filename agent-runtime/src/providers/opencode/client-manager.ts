@@ -121,7 +121,7 @@ export class OpencodeClientManager {
     // one already running. The server holds MCP endpoints that point at this
     // app's HTTP port, which is new on every launch: a server left over from an
     // earlier launch (or owned by another running instance) answers fine but
-    // fails every node_repl call with "Unable to connect". A fixed port made
+    // fails every operonrepl call with "Unable to connect". A fixed port made
     // that collision the default; a random one makes it impossible.
     // Leftovers are still stopped here, but only to free the memory.
     reapOrphanedServers(this.logger)

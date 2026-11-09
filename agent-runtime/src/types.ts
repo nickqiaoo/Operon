@@ -131,6 +131,10 @@ export interface ProviderFeatures {
   permissions: boolean
   attachments: boolean
   injection: boolean
+  /** Add input to an active execution without interrupting it. */
+  steer?: boolean
+  /** Accept input for after the current turn, on this execution's output stream. */
+  followup?: boolean
   sessionResume: boolean
   checkpoint?: boolean
   /** Provider supports a persisted thread goal (set/get/clear + autonomous pursuit). */
@@ -291,7 +295,23 @@ export interface InjectOptions {
   id?: string
 }
 
+export type InputDeliveryMode = 'steer' | 'followup'
+export interface InputDeliveryReceipt {
+  delivery: 'accepted'
+  mode: InputDeliveryMode
+  id?: string
+}
+
 export type RuntimeTextStreamPart = TextStreamPart<ToolSet>
+
+/** Provider-neutral text-start/end metadata under providerMetadata.runtime.
+ * Explicit completion distinguishes authoritative replies from synthetic block boundaries.
+ */
+export interface RuntimeOutputMetadata {
+  messageId?: string
+  completion?: 'explicit'
+  completedText?: string
+}
 
 export interface RuntimeMessageMetadataPart {
   type: 'message-metadata'
@@ -471,6 +491,10 @@ export interface AgentSession<Native = unknown> {
    * `injected-input` part carrying that id (see `RuntimeInjectedInputPart`).
    */
   inject?(text: string, options?: InjectOptions): Promise<void>
+  /** Strict active-execution insertion. Never interrupts, starts a run, or falls back to followup. */
+  steer?(text: string, options?: InjectOptions): Promise<InputDeliveryReceipt>
+  /** Process after the current turn. Its output remains in the current execution stream. */
+  followup?(input: AgentInput, options?: InjectOptions): Promise<InputDeliveryReceipt>
   /**
    * Change model / permission mode / effort on a live session (`features.dynamicSwitch`).
    *

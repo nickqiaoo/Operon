@@ -1,3 +1,4 @@
+import { QueuedFollowup } from '../../queued-followup.js'
 import { randomUUID } from 'node:crypto'
 import type { RuntimeContext } from '../../context.js'
 import type {
@@ -614,7 +615,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
         approvalsReviewer: effectiveSettings.approvalsReviewer,
         sandbox: mapSandboxMode(effectiveSettings.sandboxMode),
         developerInstructions: buildDeveloperInstructions(effectiveSettings, instructions),
-        config: buildConfigOverrides(effectiveSettings),
+        config: { ...buildConfigOverrides(effectiveSettings), 'features.instant_interrupt': false },
       })
       return threadResult.thread.id
     }
@@ -650,7 +651,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
         approvalPolicy: mapApprovalMode(effectiveSettings.approvalMode),
         approvalsReviewer: effectiveSettings.approvalsReviewer,
         sandbox: mapSandboxMode(effectiveSettings.sandboxMode),
-        config: buildConfigOverrides(effectiveSettings),
+        config: { ...buildConfigOverrides(effectiveSettings), 'features.instant_interrupt': false },
       })
       return resumeResult.thread.id
     }
@@ -667,7 +668,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
       approvalsReviewer: effectiveSettings.approvalsReviewer,
       sandbox: mapSandboxMode(effectiveSettings.sandboxMode),
       developerInstructions: buildDeveloperInstructions(effectiveSettings, instructions),
-      config: buildConfigOverrides(effectiveSettings),
+      config: { ...buildConfigOverrides(effectiveSettings), 'features.instant_interrupt': false },
     })
     return threadResult.thread.id
   }
@@ -698,7 +699,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
       developerInstructions: buildDeveloperInstructions(effectiveSettings, instructions),
       excludeTurns: true,
       ...(source.ephemeral === false ? {} : { ephemeral: true }),
-      config: buildConfigOverrides(effectiveSettings),
+      config: { ...buildConfigOverrides(effectiveSettings), 'features.instant_interrupt': false },
     })
     const threadId = forked.thread.id
     client.markEphemeralThread(threadId)
@@ -715,8 +716,19 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     return threadId
   }
 
+  private readonly followups = new QueuedFollowup()
+
+  async followup(text: AgentInput, options?: import('../../types.js').InjectOptions) {
+    return this.followups.accept(text, options)
+  }
+
+  async steer(text: string, options?: InjectOptions) {
+    await this.inject(text, options)
+    return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
   send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
-    return this.runTurn(toUserMessages(input), options?.signal)
+    return this.followups.run(input, options, (next, opts) => this.runTurn(toUserMessages(next), opts?.signal))
   }
 
   private async *runTurn(messages: ModelMessage[], signal: AbortSignal | undefined) {
@@ -1218,6 +1230,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   }
 
   abort(): void {
+    this.followups.cancel()
     this.logger.info('Abort requested')
     this.abortController?.abort()
     this.abortController = null
@@ -1230,6 +1243,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   }
 
   async close(): Promise<void> {
+    this.followups.cancel()
     this.abort()
     this.activeRouter = null
     this.codexSession = null

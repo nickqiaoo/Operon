@@ -70,6 +70,13 @@ export interface ThreadTokenUsage {
   modelContextWindow?: number | null
 }
 
+/** Carried on a natively completed text block's `runtime` metadata. */
+export interface CompletedTextDetails {
+  phase?: string
+  /** Set when the message is a question for the user; `options` is empty for a free-form one. */
+  questions?: Array<{ title: string; options: string[] }>
+}
+
 export interface StreamEmitterOptions {
   threadId: string
   turnId: string
@@ -142,6 +149,7 @@ export class CodexTextStreamEmitter {
   private textId = randomUUID()
   private reasoningId = randomUUID()
   private textStarted = false
+  private textItemId: string | undefined
   private reasoningStarted = false
   private hadReasoning = false
   private closed = false
@@ -285,10 +293,13 @@ export class CodexTextStreamEmitter {
     this.emitMessageMetadata()
   }
 
-  emitTextDelta(text: string): void {
+  emitTextDelta(text: string, itemId?: string): void {
+    if (itemId && this.textStarted && this.textItemId !== itemId) this.flushText()
     if (!this.textStarted) {
       this.textStarted = true
-      this.enqueue({ type: 'text-start', id: this.textId })
+      this.textItemId = itemId
+      this.enqueue({ type: 'text-start', id: this.textId,
+        ...(itemId ? { providerMetadata: { runtime: { messageId: itemId, completion: 'explicit' } } } : {}) })
     }
     this.enqueue({ type: 'text-delta', id: this.textId, text })
   }
@@ -307,17 +318,23 @@ export class CodexTextStreamEmitter {
     })
   }
 
-  flushText(): void {
+  flushText(completedText?: string, details?: CompletedTextDetails): void {
     if (!this.textStarted) return
-    this.enqueue({ type: 'text-end', id: this.textId })
+    this.enqueue({ type: 'text-end', id: this.textId,
+      ...(completedText !== undefined ? { providerMetadata: { runtime: { completedText, ...details } } } : {}) })
     this.textStarted = false
+    this.textItemId = undefined
     this.textId = randomUUID()
+  }
+
+  /** Native item completion is distinct from closing a stream block at a tool/injection boundary. */
+  completeText(itemId: string, text: string, details?: CompletedTextDetails): void {
+    if (!this.textStarted || this.textItemId !== itemId) this.emitTextDelta('', itemId)
+    this.flushText(text, details)
   }
 
   /** A message added mid-turn entered the thread here. */
   emitInjectedInput(id: string, text: string): void {
-    this.flushText()
-    this.flushReasoning()
     this.enqueue({ type: 'injected-input', id, text })
   }
 

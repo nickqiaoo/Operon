@@ -109,3 +109,17 @@ describe('CodexTextStreamEmitter', () => {
     expect(parts.length).toBe(before)
   })
 })
+
+
+describe('input receipt during text generation', () => {
+  it('does not close or restart the text block when an input receipt arrives', () => {
+    const parts: RuntimeStreamPart[] = [], emitter = createEmitter(parts)
+    emitter.emitTextDelta('Before ', 'message-1')
+    emitter.emitInjectedInput('input-2', 'notice')
+    expect(parts.filter((p) => p.type === 'text-end')).toHaveLength(0)
+    emitter.emitTextDelta('after', 'message-1')
+    emitter.completeText('message-1', 'Before after')
+    expect(parts.filter((p) => p.type === 'text-start')).toHaveLength(1)
+    expect(parts.filter((p) => p.type === 'text-end')).toHaveLength(1)
+  })
+})

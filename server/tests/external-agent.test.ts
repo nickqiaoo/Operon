@@ -8,7 +8,7 @@ import { getLiveTurn, getLiveTurnStatus } from '../src/services/ai/live-turn-hub
 import { beginChatTurn, emitChatTurnFinished, isChatTurnBusy } from '../src/services/ai/chat-turn-lifecycle.js'
 import { clearExternalAgentNotifications } from '../src/services/external-agent-notifications.js'
 import { handleSessionCleanup } from '../src/services/ai/session-ops.js'
-import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalAgentStatus } from '../src/services/external-agent.js'
+import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalAgentStatus, setAssistantAgentResultSink, type AssistantAgentResult } from '../src/services/external-agent.js'
 
 vi.mock('@operon/agent-runtime/codex', async () => {
   const { fakeAgent } = await import('@operon/agent-runtime/testing')
@@ -56,6 +56,7 @@ describe('server-owned external agent conversations', () => {
     })
   })
   afterEach(async () => {
+    setAssistantAgentResultSink(undefined)
     unblockParent?.()
     unblockParent = undefined
     clearExternalAgentNotifications()
@@ -66,6 +67,55 @@ describe('server-owned external agent conversations', () => {
   })
   const parentResults = () => (ctx.storage.getChatEntry(parentChatId)?.messages as UIMessage[])
     .filter((message) => message.role === 'user' && text(message).includes('<external-agent-result>'))
+
+  it('hands the assistant all replies once after the logical stream finishes and is persisted', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const received: AssistantAgentResult[] = []
+    setAssistantAgentResultSink((result) => {
+      expect(ctx.storage.getChatEntry(result.view.childChatId)?.messages.some((m) => m.id === result.event.message?.id)).toBe(true)
+      received.push(result)
+    })
+    registerFakeScript('external', async function* () {
+      yield { type: 'start' }
+      yield { type: 'text-start', id: 'original' }
+      yield { type: 'text-delta', id: 'original', text: 'ORIGINAL_DONE' }
+      yield { type: 'text-end', id: 'original' }
+      await gate
+      yield { type: 'text-start', id: 'followup' }
+      yield { type: 'text-delta', id: 'followup', text: 'FOLLOWUP_DONE' }
+      yield { type: 'text-end', id: 'followup' }
+      yield { type: 'finish', finishReason: 'stop', totalUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
+    })
+    try {
+      const child = await createExternalAgent({ parent: { assistantActivityId: 'assistant-task', workspaceId: ctx.workspaceId },
+        providerId: 'codex', model: 'fake-1', description: 'Both replies', prompt: 'first and followup' })
+      await until(() => !!getSessionManager().get(child.chat_id)?.activeRequest)
+      expect(received).toEqual([])
+      release()
+      await until(() => received.length === 1 && !isChatTurnBusy(child.chat_id))
+      expect(received[0].result).toContain('ORIGINAL_DONE')
+      expect(received[0].result).toContain('FOLLOWUP_DONE')
+      expect(received[0].dispatched).toBe(true)
+    } finally { release() }
+  })
+
+  it('steers a running child in the same request and persists the follow-up exactly once', async () => {
+    const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'slow' })
+    await until(() => !!getSessionManager().get(child.chat_id)?.activeRequest)
+    const session = getSessionManager().get(child.chat_id)!
+    const requestId = session.activeRequest!.requestId
+    const inject = vi.spyOn(session.runtime, 'steer')
+    const follow = await sendExternalAgent(parentChatId, child.agent_id, 'also check tests')
+    expect(follow.delivery).toBe('injected')
+    expect(follow.turn_id).toBe(requestId)
+    expect(session.activeRequest?.requestId).toBe(requestId)
+    expect(inject).toHaveBeenCalledTimes(1)
+    const history = ctx.storage.getChatEntry(child.chat_id)?.messages as UIMessage[]
+    expect(history.filter((m) => m.role === 'user').map(text)).toEqual(['slow', 'also check tests'])
+    expect(history.at(-1)?.metadata).toMatchObject({ steer: true, externalAgentDispatch: true })
+    stopExternalAgent(parentChatId, child.agent_id)
+  })
 
   it('runs without a tab, exposes replayable output, queues delivery and follows up in the same session', async () => {
     beginChatTurn(parentChatId, 'busy-parent')
@@ -78,7 +128,7 @@ describe('server-owned external agent conversations', () => {
     expect(session?.params.model).toBe('fake-1')
     handleSessionCleanup(child.chat_id)
     expect(getSessionManager().get(child.chat_id)).toBe(session)
-    const next = sendExternalAgent(parentChatId, child.agent_id, 'second')
+    const next = await sendExternalAgent(parentChatId, child.agent_id, 'second')
     await until(() => getExternalAgentStatus(parentChatId, child.agent_id).status === 'completed' &&
       getExternalAgentStatus(parentChatId, child.agent_id).turnId === next.turn_id)
     expect(getSessionManager().get(child.chat_id)).toBe(session)
@@ -96,7 +146,9 @@ describe('server-owned external agent conversations', () => {
   it('cancels the old turn and queued messages; a prompt from the child tab still reports to the parent', async () => {
     const child = await createExternalAgent({ parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: 'Review', prompt: 'slow' })
     await until(() => getLiveTurnStatus(child.chat_id).active)
-    sendExternalAgent(parentChatId, child.agent_id, 'must not execute')
+    const runtime = getSessionManager().get(child.chat_id)!.runtime
+    Object.defineProperty(runtime, 'steer', { value: undefined, configurable: true })
+    await expect(sendExternalAgent(parentChatId, child.agent_id, 'must not execute')).rejects.toThrow('does not support followup')
     expect(stopExternalAgent(parentChatId, child.agent_id).stopped).toBe(true)
     // Submit immediately: a stopped old turn must not overwrite the new turn status.
     const response = await handleChat({ chatId: child.chat_id, providerId: 'wrong-provider', modelId: 'wrong-model',
@@ -106,6 +158,8 @@ describe('server-owned external agent conversations', () => {
     expect(parentResults().map(text).join('\n')).toContain('<status>cancelled</status>')
     const completed = parentResults().find((message) => text(message).includes('<status>completed</status>'))!
     expect(text(completed)).toContain('<prompt-source>user in child chat</prompt-source>')
+    expect(text(completed)).toContain('Do not act on it unless the user asks. No reply is needed')
+    expect(text(completed)).not.toContain('Use this result to continue')
     expect(text(completed)).toContain('revised')
     expect(getSessionManager().get(child.chat_id)?.params.model).toBe('fake-1')
     const history = ctx.storage.getChatEntry(child.chat_id)?.messages as UIMessage[]
@@ -140,7 +194,7 @@ describe('server-owned external agent conversations', () => {
     await until(() => getLiveTurnStatus(parentChatId).active)
     const session = getSessionManager().get(parentChatId)!
     const requestId = session.activeRequest!.requestId
-    const inject = vi.spyOn(session.runtime, 'inject')
+    const inject = vi.spyOn(session.runtime, 'steer')
     const children = await Promise.all(['A', 'B', 'C'].map((prompt) => createExternalAgent({
       parent: { chatId: parentChatId }, providerId: 'codex', model: 'fake-1', description: prompt, prompt,
     })))
@@ -177,7 +231,7 @@ describe('server-owned external agent conversations', () => {
     } })
     expect(getExternalAgentStatus(parentChatId, child.agent_id).status).toBe('interrupted')
     expect(parentResults()).toHaveLength(1)
-    const next = sendExternalAgent(parentChatId, child.agent_id, 'continue after restart')
+    const next = await sendExternalAgent(parentChatId, child.agent_id, 'continue after restart')
     await until(() => getExternalAgentStatus(parentChatId, child.agent_id).turnId === next.turn_id &&
       getExternalAgentStatus(parentChatId, child.agent_id).status === 'completed')
     await until(() => parentResults().length === 2 && !isChatTurnBusy(parentChatId))

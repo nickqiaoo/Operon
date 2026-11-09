@@ -216,3 +216,37 @@ describe('Operon injected input receipts', () => {
     expect(markers(parts)).toEqual([])
   })
 })
+
+
+describe('Operon native followup through runtime', () => {
+  it('defers input to the next native turn and ends the caller stream once after both replies', async () => {
+    const workDir = await mkdtemp(join(tmpdir(), 'operon-followup-'))
+    const handle = fauxProvider(), runtime = createModelRuntime({ builtins: false })
+    runtime.models.setProvider(handle.provider)
+    const model = defineModel({ runtime, descriptor: handle.getModel() as Model<Api> })
+    const started = deferred(), release = deferred()
+    const seen: boolean[] = []
+    const harness = createHarness({ model, workDir, permission: { mode: 'yolo' }, extensions: [{ id: 'followup', session(api) {
+      api.registerTool({ name: 'Wait', description: 'Wait', parameters: { type: 'object', properties: {} }, execute: async () => { started.resolve(); await release.promise; return 'done' } })
+    } }] })
+    try {
+      handle.setResponses([
+        fauxAssistantMessage([fauxToolCall('Wait', {})], { stopReason: 'toolUse' }),
+        (context) => { seen.push(JSON.stringify(context.messages).includes('FOLLOWUP_INPUT')); return fauxAssistantMessage('Original done', { stopReason: 'stop' }) },
+        (context) => { seen.push(JSON.stringify(context.messages).includes('FOLLOWUP_INPUT')); return fauxAssistantMessage('Followup done', { stopReason: 'stop' }) },
+      ])
+      const session = new OperonRuntimeSession(await harness.createSession(), 'test', 'yolo')
+      const parts: RuntimeStreamPart[] = []
+      let finished = false
+      const run = (async () => { for await (const part of session.send('first')) parts.push(part); finished = true })()
+      await started.promise
+      expect(await session.followup('FOLLOWUP_INPUT', { id: 'followup-1' })).toMatchObject({ delivery: 'accepted', mode: 'followup' })
+      expect(finished).toBe(false)
+      release.resolve(); await run
+      expect(seen).toEqual([false, true])
+      expect(parts.filter((p) => p.type === 'text-delta').map((p) => p.text).join('')).toContain('Original doneFollowup done')
+      expect(parts.filter((p) => p.type === 'finish')).toHaveLength(1)
+      expect(markers(parts)).toEqual([{ type: 'injected-input', id: 'followup-1', text: 'FOLLOWUP_INPUT' }])
+    } finally { release.resolve(); await harness.close(); await rm(workDir, { recursive: true, force: true }) }
+  })
+})

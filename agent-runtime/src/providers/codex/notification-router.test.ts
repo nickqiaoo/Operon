@@ -86,6 +86,46 @@ describe('NotificationRouter context compaction', () => {
 })
 
 describe('NotificationRouter injected input', () => {
+  it('distinguishes native completed messages from a draft closed at the next tool boundary', () => {
+    const parts: RuntimeStreamPart[] = []
+    const harness = createClientHarness()
+    const router = new NotificationRouter(harness.client, createEmitter(parts), {
+      threadId: 'thread-1', turnId: 'turn-1', onTurnCompleted: () => {},
+    })
+    const emit = (method: string, item: Record<string, unknown>) => harness.emit(method, { threadId: 'thread-1', turnId: 'turn-1', item })
+    router.subscribe()
+    harness.emit('item/agentMessage/delta', { threadId: 'thread-1', turnId: 'turn-1', itemId: 'a1', delta: 'Looking into it.' })
+    emit('item/completed', { type: 'agentMessage', id: 'a1', text: 'Looking into it.' })
+    harness.emit('item/agentMessage/delta', { threadId: 'thread-1', turnId: 'turn-1', itemId: 'draft', delta: 'I have asked Cod' })
+    emit('item/started', { type: 'commandExecution', id: 'cmd-1', command: 'true', status: 'inProgress' })
+    emit('item/completed', { type: 'agentMessage', id: 'a2', text: 'The checks passed.' })
+    router.unsubscribe()
+    expect(parts.filter((part) => part.type === 'text-end').map((part) => part.providerMetadata)).toEqual([
+      { runtime: { completedText: 'Looking into it.' } }, undefined, { runtime: { completedText: 'The checks passed.' } },
+    ])
+  })
+  it('passes on the questions of an async message, and nothing for an ordinary one', () => {
+    const parts: RuntimeStreamPart[] = []
+    const harness = createClientHarness()
+    const router = new NotificationRouter(harness.client, createEmitter(parts), {
+      threadId: 'thread-1', turnId: 'turn-1', onTurnCompleted: () => {},
+    })
+    const completed = (item: Record<string, unknown>) =>
+      harness.emit('item/completed', { threadId: 'thread-1', turnId: 'turn-1', item: { type: 'agentMessage', ...item } })
+    router.subscribe()
+    completed({ id: 'q1', text: 'Which?\n- A\n- B', phase: 'final_answer', delivery: 'async', questions: [{ title: 'Which?', options: ['A', 'B'] }] })
+    completed({ id: 'q2', text: 'Name?', delivery: 'async', questions: [{ title: 'Name?' }] })
+    completed({ id: 'q3', text: 'One?\nTwo?', delivery: 'async', questions: [{ title: 'One?', options: ['A'] }, { title: 'Two?', options: ['B'] }] })
+    completed({ id: 'plain', text: 'Done.', phase: 'final_answer' })
+    router.unsubscribe()
+    expect(parts.filter((part) => part.type === 'text-end').map((part) => part.providerMetadata)).toEqual([
+      { runtime: { completedText: 'Which?\n- A\n- B', phase: 'final_answer', questions: [{ title: 'Which?', options: ['A', 'B'] }] } },
+      { runtime: { completedText: 'Name?', questions: [{ title: 'Name?', options: [] }] } },
+      { runtime: { completedText: 'One?\nTwo?', questions: [{ title: 'One?', options: ['A'] }, { title: 'Two?', options: ['B'] }] } },
+      { runtime: { completedText: 'Done.', phase: 'final_answer' } },
+    ])
+  })
+
   function setup(pending: Map<string, { id: string; text: string }>) {
     const parts: RuntimeStreamPart[] = []
     const harness = createClientHarness()

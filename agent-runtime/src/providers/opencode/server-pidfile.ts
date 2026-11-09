@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import path from 'node:path'
 
 /**
@@ -23,7 +23,7 @@ const RECORD_PREFIX = 'opencode-server-'
 const RECORD_SUFFIX = '.json'
 
 export function defaultRunDir(): string {
-  return path.join(os.homedir(), '.operon', 'run')
+  return path.join(getOperonHome(), 'run')
 }
 
 interface ServerRecord {

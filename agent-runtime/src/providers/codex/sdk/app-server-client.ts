@@ -20,6 +20,7 @@ import type {
   ThreadResumeParams,
   TurnStartParams,
   TurnStartResult,
+  TurnSteerParams,
   TurnInterruptParams,
   ModelListParams,
   ModelListResult,
@@ -41,6 +42,10 @@ type PendingRequest = {
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
+
+export class CodexRpcError extends Error {
+  constructor(message: string, readonly code: number) { super(message); }
+}
 
 type NotificationHandler = (params: unknown) => void;
 
@@ -364,7 +369,7 @@ export class AppServerClient {
 
     if ('error' in msg && msg.error) {
       this.logger.debug(`Response ${msg.id} (${pending.method}): error - ${msg.error.message}`);
-      pending.reject(new Error(msg.error.message));
+      pending.reject(new CodexRpcError(msg.error.message, msg.error.code));
     } else if ('result' in msg) {
       this.logger.debug(`Response ${msg.id} (${pending.method}): success`);
       pending.resolve(msg.result);
@@ -547,6 +552,10 @@ export class AppServerClient {
    */
   async startTurn(params: TurnStartParams): Promise<TurnStartResult> {
     return this.request<TurnStartResult>('turn/start', params);
+  }
+
+  async steerTurn(params: TurnSteerParams): Promise<{ turnId: string }> {
+    return this.request<{ turnId: string }>('turn/steer', params);
   }
 
   /**

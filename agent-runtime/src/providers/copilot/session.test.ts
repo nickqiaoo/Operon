@@ -4,9 +4,9 @@ import { toCopilotMcpServers } from './session.js'
 describe('toCopilotMcpServers', () => {
   it('passes HTTP and stdio MCP servers into the Copilot SDK shape', () => {
     expect(toCopilotMcpServers({
-      node_repl: {
+      operonrepl: {
         type: 'http',
-        url: 'http://127.0.0.1:3100/api/node-repl-mcp?sessionId=42',
+        url: 'http://127.0.0.1:3100/api/operonrepl-mcp?sessionId=42',
       },
       local: {
         command: 'node',
@@ -14,9 +14,9 @@ describe('toCopilotMcpServers', () => {
         env: { TOKEN: 'test' },
       },
     })).toEqual({
-      node_repl: {
+      operonrepl: {
         type: 'http',
-        url: 'http://127.0.0.1:3100/api/node-repl-mcp?sessionId=42',
+        url: 'http://127.0.0.1:3100/api/operonrepl-mcp?sessionId=42',
         headers: undefined,
       },
       local: {

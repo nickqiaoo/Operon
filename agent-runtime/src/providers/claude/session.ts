@@ -31,10 +31,11 @@ import type {
   TaskControl,
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
-import { toUserMessages } from '../../utils/agent-input.js'
+import { toUserMessages, inputText } from '../../utils/agent-input.js'
 import { RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { PersistentInputQueue } from '../../utils/persistent-input-queue.js'
+import { STOPPED_EXECUTION_WAIT_MS, settledWithin } from '../../utils/settled-within.js'
 import { buildClaudeRuntimeSettings } from './config.js'
 import type { RuntimeContext } from '../../context.js'
 import { convertToClaudeMessages } from './message-mapper.js'
@@ -58,6 +59,12 @@ function isAbortError(error: unknown): boolean {
   return false
 }
 
+/**
+ * `cancelQueued` exists at runtime (control protocol capability
+ * `interrupt_cancel_queued_v1`) but is not on `Query['interrupt']`'s declared type.
+ */
+type InterruptCancellingQueued = (options: { cancelQueued: true }) => Promise<{ still_queued?: string[] } | undefined>
+
 // ---------------------------------------------------------------------------
 // Per-turn state — created for each stream() call, replaced on next turn
 // ---------------------------------------------------------------------------
@@ -66,6 +73,10 @@ interface TurnState {
   builder: ClaudeTextStreamBuilder
   controller: ReadableStreamDefaultController<import('../../types.js').RuntimeStreamPart>
   done: () => void
+  /** Resolves once this turn's stream has closed. */
+  finished: Promise<void>
+  /** `abort()` was called; its final result is on the way. */
+  aborted?: boolean
   /** Started by the agent itself (see `openBackgroundTurn`), not by a `stream()` call. */
   background?: { finished: Promise<void> }
 }
@@ -152,6 +163,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
    * (`isReplay`) at the moment it enters the conversation — that echo is where
    * the message goes in the stream.
    */
+  private readonly pendingFollowups = new Set<string>()
   private pendingInjections = new Map<string, { id: string; text: string }>()
 
   private readonly pendingApprovals = new Map<string, PendingApproval>()
@@ -189,6 +201,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     this.inputQueue = new PersistentInputQueue<SDKUserMessage>()
     // Whatever the last CLI process never took in died with it.
     this.pendingInjections.clear()
+    this.pendingFollowups.clear()
     this.abortController = new AbortController()
 
     // A side chat branches off its parent exactly once: while it has no session
@@ -388,6 +401,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
           const injected = this.pendingInjectionOf(message)
           if (injected) {
             this.pendingInjections.delete(injected.uuid)
+            this.pendingFollowups.delete(injected.uuid)
             turn.builder.handleInjectedInput(injected.id, injected.text)
             continue
           }
@@ -404,7 +418,8 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
           this.sessionId = message.session_id
           this.logger.info(`Turn result received (session ${this.sessionId})`)
 
-          turn.builder.handleResult(message, false)
+          turn.builder.handleResult(message, false, this.pendingFollowups.size === 0)
+          if (this.pendingFollowups.size > 0) continue
           turn.controller.close()
           turn.done()
           this.turn = null
@@ -469,7 +484,7 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
           getSessionId: () => this.sessionId,
         })
         builder.emitStart()
-        this.turn = { builder, controller, done: turnDone, background: { finished } }
+        this.turn = { builder, controller, done: turnDone, finished, background: { finished } }
       },
     })
     this.logger.info('Agent started a turn on its own; routing it to the background listener')
@@ -535,6 +550,16 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     const backgroundTurn = this.turn?.background
     if (backgroundTurn) await backgroundTurn.finished
 
+    // A stopped turn still owns `this.turn` until its final result arrives; taking
+    // the slot sooner would let that result close the new turn.
+    const stopping = this.turn
+    if (stopping?.aborted && !(await settledWithin(stopping.finished, STOPPED_EXECUTION_WAIT_MS)) && this.turn === stopping) {
+      this.logger.warn('Stopped turn did not finish in time; closing it')
+      stopping.controller.close()
+      stopping.done()
+      this.turn = null
+    }
+
     const converted = convertToClaudeMessages(messages)
     const warnings = (converted.warnings ?? []).map((message) => ({ type: 'other' as const, message }))
 
@@ -556,13 +581,13 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
         builder.emitStart()
 
         // Install per-turn state so the message loop routes output here
-        this.turn = { builder, controller, done: turnDone }
+        this.turn = { builder, controller, done: turnDone, finished: turnFinished }
 
         // Connect external abort signal
         if (signal) {
           signal.addEventListener(
             'abort',
-            () => void this.activeQuery?.interrupt().catch(() => {}),
+            () => this.abort(),
             { once: true },
           )
         }
@@ -643,8 +668,22 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
 
   abort(): void {
     this.logger.info('Abort requested (interrupt)')
-    // Interrupt stops the current generation; cli.js stays alive
-    void this.activeQuery?.interrupt().catch(() => {})
+    if (this.turn) this.turn.aborted = true
+    const hadFollowups = this.pendingFollowups.size > 0
+    this.pendingFollowups.clear()
+    this.pendingInjections.clear()
+    void this.interruptCancellingQueued(hadFollowups).catch(() => {})
+  }
+
+  /** Stops the generation and whatever input is queued behind it; cli.js stays alive. */
+  private async interruptCancellingQueued(hadFollowups: boolean): Promise<void> {
+    const activeQuery = this.activeQuery
+    if (!activeQuery) return
+    const interrupt = activeQuery.interrupt as unknown as InterruptCancellingQueued
+    const receipt = await interrupt.call(activeQuery, { cancelQueued: true })
+    if (hadFollowups && (!receipt || receipt.still_queued?.length)) {
+      this.logger.warn('CLI did not confirm cancelling queued followups; they may still run')
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -739,12 +778,27 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
   // Inject — enqueue a follow-up message into the current turn
   // -----------------------------------------------------------------------
 
+  async steer(content: string, options?: InjectOptions) {
+    await this.deliverInput(content, options, 'next')
+    return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
+  async followup(content: AgentInput, options?: InjectOptions) {
+    await this.deliverInput(content, options, 'later')
+    return { delivery: 'accepted' as const, mode: 'followup' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
   async inject(content: string, options?: InjectOptions): Promise<void> {
+    await this.steer(content, options)
+  }
+
+  private async deliverInput(content: AgentInput, options: InjectOptions | undefined, priority: 'next' | 'later'): Promise<void> {
     const activeQuery = this.activeQuery
     const inputQueue = this.inputQueue
     await this.mcpReadyPromise
 
     if (
+      !this.turn ||
       !activeQuery ||
       !inputQueue ||
       this.activeQuery !== activeQuery ||
@@ -755,14 +809,15 @@ export class ClaudeRuntimeSession implements AgentSession<ClaudeSessionNative> {
     }
     this.logger.info('Injecting follow-up into warm session')
     const uuid = randomUUID()
-    if (options?.id) this.pendingInjections.set(uuid, { id: options.id, text: content })
+    if (priority === 'later') this.pendingFollowups.add(uuid)
+    this.pendingInjections.set(uuid, { id: options?.id ?? uuid, text: inputText(content) })
     inputQueue.enqueue({
       type: 'user',
       uuid,
       // Taken in at the next point the agent stops to look (a tool result), or
       // after the reply it is writing — never cutting that reply off ('now' would).
-      priority: 'next',
-      message: { role: 'user', content: [{ type: 'text', text: content }] },
+      priority,
+      message: { role: 'user', content: typeof content === 'string' ? [{ type: 'text' as const, text: content }] : convertToClaudeMessages(toUserMessages(content)).streamingContentParts },
       parent_tool_use_id: null,
       session_id: this.sessionId ?? '',
     })

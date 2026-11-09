@@ -54,6 +54,7 @@ function mockStreamingQuery(options?: {
   mcpServerStatus?: () => Promise<McpServerStatus[]>;
   onUserMessage?: (message: SDKUserMessage) => void;
   beforeResult?: () => Promise<void>;
+  echoInput?: boolean;
 }) {
   const initializationResult = vi.fn().mockResolvedValue({});
   const mcpServerStatus =
@@ -77,6 +78,7 @@ function mockStreamingQuery(options?: {
         async *[Symbol.asyncIterator]() {
           for await (const message of prompt) {
             options?.onUserMessage?.(message);
+            if (options?.echoInput) yield { ...message, isReplay: true };
             await options?.beforeResult?.();
             yield resultMessage;
           }
@@ -499,3 +501,53 @@ describe('Claude writable dirs', () => {
     expect(buildClaudeRuntimeSettings({ cwd: '/home/a/ws' }, ctx).additionalDirectories).toBeUndefined();
   });
 });
+
+
+describe('Claude native followup stream', () => {
+  it('uses priority later and keeps one output stream through both SDK results', async () => {
+    let release!: () => void, started!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const first = new Promise<void>((r) => { started = r })
+    const inputs: SDKUserMessage[] = []
+    let results = 0
+    mockStreamingQuery({ echoInput: true, onUserMessage: (m) => { inputs.push(m); started() }, beforeResult: async () => { if (++results === 1) await gate } })
+    const session = new ClaudeRuntimeSession({ cwd: '/workspace' }, ctx)
+    const parts: import('../../types.js').RuntimeStreamPart[] = []
+    const run = (async () => { for await (const p of session.send('first')) parts.push(p) })()
+    await first
+    expect(await session.followup('later input', { id: 'followup-1' })).toMatchObject({ delivery: 'accepted', mode: 'followup' })
+    release()
+    await run
+    expect(inputs).toHaveLength(2)
+    expect(inputs[1].priority).toBe('later')
+    expect(parts.filter((p) => p.type === 'finish')).toHaveLength(1)
+    expect(parts).toContainEqual({ type: 'injected-input', id: 'followup-1', text: 'later input' })
+    await expect(session.steer('idle')).rejects.toThrow('No active')
+    await session.close()
+  })
+
+  it('stops with cancelQueued, keeps the CLI, and lets the next turn wait for the stopped one', async () => {
+    let release!: () => void, started!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const first = new Promise<void>((r) => { started = r })
+    let inputs = 0
+    sdkMock.query.mockClear()
+    const controls = mockStreamingQuery({ onUserMessage: () => started(), beforeResult: async () => { if (++inputs === 1) await gate } })
+    const session = new ClaudeRuntimeSession({ cwd: '/workspace' }, ctx)
+    const collect = async (input: string) => { const parts: import('../../types.js').RuntimeStreamPart[] = []; for await (const p of session.send(input)) parts.push(p); return parts }
+    const old = collect('first')
+    await first
+    await session.followup('dropped')
+    session.abort()
+    expect(controls.interrupt).toHaveBeenCalledWith({ cancelQueued: true })
+    let nextDone = false
+    const next = collect('next').then((parts) => { nextDone = true; return parts })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(nextDone).toBe(false)
+    release()
+    await old
+    expect((await next).filter((p) => p.type === 'finish')).toHaveLength(1)
+    expect(sdkMock.query).toHaveBeenCalledTimes(1)
+    await session.close()
+  })
+})

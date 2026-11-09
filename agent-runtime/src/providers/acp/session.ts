@@ -1,3 +1,4 @@
+import { QueuedFollowup } from '../../queued-followup.js'
 import { randomUUID } from 'node:crypto'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { RuntimeContext } from '../../context.js'
@@ -160,8 +161,14 @@ export class AcpRuntimeSession implements AgentSession {
     }
   }
 
+  private readonly followups = new QueuedFollowup()
+
+  async followup(text: AgentInput, options?: import('../../types.js').InjectOptions) {
+    return this.followups.accept(text, options)
+  }
+
   send(input: AgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
-    return this.runTurn(input, options?.signal)
+    return this.followups.run(input, options, (next, opts) => this.runTurn(next, opts?.signal))
   }
 
   private async *runTurn(input: AgentInput, signal: AbortSignal | undefined): AsyncIterable<RuntimeStreamPart> {
@@ -501,6 +508,7 @@ export class AcpRuntimeSession implements AgentSession {
   }
 
   abort(): void {
+    this.followups.cancel()
     if (!this.connection || !this.sessionId) return
     if (this.pendingDecisions.size > 0) {
       for (const [, pending] of this.pendingDecisions) {
@@ -525,6 +533,7 @@ export class AcpRuntimeSession implements AgentSession {
   }
 
   async close(): Promise<void> {
+    this.followups.cancel()
     for (const pending of this.pendingDecisions.values()) {
       pending.resolve({ outcome: { outcome: 'cancelled' } })
     }

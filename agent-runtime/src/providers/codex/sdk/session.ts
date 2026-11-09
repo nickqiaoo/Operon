@@ -5,9 +5,10 @@
  * methods for injecting messages mid-execution and interrupting active turns.
  */
 
-import type { AppServerClient } from './app-server-client.js';
+import { CodexRpcError, type AppServerClient } from './app-server-client.js';
 import type { Session as ISession, UserInput } from './types/index.js';
 import type { ProtocolUserInput } from './protocol/index.js';
+import { RuntimeInjectionUnavailableError } from '../../../types.js';
 
 /**
  * Convert public UserInput type to protocol format
@@ -61,10 +62,8 @@ export class SessionImpl implements ISession {
   /**
    * Inject a message into the active execution.
    *
-   * If a turn is currently active, the message is queued in the pending input buffer
-   * and will be consumed at the next checkpoint in the model interaction loop.
-   *
-   * If no turn is active, a new turn is started with this message.
+   * Requires an active turn and uses turn/steer with expectedTurnId.
+   * Never starts a new turn or interrupts the current output.
    *
    * @param content - String message or array of UserInput objects
    * @param options.clientUserMessageId - Echoed back as `clientId` on the input's `userMessage` item
@@ -75,18 +74,23 @@ export class SessionImpl implements ISession {
 
     const protocolInputs = inputs.map(toProtocolInput);
 
-    // Always use turn/start - the app-server will queue the input if a turn is active
-    const result = await this.client.startTurn({
-      threadId: this.threadId,
-      input: protocolInputs,
-      ...(options?.clientUserMessageId ? { clientUserMessageId: options.clientUserMessageId } : {}),
-    });
-
-    // Update turn state if we got a new turn
-    if (String(result.turn.id) !== this._turnId) {
-      this._turnId = String(result.turn.id);
-      this._isActive = true;
+    if (!this._isActive || !this._turnId) {
+      throw new RuntimeInjectionUnavailableError('No active Codex turn to steer');
     }
+    try {
+      await this.client.steerTurn({
+        threadId: this.threadId,
+        expectedTurnId: this._turnId,
+        input: protocolInputs,
+        ...(options?.clientUserMessageId ? { clientUserMessageId: options.clientUserMessageId } : {}),
+      });
+    } catch (error) {
+      if (error instanceof CodexRpcError && (error.code === -32600 || error.code === -32602)) {
+        throw new RuntimeInjectionUnavailableError(error.message);
+      }
+      throw error;
+    }
+
   }
 
   /**

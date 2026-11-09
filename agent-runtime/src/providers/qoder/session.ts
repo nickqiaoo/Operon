@@ -30,9 +30,10 @@ import type {
 } from '../../types.js'
 import { RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import type { RuntimeContext } from '../../context.js'
-import { toUserMessages } from '../../utils/agent-input.js'
+import { toUserMessages, inputText } from '../../utils/agent-input.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { PersistentInputQueue } from '../../utils/persistent-input-queue.js'
+import { STOPPED_EXECUTION_WAIT_MS, settledWithin } from '../../utils/settled-within.js'
 import { createRuntimeLogger } from '../../logger.js'
 import { logProviderRaw } from '../../provider-raw-log.js'
 import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
@@ -64,6 +65,10 @@ interface TurnState {
   builder: ClaudeTextStreamBuilder
   controller: ReadableStreamDefaultController<RuntimeStreamPart>
   done: () => void
+  /** Resolves once this turn's stream has closed. */
+  finished: Promise<void>
+  /** `abort()` was called; its stream is about to close. */
+  aborted?: boolean
   /** Started by the agent itself (see `openBackgroundTurn`), not by a `send()` call. */
   background?: { finished: Promise<void> }
 }
@@ -110,6 +115,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
   private turn: TurnState | null = null
   private readonly mcpCalls = new McpCallStreamUnwrapper()
   /** Injected messages the CLI has not taken in yet, by the uuid they were sent with. */
+  private readonly pendingFollowups = new Set<string>()
   private pendingInjections = new Map<string, { id: string; text: string }>()
   private readonly pendingApprovals = new Map<string, QoderPendingApproval>()
   private backgroundListener: ((event: RuntimeBackgroundEvent) => void) | null = null
@@ -204,6 +210,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
 
     this.inputQueue = new PersistentInputQueue<SDKUserMessage>()
     this.pendingInjections.clear()
+    this.pendingFollowups.clear()
     this.abortController = new AbortController()
 
     // A side chat forks its parent exactly once — while it has no session id of
@@ -334,6 +341,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
             const injected = this.pendingInjectionOf(message)
             if (injected) {
               this.pendingInjections.delete(injected.uuid)
+              this.pendingFollowups.delete(injected.uuid)
               turn.builder.handleInjectedInput(injected.id, injected.text)
             } else {
               turn.builder.handleUserMessage(asClaudeUser(message))
@@ -343,12 +351,19 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
           case 'result':
             this.sessionId = message.session_id
             this.logger.info(`Turn result received (session ${this.sessionId})`)
-            turn.builder.handleResult(asClaudeResult(message), false)
+            turn.builder.handleResult(asClaudeResult(message), false, this.pendingFollowups.size === 0)
+            if (this.pendingFollowups.size > 0) break
             turn.controller.close()
             turn.done()
             this.turn = null
             break
         }
+      }
+      // `query.close()` can end the iteration without throwing.
+      if (this.turn) {
+        this.turn.controller.close()
+        this.turn.done()
+        this.turn = null
       }
     } catch (error) {
       if (!isAbortError(error)) {
@@ -419,7 +434,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
       start: (controller) => {
         const builder = this.newBuilder(controller, '', [])
         builder.emitStart()
-        this.turn = { builder, controller, done: turnDone, background: { finished } }
+        this.turn = { builder, controller, done: turnDone, finished, background: { finished } }
       },
     })
     this.logger.info('Agent started a turn on its own; routing it to the background listener')
@@ -440,6 +455,16 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
     const backgroundTurn = this.turn?.background
     if (backgroundTurn) await backgroundTurn.finished
 
+    // A stopped turn still owns `this.turn` until its final result arrives; taking
+    // the slot sooner would let that result close the new turn.
+    const stopping = this.turn
+    if (stopping?.aborted && !(await settledWithin(stopping.finished, STOPPED_EXECUTION_WAIT_MS)) && this.turn === stopping) {
+      this.logger.warn('Stopped turn did not finish in time; closing it')
+      stopping.controller.close()
+      stopping.done()
+      this.turn = null
+    }
+
     if (this.restartBeforeNextTurn) {
       this.restartBeforeNextTurn = false
       this.logger.info('Restarting warm query to apply a launch-time setting')
@@ -458,7 +483,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
       start: (controller) => {
         const builder = this.newBuilder(controller, converted.messagesPrompt, warnings)
         builder.emitStart()
-        this.turn = { builder, controller, done: turnDone }
+        this.turn = { builder, controller, done: turnDone, finished: turnFinished }
 
         signal?.addEventListener('abort', () => void this.activeQuery?.interrupt().catch(() => {}), { once: true })
 
@@ -520,6 +545,11 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
   }
 
   abort(): void {
+    if (this.turn) this.turn.aborted = true
+    if (this.pendingFollowups.size) {
+      this.pendingFollowups.clear()
+      void this.stopWarmQuery()
+    }
     this.logger.info('Abort requested (interrupt)')
     void this.activeQuery?.interrupt().catch(() => {})
   }
@@ -587,12 +617,27 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
     }
   }
 
+  async steer(content: string, options?: InjectOptions) {
+    await this.deliverInput(content, options, 'next')
+    return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
+  async followup(content: AgentInput, options?: InjectOptions) {
+    await this.deliverInput(content, options, 'later')
+    return { delivery: 'accepted' as const, mode: 'followup' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
   async inject(content: string, options?: InjectOptions): Promise<void> {
+    await this.steer(content, options)
+  }
+
+  private async deliverInput(content: AgentInput, options: InjectOptions | undefined, priority: 'next' | 'later'): Promise<void> {
     const activeQuery = this.activeQuery
     const inputQueue = this.inputQueue
     await this.mcpReadyPromise
 
     if (
+      !this.turn ||
       !activeQuery ||
       !inputQueue ||
       this.activeQuery !== activeQuery ||
@@ -602,14 +647,15 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
       throw new RuntimeInjectionUnavailableError('No active Qoder session to inject into')
     }
     const uuid = randomUUID()
-    if (options?.id) this.pendingInjections.set(uuid, { id: options.id, text: content })
+    if (priority === 'later') this.pendingFollowups.add(uuid)
+    this.pendingInjections.set(uuid, { id: options?.id ?? uuid, text: inputText(content) })
     inputQueue.enqueue({
       type: 'user',
       uuid,
       // Taken in at the next safe point (a tool result), never cutting off the
       // reply being written ('now' would).
-      priority: 'next',
-      message: { role: 'user', content: [{ type: 'text', text: content }] },
+      priority,
+      message: { role: 'user', content: asQoderContent(typeof content === 'string' ? [{ type: 'text' as const, text: content }] : convertToClaudeMessages(toUserMessages(content)).streamingContentParts) },
       parent_tool_use_id: null,
       session_id: this.sessionId ?? '',
     })

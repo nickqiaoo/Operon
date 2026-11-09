@@ -37,3 +37,6 @@ export {
   type TrafficRecorder,
   type TrafficRecorderContext,
 } from './traffic-recorder.js'
+
+/** Provider compatibility helper; native queue providers should use their own API. */
+export { QueuedFollowup } from './queued-followup.js'

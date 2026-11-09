@@ -238,6 +238,13 @@ export interface TurnStartParams {
   collaborationMode?: CollaborationMode;
 }
 
+export interface TurnSteerParams {
+  threadId: string;
+  input: ProtocolUserInput[];
+  expectedTurnId: string;
+  clientUserMessageId?: string;
+}
+
 export interface TurnStartResult {
   turn: Turn;
 }
@@ -286,6 +293,16 @@ export interface AgentMessage {
   type: 'agentMessage' | 'AgentMessage';
   id: string;
   text: string;
+  /** Unset when the provider doesn't say which part of the turn this is. */
+  phase?: 'commentary' | 'partial_answer' | 'final_answer' | null;
+  /** `async`: the message is a question from `request_user_input_async`; `text` is its plain-text rendering. */
+  delivery?: 'async' | null;
+  questions?: AsyncUserInputQuestion[] | null;
+}
+
+export interface AsyncUserInputQuestion {
+  title: string;
+  options?: string[] | null;
 }
 
 export interface Reasoning {

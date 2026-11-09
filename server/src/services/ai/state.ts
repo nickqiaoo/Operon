@@ -92,7 +92,7 @@ export function getSessionManager(): SessionManager {
     sessionManager = new SessionManager(getRuntime())
     // Two kinds of approval originate outside a chat session's own stream, and
     // both answer through the same `POST /permission-response`: host elicitations
-    // (Browser/Computer Use, asked from inside node_repl) and detached sub-agent
+    // (Browser/Computer Use, asked from inside operonrepl) and detached sub-agent
     // requests (workflow `agent()`, whose session has no chatId at all). Try each
     // in turn; an id belonging to neither falls through to the normal chat lookup.
     sessionManager.setExternalPermissionResolver((chatId, approvalId, decision) =>

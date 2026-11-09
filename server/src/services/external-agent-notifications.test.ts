@@ -20,7 +20,7 @@ vi.mock('./ai/session-ops.js', () => ({ injectIntoChat: mocks.inject }))
 const chatId = 910
 const message = (id: string): UIMessage => ({ id, role: 'user', parts: [{ type: 'text', text: `Result ${id}` }] })
 const finish = () => emitChatTurnFinished({ chatId, turnId: 'parent', status: 'completed' })
-const activeSession = () => ({ activeRequest: { requestId: 'parent' }, runtime: { inject: vi.fn() } })
+const activeSession = () => ({ activeRequest: { requestId: 'parent' }, runtime: { steer: vi.fn() } })
 const tick = () => vi.advanceTimersByTimeAsync(100)
 
 describe('external result notification inbox', () => {
@@ -36,21 +36,15 @@ describe('external result notification inbox', () => {
     vi.useRealTimers()
   })
 
-  it('waits without polling for a non-steer parent and starts one turn for all three results', async () => {
-    beginChatTurn(chatId, 'parent')
-    markChatTurnReady(chatId, 'parent')
-    mocks.getSession.mockReturnValue({ activeRequest: { requestId: 'parent' }, runtime: {} })
+  it('uses runtime followup for a parent without steer, without waiting in a host queue', async () => {
+    beginChatTurn(chatId, 'parent'); markChatTurnReady(chatId, 'parent')
+    mocks.getSession.mockReturnValue({ activeRequest: { requestId: 'parent' }, runtime: { followup() {} } })
     for (const id of ['A', 'B', 'C']) enqueueExternalAgentResult(chatId, message(id))
     await tick()
+    expect(mocks.inject).toHaveBeenCalledOnce()
+    expect(mocks.inject.mock.calls[0][1]).toBe('Result A\n\nResult B\n\nResult C')
+    expect(mocks.inject.mock.calls[0][3].mode).toBe('followup')
     expect(mocks.handleChat).not.toHaveBeenCalled()
-    expect(mocks.inject).not.toHaveBeenCalled()
-    expect(vi.getTimerCount()).toBe(0)
-    mocks.getSession.mockReturnValue(undefined)
-    finish()
-    await tick()
-    expect(mocks.handleChat).toHaveBeenCalledTimes(1)
-    expect(mocks.handleChat.mock.calls[0][0].messages[0].parts[0].text).toBe('Result A\n\nResult B\n\nResult C')
-    expect(mocks.handleChat.mock.calls[0][2]).toEqual({ onlyIfIdle: true })
   })
 
   it('steers a batch, and delivers arrivals during injection without waiting for the parent to finish', async () => {

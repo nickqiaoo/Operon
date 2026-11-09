@@ -206,7 +206,11 @@ describe('OpenCode V2 native session', () => {
 
   it('adds steer input using the native admission API', async () => {
     const { session, native } = fixture({ resume: 'session-1' })
-    await session.inject('Focus on tests', { id: 'steer-id' })
+    native.session.prompt.mockImplementationOnce(async () => {
+      await session.steer('Focus on tests', { id: 'steer-id' })
+      return { id: 'first' }
+    })
+    await collect(session)
     expect(native.session.prompt).toHaveBeenCalledWith({ sessionID: 'session-1', text: 'Focus on tests', id: expect.stringMatching(/^msg_/), delivery: 'steer' })
   })
 
@@ -312,5 +316,56 @@ describe('OpenCode V2 native session', () => {
     expect(native.mcp.disconnect).toHaveBeenCalledWith({ server: 'browser', location: { directory: '/workspace' } })
     await session.native.mcp.reconnect('browser')
     expect(native.mcp.connect).toHaveBeenCalledWith({ server: 'browser', location: { directory: '/workspace' } })
+  })
+})
+
+
+describe('OpenCode native queued followup', () => {
+  it('continues consuming after the first execution succeeds while a native inbox item waits', async () => {
+    const { session, native } = fixture()
+    let followupId = ''
+    native.session.prompt.mockImplementationOnce(async () => {
+      await session.followup('Next request', { id: 'queued-input' })
+      followupId = native.session.prompt.mock.calls[1][0].id ?? ''
+      return { id: 'first' }
+    })
+    native.event.subscribe.mockImplementation(() => ({ async *[Symbol.asyncIterator]() {
+      yield event('server.connected', {})
+      yield* replyEvents
+      yield event('session.inbox.delivered', { sessionID: 'session-1', inboxID: followupId })
+      yield event('session.text.started', { ...step, assistantMessageID: 'answer-2', ordinal: 0 })
+      yield event('session.text.delta', { ...step, assistantMessageID: 'answer-2', ordinal: 0, delta: 'Followup complete' })
+      yield event('session.text.ended', { ...step, assistantMessageID: 'answer-2', ordinal: 0, text: 'Followup complete' })
+      yield event('session.execution.succeeded', { sessionID: 'session-1' })
+    } }))
+    const parts = await collect(session)
+    expect(native.session.prompt.mock.calls[1][0].delivery).toBe('queue')
+    expect(parts.filter((p) => p.type === 'text-delta').map((p) => p.text).join('')).toContain('Followup complete')
+    expect(parts.filter((p) => p.type === 'finish')).toHaveLength(1)
+  })
+
+  it('ends with the first result when a queued prompt fails after its completion was skipped', async () => {
+    const { session, native } = fixture()
+    let failPrompt!: (error: Error) => void, skipped!: () => void
+    const completionSeen = new Promise<void>((resolve) => { skipped = resolve })
+    native.session.prompt.mockImplementationOnce(async () => {
+      native.session.prompt.mockImplementationOnce(() => new Promise<{ id: string }>((_, reject) => { failPrompt = reject }))
+      void session.followup('Never delivered').catch(() => {})
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return { id: 'first' }
+    })
+    native.event.subscribe.mockImplementation((options) => ({ async *[Symbol.asyncIterator]() {
+      yield event('server.connected', {})
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      yield* replyEvents
+      skipped()
+      await new Promise((resolve) => options?.signal?.addEventListener('abort', resolve))
+    } }))
+    const run = collect(session)
+    await completionSeen
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    failPrompt(new Error('network'))
+    const parts = await run
+    expect(parts).toContainEqual(expect.objectContaining({ type: 'finish', finishReason: 'stop' }))
   })
 })

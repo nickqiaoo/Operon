@@ -225,11 +225,14 @@ export class CopilotRuntimeProvider implements RuntimeProviderFactory {
       currentThinkingLevel: this.currentThinkingLevel,
       features: {
         // Normal mode surfaces a per-action approval card via onPermissionRequest
-        // (Autopilot/Plan auto-approve). Attachments/mid-turn injection aren't
-        // wired yet; the SDK persists session state so resume-based continuity works.
+        // (Autopilot/Plan auto-approve). Mid-turn input stays off until immediate/enqueue
+        // and their cancellation are verified against a real model; attachments are
+        // not wired. The SDK persists session state for resume.
         permissions: true,
         attachments: false,
         injection: false,
+        steer: false,
+        followup: false,
         sessionResume: true,
       },
     }

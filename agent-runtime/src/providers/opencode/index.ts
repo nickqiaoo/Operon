@@ -83,6 +83,8 @@ export class OpencodeRuntimeProvider
         permissions: true,
         attachments: true,
         injection: true,
+        steer: true,
+        followup: true,
         sessionResume: true,
         sideChat: true,
         dynamicSwitch: true,

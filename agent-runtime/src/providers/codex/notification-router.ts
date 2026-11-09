@@ -1,5 +1,6 @@
 import { REQUEST_NOT_HANDLED, type AppServerClient } from './sdk/app-server-client.js'
 import type {
+  AgentMessage,
   AgentMessageDeltaNotification,
   CollabAgentToolCall,
   CommandExecution,
@@ -29,6 +30,7 @@ import type {
 import { safeJsonStringify } from './message-mapper.js'
 import {
   CodexTextStreamEmitter,
+  type CompletedTextDetails,
   type CodexRateLimitSnapshot,
   type ThreadTokenUsage,
 } from './text-stream-emitter.js'
@@ -37,6 +39,15 @@ import { ToolTracker, buildToolResultPayload, isToolItem, resolveToolName } from
 type ToolItem = CommandExecution | FileChange | McpToolCall | WebSearch | CollabAgentToolCall
 type AccountUpdatedPayload = { authMode: string | null; planType: string | null }
 type AccountRateLimitsUpdatedPayload = { rateLimits: CodexRateLimitSnapshot | null }
+
+/** What a finished message says beyond its text. */
+function completedTextDetails(item: Pick<AgentMessage, 'phase' | 'delivery' | 'questions'>): CompletedTextDetails {
+  const questions = item.delivery === 'async' ? item.questions : undefined
+  return {
+    ...(item.phase ? { phase: item.phase } : {}),
+    ...(questions?.length ? { questions: questions.map(({ title, options }) => ({ title, options: options ?? [] })) } : {}),
+  }
+}
 
 export interface NotificationRouterOptions {
   threadId: string
@@ -261,7 +272,7 @@ export class NotificationRouter {
     const sameThread = (left: string, right: string) => String(left) === String(right)
     const sameTurn = (left: string, right: string) => String(left) === String(right)
     const normalizeType = (type: string) => type.toLowerCase()
-    const isAgentMessage = (item: { type: string }): item is { type: string; id: string; text: string } =>
+    const isAgentMessage = (item: { type: string }): item is AgentMessage =>
       normalizeType(item.type) === 'agentmessage'
     const isReasoning = (
       item: { type: string },
@@ -290,7 +301,7 @@ export class NotificationRouter {
       const payload = params as AgentMessageDeltaNotification['params']
       if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turnId, turnId)) return
       this.textItemIdsWithDelta.add(String(payload.itemId))
-      this.emitter.emitTextDelta(payload.delta)
+      this.emitter.emitTextDelta(payload.delta, String(payload.itemId))
     }
 
     const handleReasoningDelta = (params: unknown, isSummary: boolean) => {
@@ -413,8 +424,9 @@ export class NotificationRouter {
         if (isAgentMessage(payload.item)) {
           const itemId = String(payload.item.id)
           if (!this.textItemIdsWithDelta.has(itemId) && payload.item.text) {
-            this.emitter.emitTextDelta(payload.item.text)
+            this.emitter.emitTextDelta(payload.item.text, itemId)
           }
+          this.emitter.completeText(itemId, payload.item.text, completedTextDetails(payload.item))
           return
         }
 

@@ -89,13 +89,13 @@ describe('OpenCode caller identity plugin', () => {
 
   it('tags Code Mode nested MCP calls without changing the execute arguments', async () => {
     const { before } = await loadPlugin({ ses_child: 'ses_root' })
-    const execute = { args: { code: 'return await tools.node_repl.js({ code: "1 + 1" })' } }
+    const execute = { args: { code: 'return await tools.operonrepl.js({ code: "1 + 1" })' } }
     await before({ tool: 'execute', sessionID: 'ses_child', callID: 'execute-1' }, execute)
     expect(execute.args).not.toHaveProperty(OPENCODE_CALLER_ARG)
 
     // V2 invokes the hook again with the MCP key and the outer execute id.
     const nested = { args: { code: '1 + 1' } as Record<string, unknown> }
-    await before({ tool: 'node_repl_js', sessionID: 'ses_child', callID: 'execute-1' }, nested)
+    await before({ tool: 'operonrepl_js', sessionID: 'ses_child', callID: 'execute-1' }, nested)
     expect(nested.args[OPENCODE_CALLER_ARG]).toBe('ses_root')
   })
 })

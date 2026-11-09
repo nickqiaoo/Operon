@@ -163,6 +163,8 @@ export class ClaudeRuntimeProvider implements RuntimeProviderFactory<SessionOpti
         permissions: true,
         attachments: true,
         injection: true,
+        steer: true,
+        followup: true,
         sessionResume: true,
         checkpoint: true,
         dynamicSwitch: true,

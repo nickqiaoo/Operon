@@ -96,6 +96,8 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory<SessionOptio
         permissions: true,
         attachments: true,
         injection: true,
+        steer: true,
+        followup: true,
         sessionResume: true,
         goal: true,
         sideChat: true,

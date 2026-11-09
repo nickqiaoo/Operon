@@ -1,10 +1,8 @@
+import { deliverChatMessage } from './ai/chat-delivery.js'
 import { randomUUID } from 'node:crypto'
 import type { UIMessage } from 'ai'
 import { getChatStorage, getSessionManager } from './ai/state.js'
-import { handleChat } from './ai/chat-flow.js'
-import { injectIntoChat } from './ai/session-ops.js'
 import { isChatTurnBusy, isChatTurnStarting, onChatTurnFinished, onChatTurnReady } from './ai/chat-turn-lifecycle.js'
-import { findLatestUserMessage } from './ai/helpers.js'
 
 type Inbox = {
   pending: Map<string, UIMessage>
@@ -57,7 +55,8 @@ async function flush(chatId: number, inbox: Inbox): Promise<void> {
   const session = getSessionManager().get(chatId)
   const request = session?.activeRequest
   // Also wait through stream draining/persistence after the runtime turns idle.
-  if ((request && !session.runtime.inject) || (!request && isChatTurnBusy(chatId))) return
+  // A provider with no mid-turn input gets the result as a new turn afterwards.
+  if ((request && !session.runtime.steer && !session.runtime.followup) || (!request && isChatTurnBusy(chatId))) return
 
   const batch = [...inbox.pending.values()]
   if (!batch.length) { inboxes.delete(chatId); return }
@@ -65,30 +64,8 @@ async function flush(chatId: number, inbox: Inbox): Promise<void> {
   inbox.flushing = true
   inbox.flushAgain = false
   try {
-    if (request) {
-      const history = getChatStorage()?.getChatEntry(chatId)?.messages as UIMessage[] | undefined
-      const owner = findLatestUserMessage((history ?? []).filter((entry) =>
-        !(entry.metadata as { steer?: boolean } | undefined)?.steer))
-      const result = await injectIntoChat(chatId, message.parts
-        .filter((part) => part.type === 'text').map((part) => part.text).join('\n'), owner?.id,
-      { message, expectedRequestId: request.requestId })
-      if (result.delivery === 'not-sent') {
-        // Only a definite pre-injection rejection is safe to retry as a fresh turn.
-        if (!isChatTurnBusy(chatId) && !getSessionManager().get(chatId)?.activeRequest) inbox.flushAgain = true
-        return
-      }
-      if (!result.success) console.warn('[external-agent] notification injection', result.delivery, result.error)
-      // Unknown provider failures must not trigger a duplicate prompt. The user
-      // can still inspect the durable child result with external_agent_status.
-    } else {
-      const response = await handleChat({ chatId, requestId: message.id,
-        messages: [message], providerId: parent.providerId, modelId: parent.model,
-        modeId: parent.metadata?.modeId, thinkingLevel: parent.thinkingLevel, workspaceId: parent.workspaceId },
-      undefined, { onlyIfIdle: true })
-      void response.body?.cancel().catch(() => {})
-      if (response.status === 409) return // A user request won startup admission.
-      if (!response.ok) console.warn('[external-agent] notification turn failed', response.status)
-    }
+    const result = await deliverChatMessage(chatId, message)
+    if (result.error) console.warn('[external-agent] notification delivery', result.delivery, result.error)
     for (const entry of batch) {
       if (inbox.pending.get(entry.id) === entry) inbox.pending.delete(entry.id)
     }

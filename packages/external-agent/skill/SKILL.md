@@ -33,6 +33,11 @@ Keep the returned `agent_id`. Send subsequent instructions with
 model. Do not create a replacement agent just to continue the conversation. No
 new model question is needed for follow-ups using the same configuration.
 
+For a running child, auto delivery steers when supported, otherwise uses runtime
+followup when supported. An idle child starts a new execution in the same
+conversation. Unsupported operations fail. A delivery reported as unknown must
+not be automatically resent: the provider may already have accepted it.
+
 The run and send tools return immediately with a `turn_id`. This acknowledges
 acceptance, not completion. Results return automatically to this conversation.
 Results arriving together may be combined. While the parent is running, supported
@@ -57,11 +62,23 @@ turn still belongs to this child, and its result returns to the parent. Read the
 reported prompt source and status: a result may reflect instructions the user
 updated directly in that tab.
 
-`external_agent_stop({ agent_id })` stops the current turn and cancels queued
-messages; the conversation remains available for follow-up. Cancellation is not
+`external_agent_stop({ agent_id })` stops the current execution; native queued-input cancellation follows the provider
+behavior; the conversation remains available for follow-up. Cancellation is not
 success. Do not automatically restart a turn the user stopped.
 
-Execution queues and pending result delivery live in server memory. A server
-restart preserves chat history and parent-child relationships, but does not
-restart interrupted work or automatically resend pending results. Continue an
-interrupted child only when the user requests it.
+Compatibility followup queues and pending result delivery live in process memory;
+native queue persistence depends on the provider. A server restart preserves chat
+history and parent-child relationships, but does not automatically restart
+interrupted work or resend pending results. Continue an interrupted child only
+when the user requests it.
+
+### Input delivery
+
+`external_agent_send` accepts optional `delivery: "auto" | "steer" | "followup"`.
+Auto steers active agents when supported, otherwise uses runtime followup. An idle
+conversation starts another execution. Explicit steer requires an active capable
+agent; unsupported operations fail rather than silently switching modes. Followup
+waits for the current turn and its output continues on the execution stream. The
+parent receives one result after that stream finishes and the result is saved.
+Unknown delivery is not a rejection: never automatically resend it. Stopping
+native queued work depends on the provider; do not assume abort clears its inbox.

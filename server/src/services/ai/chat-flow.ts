@@ -153,7 +153,7 @@ export async function startChat(
   ) {
     payload.agentContext.sourceChatId = chatId
   }
-  // node_repl (Computer Use / Browser Use) is scoped by the conversation itself,
+  // operonrepl (Computer Use / Browser Use) is scoped by the conversation itself,
   // not by the optional agent-communication context. Plain chats, cron jobs and
   // canvases still have a chatId and must receive their own persistent kernel.
   const mcpContext = chatId > 0

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
+import { RuntimeInjectionUnavailableError, QueuedFollowup } from '@operon/agent-runtime'
 import type { ModelMessage } from 'ai'
 import type { AgentInput, ApprovalResponse, HarnessSession, ImageContent, Message, PermissionMode, QuestionResult, TextContent, ThinkingLevel as EngineThinkingLevel } from 'operon-agents'
 import type {
@@ -256,8 +256,10 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     this.currentModeId = modeId
   }
 
+  private readonly attachmentFollowups = new QueuedFollowup()
+
   send(input: RuntimeAgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
-    return this.runTurn([{ role: 'user', content: input }], options?.signal)
+    return this.attachmentFollowups.run(input, options, (next, opts) => this.runTurn([{ role: 'user', content: next }], opts?.signal))
   }
 
   readonly goal: GoalControl = {
@@ -452,6 +454,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   }
 
   abort(): void {
+    this.attachmentFollowups.cancel()
     this.harness.cancel()
     this.rejectPending()
   }
@@ -471,13 +474,27 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     return true
   }
 
-  async inject(content: string, options?: InjectOptions): Promise<void> {
+  async steer(text: string, options?: InjectOptions) {
+    await this.deliverInput(text, options, 'steer')
+    return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
+  async followup(text: RuntimeAgentInput, options?: InjectOptions) {
+    if (typeof text !== 'string') return this.attachmentFollowups.accept(text, options)
+    await this.deliverInput(text, options, 'followup')
+    return { delivery: 'accepted' as const, mode: 'followup' as const, ...(options?.id ? { id: options.id } : {}) }
+  }
+
+  async inject(content: string, options?: InjectOptions): Promise<void> { await this.steer(content, options) }
+
+  private async deliverInput(content: string, options: InjectOptions | undefined, mode: 'steer' | 'followup'): Promise<void> {
     const trimmed = content.trim()
     if (!trimmed) return
     if (this.harness.status.state !== 'running') {
       throw new RuntimeInjectionUnavailableError('No active Operon turn to inject into')
     }
-    const receipt = this.harness.steer(trimmed)
+    const receipt = mode === 'steer' ? this.harness.steer(trimmed) : this.harness.followUp(trimmed)
+    if (!receipt) throw new RuntimeInjectionUnavailableError('No active Operon execution')
     // Register before yielding: consumption can arrive before /inject responds.
     if (options?.id) this.pendingInjections.set(receipt.steerId, { id: options.id, text: trimmed })
     try {
@@ -580,6 +597,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   }
 
   async close(): Promise<void> {
+    this.attachmentFollowups.cancel()
     this.abort()
     await this.harness.close()
     this.pendingInjections.clear()

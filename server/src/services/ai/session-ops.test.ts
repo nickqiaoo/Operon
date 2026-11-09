@@ -85,12 +85,12 @@ describe('injectIntoChat', () => {
     const steerMessage = {
       id: 'steer-1',
       role: 'user' as const,
-      metadata: { steer: true, turnMessageId: 'user-1' },
+      metadata: { steer: true, turnMessageId: 'user-1', deliveryMode: 'steer' },
       parts: [{ type: 'text' as const, text: 'Focus on edge cases' }],
     };
     stateMock.getSession.mockReturnValue({
       activeRequest: { requestId: 'request-1', abortController: new AbortController() },
-      runtime: { inject: injectMessage },
+      runtime: { steer: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue(steerMessage);
     persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
@@ -117,7 +117,7 @@ describe('injectIntoChat', () => {
   it('uses the client-chosen id for both the injection and the steer message', async () => {
     const injectMessage = vi.fn().mockResolvedValue(undefined);
     stateMock.getSession.mockReturnValue({
-      activeRequest: { requestId: 'request-1' }, runtime: { inject: injectMessage },
+      activeRequest: { requestId: 'request-1' }, runtime: { steer: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-abc', role: 'user', parts: [] });
     persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
@@ -130,7 +130,7 @@ describe('injectIntoChat', () => {
   it('distinguishes accepted injection from a failed transcript save', async () => {
     const injectMessage = vi.fn().mockResolvedValue(undefined);
     stateMock.getSession.mockReturnValue({
-      activeRequest: { requestId: 'request-1' }, runtime: { inject: injectMessage },
+      activeRequest: { requestId: 'request-1' }, runtime: { steer: injectMessage },
     });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer', role: 'user', parts: [] });
     persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: false, error: 'disk full' });
@@ -141,17 +141,39 @@ describe('injectIntoChat', () => {
 
   it('keeps a definite provider rejection retryable', async () => {
     const injectMessage = vi.fn();
-    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'request' }, runtime: { inject: injectMessage } });
+    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'request' }, runtime: { steer: injectMessage } });
     const { injectIntoChat } = await loadSessionOps();
     const { RuntimeInjectionUnavailableError } = await import('@operon/agent-runtime');
     injectMessage.mockRejectedValue(new RuntimeInjectionUnavailableError('Not ready'));
     await expect(injectIntoChat(7, 'result')).resolves.toMatchObject({ delivery: 'not-sent' });
   });
 
+  it('lets auto fall back to followup only after a definite steer rejection', async () => {
+    const { injectIntoChat } = await loadSessionOps();
+    const { RuntimeInjectionUnavailableError } = await import('@operon/agent-runtime');
+    helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer', role: 'user', parts: [] });
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
+    const steer = vi.fn().mockRejectedValue(new RuntimeInjectionUnavailableError('between turns'));
+    const followup = vi.fn().mockResolvedValue(undefined);
+    stateMock.getSession.mockReturnValue({ activeRequest: { requestId: 'request' }, runtime: { steer, followup } });
+
+    const auto = await injectIntoChat(7, 'note', undefined, { mode: 'auto', messageId: 'id-1' });
+    expect(auto).toMatchObject({ success: true, delivery: 'accepted', message: { metadata: { deliveryMode: 'followup' } } });
+    expect(followup).toHaveBeenCalledWith('note', { id: 'id-1' });
+
+    followup.mockClear();
+    expect(await injectIntoChat(7, 'note', undefined, { mode: 'steer' })).toMatchObject({ success: false, delivery: 'not-sent' });
+    expect(followup).not.toHaveBeenCalled();
+
+    steer.mockRejectedValue(new Error('connection lost'));
+    expect(await injectIntoChat(7, 'note', undefined, { mode: 'auto' })).toMatchObject({ success: false, delivery: 'unknown' });
+    expect(followup).not.toHaveBeenCalled();
+  });
+
   it('does not inject into a replacement request and treats provider errors as uncertain', async () => {
     const injectMessage = vi.fn().mockRejectedValue(new Error('connection lost'));
     stateMock.getSession.mockReturnValue({
-      activeRequest: { requestId: 'new-request' }, runtime: { inject: injectMessage },
+      activeRequest: { requestId: 'new-request' }, runtime: { steer: injectMessage },
     });
     const { injectIntoChat } = await loadSessionOps();
     await expect(injectIntoChat(7, 'result', undefined, { expectedRequestId: 'old-request' }))
@@ -163,7 +185,7 @@ describe('injectIntoChat', () => {
 
   it('steers a turn the agent started on its own, which has no active request', async () => {
     const injectMessage = vi.fn().mockResolvedValue(undefined);
-    stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { inject: injectMessage } });
+    stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { steer: injectMessage } });
     liveTurnMock.getLiveTurn.mockReturnValue({ isDone: false });
     helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-1', role: 'user', parts: [] });
     persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
@@ -178,7 +200,7 @@ describe('injectIntoChat', () => {
 
   it('does not steer once the agent-started turn has finished', async () => {
     const injectMessage = vi.fn();
-    stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { inject: injectMessage } });
+    stateMock.getSession.mockReturnValue({ activeRequest: null, runtime: { steer: injectMessage } });
     liveTurnMock.getLiveTurn.mockReturnValue({ isDone: true });
     const { injectIntoChat } = await loadSessionOps();
 

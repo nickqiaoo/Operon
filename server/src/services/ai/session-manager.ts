@@ -77,7 +77,7 @@ const buildStructuralKey = (params: HostSessionOptions): string =>
     env: params.env ?? {},
     // Model, mode, effort and service tier go through `set`, not this key.
     // Claude applies live SDK controls; Codex includes them in `turn/start`.
-    // MCP config is a session capability. In particular, node_repl contains the
+    // MCP config is a session capability. In particular, operonrepl contains the
     // conversation id in its URL; reusing a session with a different map would
     // silently leave the agent connected to the wrong persistent kernel.
     mcpServers: params.mcpServers ?? {},
@@ -142,7 +142,7 @@ export class SessionManager {
 
   /**
    * Let the embedding host resolve permission requests that originate outside a
-   * provider stream (for example Browser Use inside the shared node_repl MCP).
+   * provider stream (for example Browser Use inside the shared operonrepl MCP).
    */
   setExternalPermissionResolver(
     resolver: (chatId: number, approvalId: string, decision: PermissionDecision) => boolean,

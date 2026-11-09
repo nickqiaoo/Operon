@@ -153,6 +153,6 @@ export function buildAcpDescriptor(
     currentModelId: model?.currentValue ?? resolved.currentModelId,
     currentModeId: mode?.currentValue ?? resolved.currentModeId,
     ...thinkingConfig(ctx?.session?.configOptions ?? []),
-    features: { ...config.features, ...(options.length > 0 ? { dynamicSwitch: true } : {}) },
+    features: { ...config.features, steer: false, followup: true, ...(options.length > 0 ? { dynamicSwitch: true } : {}) },
   }
 }

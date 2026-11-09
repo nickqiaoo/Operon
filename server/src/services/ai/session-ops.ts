@@ -77,6 +77,7 @@ export async function injectIntoChat(
     expectedRequestId?: string
     /** Id for the steer message, chosen by the client so it can match the reply's `data-injected-input` part to it. */
     messageId?: string
+    mode?: 'auto' | 'steer' | 'followup'
   },
 ): Promise<ChatInjectionResult> {
   const sessionManager = getSessionManager()
@@ -100,9 +101,12 @@ export async function injectIntoChat(
     return { success: false, delivery: 'not-sent', error: 'Session is not currently generating' }
   }
 
-  if (typeof session.runtime.inject !== 'function') {
+  const requested = options?.mode ?? 'steer'
+  let mode: 'steer' | 'followup' = requested === 'auto' ? (session.runtime.steer ? 'steer' : 'followup') : requested
+  const deliver = session.runtime[mode]
+  if (!deliver) {
     console.warn(`[AI] injectIntoChat(${chatId}): provider does not support inject`)
-    return { success: false, delivery: 'not-sent', error: 'Current provider does not support steer' }
+    return { success: false, delivery: 'not-sent', error: `Current provider does not support ${mode}` }
   }
 
   if (options?.expectedRequestId && session.activeRequest?.requestId !== options.expectedRequestId) {
@@ -113,9 +117,17 @@ export async function injectIntoChat(
   try {
     // The reply marks where the agent took it in with a part carrying this id.
     const steerId = options?.message?.id ?? options?.messageId ?? randomUUID()
-    await session.runtime.inject(trimmed, { id: steerId })
+    try {
+      await deliver.call(session.runtime, trimmed, { id: steerId })
+    } catch (error) {
+      // 'auto' may try the other operation only after a definite pre-send rejection.
+      if (requested !== 'auto' || mode !== 'steer' || !session.runtime.followup || !(error instanceof RuntimeInjectionUnavailableError)) throw error
+      mode = 'followup'
+      await session.runtime.followup(trimmed, { id: steerId })
+    }
     accepted = true
-    const generated = createSteerUserMessage(trimmed, turnMessageId, steerId)
+    const base = createSteerUserMessage(trimmed, turnMessageId, steerId)
+    const generated = { ...base, metadata: { ...(base.metadata as Record<string, unknown> | undefined), deliveryMode: mode } }
     const steerMessage = options?.message
       ? { ...options.message, metadata: { ...options.message.metadata ?? {}, ...generated.metadata ?? {} } }
       : generated

@@ -1,3 +1,4 @@
+import { addUsage } from '../../utils/add-usage.js'
 import { randomUUID } from 'node:crypto'
 import type { LanguageModelUsage } from 'ai'
 import type {
@@ -233,6 +234,8 @@ export class ClaudeTextStreamBuilder {
   private pendingStepUsage: LanguageModelUsage | undefined
   private pendingStepRawMetadata: JsonRecord | undefined
   private latestTotalUsage: LanguageModelUsage | undefined
+  /** Usage of the results already reported on this stream (accepted followups). */
+  private earlierResultsUsage: LanguageModelUsage | undefined
   private readonly toolStates = new Map<string, ToolStreamState>()
   private readonly pendingApprovalRequests = new Map<string, Extract<RuntimeTextStreamPart, { type: 'tool-approval-request' }>>()
   private readonly toolBlocksByIndex = new Map<number, string>()
@@ -808,7 +811,6 @@ export class ClaudeTextStreamBuilder {
 
   /** A message added mid-turn reached the agent here (the CLI replayed it back). */
   handleInjectedInput(id: string, text: string): void {
-    this.closeTextPart()
     this.emitRuntimePart({ type: 'injected-input', id, text })
   }
 
@@ -1008,7 +1010,7 @@ export class ClaudeTextStreamBuilder {
     return undefined
   }
 
-  handleResult(message: SDKResultMessage, isJsonMode: boolean): void {
+  handleResult(message: SDKResultMessage, isJsonMode: boolean, final = true): void {
     if ('usage' in message && message.usage) {
       this.latestTotalUsage = toLanguageModelUsage(message.usage)
     }
@@ -1047,11 +1049,20 @@ export class ClaudeTextStreamBuilder {
     this.emitMessageMetadata(providerMetadata, finalUsage)
     this.flushStep(finish.unified, finish.raw, extraMetadata)
 
+    if (!final) {
+      if (this.latestTotalUsage) {
+        this.earlierResultsUsage = this.earlierResultsUsage
+          ? addUsage(this.earlierResultsUsage, this.latestTotalUsage)
+          : this.latestTotalUsage
+      }
+      return
+    }
+    const totalUsage = this.latestTotalUsage ?? toLanguageModelUsage(createEmptyRawUsage())
     this.enqueue({
       type: 'finish',
       finishReason: finish.unified,
       rawFinishReason: finish.raw,
-      totalUsage: this.latestTotalUsage ?? toLanguageModelUsage(createEmptyRawUsage()),
+      totalUsage: this.earlierResultsUsage ? addUsage(this.earlierResultsUsage, totalUsage) : totalUsage,
       ...(providerMetadata ? { providerMetadata } : {}),
     })
     this.closed = true

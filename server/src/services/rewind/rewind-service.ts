@@ -1,9 +1,9 @@
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import os from 'node:os'
 
 const exec = promisify(execFile)
 
@@ -86,7 +86,7 @@ class KeyedMutex {
 
 // ---- Service ----
 
-const dataDir = process.env.OPERON_DATA_DIR || path.join(os.homedir(), '.operon', 'data')
+const dataDir = process.env.OPERON_DATA_DIR || path.join(getOperonHome(), 'data')
 const mutex = new KeyedMutex()
 
 /** In-memory cache of last known tree hash per gitdir, used to skip git add when nothing changed */

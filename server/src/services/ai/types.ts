@@ -49,7 +49,7 @@ export interface AgentMcpContext {
   cwd?: string
   /**
    * The operon conversation this session belongs to (= `chats.id`). Injects the
-   * node_repl MCP (Computer Use / Browser Use) and scopes it: node_repl forks a
+   * operonrepl MCP (Computer Use / Browser Use) and scopes it: operonrepl forks a
    * kernel per session, and the kernel keeps `globalThis` across turns (that is
    * how `agent.browsers` is reused), so two conversations must never share one.
    *

@@ -13,6 +13,7 @@ import type { AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import { preparedToUIChunks, runAgentTurn } from './agent-turn.js'
 import { createChatResponseHeaders } from './helpers.js'
 import { pumpToLiveTurn, startLiveTurn } from './live-turn-hub.js'
+import { beginChatTurn, emitChatTurnStarted, markChatTurnReady, emitChatTurnFinished } from './chat-turn-lifecycle.js'
 import {
   beginAssistantMessage,
   checkpointGapMs,
@@ -50,10 +51,14 @@ export async function runDetachedTurn(
   }
 
   const assistantMessageId = randomUUID()
+  const requestId = randomUUID()
+  beginChatTurn(target.chatId, requestId)
+  emitChatTurnStarted({ chatId: target.chatId, requestId, messages: [], providerId: target.providerId, modelId: target.modelId })
   // The SDK masks stream errors behind a generic notice and drops them from the
   // assembled message; a turn whose model call failed would show as an empty
   // bubble. Keep the text.
   let streamError: string | undefined
+  let streamAborted = false
   const writer = createReplyWriter({
     chatId: target.chatId,
     modelId: target.modelId,
@@ -62,7 +67,7 @@ export async function runDetachedTurn(
   const persist = (message: UIMessage) => writer.save(message, target.sessionId)
   beginAssistantMessage(target.chatId, assistantMessageId)
   const { preparedParts, done } = runAgentTurn(detached, {
-    requestId: randomUUID(),
+    requestId,
     input: '',
     signal: new AbortController().signal,
     assistantMessageId,
@@ -73,6 +78,7 @@ export async function runDetachedTurn(
       if (result.saved) return checkpointGapMs(result.bytes)
     },
     onPart: (part) => {
+      if (part.type === 'abort') streamAborted = true
       if (part.type === 'error') {
         const error = (part as { error?: unknown }).error
         streamError = error instanceof Error ? error.message : String(error ?? 'stream error')
@@ -80,6 +86,7 @@ export async function runDetachedTurn(
       target.onPart?.(part)
     },
   })
+  markChatTurnReady(target.chatId, requestId)
 
   // Same wire format as `handleChat`: an open tab attaches to the live turn and
   // the AI SDK rebuilds the assistant message from the replayed chunks.
@@ -95,6 +102,7 @@ export async function runDetachedTurn(
     console.warn(`[${target.logTag}] live turn tee failed:`, error instanceof Error ? error.message : String(error))
   }
 
+  let finalMessage: UIMessage | undefined
   try {
     const { message } = await done
     const hasContent = message.parts.some((p) => p.type !== 'step-start')
@@ -103,10 +111,19 @@ export async function runDetachedTurn(
       ? message
       : { ...message, parts: [...message.parts, { type: 'text', text: `Error: ${streamError}` }] }
     if (streamError) console.warn(`[${target.logTag}] detached turn on chat ${target.chatId} failed: ${streamError}`)
-    persist(toPersist)
+    const saved = persist(toPersist)
+    if (!saved.saved) throw new Error('Failed to save the background reply')
+    finalMessage = toPersist
     return toPersist
+  } catch (error) {
+    streamError ??= error instanceof Error ? error.message : String(error)
+    throw error
   } finally {
     endAssistantMessage(target.chatId, assistantMessageId)
+    emitChatTurnFinished({ chatId: target.chatId, turnId: requestId,
+      status: streamAborted ? 'cancelled' : streamError ? 'failed' : 'completed', message: finalMessage,
+      ...(streamError ? { error: streamError } : {}),
+    })
   }
 }
 

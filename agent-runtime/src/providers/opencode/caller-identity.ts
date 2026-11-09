@@ -31,7 +31,7 @@ export const OPENCODE_CALLER_ARG = '__operon_opencode_session'
  * (including the user's own) never see it.
  */
 // `assistant` covers the personal assistant's own servers (`assistant`, `assistant_worker`, …).
-const CALLER_ROUTED_SERVERS = ['external_agent', 'workflow', 'node_repl', 'schedule', 'assistant']
+const CALLER_ROUTED_SERVERS = ['external_agent', 'workflow', 'operonrepl', 'schedule', 'assistant']
 
 /** A nested result kept for a card is capped; the program itself still gets all of it. */
 const NESTED_RESULT_MAX_CHARS = 64_000

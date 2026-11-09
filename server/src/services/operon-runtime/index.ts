@@ -1,4 +1,5 @@
 import path from 'path'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import { mkdir, stat } from 'fs/promises'
 import { codeMode } from 'operon-code-mode'
 import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
@@ -91,7 +92,7 @@ async function resolveProjectRoot(cwd: string): Promise<string> {
  */
 async function loadWorkspaceMcpServers(root: string): Promise<Record<string, McpServerConfig>> {
   try {
-    const { servers } = await loadMcpServers(new LocalEnvironment(root), { appName: APP_NAME, cwd: root })
+    const { servers } = await loadMcpServers(new LocalEnvironment(root), { appName: APP_NAME, cwd: root, homeDir: getOperonHome() })
     return servers
   } catch (error) {
     console.warn(`[operon] failed to load MCP config under ${root}: ${error instanceof Error ? error.message : String(error)}`)
@@ -106,7 +107,7 @@ async function loadWorkspaceMcpServers(root: string): Promise<Record<string, Mcp
  */
 async function loadWorkspaceConfig(root: string): Promise<WorkspaceConfig> {
   try {
-    const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: root })
+    const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: root, homeDir: getOperonHome() })
     const core = toCoreOptions(config)
     return {
       permission: core.permission,
@@ -248,7 +249,7 @@ export async function resolveWorkspaceSetup(
   return {
     root,
     // Private to the session, layered over the shared workspace servers: they carry the
-    // conversation's own identity (node_repl's kernel, the workflow/taskboard scope), so a
+    // conversation's own identity (operonrepl's kernel, the workflow/taskboard scope), so a
     // same-named workspace entry is shadowed for this session rather than masking them.
     servers: { ...(injectedMcpServers as Record<string, McpServerConfig> | undefined) },
     permission: setup.permission,
@@ -459,6 +460,8 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
         permissions: true,
         attachments: true,
         injection: true,
+        steer: true,
+        followup: true,
         sessionResume: true,
         goal: true,
         dynamicSwitch: true,

@@ -87,10 +87,26 @@ function waitForIdle(chatId: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
+/** A notice for a spec the personal assistant started. */
+export interface AssistantSpecNotice {
+  projectId: number
+  text: string
+}
+
+let assistantSpecNoticeSink: ((notice: AssistantSpecNotice) => void) | undefined
+
+/** The personal assistant's runtime takes what its specs report (see `ChatMetadata.assistantSpec`). */
+export function setAssistantSpecNoticeSink(sink: ((notice: AssistantSpecNotice) => void) | undefined): void {
+  assistantSpecNoticeSink = sink
+}
+
 /**
  * Start a turn in a conversation with a message nobody typed — a workflow's
  * result, a spec asking for the user — once the chat is idle. Returns false when
  * the chat is gone or stayed busy. Never throws.
+ *
+ * A spec the assistant started has no conversation to run a turn in: its notices
+ * go to the assistant instead, which has its own one thread with the user.
  */
 export async function deliverChatNotice(
   chatId: number,
@@ -102,6 +118,15 @@ export async function deliverChatNotice(
   try {
     const meta = getChatHistoryService()?.getChatMeta(chatId)
     if (!meta) return false // conversation deleted
+    const assistantSpec = meta.metadata?.assistantSpec
+    if (assistantSpec) {
+      if (!assistantSpecNoticeSink) {
+        console.warn(`[chat-notice] the assistant is not running; dropped ${requestId}`)
+        return false
+      }
+      assistantSpecNoticeSink({ projectId: assistantSpec.projectId, text })
+      return true
+    }
     const message: UIMessage = { id: randomUUID(), role: 'user', parts: [{ type: 'text', text }], metadata }
     if (!(await waitForIdle(chatId, signal))) return false
     const response = await handleChat({
