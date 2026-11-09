@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.5.12] - 2026-11-09
+
+### Added
+
+- Set the thinking effort independently for Assistant's main, worker and background agents when the selected model supports it.
+
+### Changed
+
+- macOS builds reuse a checksum-verified Computer Use driver archive across architectures and retry downloads through both GitHub release endpoints.
+
+### Fixed
+
+- Operon's model picker refreshes after provider settings change or a custom provider is removed.
+- Mistral Large 4 uses its default reasoning behavior when no effort is selected and offers Low, Medium and High when setting it explicitly.
+
 ## [1.5.11] - 2026-11-09
 
 ### Added
