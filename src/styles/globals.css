@@ -892,14 +892,13 @@ body > div > button[title="Exit fullscreen"] {
   border-radius: 0 !important;
 }
 
-/* Lay the actions row exactly over the compact header (1.5rem + its 1px bottom
-   border) so the copy button centres on the language label. The row is sticky
-   and the block clips overflow, so `top` acts as a floor inside the block: any
-   value above 0 pushes the button below the header's centre line. */
+/* Lay the actions row exactly over the compact header so the copy button
+   centres on the language label. Streamdown positions the row absolutely inside
+   a block that clips overflow, so a negative margin would hide the button. */
 [data-streamdown="code-block"] > div:has([data-streamdown="code-block-actions"]) {
-  margin-top: calc(-1.5rem - 1px) !important;
   height: 1.5rem !important;
   top: 0 !important;
+  right: 0 !important;
   padding-right: 0.5rem;
 }
 
