@@ -13,13 +13,14 @@
  * below.
  */
 
-import type { MemoryEngine } from './engine.js'
+import type { MemoryEngine, MemoryReadFilter } from './engine.js'
 import {
   MemoryPageExistsError,
   MemoryPageNotFoundError,
   MemoryRevisionConflictError,
+  normalizeSlugKey,
 } from './engine.js'
-import { memorySearch } from './search/hybrid.js'
+import { memoryBrowse, memorySearch } from './search/hybrid.js'
 import {
   MEMORY_TYPES,
   SINGLETON_SLUG,
@@ -41,30 +42,57 @@ function dateOrNull(ms: number | null | undefined): string | null {
 }
 
 /**
- * Parse a model-supplied `occurred_at` into epoch ms at UTC midnight (day-level),
- * or undefined when unset. The tool surface takes a date string ("2025-07-16") so
- * the model never hand-computes epoch ms; a leading date inside a fuller ISO
- * string is accepted (time is floored away), and a raw epoch number still passes
- * through for backward compatibility. This mirrors the day-level read format.
+ * Parse a model-supplied date (`occurred_at`, `since`, `until`) into epoch ms at
+ * UTC midnight (day-level), or undefined when unset. The tool surface takes a date
+ * string ("2025-07-16") so the model never hand-computes epoch ms; a leading date
+ * inside a fuller ISO string is accepted (time is floored away), and a raw epoch
+ * number still passes through for backward compatibility. This mirrors the
+ * day-level read format.
  */
-function parseOccurredAt(value: unknown): number | undefined {
+function parseDate(value: unknown, field: string): number | undefined {
   if (value === undefined || value === null || value === '') return undefined
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('occurred_at must be a valid date')
+    if (!Number.isFinite(value)) throw new Error(`${field} must be a valid date`)
     return value
   }
   if (typeof value !== 'string') {
-    throw new Error('occurred_at must be a date string like "2025-07-16"')
+    throw new Error(`${field} must be a date string like "2025-07-16"`)
   }
   const s = value.trim()
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
-  if (!m) throw new Error(`occurred_at must be a date like "2025-07-16", got "${s}"`)
+  if (!m) throw new Error(`${field} must be a date like "2025-07-16", got "${s}"`)
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
   const dt = new Date(Date.UTC(y, mo - 1, d))
   if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
-    throw new Error(`occurred_at is not a real calendar date: "${s}"`)
+    throw new Error(`${field} is not a real calendar date: "${s}"`)
   }
   return dt.getTime()
+}
+
+const DAY_MS = 86_400_000
+
+/** Most timeline entries one page returns to the model per search. */
+const TIMELINE_PER_PAGE = 5
+
+/**
+ * Pick the entries a page shows the model. Entries are ranked by relevance to the
+ * query, except when the query only names the page: then nearly every entry
+ * matches and relevance says nothing, so the newest win. Ties keep newest first
+ * (`r.timeline` arrives that way), and the kept entries stay in time order.
+ */
+export function selectTimelineForModel(
+  query: string,
+  r: Pick<MemoryPageResult, 'slug' | 'timeline'>,
+): { timeline: MemoryPageResult['timeline']; omitted: number } {
+  const queryIsPageName = normalizeSlugKey(query) === normalizeSlugKey(r.slug)
+  const ranked = queryIsPageName
+    ? r.timeline
+    : [...r.timeline].sort((a, b) => (b.relevance ?? 0) - (a.relevance ?? 0))
+  const kept = new Set(ranked.slice(0, TIMELINE_PER_PAGE).map((t) => t.id))
+  return {
+    timeline: r.timeline.filter((t) => kept.has(t.id)),
+    omitted: r.timeline.length - kept.size,
+  }
 }
 
 /**
@@ -76,20 +104,24 @@ function parseOccurredAt(value: unknown): number | undefined {
  * keeps the raw numeric fields for the settings UI (formatDate); this transform
  * is only for the model-facing tool call.
  */
-function formatSearchResultsForModel(results: MemoryPageResult[]): unknown {
-  return results.map((r) => ({
-    type: r.type,
-    slug: r.slug,
-    truth: r.truth,
-    revision: r.revision,
-    updated_at: dateOrNull(r.updated_at),
-    timeline: r.timeline.map((t) => ({
-      id: t.id,
-      occurred_at: dateOrNull(t.occurred_at),
-      entry: t.entry,
-      matched: t.matched,
-    })),
-  }))
+function formatSearchResultsForModel(results: MemoryPageResult[], query: string): unknown {
+  return results.map((r) => {
+    const { timeline, omitted } = selectTimelineForModel(query, r)
+    return {
+      type: r.type,
+      slug: r.slug,
+      truth: r.truth,
+      revision: r.revision,
+      updated_at: dateOrNull(r.updated_at),
+      timeline: timeline.map((t) => ({
+        id: t.id,
+        occurred_at: dateOrNull(t.occurred_at),
+        entry: t.entry,
+        matched: t.matched,
+      })),
+      ...(omitted > 0 ? { timeline_omitted: omitted } : {}),
+    }
+  })
 }
 
 function parseType(value: unknown): MemoryType {
@@ -105,18 +137,55 @@ function parseType(value: unknown): MemoryType {
 
 export async function execMemorySearch(
   engine: MemoryEngine,
-  args: { query: string; types?: unknown; type?: unknown; limit?: number },
+  args: {
+    query?: string
+    types?: unknown
+    type?: unknown
+    limit?: number
+    /** Inclusive first day, "YYYY-MM-DD" (UTC). */
+    since?: string | number
+    /** Inclusive last day, "YYYY-MM-DD" (UTC). */
+    until?: string | number
+    slug?: string
+  },
 ): Promise<string> {
-  if (!args.query || typeof args.query !== 'string') {
-    throw new Error('query is required')
+  const query = typeof args.query === 'string' ? args.query.trim() : ''
+  const slug = typeof args.slug === 'string' ? args.slug.trim() : ''
+  const since = parseDate(args.since, 'since')
+  const untilDay = parseDate(args.until, 'until')
+  if (!query && !slug && since === undefined && untilDay === undefined) {
+    throw new Error('query is required unless since, until or slug is given')
   }
+  // Dates are day-level, so the last day counts through its final millisecond.
+  const until = untilDay === undefined ? undefined : untilDay + DAY_MS - 1
+  if (since !== undefined && until !== undefined && since > until) {
+    throw new Error('since must not be after until')
+  }
+
   const types = parseTypes(args.types ?? args.type)
-  const results = await memorySearch(engine, args.query, {
-    types,
-    limit: args.limit,
-  })
+  const filter: MemoryReadFilter = { since, until }
+  if (slug) {
+    filter.pages = resolvePages(engine, slug, types)
+    if (filter.pages.length === 0) return 'No matching memory pages.'
+  }
+
+  const results = query
+    ? await memorySearch(engine, query, { types, limit: args.limit, filter })
+    : memoryBrowse(engine, { types, limit: args.limit, filter })
   if (results.length === 0) return 'No matching memory pages.'
-  return j(formatSearchResultsForModel(results))
+  return j(formatSearchResultsForModel(results, query))
+}
+
+/** The existing pages a slug names, in each of `types` (all types when unset). */
+function resolvePages(
+  engine: MemoryEngine,
+  slug: string,
+  types: MemoryType[] | undefined,
+): Array<{ type: MemoryType; slug: string }> {
+  return (types ?? MEMORY_TYPES).flatMap((type) => {
+    const resolved = engine.resolveExistingSlug(type, slug)
+    return resolved ? [{ type, slug: resolved }] : []
+  })
 }
 
 function parseTypes(value: unknown): MemoryType[] | undefined {
@@ -147,8 +216,10 @@ const CANDIDATE_K = 5
 interface MergeDecision {
   action: 'merge'
   target_slug: string
-  base_revision: number
-  truth: string
+  /** Required when `truth` is present. */
+  base_revision?: number
+  /** Full new page truth. Omitted = append to the timeline, truth unchanged. */
+  truth?: string
 }
 
 interface CreateDecision {
@@ -179,9 +250,9 @@ function parseDecision(value: unknown): ReconcileDecision | undefined {
     const truth = optionalString(value.truth)?.trim()
     const baseRevision = value.base_revision
     if (!targetSlug) throw new Error('decision.target_slug is required for merge')
-    if (!truth) throw new Error('decision.truth is required for merge')
+    if (!truth) return { action, target_slug: targetSlug }
     if (typeof baseRevision !== 'number' || !Number.isInteger(baseRevision)) {
-      throw new Error('decision.base_revision is required for merge')
+      throw new Error('decision.base_revision is required when merge rewrites truth')
     }
     return {
       action,
@@ -231,7 +302,7 @@ export async function execMemoryUpsert(
 	    entry: content,
 	    reason,
 	    source: ctx.source,
-	    occurred_at: parseOccurredAt(args.occurred_at),
+	    occurred_at: parseDate(args.occurred_at, 'occurred_at'),
 	  }
 
   if (!hint) throw new Error('slug_hint is required for this type')
@@ -251,6 +322,12 @@ export async function execMemoryUpsert(
     }
 
     try {
+      if (decision.truth === undefined) {
+        const appended = await engine.appendTimeline(type, targetPage.slug, timeline)
+        if (hint) engine.recordAlias(type, hint, appended.slug)
+        return j({ status: 'written', action: 'appended', ...appended })
+      }
+
       const result = await engine.replacePageTruth(type, targetPage.slug, decision.truth, timeline, {
         baseRevision: decision.base_revision,
       })
@@ -386,8 +463,10 @@ function needsReconcile(
     candidates,
     instruction:
       'Decide whether the incoming content belongs on an existing page or should become a new page. ' +
-      'Re-call memory_upsert with the same content/reason and decision={action:"merge",target_slug,base_revision,truth} ' +
-      'where truth is the full merged page truth, or decision={action:"create"} for a genuinely new page.',
+      'Re-call memory_upsert with the same content/reason and one decision: ' +
+      'decision={action:"merge",target_slug} appends it to that page\'s timeline and leaves the truth unchanged (the usual case); ' +
+      'decision={action:"merge",target_slug,base_revision,truth} also replaces the truth, only when it has become wrong or lacks a lasting fact; ' +
+      'decision={action:"create"} makes a genuinely new page.',
   })
 }
 
@@ -411,11 +490,27 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
   {
     name: 'memory_search',
     description:
-      'Hybrid retrieval across memory pages (truth + timeline). Fuses FTS5 and vector search, grouped by (type, slug). Pass multiple types in one call to avoid repeated searches.',
+      'Hybrid retrieval across memory pages (truth + timeline). Fuses FTS5 and vector search, grouped by (type, slug). Pass multiple types in one call to avoid repeated searches. Each page returns its full truth and at most 5 timeline entries (the most relevant, shown newest first); timeline_omitted counts other entries that matched, so refine the query or narrow the dates to reach them. since, until and slug are exact filters: with any of them query is optional, and without a query entries are listed newest first. With since or until, only timeline entries in that range count as matches.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Natural-language or keyword query.' },
+        query: {
+          type: 'string',
+          description:
+            'Space-separated keywords (words of 3+ characters match best) or natural language. Optional when since, until or slug is given.',
+        },
+        since: {
+          type: 'string',
+          description: 'Only timeline entries on or after this day, "YYYY-MM-DD" (UTC).',
+        },
+        until: {
+          type: 'string',
+          description: 'Only timeline entries on or before this day, "YYYY-MM-DD" (UTC).',
+        },
+        slug: {
+          type: 'string',
+          description: 'Only this page, by its slug.',
+        },
         types: {
           type: 'array',
           items: { type: 'string', enum: MEMORY_TYPES },
@@ -427,13 +522,12 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
           description: 'Max number of pages to return (default 10).',
         },
       },
-      required: ['query'],
     },
   },
   {
     name: 'memory_upsert',
     description:
-      'Write memory through a two-step reconcile flow. First call with type, slug_hint, content, and reason. If no existing identity or semantic candidate is found, it creates a page. If candidates exist, it returns {status:"needs_reconcile", incoming, candidates:[{slug,truth,revision,distance?,match}]}. Re-call with the same content/reason and decision={action:"merge",target_slug,base_revision,truth} to replace the target with a full merged page truth, or decision={action:"create"} to create a genuinely new page. Type "user" ignores slug_hint and uses slug "user".',
+      'Write memory through a two-step reconcile flow. First call with type, slug_hint, content, and reason. If no existing identity or semantic candidate is found, it creates a page. If candidates exist, it returns {status:"needs_reconcile", incoming, candidates:[{slug,truth,revision,distance?,match}]}. Re-call with the same content/reason and one decision: {action:"merge",target_slug} appends the content to that page\'s timeline and leaves its truth unchanged (the usual case); {action:"merge",target_slug,base_revision,truth} also replaces the truth with a full new truth, only when it has become wrong or lacks a lasting fact; {action:"create"} creates a genuinely new page. Type "user" ignores slug_hint and uses slug "user".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -461,7 +555,7 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
         decision: {
           type: 'object',
           description:
-            'Only pass after a needs_reconcile response. Use action="merge" with target_slug, base_revision, and full merged truth, or action="create" for a genuinely new page.',
+            'Only pass after a needs_reconcile response. action="merge" with target_slug appends to the timeline and keeps the truth; add base_revision and truth (the full new truth) only when the truth must change. action="create" makes a genuinely new page.',
           properties: {
             action: { type: 'string', enum: ['merge', 'create'] },
             target_slug: { type: 'string' },

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
-import os from 'node:os'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import path from 'node:path'
 
 export type RunLogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -13,7 +13,7 @@ interface RunLogContext {
 const storage = new AsyncLocalStorage<RunLogContext>()
 
 function logsDir(): string {
-  return path.join(os.homedir(), '.operon', 'logs', 'memory-maintenance')
+  return path.join(getOperonHome(), 'logs', 'memory-maintenance')
 }
 
 export function getRunLogPath(runId: number): string {

@@ -10,14 +10,16 @@
  * truth + hit timeline entries + fallback recent entries.
  */
 
-import type { MemoryEngine, KeywordHit, VectorHit } from '../engine.js'
+import type { MemoryEngine, MemoryReadFilter, KeywordHit, VectorHit } from '../engine.js'
 import { normalizeSlugKey } from '../engine.js'
-import type { MemoryPageResult, MemoryType } from '../types.js'
+import type { MemoryPageResult, MemoryTimelineEntry, MemoryType } from '../types.js'
 import { getLocalLLM } from '../../vector/local-llm.js'
 
 export interface MemorySearchOpts {
   /** Restrict to one or more memory types. Empty / undefined = all types. */
   types?: MemoryType[]
+  /** Exact time / page restrictions, applied at the source. A time bound matches timeline only. */
+  filter?: MemoryReadFilter
   /** Max pages to return after grouping. Default 10. */
   limit?: number
   /** Per-source candidate depth before fusion. Default 30. */
@@ -70,12 +72,15 @@ export async function memorySearch(
   const minBm25 = opts.minBm25 ?? 0
 
   const types = opts.types && opts.types.length > 0 ? opts.types : undefined
+  const filter = opts.filter ?? {}
+  const timeBounded = filter.since !== undefined || filter.until !== undefined
 
-  // Run three searches concurrently.
+  // Run three searches concurrently. A truth has no event time, so a
+  // time-bounded search skips the truth index.
   const [pageHitsRaw, timelineHitsRaw, vectorHitsRaw] = await Promise.all([
-    Promise.resolve(engine.searchPageFTS(query, types, perSource)),
-    Promise.resolve(engine.searchTimelineFTS(query, types, perSource)),
-    engine.searchVector(query, types, perSource),
+    Promise.resolve(timeBounded ? [] : engine.searchPageFTS(query, types, perSource, filter)),
+    Promise.resolve(engine.searchTimelineFTS(query, types, perSource, filter)),
+    engine.searchVector(query, types, perSource, filter),
   ])
 
   // Single-source relevance gate, applied BEFORE fusion: RRF only ranks, so a
@@ -144,9 +149,11 @@ export async function memorySearch(
     if (!page) continue
 
     const matchedTimelineIds = new Set<number>()
+    const relevanceById = new Map<number, number>()
     for (const h of group.hits) {
       if (h.source_type === 'timeline' && typeof h.timeline_id === 'number') {
         matchedTimelineIds.add(h.timeline_id)
+        relevanceById.set(h.timeline_id, h.fusedScore)
       }
     }
 
@@ -170,6 +177,7 @@ export async function memorySearch(
           entry: r.entry,
           reason: r.reason,
           matched: true,
+          relevance: relevanceById.get(r.id),
         }))
     } else {
       // Fallback: recent N timeline entries for context
@@ -197,6 +205,47 @@ export async function memorySearch(
   }
 
   return rerankResults(query, results, limit, opts, queryEntities)
+}
+
+/** Most entries a query-less listing reads before grouping them into pages. */
+const BROWSE_ROW_LIMIT = 1000
+
+/**
+ * List by filter alone, with no query to rank against: pages whose entries pass
+ * the filter, the page with the newest entry first, entries newest first.
+ */
+export function memoryBrowse(
+  engine: MemoryEngine,
+  opts: Pick<MemorySearchOpts, 'types' | 'limit' | 'filter'>,
+): MemoryPageResult[] {
+  const limit = opts.limit ?? 10
+  const rows = engine.listTimeline(opts.types, opts.filter ?? {}, BROWSE_ROW_LIMIT)
+
+  const byPage = new Map<string, MemoryTimelineEntry[]>()
+  for (const row of rows) {
+    const key = `${row.page_type}|${row.page_slug}`
+    const bucket = byPage.get(key)
+    if (bucket) bucket.push(row)
+    else byPage.set(key, [row])
+  }
+
+  const results: MemoryPageResult[] = []
+  for (const entries of byPage.values()) {
+    if (results.length >= limit) break
+    const page = engine.getPage(entries[0]!.page_type, entries[0]!.page_slug)
+    if (!page) continue
+    results.push({
+      ...page,
+      timeline: entries.map((r) => ({
+        id: r.id,
+        occurred_at: r.occurred_at,
+        entry: r.entry,
+        reason: r.reason,
+        matched: true,
+      })),
+    })
+  }
+  return results
 }
 
 // =============================================================================

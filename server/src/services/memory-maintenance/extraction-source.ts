@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import os from 'node:os'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import path from 'node:path'
 
 /**
@@ -35,7 +35,7 @@ export const MAINTENANCE_ORIGIN = 'maintenance'
  * also load the repository's agent instructions into the extractor.
  */
 export function maintenanceWorkdir(): string {
-  const dir = path.join(os.homedir(), '.operon', 'memory-maintenance')
+  const dir = path.join(getOperonHome(), 'memory-maintenance')
   fs.mkdirSync(dir, { recursive: true })
   return dir
 }

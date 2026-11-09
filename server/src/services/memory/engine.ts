@@ -33,6 +33,65 @@ export const VECTOR_COLLECTION = 'memory'
  */
 const TRUTH_VEC_CHAR_BUDGET = 1500
 
+/**
+ * Vector candidates to pull when a filter applies. The index has no time or page
+ * column, so filtering happens after the KNN scan and needs a wider window.
+ */
+const FILTERED_VECTOR_K = 500
+
+/** Exact restrictions on a memory read. Absent fields do not restrict. */
+export interface MemoryReadFilter {
+  /** Inclusive epoch-ms bound on an entry's effective time (occurred_at, else created_at). */
+  since?: number
+  /** Inclusive epoch-ms bound on an entry's effective time (occurred_at, else created_at). */
+  until?: number
+  /** Only these pages. */
+  pages?: Array<{ type: MemoryType; slug: string }>
+}
+
+function hasTimeBounds(filter: MemoryReadFilter): boolean {
+  return filter.since !== undefined || filter.until !== undefined
+}
+
+function isFilterActive(filter: MemoryReadFilter): boolean {
+  return hasTimeBounds(filter) || !!filter.pages?.length
+}
+
+function isInFilterPages(filter: MemoryReadFilter, type: MemoryType, slug: string): boolean {
+  return !filter.pages?.length || filter.pages.some((p) => p.type === type && p.slug === slug)
+}
+
+function isInFilterTime(filter: MemoryReadFilter, time: number): boolean {
+  return (filter.since ?? -Infinity) <= time && time <= (filter.until ?? Infinity)
+}
+
+function pagesSql(
+  filter: MemoryReadFilter,
+  typeColumn: string,
+  slugColumn: string,
+): { clauses: string[]; params: unknown[] } {
+  if (!filter.pages?.length) return { clauses: [], params: [] }
+  const one = `(${typeColumn} = ? AND ${slugColumn} = ?)`
+  return {
+    clauses: [`(${filter.pages.map(() => one).join(' OR ')})`],
+    params: filter.pages.flatMap((p) => [p.type, p.slug]),
+  }
+}
+
+/** WHERE fragments for a query over `memory_timeline t`. */
+function timelineFilterSql(filter: MemoryReadFilter): { clauses: string[]; params: unknown[] } {
+  const { clauses, params } = pagesSql(filter, 't.page_type', 't.page_slug')
+  if (filter.since !== undefined) {
+    clauses.push('COALESCE(t.occurred_at, t.created_at) >= ?')
+    params.push(filter.since)
+  }
+  if (filter.until !== undefined) {
+    clauses.push('COALESCE(t.occurred_at, t.created_at) <= ?')
+    params.push(filter.until)
+  }
+  return { clauses, params }
+}
+
 // =============================================================================
 // Row shapes
 // =============================================================================
@@ -298,6 +357,31 @@ export class MemoryEngine {
     return rows.map((r) => this.rowToTimeline(r))
   }
 
+  /** Timeline entries that pass `filter`, across pages, newest first. */
+  listTimeline(
+    types: MemoryType[] | undefined,
+    filter: MemoryReadFilter,
+    limit: number,
+  ): MemoryTimelineEntry[] {
+    const { clauses, params } = timelineFilterSql(filter)
+    if (types && types.length > 0) {
+      clauses.push(`t.page_type IN (${types.map(() => '?').join(',')})`)
+      params.push(...types)
+    }
+    params.push(limit)
+
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.page_type, t.page_slug, t.entry, t.reason, t.source, t.occurred_at, t.created_at
+           FROM memory_timeline t
+          ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
+          ORDER BY COALESCE(t.occurred_at, t.created_at) DESC, t.id DESC
+          LIMIT ?`,
+      )
+      .all(...params) as MemoryTimelineRow[]
+    return rows.map((r) => this.rowToTimeline(r))
+  }
+
   getTimelineByIds(ids: number[]): MemoryTimelineEntry[] {
     if (ids.length === 0) return []
     const placeholders = ids.map(() => '?').join(',')
@@ -470,6 +554,59 @@ export class MemoryEngine {
     }
   }
 
+  /**
+   * Add a timeline entry to an existing page and leave its truth alone. The
+   * revision versions the truth, so it stays put and an append can never make a
+   * concurrent truth rewrite stale.
+   */
+  async appendTimeline(
+    type: MemoryType,
+    slug: string,
+    timeline: TimelineInput,
+  ): Promise<UpsertResult> {
+    if (!timeline.entry.trim()) throw new Error('timeline entry is required')
+
+    const now = Date.now()
+    const occurredAt = timeline.occurred_at ?? null
+
+    const tx = this.db.transaction(() => {
+      const existing = this.getPage(type, slug)
+      if (!existing) throw new MemoryPageNotFoundError(type, slug)
+
+      this.db
+        .prepare('UPDATE memory_page SET updated_at = ? WHERE type = ? AND slug = ?')
+        .run(now, type, slug)
+
+      const r = this.db
+        .prepare(
+          `INSERT INTO memory_timeline (page_type, page_slug, entry, reason, source, occurred_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          type,
+          slug,
+          timeline.entry,
+          timeline.reason?.trim() || null,
+          timeline.source?.trim() || null,
+          occurredAt,
+          now,
+        )
+
+      return { timelineId: Number(r.lastInsertRowid), revision: existing.revision }
+    })
+
+    const { timelineId, revision } = tx()
+
+    try {
+      await this.indexTimelineEntry(type, slug, timelineId, timeline.entry)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.warn(`vector sync failed; FTS remains authoritative type=${type} slug=${slug} err=${msg}`)
+    }
+
+    return { type, slug, revision, merged: false }
+  }
+
   async upsert(
     type: MemoryType,
     slugHint: string,
@@ -632,7 +769,12 @@ export class MemoryEngine {
   /** Timeline FTS weight (lower than truth because less authoritative). */
   private static readonly BM25_TIMELINE_WEIGHT = 5.0
 
-  searchPageFTS(query: string, types: MemoryType[] | undefined, limit: number): KeywordHit[] {
+  searchPageFTS(
+    query: string,
+    types: MemoryType[] | undefined,
+    limit: number,
+    filter: MemoryReadFilter = {},
+  ): KeywordHit[] {
     const ftsQuery = buildFTS5Query(query)
     if (!ftsQuery) return []
 
@@ -642,7 +784,9 @@ export class MemoryEngine {
       clauses.push(`p.type IN (${types.map(() => '?').join(',')})`)
       params.push(...types)
     }
-    params.push(limit)
+    const pages = pagesSql(filter, 'p.type', 'p.slug')
+    clauses.push(...pages.clauses)
+    params.push(...pages.params, limit)
 
     const rows = this.db
       .prepare(
@@ -672,7 +816,12 @@ export class MemoryEngine {
       }))
   }
 
-  searchTimelineFTS(query: string, types: MemoryType[] | undefined, limit: number): KeywordHit[] {
+  searchTimelineFTS(
+    query: string,
+    types: MemoryType[] | undefined,
+    limit: number,
+    filter: MemoryReadFilter = {},
+  ): KeywordHit[] {
     const ftsQuery = buildFTS5Query(query)
     if (!ftsQuery) return []
 
@@ -682,7 +831,9 @@ export class MemoryEngine {
       clauses.push(`t.page_type IN (${types.map(() => '?').join(',')})`)
       params.push(...types)
     }
-    params.push(limit)
+    const narrowed = timelineFilterSql(filter)
+    clauses.push(...narrowed.clauses)
+    params.push(...narrowed.params, limit)
 
     const rows = this.db
       .prepare(
@@ -720,6 +871,7 @@ export class MemoryEngine {
     query: string,
     types: MemoryType[] | undefined,
     limit: number,
+    filter: MemoryReadFilter = {},
   ): Promise<VectorHit[]> {
     if (!this.vectors) return []
     const vec = await generateEmbedding(query)
@@ -732,13 +884,13 @@ export class MemoryEngine {
     const hits = this.vectors.search(
       VECTOR_COLLECTION,
       vec,
-      limit,
+      isFilterActive(filter) ? Math.max(limit, FILTERED_VECTOR_K) : limit,
       types && types.length > 0 ? { scope: types } : undefined,
     )
 
     const parsed: VectorHit[] = []
     for (const h of hits) {
-      const v = this.parseVectorHit(h)
+      const v = this.parseVectorHit(h, filter)
       if (!v) continue
       parsed.push(v)
       if (parsed.length >= limit) break
@@ -746,7 +898,7 @@ export class MemoryEngine {
     return parsed
   }
 
-  private parseVectorHit(hit: VectorStoreHit): VectorHit | null {
+  private parseVectorHit(hit: VectorStoreHit, filter: MemoryReadFilter): VectorHit | null {
     const category = String(hit.fields.category ?? '')
     const scope = String(hit.fields.scope ?? '')
     const sourceId = String(hit.fields.source_id ?? '')
@@ -754,6 +906,8 @@ export class MemoryEngine {
     if (!isMemoryType(scope)) return null
 
     if (category === 'truth') {
+      // A truth has no event time, so a time-bounded read matches timeline only.
+      if (hasTimeBounds(filter) || !isInFilterPages(filter, scope, sourceId)) return null
       return {
         source_type: 'truth',
         page_type: scope,
@@ -765,9 +919,13 @@ export class MemoryEngine {
       const timelineId = Number(sourceId)
       if (!Number.isFinite(timelineId)) return null
       const row = this.db
-        .prepare('SELECT page_type, page_slug FROM memory_timeline WHERE id = ?')
-        .get(timelineId) as { page_type: string; page_slug: string } | undefined
+        .prepare('SELECT page_type, page_slug, occurred_at, created_at FROM memory_timeline WHERE id = ?')
+        .get(timelineId) as
+        | { page_type: string; page_slug: string; occurred_at: number | null; created_at: number }
+        | undefined
       if (!row || !isMemoryType(row.page_type)) return null
+      if (!isInFilterPages(filter, row.page_type, row.page_slug)) return null
+      if (!isInFilterTime(filter, row.occurred_at ?? row.created_at)) return null
       return {
         source_type: 'timeline',
         page_type: row.page_type,

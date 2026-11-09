@@ -76,6 +76,8 @@ export interface MemoryPageResult {
     /** Evidence behind the entry. Shown in the settings UI; left out of the model-facing search result. */
     reason: string | null
     matched: boolean
+    /** Fusion score of this entry for the query. Unset when the entry was not ranked. */
+    relevance?: number
   }>
 }
 
