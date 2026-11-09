@@ -283,6 +283,14 @@ export function ChatInputArea({
     if (canSteer && !steerPending) void handleSteer();
   }, [activeSuggestion, setInput, slashCommand, selectItem, handleMentionKeyDown, input, selectedSkills, removeSkill, isGenerating, canSteer, steerPending, handleSteer]);
 
+  // On the form, not the textarea: clicking send leaves focus on the button. The / and @ menus
+  // and Radix popovers have already claimed Escape (preventDefault) by the time it bubbles here.
+  const handleStopKeyDown = useCallback((e: KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || e.nativeEvent.isComposing || !isGenerating) return;
+    e.preventDefault();
+    if (!e.repeat) onStop();
+  }, [isGenerating, onStop]);
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCursorPos(e.target.selectionStart ?? e.target.value.length);
     handleTextareaChange(e);
@@ -305,8 +313,12 @@ export function ChatInputArea({
 
   const handleSubmitWithSkills = useCallback((message: PromptInputMessage) => {
     setMobileActionExpanded(false);
+    const textarea = textareaContainerRef.current?.querySelector('textarea');
     // Phone: sending ends the typing, so the keyboard goes and the bar folds. (UIKit does its own.)
-    if (floating) textareaContainerRef.current?.querySelector('textarea')?.blur();
+    // Desktop: the send button disables as the draft clears and would drop focus to the page,
+    // where neither typing the next message nor Escape reaches the composer.
+    if (floating) textarea?.blur();
+    else textarea?.focus();
     if (selectedSkills.length > 0) {
       const skillPrefix = formatSlashCommandPrefix(selectedSkills);
       onSubmit({ ...message, text: `${skillPrefix} ${message.text}`.trim() });
@@ -507,6 +519,7 @@ export function ChatInputArea({
       accept="image/*,application/pdf,.txt,.md,.csv,.json,.xml,.yaml,.yml,.html,.css,.js,.ts,.jsx,.tsx,.py,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,.log,.env,.toml,.ini,.cfg"
       maxFileSize={10 * 1024 * 1024}
       multiple
+      onKeyDown={handleStopKeyDown}
       className={cn(
         // The composer's edge never changes: no focus ring, no per-mode tint. It
         // is where the eye already is and it is focused nearly all the time, so

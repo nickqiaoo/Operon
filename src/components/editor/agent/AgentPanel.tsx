@@ -187,7 +187,8 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
   useEffect(() => {
     if (!open || !live) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      // Already handled (the composer stopping a reply, a menu closing): not ours.
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
