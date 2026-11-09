@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [1.5.11] - 2026-11-09
+
+### Added
+
+- Create board tasks from Assistant or a workspace chat, then choose an agent to dispatch the task directly from its card.
+- Start an OperonSpec from Assistant, answer its questions, and follow its progress in the same conversation.
+- Answer agent questions from inline forms with suggested options or a written reply.
+- Run Operon Dev alongside the installed app with its own database, browser profile and cloud sign-in.
+- Configure Mistral in AI Providers and use its models in Operon.
+- Preview local images referenced in a completed workspace chat reply in a gallery below the message.
+
+### Changed
+
+- Follow-up messages can steer an active coding agent or queue for its next turn, depending on what the provider supports.
+- Memory searches can filter by date range and page. New timeline entries can be saved independently of the page summary.
+- Attachments begin uploading as soon as they are added to the composer, reducing the wait when sending.
+- Computer Use and Browser Use use the `operonrepl` MCP server so they can coexist with Codex's built-in `node_repl`.
+
+### Fixed
+
+- Fenced code blocks in streaming replies update as their content changes, even when the fence stays on the same lines.
+- Mobile chat keeps the latest messages in view when the keyboard opens and resumes following new replies after you scroll back to the bottom.
+- Mobile composers dismiss the keyboard after sending and preserve the draft when a goal cannot start.
+- Background replies report their final status so waiting callers can detect completion or failure.
+
 ## [1.5.10] - 2026-11-06
 
 ### Changed
