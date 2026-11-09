@@ -12,12 +12,26 @@ import {
   filesChangedBeyondMerge,
   getDefaultLocalBranch,
   isAncestor,
+  isGitRepo,
   isMerging,
   mergeBranch,
 } from './git.js'
 
 const run = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+
+describe('isGitRepo', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(path.join(tmpdir(), 'operon-non-repo-')) })
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  it('notices a folder that became a repository after it was found not to be one', async () => {
+    expect(await isGitRepo(root)).toBe(false)
+    expect(await isGitRepo(root)).toBe(false)
+    run(root, 'init', '-q', '-b', 'main')
+    expect(await isGitRepo(root)).toBe(true)
+  })
+})
 
 describe('unavailable workspaces', () => {
   let root: string

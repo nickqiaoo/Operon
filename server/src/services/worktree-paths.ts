@@ -1,4 +1,4 @@
-import os from 'node:os'
+import { getOperonHome } from '../../../shared/operon-home.js'
 import path from 'node:path'
 
 /**
@@ -8,7 +8,7 @@ import path from 'node:path'
  * repo's sibling directory. Override with OPERON_WORKTREES_DIR.
  */
 export function worktreesRoot(): string {
-  return process.env.OPERON_WORKTREES_DIR || path.join(os.homedir(), '.operon', 'worktrees')
+  return process.env.OPERON_WORKTREES_DIR || path.join(getOperonHome(), 'worktrees')
 }
 
 /**

@@ -32,7 +32,7 @@ export async function resolveLocalToken(): Promise<string | undefined> {
   const override = process.env.OPERON_API_TOKEN
   if (override) return override
   try {
-    const raw = await readFile(join(homedir(), '.operon', 'run', 'api-token'), 'utf-8')
+    const raw = await readFile(join(process.env.OPERON_HOME || join(homedir(), '.operon'), 'run', 'api-token'), 'utf-8')
     const token = raw.trim()
     return token || undefined
   } catch {
@@ -44,7 +44,7 @@ export async function resolveLocalBase(): Promise<string> {
   const override = process.env.LOCAL_BASE
   if (override) return override.replace(/\/$/, '')
 
-  const file = join(homedir(), '.operon', 'plugin-server.json')
+  const file = join(process.env.OPERON_HOME || join(homedir(), '.operon'), 'plugin-server.json')
   const raw = await readFile(file, 'utf-8')
   const info = JSON.parse(raw) as ServerInfo
   const base = info.url ?? `http://127.0.0.1:${info.port}`

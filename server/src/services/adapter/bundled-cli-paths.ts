@@ -1,3 +1,4 @@
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import { execFile } from 'node:child_process'
 import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -47,8 +48,8 @@ const ADAPTER_PATH_CANDIDATES: Partial<Record<CliAdapterId, readonly string[]>> 
   // shell never adds that dir, PATH alone misses it.
   qoder: [join(homedir(), '.local', 'bin', 'qodercli')],
   antigravity: [
-    join(homedir(), '.operon', 'acp-agents', 'antigravity', 'agy_acp_server.par'),
-    join(homedir(), '.operon', 'acp-agents', 'antigravity', 'agy_acp_server.exe'),
+    join(getOperonHome(), 'acp-agents', 'antigravity', 'agy_acp_server.par'),
+    join(getOperonHome(), 'acp-agents', 'antigravity', 'agy_acp_server.exe'),
   ],
 }
 

@@ -1,3 +1,4 @@
+import { getOperonHome } from '../../../../shared/operon-home.js'
 /**
  * SqliteVecStore — vector storage backed by SQLite + the `sqlite-vec` loadable
  * extension (vec0 virtual tables).
@@ -21,7 +22,6 @@
  */
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import os from 'node:os'
 import fs from 'node:fs'
 import Database from 'better-sqlite3'
 import { getEmbeddingConfig } from './embeddings.js'
@@ -42,7 +42,7 @@ function sqliteVec(): SqliteVecModule {
 // Sandboxable vector root. Defaults to ~/.operon/vector (unchanged behaviour);
 // set OPERON_VECTOR_DIR to relocate it (e.g. benchmark/eval runs that must not
 // touch the user's real vector store). Mirrors OPERON_DATA_DIR for SQLite.
-const VECTOR_DIR = process.env.OPERON_VECTOR_DIR || path.join(os.homedir(), '.operon', 'vector')
+const VECTOR_DIR = process.env.OPERON_VECTOR_DIR || path.join(getOperonHome(), 'vector')
 
 /** Each collection is its own database file; this is the table inside it. */
 const TABLE = 'memory_vec'

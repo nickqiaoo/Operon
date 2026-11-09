@@ -1,10 +1,10 @@
 import path from 'path'
-import os from 'os'
+import { getOperonHome } from '../../shared/operon-home.js'
 import { fileURLToPath } from 'url'
 import { startServer } from './start.js'
 
 const port = parseInt(process.env.OPERON_PORT || '3100', 10)
-const dataDir = process.env.OPERON_DATA_DIR || path.join(os.homedir(), '.operon', 'data')
+const dataDir = process.env.OPERON_DATA_DIR || path.join(getOperonHome(), 'data')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const migrationsDir = path.join(__dirname, 'storage', 'migrations')
 

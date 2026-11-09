@@ -170,7 +170,11 @@ const nonRepoCache = new Set<string>()
 
 async function ensureRepo(repoPath: string) {
   const git = getGit(repoPath)
-  if (nonRepoCache.has(repoPath)) return null
+  if (nonRepoCache.has(repoPath)) {
+    // Cheap enough to ask every time, and `git init` must not need an app restart.
+    if (!existsSync(join(repoPath, '.git'))) return null
+    nonRepoCache.delete(repoPath)
+  }
   if (!gitVerified.has(repoPath)) {
     const isRepo = await git.checkIsRepo()
     if (!isRepo) {

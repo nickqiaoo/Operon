@@ -5,7 +5,6 @@ import electron from 'vite-plugin-electron/simple'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 import type { LoggingFunction, RollupLog } from 'rollup'
-import { execSync } from 'node:child_process'
 
 const enableMemory = process.env.ENABLE_MEMORY !== 'false'
 const enableFastRefresh = process.env.REACT_FAST_REFRESH !== 'false'
@@ -17,21 +16,6 @@ const isWeb = buildTarget === 'web'
 const isNative = process.env.OPERON_NATIVE === '1'
 // The web target never bundles the Electron main/preload — force-skip the plugin.
 const skipElectron = process.env.OPERON_SKIP_ELECTRON === '1' || isWeb
-
-function killStaleElectronWindows() {
-  try {
-    const cwd = process.cwd()
-    const output = execSync(
-      `ps -eo pid,args | grep -i "[E]lectron" | grep "${cwd}" | awk '{print $1}'`,
-      { encoding: 'utf8', maxBuffer: 1024 * 1024 }
-    )
-    output.trim().split('\n').filter(Boolean).forEach((pid) => {
-      try {
-        process.kill(Number(pid), 'SIGKILL')
-      } catch {}
-    })
-  } catch {}
-}
 
 const createVendorChunkName = (id: string): string | undefined => {
   if (!id.includes('node_modules')) return undefined
@@ -112,7 +96,7 @@ export default defineConfig({
       main: {
         entry: 'electron/main.ts',
         onstart({ startup }) {
-          killStaleElectronWindows()
+          // The plugin stops only the Electron child it owns before restarting.
           startup()
         },
         vite: {
@@ -238,6 +222,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    strictPort: true,
     watch: {
       ignored: ['**/e2e/**', '**/test-results/**', '**/playwright-report/**','.claude'],
     },

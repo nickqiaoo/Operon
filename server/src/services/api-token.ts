@@ -1,6 +1,6 @@
+import { getOperonHome } from '../../../shared/operon-home.js'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import type { MiddlewareHandler } from 'hono'
 
@@ -48,7 +48,7 @@ export function isApiTokenAuthDisabled(): boolean {
 }
 
 export function apiTokenFilePath(): string {
-  return path.join(os.homedir(), '.operon', 'run', 'api-token')
+  return path.join(getOperonHome(), 'run', 'api-token')
 }
 
 /** Write the token where out-of-process local consumers look for it. */

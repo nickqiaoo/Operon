@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server'
+import { getOperonHome } from '../../shared/operon-home.js'
 import {
   createServer as httpCreateServer,
   type Server as HttpServer,
@@ -7,7 +8,6 @@ import {
 } from 'node:http'
 import type { Socket } from 'node:net'
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
 import { SqliteStorage } from './storage/sqlite.js'
 import { migrateInlineAttachmentsOnce } from './services/attachment-migration.js'
@@ -59,7 +59,7 @@ interface PublishedServerInfo {
   updatedAt: string
 }
 
-const discoveryFilePath = path.join(os.homedir(), '.operon', 'plugin-server.json')
+const discoveryFilePath = path.join(getOperonHome(), 'plugin-server.json')
 
 function publishServerInfo(port: number, hostname: string) {
   const host = hostname === '0.0.0.0' ? '127.0.0.1' : hostname
@@ -81,8 +81,8 @@ function publishServerInfo(port: number, hostname: string) {
  */
 function tightenLegacyFileModes() {
   for (const p of [
-    path.join(os.homedir(), '.operon', 'saas.json'),
-    path.join(os.homedir(), '.operon', 'data', 'mcp-servers.json'),
+    path.join(getOperonHome(), 'saas.json'),
+    path.join(process.env.OPERON_DATA_DIR || path.join(getOperonHome(), 'data'), 'mcp-servers.json'),
   ]) {
     try {
       fs.chmodSync(p, 0o600)

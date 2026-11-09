@@ -17,7 +17,7 @@ interface SaasConfig {
 
 export function readSaasConfig(): SaasConfig {
   try {
-    return JSON.parse(readFileSync(join(homedir(), '.operon', 'saas.json'), 'utf-8')) as SaasConfig
+    return JSON.parse(readFileSync(join(process.env.OPERON_HOME || join(homedir(), '.operon'), 'saas.json'), 'utf-8')) as SaasConfig
   } catch {
     return {}
   }

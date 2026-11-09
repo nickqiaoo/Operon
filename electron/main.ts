@@ -1,3 +1,4 @@
+import './profile.js'
 import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, powerMonitor } from 'electron'
 import { spawn, execFile } from 'child_process'
 import http from 'node:http'
@@ -620,6 +621,7 @@ app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1')
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: isDev ? 'Operon Dev' : 'Operon',
     width: 1400,
     height: 900,
     minWidth: 1000,
@@ -640,6 +642,12 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+  if (isDev) {
+    mainWindow.on('page-title-updated', (event) => {
+      event.preventDefault()
+      mainWindow?.setTitle('Operon Dev')
+    })
+  }
 
   // html_render pages (srcdoc iframes, the only ones in the app) must stay put.
   // Their CSP blocks every request but a navigation of the frame itself, which

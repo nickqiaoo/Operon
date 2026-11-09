@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, rmSync, chmodSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import { join, dirname } from 'node:path'
 
 // Persisted SaaS connection state, shared with the tunnel agent (which reads the
@@ -17,7 +17,7 @@ export interface SaasConfig {
   connectedAt?: number
 }
 
-const FILE = join(homedir(), '.operon', 'saas.json')
+const FILE = join(getOperonHome(), 'saas.json')
 
 export function getSaasConfig(): SaasConfig {
   try {

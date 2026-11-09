@@ -1,3 +1,4 @@
+import { getOperonHome } from '../../../../shared/operon-home.js'
 /**
  * Local LLM service using node-llama-cpp for embedding and reranking.
  *
@@ -12,7 +13,6 @@ import type {
   LlamaModel,
   LlamaEmbeddingContext,
 } from 'node-llama-cpp'
-import { homedir } from 'os'
 import { join } from 'path'
 import {
   existsSync,
@@ -62,7 +62,7 @@ function llamaAPI(): Promise<LlamaModule> {
 const EMBED_MODEL = 'hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf'
 const RERANK_MODEL = 'hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf'
 
-const MODEL_CACHE_DIR = join(homedir(), '.operon', 'models')
+const MODEL_CACHE_DIR = join(getOperonHome(), 'models')
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 // =============================================================================
