@@ -12,6 +12,7 @@ import {
   type CreatedTaskRef,
 } from '@shared/taskboard/tools'
 import { SpecChatCard } from '@/components/spec/SpecChatCard'
+import { TaskDispatchCard } from '@/components/task/TaskDispatchCard'
 import { unwrapToolEnvelope, type ToolPartLike } from './toolName'
 
 /**
@@ -167,6 +168,11 @@ export function TaskCreatedRenderer({ toolPart }: { toolPart: ToolPartLike }) {
   // which only the structured payload carries; without it, the plain card below.
   if (ref && (ref.spec || isOperonSpecTool(toolNameOf(toolPart)))) {
     return <SpecChatCard taskId={ref.taskId} taskNumber={ref.taskNumber} title={title} />
+  }
+
+  // A plain task with a known id can be handed to an agent right here.
+  if (ref && !isSpec && projectId != null) {
+    return <TaskDispatchCard projectId={projectId} taskId={ref.taskId} taskNumber={ref.taskNumber} title={title} />
   }
 
   const open = async () => {

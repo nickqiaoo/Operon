@@ -9,6 +9,8 @@
 export const TASKBOARD_TOOLS = {
   listProjectTasks: 'list_project_tasks',
   getProjectTask: 'get_project_task',
+  listProjectAgents: 'list_project_agents',
+  createProjectTask: 'create_project_task',
   dispatchProjectTask: 'dispatch_project_task',
   updateProjectTask: 'update_project_task',
   commentProjectTask: 'comment_project_task',
@@ -33,16 +35,13 @@ export type TaskboardToolName = (typeof TASKBOARD_TOOLS)[keyof typeof TASKBOARD_
 /**
  * Task-creating tools that are no longer registered, but still appear in stored
  * transcripts — `create_task` / `promote_to_task` predate the `*_project_task`
- * rename, `create_project_task` was removed outright (agent-initiated work goes
- * through a spec; plain tasks are created by people in the UI), and
- * `create_spec_task` was the SDD v2 entry that `start_spec` replaced. The
- * renderer still recognises them so scrolling back through old conversations
+ * rename, and `create_spec_task` was the SDD v2 entry that `start_spec` replaced.
+ * The renderer still recognises them so scrolling back through old conversations
  * keeps working. Retired names only, never new ones.
  */
 export const LEGACY_TASK_CREATING_TOOLS = [
   'create_task',
   'promote_to_task',
-  'create_project_task',
   'create_spec_task',
 ] as const
 
@@ -52,6 +51,7 @@ export const LEGACY_TASK_CREATING_TOOLS = [
  */
 export const TASK_CREATING_TOOLS: readonly string[] = [
   TASKBOARD_TOOLS.startSpec,
+  TASKBOARD_TOOLS.createProjectTask,
   ...LEGACY_TASK_CREATING_TOOLS,
 ]
 

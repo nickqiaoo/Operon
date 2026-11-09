@@ -55,6 +55,13 @@ export interface ToolResult {
   isError?: boolean
 }
 
+/** The agents a board task can be handed to, one per line. Hidden system agents are not among them. */
+export function formatAssignableAgents(storage: Pick<ChannelStorageAdapter, 'listAgents'>): string {
+  const agents = storage.listAgents().filter((agent) => !agent.hidden)
+  if (agents.length === 0) return 'No agents can take board tasks yet. The user can add one under Channels.'
+  return agents.map((agent) => `- @${agent.name} — ${agent.provider}, ${agent.model}`).join('\n')
+}
+
 /** A refusal or failure the model should read and act on. */
 function toolError(text: string): ToolResult {
   return { text, isError: true }
@@ -155,6 +162,36 @@ export class TaskBoardService {
       }
     }
     return lines.join('\n')
+  }
+
+  /** A direct workspace chat — the only board session allowed to create plain tasks. */
+  get isDirectChat(): boolean {
+    return this.sourceChatId != null
+  }
+
+  listAgents(): string {
+    return formatAssignableAgents(this.storage)
+  }
+
+  /** Channels only work on tasks people created; a chat creates one at the user's word. */
+  createTask(input: { title: string; description?: string; priority?: TaskPriority }, agentId: number): ToolResult {
+    if (!this.isDirectChat) return toolError('Tasks can only be created from a direct workspace chat.')
+    const title = input.title.trim()
+    if (!title) return toolError('The title is empty.')
+    const task = this.storage.taskCreate({
+      projectId: this.projectId,
+      title,
+      ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+      ...(input.priority != null ? { priority: input.priority } : {}),
+      createdBy: 'agent',
+      actorId: agentId,
+      actorName: this.agentName(agentId) ?? 'agent',
+    })
+    broadcastTask(this.storage, task.id)
+    return {
+      text: `Created task #${task.number} "${task.title}" (todo).`,
+      structured: { kind: 'created-task', taskId: task.id, taskNumber: task.number, title: task.title },
+    }
   }
 
   dispatchTask(number: number, assignee: string, actorAgentId: number): string | ToolResult {

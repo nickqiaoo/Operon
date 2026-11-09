@@ -74,6 +74,29 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: TASKBOARD_TOOLS.listProjectAgents,
+    description:
+      'List the agents a project task can be dispatched to, with the agent and model each runs on. Show these to the user so they can choose the assignee.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: TASKBOARD_TOOLS.createProjectTask,
+    description:
+      "Add a task to this project's Taskboard (it starts as todo). Call only after the user has agreed to what it says, and check list_project_tasks first so you do not duplicate one. For a design several agents should work out first, use the operon-spec skill instead.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: "Short title, in the user's language" },
+        description: {
+          type: 'string',
+          description: 'Everything the agent doing it needs, including what was decided in this chat: it will not see this conversation',
+        },
+        priority: { type: 'number', description: '0 none, 1 low, 2 medium, 3 high, 4 urgent' },
+      },
+      required: ['title', 'description'],
+    },
+  },
+  {
     name: TASKBOARD_TOOLS.dispatchProjectTask,
     description:
       'Dispatch a task to the confirmed assignee agent. The caller is the operator; assignee is the worker name, such as "@builder" or "builder". This assigns that agent, moves a todo task to in_progress, and starts the task-scoped execution session in its dedicated worktree. Use only after the user confirms the assignee.',
@@ -332,10 +355,12 @@ function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Serv
     { capabilities: { tools: {} } },
   )
 
-  // All board tools are always listed. A spec is not a pre-armed "mode": a chat
-  // becomes one when its agent calls start_spec, and every spec tool validates its
-  // own context at call time (start_spec needs a workspace chat).
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
+  // Listed everywhere except plain task creation, which a channel must not have.
+  // A spec is not a pre-armed "mode": a chat becomes one when its agent calls
+  // start_spec, and every spec tool validates its own context at call time
+  // (start_spec needs a workspace chat).
+  const tools = board.isDirectChat ? TOOLS : TOOLS.filter((tool) => tool.name !== TASKBOARD_TOOLS.createProjectTask)
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }))
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params
@@ -376,6 +401,19 @@ async function dispatch(
 
     case TASKBOARD_TOOLS.getProjectTask:
       return board.get(Number(args.task))
+
+    case TASKBOARD_TOOLS.listProjectAgents:
+      return board.listAgents()
+
+    case TASKBOARD_TOOLS.createProjectTask:
+      return board.createTask(
+        {
+          title: String(args.title ?? ''),
+          description: typeof args.description === 'string' ? args.description : undefined,
+          priority: typeof args.priority === 'number' ? (args.priority as TaskPriority) : undefined,
+        },
+        agentId,
+      )
 
     case TASKBOARD_TOOLS.dispatchProjectTask:
       return board.dispatchTask(Number(args.task), String(args.assignee), agentId)
