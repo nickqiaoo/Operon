@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.5.14] - 2026-11-09
+
+### Added
+
+- Workspace chats show the countdown and attempt number when Operon automatically retries a model request.
+- Inbox approval cards show a preview of the tool arguments when available.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.27`, which accepts more MCP configuration formats and improves auto-approval compatibility with Mistral.
+
+### Fixed
+
+- Opening a workspace chat from an Inbox notification jumps to its newest message, even if the chat is already open.
+- Operon approvals and questions include the tool arguments as soon as they appear, and Inbox approval cards refresh after a response.
+- On desktop, the Assistant transcript and composer stay aligned when the scrollbar appears.
+
 ## [1.5.13] - 2026-11-09
 
 ### Added
