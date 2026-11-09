@@ -461,7 +461,7 @@ export default function App() {
 
     <div className={`relative h-screen w-screen text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
       {/* Main Content */}
-      <AppSidebar onOpenSpec={openSpec}>
+      <AppSidebar onOpenSpec={openSpec} onOpenNotification={handleOpenNotification}>
         {/* Main Content Area (Center + Right) */}
         <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
           {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,

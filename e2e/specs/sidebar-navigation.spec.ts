@@ -227,6 +227,64 @@ test('project preview toggles and dismisses without resizing or changing the wor
   expect(await page.evaluate(() => window.__operon?.workspace?.())).toEqual(workspace)
 })
 
+test('resting on the rail projects button floats the tree until the pointer leaves it', async ({ page }) => {
+  await collapseSidebar(page)
+  const trigger = page.getByRole('button', { name: 'Projects', exact: true })
+  const tree = page.getByRole('dialog', { name: 'Projects', exact: true })
+
+  // Passing over it is not enough.
+  await trigger.hover()
+  await page.mouse.move(800, 300)
+  await page.waitForTimeout(700)
+  await expect(tree).toBeHidden()
+
+  await trigger.hover()
+  await expect(tree).toBeVisible()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  // Reaching the panel crosses the gap beside the rail without closing it.
+  await tree.getByRole('button', { name: 'main', exact: true }).hover()
+  await page.waitForTimeout(500)
+  await expect(tree).toBeVisible()
+  await expect(tree).not.toBeFocused()
+  await page.mouse.move(800, 300)
+  await expect(tree).toBeHidden()
+
+  // A click pins it, so leaving no longer closes it.
+  await trigger.hover()
+  await expect(tree).toBeVisible()
+  await trigger.click()
+  await page.mouse.move(800, 300)
+  await page.waitForTimeout(500)
+  await expect(tree).toBeVisible()
+  await trigger.click()
+  await expect(tree).toBeHidden()
+})
+
+test('resting on the rail inbox button floats the list and a click still opens the page', async ({ page }) => {
+  await collapseSidebar(page)
+  const inbox = page.getByTestId('left-sidebar').getByRole('button', { name: 'Inbox', exact: true })
+  const flyout = page.getByTestId('inbox-flyout')
+
+  await inbox.hover()
+  await expect(flyout).toBeVisible()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await flyout.getByRole('button', { name: 'Needs you', exact: true }).hover()
+  await page.waitForTimeout(500)
+  await expect(flyout).toBeVisible()
+  await page.mouse.move(800, 300)
+  await expect(flyout).toBeHidden()
+
+  await inbox.click()
+  await expect(inbox).toHaveAttribute('aria-current', 'page')
+  await expect(flyout).toBeHidden()
+
+  // Already on the inbox page: the button goes back to a plain tooltip.
+  await page.mouse.move(800, 300)
+  await inbox.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Inbox')
+  await expect(flyout).toBeHidden()
+})
+
 test('closing the project preview hides its add button on the next frame', async ({ page }) => {
   await collapseSidebar(page)
   await page.getByRole('button', { name: 'Projects', exact: true }).click()

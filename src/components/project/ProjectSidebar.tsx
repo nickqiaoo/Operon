@@ -22,7 +22,10 @@ import { useNavigationStore } from "@/stores/navigation-store"
 import { trackEvent } from "@/lib/analytics"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
 import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
+import { InboxPanel } from "@/components/inbox/InboxPanel"
+import type { Notification } from "@/types/notification"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
+import { useRailFlyout } from "./use-rail-flyout"
 import { projectSidebarEntries } from "./workspace-groups"
 
 type GitWorktreeEntry = {
@@ -312,9 +315,19 @@ function WorkspaceListSkeleton() {
  */
 interface ProjectSidebarProps {
   onOpenSpec?: (taskId: number, projectId: number) => void
+  /** Deep-link from a row in the rail's inbox flyout to its source. */
+  onOpenNotification?: (notification: Notification) => void
   collapsed?: boolean
   width?: number
 }
+
+// Panels floating out of the collapsed rail share one placement and surface.
+const railFlyoutClassName = "absolute bottom-2 left-[calc(100%+8px)] top-12 z-50 rounded-xl border border-border/60 bg-sidebar shadow-float"
+const railFlyoutEnterClassName = "animate-in fade-in-0 slide-in-from-left-1 duration-150"
+const RAIL_FLYOUT_MAX_WIDTH = "calc(100vw - 68px)"
+// Inbox rows carry an icon, two lines of text and a timestamp column: at the
+// project tree's 224px the text is left with about 100px.
+const INBOX_FLYOUT_WIDTH = 340
 
 /**
  * Runs the +N/-N refresh. Its own component because the hook subscribes to how
@@ -334,6 +347,8 @@ interface SidebarNavItemProps extends ComponentProps<"button"> {
   count?: number
   actionCount?: number
   tooltip?: boolean
+  /** Off for buttons whose hover floats a panel: the tooltip then stays keyboard-only. */
+  hoverTooltip?: boolean
 }
 
 // One rail/row slot: 40px tall, its 4px transparent border insetting the
@@ -343,7 +358,7 @@ const navItemClassName = (active: boolean | undefined) => cn(
   active ? "bg-row-selected text-foreground hover:bg-row-selected" : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
 )
 
-function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, className, ...props }: SidebarNavItemProps) {
+function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, hoverTooltip = true, className, ...props }: SidebarNavItemProps) {
   const total = actionCount || count
   const [tooltipOpen, setTooltipOpen] = useState(false)
 
@@ -360,6 +375,10 @@ function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actio
     >
       <TooltipTrigger
         asChild
+        onPointerMove={(event) => {
+          // Radix skips its hover-to-open handler for a prevented event.
+          if (!hoverTooltip) event.preventDefault()
+        }}
         onFocus={(event) => {
           // Window activation restores focus without a previous DOM target.
           if (!event.relatedTarget) {
@@ -398,9 +417,10 @@ function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actio
   )
 }
 
-export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSpec, onOpenNotification, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH }: ProjectSidebarProps) {
   const intl = useIntl()
   const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
+  const inboxLabel = intl.formatMessage({ id: "sidebar.inbox", defaultMessage: "Inbox" })
   const addRepositoryLabel = intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })
   const mainView = useNavigationStore((s) => s.main)
   const showMain = useNavigationStore((s) => s.showMain)
@@ -429,32 +449,41 @@ export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SID
   const assistantAction = useInboxStore((s) => s.counts.assistantAction ?? 0)
   const assistantTotal = useInboxStore((s) => s.counts.assistantTotal ?? 0)
 
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
   const projectsTriggerRef = useRef<HTMLButtonElement>(null)
   const projectTreeRef = useRef<HTMLDivElement>(null)
+  const inboxFlyoutRef = useRef<HTMLDivElement>(null)
   const projectTreeId = useId()
-  const floating = collapsed && previewOpen
+  const { flyout, close: closeFlyout, pin: pinFlyout, holdOpen: holdFlyoutOpen, triggerHover, panelHover } = useRailFlyout()
+  const flyoutOpen = collapsed && flyout !== null
+  const flyoutPinned = flyoutOpen && flyout.pinned
+  const floating = collapsed && flyout?.kind === "projects"
+  const inboxFloating = collapsed && flyout?.kind === "inbox"
 
   const closePreview = useCallback(() => {
-    setPreviewOpen(false)
-    // The trigger is mounted only in rail mode. Keep this callback stable so
-    // expanding the sidebar does not invalidate the memoized project rows.
-    projectsTriggerRef.current?.focus({ preventScroll: true })
-  }, [])
+    closeFlyout()
+    // The tree is about to go inert, so hand focus back rather than drop it. Only
+    // if it is in there: a hover-opened panel must not pull focus from the
+    // composer. The trigger is mounted only in rail mode. Keep this callback
+    // stable so expanding the sidebar does not invalidate the memoized rows.
+    if (projectTreeRef.current?.contains(document.activeElement)) {
+      projectsTriggerRef.current?.focus({ preventScroll: true })
+    }
+  }, [closeFlyout])
 
   useEffect(() => {
-    if (!collapsed) setPreviewOpen(false)
-  }, [collapsed])
+    if (!collapsed) closeFlyout()
+  }, [collapsed, closeFlyout])
 
   useEffect(() => {
-    if (!floating || newWorkspaceProjectId !== null) return
+    if (!flyoutOpen || newWorkspaceProjectId !== null) return
     const tree = projectTreeRef.current
     const trigger = projectsTriggerRef.current
+    const inbox = inboxFlyoutRef.current
     const isInside = (target: EventTarget | null) => target instanceof Node &&
-      (tree?.contains(target) || trigger?.contains(target))
+      (tree?.contains(target) || trigger?.contains(target) || inbox?.contains(target))
     const dismissOutside = (event: Event) => {
-      if (!isInside(event.target)) setPreviewOpen(false)
+      if (!isInside(event.target)) closeFlyout()
     }
     const dismissEscape = (event: KeyboardEvent) => {
       // Let an inner menu or dialog consume Escape first.
@@ -462,18 +491,26 @@ export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SID
       event.preventDefault()
       closePreview()
     }
-    // Focus the current item without moving the saved scroll position.
-    const focusTarget = tree?.querySelector<HTMLElement>('[aria-current="page"]') ?? tree
-    focusTarget?.focus({ preventScroll: true })
+    if (flyoutPinned) {
+      // Focus the current item without moving the saved scroll position.
+      const focusTarget = tree?.querySelector<HTMLElement>('[aria-current="page"]') ?? tree
+      focusTarget?.focus({ preventScroll: true })
+      document.addEventListener("focusin", dismissOutside)
+    }
     document.addEventListener("pointerdown", dismissOutside)
-    document.addEventListener("focusin", dismissOutside)
     window.addEventListener("keydown", dismissEscape)
     return () => {
       document.removeEventListener("pointerdown", dismissOutside)
       document.removeEventListener("focusin", dismissOutside)
       window.removeEventListener("keydown", dismissEscape)
     }
-  }, [floating, closePreview, newWorkspaceProjectId])
+  }, [flyoutOpen, flyoutPinned, closeFlyout, closePreview, newWorkspaceProjectId])
+
+  const handleOpenNotification = (notification: Notification) => {
+    if (notification.readAt == null) void useInboxStore.getState().markRead([notification.id])
+    onOpenNotification?.(notification)
+    closeFlyout()
+  }
 
   const handleOpenSpec = useCallback((taskId: number, projectId: number) => {
     onOpenSpec?.(taskId, projectId)
@@ -534,8 +571,10 @@ export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SID
   }
 
   const handleOpenAddWorkspace = useCallback((project: Project) => {
+    // The dialog takes the pointer away; leaving must not close the panel behind it.
+    holdFlyoutOpen()
     setNewWorkspaceProjectId(project.id)
-  }, [])
+  }, [holdFlyoutOpen])
 
   const handleConfirmAddWorkspace = async (branchName: string) => {
     if (newWorkspaceProjectId === null) return
@@ -602,21 +641,40 @@ export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SID
         )}
         <SidebarNavItem icon={MessageCircle} label={intl.formatMessage({ id: "sidebar.assistant", defaultMessage: "Assistant" })} collapsed={collapsed} active={assistantActive}
           count={assistantTotal} actionCount={assistantAction}
-          onClick={() => { setPreviewOpen(false); showMain({ kind: "assistant" }) }} />
-        <SidebarNavItem icon={Inbox} label={intl.formatMessage({ id: "sidebar.inbox", defaultMessage: "Inbox" })} collapsed={collapsed} active={inboxActive}
-          count={inboxTotal} actionCount={inboxAction}
-          onClick={() => { setPreviewOpen(false); showMain({ kind: "inbox" }); trackEvent("page_opened", { page: "inbox" }) }} />
+          onClick={() => { closeFlyout(); showMain({ kind: "assistant" }) }} />
+        {/* While the inbox page is showing, a flyout would only repeat it. */}
+        <SidebarNavItem icon={Inbox} label={inboxLabel} collapsed={collapsed} active={inboxActive}
+          count={inboxTotal} actionCount={inboxAction} tooltip={!inboxFloating} hoverTooltip={inboxActive}
+          {...(collapsed && !inboxActive ? triggerHover("inbox") : undefined)}
+          onClick={() => { closeFlyout(); showMain({ kind: "inbox" }); trackEvent("page_opened", { page: "inbox" }) }} />
         <SidebarNavItem icon={LayoutDashboard} label={intl.formatMessage({ id: "sidebar.board", defaultMessage: "Board" })} collapsed={collapsed} active={boardActive}
-          onClick={() => { setPreviewOpen(false); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
+          onClick={() => { closeFlyout(); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
         <SidebarNavItem icon={Hash} label={intl.formatMessage({ id: "sidebar.channels", defaultMessage: "Channels" })} collapsed={collapsed} active={channelsActive}
-          onClick={() => { setPreviewOpen(false); showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }} />
+          onClick={() => { closeFlyout(); showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }} />
         {collapsed && (
           <SidebarNavItem ref={projectsTriggerRef} icon={Folder} label={projectsLabel} collapsed
             active={mainView.kind === "workbench" || mainView.kind === "spec"}
-            aria-expanded={floating} aria-controls={projectTreeId} aria-haspopup="dialog" tooltip={!floating}
-            onClick={() => setPreviewOpen((open) => !open)} />
+            aria-expanded={floating} aria-controls={projectTreeId} aria-haspopup="dialog" tooltip={!floating} hoverTooltip={false}
+            {...triggerHover("projects")}
+            // A click landing just after the hover delay must not close what
+            // just opened, so it pins; only a pinned panel toggles shut.
+            onClick={() => { if (floating && flyoutPinned) closeFlyout(); else pinFlyout("projects") }} />
         )}
       </nav>
+
+      {inboxFloating && (
+        <div
+          ref={inboxFlyoutRef}
+          data-testid="inbox-flyout"
+          role="region"
+          aria-label={inboxLabel}
+          className={cn(railFlyoutClassName, railFlyoutEnterClassName, "overflow-hidden")}
+          style={{ width: INBOX_FLYOUT_WIDTH, maxWidth: RAIL_FLYOUT_MAX_WIDTH }}
+          {...panelHover}
+        >
+          <InboxPanel onItemClick={handleOpenNotification} />
+        </div>
+      )}
 
       {/* One mounted tree: changing its placement preserves scroll and project state. */}
       <div
@@ -631,11 +689,13 @@ export function ProjectSidebar({ onOpenSpec, collapsed = false, width = LEFT_SID
         className={cn(
           "flex min-h-0 flex-col outline-none",
           collapsed
-            ? "absolute bottom-2 left-[calc(100%+8px)] top-12 z-50 rounded-xl border border-border/60 bg-sidebar py-2 shadow-float"
+            ? cn(railFlyoutClassName, "py-2")
             : "sidebar-label-fade flex-1 shrink-0",
           collapsed && !floating && "invisible pointer-events-none opacity-0",
+          floating && railFlyoutEnterClassName,
         )}
-        style={collapsed ? { width, maxWidth: "calc(100vw - 68px)" } : { width }}
+        style={collapsed ? { width, maxWidth: RAIL_FLYOUT_MAX_WIDTH } : { width }}
+        {...panelHover}
       >
         {/* Secondary Header */}
         <div className="h-9 px-4 flex items-center justify-between shrink-0">
