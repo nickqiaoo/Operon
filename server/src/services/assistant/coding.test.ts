@@ -22,7 +22,7 @@ function setup(overrides: Partial<CodingHost> = {}) {
       return { chatId: 42 }
     }),
     activityOf: (chatId) => owners.get(chatId),
-    send: vi.fn(),
+    send: vi.fn(async () => {}),
     stop: vi.fn(() => true),
     status: (chatId) => ({ chatId, status: 'running' }),
     diffStat: async () => ({ 'a.ts': { additions: 12, deletions: 3 }, 'b.ts': { additions: 1, deletions: 0 } }),
@@ -57,6 +57,25 @@ describe('CodingAgents', () => {
     expect(t.cards).toEqual(['act-1'])
   })
 
+  it('restores the task when a follow-up cannot be delivered', async () => {
+    const send = vi.fn(async () => { throw new Error('No active execution for steer') })
+    const t = setup({ send })
+    await start(t.coding)
+    await t.coding.turnEnded({ chatId: 42, status: 'completed', dispatched: true, result: 'done' })
+    await expect(t.coding.send(42, 'more', { delivery: 'steer' })).rejects.toThrow('No active')
+    expect(t.activities.get('act-1')).toMatchObject({ status: 'done', finishedAt: 1000 })
+  })
+
+  it('summarizes from the conclusion and keeps the tail of a long reply', async () => {
+    const t = setup()
+    await start(t.coding)
+    const result = `Looking around first.\n${'x'.repeat(7000)}\nThe conclusion.`
+    await t.coding.turnEnded({ chatId: 42, status: 'completed', dispatched: true, result, final: 'The conclusion.' })
+    expect(t.activities.get('act-1')).toMatchObject({ summary: 'The conclusion.', report: result })
+    expect(t.told[0]!.text).toContain('The conclusion.')
+    expect(t.told[0]!.text).not.toContain('Looking around first.')
+  })
+
   it('refuses a workspace that does not exist, before opening anything', async () => {
     const t = setup()
     await expect(t.coding.start({ workspaceId: 99, title: 't', prompt: 'p', providerId: 'codex', model: 'default' })).rejects.toThrow('There is no workspace 99')
@@ -78,13 +97,51 @@ describe('CodingAgents', () => {
     expect(t.told[0]!.text).toContain('The redirect works.')
   })
 
-  it('updates the card but stays quiet for a turn the user drove from the conversation, or one that was stopped', async () => {
+  it('tells the main agent about a turn the user drove, for information only', async () => {
     const t = setup()
     await start(t.coding)
-    await t.coding.turnEnded({ chatId: 42, status: 'completed', dispatched: false, result: 'ok' })
-    await t.coding.turnEnded({ chatId: 42, status: 'cancelled', dispatched: true, result: '' })
+    await t.coding.turnEnded({ chatId: 42, status: 'completed', dispatched: false, result: 'Renamed the helper.' })
+    expect(t.activities.get('act-1')!.status).toBe('done')
+    expect(t.told).toHaveLength(1)
+    expect(t.told[0]!.text).toContain('Renamed the helper.')
+    expect(t.told[0]!.text).toContain('Do not act on it unless the user asks. No reply is needed')
+  })
+
+  it('leaves a dispatched result actionable', async () => {
+    const t = setup()
+    await start(t.coding)
+    await t.coding.turnEnded({ chatId: 42, status: 'completed', dispatched: true, result: 'Done.' })
+    expect(t.told[0]!.text).not.toContain('No reply is needed')
+  })
+
+  it('stays quiet when the main agent stopped a turn the user drove', async () => {
+    const t = setup()
+    await start(t.coding)
+    t.coding.stop(42, { byMain: true })
+    await t.coding.turnEnded({ chatId: 42, status: 'cancelled', dispatched: false, result: '' })
     expect(t.activities.get('act-1')!.status).toBe('stopped')
     expect(t.told).toEqual([])
+  })
+
+  it('tells the main agent straight away when a turn it dispatched is stopped by someone else', async () => {
+    const t = setup()
+    await start(t.coding)
+    await t.coding.turnEnded({ chatId: 42, status: 'cancelled', dispatched: true, result: '' })
+    expect(t.activities.get('act-1')!.status).toBe('stopped')
+    expect(t.told).toHaveLength(1)
+    expect(t.told[0]).toMatchObject({ activityId: 'act-1' })
+    expect(t.told[0]!.text).toContain('[Coding agent stopped] "Fix login"')
+    expect(t.told[0]!.text).toContain('Do not restart it')
+  })
+
+  it('does not tell the main agent about a stop it asked for, and only skips that one', async () => {
+    const t = setup()
+    await start(t.coding)
+    expect(t.coding.stop(42, { byMain: true })).toBe(true)
+    await t.coding.turnEnded({ chatId: 42, status: 'cancelled', dispatched: true, result: '' })
+    expect(t.told).toEqual([])
+    await t.coding.turnEnded({ chatId: 42, status: 'cancelled', dispatched: true, result: '' })
+    expect(t.told).toHaveLength(1)
   })
 
   it('ignores conversations it did not start', async () => {
@@ -92,7 +149,7 @@ describe('CodingAgents', () => {
     await t.coding.turnEnded({ chatId: 7, status: 'completed', dispatched: true, result: 'x' })
     t.coding.pendingChanged(7, [pending('Bash')], true)
     expect(t.told).toEqual([])
-    expect(() => t.coding.send(7, 'more')).toThrow('not one you started')
+    await expect(t.coding.send(7, 'more')).rejects.toThrow('not one you started')
     expect(t.host.send).not.toHaveBeenCalled()
   })
 
@@ -134,8 +191,8 @@ describe('CodingAgents', () => {
     const t = setup()
     await start(t.coding)
     await t.coding.turnEnded({ chatId: 42, status: 'completed', dispatched: true, result: 'done' })
-    t.coding.send(42, 'also add tests')
-    expect(t.host.send).toHaveBeenCalledWith(42, 'also add tests')
+    await t.coding.send(42, 'also add tests')
+    expect(t.host.send).toHaveBeenCalledWith(42, 'also add tests', undefined)
     expect(t.activities.get('act-1')).toMatchObject({ status: 'running' })
     expect(t.activities.get('act-1')!.finishedAt).toBeUndefined()
     expect(t.coding.chatOf('act-1')).toBe(42)
@@ -146,17 +203,17 @@ describe('CodingAgents', () => {
   it('more work from the assistant puts the card down again, renamed when it is a new piece of work', async () => {
     const t = setup()
     await start(t.coding)
-    t.coding.send(42, 'now add divide', { title: 'Add divide' })
+    await t.coding.send(42, 'now add divide', { title: 'Add divide' })
     expect(t.cards).toEqual(['act-1', 'act-1'])
     expect(t.activities.get('act-1')!.title).toBe('Add divide')
-    t.coding.send(42, 'and a test', {})
+    await t.coding.send(42, 'and a test', {})
     expect(t.activities.get('act-1')!.title).toBe('Add divide')
   })
 })
 
 describe('coding_start', () => {
   const host = (start: AssistantToolHost['coding']['start']) =>
-    ({ coding: { start, models: vi.fn(), send: vi.fn(), status: vi.fn(), stop: vi.fn() } }) as unknown as AssistantToolHost
+    ({ coding: { start, models: vi.fn(), send: vi.fn(async () => {}), status: vi.fn(), stop: vi.fn() } }) as unknown as AssistantToolHost
   const args = { workspace_id: 6, title: 'Fix login', prompt: 'Fix it', agent: 'codex', model: 'gpt-5.5' }
 
   it('will not start before the user chose the agent and the model', async () => {

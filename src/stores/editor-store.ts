@@ -14,6 +14,8 @@ export interface TaskNavigationRequest {
   projectId: number
   /** Database id (not the per-project `#number`), which is what TasksPage opens by. */
   taskId: number
+  /** Open it as a spec in `projectId`, from a surface with no current project (the assistant's thread). */
+  spec?: boolean
 }
 
 interface EditorStore extends EditorState {

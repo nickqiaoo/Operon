@@ -7,7 +7,7 @@ import type { TaskPriority, TaskStatus, UpdateTaskInput } from '../../types/task
 import { getDefaultBaseBranch, isGitRepo, worktreeList } from '../git.js'
 import { getGhStatus, ghPrCreate, ghPrList, ghPrView, type GhPrSummary } from '../integrations/gh-cli.js'
 import { prepareBranchForPr } from '../integrations/github-pr.js'
-import { TaskBoardService, type TaskBoardStorage } from '../agent-comm/task-board-service.js'
+import { TaskBoardService, formatAssignableAgents, type TaskBoardStorage } from '../agent-comm/task-board-service.js'
 import { broadcastTask } from '../task-events.js'
 import { commentOnTaskAsHuman, updateTaskAsHuman, type HumanTaskStorage } from '../task-human-actions.js'
 import { provisionWorkspace } from '../workspace-provision.js'
@@ -34,9 +34,24 @@ export interface OperonActions {
   boardCreate(projectId: number, input: { title: string; description?: string; priority?: TaskPriority }): string
   boardUpdate(projectId: number, task: number, updates: UpdateTaskInput): Promise<string>
   boardComment(projectId: number, task: number, body: string): string
+  boardAgents(): string
+  /** Assign a todo task to an agent and start it in its own worktree. */
+  boardDispatch(projectId: number, task: number, assignee: string): Promise<string>
 }
 
-export function createOperonActions(storage: OperonActionsStorage, actorName: () => string): OperonActions {
+/** A task just added to the board: enough for the card in the thread. */
+export interface CreatedBoardTask {
+  projectId: number
+  taskId: number
+  taskNumber: number
+  title: string
+}
+
+export function createOperonActions(
+  storage: OperonActionsStorage,
+  actorName: () => string,
+  onTaskCreated?: (task: CreatedBoardTask) => void,
+): OperonActions {
   const project = (id: number) => {
     const found = storage.getProject(id)
     if (!found) throw new Error(`There is no project ${id}. Call workspace_list for the ids.`)
@@ -158,7 +173,8 @@ export function createOperonActions(storage: OperonActionsStorage, actorName: ()
         actorName: actorName(),
       })
       broadcastTask(storage, created.id)
-      return `Created task #${created.number} "${created.title}" (todo).`
+      onTaskCreated?.({ projectId, taskId: created.id, taskNumber: created.number, title: created.title })
+      return `Created task #${created.number} "${created.title}" (todo). The user sees a card with a Dispatch button for it in this thread.`
     },
 
     async boardUpdate(projectId, number, updates) {
@@ -173,6 +189,25 @@ export function createOperonActions(storage: OperonActionsStorage, actorName: ()
       const t = task(projectId, number)
       const { woke } = commentOnTaskAsHuman(storage, t, body, actorName())
       return `Commented on task #${number}${woke ? '; its agent was told' : ''}.`
+    },
+
+    boardAgents() {
+      return formatAssignableAgents(storage)
+    },
+
+    async boardDispatch(projectId, number, assignee) {
+      const existing = task(projectId, number)
+      if (existing.specStage != null) throw new Error(`Task #${number} is a spec; its tickets are dispatched when the design is approved.`)
+      if (existing.status !== 'todo') throw new Error(`Task #${number} is ${existing.status}; only a todo task can be dispatched.`)
+      const name = assignee.trim().replace(/^@/, '')
+      const agent = storage.getAgentByName(name)
+      if (!agent || agent.hidden) throw new Error(`There is no agent @${name}. board_agents lists them.`)
+      if (existing.assignedAgentId != null && existing.assignedAgentId !== agent.id) {
+        throw new Error(`Task #${number} is already assigned to another agent. The user can reassign it on the board.`)
+      }
+      const result = await updateTaskAsHuman(storage, existing, { assignedAgentId: agent.id, status: 'in_progress' }, actorName())
+      if (!result.ok) throw new Error(`Could not dispatch task #${number}: ${describeRefusal(result.body)}`)
+      return `Dispatched task #${number} to @${agent.name}; it is starting in its own worktree.`
     },
   }
 }

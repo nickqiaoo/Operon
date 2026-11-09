@@ -147,7 +147,7 @@ export const getToolDescription = (
 /**
  * Some providers route every call through one generic tool and put the real
  * target inside the arguments — grok over ACP emits
- * `use_tool { tool_name: 'node_repl__js', tool_input: {...} }`. Rendering that
+ * `use_tool { tool_name: 'operonrepl__js', tool_input: {...} }`. Rendering that
  * verbatim shows the envelope instead of the call, and hides the real arguments
  * one level down where they read as a nested blob of JSON.
  *

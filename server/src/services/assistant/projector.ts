@@ -1,5 +1,5 @@
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
-import type { Activity, ActivityStatus, ActivityStep, AssistantMessage, AssistantTrigger } from '../../../../shared/assistant.js'
+import type { Activity, ActivityStatus, ActivityStep, AssistantMessage, AssistantQuestion, AssistantTrigger } from '../../../../shared/assistant.js'
 import { MAIN_ACTIVITY_TASK_PREFIX, TURN_ERROR_PREFIX, WORKING_SUMMARY } from '../../../../shared/assistant.js'
 import { assistantToolName, bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import type { FinishArgs, HeartbeatArgs } from './tools.js'
@@ -55,6 +55,23 @@ function outputText(output: unknown): string {
   }
 }
 
+interface TextPiece {
+  text: string
+  /** The agent declared this its answer for the turn. */
+  final?: boolean
+  questions?: AssistantQuestion[]
+}
+
+function questionsOf(value: unknown): AssistantQuestion[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const questions = value.flatMap((item): AssistantQuestion[] => {
+    const { title, options } = record(item)
+    if (typeof title !== 'string') return []
+    return [{ title, options: Array.isArray(options) ? options.filter((option): option is string => typeof option === 'string') : [] }]
+  })
+  return questions.length ? questions : undefined
+}
+
 /**
  * Text as the agent says it, cut into the pieces it said between tool calls: a piece ends at a
  * tool call, the end of a step or the end of the text block. Providers mark these differently;
@@ -62,14 +79,26 @@ function outputText(output: unknown): string {
  */
 class TextSegments {
   private current = ''
+  private nativeCompletion = false
 
   /** Feed a part; returns a piece that just ended, if one did. */
-  feed(part: RuntimeStreamPart): string | undefined {
+  feed(part: RuntimeStreamPart): TextPiece | undefined {
     switch (part.type) {
+      case 'text-start':
+        this.nativeCompletion = record(record(part.providerMetadata).runtime).completion === 'explicit'
+        return undefined
       case 'text-delta':
         this.current += (part as { text?: string }).text ?? ''
         return undefined
       case 'text-end':
+        if (this.nativeCompletion) {
+          const runtime = record(record(part.providerMetadata).runtime)
+          const text = typeof runtime.completedText === 'string' ? runtime.completedText.trim() : ''
+          this.current = ''
+          this.nativeCompletion = false
+          return text ? { text, final: runtime.phase === 'final_answer', questions: questionsOf(runtime.questions) } : undefined
+        }
+        return this.flush()
       case 'tool-call':
       case 'tool-input-start':
       case 'tool-approval-request':
@@ -81,10 +110,11 @@ class TextSegments {
     }
   }
 
-  flush(): string | undefined {
-    const text = this.current.trim()
+  flush(): TextPiece | undefined {
+    const text = this.nativeCompletion ? '' : this.current.trim()
     this.current = ''
-    return text || undefined
+    this.nativeCompletion = false
+    return text ? { text } : undefined
   }
 }
 
@@ -107,8 +137,9 @@ export interface ThreadSink {
  */
 const QUIET_MAIN_TOOLS: ReadonlySet<string> = new Set([
   'start_task', 'continue_task', 'stop_task', 'list_tasks', 'schedule_list', 'memory_search',
-  'workspace_list', 'workspace_overview', 'waiting_list', 'board_list', 'board_get', 'github_prs', 'github_pr',
+  'workspace_list', 'workspace_overview', 'waiting_list', 'board_list', 'board_get', 'board_agents', 'github_prs', 'github_pr',
   'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
+  'start_spec', 'answer_spec_questions', 'spec_status',
 ])
 
 /** Why the main agent is speaking: what the host handed it. */
@@ -157,6 +188,9 @@ export class AssistantProjector {
   /** Replies emitted in the current turn — a remembered line attaches to the latest. */
   private turnMessages: AssistantMessage[] = []
   private segments = new TextSegments()
+  private segmentCause: Cause | undefined
+  /** A question asked this turn; the turn's closing answer goes on it rather than repeating it. */
+  private openQuestion: AssistantMessage | undefined
   private typing = false
   /** This turn's own work, once it has done any. */
   private work: ActivityProjector | undefined
@@ -172,18 +206,20 @@ export class AssistantProjector {
     if (cause) this.cause = cause
     this.turnMessages = []
     this.segments = new TextSegments()
+    this.segmentCause = undefined
+    this.openQuestion = undefined
     this.setTyping(true)
   }
 
   /** Something else was injected into the running turn; what follows is about it. */
   setCause(cause: Cause): void {
     this.cause = cause
-    this.turnMessages = []
   }
 
   part(part: RuntimeStreamPart): void {
-    const text = this.segments.feed(part)
-    if (text) this.say(text)
+    if (part.type === 'text-start' || (part.type === 'text-delta' && !this.segmentCause)) this.segmentCause = this.cause
+    const piece = this.segments.feed(part)
+    if (piece) { this.speak(piece, this.segmentCause); this.segmentCause = undefined }
     if (!this.work && part.type === 'tool-call') this.startWork(part)
     this.work?.part(part)
   }
@@ -191,7 +227,7 @@ export class AssistantProjector {
   /** The turn is over: say what is left, and say so if it failed. */
   end(result: { error?: string; aborted?: boolean } = {}): void {
     const rest = this.segments.flush()
-    if (rest) this.say(rest)
+    if (rest) this.speak(rest, this.segmentCause)
     if (result.error && !result.aborted) this.say(`${TURN_ERROR_PREFIX}${briefError(result.error)}`)
     if (this.work) {
       this.work.turnEnd(result)
@@ -201,6 +237,7 @@ export class AssistantProjector {
     this.setTyping(false)
     this.turnMessages = []
     this.remembered = []
+    this.openQuestion = undefined
   }
 
   /**
@@ -245,8 +282,25 @@ export class AssistantProjector {
     this.sink.typing(typing)
   }
 
-  private say(text: string): void {
-    const trigger = triggerOf(this.cause)
+  /**
+   * A question goes up as its own form: one question reads as its title, several are all in the
+   * form. Codex still closes the turn with an answer after one, which restates it, so that answer
+   * takes the message's text and the two read as one message.
+   */
+  private speak(piece: TextPiece, cause?: Cause): void {
+    if (piece.questions) {
+      this.openQuestion = this.say(piece.questions.length === 1 ? piece.questions[0].title : '', cause, piece.questions)
+    } else if (piece.final && this.openQuestion) {
+      this.openQuestion.text = piece.text
+      this.sink.message({ ...this.openQuestion })
+      this.openQuestion = undefined
+    } else {
+      this.say(piece.text, cause)
+    }
+  }
+
+  private say(text: string, cause = this.cause, questions?: AssistantQuestion[]): AssistantMessage {
+    const trigger = triggerOf(cause)
     const message: AssistantMessage = {
       id: this.newId(),
       role: 'assistant',
@@ -254,11 +308,13 @@ export class AssistantProjector {
       createdAt: this.now(),
       ...(trigger ? { trigger } : {}),
       // About one coding conversation, known for certain (the host said which): the UI links it.
-      ...(this.cause.kind === 'coding' ? { activityId: this.cause.activityId } : {}),
+      ...(cause.kind === 'coding' ? { activityId: cause.activityId } : {}),
       ...(this.remembered.length ? { remembered: this.remembered.splice(0) } : {}),
+      ...(questions ? { questions } : {}),
     }
     this.turnMessages.push(message)
     this.sink.message(message)
+    return message
   }
 }
 
@@ -353,8 +409,8 @@ export class ActivityProjector {
   }
 
   part(part: RuntimeStreamPart): void {
-    const text = this.segments.feed(part)
-    if (text) this.lastText = text
+    const piece = this.segments.feed(part)
+    if (piece) this.lastText = piece.text
     const p = part as Record<string, unknown>
     switch (part.type) {
       case 'tool-call':
@@ -372,7 +428,7 @@ export class ActivityProjector {
   /** A turn of the worker ended. */
   turnEnd(result: { error?: string; aborted?: boolean }): void {
     const rest = this.segments.flush()
-    if (rest) this.lastText = rest
+    if (rest) this.lastText = rest.text
     this.failure = result.error && !result.aborted ? briefError(result.error) : undefined
   }
 

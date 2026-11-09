@@ -13,13 +13,15 @@ import { describePending } from './operon-state.js'
  */
 
 /** What the coding agents need from the app, separate so tests can stand in for it. */
+export interface CodingDelivery { delivery: string; warning?: string }
+
 export interface CodingHost {
   workspace(id: number): { workspace: Workspace; project?: Project } | undefined
   /** Open the conversation and send the first prompt. */
   create(input: { activityId: string; workspaceId: number; providerId: string; model: string; effort?: string; title: string; prompt: string }): Promise<{ chatId: number }>
   /** The activity of a conversation the assistant started; undefined for any other. */
   activityOf(chatId: number): string | undefined
-  send(chatId: number, prompt: string): void
+  send(chatId: number, prompt: string, delivery?: 'auto' | 'steer' | 'followup'): Promise<CodingDelivery | void>
   stop(chatId: number): boolean
   /** The conversation's state and latest result, as the external agent tools report it. */
   status(chatId: number): unknown
@@ -39,14 +41,19 @@ export interface CodingTurnEnd {
   error?: string
   /** The prompt came from the assistant, not from the user typing in the conversation. */
   dispatched: boolean
-  /** What the agent concluded with (its last text part). */
+  /** All text from this execution stream, including accepted followups. */
   result: string
+  /** Its last text part: where an agent concludes, after narrating its work in the earlier ones. */
+  final?: string
 }
 
 const RESULT_LIMIT = 6_000
 const SUMMARY_LIMIT = 200
 
 export class CodingAgents {
+  /** Conversations whose current turn the main agent stopped itself. */
+  private readonly stoppedByMain = new Set<number>()
+
   constructor(
     private readonly host: CodingHost,
     private readonly newId: () => string,
@@ -95,16 +102,28 @@ export class CodingAgents {
    * More for the agent. From the assistant (`title` given or not) the card comes down to the end
    * of the thread, under what was just said about it; `title` renames it for a new piece of work.
    */
-  send(chatId: number, message: string, card?: { title?: string }): void {
+  async send(chatId: number, message: string, card?: { title?: string; delivery?: 'auto' | 'steer' | 'followup' }): Promise<CodingDelivery | void> {
     const activity = this.owned(chatId)
-    this.host.send(chatId, message)
+    const delivery = this.host.send(chatId, message, card?.delivery)
     this.running(card?.title ? { ...activity, title: card.title } : activity)
+    let receipt: CodingDelivery | void
+    try {
+      receipt = await delivery
+    } catch (error) {
+      // Nothing started, so no turn end will ever clear the running state.
+      this.host.save(activity)
+      throw error
+    }
     if (card) this.host.card(activity.id)
+    return receipt
   }
 
-  stop(chatId: number): boolean {
+  stop(chatId: number, options?: { byMain?: boolean }): boolean {
     this.owned(chatId)
-    return this.host.stop(chatId)
+    if (options?.byMain) this.stoppedByMain.add(chatId)
+    const stopped = this.host.stop(chatId)
+    if (!stopped) this.stoppedByMain.delete(chatId)
+    return stopped
   }
 
   status(chatId: number): unknown {
@@ -125,6 +144,7 @@ export class CodingAgents {
   }
 
   async turnEnded(end: CodingTurnEnd): Promise<void> {
+    const stoppedByMain = this.stoppedByMain.delete(end.chatId)
     const id = this.host.activityOf(end.chatId)
     const before = id ? this.host.activity(id) : undefined
     if (!before?.coding) return
@@ -140,19 +160,31 @@ export class CodingAgents {
       ...activity,
       coding,
       status,
-      summary: firstLine(result) || (end.status === 'failed' ? (end.error ?? 'Failed') : end.status === 'cancelled' ? 'Stopped' : 'Done'),
+      summary: firstLine(end.final || result) || (end.status === 'failed' ? (end.error ?? 'Failed') : end.status === 'cancelled' ? 'Stopped' : 'Done'),
       ...(result ? { report: result } : {}),
       finishedAt: this.host.now(),
     })
-    // A turn the user drove from the conversation is theirs; they are looking at it already.
-    if (!end.dispatched || end.status === 'cancelled') return
-    const clipped = result.length > RESULT_LIMIT ? `${result.slice(0, RESULT_LIMIT)}\n… (truncated)` : result
+    if (end.status === 'cancelled' && stoppedByMain) return
+    if (end.status === 'cancelled' && end.dispatched) {
+      // It may be waiting on this turn, or have promised the user a result.
+      this.host.tell(
+        `[Coding agent stopped] "${activity.title}" — ${where(coding)}, conversation chat_id ${coding.chatId}. ` +
+          'It was stopped, not by you. Do not restart it unless the user asks. ' +
+          'No reply is needed: end your turn without saying anything.',
+        { kind: 'coding', activityId: activity.id },
+      )
+      return
+    }
+    // The conclusion comes last, so the head is what gives way.
+    const clipped = result.length > RESULT_LIMIT ? `… (truncated)\n${result.slice(-RESULT_LIMIT)}` : result
     const lines = [
       `[Coding agent finished] "${activity.title}" — ${where(coding)} — ${end.status}.`,
       `Agent: ${coding.providerId}, conversation chat_id ${coding.chatId}.`,
       `Uncommitted changes in the workspace now: ${diffStat ? `${diffStat.files} files, +${diffStat.additions} −${diffStat.deletions}` : 'none'}.`,
       ...(end.status === 'failed' && end.error ? [`Error: ${end.error}`] : []),
       ...(clipped ? ['Its reply:', clipped] : []),
+      // The main agent may build on this work later, so it hears about turns it did not send too.
+      ...(end.dispatched ? [] : ['The user is talking to this agent directly; this is for your information. Do not act on it unless the user asks. No reply is needed: end your turn without saying anything.']),
     ]
     this.host.tell(lines.join('\n'), { kind: 'coding', activityId: activity.id })
   }

@@ -9,6 +9,10 @@ export type AssistantTrigger =
   | { kind: 'schedule'; name: string }
   | { kind: 'worker'; activityId: string }
   | { kind: 'coding'; activityId: string }
+  /** An empty message standing for the card of a spec the assistant started. */
+  | { kind: 'spec'; projectId: number; taskId: number; taskNumber: number; title: string }
+  /** An empty message standing for the card of a board task the assistant created. */
+  | { kind: 'task'; projectId: number; taskId: number; taskNumber: number; title: string }
 
 /** A file the user sent with a message. */
 export interface AssistantAttachment {
@@ -33,6 +37,14 @@ export interface AssistantMessage {
   remembered?: string[]
   /** A worker is blocked on a permission decision; the thread renders it as a card. */
   approval?: AssistantApproval
+  /** The message asks the user these; the answer goes back as their next message. */
+  questions?: AssistantQuestion[]
+}
+
+export interface AssistantQuestion {
+  title: string
+  /** Empty: answered in the user's own words. */
+  options: string[]
 }
 
 export type ApprovalIcon = 'globe' | 'app' | 'file' | 'terminal' | 'tool'

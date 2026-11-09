@@ -38,8 +38,41 @@ function storage() {
     taskGetByNumber: (projectId: number, number: number) => (projectId === 5 && number === 7 ? task : null),
     taskGet: () => ({ ...task, status: 'done' }),
     taskCreate: vi.fn((input: { title: string }) => ({ id: 71, number: 8, title: input.title })),
+    listAgents: () => [
+      { id: 3, name: 'builder', provider: 'codex', model: 'gpt-5', hidden: false },
+      { id: 4, name: 'Workspace Assistant', provider: 'codex', model: 'gpt-5', hidden: true },
+    ],
+    getAgentByName: (name: string) =>
+      name === 'builder' ? { id: 3, name, hidden: false } : name === 'Workspace Assistant' ? { id: 4, name, hidden: true } : undefined,
   } as unknown as OperonActionsStorage & { taskCreate: ReturnType<typeof vi.fn> }
 }
+
+describe('handing a board task to an agent', () => {
+  beforeEach(() => vi.clearAllMocks())
+  const todo = { ...task, status: 'todo' } as Task
+  const withTask = (t: Task) => ({ ...storage(), taskGetByNumber: () => t }) as unknown as OperonActionsStorage
+
+  it('lists only the agents a person could pick', () => {
+    expect(createOperonActions(storage(), () => '小Q').boardAgents()).toBe('- @builder — codex, gpt-5')
+  })
+
+  it('assigns and starts it the way the user would, under the assistant’s name', async () => {
+    const s = withTask(todo)
+    human.update.mockResolvedValue({ ok: true })
+    expect(await createOperonActions(s, () => '小Q').boardDispatch(5, 7, '@builder')).toBe('Dispatched task #7 to @builder; it is starting in its own worktree.')
+    expect(human.update).toHaveBeenCalledWith(s, todo, { assignedAgentId: 3, status: 'in_progress' }, '小Q')
+  })
+
+  it('refuses a hidden or unknown agent, work already started, and a spec', async () => {
+    const actions = (t: Task) => createOperonActions(withTask(t), () => '小Q')
+    await expect(actions(todo).boardDispatch(5, 7, 'Workspace Assistant')).rejects.toThrow('There is no agent')
+    await expect(actions(todo).boardDispatch(5, 7, 'nobody')).rejects.toThrow('There is no agent')
+    await expect(actions(task).boardDispatch(5, 7, 'builder')).rejects.toThrow('only a todo task')
+    await expect(actions({ ...todo, specStage: 'designing' } as Task).boardDispatch(5, 7, 'builder')).rejects.toThrow('is a spec')
+    await expect(actions({ ...todo, assignedAgentId: 9 } as Task).boardDispatch(5, 7, 'builder')).rejects.toThrow('already assigned')
+    expect(human.update).not.toHaveBeenCalled()
+  })
+})
 
 describe('createOperonActions', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -71,7 +104,7 @@ describe('createOperonActions', () => {
     expect(actions.boardComment(5, 7, 'looks good')).toBe('Commented on task #7; its agent was told.')
     expect(human.comment).toHaveBeenCalledWith(s, task, 'looks good', '小Q')
 
-    expect(actions.boardCreate(5, { title: 'Add divide', priority: 2 })).toBe('Created task #8 "Add divide" (todo).')
+    expect(actions.boardCreate(5, { title: 'Add divide', priority: 2 })).toBe('Created task #8 "Add divide" (todo). The user sees a card with a Dispatch button for it in this thread.')
     expect(s.taskCreate).toHaveBeenCalledWith({ projectId: 5, title: 'Add divide', priority: 2, createdBy: 'human', actorName: '小Q' })
     expect(human.broadcast).toHaveBeenCalledWith(s, 71)
   })

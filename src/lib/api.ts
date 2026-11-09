@@ -855,7 +855,7 @@ export const api = {
 
   // --- Linear Agent (HTTP) ---
   // ---- Browser Use: remembered browser approvals for agents. Stored under
-  //      ~/.operon/browser/, the same file node_repl reads. ----
+  //      ~/.operon/browser/, the same file operonrepl reads. ----
   browserUseGetApprovals: () =>
     get<{
       allowed: string[]
@@ -868,7 +868,7 @@ export const api = {
       rememberedFromConversations: number
       fullCdpAccess: boolean
       configPath: string
-      /** Master switch: off means neither the skill nor the node_repl MCP is injected. */
+      /** Master switch: off means neither the skill nor the operonrepl MCP is injected. */
       enabled: boolean
     }>('/browser-use/approvals'),
   browserUseSetEnabled: (enabled: boolean) =>

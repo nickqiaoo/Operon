@@ -76,6 +76,11 @@ class FakeSession implements AgentSession {
     return true
   }
 
+  async steer(content: string) {
+    this.injected.push(content)
+    return { delivery: 'accepted' as const, mode: 'steer' as const }
+  }
+
   async inject(content: string): Promise<void> {
     this.injected.push(content)
   }

@@ -113,7 +113,7 @@ function isAlwaysApproved(approval: ComputerUseApproval): boolean {
  *
  * A Settings block comes first and beats every approval, session or always.
  * This is where the block list is enforced: every Operon conversation asks
- * through here. A node_repl session with no conversation behind it asks its MCP
+ * through here. An operonrepl session with no conversation behind it asks its MCP
  * client instead, which fails closed when the client cannot ask.
  */
 export function cachedComputerUseApproval(
@@ -173,17 +173,17 @@ export function clearSessionComputerUseApprovals(): void {
   sessionApprovedComputerUse.clear()
 }
 
-function isNodeReplToolCall(call: ToolCallPart): boolean {
-  if (call.toolName.toLowerCase().includes('node_repl')) return true
+function isOperonReplToolCall(call: ToolCallPart): boolean {
+  if (call.toolName.toLowerCase().includes('operonrepl')) return true
   const input = asRecord(call.input)
   const delegatedName = input?.tool_name ?? input?.toolName
-  return typeof delegatedName === 'string' && delegatedName.toLowerCase().includes('node_repl')
+  return typeof delegatedName === 'string' && delegatedName.toLowerCase().includes('operonrepl')
 }
 
 function approvalToolCall(stream: StreamBinding): ToolCallPart | undefined {
   const active = [...stream.activeToolCalls.values()]
   for (let index = active.length - 1; index >= 0; index -= 1) {
-    if (isNodeReplToolCall(active[index])) return active[index]
+    if (isOperonReplToolCall(active[index])) return active[index]
   }
   return active.at(-1)
 }
@@ -193,13 +193,13 @@ function approvalToolCall(stream: StreamBinding): ToolCallPart | undefined {
  * the approval.
  *
  * This is the normal case, not an edge case. Browser/Computer Use ask from
- * inside node_repl while the outer tool is still running, and providers only
+ * inside operonrepl while the outer tool is still running, and providers only
  * emit `tool-call` once that tool finishes (see the claude builder's
  * `emitToolCall` call sites). Waiting for a host would deadlock: the tool
  * cannot finish until the approval resolves.
  *
  * The elicitation's own metadata is richer than the outer call anyway — the
- * user is deciding about `access_browser_origin`, not about "node_repl is
+ * user is deciding about `access_browser_origin`, not about "operonrepl is
  * running some JS" — so the synthesized card reads better than the host it
  * replaces. Mirrors what the codex emitter already does when an approval
  * arrives without a matching emitted call.
@@ -232,7 +232,7 @@ function cancelPendingForChat(chatId: number): void {
 /**
  * Attach the active agent-turn stream for one chat.
  *
- * Browser/Computer Use permissions originate inside node_repl, outside the
+ * Browser/Computer Use permissions originate inside operonrepl, outside the
  * provider's own stream. Injecting them here keeps one provider-independent UI
  * path and also lets mobile/IM consumers observe the same approval parts.
  */
@@ -252,7 +252,7 @@ export function attachHostApprovalStream(chatId: number, emit: StreamSink): () =
 /**
  * Keep the host bridge correlated with provider-owned tool calls.
  *
- * Browser/Computer Use asks for approval from inside node_repl, after the outer
+ * Browser/Computer Use asks for approval from inside operonrepl, after the outer
  * provider tool has started. The elicitation itself therefore has no provider
  * toolCallId. Tracking the still-running calls lets the approval update that
  * existing card instead of synthesizing a second "permission" tool card.

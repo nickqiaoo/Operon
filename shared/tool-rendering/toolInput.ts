@@ -30,7 +30,7 @@ const TEXT_MIN_LENGTH = 80
 const FIELD_INLINE_MAX_LENGTH = 120
 
 const SHELL_FIELDS = new Set(['command', 'cmd', 'shell', 'bash'])
-/** `source` is what the `node_repl` MCP server calls its JavaScript argument. */
+/** `source` is what the `operonrepl` MCP server calls its JavaScript argument. */
 const JS_FIELDS = new Set(['source', 'code', 'script', 'js', 'javascript'])
 
 /** Guess a language from the argument's name — never from its contents. */

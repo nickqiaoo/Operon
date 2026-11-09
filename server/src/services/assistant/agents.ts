@@ -82,24 +82,12 @@ function toolServerName(caller: AssistantCaller): string {
   return caller.role === 'main' ? 'assistant' : `assistant_${caller.role}`
 }
 
-/**
- * What a worker's node_repl is called on an agent. Codex users who run the ChatGPT app have a
- * stdio `node_repl` of its own in `~/.codex/config.toml`; Codex merges same-named entries field
- * by field, so ours (a URL) on top of it is a server with both `command` and `url`, which Codex
- * rejects — the session never starts ("url is not supported for stdio"). So on Codex ours gets
- * another name and theirs is switched off for the session ({@link disabledMcpServers}): left on,
- * the model could drive the browser through it and skip our approvals and audit.
- */
-export function nodeReplServerName(providerId: AssistantProviderId): string {
-  return providerId === 'codex' ? 'operon_node_repl' : 'node_repl'
-}
-
-/** node_repl's tools (packages/computer-use/adapters/mcp.ts). */
-const NODE_REPL_TOOLS = ['js', 'js_reset'] as const
+/** operonrepl's tools (packages/computer-use/adapters/mcp.ts). */
+const OPERON_REPL_TOOLS = ['js', 'js_reset'] as const
 
 /**
  * Qoder loads MCP lazily: the model sees mcp_list / mcp_get / mcp_call and has to look a tool up
- * before calling it. Our own tools and node_repl stay in the request as tools of their own — a
+ * before calling it. Our own tools and operonrepl stay in the request as tools of their own — a
  * report-back the model never finds (finish_task, heartbeat_done) loses the work. The user's
  * services stay lazy: with every plugin's tools spelled out the window was full before the first
  * message.
@@ -108,31 +96,25 @@ function qoderAlwaysLoad(caller: AssistantCaller, servers: RuntimeMcpServers): R
   const own = toolServerName(caller)
   return {
     ...(own in servers ? { [own]: toolsFor(caller.role).map((tool) => tool.name) } : {}),
-    ...('node_repl' in servers ? { node_repl: NODE_REPL_TOOLS } : {}),
+    ...('operonrepl' in servers ? { operonrepl: OPERON_REPL_TOOLS } : {}),
   }
-}
-
-/** The agent's own servers this session must not load (see {@link nodeReplServerName}). */
-export function disabledMcpServers(providerId: AssistantProviderId, servers: RuntimeMcpServers): string[] {
-  const name = nodeReplServerName(providerId)
-  return name !== 'node_repl' && name in servers ? ['node_repl'] : []
 }
 
 /**
  * The user's own services for a worker on this agent — Settings → MCP and the plugins', mounted
  * the same way chats mount them. The heartbeat is told exactly these names, so what it is told it
- * can check is what it has. (node_repl is a tool, not a service, and is mounted on its own.)
+ * can check is what it has. (operonrepl is a tool, not a service, and is mounted on its own.)
  */
 export function workerServiceServers(providerId: AssistantProviderId): RuntimeMcpServers {
   const cli = mcpCliName(providerId)
   if (!cli) return {}
   const servers: RuntimeMcpServers = userMcpServersForCli(cli)
-  delete servers.node_repl
+  delete servers.operonrepl
   return servers
 }
 
 /**
- * The servers a session of the assistant gets: its own tools, a worker's services, and for a worker node_repl (web,
+ * The servers a session of the assistant gets: its own tools, a worker's services, and for a worker operonrepl (web,
  * Chrome, Mac apps) when Settings allow any of it. Each URL names the session and carries the
  * process key. Separate server names per role keep OpenCode, which shares one client per name
  * in a directory, from offering a worker the main agent's tools.
@@ -156,9 +138,9 @@ export function sessionMcpServers(
       : {}),
   }
   if (nodeRepl && caller.role === 'worker' && caller.id) {
-    servers[nodeReplServerName(providerId)] = {
+    servers.operonrepl = {
       type: 'http',
-      url: withApiToken(`${apiBase()}/node-repl-mcp?${assistantKeyQuery()}&${ASSISTANT_WORKER_PARAM}=${encodeURIComponent(caller.id)}`),
+      url: withApiToken(`${apiBase()}/operonrepl-mcp?${assistantKeyQuery()}&${ASSISTANT_WORKER_PARAM}=${encodeURIComponent(caller.id)}`),
     }
   }
   return servers
@@ -185,7 +167,6 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
   // before building theirs (chat-flow.ts); a worker can be the first thing to run after startup.
   await ensurePluginsLoaded().catch((error) => console.error('[assistant] plugin load failed:', error))
   const mcpServers = sessionMcpServers(params.caller, params.nodeRepl ?? false, params.providerId)
-  const disabled = disabledMcpServers(params.providerId, mcpServers)
   // Our own tools carry our own policy. Left to Codex's reviewer, a heartbeat's report back to
   // us was turned down as private data sent to an unverified destination.
   const own = toolServerName(params.caller)
@@ -193,14 +174,9 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
     cwd: params.cwd,
     ...(params.modelId ? { model: params.modelId } : {}),
     mode: modeFor(params.providerId, params.kind),
-    // The skills say "node_repl"; under another name the model has to be told it is the same thing.
-    instructions:
-      disabled.length > 0
-        ? `${params.instructions}\n\nHere the node_repl MCP server is named "${nodeReplServerName(params.providerId)}": wherever a skill says node_repl, use its js tool.`
-        : params.instructions,
+    instructions: params.instructions,
     mcpServers,
     codex: {
-      ...(disabled.length > 0 ? { disabledMcpServers: disabled } : {}),
       ...(own in mcpServers ? { approvedMcpServers: [own] } : {}),
     },
     interactive: params.caller.role === 'main',
@@ -239,6 +215,8 @@ export interface ChannelHooks {
   /** A turn starts on `input` — or, without one, a turn the agent started on its own. */
   onTurnStart?(input?: TurnInput): void
   onPart?(part: RuntimeStreamPart): void
+  /** The provider consumed an injected input; later output can now be attributed to it. */
+  onInputConsumed?(input: TurnInput): void
   onTurnEnd?(end: TurnEnd): void
   /** The agent's own mode left this call to a person. */
   onApproval(toolName: string, input: unknown): Promise<PermissionDecision>
@@ -257,7 +235,7 @@ function errorText(error: unknown): string {
  */
 export class AgentChannel {
   private running = false
-  private readonly queue: TurnInput[] = []
+  private readonly injections = new Map<string, TurnInput>()
   private controller: AbortController | undefined
   private idleWaiters: Array<() => void> = []
   private disposed = false
@@ -275,7 +253,7 @@ export class AgentChannel {
   }
 
   get busy(): boolean {
-    return this.running || this.queue.length > 0
+    return this.running
   }
 
   /** The agent's own id for this session, once it has one. */
@@ -290,25 +268,54 @@ export class AgentChannel {
   async deliver(input: TurnInput): Promise<'turn' | 'injected' | 'queued'> {
     if (this.disposed) throw new Error('This session is closed.')
     if (!this.running) {
-      this.queue.push(input)
-      void this.drain()
+      this.running = true
+      void this.turn(input).finally(() => { this.running = false; this.settleIdle() })
       return 'turn'
     }
-    if (!input.images?.length && this.session.inject) {
-      try {
-        await this.session.inject(input.text)
-        return 'injected'
-      } catch (error) {
-        if (!(error instanceof RuntimeInjectionUnavailableError)) console.warn('[assistant] injecting into a running turn failed:', errorText(error))
-      }
+    const mode = !input.images?.length && this.session.steer ? 'steer' : 'followup'
+    const deliver = this.session[mode]
+    if (!deliver) {
+      const current = this.controller
+      await this.whenIdle()
+      if (this.disposed || current?.signal.aborted) throw new RuntimeInjectionUnavailableError('The running turn was stopped.')
+      return this.deliver(input)
     }
-    this.queue.push(input)
-    return 'queued'
+    const id = randomUUID()
+    this.injections.set(id, input)
+    try {
+      if (mode === 'followup') await this.session.followup!(toAgentInput(input), { id })
+      else await this.session.steer!(input.text, { id })
+      return mode === 'steer' ? 'injected' : 'queued'
+    } catch (error) {
+      // Auto is the channel's policy, not the runtime's: only a definite
+      // pre-send rejection permits another operation. Startup/draining can
+      // have a logical stream without an active native steer target yet.
+      if (error instanceof RuntimeInjectionUnavailableError) {
+        if (mode === 'steer' && this.session.followup) {
+          try {
+            await this.session.followup(toAgentInput(input), { id })
+            return 'queued'
+          } catch (followupError) {
+            if (!(followupError instanceof RuntimeInjectionUnavailableError)) {
+              this.injections.delete(id)
+              throw followupError
+            }
+          }
+        }
+        const current = this.controller
+        this.injections.delete(id)
+        await this.whenIdle()
+        if (this.disposed || current?.signal.aborted) throw error
+        return this.deliver(input)
+      }
+      this.injections.delete(id)
+      throw error
+    }
   }
 
   /** Stop the running turn and drop what was waiting. */
   abort(): void {
-    this.queue.length = 0
+    this.injections.clear()
     this.controller?.abort()
     this.session.abort()
   }
@@ -321,7 +328,7 @@ export class AgentChannel {
 
   async dispose(): Promise<void> {
     this.disposed = true
-    this.queue.length = 0
+    this.injections.clear()
     this.controller?.abort()
     await this.session.close('discard').catch(() => undefined)
     this.settleIdle()
@@ -330,19 +337,6 @@ export class AgentChannel {
   private settleIdle(): void {
     if (this.busy && !this.disposed) return
     for (const resolve of this.idleWaiters.splice(0)) resolve()
-  }
-
-  private async drain(): Promise<void> {
-    if (this.running) return
-    this.running = true
-    try {
-      for (let input = this.queue.shift(); input && !this.disposed; input = this.queue.shift()) {
-        await this.turn(input)
-      }
-    } finally {
-      this.running = false
-      this.settleIdle()
-    }
   }
 
   private async turn(input: TurnInput): Promise<void> {
@@ -377,8 +371,11 @@ export class AgentChannel {
 
   /** A turn the agent started on its own: shown like any other, never overlapping one of ours. */
   private async follow(parts: AsyncIterable<RuntimeStreamPart>): Promise<void> {
-    if (this.running) {
-      for await (const part of parts) this.onPart(part, () => undefined)
+    // The old consumer may still be saving its reply. Do not fold another
+    // independent background stream into that reply/projector.
+    while (this.running && !this.disposed) await this.whenIdle()
+    if (this.disposed) {
+      for await (const _ of parts) { /* drain */ }
       return
     }
     this.running = true
@@ -396,8 +393,7 @@ export class AgentChannel {
       this.running = false
     }
     this.hooks.onTurnEnd?.({ text: text.trim(), ...(error ? { error } : {}), aborted: false })
-    if (this.queue.length) void this.drain()
-    else this.settleIdle()
+    this.settleIdle()
   }
 
   /** Once per new id: the agent's session id, as soon as anything knows it. */
@@ -408,6 +404,11 @@ export class AgentChannel {
   }
 
   private onPart(part: RuntimeStreamPart, noteError: (message: string) => void): void {
+    if (part.type === 'injected-input') {
+      const input = this.injections.get(part.id)
+      this.injections.delete(part.id)
+      if (input) this.hooks.onInputConsumed?.(input)
+    }
     // Codex's parts carry no session id, but it has its thread from the start: ask, so a turn a
     // restart cuts off already has its session on disk.
     this.reportSessionId(this.session.id)

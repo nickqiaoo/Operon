@@ -1,3 +1,4 @@
+import { getOperonHome } from '../../../../shared/operon-home.js'
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import { mkdirSync } from 'fs'
@@ -16,7 +17,7 @@ import type {
   ProfileFile,
   ProfileFileName,
 } from '../../../../shared/assistant.js'
-import type { ApprovalIcon, AssistantSchedule, AuditRecord, ScheduleRunOutcome } from '../../../../shared/assistant.js'
+import type { ApprovalIcon, AssistantSchedule, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../../shared/assistant.js'
 import { activitySummaryOf, heartbeatTold, INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX, withHeartbeatTold } from '../../../../shared/assistant.js'
 import type { AssistantBlockerReason } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
@@ -72,6 +73,8 @@ import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours } from '.
 import { createOperonState, type OperonState, type OperonStateStorage } from './operon-state.js'
 import { CodingAgents } from './coding.js'
 import { createOperonActions, type OperonActions, type OperonActionsStorage } from './operon-actions.js'
+import { createAssistantSpecs, type AssistantSpecCard, type AssistantSpecs } from './specs.js'
+import { setAssistantSpecNoticeSink } from '../workflow/completion.js'
 import {
   createExternalAgent,
   externalAgentView,
@@ -150,7 +153,7 @@ function filesRecord(): Record<ProfileFileName, ProfileFile> {
 /** The user's own MCP servers (`~/.operon/mcp.json` family). Plugins' servers come via the plugin manager. */
 async function loadUserMcpServers(): Promise<Record<string, McpServerConfig>> {
   try {
-    const { servers } = await loadMcpServers(new LocalEnvironment(ASSISTANT_WORKSPACE), { appName: 'operon', cwd: ASSISTANT_WORKSPACE })
+    const { servers } = await loadMcpServers(new LocalEnvironment(ASSISTANT_WORKSPACE), { appName: 'operon', cwd: ASSISTANT_WORKSPACE, homeDir: getOperonHome() })
     return servers
   } catch (error) {
     console.warn('[assistant] failed to load MCP config:', error)
@@ -158,7 +161,7 @@ async function loadUserMcpServers(): Promise<Record<string, McpServerConfig>> {
   }
 }
 
-/** The Settings switches that gate node_repl, same as for chats (mcp-config.ts). */
+/** The Settings switches that gate operonrepl, same as for chats (mcp-config.ts). */
 function workerSurfaces(): WorkerSurfaces {
   return {
     browser: getBrowserUseConfig().enabled,
@@ -167,7 +170,7 @@ function workerSurfaces(): WorkerSurfaces {
   }
 }
 
-/** How a node_repl permission prompt reads on a card. */
+/** How an operonrepl permission prompt reads on a card. */
 function describeElicitation(request: HostElicitationRequest): { title: string; icon: ApprovalIcon; args?: Record<string, unknown> } {
   const meta = record(request.meta)
   const connector = typeof meta.connector_name === 'string' ? meta.connector_name : typeof meta.connector_id === 'string' ? meta.connector_id : ''
@@ -340,7 +343,7 @@ export class AssistantRuntime {
           return { chatId: started.chat_id }
         },
         activityOf: (chatId) => externalAgentView(chatId)?.assistantActivityId,
-        send: (chatId, prompt) => void sendExternalAgent('assistant', `ext-${chatId}`, prompt),
+        send: (chatId, prompt, delivery) => sendExternalAgent('assistant', `ext-${chatId}`, prompt, delivery),
         stop: (chatId) => stopExternalAgent('assistant', `ext-${chatId}`).stopped,
         status: (chatId) => getExternalAgentStatus('assistant', `ext-${chatId}`),
         diffStat: async (path) => {
@@ -360,10 +363,14 @@ export class AssistantRuntime {
       },
       () => randomUUID(),
     )
-    setAssistantAgentResultSink(({ view, event, dispatched, final, result }) => {
+    setAssistantAgentResultSink(({ view, event, dispatched, result, final }) => {
       void this.coding
-        .turnEnded({ chatId: view.childChatId, status: event.status, ...(event.error ? { error: event.error } : {}), dispatched, result: final || result })
+        .turnEnded({ chatId: view.childChatId, status: event.status, ...(event.error ? { error: event.error } : {}), dispatched, result, final })
         .catch((error: unknown) => console.warn('[assistant] coding agent result:', error))
+    })
+    setAssistantSpecNoticeSink(({ projectId, text }) => {
+      const project = storage.getProject(projectId)
+      this.tellMain(`[Spec update] Project "${project?.name ?? projectId}" (project_id ${projectId}).\n${text}`, { kind: 'system' })
     })
     subscribeExternalAgents((frame) => {
       if (frame.type === 'updated' && frame.agent.assistantActivityId && frame.agent.status === 'running') {
@@ -394,7 +401,7 @@ export class AssistantRuntime {
       },
       () => randomUUID(),
     )
-    // Workers' node_repl prompts (new site, app control) come here instead of a chat's card.
+    // Workers' operonrepl prompts (new site, app control) come here instead of a chat's card.
     setAssistantElicitationHandler((workerId, request) => this.onElicitation(workerId, request))
     // The assistant's own tools, served over MCP to whichever agent runs a session.
     setAssistantToolHost(this.toolHost)
@@ -604,10 +611,9 @@ export class AssistantRuntime {
       // A coding agent's task id leads to its conversation (the main agent may use either tool).
       const chatId = this.coding.chatOf(id)
       if (chatId == null) return this.workers.continue(id, message, this.latestUserText())
-      this.coding.send(chatId, message, {})
-      return Promise.resolve('continued' as const)
+      return this.coding.send(chatId, message, {}).then(() => 'continued' as const)
     },
-    stopTask: (id) => this.stopActivity(id),
+    stopTask: (id) => this.stopActivity(id, { byMain: true }),
     listTasks: () =>
       this.storage
         .assistantActivityList(LISTED_TASKS)
@@ -639,12 +645,13 @@ export class AssistantRuntime {
         const activity = await this.coding.start(input)
         return `Started in conversation chat_id ${activity.coding!.chatId} (task ${activity.id}). The user sees a card for it in this thread. You get a notice when it finishes or needs the user; end your turn rather than polling.`
       },
-      send: (chatId, message, title) => {
-        this.coding.send(chatId, message, title ? { title } : {})
-        return 'Sent. You get a notice when it finishes or needs the user.'
+      send: async (chatId, message, title, delivery) => {
+        const receipt = await this.coding.send(chatId, message, { ...(title ? { title } : {}), delivery })
+        return JSON.stringify({ delivery: receipt?.delivery ?? 'accepted', ...(receipt?.warning ? { warning: receipt.warning } : {}),
+          message: 'Accepted. You get one result after the execution stream ends and the result is saved.' })
       },
       status: (chatId) => JSON.stringify(this.coding.status(chatId)),
-      stop: (chatId) => (this.coding.stop(chatId) ? 'Stopped.' : 'It was not running.'),
+      stop: (chatId) => (this.coding.stop(chatId, { byMain: true }) ? 'Stopped.' : 'It was not running.'),
     },
     actions: {
       addProject: async (input) => {
@@ -665,6 +672,20 @@ export class AssistantRuntime {
       boardCreate: (projectId, input) => this.operonActions().boardCreate(projectId, input),
       boardUpdate: (projectId, task, updates) => this.operonActions().boardUpdate(projectId, task, updates),
       boardComment: (projectId, task, body) => this.operonActions().boardComment(projectId, task, body),
+      boardAgents: () => this.operonActions().boardAgents(),
+      boardDispatch: (projectId, task, assignee) => this.operonActions().boardDispatch(projectId, task, assignee),
+    },
+    specs: {
+      start: async (input) => {
+        const available = codingAgentIds()
+        if (!available.includes(input.providerId)) throw new Error(`Available agents: ${available.join(', ') || 'none'}`)
+        return this.assistantSpecs().start(input)
+      },
+      answer: (projectId, task, answers) => this.assistantSpecs().answer(projectId, task, answers),
+      status: (projectId, task) => this.assistantSpecs().status(projectId, task),
+      switchAgent: (projectId, task, input) => this.assistantSpecs().switchAgent(projectId, task, input),
+      declineSwitch: (projectId, task, note) => this.assistantSpecs().declineSwitch(projectId, task, note),
+      messageCoordinator: (projectId, task, message) => this.assistantSpecs().messageCoordinator(projectId, task, message),
     },
     // Built on first use: field initializers run before the constructor has `storage`.
     operon: {
@@ -680,10 +701,27 @@ export class AssistantRuntime {
     return this.operon
   }
 
+  private specs?: AssistantSpecs
+  private assistantSpecs(): AssistantSpecs {
+    this.specs ??= createAssistantSpecs(this.storage, (spec: AssistantSpecCard) => this.boardCard({ kind: 'spec', ...spec }))
+    return this.specs
+  }
+
+  /** An empty message carrying a spec or task: the thread renders it as that one's card. */
+  private boardCard(trigger: Extract<AssistantTrigger, { kind: 'spec' | 'task' }>): void {
+    const message: AssistantMessage = { id: randomUUID(), role: 'assistant', text: '', createdAt: Date.now(), trigger }
+    this.storage.assistantMessageUpsert(message)
+    this.emit({ type: 'message', message })
+  }
+
   private actions?: OperonActions
   /** Board changes are recorded under the assistant's name, as it is when they happen. */
   private operonActions(): OperonActions {
-    this.actions ??= createOperonActions(this.storage, () => parseIdentity(readProfileFile('identity').content).name ?? 'Assistant')
+    this.actions ??= createOperonActions(
+      this.storage,
+      () => parseIdentity(readProfileFile('identity').content).name ?? 'Assistant',
+      (task) => this.boardCard({ kind: 'task', ...task }),
+    )
     return this.actions
   }
 
@@ -697,7 +735,7 @@ export class AssistantRuntime {
    * Services the heartbeat can call, by the names its session has them under, with the plugin's own
    * name beside a plugin's ("plugin_grafana (Grafana)") so heartbeat.md can name either. On an
    * external agent that is exactly what the worker gets mounted ({@link workerServiceServers});
-   * Operon's own harness loads the user's MCP config and the plugins itself. (node_repl is a tool,
+   * Operon's own harness loads the user's MCP config and the plugins itself. (operonrepl is a tool,
    * not a service.)
    */
   private async connectors(providerId: AssistantProviderId | undefined): Promise<string[]> {
@@ -705,7 +743,7 @@ export class AssistantRuntime {
     const names = external
       ? new Set(Object.keys(workerServiceServers(providerId)))
       : new Set([...Object.keys(await loadUserMcpServers()), ...Object.keys(pluginManager.mcpServerConfigs())])
-    names.delete('node_repl')
+    names.delete('operonrepl')
     // Not signed in: all it offers is "connect first". The heartbeat card says so (withSignInState),
     // and a section that needs it is reported as not done.
     for (const plugin of pluginMcpNeedingSignIn()) names.delete(external ? plugin.name : plugin.runtimeName)
@@ -888,6 +926,7 @@ export class AssistantRuntime {
         memoryBefore = filesBefore()
         this.projector.begin(input?.tag as Cause | undefined)
       },
+      onInputConsumed: (input) => this.projector.setCause(input.tag as Cause),
       onPart: (part) => {
         try {
           this.projector.part(part)
@@ -980,8 +1019,7 @@ export class AssistantRuntime {
     const main = await this.mainSession(before)
     const note = main.reminder.next()
     const text = note ? `<context>\n${note}\n</context>\n\n${input.text}` : input.text
-    const how = await main.channel.deliver({ ...input, text, tag: input.cause })
-    if (how === 'injected') this.projector.setCause(input.cause)
+    await main.channel.deliver({ ...input, text, tag: input.cause })
   }
 
   /** Something for the main agent that the user did not type; failures only reach the log. */
@@ -1274,9 +1312,9 @@ export class AssistantRuntime {
     }
   }
 
-  async stopActivity(id: string): Promise<boolean> {
+  async stopActivity(id: string, options?: { byMain?: boolean }): Promise<boolean> {
     const chatId = this.coding.chatOf(id)
-    if (chatId != null) return this.coding.stop(chatId)
+    if (chatId != null) return this.coding.stop(chatId, options)
     this.approvals.expireFor(id)
     return this.workers.stop(id)
   }
@@ -1287,7 +1325,7 @@ export class AssistantRuntime {
     if (!activity) return 'missing'
     try {
       if (activity.coding) {
-        this.coding.send(activity.coding.chatId, text)
+        await this.coding.send(activity.coding.chatId, text)
         return activity.status === 'running' ? 'delivered' : 'continued'
       }
       return await this.workers.continue(id, text, text)

@@ -311,9 +311,10 @@ export default function App() {
   // inbox task notification: the board, detail open.
   useEffect(() => {
     if (!taskNavRequest) return
-    openTask(taskNavRequest.taskId)
+    if (taskNavRequest.spec) openSpec(taskNavRequest.taskId, taskNavRequest.projectId)
+    else openTask(taskNavRequest.taskId)
     clearTaskNavRequest()
-  }, [taskNavRequest, clearTaskNavRequest, openTask])
+  }, [taskNavRequest, clearTaskNavRequest, openTask, openSpec])
 
   // Bind analytics to the broker account this desktop client is signed into, so
   // its events reconcile with the same person's web and phone sessions. The web

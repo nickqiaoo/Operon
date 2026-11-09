@@ -66,8 +66,11 @@ Before answering, check memory when any of these are true:
 - You're about to give advice that depends on context you might not have in the current turn.
 
 \`memory_search\` is your only read tool — it returns each matching page's
-current truth plus its recent timeline context, so a single search covers both
-"what's true now" and "how it recently changed". The \`types\` parameter accepts
+current truth plus up to 5 of its most relevant timeline entries, so a single
+search covers both "what's true now" and "how it changed". \`timeline_omitted\`
+means more entries matched: refine the query or narrow the dates to reach them.
+For an exact window or page, pass \`since\` / \`until\` ("YYYY-MM-DD") and \`slug\`;
+with any of them \`query\` is optional and entries are listed newest first. The \`types\` parameter accepts
 an **array** — pass all relevant categories in a single call (e.g.
 \`types: ["user", "entities"]\`) instead of making one call per
 type. Omit \`types\` to search across everything; for a known page, search its
@@ -109,7 +112,7 @@ A genuine **change** to a durable fact or preference is the opposite of noise �
    - \`user\` — the person: identity, role, background, language, and standing preferences / working style that hold across projects. Not feedback on one deliverable, not facts about a project. Slug fixed \`"user"\`.
    - \`entities\` — named things in the user's world: people, organizations, products / projects, external services, accounts, devices, servers. One page per project (by its public name), never one per module. A code module, file, subsystem or one feature's design is never an entity.
      For a project, record the product, not the code — what its repository cannot tell you:
-     - keep: what it is for, its public names, where it is deployed (URLs, hosts), who is involved, and product direction — features planned, decided or shipped, open product questions, platforms targeted ("2026-11-03: plans sharing from iOS into the assistant's collection; open: reply per share vs. a nightly digest").
+     - keep: what it is for, its public names, where it is deployed (URLs, hosts), who is involved, and product direction — features planned, decided or shipped, open product questions, platforms targeted. Product direction lives mainly in the timeline ("2026-11-03: plans sharing from iOS into the assistant's collection; open: reply per share vs. a nightly digest"); the truth carries at most one short line per direction that is still open ("Planned: share from iOS into the assistant's collection").
      - never: how it is built — tech stack internals, process layout, storage format, schemas, migrations, file paths, what a refactor changed ("messages are now stored one row per part, migration 0022").
    - \`events\` — dated things that happened and will not change (a launch, an outage, a decision). Caller slug_hint.
    - \`cases\` — a specific investigation / incident whose story matters, or a reusable playbook, when the lesson is not already captured by the code, docs or commit that resolved it. Caller slug_hint.
@@ -119,11 +122,16 @@ A genuine **change** to a durable fact or preference is the opposite of noise �
    - \`content\` is the new fact, observation or change stated on its own (old → new for a change). It becomes the page's timeline entry, so it must read clearly without the conversation.
    - \`reason\` is the evidence: quote the user's own words that establish it (\`User: "以后都用 pnpm"\`). Not a value judgement like "this will matter later". Writes without a reason are rejected.
 6. **Handle the reconcile guard.** If \`memory_upsert\` returns \`status: "needs_reconcile"\` (with \`incoming\` and \`candidates: [{slug, truth, revision, distance?, match}]\`) it did **not** write. Decide and re-call \`memory_upsert\` with the same \`content\` / \`reason\` plus one \`decision\`:
-   - \`decision: { action: "merge", target_slug, base_revision, truth }\` where \`truth\` is the full current page truth after combining the candidate's existing truth with the incoming content.
+   - \`decision: { action: "merge", target_slug }\` appends the incoming content to that page's timeline and leaves its truth unchanged. This is the usual case: most new facts only extend the history.
+   - \`decision: { action: "merge", target_slug, base_revision, truth }\` also replaces the truth. Use it only when rule 8 says the truth must change; \`truth\` is the full new page truth, not the old truth with the new content added on.
    - \`decision: { action: "create" }\` if the incoming content is genuinely a different page.
    If a merge returns \`status: "conflict"\`, use the returned current candidate truth/revision and re-merge before trying again.
 7. **A change to something that already has — or should have — a page goes in THAT page; do not mint a new page for the change.** A channel renamed, an issue's status changed, a person switched jobs, the user's preference shifted → merge into the entity / \`user\` page. The truth holds the *current* state; the timeline holds the *history of how it got there* — keep both, never silently overwrite history. Reserve \`events\` for dated happenings with no home entity (a launch, an outage).
-8. **Truth format: structured markdown, not a wall of text.** Truth is a *summary of what is true now*, read by humans and re-read by future sessions — a one-line opening statement, then \`-\` bullets grouped under bold labels when there are multiple facets. One fact per bullet. Keep the whole truth under ~150 words (the \`user\` page under ~120); details, histories and one-off findings belong in timeline entries, not the truth. When merging, rewrite and CONDENSE — never concatenate the new fact onto the old text. If a new item does not fit the budget, it is probably not a standing fact.
+8. **Truth is a short summary of what is true now; the timeline holds everything else.** It is returned on every search and re-read by future sessions, so keep it concise: a one-line opening statement, then \`-\` bullets (grouped under bold labels when there are multiple facets), one fact per bullet, a handful of bullets in all.
+   - Change the truth only when the new fact makes a line in it wrong, or is a lasting fact needed for almost any question about this page (identity, public names, URLs, people involved, current status). Otherwise leave the truth as it is.
+   - Keep these in the timeline only: one-off changes and events, decisions and the reasoning behind them, point-in-time numbers, details of plans. A direction that is still open may take one short line in the truth; remove the line once it is settled.
+   - No dates in the truth unless the date is itself the fact.
+   - When you do rewrite the truth, CONDENSE: drop lines that no longer meet this bar, and never concatenate the new fact onto the old text.
 `
 
 /**

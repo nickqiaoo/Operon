@@ -43,15 +43,15 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
     },
     {
       name: 'external_agent_send',
-      description: 'Continue an existing external agent conversation. Keeps its context and model. No new model question is needed. Never use it to answer a question the agent asked the user: tell the user instead. Queues if busy; returns immediately. The result will arrive automatically, including when the user continues from the child tab. End your turn if waiting on its result.',
-      inputSchema: { type: 'object', properties: { agent_id: agentId, prompt }, required: ['agent_id', 'prompt'] },
+      description: 'Continue an existing external agent conversation. Keeps its context and model. No new model question is needed. Never use it to answer a question the agent asked the user: tell the user instead. Steers a running agent when supported; otherwise uses runtime followup when supported. Optional delivery selects auto, strict steer, or followup. Unsupported operations fail; uncertain delivery must not be resent. Output stays on the active stream; one result arrives after that stream ends. The result will arrive automatically, including when the user continues from the child tab. End your turn if waiting on its result.',
+      inputSchema: { type: 'object', properties: { agent_id: agentId, prompt, delivery: { type: 'string', enum: ['auto', 'steer', 'followup'], default: 'auto' } }, required: ['agent_id', 'prompt'] },
     },
     {
       name: 'external_agent_status', description: 'Inspect an external agent and its latest result when needed. Do not repeatedly poll: results are delivered automatically.',
       inputSchema: { type: 'object', properties: { agent_id: agentId }, required: ['agent_id'] },
     },
     {
-      name: 'external_agent_stop', description: 'Stop the current turn and cancel queued messages. Keeps the child conversation available for follow-up. Closing its tab does not stop execution.',
+      name: 'external_agent_stop', description: 'Stop the current execution. Pending native input follows the provider cancellation behavior. Keeps the child conversation available for follow-up. Closing its tab does not stop execution.',
       inputSchema: { type: 'object', properties: { agent_id: agentId }, required: ['agent_id'] },
     },
   ]
@@ -78,7 +78,7 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
           prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description') }))
       }
       const id = requiredText(args, 'agent_id')
-      if (name === 'external_agent_send') return json(sendExternalAgent(parentChatId, id, requiredText(args, 'prompt')))
+      if (name === 'external_agent_send') return json(await sendExternalAgent(parentChatId, id, requiredText(args, 'prompt'), args.delivery === 'steer' || args.delivery === 'followup' ? args.delivery : 'auto'))
       if (name === 'external_agent_status') return json(getExternalAgentStatus(parentChatId, id))
       if (name === 'external_agent_stop') return json(stopExternalAgent(parentChatId, id))
       throw new Error(`Unknown tool: ${name}`)

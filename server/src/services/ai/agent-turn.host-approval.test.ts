@@ -26,7 +26,7 @@ describe('runAgentTurn host approval bridge', () => {
           toolCallId: 'outer-tool-call',
           toolName: 'use_tool',
           input: {
-            tool_name: 'node_repl__js',
+            tool_name: 'operonrepl__js',
             tool_input: { source: 'await chrome.goto("https://example.com")' },
           },
           dynamic: true,

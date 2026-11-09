@@ -893,6 +893,11 @@ function ChatPanelContent({
     handleSubmit(message);
   }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, dbChatId]);
 
+  // Not handleSubmit: that also sends whatever draft and attachments sit in the composer.
+  const handleAnswerQuestion = useCallback((text: string) => {
+    void sendMessage({ text });
+  }, [sendMessage]);
+
   // One-click "send" from the browser annotation toolbar: when its nonce bumps
   // for this workspace, the focused chat submits the queued annotations. Consume
   // immediately so only one panel acts.
@@ -1157,6 +1162,7 @@ function ChatPanelContent({
               turnDiffs={tab?.options?.autoRun ? undefined : turnDiffs}
               onReviewTurn={tab?.options?.autoRun ? undefined : handleReviewTurn}
               externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
+              onAnswerQuestion={handleAnswerQuestion}
             />
             </ChatDbIdContext.Provider>
           )}

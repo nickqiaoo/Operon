@@ -108,6 +108,57 @@ describe('AssistantProjector (the thread)', () => {
     expect(t.messages()).toEqual([expect.objectContaining({ text: 'Got it.', remembered: ['Daughter: Duoduo'] })])
   })
 
+  describe('a question for the user', () => {
+    /** A finished Codex message: its text arrives whole, with what the provider says about it. */
+    const completed = (projector: AssistantProjector, id: string, text: string, details: Record<string, unknown>) => {
+      projector.part(p({ type: 'text-start', id, providerMetadata: { runtime: { completion: 'explicit' } } }))
+      projector.part(p({ type: 'text-end', id, providerMetadata: { runtime: { completedText: text, ...details } } }))
+    }
+    const asked = [{ title: 'Which agent?', options: ['Codex', 'Claude'] }]
+    const question = { phase: 'final_answer', questions: asked }
+
+    it('leaves the text empty for several questions until the closing answer gives it some', () => {
+      const t = thread()
+      const several = [{ title: 'Which agent?', options: ['Codex'] }, { title: 'Which branch?', options: [] }]
+      t.projector.begin({ kind: 'user' })
+      completed(t.projector, 'q', 'Which agent?\nWhich branch?', { phase: 'final_answer', questions: several })
+      expect(t.messages()).toEqual([expect.objectContaining({ text: '', questions: several })])
+      completed(t.projector, 'a', 'Two things first.', { phase: 'final_answer' })
+      t.projector.end()
+      expect(t.messages()).toEqual([expect.objectContaining({ text: 'Two things first.', questions: several })])
+    })
+
+    it('merges the closing answer into the question, keeping the same message', () => {
+      const t = thread()
+      t.projector.begin({ kind: 'user' })
+      completed(t.projector, 'q', 'Which agent?\n- Codex\n- Claude', question)
+      expect(t.messages()).toEqual([expect.objectContaining({ text: 'Which agent?', questions: asked })])
+      completed(t.projector, 'a', 'Sure. Pick one and I will start.', { phase: 'final_answer' })
+      t.projector.end()
+      expect(t.messages()).toEqual([expect.objectContaining({ text: 'Sure. Pick one and I will start.', questions: asked })])
+    })
+
+    it('keeps progress said after the question as its own message', () => {
+      const t = thread()
+      t.projector.begin({ kind: 'user' })
+      completed(t.projector, 'q', 'Which agent?', question)
+      completed(t.projector, 'c', 'Meanwhile, reading the code.', { phase: 'commentary' })
+      t.projector.end()
+      expect(t.messages().map((m) => m.text)).toEqual(['Which agent?', 'Meanwhile, reading the code.'])
+    })
+
+    it('does not carry an unanswered question over to the next turn', () => {
+      const t = thread()
+      t.projector.begin({ kind: 'user' })
+      completed(t.projector, 'q', 'Which agent?', question)
+      t.projector.end()
+      t.projector.begin({ kind: 'user' })
+      completed(t.projector, 'a', 'Next turn.', { phase: 'final_answer' })
+      t.projector.end()
+      expect(t.messages().map((m) => m.text)).toEqual(['Which agent?', 'Next turn.'])
+    })
+  })
+
   it('says something when a turn fails, and nothing when it was stopped', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
@@ -184,7 +235,7 @@ describe('ActivityProjector (one worker)', () => {
     w.projector.part(p({ type: 'tool-call', toolCallId: 'a', toolName: 'Bash', input: { command: 'ls', description: 'List the files' } }))
     w.projector.part(p({ type: 'tool-call', toolCallId: 'b', toolName: 'exec', input: { command: '/bin/zsh -lc "find . -name \'*.txt\'"' } }))
     w.projector.part(p({ type: 'tool-call', toolCallId: 'c', toolName: 'read', input: { filePath: '/work/notes/a.md' } }))
-    w.projector.part(p({ type: 'tool-call', toolCallId: 'd', toolName: 'mcp__node_repl__js', input: JSON.stringify({ code: '1' }) }))
+    w.projector.part(p({ type: 'tool-call', toolCallId: 'd', toolName: 'mcp__operonrepl__js', input: JSON.stringify({ code: '1' }) }))
     expect(w.last().steps.map((s) => s.label)).toEqual(['List the files', "find . -name '*.txt'", 'read: notes/a.md', 'js'])
     expect(w.last().steps.map((s) => s.tool)).toEqual(['Bash', 'exec', 'read', 'js'])
   })
@@ -278,5 +329,23 @@ describe('briefError', () => {
   it('keeps plain errors and boils JSON bodies down to status and message', () => {
     expect(briefError('socket hang up')).toBe('socket hang up')
     expect(briefError('402 {"error":{"message":"This request requires more credits"}}')).toBe('402 · This request requires more credits')
+  })
+})
+
+
+describe('input receipt while a reply is open', () => {
+  it('keeps the original cause for the entire reply, applying the notice only to later replies', () => {
+    const t = thread(); t.projector.begin({ kind: 'user' })
+    t.projector.part(p({ type: 'text-start', id: 'current' }))
+    t.projector.part(p({ type: 'text-delta', id: 'current', text: 'I have asked Cod' }))
+    t.projector.setCause({ kind: 'coding', activityId: 'result-1' })
+    expect(t.messages()).toHaveLength(0)
+    t.projector.part(p({ type: 'text-delta', id: 'current', text: 'ex to check.' }))
+    t.projector.part(p({ type: 'text-end', id: 'current' }))
+    said(t.projector, 'The coding result is ready.', 'next')
+    t.projector.end()
+    expect(t.messages().map((m) => m.text)).toEqual(['I have asked Codex to check.', 'The coding result is ready.'])
+    expect(t.messages()[0].activityId).toBeUndefined()
+    expect(t.messages()[1].activityId).toBe('result-1')
   })
 })

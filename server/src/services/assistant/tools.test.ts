@@ -25,8 +25,18 @@ function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
       boardCreate: vi.fn(() => ''),
       boardUpdate: vi.fn(async () => ''),
       boardComment: vi.fn(() => ''),
+      boardAgents: vi.fn(() => ''),
+      boardDispatch: vi.fn(async () => 'Dispatched'),
     },
-    coding: { models: vi.fn(async () => '[]'), start: vi.fn(async () => 'Started'), send: vi.fn(() => 'Sent'), status: vi.fn(() => '{}'), stop: vi.fn(() => 'Stopped') },
+    specs: {
+      start: vi.fn(async () => 'Started'),
+      answer: vi.fn(async () => 'Saved'),
+      status: vi.fn(async () => 'designing'),
+      switchAgent: vi.fn(async () => 'Switched'),
+      declineSwitch: vi.fn(async () => 'Declined'),
+      messageCoordinator: vi.fn(async () => 'Passed'),
+    },
+    coding: { models: vi.fn(async () => '[]'), start: vi.fn(async () => 'Started'), send: vi.fn(async () => 'Sent'), status: vi.fn(() => '{}'), stop: vi.fn(() => 'Stopped') },
     ...overrides,
   }
 }
@@ -36,12 +46,33 @@ describe('the tools each kind of session is offered', () => {
     expect(toolsFor('main').map((t) => t.name)).toEqual([
       'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
       'workspace_list', 'workspace_overview', 'waiting_list',
-      'workspace_create', 'project_add', 'github_prs', 'github_pr', 'github_pr_create', 'board_list', 'board_get', 'board_create', 'board_update', 'board_comment',
+      'workspace_create', 'project_add', 'github_prs', 'github_pr', 'github_pr_create', 'board_list', 'board_get', 'board_create', 'board_update', 'board_comment', 'board_agents', 'board_dispatch',
       'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
+      'start_spec', 'answer_spec_questions', 'spec_status', 'spec_switch_agent', 'spec_decline_switch', 'spec_message_coordinator',
       'schedule_list', 'schedule_create', 'schedule_update', 'schedule_delete',
     ])
     expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])
     expect(toolsFor('wrapup')).toEqual([])
+  })
+})
+
+describe('the board and specs from the assistant', () => {
+  const main = { role: 'main', id: 'm' } as const
+
+  it("won't start a spec until the user has chosen who leads it", async () => {
+    const h = host()
+    const args = { project_id: 5, title: 'T', brief: 'B', agent: 'codex', model: 'default', selection_confirmed: false }
+    expect((await callAssistantTool('start_spec', args, main, h)).isError).toBe(true)
+    expect(h.specs.start).not.toHaveBeenCalled()
+
+    await callAssistantTool('start_spec', { ...args, selection_confirmed: true }, main, h)
+    expect(h.specs.start).toHaveBeenCalledWith({ projectId: 5, title: 'T', brief: 'B', providerId: 'codex', model: 'default' })
+  })
+
+  it('reports a refused dispatch to the model', async () => {
+    const h = host()
+    vi.mocked(h.actions.boardDispatch).mockRejectedValue(new Error('There is no agent @x.'))
+    expect(await callAssistantTool('board_dispatch', { project_id: 5, task: 7, assignee: 'x' }, main, h)).toEqual({ text: 'There is no agent @x.', isError: true })
   })
 })
 
@@ -94,7 +125,7 @@ describe('labels', () => {
   })
 
   it('strips the MCP server from a tool name', () => {
-    expect(bareToolName('mcp__node_repl__js')).toBe('js')
+    expect(bareToolName('mcp__operonrepl__js')).toBe('js')
     expect(bareToolName('mcp__github__list_issues')).toBe('list_issues')
     expect(bareToolName('Bash')).toBe('Bash')
   })
@@ -107,7 +138,7 @@ describe('labels', () => {
     expect(stepLabel('exec', { command: '/bin/zsh -lc "curl -s https://example.com"' })).toBe('curl -s https://example.com')
     expect(stepLabel('Read', { file_path: '/home/a/ws/notes.md' }, '/home/a/ws')).toBe('Read: notes.md')
     expect(stepLabel('WebFetch', { url: 'https://example.com' })).toBe('WebFetch: https://example.com')
-    expect(stepLabel('mcp__node_repl__js', { code: 'x' })).toBe('js')
+    expect(stepLabel('mcp__operonrepl__js', { code: 'x' })).toBe('js')
     expect(stepLabel('Bash', '{"command":"pwd"}')).toBe('pwd')
   })
 })

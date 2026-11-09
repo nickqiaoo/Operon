@@ -66,18 +66,23 @@ function WhereLabel({ activity }: { activity: ActivitySummary }) {
   )
 }
 
-/** ` · 3 files +12 −4`: uncommitted changes when the last turn finished. */
-function DiffStatLabel({ coding }: { coding: ActivityCoding }) {
+/** ` · 3 files +12 −4`: uncommitted changes when the last turn finished. `linesOnly` drops the file count. */
+function DiffStatLabel({ coding, linesOnly }: { coding: ActivityCoding; linesOnly?: boolean }) {
   if (!coding.diffStat) return null
+  if (linesOnly && coding.diffStat.additions === 0 && coding.diffStat.deletions === 0) return null
   return (
     <>
       <span className="text-muted-foreground/50">·</span>
       <span className="shrink-0">
-        <FormattedMessage
-          id="assistant.coding.changedFiles"
-          defaultMessage="{count, plural, one {# file} other {# files}}"
-          values={{ count: coding.diffStat.files }}
-        />{" "}
+        {!linesOnly && (
+          <>
+            <FormattedMessage
+              id="assistant.coding.changedFiles"
+              defaultMessage="{count, plural, one {# file} other {# files}}"
+              values={{ count: coding.diffStat.files }}
+            />{" "}
+          </>
+        )}
         <span className="text-status-ok">+{coding.diffStat.additions}</span>{" "}
         <span className="text-status-error">−{coding.diffStat.deletions}</span>
       </span>
@@ -124,34 +129,49 @@ export function CodingAgentCard({ activity, onOpen, compact }: CodingAgentCardPr
         !compact && "min-w-[360px]",
       )}
     >
-      {/* One row: who and where on the left, state and the way in on the right. */}
-      <div className="flex items-center gap-3">
-        <AgentAvatar provider={c.providerId} size="md" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{activity.title}</div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            <WhereLabel activity={activity} />
-            <span className="text-muted-foreground/50">·</span>
+      <div className="space-y-0.5">
+        {/* One row: who and where on the left, state and the way in on the right. */}
+        <div className="flex items-center gap-3">
+          <AgentAvatar provider={c.providerId} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">{activity.title}</div>
+            {!compact && (
+              <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                <WhereLabel activity={activity} />
+                <span className="text-muted-foreground/50">·</span>
+                <span className="shrink-0">{codingAgentName(c.providerId)}</span>
+                <ModelLabel coding={c} />
+                <DiffStatLabel coding={c} />
+              </div>
+            )}
+          </div>
+          <span className="flex shrink-0">
+            <ActivityStatusBadge status={activity.status} />
+          </span>
+          {/* Phone: just the arrow, the row is too narrow for a label beside the title. */}
+          <Button
+            size="sm"
+            variant="secondary"
+            className={cn("h-8 shrink-0 gap-1.5", compact && "w-8 px-0")}
+            onClick={() => onOpen(activity)}
+            title={compact ? openLabel : undefined}
+            aria-label={openLabel}
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" />
+            {!compact && openLabel}
+          </Button>
+        </div>
+        {/* Phone: under the title rather than beside the state, which left it too little width.
+            The agent leads because it never shrinks, so the row can't open on a separator. */}
+        {compact && (
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden pl-11 text-xs text-muted-foreground">
             <span className="shrink-0">{codingAgentName(c.providerId)}</span>
             <ModelLabel coding={c} />
-            <DiffStatLabel coding={c} />
+            <span className="text-muted-foreground/50">·</span>
+            <WhereLabel activity={activity} />
+            <DiffStatLabel coding={c} linesOnly />
           </div>
-        </div>
-        <span className="flex shrink-0">
-          <ActivityStatusBadge status={activity.status} />
-        </span>
-        {/* Phone: just the arrow, the row is too narrow for a label beside the title. */}
-        <Button
-          size="sm"
-          variant="secondary"
-          className={cn("h-8 shrink-0 gap-1.5", compact && "w-8 px-0")}
-          onClick={() => onOpen(activity)}
-          title={compact ? openLabel : undefined}
-          aria-label={openLabel}
-        >
-          <ArrowUpRight className="h-3.5 w-3.5" />
-          {!compact && openLabel}
-        </Button>
+        )}
       </div>
 
       <CodingWaiting activity={activity} />

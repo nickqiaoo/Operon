@@ -86,7 +86,7 @@ describe('getToolDescription', () => {
 })
 
 describe('inferFieldLanguage', () => {
-  it('maps the node_repl `source` argument to javascript', () => {
+  it('maps the operonrepl `source` argument to javascript', () => {
     expect(inferFieldLanguage('source')).toBe('javascript')
     expect(inferFieldLanguage('code')).toBe('javascript')
   })
@@ -174,10 +174,10 @@ describe('formatToolDisplayName', () => {
 describe('grok use_tool envelope', () => {
   it('unwraps the envelope to the real tool and its arguments', () => {
     const { toolName, input } = unwrapToolEnvelope('use_tool', {
-      tool_name: 'node_repl__js',
+      tool_name: 'operonrepl__js',
       tool_input: { source: 'await computer.click({ element_index: 45 })', description: 'Open chat' },
     })
-    expect(toolName).toBe('node_repl__js')
+    expect(toolName).toBe('operonrepl__js')
     expect(input).toEqual({
       source: 'await computer.click({ element_index: 45 })',
       description: 'Open chat',
@@ -185,7 +185,7 @@ describe('grok use_tool envelope', () => {
   })
 
   it('classifies the unwrapped arguments instead of a nested blob', () => {
-    const envelope = { tool_name: 'node_repl__js', tool_input: { source: 'a\nb', description: 'x' } }
+    const envelope = { tool_name: 'operonrepl__js', tool_input: { source: 'a\nb', description: 'x' } }
     // Before unwrapping, tool_input is a nested object -> the JSON tier.
     expect(classifyToolInput(envelope).kind).toBe('json')
     const { input } = unwrapToolEnvelope('use_tool', envelope)

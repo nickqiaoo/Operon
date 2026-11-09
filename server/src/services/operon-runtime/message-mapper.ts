@@ -318,10 +318,9 @@ export class OperonStreamMapper {
       // the assistant message, not as an `error` event — without this the turn reads as an empty
       // success and the user sees nothing at all.
       case 'message.appended': {
-        if (event.message.role === 'user' && event.origin?.kind === 'user' && event.origin.steerId) {
+        if (event.message.role === 'user' && (event.origin?.kind === 'user' || event.origin?.kind === 'user_follow_up') && event.origin.steerId) {
           const injected = this.takeInjection?.(event.origin.steerId)
           if (injected) {
-            this.closeOpenBlocks(push)
             push({ type: 'injected-input', ...injected })
           }
         }

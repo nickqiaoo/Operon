@@ -21,6 +21,13 @@ export interface ChatMetadata {
     /** Where it ran — a disposable worktree, usually; used while it still exists. */
     cwd: string
   }
+  /**
+   * The hidden row standing for the personal assistant as a spec's source chat. A
+   * spec needs a chat to report to; the assistant's thread is not one, and one row
+   * per spec lets it run several at once. Holds no messages and never runs a turn:
+   * notices are handed to the assistant (workflow/completion.ts).
+   */
+  assistantSpec?: { projectId: number }
   /** linear agent chat fields */
   source?: 'linear'
   linearSessionId?: string

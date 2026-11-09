@@ -430,11 +430,12 @@ export function aiRoutes(storage: AiRouteStorage) {
 
   // POST /api/ai/inject
   router.post('/inject', async (c) => {
-    const { chatId, content, turnMessageId, messageId } = await c.req.json<{
+    const { chatId, content, turnMessageId, messageId, mode } = await c.req.json<{
       chatId: number
       content: string
       turnMessageId?: string
       messageId?: string
+      mode?: 'steer' | 'followup'
     }>()
     const normalizedTurnMessageId =
       typeof turnMessageId === 'string' && turnMessageId.length > 0
@@ -444,6 +445,7 @@ export function aiRoutes(storage: AiRouteStorage) {
       typeof messageId === 'string' && /^[\w-]{1,128}$/.test(messageId) ? messageId : undefined
     const result = await aiService.injectIntoChat(chatId, content, normalizedTurnMessageId, {
       messageId: normalizedMessageId,
+      mode: mode === 'followup' ? 'followup' : 'steer',
     })
     return c.json(result, result.success ? 200 : 400)
   })

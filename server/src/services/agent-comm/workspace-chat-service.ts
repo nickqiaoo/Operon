@@ -235,6 +235,7 @@ export async function notifyAgent(
   })
   for (const b of bindings) {
     if (b.activeChatId == null) continue
-    await injectIntoChat(b.activeChatId, notification)
+    const receipt = await injectIntoChat(b.activeChatId, notification, undefined, { mode: 'auto' })
+    if (!receipt.success) console.warn('[workspace-chat] notification delivery', receipt.delivery, receipt.error)
   }
 }

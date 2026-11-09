@@ -22,9 +22,11 @@ import { isCodeProgramTool, programToolCallIdOf } from './codeProgram';
 import { isHtmlRenderResult } from './HtmlRenderFrame';
 import type { ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
+import { textPartQuestion } from './textPartQuestion';
 import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
+import { ReplyImageGallery } from './ReplyImageGallery';
 import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
 import type { RewindMode } from '../hooks/useRewindController';
 
@@ -54,12 +56,18 @@ const UserMessageWithContext = ({ text }: { text: string }) => {
   );
 };
 
-const getFilteredMessageText = (message: UIMessage) =>
-  (message.parts ?? [])
-    .filter(isTextPart)
-    .map((part) => part.text)
+/** The reply as it reads on screen: a question's plain-text rendering stays out of it. */
+const getFilteredMessageText = (message: UIMessage) => {
+  const parts = message.parts ?? [];
+  return parts
+    .map((part, index) => {
+      if (!isTextPart(part)) return '';
+      const question = textPartQuestion(parts, index);
+      return question?.hidden ? '' : question?.text ?? part.text;
+    })
     .join('')
     .trim();
+};
 
 const hasAssistantActionCandidate = (message: UIMessage) =>
   message.role === 'assistant' &&
@@ -166,6 +174,8 @@ interface MessagesListProps {
   /** Open the Review tab focused on the given turn (the round's user-message id). */
   onReviewTurn?: (messageUid: string) => void;
   externalAgentNotificationsByTaskId?: ReadonlyMap<string, ExternalAgentResultMetadata>;
+  /** Send the user's answer to a question the agent asked. */
+  onAnswerQuestion?: (text: string) => void;
 }
 
 interface MessageItemProps {
@@ -202,6 +212,9 @@ interface MessageItemProps {
   onSendToOpen?: () => void;
   onRewindToCheckpoint?: (userMessageId: string, mode: RewindMode) => void;
   onUndoRewind?: () => void;
+  onAnswerQuestion?: (text: string) => void;
+  /** What the user said after this message; unset while it is the newest one. */
+  questionAnswer?: string;
 }
 
 function ArchivedSteers({ messages }: { messages: readonly UIMessage[] }) {
@@ -258,6 +271,8 @@ const MessageItem = memo(function MessageItem({
   onSendToOpen,
   onRewindToCheckpoint,
   onUndoRewind,
+  onAnswerQuestion,
+  questionAnswer,
 }: MessageItemProps) {
   const intl = useIntl();
   const [mounted, setMounted] = useState(!deferMount);
@@ -295,6 +310,7 @@ const MessageItem = memo(function MessageItem({
     return indices;
   }, []);
   const lastTextPartIndex = textPartIndices[textPartIndices.length - 1];
+  const lastTextPart = sortedParts[lastTextPartIndex] as TextPart | undefined;
 
   const childPartsMap = new Map<string, number[]>();
   const childIndices = new Set<number>();
@@ -398,6 +414,8 @@ const MessageItem = memo(function MessageItem({
           childParts={childToolParts}
           externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
           onRewindToHere={rewindToHere}
+          onAnswerQuestion={onAnswerQuestion}
+          questionAnswer={questionAnswer}
         />
       </div>
     );
@@ -466,6 +484,9 @@ const MessageItem = memo(function MessageItem({
           one actively streaming); the turn footer is turn-level, so it stays
           gated on isLastAssistantInRound. Order: action row hugs the response
           text, then the turn footer sits below it. */}
+      {message.role === 'assistant' && !isStreamingMessage && isLastAssistantInRound && (
+        <ReplyImageGallery text={lastTextPart?.text ?? getMessageText(message)} />
+      )}
       {message.role === 'assistant' && !isStreamingMessage && (
         <AssistantMessageActions
           text={getFilteredMessageText(message)}
@@ -496,6 +517,7 @@ export const MessagesList = memo(function MessagesList({
   turnDiffs,
   onReviewTurn,
   externalAgentNotificationsByTaskId,
+  onAnswerQuestion,
 }: MessagesListProps) {
   // Guard against duplicate message ids in the source array (a history + live
   // merge can produce them). Dedupe by id — keeping each id's first position
@@ -683,6 +705,8 @@ export const MessagesList = memo(function MessagesList({
           onSendToOpen={onSendToOpen}
           onRewindToCheckpoint={onRewindToCheckpoint}
           onUndoRewind={onUndoRewind}
+          onAnswerQuestion={onAnswerQuestion}
+          questionAnswer={index < lastMessageIndex ? (messages[index + 1].role === 'user' ? getMessageText(messages[index + 1]) : '') : undefined}
         />
       ))}
     </>

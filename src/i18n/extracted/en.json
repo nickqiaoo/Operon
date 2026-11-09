@@ -303,6 +303,7 @@
   "channel.thread.title": "Thread",
   "channel.typing": "{name} is typing",
   "channel.untitled": "channel",
+  "chat.question.submit": "Submit",
   "commit.branch": "Branch",
   "commit.changes": "Changes",
   "commit.commitTo": "Commit to",

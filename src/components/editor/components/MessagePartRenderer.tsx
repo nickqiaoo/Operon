@@ -48,6 +48,8 @@ import { UserContextBlocks } from './UserContextBlocks';
 import { parseContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import type { SendToModel } from '../SendToButton';
 import { useTransientFlag } from '@/hooks/useTransientFlag'
+import { QuestionForm } from '@/components/ai-elements/question-form';
+import { textPartQuestion } from './textPartQuestion';
 
 const skillTagPattern = /\[skill:([\w-]+)\]/g;
 
@@ -142,6 +144,10 @@ interface MessagePartRendererProps {
    * Only set on user messages whose turn (or a later one) has a checkpoint.
    */
   onRewindToHere?: () => void;
+  /** Send the user's answer to a question the agent asked. */
+  onAnswerQuestion?: (text: string) => void;
+  /** What the user said after this message; unset while it is the newest one. */
+  questionAnswer?: string;
 }
 
 export function MessagePartRenderer(props: MessagePartRendererProps) {
@@ -163,6 +169,8 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     childParts,
     externalAgentNotificationsByTaskId,
     onRewindToHere,
+    onAnswerQuestion,
+    questionAnswer,
   } = props;
   const intl = useIntl();
   // Handle tool invocations
@@ -495,6 +503,8 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   if (part.type !== 'text') return null;
   const displayText = part.text || '';
   if (!displayText.trim()) return null;
+  const question = message.role === 'assistant' ? textPartQuestion(message.parts, partIndex) : undefined;
+  if (question?.hidden) return null;
 
   // Compact rendering for background agent completion notifications
   if (message.role === 'user' && displayText.includes('<task-notification>')) {
@@ -559,7 +569,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
 
   return (
     <Message key={`${message.id}-${partIndex}`} from={message.role}>
-      <MessageContent>
+      {question?.text !== '' && <MessageContent>
         {message.role === 'user' && <UserContextBlocks blocks={contextBlocks} />}
         {skillTags.length > 0 ? (
           <div className="flex items-baseline flex-wrap gap-1">
@@ -575,10 +585,19 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
               switching to it when the reply finished rebuilt the whole message (every block
               re-parsed, code re-highlighted) in one blocking render. */
           <MessageResponse className={PHONE_REPLY_TEXT_MD} mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
-            {displayText}
+            {question?.text ?? displayText}
           </MessageResponse>
         )}
-      </MessageContent>
+      </MessageContent>}
+      {question && !question.hidden && (
+        <QuestionForm
+          questions={question.questions}
+          body={question.text}
+          answer={questionAnswer}
+          disabled={!onAnswerQuestion || isStreamingMessage || questionAnswer !== undefined}
+          onSubmit={(text) => onAnswerQuestion?.(text)}
+        />
+      )}
       {/* Assistant action row + turn footer render at the message level (see
           MessagesList) so they stay at the bottom even when the turn ends on a
           tool call. Only the user action row is anchored to its text part. */}

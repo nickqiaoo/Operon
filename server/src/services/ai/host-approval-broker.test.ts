@@ -47,7 +47,7 @@ describe('host approval broker', () => {
       toolCallId: 'outer-tool-call',
       toolName: 'use_tool',
       input: {
-        tool_name: 'node_repl__js',
+        tool_name: 'operonrepl__js',
         tool_input: { source: 'await chrome.goto("https://www.bilibili.com")' },
       },
       dynamic: true,
@@ -79,7 +79,7 @@ describe('host approval broker', () => {
     observeHostApprovalStreamPart(7, {
       type: 'tool-call',
       toolCallId: 'outer-tool-call',
-      toolName: 'node_repl__js',
+      toolName: 'operonrepl__js',
       input: {},
       dynamic: true,
     })
@@ -109,7 +109,7 @@ describe('host approval broker', () => {
     const events: RuntimeTextStreamPart[] = []
     attachHostApprovalStream(100, (part) => events.push(part))
 
-    // The normal Browser Use case: the outer node_repl call is still running, so
+    // The normal Browser Use case: the outer operonrepl call is still running, so
     // the provider has not emitted its `tool-call` part yet.
     const result = requestHostElicitation(100, {
       message: 'Allow Browser Use to access https://www.baidu.com?',
@@ -174,7 +174,7 @@ describe('host approval broker', () => {
     observeHostApprovalStreamPart(103, {
       type: 'tool-call',
       toolCallId: 'outer-tool-call',
-      toolName: 'node_repl__js',
+      toolName: 'operonrepl__js',
       input: {},
       dynamic: true,
     })
@@ -197,7 +197,7 @@ describe('host approval broker', () => {
     observeHostApprovalStreamPart(104, {
       type: 'tool-call',
       toolCallId: 'shared-outer-call',
-      toolName: 'node_repl__js',
+      toolName: 'operonrepl__js',
       input: {},
       dynamic: true,
     })
@@ -268,7 +268,7 @@ describe('host approval broker', () => {
     observeHostApprovalStreamPart(11, {
       type: 'tool-call',
       toolCallId: 'computer-use-call',
-      toolName: 'node_repl__js',
+      toolName: 'operonrepl__js',
       input: {},
       dynamic: true,
     })
@@ -313,7 +313,7 @@ describe('host approval broker', () => {
     observeHostApprovalStreamPart(12, {
       type: 'tool-call',
       toolCallId: 'computer-use-call',
-      toolName: 'node_repl__js',
+      toolName: 'operonrepl__js',
       input: {},
       dynamic: true,
     })

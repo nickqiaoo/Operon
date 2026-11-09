@@ -7,6 +7,8 @@ import type { AssistantCaller, AssistantRole } from './node-repl-bridge.js'
 import type { OperonState } from './operon-state.js'
 import type { OperonActions } from './operon-actions.js'
 import type { ScheduleInput } from './schedule.js'
+import type { AssistantSpecs } from './specs.js'
+import { START_SPEC_DESCRIPTION } from '../spec/prompts.js'
 
 /**
  * The assistant's own tools — the main agent's and a worker's — whatever agent runs
@@ -69,6 +71,8 @@ export interface AssistantToolHost {
   /** Changes to workspaces and the board, on the user's behalf. */
   actions: OperonActions
   coding: CodingToolHost
+  /** OperonSpec, on the user's projects. Errors are thrown. */
+  specs: AssistantSpecs
 }
 
 /** Coding agents in the user's workspaces (coding.ts does the work). Errors are thrown. */
@@ -77,7 +81,7 @@ export interface CodingToolHost {
   models(agentTypes: string[], query: string | undefined): Promise<string>
   start(input: { workspaceId: number; title: string; prompt: string; providerId: string; model: string; effort?: string }): Promise<string>
   /** `title`: a new name for its card, when this is a new piece of work. */
-  send(chatId: number, message: string, title?: string): string
+  send(chatId: number, message: string, title?: string, delivery?: 'auto' | 'steer' | 'followup'): Promise<string>
   status(chatId: number): string
   stop(chatId: number): string
 }
@@ -421,6 +425,28 @@ const boardComment = defineTool({
   run: ({ project_id, task, body }, _caller, host) => attempt(() => host.actions.boardComment(project_id, task, body)),
 })
 
+const boardAgents = defineTool({
+  name: 'board_agents',
+  description: 'The agents a board task can be handed to. Offer them to the user before board_dispatch.',
+  parameters: z.object({}),
+  roles: ['main'],
+  run: (_args, _caller, host) => attempt(() => host.actions.boardAgents()),
+})
+
+const boardDispatch = defineTool({
+  name: 'board_dispatch',
+  description:
+    'Hand a todo board task to an agent: assigns it, moves it to in_progress and starts the agent in its own worktree. The assignee is the user\'s choice each time: never pick one yourself.',
+  parameters: z.object({
+    project_id: projectId,
+    task: taskNumber,
+    assignee: z.string().describe('A name from board_agents'),
+    description: changeDescription,
+  }),
+  roles: ['main'],
+  run: async ({ project_id, task, assignee }, _caller, host) => settled(() => host.actions.boardDispatch(project_id, task, assignee)),
+})
+
 const CODING_MODELS = 'coding_agents'
 
 const codingAgents = defineTool({
@@ -478,14 +504,18 @@ const chatId = z.number().int().describe('The chat_id coding_start returned, or 
 const codingSend = defineTool({
   name: 'coding_send',
   description:
-    "More instructions for a coding agent you started; it keeps its context. Queued if it is busy. Never use it to answer something the agent asked the user — only the user answers those, in the conversation.",
+    "More instructions for a coding agent you started; it keeps its context. Steers a running agent when supported; otherwise uses runtime followup when supported. Optional delivery selects auto, strict steer, or followup. Unsupported operations fail. Do not resend uncertain delivery. You get one result after the execution stream ends. Never use it to answer something the agent asked the user — only the user answers those, in the conversation.",
   parameters: z.object({
     chat_id: chatId,
     message: z.string(),
+    delivery: z.enum(['auto', 'steer', 'followup']).optional().describe('auto: steer active agents when supported, otherwise followup; idle agents start. Explicit modes never silently change to another mode.'),
     title: z.string().optional().describe("When this is a new piece of work for the same agent: its title (3–8 words in the user's language)"),
   }),
   roles: ['main'],
-  run: ({ chat_id, message, title }, _caller, host) => attempt(() => host.coding.send(chat_id, message, title)),
+  run: async ({ chat_id, message, title, delivery }, _caller, host) => {
+    try { return await host.coding.send(chat_id, message, title, delivery) }
+    catch (error) { return failure(messageOf(error)) }
+  },
 })
 
 const codingStatus = defineTool({
@@ -515,6 +545,111 @@ function attempt(run: () => string): ToolResult {
     return failure(messageOf(error))
   }
 }
+
+async function settled(run: () => Promise<string>): Promise<ToolResult> {
+  try {
+    return await run()
+  } catch (error) {
+    return failure(messageOf(error))
+  }
+}
+
+// The names and arguments of a workspace chat's spec tools, plus the project: what a spec
+// reports tells either kind of caller to use them by name.
+const specTask = z.number().int().describe('The spec\'s task number')
+
+const startSpec = defineTool({
+  name: 'start_spec',
+  description:
+    `${START_SPEC_DESCRIPTION}\n\nIts agent is the design's lead and the user's choice each time: unless they already chose in this conversation, call ${CODING_MODELS} and ask them first (never pick silently).`,
+  parameters: z.object({
+    project_id: projectId,
+    title: z.string().describe("Short title of the change, in the user's language"),
+    brief: z.string().describe('The brief, markdown, with exactly the sections listed above'),
+    agent: z.string().describe(`The lead's agent id, from ${CODING_MODELS}`),
+    model: z.string().describe(`A model id from ${CODING_MODELS}, or "default" if the user accepted the agent's own`),
+    candidates: z.array(z.string()).optional().describe('Only if the user named which agents design it: provider ids, or provider:model'),
+    selection_confirmed: z.boolean().describe('True only once the user has chosen both the agent and the model in this conversation'),
+  }),
+  roles: ['main'],
+  run: async ({ project_id, title, brief, agent, model, candidates, selection_confirmed }, _caller, host) => {
+    if (!selection_confirmed) return failure(`Ask the user which agent and model lead the design (${CODING_MODELS} lists them), then call again with selection_confirmed: true.`)
+    return settled(() => host.specs.start({ projectId: project_id, title, brief, providerId: agent, model, ...(candidates ? { candidates } : {}) }))
+  },
+})
+
+const answerSpecQuestions = defineTool({
+  name: 'answer_spec_questions',
+  description: "Give a spec the user's answers to the questions it asked. Never answer on their behalf.",
+  parameters: z.object({
+    project_id: projectId,
+    task: specTask,
+    answers: z.string().describe("The user's answers, numbered to match the questions"),
+  }),
+  roles: ['main'],
+  run: ({ project_id, task, answers }, _caller, host) => settled(() => host.specs.answer(project_id, task, answers)),
+})
+
+const specStatus = defineTool({
+  name: 'spec_status',
+  description: "Where a spec stands: its stage, and every ticket's build state, review rounds, why it is blocked and the issues still open.",
+  parameters: z.object({ project_id: projectId, task: specTask }),
+  roles: ['main'],
+  run: ({ project_id, task }, _caller, host) => settled(() => host.specs.status(project_id, task)),
+})
+
+const specSwitchAgent = defineTool({
+  name: 'spec_switch_agent',
+  description:
+    "Move a role of a spec you started to another agent or model because the user said so (including agreeing to the coordinator's proposal). A stopped or failed spec carries on.",
+  parameters: z.object({
+    project_id: projectId,
+    task: specTask,
+    role: z.enum(['lead', 'explorer', 'candidate', 'judge', 'builder', 'implementer', 'reviewer', 'coordinator']),
+    ticket: z.number().int().optional().describe("For one ticket's implementer or reviewer: its task number"),
+    candidate: z.string().optional().describe('For role candidate: which one (A, B, …)'),
+    provider: z.string().describe('The agent to move it to, one spec_status lists as usable'),
+    model: z.string().optional().describe("The model on that agent; omit for the agent's default"),
+    description: changeDescription,
+  }),
+  roles: ['main'],
+  run: ({ project_id, task, role, ticket, candidate, provider, model }, _caller, host) =>
+    settled(() =>
+      host.specs.switchAgent(project_id, task, {
+        role,
+        provider,
+        ...(ticket != null ? { ticket } : {}),
+        ...(candidate ? { candidate } : {}),
+        ...(model ? { model } : {}),
+      }),
+    ),
+})
+
+const specDeclineSwitch = defineTool({
+  name: 'spec_decline_switch',
+  description: "The user turned down the switch a spec's coordinator proposed. The coordinator hears so.",
+  parameters: z.object({
+    project_id: projectId,
+    task: specTask,
+    note: z.string().optional().describe('What the user said instead, if anything'),
+    description: changeDescription,
+  }),
+  roles: ['main'],
+  run: ({ project_id, task, note }, _caller, host) => settled(() => host.specs.declineSwitch(project_id, task, note)),
+})
+
+const specMessageCoordinator = defineTool({
+  name: 'spec_message_coordinator',
+  description: "Pass the user's words to a spec's coordinator: an answer to what it asked, or something it should do about the build.",
+  parameters: z.object({
+    project_id: projectId,
+    task: specTask,
+    message: z.string().describe('What the user said, faithfully'),
+    description: changeDescription,
+  }),
+  roles: ['main'],
+  run: ({ project_id, task, message }, _caller, host) => settled(() => host.specs.messageCoordinator(project_id, task, message)),
+})
 
 const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM, 24-hour')
 const scheduleTiming = {
@@ -686,11 +821,19 @@ export const ASSISTANT_TOOLS: readonly AssistantTool[] = [
   boardCreate,
   boardUpdate,
   boardComment,
+  boardAgents,
+  boardDispatch,
   codingAgents,
   codingStart,
   codingSend,
   codingStatus,
   codingStop,
+  startSpec,
+  answerSpecQuestions,
+  specStatus,
+  specSwitchAgent,
+  specDeclineSwitch,
+  specMessageCoordinator,
   scheduleList,
   scheduleCreate,
   scheduleUpdate,

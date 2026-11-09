@@ -15,12 +15,17 @@ import {
   usePromptInputAttachments,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input"
+import { QuestionForm } from "@/components/ai-elements/question-form"
+import { ReplyImageGallery } from "@/components/editor/components/ReplyImageGallery"
 import { Button } from "@/components/ui/button"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { InputGroupAddon } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
 import type { ActivitySummary, AssistantApproval, AssistantAttachment, AssistantMessage } from "./types"
 import { CodingAgentCard, CodingChip } from "./CodingAgentCard"
+import { SpecChatCard } from "@/components/spec/SpecChatCard"
+import { TaskDispatchCard } from "@/components/task/TaskDispatchCard"
+import { latestActivityMessages, nextUserText } from "./thread-messages"
 import { AuditIconTile, formatClock, isSameDay } from "./shared"
 import { auditDetail, dayLabel, messageText } from "./assistant-i18n"
 import { hasNativeComposer } from "@/lib/native-composer"
@@ -121,17 +126,16 @@ export function AssistantChat({
   // An approval card is there to be answered; once it is, it leaves the thread (the Audit tab
   // keeps the record). A message that is nothing but an answered card is not shown at all.
   const codingById = useMemo(() => new Map(activities.filter((a) => a.coding).map((a) => [a.id, a])), [activities])
+  const latestActivityMessage = useMemo(() => latestActivityMessages(messages), [messages])
   // An empty message stands for a coding agent's card; with its activity out of reach it shows nothing.
-  // Handing the same agent more work puts its card down again at the end: only the latest one shows.
+  // A later reply's link also replaces an earlier card for that same activity.
   const shown = useMemo(() => {
-    const latestCard = new Map<string, string>()
-    for (const m of messages) if (!m.text && !m.approval && m.activityId) latestCard.set(m.activityId, m.id)
     return messages.filter((m) => {
       if (m.approval) return !(m.approval.decision && !m.text)
-      if (m.text || m.attachments?.length) return true
-      return m.activityId != null && codingById.has(m.activityId) && latestCard.get(m.activityId) === m.id
+      if (m.text || m.questions?.length || m.attachments?.length || m.trigger?.kind === "spec" || m.trigger?.kind === "task") return true
+      return m.activityId != null && codingById.has(m.activityId) && latestActivityMessage.get(m.activityId) === m.id
     })
-  }, [messages, codingById])
+  }, [messages, codingById, latestActivityMessage])
   const scrollAnchorId = useMemo(() => {
     for (let i = shown.length - 1; i >= 0; i--) {
       if (shown[i].role === "user") return shown[i].id
@@ -186,6 +190,8 @@ export function AssistantChat({
       .filter((f) => !f.url.startsWith("blob:"))
       .map((f): AssistantAttachment => ({ url: f.url, mediaType: f.mediaType, ...(f.filename ? { filename: f.filename } : {}) }))
     if (!trimmed && attachments.length === 0) return
+    // Phone: sending ends the typing, so the keyboard goes and the bar folds. (UIKit does its own.)
+    if (compact) composerRoot.current?.querySelector("textarea")?.blur()
     return onSend(trimmed, attachments)
   }
 
@@ -227,7 +233,9 @@ export function AssistantChat({
                 ) : (
                   <AssistantBubble
                     message={m}
-                    coding={m.activityId ? codingById.get(m.activityId) : undefined}
+                    coding={m.activityId && latestActivityMessage.get(m.activityId) === m.id ? codingById.get(m.activityId) : undefined}
+                    answer={m.questions ? nextUserText(shown, i) : undefined}
+                    onSend={onSend}
                     onDecide={onDecide}
                     onOpenMemory={onOpenMemory}
                     onOpenChat={onOpenChat}
@@ -301,7 +309,16 @@ function NativeAssistantInput({ placeholder, onSubmit }: { placeholder: string; 
     accept={ATTACH_ACCEPT}
     maxFileSize={ATTACH_MAX_BYTES}
     multiple
-    onSubmit={async (message) => { await onSubmit(message); setDraft((current) => current === message.text ? '' : current) }}
+    onSubmit={async (message) => {
+      // Now, not once the server answers: a draft left in the field holds the bar open.
+      setDraft('')
+      try {
+        await onSubmit(message)
+      } catch (error) {
+        setDraft((current) => current || message.text)
+        throw error
+      }
+    }}
     className="[&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:bg-transparent [&_[data-slot=input-group]]:shadow-none"
   >
     <NativePromptComposer value={draft} onChange={setDraft} placeholder={placeholder} />
@@ -494,6 +511,9 @@ interface AssistantBubbleProps {
   message: AssistantMessage
   /** The coding agent's activity this message is about: its card (no text) or a chip (a reply). */
   coding?: ActivitySummary
+  /** What the user said after this message asked its questions; unset while they are open. */
+  answer?: string
+  onSend: AssistantChatProps["onSend"]
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
   onOpenMemory: () => void
   onOpenChat: (activity: ActivitySummary) => void
@@ -501,9 +521,10 @@ interface AssistantBubbleProps {
 }
 
 /** Memoized: the thread re-renders on every store event (typing, activities); an unchanged reply skips re-parsing its markdown. */
-const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecide, onOpenMemory, onOpenChat, compact }: AssistantBubbleProps) {
+const AssistantBubble = memo(function AssistantBubble({ message, coding, answer, onSend, onDecide, onOpenMemory, onOpenChat, compact }: AssistantBubbleProps) {
   const intl = useIntl()
   const { remembered, approval } = message
+  const waitingForUser = !!coding?.coding?.pending?.length
 
   return (
     <Message from="assistant" className={cn("gap-1", compact ? "max-w-[92%]" : "max-w-[85%]")}>
@@ -515,9 +536,39 @@ const AssistantBubble = memo(function AssistantBubble({ message, coding, onDecid
           </MessageResponse>
         </MessageContent>
       )}
+      {message.text && <ReplyImageGallery text={messageText(intl, message.text)} />}
 
-      {coding && !message.text && <CodingAgentCard activity={coding} onOpen={onOpenChat} compact={compact} />}
-      {coding && message.text && <CodingChip activity={coding} onOpen={onOpenChat} />}
+      {message.questions && (
+        <QuestionForm
+          questions={message.questions}
+          body={message.text}
+          answer={answer}
+          disabled={answer !== undefined}
+          onSubmit={(text) => void onSend(text, [])}
+        />
+      )}
+
+      {/* A question waiting on the user is answered on the card, so it outranks the chip. */}
+      {coding && (!message.text || waitingForUser) && <CodingAgentCard activity={coding} onOpen={onOpenChat} compact={compact} />}
+      {coding && message.text && !waitingForUser && <CodingChip activity={coding} onOpen={onOpenChat} />}
+
+      {message.trigger?.kind === "spec" && (
+        <SpecChatCard
+          projectId={message.trigger.projectId}
+          taskId={message.trigger.taskId}
+          taskNumber={message.trigger.taskNumber}
+          title={message.trigger.title}
+        />
+      )}
+
+      {message.trigger?.kind === "task" && (
+        <TaskDispatchCard
+          projectId={message.trigger.projectId}
+          taskId={message.trigger.taskId}
+          taskNumber={message.trigger.taskNumber}
+          title={message.trigger.title}
+        />
+      )}
 
       {/* Only while it waits for an answer; the Audit tab keeps what was decided. */}
       {approval && !approval.decision && (
