@@ -17,13 +17,20 @@ concurrency:
 
 jobs:
   test:
-    # macOS because that is what the product runs on. On a Linux runner ~105 of these tests
-    # skip themselves — the darwin-only ones, everything needing a real Chrome, and everything
-    # needing the Swift service — which is 10% of the suite, and precisely the part closest to
-    # the shipped app. A green tick there covered the code least likely to break.
-    name: Test (macos)
+    name: Vitest (${{ matrix.suite }})
     runs-on: macos-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [App, Chrome]
+    env:
+      # These suites launch a real Chrome and use chrome-e2e-lock when run locally.
+      REAL_CHROME_TESTS: >-
+        packages/browser-use/playwright-injected.test.ts
+        packages/browser-use/sdk-inject-navigation.test.ts
+        packages/browser-use/sdk-locator-real.test.ts
+        packages/browser-use/switchover.e2e.test.ts
     steps:
       - uses: actions/checkout@v6
 
@@ -38,21 +45,22 @@ jobs:
           SKIP_ELECTRON_REBUILD: '1'
 
       - name: Rebuild better-sqlite3 for system Node
+        if: matrix.suite == 'App'
         run: npm rebuild better-sqlite3
 
-      # Produces native/computer-use/.build/debug/operon-computer-use. Several suites probe for
-      # that binary and skip without it, so building here is what turns them on.
-      - name: Build the Swift computer-use service
-        working-directory: native/computer-use
-        run: swift build
+      - name: Run application tests
+        if: matrix.suite == 'App'
+        run: |
+          read -ra chrome_tests <<< "$REAL_CHROME_TESTS"
+          exclude=()
+          for file in "${chrome_tests[@]}"; do
+            exclude+=(--exclude "$file")
+          done
+          npm test -- "${exclude[@]}"
 
-      - name: Test the Swift computer-use service
-        working-directory: native/computer-use
-        run: swift test
-
-      # The runner image ships Chrome, but assert it rather than assume: without it the browser
-      # suites would quietly skip and the run would still be green.
+      # Missing Chrome would silently skip the real browser suites.
       - name: Verify Chrome is present
+        if: matrix.suite == 'Chrome'
         run: |
           if [ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
             echo "Chrome missing from the runner image; installing"
@@ -60,23 +68,39 @@ jobs:
           fi
           "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
 
-      - name: Run vitest
-        run: npm test
+      - name: Run real Chrome tests
+        if: matrix.suite == 'Chrome'
+        run: |
+          read -ra chrome_tests <<< "$REAL_CHROME_TESTS"
+          npm test -- --no-file-parallelism "${chrome_tests[@]}"
 
-      # What is still skipped, and why, so the number cannot drift unnoticed. The desktop
-      # computer-use suites stay off on purpose: they drive AppKit through the accessibility
-      # APIs, which needs a permission grant no CI runner can give.
       - name: Report skipped suites
-        if: always()
+        if: always() && matrix.suite == 'App'
         run: |
           echo "Intentionally not run here:"
-          echo "  packages/computer-use/desktop-*.e2e — needs Accessibility permission (OPERON_RUN_COMPUTER_USE_*)"
-          echo "  e2e/*.spec.ts (dev project) — drives live provider CLIs over CDP, local only"
-          echo "  *.browser.test.tsx (npm run test:browser) — real-browser scroll suite, run locally"
+          echo "  cua-driver-live.e2e.test.ts requires OPERON_CUA_DRIVER_BIN"
+          echo "  e2e/*.spec.ts (dev project) drives live provider CLIs over CDP"
+          echo "  *.browser.test.tsx (npm run test:browser) is the browser-mode suite"
+
+  swift:
+    name: Swift
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: native/computer-use
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build the Swift computer-use service
+        run: swift build
+
+      - name: Test the Swift computer-use service
+        run: swift test
 
   # The e2e/specs UI suite: Playwright starts the test server (fake runtime, its own HOME and
   # DB) and the vite renderer, then drives headless Chromium. A separate job so it runs
-  # alongside vitest and fails on its own line; it needs no Swift build.
+  # alongside the other suites and fails on its own line.
   e2e:
     name: E2E (Playwright)
     runs-on: macos-latest
@@ -115,7 +139,7 @@ jobs:
 
   release:
     name: Release macOS
-    needs: [test, e2e]
+    needs: [test, swift, e2e]
     if: github.event_name == 'push' && github.repository == 'Nickqiaoo/Operon'
     permissions:
       contents: write
