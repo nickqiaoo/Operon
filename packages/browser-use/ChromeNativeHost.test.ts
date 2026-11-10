@@ -97,10 +97,7 @@ async function connectClient(socketPath: string) {
       socket.write(encodeFrame(JSON.stringify(message)));
     },
     async next(count: number): Promise<Record<string, unknown>[]> {
-      const deadline = Date.now() + 1000;
-      while (received.length < count && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
+      await expect.poll(() => received.length, { timeout: 4_000 }).toBeGreaterThanOrEqual(count);
       return received;
     },
   };

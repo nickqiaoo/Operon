@@ -1,8 +1,7 @@
 name: Release macOS
 
 on:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -10,18 +9,19 @@ permissions:
 jobs:
   version:
     name: Check desktop version
-    if: github.repository == 'Nickqiaoo/Operon' && !github.event.deleted
+    if: github.repository == 'Nickqiaoo/Operon' && github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.deleted
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
+          package-manager-cache: false
 
       - name: Detect a stable version increase
         id: check
@@ -67,11 +67,11 @@ jobs:
     timeout-minutes: 180
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -83,6 +83,7 @@ jobs:
 
       - name: Build, sign and notarize both architectures
         env:
+          NODE_OPTIONS: --max-old-space-size=4096
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -106,7 +107,7 @@ jobs:
           lipo -verify_arch arm64 release/mac-arm64/Operon.app/Contents/MacOS/Operon
           lipo -verify_arch x86_64 release/mac/Operon.app/Contents/MacOS/Operon
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: macos-${{ needs.version.outputs.version }}
           path: |
@@ -131,15 +132,16 @@ jobs:
       group: macos-production-release
       queue: max
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
+          package-manager-cache: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: macos-${{ needs.version.outputs.version }}
           path: release

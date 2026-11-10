@@ -590,6 +590,8 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   }, 60_000);
 
   it("press reaches the element, with a virtual key code the page handler recognises", async () => {
+    // Reset focus after the preceding select and cross-origin iframe interactions.
+    await tab.goto(pageUrl);
     await tab.playwright.locator("#keyin").press("Enter");
     expect(await tab.playwright.locator("#log").textContent()).toBe("entered");
   }, 60_000);
@@ -864,28 +866,18 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   // cascaded into timeouts, keypress hitting the stall first and taking
   // clipboard, dragTo, evaluate and dom_cua down with it.
 
-  /** Poll for a dialog to appear. When the opening event arrives depends on the
-   *  previous dialog, so a fixed sleep is racy. */
-  const waitForDialog = async (deadlineMs = 30_000) => {
-    const deadline = Date.now() + deadlineMs;
-    let dialog = await tab.getJsDialog();
-    while (dialog == null && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      dialog = await tab.getJsDialog();
-    }
-    return dialog;
+  const openDialog = async (expression: string) => {
+    // Give every dialog a fresh document so it doesn't inherit the renderer's
+    // input state after handling a previous modal. Subscribe before opening it.
+    await tab.goto(pageUrl);
+    await tab.getJsDialog();
+    const action = cdpEval(expression);
+    await expect.poll(() => tab.getJsDialog(), { timeout: 30_000 }).toBeDefined();
+    return { action, dialog: await tab.getJsDialog() };
   };
 
   it("alert: getJsDialog dismisses it explicitly and the page resumes", async () => {
-    // Reload the page first. The forty-odd preceding tests accumulate state in the
-    // renderer, above all the read-only evaluate's Fetch interception toggling and
-    // interrupted locator polling. Running the dialog tests right behind that tail
-    // makes a wedge more likely, and a reload also returns window.__alert and #log
-    // to their initial state.
-    await tab.goto(pageUrl);
-    await new Promise((r) => setTimeout(r, 500));
-    const action = cdpEval("window.__alert()");
-    const dialog = await waitForDialog();
+    const { action, dialog } = await openDialog("window.__alert()");
     expect(dialog?.type).toBe("alert");
     await dialog?.dismiss();
     await action;
@@ -893,14 +885,12 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   }, 60_000);
 
   it("confirm and prompt: getJsDialog accepts and passes the prompt text", async () => {
-    const confirmAction = cdpEval("window.__confirm()");
-    const confirm = await waitForDialog();
+    const { action: confirmAction, dialog: confirm } = await openDialog("window.__confirm()");
     expect(confirm?.type).toBe("confirm");
     if (confirm?.type === "confirm") await confirm.accept();
     await confirmAction;
     expect(await tab.playwright.locator("#log").textContent({ timeout: 5000 })).toBe("confirm:true");
-    const promptAction = cdpEval("window.__prompt()");
-    const prompt = await waitForDialog();
+    const { action: promptAction, dialog: prompt } = await openDialog("window.__prompt()");
     expect(prompt?.type).toBe("prompt");
     if (prompt?.type === "prompt") await prompt.accept("Operon");
     await promptAction;
