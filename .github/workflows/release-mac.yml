@@ -1,0 +1,166 @@
+name: Release macOS
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check desktop version
+    if: github.repository == 'Nickqiaoo/Operon' && !github.event.deleted
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Detect a stable version increase
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo 'No previous branch tip to compare.'
+            exit 0
+          fi
+
+          previous_manifest=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$BEFORE_SHA" --jq .content | base64 --decode)
+          version=$(node --input-type=commonjs - "$previous_manifest" <<'NODE'
+          const previous = JSON.parse(process.argv[2]).version
+          const current = require('./package.json').version
+          const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+          if (typeof previous !== 'string' || typeof current !== 'string') {
+            throw new Error('Expected a desktop version in both manifests.')
+          }
+          const previousCore = previous.split(/[-+]/)[0]
+          if (!stableVersion.test(previousCore)) throw new Error(`Invalid previous version: ${previous}`)
+          if (!stableVersion.test(current)) process.exit(0)
+
+          const order = current.localeCompare(previousCore, 'en', { numeric: true })
+          if (order > 0 || (order === 0 && previous.startsWith(`${previousCore}-`))) console.log(current)
+          NODE
+          )
+
+          if [[ -z "$version" ]]; then
+            echo 'No stable desktop version increase.'
+            exit 0
+          fi
+
+          node scripts/extract-release-notes.mjs "$version" > /dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and sign macOS installers
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: macos-26
+    timeout-minutes: 180
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          SKIP_ELECTRON_REBUILD: '1'
+
+      - name: Build, sign and notarize both architectures
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing signing or notarization setting: $name"
+              exit 1
+            fi
+          done
+          npm run build:mac:all
+
+      - name: Verify signed and notarized apps
+        run: |
+          for app in release/mac-arm64/Operon.app release/mac/Operon.app; do
+            codesign --verify --deep --strict "$app"
+            xcrun stapler validate "$app"
+          done
+          lipo -verify_arch arm64 release/mac-arm64/Operon.app/Contents/MacOS/Operon
+          lipo -verify_arch x86_64 release/mac/Operon.app/Contents/MacOS/Operon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ needs.version.outputs.version }}
+          path: |
+            release/Operon-${{ needs.version.outputs.version }}*.dmg
+            release/Operon-${{ needs.version.outputs.version }}*.zip
+            release/Operon-${{ needs.version.outputs.version }}*.blockmap
+            release/latest-mac*.yml
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release and update download page
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: write
+    concurrency:
+      group: macos-production-release
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-${{ needs.version.outputs.version }}
+          path: release
+
+      - name: Install Wrangler
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-tools" --no-save --no-package-lock wrangler@4.158.0
+          echo "$RUNNER_TEMP/release-tools/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Publish the current desktop version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          RELEASE_TARGET: ${{ github.sha }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          main_version=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=main" --jq .content \
+            | base64 --decode | node -pe 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')
+          if [[ "$main_version" != "$RELEASE_VERSION" ]]; then
+            echo "Skipping $RELEASE_VERSION because main now specifies $main_version."
+            exit 0
+          fi
+          npm run release

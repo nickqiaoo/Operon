@@ -85,7 +85,7 @@ TARGET_ARCH=arm64 npm run build:native-addons
 # ships an app with no Computer Use engine.
 TARGET_ARCH=arm64 npm run fetch:cua-driver
 vite build
-electron-builder --mac
+electron-builder --mac --publish never
 
 # Save ARM latest-mac.yml before Intel build overwrites it
 cp release/latest-mac.yml release/latest-mac-arm64.yml
@@ -101,7 +101,7 @@ TARGET_ARCH=x64 npm run build:operon-runtime
 TARGET_ARCH=x64 npm run build:native-addons
 TARGET_ARCH=x64 npm run fetch:cua-driver
 vite build
-electron-builder --mac --config electron-builder-intel.yml
+electron-builder --mac --config electron-builder-intel.yml --publish never
 
 # Merge both architectures into a single latest-mac.yml
 echo "=== Merging latest-mac.yml for both architectures ==="
