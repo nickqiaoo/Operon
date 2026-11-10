@@ -154,8 +154,13 @@ describe('server-owned external agent conversations', () => {
     const response = await handleChat({ chatId: child.chat_id, providerId: 'wrong-provider', modelId: 'wrong-model',
       messages: [{ id: 'user-follow-up', role: 'user', parts: [{ type: 'text', text: 'revised' }] }] })
     await response.text()
-    await until(() => parentResults().length === 1 && !isChatTurnBusy(parentChatId))
-    expect(parentResults().map(text).join('\n')).toContain('<status>cancelled</status>')
+    await until(() => {
+      // The cancelled stream may finish draining after the revised turn has
+      // already been delivered, in which case they use separate batches.
+      const results = parentResults().map(text).join('\n')
+      return results.includes('<status>cancelled</status>') && results.includes('<status>completed</status>') &&
+        !isChatTurnBusy(parentChatId)
+    })
     const completed = parentResults().find((message) => text(message).includes('<status>completed</status>'))!
     expect(text(completed)).toContain('<prompt-source>user in child chat</prompt-source>')
     expect(text(completed)).toContain('Do not act on it unless the user asks. No reply is needed')

@@ -59,7 +59,7 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   let httpServer: import("node:http").Server;
   /** Evaluate against the page directly, bypassing the SDK, so a test can change
    *  page state mid-run. */
-  let cdpEval: (expr: string) => Promise<unknown>;
+  let cdpEval: (expr: string, options?: { userGesture: boolean }) => Promise<unknown>;
   let crossUrl: string;
   /** Used to test the id mapping in browsers.get. */
   let agentForIds: { browsers: { get(id: string): Promise<SdkBrowser> } };
@@ -150,13 +150,22 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
         ws.send(JSON.stringify({ id: i, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
 
-    cdpEval = (expression: string) => cdp("Runtime.evaluate", { expression, returnByValue: true });
+    cdpEval = (expression, options) => cdp("Runtime.evaluate", { expression, returnByValue: true, ...options });
 
     // ---- Test page. Served over http rather than data:, since CSP and origin
     //      rules block Playwright's injection on a data: URL. ----
     const http = await import("node:http");
     httpServer = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      if (req.url === "/dialogs") {
+        res.end(`<!doctype html><div id="log"></div><script>
+          const log = document.getElementById('log');
+          window.__alert = () => { window.alert('boom'); log.textContent = 'after-alert'; };
+          window.__confirm = () => { log.textContent = 'confirm:' + window.confirm('ok?'); };
+          window.__prompt = () => { log.textContent = 'prompt:' + window.prompt('name?', 'dflt'); };
+        </script>`);
+        return;
+      }
       if (req.url === "/inner") {
         // First same-origin level; nested once more to exercise multi-level descent.
         res.end(`<!doctype html><html><body style="margin:0">
@@ -260,9 +269,6 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
             if(e.keyCode===40||e.which===40) document.getElementById('log').textContent='vk-down:'+e.keyCode;
           });
           window.__vanish = () => document.getElementById('vanish')?.remove();
-          window.__alert = () => { window.alert('boom'); document.getElementById('log').textContent='after-alert'; };
-          window.__confirm = () => { document.getElementById('log').textContent = 'confirm:' + window.confirm('ok?'); };
-          window.__prompt = () => { document.getElementById('log').textContent = 'prompt:' + window.prompt('name?','dflt'); };
         </script>
 
         <!-- Same-origin iframe, nested twice and CSS-scaled, to exercise scaleX and
@@ -867,11 +873,11 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   // clipboard, dragTo, evaluate and dom_cua down with it.
 
   const openDialog = async (expression: string) => {
-    // Give every dialog a fresh document so it doesn't inherit the renderer's
-    // input state after handling a previous modal. Subscribe before opening it.
-    await tab.goto(pageUrl);
+    // Isolate the dialog from the locator fixture's frames and give it a user
+    // gesture, just as when an interactive page opens a modal from a button.
+    await tab.goto(new URL('/dialogs', pageUrl).href);
     await tab.getJsDialog();
-    const action = cdpEval(expression);
+    const action = cdpEval(expression, { userGesture: true });
     await expect.poll(() => tab.getJsDialog(), { timeout: 30_000 }).toBeDefined();
     return { action, dialog: await tab.getJsDialog() };
   };
