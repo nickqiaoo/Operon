@@ -96,6 +96,11 @@ class FakeRuntimeSession implements AgentSession {
 
     const delay = (ms: number): Promise<void> =>
       new Promise((resolve, reject) => {
+        const signal = options?.signal
+        if (signal?.aborted || this.aborted) {
+          reject(new AbortError())
+          return
+        }
         const timer = setTimeout(() => {
           cleanup()
           if (this.aborted) reject(new AbortError())
@@ -106,7 +111,6 @@ class FakeRuntimeSession implements AgentSession {
           cleanup()
           reject(new AbortError())
         }
-        const signal = options?.signal
         signal?.addEventListener('abort', onAbort)
         const cleanup = () => signal?.removeEventListener('abort', onAbort)
       })

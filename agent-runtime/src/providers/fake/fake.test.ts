@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { FakeRuntimeProvider, type FakeScript } from './index.js'
 import type { RuntimeStreamPart } from '../../types.js'
 
@@ -125,6 +125,32 @@ describe('FakeRuntimeProvider', () => {
     expect(yieldedAfterAbort).toBe(0)
     expect(pendingResolved).toBe(false)
     expect(pendingRejected).toBe(true)
+  })
+
+  it('ends a turn when its signal is aborted before the script starts waiting', async () => {
+    FakeRuntimeProvider.scripts.set('delayed', async function* ({ delay }) {
+      yield { type: 'start' }
+      await delay(30_000)
+    })
+    FakeRuntimeProvider.currentScript = 'delayed'
+
+    const session = await new FakeRuntimeProvider().createSession({ cwd: '/tmp' })
+    const controller = new AbortController()
+    const iterator = session.send('', { signal: controller.signal })[Symbol.asyncIterator]()
+    expect((await iterator.next()).value).toEqual({ type: 'start' })
+    controller.abort()
+
+    vi.useFakeTimers()
+    const settled = vi.fn()
+    const pending = iterator.next().then(settled)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toHaveBeenCalledWith({ done: true, value: undefined })
+    } finally {
+      await vi.runOnlyPendingTimersAsync()
+      await pending
+      vi.useRealTimers()
+    }
   })
 
   it('resolvePermission unblocks waitForPermission with the decision', async () => {
