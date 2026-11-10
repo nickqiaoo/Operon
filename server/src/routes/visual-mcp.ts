@@ -30,9 +30,9 @@ const htmlParam = { type: 'string', description: 'A complete, self-contained HTM
 const renderTool = (canPreview: boolean): Tool => ({
   name: HTML_RENDER_TOOL_NAME,
   description: [
-    'Show an HTML page inline in this conversation, where this call appears, for what is clearer seen than read:',
-    'how parts connect or a process flows, a step-by-step or interactive walkthrough, side-by-side comparisons, data with a trend, UI mockups, live examples of a visual effect.',
-    'Explanations that read well as text, code, lists or simple tables stay in markdown.',
+    'Show an HTML page inline in this conversation, where this call appears, for what a `ui` block in the reply cannot do:',
+    'a whole page, a game, an interactive walkthrough, a UI mockup, a live example of a visual effect.',
+    'Charts, flows, comparisons, timelines and key numbers go in a `ui` block. Explanations that read well as text, code, lists or simple tables stay in markdown.',
     'Not for an image the user wants as a file to post or send: write a .png and give its path instead. Never start a server for it.',
     canPreview ? `Check the page with ${HTML_RENDER_PREVIEW_TOOL_NAME} first, fix what it shows, and pass its contentHeight as height.` : '',
     PAGE_RULES,

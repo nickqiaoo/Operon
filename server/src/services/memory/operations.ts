@@ -25,6 +25,7 @@ import {
   MEMORY_TYPES,
   SINGLETON_SLUG,
   SINGLETON_TYPES,
+  WRITABLE_MEMORY_TYPES,
   type MemoryPageResult,
   type MemoryType,
   type TimelineInput,
@@ -283,6 +284,11 @@ export async function execMemoryUpsert(
   ctx: MemoryToolContext = {},
 ): Promise<string> {
   const type = parseType(args.type)
+  if (!WRITABLE_MEMORY_TYPES.includes(type)) {
+    throw new Error(
+      `type "${type}" is read-only. Add this to the timeline of the person, project or thing it happened to, using entities or user.`,
+    )
+  }
   const rawHint = args.slug_hint ?? args.slug ?? ''
   const hint = SINGLETON_TYPES.has(type) ? SINGLETON_SLUG : String(rawHint).trim()
 
@@ -330,6 +336,7 @@ export async function execMemoryUpsert(
 
       const result = await engine.replacePageTruth(type, targetPage.slug, decision.truth, timeline, {
         baseRevision: decision.base_revision,
+        reuseLatestEntry: true,
       })
       if (hint) engine.recordAlias(type, hint, result.slug)
       return j({ status: 'written', action: 'merged', ...result })
@@ -392,10 +399,25 @@ export async function execMemoryUpsert(
     }
   }
 
-  // First call: never replace an existing page. If a deterministic identity or
-  // semantic candidate exists, hand the choice back to the running agent.
+  // First call: never replace an existing truth. A hint that names a page
+  // appends straight to its timeline, the usual and non-destructive outcome.
+  // An alias or a semantic candidate may be the wrong page, so those go back to
+  // the running agent.
   const existingSlug = engine.resolveExistingSlug(type, hint)
   const existingPage = existingSlug ? engine.getPage(type, existingSlug) : null
+  if (existingPage && normalizeSlugKey(existingPage.slug) === normalizeSlugKey(hint)) {
+    const appended = await engine.appendTimeline(type, existingPage.slug, timeline)
+    return j({
+      status: 'written',
+      action: 'appended',
+      ...appended,
+      truth: existingPage.truth,
+      instruction:
+        'Added to this page\'s timeline; the truth is unchanged and that is usually right. ' +
+        'Only if the truth has become wrong or lacks a lasting fact, re-call memory_upsert with the same content/reason and ' +
+        'decision={action:"merge",target_slug,base_revision,truth}. The timeline entry will not be duplicated.',
+    })
+  }
   if (existingPage) {
     return needsReconcile(type, hint, content, reason, [
       {
@@ -527,15 +549,20 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
   {
     name: 'memory_upsert',
     description:
-      'Write memory through a two-step reconcile flow. First call with type, slug_hint, content, and reason. If no existing identity or semantic candidate is found, it creates a page. If candidates exist, it returns {status:"needs_reconcile", incoming, candidates:[{slug,truth,revision,distance?,match}]}. Re-call with the same content/reason and one decision: {action:"merge",target_slug} appends the content to that page\'s timeline and leaves its truth unchanged (the usual case); {action:"merge",target_slug,base_revision,truth} also replaces the truth with a full new truth, only when it has become wrong or lacks a lasting fact; {action:"create"} creates a genuinely new page. Type "user" ignores slug_hint and uses slug "user".',
+      'Write memory. Call with type, slug_hint, content, and reason. If slug_hint names an existing page, the content is appended to its timeline and the current truth and revision are returned. If nothing similar exists, a page is created. If the name is an alias or a similar page exists, it writes nothing and returns {status:"needs_reconcile", incoming, candidates:[{slug,truth,revision,distance?,match}]}: re-call with the same content/reason and one decision. {action:"merge",target_slug} appends the content to that page\'s timeline and leaves its truth unchanged (the usual case); {action:"merge",target_slug,base_revision,truth} also replaces the truth, only when it has become wrong or lacks a lasting fact; {action:"create"} creates a genuinely new page. Type "user" ignores slug_hint and uses slug "user".',
     inputSchema: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: MEMORY_TYPES },
+        type: {
+          type: 'string',
+          enum: WRITABLE_MEMORY_TYPES,
+          description:
+            'user: the person and their standing preferences across projects (one page). entities: a named person, organization, product / project, service, account, device or server (one page per project, never per module); dated facts go on the timeline of the page they happened to. cases: a hard-won lesson the repo cannot tell a future session, or a reusable playbook.',
+        },
         slug_hint: {
           type: 'string',
           description:
-            'Caller-proposed slug, by STABLE identity (canonical name / id / key), never by what happened. Ignored for the singleton "user" type.',
+            'Required for entities and cases; ignored for user. The page name, by STABLE identity (canonical name / id / key), never by what happened.',
         },
         content: {
           type: 'string',
@@ -545,7 +572,7 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
         reason: {
           type: 'string',
           description:
-            "Evidence for the write: quote the user's own words that establish it (e.g. 'User: \"always use pnpm\"'). Not a value judgement like \"useful later\". Stored beside the entry for audit, not searched.",
+            "Evidence for the write: quote the user's own words that establish it (e.g. 'User: \"always use pnpm\"'), or for a case the observation that proves it. Not a value judgement like \"useful later\". Stored beside the entry for audit, not searched.",
         },
         occurred_at: {
           type: 'string',
@@ -555,12 +582,16 @@ export const MEMORY_MCP_TOOLS: MemoryMcpTool[] = [
         decision: {
           type: 'object',
           description:
-            'Only pass after a needs_reconcile response. action="merge" with target_slug appends to the timeline and keeps the truth; add base_revision and truth (the full new truth) only when the truth must change. action="create" makes a genuinely new page.',
+            'Pass after a needs_reconcile response, or after a write that returned a truth which must now change. action="merge" with target_slug appends to the timeline and keeps the truth; add base_revision and truth only when the truth must change. action="create" makes a genuinely new page.',
           properties: {
             action: { type: 'string', enum: ['merge', 'create'] },
             target_slug: { type: 'string' },
             base_revision: { type: 'number' },
-            truth: { type: 'string' },
+            truth: {
+              type: 'string',
+              description:
+                'The full new truth: what is true now, as one opening line then a handful of "-" bullets, one fact each. Condense when rewriting and never concatenate the new fact onto the old text. No dates unless the date is the fact; history belongs in the timeline.',
+            },
           },
         },
       },

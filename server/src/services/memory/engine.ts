@@ -484,7 +484,7 @@ export class MemoryEngine {
     slugHint: string,
     truth: string,
     timeline: TimelineInput,
-    opts: { baseRevision?: number } = {},
+    opts: { baseRevision?: number; reuseLatestEntry?: boolean } = {},
   ): Promise<UpsertResult> {
 	    if (!truth.trim()) throw new Error('truth is required')
 	    if (!timeline.entry.trim()) {
@@ -515,6 +515,10 @@ export class MemoryEngine {
         )
         .run(truth, nextRevision, now, type, resolved.slug)
 
+      if (opts.reuseLatestEntry && this.latestEntryMatches(type, resolved.slug, timeline)) {
+        return { timelineId: null, revision: nextRevision }
+      }
+
       const r = this.db
         .prepare(
           `INSERT INTO memory_timeline (page_type, page_slug, entry, reason, source, occurred_at, created_at)
@@ -537,7 +541,9 @@ export class MemoryEngine {
 
     try {
       await this.storeTruthVector(type, resolved.slug, truthVec)
-      await this.indexTimelineEntry(type, resolved.slug, timelineId, timeline.entry)
+      if (timelineId !== null) {
+        await this.indexTimelineEntry(type, resolved.slug, timelineId, timeline.entry)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logger.warn(
@@ -552,6 +558,22 @@ export class MemoryEngine {
       merged: resolved.merged,
       ...(resolved.merged && resolved.slug !== slugHint ? { merged_from: slugHint } : {}),
     }
+  }
+
+  /**
+   * Whether the page's newest timeline entry is this same fact. A truth rewrite
+   * that follows a direct append carries the entry already recorded.
+   */
+  private latestEntryMatches(type: MemoryType, slug: string, timeline: TimelineInput): boolean {
+    const latest = this.db
+      .prepare(
+        `SELECT entry, reason FROM memory_timeline
+          WHERE page_type = ? AND page_slug = ?
+          ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(type, slug) as { entry: string; reason: string | null } | undefined
+    if (!latest) return false
+    return latest.entry === timeline.entry && (latest.reason ?? '') === (timeline.reason?.trim() ?? '')
   }
 
   /**

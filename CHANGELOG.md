@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.5.18] - 2026-11-10
+
+### Added
+
+- Chat replies can render charts, metrics, flows, comparisons, and timelines inline as the response streams.
+
+### Changed
+
+- Memory writes with a matching page slug add directly to its timeline. Dated updates go on the timeline of the person, project, or other entity they concern. Existing event pages remain readable.
+
+### Fixed
+
+- Updating a memory page summary immediately after adding a fact no longer duplicates the timeline entry.
+
 ## [1.5.17] - 2026-11-10
 
 ### Added

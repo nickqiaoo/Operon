@@ -28,6 +28,7 @@ import remarkGfm from "remark-gfm";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
 import { CODE_FENCE_LINE, decodeLocalPath, linkLocalMarkdownImages } from "@/lib/reply-images";
 import { InlineFileCode } from "@/components/editor/FileCitationChip";
+import { UI_BLOCK_RENDERERS } from "@/components/ai-elements/ui-block";
 import type { PluggableList } from "unified";
 
 /** Allow absolute file paths through URL sanitization */
@@ -241,7 +242,7 @@ const MessageResponseInner = ({ className, children, ...props }: MessageResponse
           "prose size-full text-[0.9rem] leading-tight prose-headings:mt-3 prose-headings:mb-1 prose-h1:text-[1.25em] prose-h2:text-[1.125em] prose-h3:text-[1em] prose-h4:text-[1em] prose-p:my-0 prose-p:[&:not(:last-child)]:mb-1 space-y-2! [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
           className
         )}
-        plugins={{ code, mermaid, math, cjk }}
+        plugins={{ code, mermaid, math, cjk, renderers: UI_BLOCK_RENDERERS }}
         controls={{ table: false, code: { copy: true, download: false } }}
         remarkPlugins={messageRemarkPlugins}
         urlTransform={messageUrlTransform}

@@ -16,6 +16,12 @@ export const MEMORY_TYPES: MemoryType[] = [
   'cases',
 ]
 
+/**
+ * Types an agent may write. `events` stays readable for pages that already
+ * exist; a dated fact now goes on the timeline of whatever it happened to.
+ */
+export const WRITABLE_MEMORY_TYPES: MemoryType[] = ['user', 'entities', 'cases']
+
 /** Singleton types are forced to slug `user` (see §3, rule 2). */
 export const SINGLETON_TYPES: ReadonlySet<MemoryType> = new Set<MemoryType>([
   'user',

@@ -4,7 +4,12 @@ import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import { MemoryEngine } from './engine.js'
-import { execMemorySearch, execMemoryUpsert, selectTimelineForModel } from './operations.js'
+import {
+  execMemorySearch,
+  execMemoryUpsert,
+  MEMORY_MCP_TOOLS,
+  selectTimelineForModel,
+} from './operations.js'
 import type { MemoryPageResult } from './types.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -55,32 +60,110 @@ describe('execMemoryUpsert reconcile flow', () => {
     expect(engine.getPage('entities', 'acme')?.truth).toBe('Acme is a robotics startup.')
   })
 
-  it('returns needs_reconcile for an existing identity without replacing truth', async () => {
+  it.each(['acme', 'ACME', 'Acme!'])(
+    'appends directly when the hint %s names an existing page, keeping truth',
+    async (hint) => {
+      const engine = makeEngine()
+      await execMemoryUpsert(engine, {
+        type: 'entities',
+        slug_hint: 'acme',
+        content: 'Acme is a robotics startup.',
+        reason: 'User introduced Acme.',
+      })
+
+      const result = parseObject(
+        await execMemoryUpsert(engine, {
+          type: 'entities',
+          slug_hint: hint,
+          content: 'Jane is Acme CTO.',
+          reason: 'User updated Acme.',
+        }),
+      )
+
+      expect(result.status).toBe('written')
+      expect(result.action).toBe('appended')
+      expect(result.slug).toBe('acme')
+      expect(result.truth).toBe('Acme is a robotics startup.')
+      expect(result.revision).toBe(1)
+      expect(engine.getPage('entities', 'acme')?.truth).toBe('Acme is a robotics startup.')
+      expect(engine.getTimelineRecent('entities', 'acme', 10)).toHaveLength(2)
+    },
+  )
+
+  it('appends directly to the singleton user page', async () => {
     const engine = makeEngine()
     await execMemoryUpsert(engine, {
-      type: 'entities',
-      slug_hint: 'acme',
-      content: 'Acme is a robotics startup.',
-      reason: 'User introduced Acme.',
+      type: 'user',
+      content: 'User works in TypeScript.',
+      reason: 'User: "I write TypeScript"',
     })
 
     const result = parseObject(
       await execMemoryUpsert(engine, {
+        type: 'user',
+        content: 'User lives in Shenzhen.',
+        reason: 'User: "I live in Shenzhen"',
+      }),
+    )
+
+    expect(result.status).toBe('written')
+    expect(result.action).toBe('appended')
+    expect(engine.getTimelineRecent('user', 'user', 10)).toHaveLength(2)
+  })
+
+  it('does not duplicate the entry when truth is rewritten after a direct append', async () => {
+    const engine = makeEngine()
+    await execMemoryUpsert(engine, {
+      type: 'entities',
+      slug_hint: 'acme',
+      content: 'Acme is in Berlin.',
+      reason: 'User introduced Acme.',
+    })
+    const write = { type: 'entities', slug_hint: 'acme', content: 'Acme moved to Munich.', reason: 'User: "they moved"' }
+    const appended = parseObject(await execMemoryUpsert(engine, write))
+
+    const result = parseObject(
+      await execMemoryUpsert(engine, {
+        ...write,
+        decision: {
+          action: 'merge',
+          target_slug: 'acme',
+          base_revision: appended.revision,
+          truth: 'Acme is in Munich.',
+        },
+      }),
+    )
+
+    expect(result.action).toBe('merged')
+    expect(result.revision).toBe(2)
+    expect(engine.getPage('entities', 'acme')?.truth).toBe('Acme is in Munich.')
+    expect(engine.getTimelineRecent('entities', 'acme', 10)).toHaveLength(2)
+  })
+
+  it('still asks the agent to decide when the hint is only an alias', async () => {
+    const engine = makeEngine()
+    await execMemoryUpsert(engine, {
+      type: 'entities',
+      slug_hint: 'operon',
+      content: 'Operon is a developer tool.',
+      reason: 'User introduced Operon.',
+    })
+    engine.recordAlias('entities', 'xui', 'operon')
+
+    const result = parseObject(
+      await execMemoryUpsert(engine, {
         type: 'entities',
-        slug_hint: 'acme',
-        content: 'Jane is Acme CTO.',
-        reason: 'User updated Acme.',
+        slug_hint: 'xui',
+        content: 'The xui folder is a legacy name.',
+        reason: 'User explained the folder.',
       }),
     )
 
     expect(result.status).toBe('needs_reconcile')
     const candidate = candidateAt(result, 0)
-    expect(candidate.slug).toBe('acme')
-    expect(candidate.truth).toBe('Acme is a robotics startup.')
-    expect(candidate.revision).toBe(1)
+    expect(candidate.slug).toBe('operon')
     expect(candidate.match).toBe('identity')
-    expect(engine.getPage('entities', 'acme')?.truth).toBe('Acme is a robotics startup.')
-    expect(engine.getTimelineRecent('entities', 'acme', 10)).toHaveLength(1)
+    expect(engine.getTimelineRecent('entities', 'operon', 10)).toHaveLength(1)
   })
 
   it('merges only when the agent supplies full truth and matching base revision', async () => {
@@ -229,6 +312,34 @@ describe('execMemoryUpsert reconcile flow', () => {
     expect(result.status).toBe('needs_reconcile')
     expect(candidateAt(result, 0).truth).toBe('Acme is a robotics startup.')
     expect(engine.listPages({ type: 'entities' })).toHaveLength(1)
+  })
+})
+
+describe('retired events type', () => {
+  it('rejects new writes and is not offered to the agent', async () => {
+    const engine = makeEngine()
+
+    await expect(
+      execMemoryUpsert(engine, {
+        type: 'events',
+        slug_hint: 'launch',
+        content: 'Acme launched.',
+        reason: 'User: "we launched"',
+      }),
+    ).rejects.toThrow('read-only')
+
+    const upsert = MEMORY_MCP_TOOLS.find((tool) => tool.name === 'memory_upsert')
+    const properties = upsert?.inputSchema.properties as { type: { enum: string[] } }
+    expect(properties.type.enum).toEqual(['user', 'entities', 'cases'])
+  })
+
+  it('keeps existing pages searchable', async () => {
+    const engine = makeEngine()
+    await engine.createPage('events', 'acme-launch', 'Acme launched.', { entry: 'Acme launched.' })
+
+    const result = await execMemorySearch(engine, { types: ['events'], since: '2020-01-01' })
+
+    expect(result).toContain('acme-launch')
   })
 })
 
@@ -386,7 +497,7 @@ describe('execMemoryUpsert timeline provenance', () => {
         decision: {
           action: 'merge',
           target_slug: 'acme',
-          base_revision: candidateAt(first, 0).revision,
+          base_revision: first.revision,
           truth: 'Acme is a robotics startup based in Munich.',
         },
       },
@@ -402,7 +513,7 @@ describe('execMemoryUpsert timeline provenance', () => {
     expect(merged?.reason).toBe('User: "they relocated to Munich"')
     expect(merged?.source).toBe('chat:7')
 
-    // The needs_reconcile round trip wrote nothing; the two writes are what counts.
+    // The truth rewrite reused the appended entry; the two facts are what counts.
     expect(engine.countTimelineEntries({ source: 'chat:7', since })).toBe(2)
     expect(engine.countTimelineEntries({ source: 'chat:8', since })).toBe(0)
   })
