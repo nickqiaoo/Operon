@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.5.15] - 2026-11-10
+
+### Changed
+
+- Update the Claude Agent SDK to `0.3.321` for Claude Code sessions.
+
 ## [1.5.14] - 2026-11-09
 
 ### Added
