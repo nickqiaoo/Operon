@@ -2,8 +2,11 @@ name: Release macOS
 
 on:
   workflow_call:
+  workflow_dispatch:
     inputs:
       release_version:
+        description: Desktop version on main to rebuild and publish
+        required: true
         type: string
 
 permissions:
