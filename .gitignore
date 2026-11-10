@@ -17,7 +17,9 @@ native/*/build/
 # next.js (legacy)
 /.next/
 /out/
-/build
+/build/*
+!/build/entitlements.mac.plist
+!/build/entitlements.mac.inherit.plist
 
 # debug
 npm-debug.log*
