@@ -115,7 +115,11 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
     ws = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise<void>((res, rej) => { ws.onopen = () => res(); ws.onerror = () => rej(new Error("cannot connect to CDP")); });
     let cdpId = 0;
-    const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    const pending = new Map<number, {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      slowTimer: ReturnType<typeof setTimeout>;
+    }>();
     /** The driver has to forward CDP events to the backend. Without that,
      *  `Fetch.requestPaused` never reaches the SDK and `Page.navigate` never
      *  returns on a real page. The production driver in
@@ -133,6 +137,7 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
       const p = pending.get(m.id);
       if (!p) return;
       pending.delete(m.id);
+      clearTimeout(p.slowTimer);
       if (m.error) p.reject(new Error(JSON.stringify(m.error)));
       else p.resolve(m.result);
     };
@@ -146,7 +151,11 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
     const cdp = (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
       new Promise<unknown>((resolve, reject) => {
         const i = ++cdpId;
-        pending.set(i, { resolve, reject });
+        const slowTimer = setTimeout(() => {
+          console.warn(`[Chrome CDP] No response after 5s: #${i} ${method} (session ${sessionId ?? "top-level"})`);
+        }, 5_000);
+        slowTimer.unref();
+        pending.set(i, { resolve, reject, slowTimer });
         ws.send(JSON.stringify({ id: i, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
 
@@ -662,13 +671,17 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   /** frameLocator is only selector composition, but this proves it really reaches
    *  into a frame, cross-origin included. */
   it("frameLocator reaches into both same-origin and cross-origin frames", async () => {
+    console.info("[iframe] Reading the same-origin frame");
     expect(await tab.playwright.frameLocator("#same").locator("#in1").textContent({ timeout: 8000 })).toBe("Inner One");
-    // Nested: a chain of frameLocators.
+
+    console.info("[iframe] Reading the nested same-origin frame");
     expect(
       await tab.playwright.frameLocator("#same").frameLocator("#deeper").locator("#in2").textContent({ timeout: 8000 }),
     ).toBe("Deep Two");
-    // Cross-origin OOPIF.
+
+    console.info("[iframe] Reading the cross-origin frame");
     expect(await tab.playwright.frameLocator("#cross").locator("#x").textContent({ timeout: 8000 })).toBe("Cross Button");
+    console.info("[iframe] All three frame reads completed");
   }, 60_000);
 
   it("filter / all / evaluate", async () => {
