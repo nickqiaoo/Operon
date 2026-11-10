@@ -1,6 +1,7 @@
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import type { Activity, ActivityStatus, ActivityStep, AssistantMessage, AssistantQuestion, AssistantTrigger } from '../../../../shared/assistant.js'
 import { MAIN_ACTIVITY_TASK_PREFIX, TURN_ERROR_PREFIX, WORKING_SUMMARY } from '../../../../shared/assistant.js'
+import { SILENT_REPLY } from './defaults.js'
 import { assistantToolName, bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import type { FinishArgs, HeartbeatArgs } from './tools.js'
 
@@ -287,7 +288,8 @@ export class AssistantProjector {
    * form. Codex still closes the turn with an answer after one, which restates it, so that answer
    * takes the message's text and the two read as one message.
    */
-  private speak(piece: TextPiece, cause?: Cause): void {
+  private speak(piece: TextPiece, cause = this.cause): void {
+    if (cause.kind !== 'user' && piece.text === SILENT_REPLY && !piece.questions) return
     if (piece.questions) {
       this.openQuestion = this.say(piece.questions.length === 1 ? piece.questions[0].title : '', cause, piece.questions)
     } else if (piece.final && this.openQuestion) {

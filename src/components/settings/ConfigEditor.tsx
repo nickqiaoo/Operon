@@ -27,24 +27,26 @@ export function ConfigEditor<T extends string>({ configDir, files }: ConfigEdito
 
     return (
         <div className="space-y-6">
-            {/* File Tabs */}
-            <div className="flex items-center p-1 bg-muted/30 rounded-xl border border-border/60 w-fit">
-                {files.map(({ id, label, icon: Icon }) => (
-                    <button
-                        key={id}
-                        onClick={() => setActiveFile(id)}
-                        className={cn(
-                            "flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 ease-out",
-                            activeFile === id
-                                ? "bg-background text-foreground shadow-card"
-                                : "text-muted-foreground hover:text-foreground hover:bg-row-hover"
-                        )}
-                    >
-                        <Icon className="h-3.5 w-3.5" />
-                        {label}
-                    </button>
-                ))}
-            </div>
+            {/* File Tabs: a single file has nothing to switch to */}
+            {files.length > 1 && (
+                <div className="flex items-center p-1 bg-muted/30 rounded-xl border border-border/60 w-fit">
+                    {files.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            onClick={() => setActiveFile(id)}
+                            className={cn(
+                                "flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all duration-200 ease-out",
+                                activeFile === id
+                                    ? "bg-background text-foreground shadow-card"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-row-hover"
+                            )}
+                        >
+                            <Icon className="h-3.5 w-3.5" />
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {/* File Path Display */}
             <div className="text-xs text-muted-foreground font-mono px-1">

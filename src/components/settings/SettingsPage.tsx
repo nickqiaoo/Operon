@@ -19,6 +19,7 @@ import { GatewaySettings } from "./GatewaySettings"
 import { LinearSettings } from "./LinearSettings"
 import { GithubSettings } from "./GithubSettings"
 import { CommitMessageSettings } from "./CommitMessageSettings"
+import { AutoReviewSettings } from "./AutoReviewSettings"
 import { BrowserSettings } from "./BrowserSettings"
 import { ComputerUseSettings } from "./ComputerUseSettings"
 import { SaasSettings } from "./SaasSettings"
@@ -338,7 +339,10 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                                 </div>
                             )}
                             {activeTab === "custom" && (
-                                <ConfigEditor configDir=".operon" files={OPERON_FILES} />
+                                <div className="space-y-6">
+                                    <AutoReviewSettings />
+                                    <ConfigEditor configDir=".operon" files={OPERON_FILES} />
+                                </div>
                             )}
                             {activeTab === "assistant" && <AssistantSettings />}
                             {activeTab === "spec" && <SpecSettings />}

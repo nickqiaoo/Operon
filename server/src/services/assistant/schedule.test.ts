@@ -1,10 +1,41 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE_FILES } from './defaults.js'
-import { heartbeatChecks, heartbeatTold, withHeartbeatTold } from '../../../../shared/assistant.js'
-import { cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
+import { heartbeatChecks, heartbeatTold, withHeartbeatTold, type AssistantScheduleRun } from '../../../../shared/assistant.js'
+import type { CronjobTask } from '../../types/cronjob.js'
+import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
 import { buildHeartbeatInstructions, buildHeartbeatPrompt } from './prompts.js'
 
 const daily = (time: string, days: number[]) => ({ type: 'daily' as const, time, days })
+
+describe('AssistantSchedules.run', () => {
+  const job: CronjobTask = {
+    id: 1, name: 'Check', enabled: true, taskType: 'assistant', providerId: '', prompt: '',
+    schedule: daily('09:00', [1]), createdAt: 0, updatedAt: 0,
+  }
+
+  it('publishes the running state, then clears it and records the failure', async () => {
+    const runs: AssistantScheduleRun[] = []
+    const storage = {
+      assistantRunInsert: (run: AssistantScheduleRun) => runs.push(run),
+      assistantRunList: () => [...runs],
+      listCronjobs: () => [job],
+      get: () => undefined,
+    } as unknown as ConstructorParameters<typeof AssistantSchedules>[0]
+    const publish = vi.fn()
+    const schedules = new AssistantSchedules(storage, publish)
+
+    const run = schedules.run(job, async () => {
+      throw new Error('Unable to open agent session')
+    })
+
+    expect(schedules.list()[0]?.running).toBe(true)
+    expect(publish).toHaveBeenNthCalledWith(1, [expect.objectContaining({ running: true, runs: [] })])
+    const result = await run
+    expect(result).toEqual({ status: 'error', error: 'Unable to open agent session' })
+    expect(runs).toMatchObject([{ scheduleId: job.id, outcome: 'failed', note: 'Unable to open agent session' }])
+    expect(publish).toHaveBeenNthCalledWith(2, [expect.objectContaining({ running: false, runs })])
+  })
+})
 
 describe('cadenceOf', () => {
   it('reads like a person would say it', () => {

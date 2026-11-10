@@ -11,6 +11,7 @@ import { ProviderIcon } from '@/components/icons/ProviderLabel';
 import { providerLogoName } from '@/lib/provider-logos';
 import { Command } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { TruncatedText } from '@/components/ui/truncated-text';
 import { ModelSelectorInput, ModelSelectorList, ModelSelectorGroup, ModelSelectorItem, ModelSelectorEmpty } from '@/components/ai-elements/model-selector';
 
 export { ProviderIcon } from '@/components/icons/ProviderLabel';
@@ -117,7 +118,7 @@ export function ModelSelectorPanel({
               <ModelSelectorItem key={item.id} value={item.id}
                 onSelect={() => { setModel(item.id); setOpen(false); }}
                 className="py-2 pl-7 md:py-1.5">
-                <span className="flex-1 truncate">{item.label}</span>
+                <TruncatedText className="flex-1 truncate">{item.label}</TruncatedText>
                 {model === item.id && <CheckIcon className="size-3.5 shrink-0 text-tint" />}
               </ModelSelectorItem>
             ))}
@@ -138,7 +139,7 @@ export function ModelSelectorPanel({
       className={cn('gap-2', buttonClassName)}
     >
       <ProviderIcon id={selectedModel?.provider ?? ''} size={14} />
-      <span className="truncate max-w-32 @max-[460px]:hidden">{selectedModel?.label ?? intl.formatMessage({ id: 'editor.model.selectPlaceholder', defaultMessage: 'Select model...' })}</span>
+      <TruncatedText className="truncate max-w-32 @max-[460px]:hidden">{selectedModel?.label ?? intl.formatMessage({ id: 'editor.model.selectPlaceholder', defaultMessage: 'Select model...' })}</TruncatedText>
       <ChevronDownIcon className={cn('size-3 opacity-50 transition-transform @max-[460px]:hidden', open && 'rotate-180')} />
     </PromptInputButton>
   );

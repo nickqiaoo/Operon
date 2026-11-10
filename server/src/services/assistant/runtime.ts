@@ -17,8 +17,8 @@ import type {
   ProfileFile,
   ProfileFileName,
 } from '../../../../shared/assistant.js'
-import type { ApprovalIcon, AssistantSchedule, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../../shared/assistant.js'
-import { activitySummaryOf, heartbeatTold, INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, UNATTENDED_SKIP_PREFIX, withHeartbeatTold } from '../../../../shared/assistant.js'
+import type { ApprovalIcon, AssistantSchedule, AssistantTrigger, AuditRecord } from '../../../../shared/assistant.js'
+import { activitySummaryOf, heartbeatTold, INTERRUPTED_SUMMARY, NOTHING_TO_CHECK_NOTE, withHeartbeatTold } from '../../../../shared/assistant.js'
 import type { AssistantBlockerReason } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobTask } from '../../types/cronjob.js'
@@ -69,7 +69,7 @@ import {
   type WorkerSurfaces,
 } from './prompts.js'
 import { buildSessionSeed, buildWrapUpTranscript, ContextReminder, rotationDue } from './rotation.js'
-import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours } from './schedule.js'
+import { AssistantSchedules, cadenceOf, heartbeatHasWork, inQuietHours, type ScheduleResult } from './schedule.js'
 import { createOperonState, type OperonState, type OperonStateStorage } from './operon-state.js'
 import { CodingAgents } from './coding.js'
 import { createOperonActions, type OperonActions, type OperonActionsStorage } from './operon-actions.js'
@@ -235,8 +235,6 @@ export class AssistantRuntime {
   private rotating: Promise<MainSession> | undefined
   /** Set when the main session must be replaced before its day is over. */
   private rotationWanted: RotationReason | undefined
-  /** Names for the heartbeat's instructions, read when its run starts. */
-  private heartbeatConnectors: string[] = []
   private typing = false
   private onboardingKicked = false
   /** Tasks the last run of the app cut off, to carry on (resumeInterrupted). */
@@ -294,7 +292,7 @@ export class AssistantRuntime {
     this.workers = new WorkerPool(
       {
         agentFor: (kind) => this.agentFor(kind),
-        instructions: (kind, unattended) => this.workerInstructions(kind, unattended),
+        instructions: (kind, unattended, agent) => this.workerInstructions(kind, unattended, agent.providerId),
         cwd: ASSISTANT_WORKSPACE,
         // Day notes only: a worker writes what it observes there; memory.md is the main agent's to
         // curate (the sandbox enforces it on Codex and Claude).
@@ -471,7 +469,6 @@ export class AssistantRuntime {
     }
     // Nobody is watching a heartbeat or a scheduled run: skip the step, the result says so.
     if (this.workers.isUnattended(workerId)) {
-      this.audit({ id: randomUUID(), ...entry, detail: `${UNATTENDED_SKIP_PREFIX}${request.message}`, decision: 'denied', at: Date.now() })
       return { action: 'decline' }
     }
     const answer = await this.approvals.request(entry)
@@ -491,7 +488,6 @@ export class AssistantRuntime {
     const icon = toolIcon(toolName)
     const args = record(input)
     if (this.workers.isUnattended(activityId)) {
-      this.audit({ id: randomUUID(), title: label, detail: `${UNATTENDED_SKIP_PREFIX}${detail}`, icon, decision: 'denied', at: Date.now(), activityId })
       return { type: 'deny', reason: "This step needs the user's approval and nobody is watching this run. Skip it and say in your result what you could not do and why." }
     }
     const answer = await this.approvals.request({ title: label, detail, icon, activityId, ...(Object.keys(args).length ? { args } : {}) })
@@ -744,8 +740,8 @@ export class AssistantRuntime {
    * Operon's own harness loads the user's MCP config and the plugins itself. (operonrepl is a tool,
    * not a service.)
    */
-  private async connectors(providerId: AssistantProviderId | undefined): Promise<string[]> {
-    const external = providerId !== undefined && providerId !== 'custom'
+  private async connectors(providerId: AssistantProviderId): Promise<string[]> {
+    const external = providerId !== 'custom'
     const names = external
       ? new Set(Object.keys(workerServiceServers(providerId)))
       : new Set([...Object.keys(await loadUserMcpServers()), ...Object.keys(pluginManager.mcpServerConfigs())])
@@ -767,9 +763,15 @@ export class AssistantRuntime {
     return schedules.map((s) => (s.builtin === 'heartbeat' && notConnected.length ? { ...s, notConnected } : s))
   }
 
-  private workerInstructions(kind: WorkerKind, unattended: boolean): string {
+  private async workerInstructions(kind: WorkerKind, unattended: boolean, providerId: AssistantProviderId): Promise<string> {
     const locale = this.storage.get<string>(LOCALE_KEY)
-    if (kind === 'heartbeat') return buildHeartbeatInstructions(filesRecord(), this.heartbeatConnectors, locale)
+    if (kind === 'heartbeat') {
+      await ensurePluginsLoaded()
+        .then(() => checkPluginSignIns())
+        .catch((error: unknown) => console.error('[assistant] plugin load failed:', error))
+      const connectors = await this.connectors(providerId)
+      return buildHeartbeatInstructions(filesRecord(), connectors, locale)
+    }
     return buildWorkerInstructions(filesRecord(), { surfaces: workerSurfaces(), unattended, locale })
   }
 
@@ -1059,44 +1061,32 @@ export class AssistantRuntime {
   // ---------------------------------------------------------------------------
 
   /** One due run of the heartbeat or a scheduled task. Resolves when the run is over. */
-  readonly runSchedule: AssistantCronRunner = async (job) => {
+  readonly runSchedule: AssistantCronRunner = (job) => this.schedules.run(job, async (startedAt) => {
     const blocker = await this.blocker()
-    if (blocker) return { status: 'error', error: blocker.blocker }
-    return this.schedules.isHeartbeat(job.id) ? this.runHeartbeat(job) : this.runScheduled(job)
-  }
+    if (blocker) return { outcome: 'failed', note: blocker.blocker }
+    return this.schedules.isHeartbeat(job.id) ? this.runHeartbeat(job, startedAt) : this.runScheduled(job)
+  })
 
   /**
-   * When the last heartbeat that actually finished started. A run that broke off (or never
-   * reported) doesn't count: what came up while it was down is still news to the next one.
+   * When the last completed check started. Failed and empty runs leave the check window open.
    */
   private lastCompletedCheck(job: CronjobTask): number | undefined {
-    return this.storage.assistantRunList(job.id, 100).find((r) => r.outcome !== 'failed')?.at
+    return this.storage.assistantRunList(job.id, 100)
+      .find((r) => r.outcome !== 'failed' && r.note !== NOTHING_TO_CHECK_NOTE)?.at
   }
 
-  private async runHeartbeat(job: CronjobTask): Promise<Awaited<ReturnType<AssistantCronRunner>>> {
+  private async runHeartbeat(job: CronjobTask, startedAt: number): Promise<ScheduleResult> {
     const config = this.getConfig()
-    const now = Date.now()
-    const quiet = inQuietHours(new Date(now), config.quietStart, config.quietEnd)
+    const quiet = inQuietHours(new Date(startedAt), config.quietStart, config.quietEnd)
     const files = filesRecord()
-    // The agent it will run on decides the services' names; with none, the start below fails anyway.
-    const agent = await this.agentFor('heartbeat').catch(() => undefined)
-    await ensurePluginsLoaded()
-      .then(() => checkPluginSignIns())
-      .catch((error: unknown) => console.error('[assistant] plugin load failed:', error))
-    this.emit({ type: 'schedules', schedules: this.withSignInState(this.schedules.list()) })
-    const connectors = await this.connectors(agent?.providerId)
-    const logRun = (outcome: ScheduleRunOutcome, note?: string, activityId?: string) =>
-      this.schedules.recordRun({ id: randomUUID(), scheduleId: job.id, at: now, outcome, ...(note ? { note } : {}), ...(activityId ? { activityId } : {}) })
 
     // Nothing under the checklist's own headings and nothing in progress — but what waits under
     // "Later" still has to go out once quiet hours end, so that alone is work too.
     const told = heartbeatTold(files.heartbeat.content)
     if (!heartbeatHasWork(files.memory.content, files.heartbeat.content) && !(told.includes('### Later') && !quiet)) {
-      logRun('silent', NOTHING_TO_CHECK_NOTE)
-      return { status: 'success', output: 'Nothing new' }
+      return { outcome: 'silent', note: NOTHING_TO_CHECK_NOTE, output: NOTHING_TO_CHECK_NOTE }
     }
 
-    this.heartbeatConnectors = connectors
     const { id, done } = await this.workers.start({
       kind: 'heartbeat',
       title: 'Heartbeat',
@@ -1112,9 +1102,11 @@ export class AssistantRuntime {
     // Ending without heartbeat_done means the check wasn't done: it must not read as "nothing new",
     // and must not move "the last check" past what it never looked at.
     if (outcome.end !== 'completed' || outcome.error || !args) {
-      const reason = outcome.error ?? (args ? outcome.activity.summary : 'Ended without reporting what it checked (no heartbeat_done).')
-      logRun('failed', reason)
-      return { status: 'error', error: reason }
+      this.forgetWorkerSession(id)
+      const note = outcome.error ?? (outcome.end === 'completed'
+        ? 'Ended without reporting what it checked (no heartbeat_done).'
+        : outcome.activity.summary)
+      return { outcome: 'failed', note }
     }
 
     // Its record of what the user has been told, as it says it is now. Read the file again first:
@@ -1128,30 +1120,28 @@ export class AssistantRuntime {
       }
     }
 
-    const findings = (Array.isArray(args.findings) ? args.findings : [])
-      .filter((f) => typeof f.text === 'string' && f.text.trim())
-      .map((f) => ({ text: f.text.trim(), urgent: f.urgent === true }))
+    const findings = args.findings.map((f) => ({ ...f, text: f.text.trim() })).filter((f) => f.text)
     // Reported under the checklist section's heading, which is already what the user reads.
-    const unchecked = (Array.isArray(args.unchecked) ? args.unchecked : [])
-      .filter((u) => typeof u.check === 'string' && u.check.trim())
-      .map((u) => (typeof u.reason === 'string' && u.reason.trim() ? `${u.check.trim()} (${u.reason.trim()})` : u.check.trim()))
-    const uncheckedNote = unchecked.length ? unchecked.join(', ') : undefined
+    const uncheckedNote = args.unchecked
+      ?.map(({ check, reason }) => ({ check: check.trim(), reason: reason.trim() }))
+      .filter(({ check }) => check)
+      .map(({ check, reason }) => reason ? `${check} (${reason})` : check)
+      .join(', ')
     // Quiet hours: the check was told to keep all but the urgent for later; hold it to that.
     const sayNow = quiet ? findings.filter((f) => f.urgent) : findings
-    if (!sayNow.length) {
-      // A check that didn't happen must not read as "nothing new".
-      if (uncheckedNote) logRun('partial', uncheckedNote)
-      else logRun('silent')
+    const [first] = sayNow
+    if (!first) {
       // Nothing worth continuing: the run log line is the whole record.
       this.forgetWorkerSession(id)
-      return { status: 'success', output: 'Nothing new' }
+      return uncheckedNote
+        ? { outcome: 'partial', note: uncheckedNote, output: uncheckedNote }
+        : { outcome: 'silent', output: 'Nothing new' }
     }
     const activity = outcome.activity
-    activity.title = summaryLine(sayNow[0]!.text).slice(0, 80) || 'Heartbeat'
+    activity.title = summaryLine(first.text).slice(0, 80) || 'Heartbeat'
     activity.summary = sayNow.map((f) => f.text).join(' · ')
     activity.report = sayNow.map((f) => `- ${f.urgent ? '(urgent) ' : ''}${f.text}`).join('\n')
     this.saveActivity(activity)
-    logRun('found', uncheckedNote ? `${sayNow[0]!.text} · couldn't check ${uncheckedNote}` : sayNow[0]!.text, id)
     this.tellMain(
       [
         '[Heartbeat] Noticed in the background, worth telling the user now:',
@@ -1159,11 +1149,16 @@ export class AssistantRuntime {
       ].join('\n'),
       { kind: 'heartbeat', activityId: id },
     )
-    return { status: 'success', output: sayNow.map((f) => f.text).join('\n') }
+    return {
+      outcome: 'found',
+      note: uncheckedNote ? `${first.text} · couldn't check ${uncheckedNote}` : first.text,
+      output: sayNow.map((f) => f.text).join('\n'),
+      activityId: id,
+    }
   }
 
   /** A task the user set up to run at set times: a visible activity, its result relayed by the main agent. */
-  private async runScheduled(job: CronjobTask): Promise<Awaited<ReturnType<AssistantCronRunner>>> {
+  private async runScheduled(job: CronjobTask): Promise<ScheduleResult> {
     const cadence = cadenceOf(job.schedule)
     const { id, done } = await this.workers.start({
       kind: 'schedule',
@@ -1175,14 +1170,6 @@ export class AssistantRuntime {
     const outcome = await done
     const { activity } = outcome
     const ok = activity.status === 'done' || activity.status === 'partial'
-    this.schedules.recordRun({
-      id: randomUUID(),
-      scheduleId: job.id,
-      at: activity.startedAt,
-      outcome: ok ? 'found' : 'failed',
-      note: activity.summary,
-      activityId: id,
-    })
     const result = activity.report ?? outcome.finalText ?? ''
     const clipped = result.length > NOTICE_RESULT_LIMIT ? `${result.slice(0, NOTICE_RESULT_LIMIT)}\n… (truncated)` : result
     this.tellMain(
@@ -1194,7 +1181,9 @@ export class AssistantRuntime {
       ].join('\n'),
       { kind: 'schedule', name: job.name, activityId: id },
     )
-    return ok ? { status: 'success', output: activity.summary } : { status: 'error', error: outcome.error ?? activity.summary }
+    return ok
+      ? { outcome: 'found', note: activity.summary, output: activity.summary, activityId: id }
+      : { outcome: 'failed', note: outcome.error ?? activity.summary, activityId: id }
   }
 
   /** Pause, resume or delete from the Schedule tab. */

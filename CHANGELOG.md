@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [1.5.16] - 2026-11-10
+
+### Added
+
+- Choose a dedicated model to review tool calls in Auto mode for chats and Assistant.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.28`.
+- Assistant shows when a scheduled run is in progress and records its outcome when it finishes.
+- Reuse the searchable model picker across settings and hide file tabs when only one file is available.
+
+### Fixed
+
+- Heartbeat uses a dedicated reporting tool and distinguishes empty, incomplete, and failed checks.
+- Assistant keeps routine background updates out of the transcript when there is nothing to report.
+- Pressing Escape stops a reply while focus is in the chat transcript.
+- Desktop Review follows the latest turn with changes and refreshes its diff on demand.
+
 ## [1.5.15] - 2026-11-10
 
 ### Changed

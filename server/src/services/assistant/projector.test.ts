@@ -159,6 +159,31 @@ describe('AssistantProjector (the thread)', () => {
     })
   })
 
+  it('shows nothing for an exact silent reply to a background notice', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'heartbeat' })
+    said(t.projector, 'NO_REPLY')
+    t.projector.end()
+    expect(t.messages()).toEqual([])
+    expect(t.typing).toEqual([true, false])
+  })
+
+  it.each(['NO_REPLY is the marker for staying silent.', 'A check failed.\nNO_REPLY'])('keeps substantive replies to background notices (%j)', (text) => {
+    const t = thread()
+    t.projector.begin({ kind: 'heartbeat' })
+    said(t.projector, text)
+    t.projector.end()
+    expect(t.messages().map((m) => m.text)).toEqual([text])
+  })
+
+  it('keeps the marker when replying to the user', () => {
+    const t = thread()
+    t.projector.begin({ kind: 'user' })
+    said(t.projector, 'NO_REPLY')
+    t.projector.end()
+    expect(t.messages().map((m) => m.text)).toEqual(['NO_REPLY'])
+  })
+
   it('says something when a turn fails, and nothing when it was stopped', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
@@ -242,7 +267,7 @@ describe('ActivityProjector (one worker)', () => {
 
   it("leaves the assistant's own tools out of the steps", () => {
     const w = worker()
-    for (const name of ['mcp__assistant_worker__finish_task', 'assistant_worker_report_progress', 'mcp__assistant_worker__heartbeat_done']) {
+    for (const name of ['mcp__assistant_worker__finish_task', 'assistant_worker_report_progress', 'mcp__assistant_heartbeat__heartbeat_done', 'assistant_heartbeat_heartbeat_done']) {
       w.projector.part(p({ type: 'tool-call', toolCallId: name, toolName: name, input: {} }))
     }
     w.projector.publish()

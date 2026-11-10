@@ -9,7 +9,7 @@ import { ASSISTANT_TOOL_NAMES } from './tools.js'
 /** The assistant tool a call is to (`start_task`…), or undefined for any other tool. */
 export function assistantToolName(toolName: string): string | undefined {
   // mcp__assistant__start_task (Claude, Codex), assistant_worker_finish_task (OpenCode), …
-  const bare = toolName.replace(/^mcp__assistant(_\w+?)?__/, '').replace(/^assistant(_(worker|wrapup))?_/, '')
+  const bare = toolName.replace(/^mcp__assistant(_\w+?)?__/, '').replace(/^assistant(_(worker|heartbeat|wrapup))?_/, '')
   return bare !== toolName && ASSISTANT_TOOL_NAMES.has(bare) ? bare : undefined
 }
 

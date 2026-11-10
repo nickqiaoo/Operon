@@ -27,7 +27,7 @@ describe('isAssistantMountKey', () => {
 
 describe('assistant conversation ids', () => {
   it('round-trip, and nothing else parses as one', () => {
-    for (const caller of [{ role: 'main' as const }, { role: 'worker' as const, id: 'w-1' }, { role: 'wrapup' as const, id: 'u2' }]) {
+    for (const caller of [{ role: 'main' as const }, { role: 'worker' as const, id: 'w-1' }, { role: 'heartbeat' as const, id: 'h-1' }, { role: 'wrapup' as const, id: 'u2' }]) {
       expect(parseAssistantConversation(assistantConversationId(caller))).toEqual(caller)
     }
     expect(parseAssistantConversation('42')).toBeUndefined()

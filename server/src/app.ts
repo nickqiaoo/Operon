@@ -47,6 +47,8 @@ import { initClaudeTogglesService } from './services/claude-toggles.js'
 import { initDiffPreviewConfigService, getDiffPreviewConfig } from './services/diff-preview-config.js'
 import { commitMessageConfigRoutes } from './routes/commit-message-config.js'
 import { initCommitMessageConfigService } from './services/commit-message-config.js'
+import { autoReviewConfigRoutes } from './routes/auto-review-config.js'
+import { initAutoReviewConfigService } from './services/auto-review-config.js'
 import { initSpecRoleSettings, setUsableProviderSource } from './services/spec/role-settings.js'
 import { getProviders } from './services/ai/providers.js'
 import { saasRoutes } from './routes/saas.js'
@@ -194,6 +196,7 @@ export async function createApp(deps: AppDeps) {
   initDiffPreviewConfigService(deps.storage)
   initClaudeTogglesService(deps.storage)
   initCommitMessageConfigService(deps.storage)
+  initAutoReviewConfigService(deps.storage)
   initSpecRoleSettings(deps.storage)
   setUsableProviderSource(() =>
     getProviders()
@@ -354,6 +357,7 @@ export async function createApp(deps: AppDeps) {
   app.route('/api/diff-preview', diffPreviewConfigRoutes())
   app.route('/api/claude-toggles', claudeTogglesRoutes())
   app.route('/api/commit-message', commitMessageConfigRoutes())
+  app.route('/api/auto-review', autoReviewConfigRoutes())
   app.route('/api/saas', saasRoutes())
   app.route('/api/integrations', integrationsRoutes(deps.storage))
   app.route('/api/plugin', pluginApiRoutes(deps.storage))

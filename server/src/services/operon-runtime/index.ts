@@ -18,6 +18,8 @@ import type {
 } from '@operon/agent-runtime'
 import { createOperonTracing } from './tracing.js'
 import { getModelCapabilities, resolveModel } from './resolve-model.js'
+import { withAutoReviewModel } from './auto-review.js'
+import { getAutoReviewConfig } from '../auto-review-config.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession, type OperonSessionNative } from './session.js'
 import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
 import { configurePeersHost, createTeamsHostService } from './peers.js'
@@ -270,12 +272,12 @@ export function getOperonHarness(): Promise<Harness> {
 
 async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
   const config = await loadWorkspaceConfig(root)
-  // The `auto`-tier judge. It runs the main-loop model (carried on the authorize ctx) as a
-  // Claude-Code-style two-stage security classifier; the workspace's config.toml can extend the
+  // The `auto`-tier judge. It runs the model picked in Settings → Operon, else the main-loop model
+  // (carried on the authorize ctx), as a Claude-Code-style two-stage security classifier; the workspace's config.toml can extend the
   // allow/deny/environment sections. Injected unconditionally but only consulted when the
   // session's permission mode is `auto`.
   const auto = config.permission.autoApproval
-  const autoApprover = new LlmAutoApprover({
+  const judge = new LlmAutoApprover({
     rules: { allow: auto?.allow, deny: auto?.deny, environment: auto?.environment },
     ...(auto?.twoStageMode ? { twoStageMode: auto.twoStageMode } : {}),
     onOutcome: (r) => {
@@ -289,6 +291,7 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
       console.log(`[operon] auto-approval ${r.outcome} for ${r.toolName} in ${r.durationMs}ms${stage}${reason}`)
     },
   })
+  const autoApprover = withAutoReviewModel(judge, () => getAutoReviewConfig().modelId, resolveModel)
   return {
     // config.toml owns the permission rules; the UI mode picker still overrides the
     // mode per-session via `setPermissionMode`.

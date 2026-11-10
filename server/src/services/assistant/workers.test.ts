@@ -268,7 +268,21 @@ describe('WorkerPool', () => {
     expect(env.pool.isUnattended(id)).toBe(true)
     await done
     expect(env.published).toEqual([])
-    expect(env.opened[0]!.params).toMatchObject({ kind: 'unattended', instructions: 'instructions:heartbeat:true' })
+    expect(env.opened[0]!.params).toMatchObject({ kind: 'unattended', instructions: 'instructions:heartbeat:true', caller: { role: 'heartbeat', id } })
+  })
+
+  it('keeps the first heartbeat report and lets the turn finish normally', async () => {
+    const g = gate()
+    const env = setup({ scripts: [{ parts: reply('checked'), gate: g.promise }] })
+    const { id, done } = await env.pool.start({ kind: 'heartbeat', title: 'H', prompt: 'p', unattended: true, visible: false })
+    expect(env.pool.heartbeatDone(id, { findings: [] })).toBe(true)
+    expect(env.pool.heartbeatDone(id, { findings: [{ text: 'again', urgent: false }] })).toBe(false)
+    expect(env.pool.isRunning(id)).toBe(true)
+    g.open()
+    const outcome = await done
+    expect(outcome).toMatchObject({ end: 'completed', finalText: 'checked', finish: { tool: 'heartbeat_done', args: { findings: [] } } })
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.activity.status).toBe('done')
   })
 
   it('takes a result only from the kind of run that hands it in', async () => {

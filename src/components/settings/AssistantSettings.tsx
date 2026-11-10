@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTransientFlag } from "@/hooks/useTransientFlag"
+import { ModelCombobox } from "./ModelCombobox"
 
 /** The agents the assistant can run on (server: services/assistant/agents.ts). */
 const AGENTS: Array<{ id: string; label: string }> = [
@@ -21,7 +22,6 @@ const AGENTS: Array<{ id: string; label: string }> = [
 ]
 
 /** Radix Select reserves the empty value; this stands for "the agent's own default". */
-const DEFAULT_MODEL = "__default__"
 const DEFAULT_EFFORT = "__default__"
 
 const EMPTY: AssistantConfig = {
@@ -268,27 +268,14 @@ function AgentField({
           </SelectContent>
         </Select>
         {value && (
-          <Select value={modelId || DEFAULT_MODEL} onValueChange={(next) => onChange({ providerId: value.providerId, modelId: next === DEFAULT_MODEL ? "" : next })}>
-            <SelectTrigger className="h-8 w-full max-w-[320px] border-border/50 bg-background/80 text-xs">
-              <SelectValue
-                placeholder={
-                  models === null
-                    ? intl.formatMessage({ id: "assistant.settings.loadingModels", defaultMessage: "Loading models…" })
-                    : defaultLabel
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={DEFAULT_MODEL} className="text-xs">
-                {defaultLabel}
-              </SelectItem>
-              {options.map((m) => (
-                <SelectItem key={m.modelId} value={m.modelId} className="text-xs">
-                  {m.name === m.modelId ? m.modelId : `${m.name} · ${m.modelId}`}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ModelCombobox
+            value={modelId}
+            onValueChange={(next) => onChange({ providerId: value.providerId, modelId: next })}
+            models={options}
+            defaultLabel={defaultLabel}
+            loading={models === null}
+            className="w-full max-w-[320px]"
+          />
         )}
         {value && effortOptions.length > 0 && (
           <Select

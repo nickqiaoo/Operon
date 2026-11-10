@@ -8,10 +8,11 @@ import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { gitKeys, resolveDefaultBase, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
+import { turnDiffKeys, useLatestChangedTurnUid } from "@/lib/chat-queries"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useThemeStore } from "@/stores/theme-store"
 import { useReviewDisplayStore } from "@/stores/review-display-store"
-import { useReviewTurnStore } from "@/stores/review-turn-store"
+import { resolveReviewTurnUid, useReviewTurnStore } from "@/stores/review-turn-store"
 import type { CommentMeta } from "@/components/editor/comments/useLineComments"
 import {
   PANEL_ANIMATION_DURATION,
@@ -52,7 +53,8 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
   // Set by the chat panel's "Review" action: which chat's latest turn to show.
   const turnTarget = useReviewTurnStore((s) => s.byRoot[rootPath])
   const turnChatId = turnTarget?.chatId ?? null
-  const turnMessageUid = turnTarget?.messageUid ?? null
+  const latestTurnUid = useLatestChangedTurnUid(turnChatId ?? undefined, rootPath)
+  const turnMessageUid = resolveReviewTurnUid(turnTarget, latestTurnUid)
   // Switch to the Last-turn scope each time the Review button is pressed.
   useEffect(() => {
     if (turnTarget) setScope("lastTurn")
@@ -296,11 +298,17 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
     try {
-      await refreshGit()
+      await Promise.all([
+        refreshGit(),
+        // Last turn is resolved from the chat's turn list, not from git.
+        turnChatId == null
+          ? undefined
+          : queryClient.invalidateQueries({ queryKey: turnDiffKeys.detail(turnChatId, rootPath) }),
+      ])
     } finally {
       setIsRefreshing(false)
     }
-  }, [refreshGit])
+  }, [queryClient, refreshGit, rootPath, turnChatId])
 
   const runFileAction = useCallback(
     async (path: string, action: FileAction) => {

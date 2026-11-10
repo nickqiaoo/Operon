@@ -154,3 +154,18 @@ export function useTurnDiffs(chatId: number | undefined, cwd: string | null, sta
   })
   return chatId === undefined || !cwd ? null : data ?? null
 }
+
+/**
+ * The newest turn of a chat that changed files, read from the cache
+ * {@link useTurnDiffs} fills. Never fetches on its own: that hook already waits
+ * for the turn to finish, and a fetch from here could expose a half-done turn.
+ */
+export function useLatestChangedTurnUid(chatId: number | undefined, cwd: string | null) {
+  const { data } = useQuery({
+    queryKey: turnDiffKeys.detail(chatId, cwd),
+    queryFn: () => api.aiGetTurnDiffs(chatId!, cwd!),
+    enabled: false,
+    select: (diffs) => diffs.turns.at(-1)?.messageUid,
+  })
+  return data
+}

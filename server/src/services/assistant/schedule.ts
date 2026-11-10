@@ -1,9 +1,14 @@
+import { randomUUID } from 'node:crypto'
 import { heartbeatChecks, type AssistantSchedule, type AssistantScheduleRun } from '../../../../shared/assistant.js'
 import type { AssistantStorageAdapter, CronjobStorageAdapter, StorageAdapter } from '../../storage/interface.js'
 import type { CronjobSchedule, CronjobTask } from '../../types/cronjob.js'
-import { computeNextRunAtForJob, normalizeSchedule } from '../cronjob.js'
+import { computeNextRunAtForJob, normalizeSchedule, type AssistantCronRunner } from '../cronjob.js'
 
 type Storage = StorageAdapter & AssistantStorageAdapter & CronjobStorageAdapter
+
+export type ScheduleResult =
+  | { outcome: 'failed'; note: string; activityId?: string }
+  | { outcome: Exclude<AssistantScheduleRun['outcome'], 'failed'>; output: string; note?: string; activityId?: string }
 
 const HEARTBEAT_KEY = 'assistant:heartbeat_job'
 /** How often the heartbeat looks around. */
@@ -94,6 +99,8 @@ export function heartbeatHasWork(memory: string, heartbeat: string): boolean {
  * they are made and changed.
  */
 export class AssistantSchedules {
+  private readonly activeRuns = new Map<number, number>()
+
   constructor(
     private readonly storage: Storage,
     private readonly changed: (schedules: AssistantSchedule[]) => void,
@@ -207,9 +214,26 @@ export class AssistantSchedules {
     return true
   }
 
-  recordRun(run: AssistantScheduleRun): void {
-    this.storage.assistantRunInsert(run)
-    this.publish()
+  async run(job: CronjobTask, execute: (startedAt: number) => Promise<ScheduleResult>): Promise<Awaited<ReturnType<AssistantCronRunner>>> {
+    const at = Date.now()
+    this.activeRuns.set(job.id, (this.activeRuns.get(job.id) ?? 0) + 1)
+    try {
+      this.publish()
+      let result: ScheduleResult
+      try {
+        result = await execute(at)
+      } catch (error) {
+        result = { outcome: 'failed', note: error instanceof Error ? error.message : 'Assistant run failed' }
+      }
+      const { outcome, note, activityId } = result
+      this.storage.assistantRunInsert({ id: randomUUID(), scheduleId: job.id, at, outcome, note, activityId })
+      return result.outcome === 'failed' ? { status: 'error', error: result.note } : { status: 'success', output: result.output }
+    } finally {
+      const remaining = (this.activeRuns.get(job.id) ?? 1) - 1
+      if (remaining) this.activeRuns.set(job.id, remaining)
+      else this.activeRuns.delete(job.id)
+      this.publish()
+    }
   }
 
   /** Tell the UI (the next run time moves after every run, too). */
@@ -239,6 +263,7 @@ export class AssistantSchedules {
       ...(s.intervalMinutes ? { everyMinutes: s.intervalMinutes, until: s.endTime } : {}),
       ...(job.nextRunAt ? { nextRunAt: job.nextRunAt } : {}),
       enabled: job.enabled,
+      running: this.activeRuns.has(job.id),
       ...(this.isHeartbeat(job.id) ? { builtin: 'heartbeat' as const } : {}),
       runs: this.storage.assistantRunList(job.id, RUNS_SHOWN),
     }

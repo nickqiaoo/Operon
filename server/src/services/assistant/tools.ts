@@ -757,7 +757,7 @@ const finishTask = defineTool({
     status: z.enum(['done', 'partial', 'failed']),
   }),
   roles: ['worker'],
-  run: (args, caller, host) => (host.finish(caller.id ?? '', args) ? 'Recorded. Stop now.' : failure('This run reports with heartbeat_done, not finish_task.')),
+  run: (args, caller, host) => (host.finish(caller.id ?? '', args) ? 'Recorded. Stop now.' : failure('No task is running in this session.')),
 })
 
 const heartbeatDone = defineTool({
@@ -786,8 +786,8 @@ const heartbeatDone = defineTool({
       .string()
       .describe('The "Already told" section as it should be now, without its heading — the whole of it, every time, even unchanged. Empty only when nothing told is still so and nothing waits for quiet hours'),
   }),
-  roles: ['worker'],
-  run: (args, caller, host) => (host.heartbeatDone(caller.id ?? '', args) ? 'Recorded. Stop now.' : failure('This is not a background check; finish with finish_task.')),
+  roles: ['heartbeat'],
+  run: (args, caller, host) => (host.heartbeatDone(caller.id ?? '', args) ? 'Recorded. Stop now.' : failure('No check is running in this session.')),
 })
 
 const reportProgress = defineTool({

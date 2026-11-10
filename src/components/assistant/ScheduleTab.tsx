@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { CalendarClock, HeartPulse, ListChecks, Pause, Pencil, Play, PlugZap, RotateCw, Trash2 } from "lucide-react"
-import { FormattedMessage, useIntl, type IntlShape } from "react-intl"
+import { defineMessage, FormattedMessage, useIntl, type IntlShape } from "react-intl"
 import { heartbeatChecks, NOTHING_TO_CHECK_NOTE } from "@shared/assistant"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -129,8 +129,11 @@ function scheduleName(intl: IntlShape, s: AssistantSchedule): string {
 }
 
 function subtitle(intl: IntlShape, s: AssistantSchedule): string {
+  if (s.running) return intl.formatMessage(RUNNING)
   return s.enabled ? cadenceLabel(intl, s) : intl.formatMessage({ id: "assistant.schedule.paused", defaultMessage: "Paused" })
 }
+
+const RUNNING = defineMessage({ id: "assistant.schedule.running", defaultMessage: "Running…" })
 
 /** How many runs show before "Show more". */
 const RUNS_COLLAPSED = 5
@@ -210,9 +213,9 @@ function ScheduleDialog({
             </Button>
           </>
         )}
-        <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={() => onRun(s.id)}>
-          <RotateCw className="h-3.5 w-3.5" />
-          <FormattedMessage id="assistant.schedule.runNow" defaultMessage="Run now" />
+        <Button size="sm" variant="secondary" className="h-8 gap-1.5" disabled={s.running} onClick={() => onRun(s.id)}>
+          <RotateCw className={cn("h-3.5 w-3.5", s.running && "motion-safe:animate-spin")} />
+          {s.running ? <FormattedMessage {...RUNNING} /> : <FormattedMessage id="assistant.schedule.runNow" defaultMessage="Run now" />}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -322,11 +325,11 @@ function RunLog({ runs, heartbeat, onOpenActivity }: { runs: AssistantScheduleRu
         // taking the page down — the phone app ships slower than the desktop.
         const known = r.outcome in OUTCOME_DOT
         const dot = known ? OUTCOME_DOT[r.outcome] : "bg-muted-foreground/40"
-        const label = known ? intl.formatMessage(labels[r.outcome]) : r.outcome
-        const note =
-          r.note === NOTHING_TO_CHECK_NOTE
-            ? intl.formatMessage({ id: "assistant.schedule.nothingToCheck", defaultMessage: "Nothing to check" })
-            : r.note
+        const nothingToCheck = heartbeat && r.outcome === "silent" && r.note === NOTHING_TO_CHECK_NOTE
+        const label = nothingToCheck
+          ? intl.formatMessage({ id: "assistant.schedule.nothingToCheck", defaultMessage: "Nothing to check" })
+          : known ? intl.formatMessage(labels[r.outcome]) : r.outcome
+        const note = nothingToCheck ? undefined : r.note
         const body = (
           <>
             <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />

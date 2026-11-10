@@ -1002,6 +1002,10 @@ export const api = {
   commitMessageSaveConfig: (config: { providerId?: string; modelId?: string }) =>
     put<{ success: boolean; providerId: string; modelId: string }>('/commit-message', config),
 
+  // --- Auto review (HTTP) — the model that judges tool calls in Operon's Auto mode ---
+  autoReviewGetConfig: () => get<{ modelId: string }>('/auto-review'),
+  autoReviewSaveConfig: (config: { modelId: string }) => put<{ modelId: string }>('/auto-review', config),
+
   // --- Integrations: Linear × GitHub Apps (docs/linear-github/design.md) ---
   integrationAppStatus: () => get<IntegrationAppStatus>('/integrations/app/status'),
   integrationLinearInstall: () =>

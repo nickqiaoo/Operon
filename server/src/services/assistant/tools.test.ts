@@ -51,7 +51,8 @@ describe('the tools each kind of session is offered', () => {
       'start_spec', 'answer_spec_questions', 'spec_status', 'spec_switch_agent', 'spec_decline_switch', 'spec_message_coordinator',
       'schedule_list', 'schedule_create', 'schedule_update', 'schedule_delete',
     ])
-    expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])
+    expect(toolsFor('worker').map((t) => t.name)).toEqual(['finish_task', 'report_progress'])
+    expect(toolsFor('heartbeat').map((t) => t.name)).toEqual(['heartbeat_done'])
     expect(toolsFor('wrapup')).toEqual([])
   })
 })
@@ -97,9 +98,9 @@ describe('callAssistantTool', () => {
     expect(h.finish).toHaveBeenCalledWith('w7', { title: 'Done it', summary: '42', status: 'done' })
   })
 
-  it('tells a heartbeat run that calls finish_task to use heartbeat_done', async () => {
-    const result = await callAssistantTool('finish_task', { title: 't', summary: 's', status: 'done' }, { role: 'worker', id: 'h1' }, host({ finish: () => false }))
-    expect(result).toEqual({ text: 'This run reports with heartbeat_done, not finish_task.', isError: true })
+  it('offers a heartbeat run only its own way of reporting', async () => {
+    const result = await callAssistantTool('finish_task', { title: 't', summary: 's', status: 'done' }, { role: 'heartbeat', id: 'h1' }, host())
+    expect(result).toEqual({ text: 'finish_task is not available here.', isError: true })
   })
 
   it('starts a task for the main agent and says which', async () => {

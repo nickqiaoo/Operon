@@ -232,7 +232,7 @@ export function MobileAssistantScreen({
                   onDelete={(id) => void deleteSchedule(id).catch(reportError)}
                   onRun={(id) => {
                     void runSchedule(id)
-                      .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runningNow", defaultMessage: "Running now" })))
+                      .then(() => toast.success(intl.formatMessage({ id: "assistant.schedule.runRequested", defaultMessage: "Run requested" })))
                       .catch(reportError)
                   }}
                   checklist={files.find((f) => f.name === "heartbeat")?.content ?? ""}

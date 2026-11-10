@@ -19,6 +19,7 @@ import {
   ASSISTANT_WORKER_PARAM,
   assistantConversationId,
   assistantKeyQuery,
+  worksWithServices,
   type AssistantCaller,
 } from './node-repl-bridge.js'
 
@@ -126,7 +127,7 @@ export function sessionMcpServers(
 ): RuntimeMcpServers {
   const id = caller.id ? `&id=${encodeURIComponent(caller.id)}` : ''
   const servers: RuntimeMcpServers = {
-    ...(caller.role === 'worker' ? workerServiceServers(providerId) : {}),
+    ...(worksWithServices(caller.role) ? workerServiceServers(providerId) : {}),
     // The wrap-up has none of its own: it only edits files.
     ...(toolsFor(caller.role).length
       ? {
@@ -137,7 +138,7 @@ export function sessionMcpServers(
         }
       : {}),
   }
-  if (nodeRepl && caller.role === 'worker' && caller.id) {
+  if (nodeRepl && worksWithServices(caller.role) && caller.id) {
     servers.operonrepl = {
       type: 'http',
       url: withApiToken(`${apiBase()}/operonrepl-mcp?${assistantKeyQuery()}&${ASSISTANT_WORKER_PARAM}=${encodeURIComponent(caller.id)}`),

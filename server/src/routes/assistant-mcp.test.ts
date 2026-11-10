@@ -63,9 +63,15 @@ describe('the assistant MCP route', () => {
 
   it("hands a worker's result in under the worker its URL names", async () => {
     const client = await connect(`${assistantKeyQuery()}&role=worker&id=w5`)
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['finish_task', 'heartbeat_done', 'report_progress'])
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['finish_task', 'report_progress'])
     await client.callTool({ name: 'finish_task', arguments: { title: 't', summary: 's', status: 'done' } })
     expect(finish).toHaveBeenLastCalledWith('w5')
+    await client.close()
+  })
+
+  it('lists only heartbeat_done on a heartbeat URL', async () => {
+    const client = await connect(`${assistantKeyQuery()}&role=heartbeat&id=h5`)
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['heartbeat_done'])
     await client.close()
   })
 

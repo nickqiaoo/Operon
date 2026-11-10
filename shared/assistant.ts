@@ -340,6 +340,8 @@ export interface AssistantSchedule {
   until?: string
   nextRunAt?: number
   enabled: boolean
+  /** Whether a run is in progress on the server. */
+  running?: boolean
   /** The heartbeat: always on, cannot be deleted. */
   builtin?: 'heartbeat'
   /** Newest first. */

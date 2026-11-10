@@ -42,7 +42,9 @@ function MessageScrollerViewport({
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
       className={cn(
-        "size-full min-h-0 min-w-0 code-scrollbar overflow-y-auto overscroll-contain contain-content data-pending-scroll:invisible",
+        // outline-hidden: clicking the list focuses it, and the next key press would
+        // make Chromium draw a focus ring around the whole transcript.
+        "size-full min-h-0 min-w-0 code-scrollbar overflow-y-auto overscroll-contain contain-content outline-hidden data-pending-scroll:invisible",
         className
       )}
       {...props}

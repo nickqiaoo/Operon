@@ -33,6 +33,12 @@ describe('assistant session servers', () => {
     expect(servers.node_repl).toEqual({ command: '/somewhere/node_repl' })
   })
 
+  it('gives the heartbeat the same services under a server of its own', () => {
+    const servers = sessionMcpServers({ role: 'heartbeat', id: 'h1' }, true, 'claude-code')
+    expect(Object.keys(servers)).toEqual(['plugin-linear', 'node_repl', 'assistant_heartbeat', 'operonrepl'])
+    expect(servers.assistant_heartbeat).toMatchObject({ url: expect.stringContaining('role=heartbeat&id=h1') })
+  })
+
   it('keeps services away from the main agent, which does no work itself', () => {
     expect(Object.keys(sessionMcpServers({ role: 'main' }, true, 'codex'))).toEqual(['assistant'])
   })

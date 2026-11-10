@@ -203,7 +203,7 @@ function hasScrollEndEvent(): boolean {
 }
 
 // [operon] Keys typed into a field, or Space/Enter on a control, do not scroll.
-function isTypingTarget(target: EventTarget | null) {
+export function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
     return false
   }

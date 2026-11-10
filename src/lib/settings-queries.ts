@@ -16,6 +16,7 @@ import { queryClient } from './query-client'
 export const settingsKeys = {
   all: ['settings'] as const,
   commitMessage: () => ['settings', 'commit-message'] as const,
+  autoReview: () => ['settings', 'auto-review'] as const,
   memoryMaintenance: () => ['settings', 'memory-maintenance'] as const,
   memoryMaintenanceRuns: () => ['settings', 'memory-maintenance', 'runs'] as const,
   assistant: () => ['settings', 'assistant'] as const,
@@ -33,6 +34,13 @@ export function useClaudeToggles() {
   return useQuery({
     queryKey: settingsKeys.claudeToggles(),
     queryFn: () => api.claudeTogglesGet(),
+  })
+}
+
+export function useAutoReviewConfig() {
+  return useQuery({
+    queryKey: settingsKeys.autoReview(),
+    queryFn: () => api.autoReviewGetConfig(),
   })
 }
 

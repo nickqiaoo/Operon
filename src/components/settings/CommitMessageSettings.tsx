@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useTransientFlag } from "@/hooks/useTransientFlag"
+import { ModelCombobox } from "./ModelCombobox"
 
 interface ModelOption {
   modelId: string
@@ -114,24 +115,16 @@ export function CommitMessageSettings() {
 
             <span className="font-medium"><FormattedMessage id="settings.model" defaultMessage="Model" /></span>
             <div className="flex items-center gap-2 min-w-0">
-              <Select
+              <ModelCombobox
                 value={modelId}
                 onValueChange={setModelId}
+                models={models}
+                placeholder={modelsLoading
+                  ? intl.formatMessage({ id: "common.loading", defaultMessage: "Loading…" })
+                  : intl.formatMessage({ id: "settings.selectModel", defaultMessage: "Select a model" })}
                 disabled={modelsLoading || models.length === 0}
-              >
-                <SelectTrigger className="h-8 text-xs w-full max-w-[280px] bg-background/80 border-border/50">
-                  <SelectValue placeholder={modelsLoading
-                    ? intl.formatMessage({ id: "common.loading", defaultMessage: "Loading…" })
-                    : intl.formatMessage({ id: "settings.selectModel", defaultMessage: "Select a model" })} />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((m) => (
-                    <SelectItem key={m.modelId} value={m.modelId} className="text-xs">
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className="w-full max-w-[280px]"
+              />
               {modelsLoading && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
             </div>
           </div>

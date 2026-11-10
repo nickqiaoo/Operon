@@ -21,6 +21,7 @@ import {
   isAssistantId,
   isAssistantMountKey,
   parseAssistantConversation,
+  worksWithServices,
   type AssistantCaller,
 } from '../services/assistant/node-repl-bridge.js'
 
@@ -84,7 +85,7 @@ export async function resolveMcpCallerChat(c: Context, urlParam: string): Promis
     const worker = c.req.query(ASSISTANT_WORKER_PARAM)
     const resolved = resolveAssistantCaller(body, isAssistantId(worker) ? { role: 'worker', id: worker } : undefined)
     if (resolved.unknown) return unknownCaller(c, resolved.requestId)
-    const assistantWorker = resolved.caller?.role === 'worker' ? resolved.caller.id : undefined
+    const assistantWorker = worksWithServices(resolved.caller?.role) ? resolved.caller?.id : undefined
     return { ok: true, chatId: null, body, ...(assistantWorker ? { assistantWorker } : {}) }
   }
   const { caller, requestId } = takeCallerArg(body)

@@ -1,5 +1,8 @@
 import type { ProfileFileName } from '../../../../shared/assistant.js'
 
+/** The main agent's whole reply when a notice isn't worth telling the user. Never shown. */
+export const SILENT_REPLY = 'NO_REPLY'
+
 /**
  * First-run contents of the definition files. Written once when a file is missing;
  * after that the file belongs to the user (and the assistant) and is never overwritten.

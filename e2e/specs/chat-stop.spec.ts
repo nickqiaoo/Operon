@@ -59,6 +59,19 @@ test('Escape in the chat input stops the reply and keeps the draft', async ({ pa
   await expect(input).toHaveValue('draft to keep')
 })
 
+test('Escape stops the reply after clicking the message list, without a focus ring', async ({ page }) => {
+  await startHeldReply(page)
+  await page.locator('[data-testid="message-user"]').first().click()
+  const focusedList = page.locator('[data-slot="message-scroller-viewport"]:focus')
+  await expect(focusedList).toHaveCount(1)
+
+  await page.keyboard.press('Escape')
+  // Chromium only draws the ring once a key has been pressed on the focused list.
+  await expect(focusedList).toHaveCSS('outline-style', 'none')
+  await waitForStreamIdle(page)
+  expect(await streamState(page)).toBe('idle')
+})
+
 test('Escape closes an open slash menu before it stops the reply', async ({ page }) => {
   await startHeldReply(page)
   const input = chatInput(page)

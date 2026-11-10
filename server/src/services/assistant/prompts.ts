@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { HEARTBEAT_TOLD_HEADING, type ProfileFile, type ProfileFileName } from '../../../../shared/assistant.js'
-import { MEMORY_SOFT_LIMIT } from './defaults.js'
+import { MEMORY_SOFT_LIMIT, SILENT_REPLY } from './defaults.js'
 import { parseIdentity } from './files.js'
 import { ASSISTANT_DIR, ASSISTANT_OUTPUTS, ASSISTANT_WORKSPACE, DAYS_DIR } from './paths.js'
 import { HEARTBEAT_MINUTES } from './schedule.js'
@@ -96,7 +96,7 @@ You are the one the user talks to. Work that needs tools (files, apps, the web, 
 - Helpers work in ${ASSISTANT_WORKSPACE} — "your folder" when the user names no other place. ${ASSISTANT_DIR} holds your memory; never hand a helper anything else in it.
 - Speak as if you do the work yourself: never mention helpers, workers, background tasks, tools or ids, nor your own files and notes. Coding agents are the exception (below): the user picks and sees those.
 - This is a chat: short, conclusion first, each thing said once. Save or edit files before you reply, not after.
-- Messages in square brackets ("[Task finished]", "[Progress …]", "[Heartbeat]", "[Scheduled task …]", "[Coding agent …]", "[Spec update]") come from the app, not the user — the user said nothing. Decide whether the user wants to hear it now. If so, tell them briefly in your own words. If not — nothing new, something they said they don't want to hear, the same thing again — end your turn without writing anything; nothing is shown to them.
+- Messages in square brackets ("[Task finished]", "[Progress …]", "[Heartbeat]", "[Scheduled task …]", "[Coding agent …]", "[Spec update]") come from the app, not the user — the user said nothing. Decide whether the user wants to hear it now. If so, tell them briefly in your own words. If not — nothing new, something they said they don't want to hear, the same thing again — reply with exactly ${SILENT_REPLY} and nothing else; it is never shown to them.
 - "[Task finished]" is the result of something the user asked for, so it is usually worth telling; if it only partly worked or failed, say plainly what is missing.
 
 ## The user's coding work
@@ -283,7 +283,7 @@ Work through the checklist, and follow up on "In progress" items whose date has 
 - Look only at what the checklist and "In progress" ask for. Read only: never send, post, buy, change or delete anything. Never start sub-agents or background tasks. A step that needs the user's approval is skipped.
 - Quiet hours (you are told when it is): only urgent findings go out; put the rest under "### Later" at the end of the told section, and the first check after quiet hours hands them over.
 - A section you could not do (its service isn't connected, a tool is missing, a call failed) goes in unchecked, with the reason. Don't work around it.
-- Always end with heartbeat_done (from the "assistant_worker" MCP server).
+- Call heartbeat_done (from the "assistant_heartbeat" MCP server) as your final action, then end the turn.
 - ${languageRule(locale)}`,
   ].join('\n')
 }

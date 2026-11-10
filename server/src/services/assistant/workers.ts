@@ -72,7 +72,7 @@ export interface WorkerPoolHost {
   /** The agent workers of this kind run on (Settings). Throws when none is usable. */
   agentFor(kind: WorkerKind): Promise<WorkerAgent>
   /** The worker's instructions for a run of this kind. */
-  instructions(kind: WorkerKind, unattended: boolean): string
+  instructions(kind: WorkerKind, unattended: boolean, agent: WorkerAgent): string | Promise<string>
   /** Where workers work. */
   cwd: string
   /** Outside `cwd`, writable as freely: the assistant's day notes. */
@@ -170,7 +170,7 @@ export class WorkerPool {
   /** The heartbeat run `activityId` handed in what it found. */
   heartbeatDone(activityId: string, args: HeartbeatArgs): boolean {
     const run = this.runs.get(activityId)
-    if (!run || run.kind !== 'heartbeat') return false
+    if (!run || run.kind !== 'heartbeat' || run.end !== undefined || run.projector.finished) return false
     run.projector.handIn({ tool: 'heartbeat_done', args })
     return true
   }
@@ -198,7 +198,7 @@ export class WorkerPool {
     }
     this.addAsked(id, spec.asked)
     const agent = await this.host.agentFor(spec.kind)
-    const session = await this.host.open(this.openParams(id, agent, spec.kind, spec.unattended))
+    const session = await this.open(id, agent, spec.kind, spec.unattended)
     const run = this.attach(session, activity, spec.kind, spec.unattended, spec.visible, agent)
     if (spec.visible) run.projector.publish()
     const done = this.drive(id, run, spec.prompt)
@@ -235,7 +235,7 @@ export class WorkerPool {
       // The same agent that did it, on its own session: everything it did is still there.
       try {
         agent = { providerId: ref.providerId, modelId: ref.modelId }
-        session = await this.host.open({ ...this.openParams(activityId, agent, kind, false), sessionId: ref.sessionId })
+        session = await this.open(activityId, agent, kind, false, ref.sessionId)
       } catch (error) {
         console.warn('[assistant] could not resume a worker session, starting over:', error)
         session = undefined
@@ -244,7 +244,7 @@ export class WorkerPool {
     if (!session) {
       // Its session is gone (or never existed). Start over, told what the user saw it produce.
       agent = await this.host.agentFor(kind)
-      session = await this.host.open(this.openParams(activityId, agent, kind, false))
+      session = await this.open(activityId, agent, kind, false)
       prompt = `Earlier you worked on "${activity.title}". What came of it:\n${activity.report ?? activity.summary}\n\nNow: ${text}`
     }
     const run = this.attach(session, activity, kind, false, true, agent!)
@@ -270,7 +270,7 @@ export class WorkerPool {
     if (ref) {
       try {
         agent = { providerId: ref.providerId, modelId: ref.modelId }
-        session = await this.host.open({ ...this.openParams(activityId, agent, cut.kind, cut.unattended), sessionId: ref.sessionId })
+        session = await this.open(activityId, agent, cut.kind, cut.unattended, ref.sessionId)
         prompt = RESUME_PROMPT
       } catch (error) {
         console.warn('[assistant] could not resume an interrupted worker session, starting it over:', error)
@@ -279,7 +279,7 @@ export class WorkerPool {
     }
     if (!session) {
       agent = await this.host.agentFor(cut.kind)
-      session = await this.host.open(this.openParams(activityId, agent, cut.kind, cut.unattended))
+      session = await this.open(activityId, agent, cut.kind, cut.unattended)
       prompt = cut.prompt
     }
     const run = this.attach(session, activity, cut.kind, cut.unattended, true, agent!)
@@ -302,18 +302,19 @@ export class WorkerPool {
     await Promise.allSettled([...this.runs.values()].flatMap((r) => (r.done ? [r.done] : [])))
   }
 
-  private openParams(id: string, agent: WorkerAgent, kind: WorkerKind, unattended: boolean): OpenParams {
-    return {
+  private async open(id: string, agent: WorkerAgent, kind: WorkerKind, unattended: boolean, sessionId?: string): Promise<AgentSession> {
+    return this.host.open({
       providerId: agent.providerId,
       modelId: agent.modelId,
       ...(agent.effort ? { effort: agent.effort } : {}),
       kind: unattended ? 'unattended' : 'worker',
-      caller: { role: 'worker', id },
+      caller: { role: kind === 'heartbeat' ? 'heartbeat' : 'worker', id },
       cwd: this.host.cwd,
       ...(this.host.writableDirs?.length ? { writableDirs: this.host.writableDirs } : {}),
-      instructions: this.host.instructions(kind, unattended),
+      instructions: await this.host.instructions(kind, unattended, agent),
       nodeRepl: this.host.nodeRepl(),
-    }
+      sessionId,
+    })
   }
 
   private attach(session: AgentSession, activity: Activity, kind: WorkerKind, unattended: boolean, visible: boolean, agent: WorkerAgent): Run {

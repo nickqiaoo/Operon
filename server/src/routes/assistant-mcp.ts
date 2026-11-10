@@ -23,7 +23,7 @@ import { resolveAssistantCaller, unknownCaller } from './mcp-caller.js'
 /** The session a URL names; undefined when it names none properly. */
 export function callerFromQuery(role: string | undefined, id: string | undefined): AssistantCaller | undefined {
   if (role === 'main') return { role: 'main' }
-  if ((role === 'worker' || role === 'wrapup') && isAssistantId(id)) return { role, id }
+  if ((role === 'worker' || role === 'heartbeat' || role === 'wrapup') && isAssistantId(id)) return { role, id }
   return undefined
 }
 

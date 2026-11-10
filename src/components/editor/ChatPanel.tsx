@@ -2,7 +2,8 @@
 
 import { useChatPromptSuggestion } from '@/stores/chat-prompt-suggestion-store';
 import { toast } from 'sonner';
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { isTypingTarget } from '@/lib/shadcn-react/message-scroller/components';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
 import { ChartPie, Gauge } from 'lucide-react';
@@ -692,14 +693,15 @@ function ChatPanelContent({
       setMobileReviewMessageUid(messageUid);
       return;
     }
-    useReviewTurnStore.getState().setTurnChat(reviewCwd, dbChatId, messageUid);
+    const isLatestTurn = turnDiffs?.turns.at(-1)?.messageUid === messageUid;
+    useReviewTurnStore.getState().setTurnChat(reviewCwd, dbChatId, messageUid, isLatestTurn);
     openTab(
       'right',
       { tabId: `review:${reviewCwd}`, title: intl.formatMessage({ id: 'tab.review.label', defaultMessage: 'Review' }), isClosable: true, payload: { type: 'review', rootPath: reviewCwd } },
       { activate: true },
     );
     setRightPanelOpen(true); // reveal the right panel (openTab alone doesn't)
-  }, [dbChatId, intl, isMobile, reviewCwd, openTab, setRightPanelOpen]);
+  }, [dbChatId, intl, isMobile, reviewCwd, openTab, setRightPanelOpen, turnDiffs]);
 
   useEffect(() => {
     setMobileReviewMessageUid(null);
@@ -866,6 +868,14 @@ function ChatPanelContent({
   const handleSubmitRef = useRef(handleSubmit);
   handleSubmitRef.current = handleSubmit;
   const handleStop = useCallback(() => { void stop(); }, [stop]);
+  // Clicking the transcript moves focus out of the composer, whose form handles Escape otherwise.
+  // Radix overlays opened from a message claim Escape (preventDefault) before it bubbles here.
+  const handleTranscriptKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || e.nativeEvent.isComposing || !isGenerating) return;
+    if (isTypingTarget(e.target)) return;
+    e.preventDefault();
+    if (!e.repeat) handleStop();
+  }, [isGenerating, handleStop]);
   const consumePendingSkill = useCallback(() => setPendingSkill(null), []);
   const sendNonce = useAnnotationSendStore((s) => s.nonce);
   useEffect(() => {
@@ -1073,6 +1083,7 @@ function ChatPanelContent({
         contextRef={conversationRef}
         className="flex-1 rounded-xl bg-background font-sans"
         turnActive={isGenerating || turnSettling}
+        onKeyDown={handleTranscriptKeyDown}
         // Resize the scrolling viewport when the keyboard appears. Padding only
         // the content leaves the viewport unchanged, so it cannot follow the end.
         style={isMobile ? { paddingBottom: 'var(--keyboard-height, 0px)' } : undefined}

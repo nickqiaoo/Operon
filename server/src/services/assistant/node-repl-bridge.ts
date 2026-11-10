@@ -43,7 +43,12 @@ export function isAssistantId(value: string | undefined): value is string {
 }
 
 /** The kinds of session the assistant opens. */
-export type AssistantRole = 'main' | 'worker' | 'wrapup'
+export type AssistantRole = 'main' | 'worker' | 'heartbeat' | 'wrapup'
+
+/** Whether a session does work with the user's services: a task or scheduled run, or the heartbeat. */
+export function worksWithServices(role: AssistantRole | undefined): boolean {
+  return role === 'worker' || role === 'heartbeat'
+}
 
 export interface AssistantCaller {
   role: AssistantRole
@@ -59,7 +64,7 @@ export function assistantConversationId(caller: AssistantCaller): string {
 /** The inverse of `assistantConversationId`; undefined for anything else (a chat id). */
 export function parseAssistantConversation(value: string | undefined): AssistantCaller | undefined {
   if (value === 'assistant:main') return { role: 'main' }
-  const match = /^assistant:(worker|wrapup):(.+)$/.exec(value ?? '')
+  const match = /^assistant:(worker|heartbeat|wrapup):(.+)$/.exec(value ?? '')
   if (!match || !isAssistantId(match[2])) return undefined
   return { role: match[1] as AssistantRole, id: match[2] }
 }
