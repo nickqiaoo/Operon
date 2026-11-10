@@ -194,7 +194,7 @@
     "cmdk": "^1.1.1",
     "concurrently": "^9.0.0",
     "electron": "^40.10.2",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "26.16.1",
     "embla-carousel-react": "^8.6.0",
     "jsdom": "^27.4.0",
     "lucide-react": "^0.562.0",

@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Desktop version on main to publish after tests
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -140,8 +146,10 @@ jobs:
   release:
     name: Release macOS
     needs: [test, swift, e2e]
-    if: github.event_name == 'push' && github.repository == 'Nickqiaoo/Operon'
+    if: github.repository == 'Nickqiaoo/Operon' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
     uses: ./.github/workflows/release-mac.yml
+    with:
+      release_version: ${{ inputs.release_version || '' }}
     secrets: inherit

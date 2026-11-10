@@ -2,6 +2,9 @@ name: Release macOS
 
 on:
   workflow_call:
+    inputs:
+      release_version:
+        type: string
 
 permissions:
   contents: read
@@ -9,7 +12,7 @@ permissions:
 jobs:
   version:
     name: Check desktop version
-    if: github.repository == 'Nickqiaoo/Operon' && github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.deleted
+    if: github.repository == 'Nickqiaoo/Operon' && github.ref == 'refs/heads/main' && ((github.event_name == 'push' && !github.event.deleted) || (github.event_name == 'workflow_dispatch' && inputs.release_version != ''))
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.check.outputs.version }}
@@ -23,22 +26,34 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Detect a stable version increase
+      - name: Verify the requested release or detect a stable version increase
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           BEFORE_SHA: ${{ github.event.before }}
+          REQUESTED_VERSION: ${{ inputs.release_version }}
         run: |
-          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            echo 'No previous branch tip to compare.'
-            exit 0
+          previous_manifest=''
+          if [[ -z "$REQUESTED_VERSION" ]]; then
+            if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+              echo 'No previous branch tip to compare.'
+              exit 0
+            fi
+            previous_manifest=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$BEFORE_SHA" --jq .content | base64 --decode)
           fi
 
-          previous_manifest=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$BEFORE_SHA" --jq .content | base64 --decode)
-          version=$(node --input-type=commonjs - "$previous_manifest" <<'NODE'
-          const previous = JSON.parse(process.argv[2]).version
+          version=$(node --input-type=commonjs - "$previous_manifest" "$REQUESTED_VERSION" <<'NODE'
+          const [, , previousManifest, requested] = process.argv
           const current = require('./package.json').version
           const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+          if (requested) {
+            if (current !== requested || !stableVersion.test(current)) {
+              throw new Error('Requested release must match the stable desktop version on main.')
+            }
+            console.log(current)
+            process.exit(0)
+          }
+          const previous = JSON.parse(previousManifest).version
           if (typeof previous !== 'string' || typeof current !== 'string') {
             throw new Error('Expected a desktop version in both manifests.')
           }
