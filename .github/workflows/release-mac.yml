@@ -122,8 +122,8 @@ jobs:
             codesign --verify --deep --strict "$app"
             xcrun stapler validate "$app"
           done
-          lipo -verify_arch arm64 release/mac-arm64/Operon.app/Contents/MacOS/Operon
-          lipo -verify_arch x86_64 release/mac/Operon.app/Contents/MacOS/Operon
+          lipo release/mac-arm64/Operon.app/Contents/MacOS/Operon -verify_arch arm64
+          lipo release/mac/Operon.app/Contents/MacOS/Operon -verify_arch x86_64
 
       - uses: actions/upload-artifact@v6
         with:
