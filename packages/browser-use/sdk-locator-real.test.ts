@@ -119,6 +119,7 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       slowTimer: ReturnType<typeof setTimeout>;
+      keySentAt?: number;
     }>();
     /** The driver has to forward CDP events to the backend. Without that,
      *  `Fetch.requestPaused` never reaches the SDK and `Page.navigate` never
@@ -131,6 +132,10 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
     ws.onmessage = (e) => {
       const m = JSON.parse(String(e.data)) as { id?: number; error?: unknown; result?: unknown; method?: string; params?: unknown };
       if (m.id == null) {
+        if (m.method === "Runtime.consoleAPICalled") {
+          const value = (m.params as { args?: { value?: unknown }[] } | undefined)?.args?.[0]?.value;
+          if (typeof value === "string" && value.startsWith("[keyboard fixture]")) console.info(value);
+        }
         if (m.method) for (const cb of cdpEventSubs) cb({ source: { tabId: 1 }, method: m.method, params: m.params });
         return;
       }
@@ -138,6 +143,10 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
       if (!p) return;
       pending.delete(m.id);
       clearTimeout(p.slowTimer);
+      if (p.keySentAt !== undefined) {
+        const elapsedMs = Math.round(performance.now() - p.keySentAt);
+        console.info(`[Chrome CDP] Reply #${m.id} after ${elapsedMs}ms${m.error ? " (error)" : ""}`);
+      }
       if (m.error) p.reject(new Error(JSON.stringify(m.error)));
       else p.resolve(m.result);
     };
@@ -151,11 +160,18 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
     const cdp = (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
       new Promise<unknown>((resolve, reject) => {
         const i = ++cdpId;
+        const tracedKey = method === "Input.dispatchKeyEvent" &&
+          (params.key === "Enter" || params.key === "ArrowDown" || params.text === "\r");
+        const detail = tracedKey
+          ? `${method} ${params.type} ${params.key ?? "Enter"} (vk=${params.windowsVirtualKeyCode ?? "none"})`
+          : method;
+        const keySentAt = tracedKey ? performance.now() : undefined;
+        if (tracedKey) console.info(`[Chrome CDP] Send #${i} ${detail}`);
         const slowTimer = setTimeout(() => {
-          console.warn(`[Chrome CDP] No response after 5s: #${i} ${method} (session ${sessionId ?? "top-level"})`);
+          console.warn(`[Chrome CDP] No response after 5s: #${i} ${detail} (session ${sessionId ?? "top-level"})`);
         }, 5_000);
         slowTimer.unref();
-        pending.set(i, { resolve, reject, slowTimer });
+        pending.set(i, { resolve, reject, slowTimer, keySentAt });
         ws.send(JSON.stringify({ id: i, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
 
@@ -271,6 +287,13 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
         <script>
           document.getElementById('hoverme').addEventListener('mouseover',()=>{document.getElementById('hoverlog').textContent='hovered'});
           document.getElementById('sel').addEventListener('change',(e)=>{document.getElementById('log').textContent='sel:'+e.target.value});
+          for (const type of ['keydown', 'keyup']) {
+            document.addEventListener(type, (event) => {
+              if (event.key !== 'Enter' && event.key !== 'ArrowDown') return;
+              console.debug('[keyboard fixture] ' + event.type + ' ' + event.key +
+                ' keyCode=' + event.keyCode + ' focused=' + (document.activeElement?.id || '(none)'));
+            }, true);
+          }
           document.getElementById('keyin').addEventListener('keydown',(e)=>{if(e.key==='Enter')document.getElementById('log').textContent='entered'});
           // Older sites read keyCode/which rather than e.key, and break without a
           // windowsVirtualKeyCode.
@@ -607,14 +630,18 @@ describe.skipIf(!fs.existsSync(CHROME))("locator layer against a real Chrome", (
   it("press reaches the element, with a virtual key code the page handler recognises", async () => {
     // Reset focus after the preceding select and cross-origin iframe interactions.
     await tab.goto(pageUrl);
+    console.info("[keyboard] Pressing Enter");
     await tab.playwright.locator("#keyin").press("Enter");
+    console.info("[keyboard] Enter press resolved");
     expect(await tab.playwright.locator("#log").textContent()).toBe("entered");
   }, 60_000);
 
   /** Without windowsVirtualKeyCode, older sites reading `e.keyCode` or `e.which`
    *  receive 0. */
   it("press carries windowsVirtualKeyCode, so pages reading keyCode work too", async () => {
+    console.info("[keyboard] Pressing ArrowDown");
     await tab.playwright.locator("#keyin").press("ArrowDown");
+    console.info("[keyboard] ArrowDown press resolved");
     expect(await tab.playwright.locator("#log").textContent()).toBe("vk-down:40");
   }, 60_000);
 
