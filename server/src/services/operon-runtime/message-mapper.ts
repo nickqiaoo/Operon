@@ -1,4 +1,4 @@
-import type { AgentEvent, Usage } from 'operon-agents-core'
+import type { AgentEvent, Usage } from 'operon-agents'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 
 /**

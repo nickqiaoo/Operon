@@ -5,6 +5,7 @@ import electron from 'vite-plugin-electron/simple'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 import type { LoggingFunction, RollupLog } from 'rollup'
+import { onDevPreloadBuild, restartDevElectron } from './electron/dev-restart'
 
 const enableMemory = process.env.ENABLE_MEMORY !== 'false'
 const enableFastRefresh = process.env.REACT_FAST_REFRESH !== 'false'
@@ -95,10 +96,7 @@ export default defineConfig({
     ...(skipElectron ? [] : [electron({
       main: {
         entry: 'electron/main.ts',
-        onstart({ startup }) {
-          // The plugin stops only the Electron child it owns before restarting.
-          startup()
-        },
+        onstart: restartDevElectron,
         vite: {
           define: {
             __ENABLE_MEMORY__: enableMemory,
@@ -158,6 +156,7 @@ export default defineConfig({
         }
       },
       preload: {
+        onstart: onDevPreloadBuild,
         // Object input → one output per key: preload.mjs + webview-preload.mjs.
         // webview-preload is injected into the browser sidebar's <webview>
         // guests (see electron/main.ts will-attach-webview).

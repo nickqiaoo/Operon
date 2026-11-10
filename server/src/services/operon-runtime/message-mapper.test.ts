@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import type { AgentEvent } from 'operon-agents-core'
+import type { AgentEvent } from 'operon-agents'
 import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 
 // --- minimal AgentEvent builders -------------------------------------------

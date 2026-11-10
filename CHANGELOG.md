@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.5.17] - 2026-11-10
+
+### Added
+
+- Choose a dedicated decision model to review tool calls in Auto mode.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.30` and apply AI provider settings changes without restarting the app.
+- Assistant's background workers and heartbeat checks can report results without prompting for approval by default.
+
+### Fixed
+
+- In development, Electron waits for the previous process to exit before restarting after a rebuild.
+- Restore signing and architecture checks for macOS release builds.
+
 ## [1.5.16] - 2026-11-10
 
 ### Added

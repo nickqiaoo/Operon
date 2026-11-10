@@ -2,10 +2,11 @@ import path from 'path'
 import { getOperonHome } from '../../../../shared/operon-home.js'
 import { mkdir, stat } from 'fs/promises'
 import { codeMode } from 'operon-code-mode'
-import { createLocalHarness, defaultCapabilities, filesystemTools, LlmAutoApprover, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
+import { createAutoApprover } from 'operon-agents'
+import { createLocalHarness, defaultCapabilities, filesystemTools, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
-import { fetchProviderModels, getProviderConfigs, getProviderMeta, isProviderUsable } from '../provider-config.js'
+import { fetchProviderModels, getProviderConfigs, getProviderMeta, isProviderUsable, onProviderConfigChange } from '../provider-config.js'
 import { defineProvider } from '@operon/agent-runtime'
 import type {
   Model,
@@ -17,7 +18,7 @@ import type {
   ThinkingLevel,
 } from '@operon/agent-runtime'
 import { createOperonTracing } from './tracing.js'
-import { getModelCapabilities, resolveModel } from './resolve-model.js'
+import { getModelCapabilities, modelManager, modelRef, resolveReviewModel, syncModelProvider, syncModelProviders } from './resolve-model.js'
 import { withAutoReviewModel } from './auto-review.js'
 import { getAutoReviewConfig } from '../auto-review-config.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession, type OperonSessionNative } from './session.js'
@@ -28,6 +29,7 @@ import { loadApprovedExtensions, syncApprovedExtensions } from './approved-exten
 import { observeSession, startSessionWatch } from './passive-observer.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
+import { DEFAULT_PERMISSION_RULES, withDefaultPermissionRules } from './default-permission-rules.js'
 
 const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6'
 
@@ -112,13 +114,13 @@ async function loadWorkspaceConfig(root: string): Promise<WorkspaceConfig> {
     const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: root, homeDir: getOperonHome() })
     const core = toCoreOptions(config)
     return {
-      permission: core.permission,
+      permission: { ...core.permission, rules: withDefaultPermissionRules(core.permission.rules) },
       ...(core.loopControl.maxTurns !== undefined ? { maxTurns: core.loopControl.maxTurns } : {}),
       ...(core.loopControl.maxStepsPerTurn !== undefined ? { maxStepsPerTurn: core.loopControl.maxStepsPerTurn } : {}),
     }
   } catch (error) {
     console.warn(`[operon] failed to load config.toml under ${root}: ${error instanceof Error ? error.message : String(error)}`)
-    return { permission: { rules: [] } }
+    return { permission: { rules: DEFAULT_PERMISSION_RULES } }
   }
 }
 
@@ -277,7 +279,7 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
   // allow/deny/environment sections. Injected unconditionally but only consulted when the
   // session's permission mode is `auto`.
   const auto = config.permission.autoApproval
-  const judge = new LlmAutoApprover({
+  const judgeOptions = {
     rules: { allow: auto?.allow, deny: auto?.deny, environment: auto?.environment },
     ...(auto?.twoStageMode ? { twoStageMode: auto.twoStageMode } : {}),
     onOutcome: (r) => {
@@ -290,8 +292,13 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
       const reason = r.reason ? `: ${r.reason}` : ''
       console.log(`[operon] auto-approval ${r.outcome} for ${r.toolName} in ${r.durationMs}ms${stage}${reason}`)
     },
-  })
-  const autoApprover = withAutoReviewModel(judge, () => getAutoReviewConfig().modelId, resolveModel)
+  } satisfies Parameters<typeof createAutoApprover>[0]
+  const autoApprover = withAutoReviewModel(
+    createAutoApprover(judgeOptions),
+    () => getAutoReviewConfig().modelId,
+    resolveReviewModel,
+    (model) => createAutoApprover({ ...judgeOptions, model }),
+  )
   return {
     // config.toml owns the permission rules; the UI mode picker still overrides the
     // mode per-session via `setPermissionMode`.
@@ -323,8 +330,11 @@ async function buildHarness(): Promise<Harness> {
   // One set of MCP connections per project root, shared by every session open there and kept
   // for a few minutes after the last one closes. Owned by this harness: its `close` below.
   const workspaceMcp = new WorkspaceMcpPool({ oauthService: mcpOAuthService })
+  syncModelProviders()
+  const stopSyncingProviders = onProviderConfigChange(syncModelProvider)
   const harness = await createLocalHarness({
     model: DEFAULT_MODEL_ID,
+    modelManager,
     // File extensions: one folder per extension under `~/.operon/data/extensions`. Nothing
     // there runs until the user loads it from Settings → Extensions. Marketplace downloads are
     // ordinary file extensions; a previous explicit approval is restored below on startup.
@@ -332,7 +342,6 @@ async function buildHarness(): Promise<Harness> {
     // Host services extensions may `use`. `operon-teams` is what the Teams bundle reads its
     // teammate types from and reports every spawn to.
     services: { [TEAMS_SERVICE]: createTeamsHostService() },
-    resolveModel,
     // Product telemetry: the framework projects every session's turn / tool / compaction events
     // into the process service, which reaches PostHog through the host's consent-gated sink.
     // A headless run has no sink and gets the no-op service.
@@ -340,21 +349,27 @@ async function buildHarness(): Promise<Harness> {
     // Process-lived parts. Tracing is the only one so far: with `OPERON_TRACING` set, every
     // session's event stream is bridged into OTel spans (see ./tracing.ts); otherwise nothing is
     // added and sessions run exactly as before.
-    harness: () => {
+    infrastructure: () => {
       const tracing = createOperonTracing()
-      return { ...(tracing ? { tracing } : {}), close: () => workspaceMcp.close() }
+      return {
+        ...(tracing ? { tracing } : {}),
+        close: () => {
+          stopSyncingProviders()
+          return workspaceMcp.close()
+        },
+      }
     },
     // A default only — every session passes its own workDir, and the engine builds
     // that session's `LocalEnvironment` from it.
     workDir: process.cwd(),
     homeDir: HARNESS_HOME_DIR,
-    // The `session` hook: capabilities are built FRESH PER SESSION
+    // Capabilities are built FRESH PER SESSION
     // so per-session state (goal/plan/todo/background/skills/mcp) is isolated. The factory loads
     // the shared global PluginManager, then hands it + THIS session's MCP servers to
     // `defaultCapabilities`, which self-drives the plugin's skills + MCP (merged, namespaced) +
     // session-start into the set. Reading the manager per session means installs/enables take
     // effect on the next chat with no cache eviction.
-    session: async (ctx) => {
+    sessionCapabilities: async (ctx) => {
       await ensurePluginsLoaded()
       const root = await resolveProjectRoot(ctx.workDir)
       // Shared MCP OAuth token store — a login done from the Plugins UI is reused here, so an
@@ -492,7 +507,7 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
     if (params.effort !== undefined) this.currentThinkingLevel = params.effort
 
     const session = await this.openSession(params.resume, params.cwd, params.mcpServers, params.instructions)
-    session.setModel(await resolveModel(modelId))
+    session.setModel(modelRef(modelId))
     session.setPermissionMode(MODE_TO_PERMISSION[modeId] ?? 'manual')
     // Only the models that advertise the level will surface it in the picker, so a
     // present value is safe to apply; absent = leave the model's default thinking.

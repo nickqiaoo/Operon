@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, type Api, type Model } from '@earendil-works/pi-ai'
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai'
 import { createHarness, type ExtensionDefinition, type ToolSchema } from 'operon-agents'
-import { createModelRuntime, defineModel } from 'operon-agents-core'
+import { createModelManager } from 'operon-agents'
 import { codeMode, RUN_CODE_NAME } from 'operon-code-mode'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 import { OperonStreamMapper } from './message-mapper.js'
@@ -18,9 +18,9 @@ import { OperonStreamMapper } from './message-mapper.js'
 
 function fauxModel() {
   const handle = fauxProvider()
-  const runtime = createModelRuntime({ builtins: false })
+  const runtime = createModelManager({ builtins: false })
   runtime.models.setProvider(handle.provider)
-  return { handle, model: defineModel({ runtime, descriptor: handle.getModel() as Model<Api> }) }
+  return { handle, model: `${handle.provider.id}/${handle.getModel().id}`, modelManager: runtime }
 }
 
 const scheduleServer: ExtensionDefinition = {
@@ -52,10 +52,11 @@ afterEach(() => rmSync(path.join(work, 'out.txt'), { force: true }))
 
 describe('Code Mode through the operon stream', () => {
   it('hides MCP tools behind RunCode and surfaces each nested call as its own part, approval after its card', async () => {
-    const { handle, model } = fauxModel()
+    const { handle, model, modelManager } = fauxModel()
     const seen: { tools?: readonly ToolSchema[] } = {}
     const harness = createHarness({
       model,
+      modelManager,
       workDir: work,
       permission: { mode: 'manual' },
       extensions: [scheduleServer, codeMode(), requestSpy(seen)],

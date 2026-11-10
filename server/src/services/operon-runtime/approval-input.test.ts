@@ -2,9 +2,9 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, type Api, type Model } from '@earendil-works/pi-ai'
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai'
 import { createHarness } from 'operon-agents'
-import { createModelRuntime, defineModel } from 'operon-agents-core'
+import { createModelManager } from 'operon-agents'
 import { OperonStreamMapper } from './message-mapper.js'
 
 /**
@@ -14,11 +14,11 @@ import { OperonStreamMapper } from './message-mapper.js'
 describe('tool input at approval time', () => {
   it('has the arguments of a top-level call the engine is asking about', async () => {
     const handle = fauxProvider()
-    const runtime = createModelRuntime({ builtins: false })
+    const runtime = createModelManager({ builtins: false })
     runtime.models.setProvider(handle.provider)
-    const model = defineModel({ runtime, descriptor: handle.getModel() as Model<Api> })
     const harness = createHarness({
-      model,
+      model: `${handle.provider.id}/${handle.getModel().id}`,
+      modelManager: runtime,
       workDir: mkdtempSync(path.join(tmpdir(), 'operon-approval-input-')),
       permission: { mode: 'manual' },
     })

@@ -14,7 +14,7 @@ import type { TeamsHostService } from '../../extensions/peers/contract.js'
 import { getChatStorage, getSessionManager } from '../ai/state.js'
 import { loadPeersConfig, peersConfigSnapshot, type PeersConfig, type TeammateTypeConfig } from './peers-config.js'
 import { observeSession } from './passive-observer.js'
-import { resolveModel } from './resolve-model.js'
+import { modelRef, resolveModel } from './resolve-model.js'
 import { MODE_TO_PERMISSION } from './session.js'
 
 /**
@@ -40,7 +40,7 @@ export interface PeersHostDeps {
   /**
    * A project root's session-private MCP servers + `config.toml` permission policy. The
    * workspace's `mcp.json` servers are not among them: every session there, a teammate too,
-   * borrows those from the project's shared pool in the harness `session` hook.
+   * borrows those from the project's shared pool in the harness `sessionCapabilities` hook.
    */
   workspaceSetup: (cwd: string) => Promise<{ servers: Record<string, McpServerConfig>; permission: PermissionManagerOptions }>
   /** The model a teammate falls back to when neither its type nor its lead names one. */
@@ -124,7 +124,8 @@ async function onTeammateCreated(sessionId: string, member: PeerMemberOptions): 
 
   const modelId = cfg?.modelId ?? leadChat?.model ?? leadRecord?.params.model ?? (await deps.defaultModelId())
   try {
-    session.setModel(await resolveModel(modelId))
+    resolveModel(modelId) // Throws for an id that names nothing, keeping the harness default.
+    session.setModel(modelRef(modelId))
   } catch (error) {
     console.warn(`[operon.peers] teammate ${member.name}: model ${modelId} unavailable, keeping harness default:`, error instanceof Error ? error.message : String(error))
   }

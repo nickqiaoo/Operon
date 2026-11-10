@@ -3,9 +3,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readUIMessageStream, type UIMessage } from 'ai'
-import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type Api, type Model } from '@earendil-works/pi-ai'
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai'
 import { createHarness, type HarnessSession } from 'operon-agents'
-import { createModelRuntime, defineModel, type AgentEvent, type AgentEventBody } from 'operon-agents-core'
+import { createModelManager, type AgentEvent, type AgentEventBody } from 'operon-agents'
 import { RuntimeInjectionUnavailableError, type RuntimeStreamPart } from '@operon/agent-runtime'
 import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'
 import { OperonRuntimeSession } from './session.js'
@@ -71,14 +71,14 @@ describe('Operon injected input receipts', () => {
   it('uses real harness consumption to place the UI receipt after a running tool and before the next answer', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'operon-injection-'))
     const handle = fauxProvider()
-    const runtime = createModelRuntime({ builtins: false })
+    const runtime = createModelManager({ builtins: false })
     runtime.models.setProvider(handle.provider)
-    const model = defineModel({ runtime, descriptor: handle.getModel() as Model<Api> })
     const toolStarted = deferred()
     const releaseTool = deferred()
     let nextRequest = ''
     const harness = createHarness({
-      model,
+      model: `${handle.provider.id}/${handle.getModel().id}`,
+      modelManager: runtime,
       workDir,
       permission: { mode: 'yolo' },
       extensions: [{
@@ -221,12 +221,11 @@ describe('Operon injected input receipts', () => {
 describe('Operon native followup through runtime', () => {
   it('defers input to the next native turn and ends the caller stream once after both replies', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'operon-followup-'))
-    const handle = fauxProvider(), runtime = createModelRuntime({ builtins: false })
+    const handle = fauxProvider(), runtime = createModelManager({ builtins: false })
     runtime.models.setProvider(handle.provider)
-    const model = defineModel({ runtime, descriptor: handle.getModel() as Model<Api> })
     const started = deferred(), release = deferred()
     const seen: boolean[] = []
-    const harness = createHarness({ model, workDir, permission: { mode: 'yolo' }, extensions: [{ id: 'followup', session(api) {
+    const harness = createHarness({ model: `${handle.provider.id}/${handle.getModel().id}`, modelManager: runtime, workDir, permission: { mode: 'yolo' }, extensions: [{ id: 'followup', session(api) {
       api.registerTool({ name: 'Wait', description: 'Wait', parameters: { type: 'object', properties: {} }, execute: async () => { started.resolve(); await release.promise; return 'done' } })
     } }] })
     try {

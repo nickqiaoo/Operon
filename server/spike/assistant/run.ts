@@ -36,7 +36,7 @@ import {
 } from 'operon-agents'
 import type { StorageAdapter } from '../../src/storage/interface.js'
 import { initProviderConfigService } from '../../src/services/provider-config.js'
-import { resolveModel } from '../../src/services/operon-runtime/resolve-model.js'
+import { modelManager, syncModelProviders } from '../../src/services/operon-runtime/resolve-model.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const OUT = process.env.SPIKE_OUT ?? path.join(os.tmpdir(), `assistant-spike-${Date.now()}`)
@@ -326,9 +326,10 @@ async function main(): Promise<void> {
   console.log(`spike output: ${OUT}`)
   console.log(`main=${config.mainModel} worker=${config.workerModel}`)
 
+  syncModelProviders()
   const harness = await createLocalHarness({
     model: config.mainModel,
-    resolveModel,
+    modelManager,
     homeDir: HOME,
     workDir: WORK,
     loadDiskProfiles: false,
@@ -337,7 +338,7 @@ async function main(): Promise<void> {
     subagentProvider: workerProvider,
     workflowTool: false,
     permission: { mode: 'yolo' },
-    session: (ctx) => [
+    sessionCapabilities: (ctx) => [
       ...defaultCapabilities({
         ownEnvironment: ctx.ownEnvironment,
         sessionMcpServers: {

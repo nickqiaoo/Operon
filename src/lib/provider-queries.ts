@@ -69,6 +69,7 @@ export const providerKeys = {
   all: ['providers'] as const,
   list: () => ['providers', 'list'] as const,
   models: (providerId: string) => ['providers', 'models', providerId] as const,
+  decisionModels: () => ['providers', 'decision-models'] as const,
 }
 
 // Availability flips when a CLI is installed or a key is saved; the save paths
@@ -154,6 +155,19 @@ export function useProviderModelOptions(providerId: string | undefined): Provide
     if (!data) return null
     return (data.models ?? []).flatMap((m) => (m.modelId ? [{ modelId: m.modelId, name: m.name }] : []))
   }, [providerId, data, isError])
+}
+
+/**
+ * Decision models the configured providers can run, offered only for Auto review. Null while
+ * loading, empty when the fetch failed. Keyed under providers so a provider save refreshes it.
+ */
+export function useDecisionModelOptions(): ProviderModelOption[] | null {
+  const { data, isError } = useQuery({
+    queryKey: providerKeys.decisionModels(),
+    queryFn: () => api.autoReviewDecisionModels(),
+    staleTime: THIRTY_SECONDS,
+  })
+  return isError ? [] : (data?.models ?? null)
 }
 
 export interface ProviderEffortOption {

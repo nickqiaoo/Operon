@@ -62,6 +62,13 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
 }
 
 let _storage: StorageAdapter | null = null
+const configListeners = new Set<(providerId: string) => void>()
+
+/** Be told after a provider's config is saved or removed. Returns the unsubscribe. */
+export function onProviderConfigChange(listener: (providerId: string) => void): () => void {
+  configListeners.add(listener)
+  return () => configListeners.delete(listener)
+}
 
 export function initProviderConfigService(storage: StorageAdapter): void {
   _storage = storage
@@ -81,6 +88,7 @@ export function setProviderConfig(providerId: string, config: ProviderConfig): v
   const all = getProviderConfigs()
   all[providerId] = config
   _storage.set(KV_KEY, all)
+  for (const listener of configListeners) listener(providerId)
 }
 
 export function deleteProviderConfig(providerId: string): void {
@@ -88,6 +96,7 @@ export function deleteProviderConfig(providerId: string): void {
   const all = getProviderConfigs()
   delete all[providerId]
   _storage.set(KV_KEY, all)
+  for (const listener of configListeners) listener(providerId)
 }
 
 export function getProviderMeta(providerId: string): ProviderMeta {

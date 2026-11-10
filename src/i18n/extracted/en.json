@@ -989,6 +989,7 @@
   "settings.appearance.theme.light": "Light",
   "settings.appearance.theme.system": "System",
   "settings.appearance.theme.title": "Theme",
+  "settings.autoReview.decisionModel": "{model} (Decision)",
   "settings.autoReview.desc": "Reviews tool calls when Operon runs in Auto mode, in chats and in the assistant. Pick a steady model that isn't rate limited.",
   "settings.autoReview.sameAsSession": "Same as the session",
   "settings.autoReview.saveFailed": "Couldn't load or save the model. Try again.",

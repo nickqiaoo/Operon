@@ -18,7 +18,7 @@ import type {
 } from '@operon/agent-runtime'
 import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 import { operonAgentControl } from './control.js'
-import { resolveModel } from './resolve-model.js'
+import { modelRef } from './resolve-model.js'
 import { markDriven, unmarkDriven } from './passive-observer.js'
 import { PartQueue } from './part-queue.js'
 
@@ -518,7 +518,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     const applied: SessionPatchApplied = []
     if (patch.model) {
       this.currentModelId = patch.model
-      this.harness.setModel(await resolveModel(patch.model))
+      this.harness.setModel(modelRef(patch.model))
       applied.push('model')
     }
     if (patch.mode) {

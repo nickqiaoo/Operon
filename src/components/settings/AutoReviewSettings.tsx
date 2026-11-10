@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query"
 import { AlertCircle, Loader2, ShieldCheck } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { api } from "@/lib/api"
-import { useProviderModelOptions } from "@/lib/provider-queries"
+import { useDecisionModelOptions, useProviderModelOptions } from "@/lib/provider-queries"
 import { setSettingsData, settingsKeys, useAutoReviewConfig } from "@/lib/settings-queries"
 import { ModelCombobox } from "./ModelCombobox"
 import { SettingsSection } from "./SettingsSection"
@@ -11,7 +11,16 @@ import { SettingsSection } from "./SettingsSection"
 export function AutoReviewSettings() {
   const intl = useIntl()
   const config = useAutoReviewConfig()
-  const models = useProviderModelOptions("custom")
+  const chatModels = useProviderModelOptions("custom")
+  const decisionModels = useDecisionModelOptions()
+  // Decision models come first: built for this job, they would be lost below hundreds of chat models.
+  const models = chatModels && decisionModels && [
+    ...decisionModels.map((m) => ({
+      ...m,
+      name: intl.formatMessage({ id: "settings.autoReview.decisionModel", defaultMessage: "{model} (Decision)" }, { model: m.name }),
+    })),
+    ...chatModels,
+  ]
   const save = useMutation({
     mutationFn: (modelId: string) => api.autoReviewSaveConfig({ modelId }),
     onSuccess: (saved) => setSettingsData(settingsKeys.autoReview(), saved),

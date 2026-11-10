@@ -1005,6 +1005,7 @@ export const api = {
   // --- Auto review (HTTP) — the model that judges tool calls in Operon's Auto mode ---
   autoReviewGetConfig: () => get<{ modelId: string }>('/auto-review'),
   autoReviewSaveConfig: (config: { modelId: string }) => put<{ modelId: string }>('/auto-review', config),
+  autoReviewDecisionModels: () => get<{ models: Array<{ modelId: string; name: string }> }>('/auto-review/decision-models'),
 
   // --- Integrations: Linear × GitHub Apps (docs/linear-github/design.md) ---
   integrationAppStatus: () => get<IntegrationAppStatus>('/integrations/app/status'),
