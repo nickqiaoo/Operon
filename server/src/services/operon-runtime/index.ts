@@ -2,11 +2,11 @@ import path from 'path'
 import { getOperonHome } from '../../../../shared/operon-home.js'
 import { mkdir, stat } from 'fs/promises'
 import { codeMode } from 'operon-code-mode'
-import { createAutoApprover } from 'operon-agents'
-import { createLocalHarness, defaultCapabilities, filesystemTools, LocalEnvironment, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions, type Harness, type HarnessSession, type McpServerConfig, type PermissionManagerOptions, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
+import { createLocalHarness, LocalEnvironment, resolveSessionConfig, type AutoApprover, type Harness, type HarnessSession, type McpServerConfig, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
+import { createAutoApprover, defaultCapabilities, filesystemTools, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions } from 'operon-agents/advanced'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
-import { fetchProviderModels, getProviderConfigs, getProviderMeta, isProviderUsable, onProviderConfigChange } from '../provider-config.js'
+import { getProviderConfigs, isProviderUsable, onProviderConfigChange } from '../provider-config.js'
 import { defineProvider } from '@operon/agent-runtime'
 import type {
   Model,
@@ -18,17 +18,20 @@ import type {
   ThinkingLevel,
 } from '@operon/agent-runtime'
 import { createOperonTracing } from './tracing.js'
-import { getModelCapabilities, modelManager, modelRef, resolveReviewModel, syncModelProvider, syncModelProviders } from './resolve-model.js'
+import { modelManager, modelRef, resolveReviewModel, syncModelProvider, syncModelProviders } from './resolve-model.js'
 import { withAutoReviewModel } from './auto-review.js'
 import { getAutoReviewConfig } from '../auto-review-config.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession, type OperonSessionNative } from './session.js'
 import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
-import { configurePeersHost, createTeamsHostService } from './peers.js'
+import { configurePeersHost, createTeamsHostService, restoredSessionConfig } from './peers.js'
 import { TEAMS_SERVICE } from '../../extensions/peers/contract.js'
 import { loadApprovedExtensions, syncApprovedExtensions } from './approved-extensions.js'
+import { resumeRuntimeSession, workspaceSessionConfig, type SessionLimitsConfig, type SessionPermissionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
 import { observeSession, startSessionWatch } from './passive-observer.js'
+import { getChatStorage } from '../ai/state.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
+import { availableModels } from './models.js'
 import { DEFAULT_PERMISSION_RULES, withDefaultPermissionRules } from './default-permission-rules.js'
 
 const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6'
@@ -152,57 +155,14 @@ function isProviderConfigured(modelId: string): boolean {
   return isProviderUsable(providerId, config)
 }
 
-async function availableModels(): Promise<Model[]> {
-  const all = getProviderConfigs()
-  const results: Model[] = []
-  await Promise.all(
-    Object.entries(all).map(async ([providerId, config]) => {
-      if (!config.enabled) return
-      if (!isProviderUsable(providerId, config)) return
-      const meta = getProviderMeta(providerId)
-      const seen = new Set<string>()
-      const push = (model: { id: string; name: string; description?: string }) => {
-        const id = `${providerId}/${model.id}`
-        if (seen.has(id)) return
-        seen.add(id)
-        results.push({
-          ...model,
-          id,
-          providerId,
-          providerLabel: meta.label,
-          // `custom` is Operon's own agent; a user-added provider draws a generic endpoint.
-          providerLogo: config.custom ? 'endpoint' : providerId,
-          supportedEffortLevels: getModelCapabilities(id).effortLevels,
-        })
-      }
-      // Hand-entered model IDs first — these must show even when the provider has
-      // no "list models" endpoint (or the live fetch below fails).
-      for (const id of config.manualModels ?? []) push({ id, name: id })
-      try {
-        const models = await fetchProviderModels(providerId)
-        for (const model of models) push(model)
-      } catch {
-        // ignore unavailable providers
-      }
-    }),
-  )
-  return results
-}
-
 /** Models the operon runtime can run right now (configured providers only), as `provider/model` ids. */
 export function listOperonModels(): Promise<Model[]> {
   return availableModels()
 }
 
-/** Runner limits from a workspace's config.toml, applied per session. */
-interface WorkspaceRunnerLimits {
-  maxTurns?: number
-  maxStepsPerTurn?: number
-}
-
 interface WorkspaceSetup {
-  permission: PermissionManagerOptions
-  limits: WorkspaceRunnerLimits
+  permission: SessionPermissionConfig
+  limits: SessionLimitsConfig
 }
 
 /**
@@ -234,12 +194,7 @@ const WORKSPACE_SETUPS = new Map<string, Promise<WorkspaceSetup>>()
 export async function resolveWorkspaceSetup(
   cwd: string,
   injectedMcpServers?: RuntimeMcpServers,
-): Promise<{
-  root: string
-  servers: Record<string, McpServerConfig>
-  permission: PermissionManagerOptions
-  limits: WorkspaceRunnerLimits
-}> {
+): Promise<WorkspaceSessionSetup & { root: string }> {
   const root = await resolveProjectRoot(cwd)
   let pending = WORKSPACE_SETUPS.get(root)
   if (!pending) {
@@ -274,14 +229,41 @@ export function getOperonHarness(): Promise<Harness> {
 
 async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
   const config = await loadWorkspaceConfig(root)
-  // The `auto`-tier judge. It runs the model picked in Settings → Operon, else the main-loop model
-  // (carried on the authorize ctx), as a Claude-Code-style two-stage security classifier; the workspace's config.toml can extend the
-  // allow/deny/environment sections. Injected unconditionally but only consulted when the
-  // session's permission mode is `auto`.
+  // The workspace's config.toml can extend the `auto`-tier judge's allow/deny/environment
+  // sections. They ride the session's configuration; the one judge on the harness
+  // (`buildAutoApprover`) is handed them on every call.
   const auto = config.permission.autoApproval
+  return {
+    // config.toml owns the permission rules; the UI mode picker sets the mode per-session via
+    // `setPermissionMode`, so config.toml's `mode` is not carried (see workspaceSessionConfig).
+    permission: {
+      rules: [...config.permission.rules],
+      ...(auto
+        ? {
+            autoApproval: {
+              ...(auto.allow ? { allow: [...auto.allow] } : {}),
+              ...(auto.deny ? { deny: [...auto.deny] } : {}),
+              ...(auto.environment ? { environment: [...auto.environment] } : {}),
+              ...(auto.twoStageMode ? { twoStageMode: auto.twoStageMode } : {}),
+            },
+          }
+        : {}),
+    },
+    limits: {
+      ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
+      ...(config.maxStepsPerTurn !== undefined ? { maxStepsPerTurn: config.maxStepsPerTurn } : {}),
+    },
+  }
+}
+
+/**
+ * The `auto`-tier judge, one for the whole harness. It runs the model picked in Settings → Operon,
+ * else the main-loop model (carried on the authorize ctx), as a Claude-Code-style two-stage security
+ * classifier. Only consulted when a session's permission mode is `auto`; a session's workspace
+ * rules (`permission.autoApproval`) reach it with each call.
+ */
+function buildAutoApprover(): AutoApprover {
   const judgeOptions = {
-    rules: { allow: auto?.allow, deny: auto?.deny, environment: auto?.environment },
-    ...(auto?.twoStageMode ? { twoStageMode: auto.twoStageMode } : {}),
     onOutcome: (r) => {
       // Log EVERY verdict, `allow` included. The judge runs the main-loop model before the
       // tool is allowed to start, so its latency is the tool's "Pending" window in the UI —
@@ -293,21 +275,12 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
       console.log(`[operon] auto-approval ${r.outcome} for ${r.toolName} in ${r.durationMs}ms${stage}${reason}`)
     },
   } satisfies Parameters<typeof createAutoApprover>[0]
-  const autoApprover = withAutoReviewModel(
+  return withAutoReviewModel(
     createAutoApprover(judgeOptions),
     () => getAutoReviewConfig().modelId,
     resolveReviewModel,
     (model) => createAutoApprover({ ...judgeOptions, model }),
   )
-  return {
-    // config.toml owns the permission rules; the UI mode picker still overrides the
-    // mode per-session via `setPermissionMode`.
-    permission: { mode: config.permission.mode ?? 'yolo', rules: config.permission.rules, autoApprover },
-    limits: {
-      ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
-      ...(config.maxStepsPerTurn !== undefined ? { maxStepsPerTurn: config.maxStepsPerTurn } : {}),
-    },
-  }
 }
 
 /**
@@ -319,8 +292,8 @@ async function buildHarness(): Promise<Harness> {
   configurePeersHost({
     harness: () => HARNESS_INSTANCE,
     workspaceSetup: async (cwd) => {
-      const { servers, permission } = await resolveWorkspaceSetup(cwd)
-      return { servers, permission }
+      const { root: _root, ...setup } = await resolveWorkspaceSetup(cwd)
+      return setup
     },
     defaultModelId: async () => {
       const models = await availableModels()
@@ -333,7 +306,31 @@ async function buildHarness(): Promise<Harness> {
   syncModelProviders()
   const stopSyncingProviders = onProviderConfigChange(syncModelProvider)
   const harness = await createLocalHarness({
-    model: DEFAULT_MODEL_ID,
+    // What every session starts from. Passed explicitly so the preset does not read a
+    // `config.toml` off the process's cwd: workspace config is per session (resolveWorkspaceSetup).
+    config: {
+      defaults: {
+        model: DEFAULT_MODEL_ID,
+        // Operon ships its own workflow orchestration (the `OperonWorkflow` MCP tool):
+        // it dispatches to ANY provider rather than the framework's own profiles,
+        // runs in the background with SQLite-backed resume, and reports into the
+        // workflow panel. Two overlapping tools would leave the model guessing, and
+        // picking the builtin one would silently bypass all of that — so withhold it.
+        // Narrow on purpose: subagents and the `Agent` tool stay.
+        subagents: { workflowTool: false },
+      },
+    },
+    autoApprover: buildAutoApprover(),
+    // Every restore the UI does not hand a setup to — a peer message to an unloaded recipient
+    // (`host.resumeSession`), any bare `resumeSession(id)` — gets the host's current one for it,
+    // laid over what the session stored so its model, mode and extension parameters survive.
+    // A restore the UI drives passes its own setup in, merged the same way. The result is final
+    // and not stored, so the stored setup stays what the session was created with.
+    resolveSession: async (request) => {
+      if (request.operation !== 'restore') return
+      const current = request.requested.config ?? (await restoredSessionConfig(request.session))
+      return { config: resolveSessionConfig(request.stored ?? {}, current) }
+    },
     modelManager,
     // File extensions: one folder per extension under `~/.operon/data/extensions`. Nothing
     // there runs until the user loads it from Settings → Extensions. Marketplace downloads are
@@ -359,9 +356,6 @@ async function buildHarness(): Promise<Harness> {
         },
       }
     },
-    // A default only — every session passes its own workDir, and the engine builds
-    // that session's `LocalEnvironment` from it.
-    workDir: process.cwd(),
     homeDir: HARNESS_HOME_DIR,
     // Capabilities are built FRESH PER SESSION
     // so per-session state (goal/plan/todo/background/skills/mcp) is isolated. The factory loads
@@ -372,6 +366,8 @@ async function buildHarness(): Promise<Harness> {
     sessionCapabilities: async (ctx) => {
       await ensurePluginsLoaded()
       const root = await resolveProjectRoot(ctx.workDir)
+      const workspaceServers = await loadWorkspaceMcpServers(root)
+      const ownMcp = ctx.config.mcp
       // Shared MCP OAuth token store — a login done from the Plugins UI is reused here, so an
       // OAuth-gated plugin MCP server (e.g. Linear) connects authenticated without re-prompting.
       return defaultCapabilities({
@@ -380,9 +376,13 @@ async function buildHarness(): Promise<Harness> {
         // The workspace's `mcp.json` servers and the plugins' are borrowed from the project's
         // shared set. `mcp.json` is re-read on every open (a few small files): an edit changes
         // the configuration, and the pool gives the next session a fresh set for it.
-        workspaceMcp: { pool: workspaceMcp, workDir: root, servers: await loadWorkspaceMcpServers(root) },
-        // The conversation's own servers (from `resolveWorkspaceSetup`) stay private to it.
-        ...(ctx.mcpServers !== undefined ? { sessionMcpServers: ctx.mcpServers } : {}),
+        workspaceMcp: { pool: workspaceMcp, workDir: root, servers: workspaceServers },
+        // What the session sees: the plugins' and the workspace's servers (borrowed from the pool
+        // above) plus its own, which stay private to it and win on a name clash. A session's
+        // configuration carries only its own (workspaceSessionConfig); `mcp: false` means none.
+        ...(ownMcp === undefined
+          ? {}
+          : { mcp: ownMcp === false ? false : { servers: { ...pluginManager.mcpServerConfigs(), ...workspaceServers, ...ownMcp.servers } } }),
         oauthService: mcpOAuthService,
       })
     },
@@ -394,19 +394,19 @@ async function buildHarness(): Promise<Harness> {
     // program finds the rest with `searchTools`. Built-in tools stay direct. Nested calls come
     // out as ordinary tool parts (message-mapper) and render inside the program's card.
     extensions: [codeMode()],
-    // Operon ships its own workflow orchestration (the `OperonWorkflow` MCP tool):
-    // it dispatches to ANY provider rather than the framework's own profiles,
-    // runs in the background with SQLite-backed resume, and reports into the
-    // workflow panel. Two overlapping tools would leave the model guessing, and
-    // picking the builtin one would silently bypass all of that — so withhold it.
-    // Narrow on purpose: subagents and the `Agent` tool stay.
-    workflowTool: false,
-    // Only override `tools` when extras are registered; otherwise omit the key
-    // so the harness keeps its exact default (`filesystemTools()`). When the
+    // Only override the tool registry when extras are registered; otherwise omit it
+    // so the harness keeps its exact default (`filesystemTools()` + AskUserQuestion). When the
     // bench registers memory tools, re-add the builtin coding tools alongside.
     ...(registeredExtraTools.length > 0
-      ? { tools: [...filesystemTools(), ...registeredExtraTools] }
+      ? { registry: { tools: [...filesystemTools(), ...registeredExtraTools] } }
       : {}),
+  })
+  // A session restored without going through `openSession` (a peer message to an unloaded
+  // recipient) is observed before its first run, so that run's transcript reaches its chat row.
+  harness.onSessionOpened((session, info) => {
+    if (info.operation !== 'restore') return
+    const row = getChatStorage()?.findChatBySessionId(session.id)
+    observeSession(session, { notifyOnTurnEnd: row?.tp !== 'teammate' })
   })
   HARNESS_INSTANCE = harness
   startSessionWatch(harness)
@@ -516,44 +516,20 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
     return new OperonRuntimeSession(session, modelId, modeId)
   }
 
-  /**
-   * Resume the chat's persisted session when the route supplies its id, else start
-   * a fresh one. A missing/stale id (store cleared, fork lost) falls back to fresh
-   * rather than failing the turn — the chat keeps working, just without old context.
-   */
+  /** Restore the requested history, or explicitly create a new conversation when no id is given. */
   private async openSession(
     sessionId: string | undefined,
     cwd: string,
     mcpServers?: RuntimeMcpServers,
     instructions?: string,
   ): Promise<HarnessSession> {
-    const { root, servers, permission, limits } = await resolveWorkspaceSetup(cwd, mcpServers)
     const harness = await this.harness()
-    // Everything that used to be baked into a per-conversation harness travels with
-    // the session instead, so all chats share one harness; the workspace's own MCP
-    // servers come from the project's shared pool in the `session` hook.
-    const opts = {
-      mcpServers: servers,
-      permission,
-      ...limits,
-      ...(instructions?.trim() ? { appendSystemPrompt: instructions.trim() } : {}),
+    if (sessionId !== undefined) {
+      return resumeRuntimeSession(harness, sessionId, async () =>
+        workspaceSessionConfig(await resolveWorkspaceSetup(cwd, mcpServers), instructions))
     }
-    const session = await (async () => {
-      if (sessionId) {
-        // Already open on the harness (a teammate spawned by `Team`, or a lead a
-        // teammate woke) — reuse it rather than opening a second instance.
-        const open = harness.getSession(sessionId)
-        if (open) return open
-        try {
-          return await harness.resumeSession(sessionId, opts)
-        } catch {
-          // fall through to a fresh session
-        }
-      }
-      return harness.createSession({ workDir: root, ...opts })
-    })()
-    // Turns nobody in the UI started (a teammate waking this lead) still land in
-    // the chat's transcript and light up the inbox.
+    const { root, ...setup } = await resolveWorkspaceSetup(cwd, mcpServers)
+    const session = await harness.createSession({ workDir: root, config: workspaceSessionConfig(setup, instructions) })
     observeSession(session, { notifyOnTurnEnd: true })
     return session
   }

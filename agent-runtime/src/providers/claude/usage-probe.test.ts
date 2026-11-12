@@ -84,6 +84,133 @@ describe('ClaudeUsageProbe merge', () => {
   })
 })
 
+describe('ClaudeUsageProbe poll vs push', () => {
+  const WEEKLY_RESET_ISO = '2026-11-15T03:00:00.888174+00:00'
+  const WEEKLY_RESET = Date.parse(WEEKLY_RESET_ISO)
+
+  const weekly = (utilization: number, modelScoped: Array<{ name: string; utilization: number }> = []) =>
+    usageResponse({
+      rate_limits: {
+        seven_day: { utilization, resets_at: WEEKLY_RESET_ISO },
+        model_scoped: modelScoped.map(({ name, utilization: used }) => ({
+          display_name: name,
+          utilization: used,
+          resets_at: WEEKLY_RESET_ISO,
+        })),
+      },
+    } as Partial<SDKControlGetUsageResponse>)
+
+  const pushed = (utilization: number) => ({ status: 'allowed' as const, utilization, resetsAt: WEEKLY_RESET })
+
+  /** A probe whose polls answer with whatever `next` holds at the time. */
+  const probeAnswering = () => {
+    const state = { next: weekly(0) }
+    queryMock.mockImplementation(() => fakeQuery(async () => state.next))
+    return { probe: new ClaudeUsageProbe(ctx), state }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-11T09:00:00Z'))
+    queryMock.mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('takes a lower poll once the push it would undo is no longer fresh', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(99)
+    await probe.get()
+    probe.applyPush({ seven_day: pushed(100) })
+
+    // The limit is reset by hand: same `resetsAt`, usage back near zero. This
+    // is what used to be read as an old reading and held at 100 for good.
+    vi.advanceTimersByTime(3 * 60_000)
+    state.next = weekly(2)
+    expect((await probe.get())?.windows.seven_day.utilization).toBe(2)
+  })
+
+  it('keeps a fresh push over a poll that is still catching up to it', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(40)
+    await probe.get()
+    probe.applyPush({ seven_day: pushed(42) })
+
+    vi.advanceTimersByTime(10_000)
+    state.next = weekly(41)
+    expect((await probe.get())?.windows.seven_day.utilization).toBe(42)
+  })
+
+  it('takes a lower poll that has never raced a push', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(100)
+    await probe.get()
+
+    state.next = weekly(2)
+    expect((await probe.get())?.windows.seven_day.utilization).toBe(2)
+  })
+
+  it('takes a forced poll as is, even right after a push', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(99)
+    await probe.get()
+    probe.applyPush({ seven_day: pushed(100) })
+
+    state.next = weekly(2)
+    expect((await probe.get({ force: true }))?.windows.seven_day.utilization).toBe(2)
+  })
+
+  it('still lets a push only raise a window it shares', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(2)
+    await probe.get()
+    probe.applyPush({ seven_day: pushed(5) })
+
+    // Pushes from different sessions can land out of order.
+    probe.applyPush({ seven_day: pushed(4) })
+    expect(probe.peek()?.windows.seven_day.utilization).toBe(5)
+  })
+
+  it('files the pushed per-model window under the one model the poll named', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(10, [{ name: 'Fable', utilization: 30 }])
+    await probe.get()
+
+    probe.applyPush({ seven_day_overage_included: pushed(31) })
+    const windows = probe.peek()?.windows
+    expect(windows?.['model_scoped:Fable']?.utilization).toBe(31)
+    expect(windows?.seven_day_overage_included).toBeUndefined()
+  })
+
+  it('keeps the pushed per-model window apart until a poll names it, then folds it in', async () => {
+    const { probe, state } = probeAnswering()
+    probe.applyPush({ seven_day_overage_included: pushed(39) })
+    expect(probe.peek()?.windows.seven_day_overage_included?.utilization).toBe(39)
+
+    state.next = weekly(10, [{ name: 'Fable', utilization: 40 }])
+    const windows = (await probe.get())?.windows
+    expect(windows?.['model_scoped:Fable']?.utilization).toBe(40)
+    expect(windows?.seven_day_overage_included).toBeUndefined()
+  })
+
+  it('does not guess which model a push means when there are several', async () => {
+    const { probe, state } = probeAnswering()
+    state.next = weekly(10, [
+      { name: 'Fable', utilization: 30 },
+      { name: 'Other', utilization: 5 },
+    ])
+    await probe.get()
+
+    probe.applyPush({ seven_day_overage_included: pushed(31) })
+    const windows = probe.peek()?.windows
+    expect(windows?.seven_day_overage_included?.utilization).toBe(31)
+    expect(windows?.['model_scoped:Fable']?.utilization).toBe(30)
+    expect(windows?.['model_scoped:Other']?.utilization).toBe(5)
+  })
+})
+
 describe('mapPushedRateLimitWindows', () => {
   /** Shaped after a real `rate_limit_event` captured from the CLI. */
   const pushInfo = (overrides: Record<string, unknown> = {}) =>

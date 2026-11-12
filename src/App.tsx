@@ -132,13 +132,23 @@ export default function App() {
   const openChat = useCallback(
     (target: { chatId: number; workspaceId?: number; title?: string; subAgent?: boolean }) => {
       showWorkbench()
-      if (target.workspaceId != null) {
-        const project = useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === target.workspaceId))
+      // A chat already open lands on that tab, wherever it is. The workspace a notification
+      // or card names is the one its turn ran in, which need not be the bucket the tab sits
+      // in; switching there first and opening by id made a second tab for the same chat.
+      const existing = useEditorStore.getState().findChatTab(target.chatId)
+      const workspaceId = existing ? existing.workspaceId : target.workspaceId ?? null
+      const switchWorkspace = existing
+        ? existing.workspaceId !== useEditorStore.getState().currentWorkspaceId
+        : workspaceId != null
+      if (switchWorkspace) {
+        const project = workspaceId == null
+          ? undefined
+          : useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === workspaceId))
         // The editor's bucket follows synchronously (workspace-sync.ts), so the
         // tab below opens in the destination workspace.
-        setActiveWorkspace(target.workspaceId, project?.id)
+        setActiveWorkspace(workspaceId, project?.id)
       }
-      const tabId = openChatTab(`chat:${target.chatId}`, target.title, undefined, undefined, target.subAgent || undefined)
+      const tabId = openChatTab(existing?.tabId ?? `chat:${target.chatId}`, target.title, undefined, undefined, target.subAgent || undefined)
       setTabChatId(tabId, target.chatId)
     },
     [setActiveWorkspace, openChatTab, setTabChatId, showWorkbench],
@@ -332,7 +342,7 @@ export default function App() {
 
     <div className={`relative h-screen w-screen text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
       {/* Main Content */}
-      <AppSidebar onOpenSpec={openSpec} onOpenNotification={handleOpenNotification}>
+      <AppSidebar onOpenSpec={openSpec} onOpenNotification={handleOpenNotification} onOpenChat={openChat}>
         {/* Main Content Area (Center + Right) */}
         <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
           {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,

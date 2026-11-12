@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { readUIMessageStream, type UIMessage } from 'ai'
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai'
 import { createHarness, type HarnessSession } from 'operon-agents'
-import { createModelManager, type AgentEvent, type AgentEventBody } from 'operon-agents'
+import { createModelManager, type AgentEvent } from 'operon-agents'
+import type { AgentEventBody } from 'operon-agents/advanced'
 import { RuntimeInjectionUnavailableError, type RuntimeStreamPart } from '@operon/agent-runtime'
 import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'
 import { OperonRuntimeSession } from './session.js'
@@ -77,10 +78,8 @@ describe('Operon injected input receipts', () => {
     const releaseTool = deferred()
     let nextRequest = ''
     const harness = createHarness({
-      model: `${handle.provider.id}/${handle.getModel().id}`,
+      config: { defaults: { model: `${handle.provider.id}/${handle.getModel().id}`, permission: { mode: 'yolo' } }, workDir },
       modelManager: runtime,
-      workDir,
-      permission: { mode: 'yolo' },
       extensions: [{
         id: 'injection-test',
         session(api) {
@@ -225,7 +224,7 @@ describe('Operon native followup through runtime', () => {
     runtime.models.setProvider(handle.provider)
     const started = deferred(), release = deferred()
     const seen: boolean[] = []
-    const harness = createHarness({ model: `${handle.provider.id}/${handle.getModel().id}`, modelManager: runtime, workDir, permission: { mode: 'yolo' }, extensions: [{ id: 'followup', session(api) {
+    const harness = createHarness({ config: { defaults: { model: `${handle.provider.id}/${handle.getModel().id}`, permission: { mode: 'yolo' } }, workDir }, modelManager: runtime, extensions: [{ id: 'followup', session(api) {
       api.registerTool({ name: 'Wait', description: 'Wait', parameters: { type: 'object', properties: {} }, execute: async () => { started.resolve(); await release.promise; return 'done' } })
     } }] })
     try {

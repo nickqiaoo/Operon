@@ -3,7 +3,18 @@ import { api } from '@/lib/api'
 import type { InboxEvent, Notification, UnreadCounts } from '@/types/notification'
 import { isAssistantNotification } from '@/types/notification'
 
-export type InboxFilter = 'all' | 'action' | 'info'
+/**
+ * The inbox is the history; what is in play lives in the sidebar's Active list.
+ * - `all`: every row.
+ * - `action`: every row that asked for the user, seen or not (a seen approval may still be open).
+ */
+export type InboxFilter = 'all' | 'action'
+
+export const INBOX_FILTERS: readonly InboxFilter[] = ['all', 'action']
+
+export function isInboxFilter(value: unknown): value is InboxFilter {
+  return typeof value === 'string' && (INBOX_FILTERS as readonly string[]).includes(value)
+}
 
 const PAGE_SIZE = 50
 let loadGeneration = 0
@@ -52,8 +63,13 @@ function appendUnique(items: Notification[], older: Notification[]): Notificatio
   ])
 }
 
-function severityForFilter(filter: InboxFilter): 'action' | 'info' | undefined {
-  return filter === 'all' ? undefined : filter
+function listQuery(filter: InboxFilter): { severity?: 'action' } {
+  return filter === 'action' ? { severity: 'action' } : {}
+}
+
+/** The rows a filter shows; assistant rows have their own destination. */
+export function inboxVisibleItems(items: Notification[], filter: InboxFilter): Notification[] {
+  return items.filter((n) => !isAssistantNotification(n) && (filter !== 'action' || n.severity === 'action'))
 }
 
 export const useInboxStore = create<InboxStore>((set, get) => ({
@@ -78,7 +94,7 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
     set({ loading: true, loadingMore: false })
     try {
       const page = await api.inboxList({
-        severity: severityForFilter(filter),
+        ...listQuery(filter),
         limit: PAGE_SIZE,
       })
       if (generation !== loadGeneration) return
@@ -104,7 +120,7 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
     set({ loadingMore: true })
     try {
       const page = await api.inboxList({
-        severity: severityForFilter(filter),
+        ...listQuery(filter),
         cursor,
         limit: PAGE_SIZE,
       })

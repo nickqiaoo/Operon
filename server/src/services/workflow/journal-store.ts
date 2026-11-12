@@ -17,14 +17,7 @@
  * interface requires are stubbed: the journal never touches them.
  */
 
-import type {
-  AgentRecord,
-  ReadRecordPageOptions,
-  ReadRecordsFilter,
-  RecordPage,
-  SessionStore,
-  StateKey,
-} from 'operon-agents'
+import type { AgentRecord, ReadRecordPageOptions, ReadRecordsFilter, RecordPage, SessionStore, StateKey } from 'operon-agents/advanced'
 import { appendEvent, readRunEvents } from './store.js'
 
 /** The two journal operations the shim needs, over whatever holds the log. */

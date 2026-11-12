@@ -8,7 +8,8 @@ import type { SpecRun, SpecTicketBuild } from '../../types/spec.js'
 import type { Task } from '../../types/task.js'
 
 vi.mock('../workflow/dispatch.js', () => ({ runProviderAgent: vi.fn() }))
-vi.mock('operon-agents', () => ({ LocalEnvironment: class {}, createWorktree: vi.fn(), newAgentId: () => 'a', validateValue: vi.fn() }))
+vi.mock('operon-agents', () => ({ LocalEnvironment: class {} }))
+vi.mock('operon-agents/advanced', () => ({ createWorktree: vi.fn(), newAgentId: () => 'a', validateValue: vi.fn() }))
 vi.mock('../workflow/store.js', () => ({ appendEvent: vi.fn(), markExecuting: vi.fn(), unmarkExecuting: vi.fn(), readRunView: vi.fn() }))
 vi.mock('../workflow/registry.js', () => ({ registerWorkflowAbort: vi.fn(), unregisterWorkflowAbort: vi.fn() }))
 vi.mock('../workflow/completion.js', () => ({ deliverChatNotice: vi.fn(async () => true), deliverWorkflowResult: vi.fn() }))

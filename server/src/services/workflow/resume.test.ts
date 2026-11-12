@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { runWorkflow, WorkflowJournal, type WorkflowHostHooks } from 'operon-agents'
+import { runWorkflow, WorkflowJournal, type WorkflowHostHooks } from 'operon-agents/advanced'
 import { workflowJournalStore, type WorkflowJournalPort } from './journal-store.js'
 
 const META = { name: 'resume-test', description: 'd' }

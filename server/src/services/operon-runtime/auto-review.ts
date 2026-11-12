@@ -1,4 +1,5 @@
-import type { AutoApprovalInput, AutoApprover, ChatModel, DecisionModel } from 'operon-agents'
+import type { AutoApprover, ChatModel } from 'operon-agents'
+import type { AutoApprovalInput, DecisionModel } from 'operon-agents/advanced'
 
 type ReviewModel = ChatModel | DecisionModel
 

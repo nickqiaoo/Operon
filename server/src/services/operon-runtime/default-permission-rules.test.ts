@@ -1,4 +1,5 @@
-import { PermissionManager, type AutoApprover, type PermissionRule } from 'operon-agents'
+import type { AutoApprover, PermissionRule } from 'operon-agents'
+import { PermissionManager } from 'operon-agents/advanced'
 import { describe, expect, it, vi } from 'vitest'
 import { toolsFor } from '../assistant/tools.js'
 import { DEFAULT_PERMISSION_RULES, withDefaultPermissionRules } from './default-permission-rules.js'

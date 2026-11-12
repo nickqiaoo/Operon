@@ -172,6 +172,14 @@ export function initAiService(
     notificationStorage = storage
     stopNotificationPruning?.()
     stopNotificationPruning = startNotificationPruning(storage)
+    // Pending approvals live in memory and die with the process; rows still
+    // asking from before the restart are waiting on nothing.
+    try {
+      const settled = storage.notificationSettleNeedsInput(null, { markRead: false })
+      if (settled.length > 0) console.log(`[Inbox] settled ${settled.length} needs-input rows left from before the restart`)
+    } catch (err) {
+      console.error('[Inbox] settling stale needs-input rows failed:', err)
+    }
   }
 }
 

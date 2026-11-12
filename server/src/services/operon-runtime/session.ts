@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { RuntimeInjectionUnavailableError, QueuedFollowup } from '@operon/agent-runtime'
 import type { ModelMessage } from 'ai'
-import type { AgentInput, ApprovalResponse, HarnessSession, ImageContent, Message, PermissionMode, QuestionResult, TextContent, ThinkingLevel as EngineThinkingLevel } from 'operon-agents'
+import { SessionClosedError, SessionInterruptedError, type AgentInput, type ApprovalResponse, type HarnessSession, type ImageContent, type Message, type PermissionMode, type QuestionResult, type TextContent, type ThinkingLevel as EngineThinkingLevel } from 'operon-agents'
 import type {
   AgentInput as RuntimeAgentInput,
   AgentSession,
@@ -257,6 +257,8 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   }
 
   private readonly attachmentFollowups = new QueuedFollowup()
+  /** Follow-ups accepted during the current `runTurn`; each is an engine run its stream waits for. */
+  private followupsInTurn = 0
 
   send(input: RuntimeAgentInput, options?: SendOptions): AsyncIterable<RuntimeStreamPart> {
     return this.attachmentFollowups.run(input, options, (next, opts) => this.runTurn([{ role: 'user', content: next }], opts?.signal))
@@ -295,8 +297,15 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
 
     // This turn is ours: the passive observer (peer-woken turns) must stay out of it.
     markDriven(this.harness.id)
+    // A follow-up sent while this turn runs is its own engine run, queued right behind this one.
+    // The caller's stream covers it too, so `finish` is held back and sent once, at the very end.
+    this.followupsInTurn = 0
+    let finish: RuntimeStreamPart | undefined
     const unsubscribe = this.harness.onEvent((event) => {
-      for (const part of mapper.map(event)) queue.push(part)
+      for (const part of mapper.map(event)) {
+        if (part.type === 'finish') finish = part
+        else queue.push(part)
+      }
     })
 
     // Tool approvals: surface a request part, then block until resolvePermission().
@@ -385,8 +394,12 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     const input = buildAgentInput(messages)
     const run = this.harness.prompt(input)
     void run
+      .then(async () => {
+        if (this.followupsInTurn > 0) await this.harness.whenIdle()
+      })
       .catch((error) => queue.push({ type: 'error', error } as RuntimeStreamPart))
       .finally(() => {
+        if (finish) queue.push(finish)
         this.rejectPending()
         queue.close()
       })
@@ -493,8 +506,18 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     if (this.harness.status.state !== 'running') {
       throw new RuntimeInjectionUnavailableError('No active Operon turn to inject into')
     }
-    const receipt = mode === 'steer' ? this.harness.steer(trimmed) : this.harness.followUp(trimmed)
+    let receipt
+    try {
+      receipt = mode === 'steer' ? this.harness.steer(trimmed) : this.harness.followUp(trimmed)
+    } catch (error) {
+      // Closed, or parked on an approval/question: nothing will consume the message now.
+      if (error instanceof SessionClosedError || error instanceof SessionInterruptedError) {
+        throw new RuntimeInjectionUnavailableError('No active Operon execution')
+      }
+      throw error
+    }
     if (!receipt) throw new RuntimeInjectionUnavailableError('No active Operon execution')
+    if (mode === 'followup') this.followupsInTurn++
     // Register before yielding: consumption can arrive before /inject responds.
     if (options?.id) this.pendingInjections.set(receipt.steerId, { id: options.id, text: trimmed })
     try {

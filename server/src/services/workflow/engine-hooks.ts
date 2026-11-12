@@ -11,14 +11,8 @@
  */
 
 import os from 'node:os'
-import {
-  LocalEnvironment,
-  createWorktree,
-  newAgentId,
-  validateValue,
-  type WorkflowHostHooks,
-  type WorkflowProgressEvent as FwProgressEvent,
-} from 'operon-agents'
+import { LocalEnvironment } from 'operon-agents'
+import { createWorktree, newAgentId, validateValue, type WorkflowHostHooks, type WorkflowProgressEvent as FwProgressEvent } from 'operon-agents/advanced'
 import { runProviderAgent } from './dispatch.js'
 import { parseJsonReply } from './json-reply.js'
 import type { RunEventWriter } from './writer.js'

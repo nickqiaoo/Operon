@@ -30,7 +30,11 @@ const WINDOW_ORDER: Array<{ key: string; label: string }> = [
   { key: 'seven_day', label: 'Weekly' },
   { key: 'seven_day_opus', label: 'Weekly · Opus' },
   { key: 'seven_day_sonnet', label: 'Weekly · Sonnet' },
-  { key: 'seven_day_overage_included', label: 'Weekly · Overage' },
+  // The push's name for the per-model weekly window (the CLI calls it "Fable
+  // limit"). The runtime files it under `model_scoped:<name>` once a poll has
+  // named that window, so this row only shows before the first poll (or on an
+  // account with several per-model windows, where the push can't be attributed).
+  { key: 'seven_day_overage_included', label: 'Weekly · Fable' },
   { key: 'overage', label: 'Overage' },
 ];
 

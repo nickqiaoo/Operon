@@ -62,8 +62,8 @@ vi.mock('../workflow/dispatch.js', () => ({
     throw new Error(`unexpected prompt: ${prompt.slice(0, 80)}`)
   }),
 }))
-vi.mock('operon-agents', () => ({
-  LocalEnvironment: class {},
+vi.mock('operon-agents', () => ({ LocalEnvironment: class {} }))
+vi.mock('operon-agents/advanced', () => ({
   createWorktree: vi.fn(async () => null),
   newAgentId: (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`,
   // Enough of a validator for these schemas: required keys present.

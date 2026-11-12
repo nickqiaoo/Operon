@@ -22,6 +22,8 @@ export type ChatHistoryListItem = Awaited<ReturnType<typeof api.chatHistoryList>
 export const chatHistoryKeys = {
   list: (workspaceId: number | null | undefined, tp?: string) =>
     ['chat-history-list', workspaceId ?? 'all', tp ?? 'all'] as const,
+  /** The user's own conversations across every workspace, most recently active first. */
+  recent: () => ['chat-history-recent'] as const,
   /** `revision` is the caller's "something changed" marker (another call, finished). */
   subagentTranscript: (chatId: number, toolUseId: string, revision: string) =>
     ['subagent-transcript', chatId, toolUseId, revision] as const,
@@ -97,6 +99,23 @@ export function useChatHistoryList({
     isLoadingMore: isFetchingNextPage,
     loadMore,
   }
+}
+
+const RECENT_CHATS_LIMIT = 30
+
+/**
+ * Recently active conversations everywhere — the sidebar Active list's Recent
+ * group. Server-side rather than "tabs I opened": closing a tab does not mean
+ * the work stopped, and a chat driven from the phone never had a tab here.
+ * Invalidated when a turn starts or ends; the interval catches the rest.
+ */
+export function useRecentChats() {
+  return useQuery({
+    queryKey: chatHistoryKeys.recent(),
+    queryFn: () => api.chatHistoryList(undefined, 'chat', { limit: RECENT_CHATS_LIMIT }),
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  })
 }
 
 /**

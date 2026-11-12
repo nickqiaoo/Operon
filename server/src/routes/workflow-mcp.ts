@@ -23,7 +23,7 @@
 import { Hono, type Context } from 'hono'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
-import { parseWorkflow, newAgentId } from 'operon-agents'
+import { parseWorkflow, newAgentId } from 'operon-agents/advanced'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import { resolveMcpCallerChat } from './mcp-caller.js'
 import {

@@ -5,6 +5,7 @@ import { PanelLeft } from "lucide-react"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { ProjectSidebar } from "@/components/project/ProjectSidebar"
 import type { Notification } from "@/types/notification"
+import type { OpenChat } from "@/lib/active-conversations"
 import { LeftSidebar } from "./LeftSidebar"
 import {
   LEFT_SIDEBAR_DEFAULT_WIDTH,
@@ -26,10 +27,11 @@ import { usePanelAnimation } from "./use-panel-animation"
 interface AppSidebarProps {
   onOpenSpec: (taskId: number, projectId: number) => void
   onOpenNotification: (notification: Notification) => void
+  onOpenChat: OpenChat
   children: ReactNode
 }
 
-export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotification, children }: AppSidebarProps) {
+export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotification, onOpenChat, children }: AppSidebarProps) {
   const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const [width, setWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
@@ -55,7 +57,7 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
           onWidthChange={setWidth}
           onClose={() => setSidebarCollapsed(true)}
         >
-          <ProjectSidebar onOpenSpec={onOpenSpec} onOpenNotification={onOpenNotification} collapsed={rail} width={width} />
+          <ProjectSidebar onOpenSpec={onOpenSpec} onOpenNotification={onOpenNotification} onOpenChat={onOpenChat} collapsed={rail} width={width} />
         </LeftSidebar>
         {children}
       </div>

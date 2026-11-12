@@ -1,4 +1,4 @@
-import type { Harness, McpServerConfig, PermissionManagerOptions } from 'operon-agents'
+import type { Harness, SessionConfig, SessionIdentity } from 'operon-agents'
 import {
   budgetExceeded,
   PEERS_SERVICE,
@@ -13,8 +13,12 @@ import {
 import type { TeamsHostService } from '../../extensions/peers/contract.js'
 import { getChatStorage, getSessionManager } from '../ai/state.js'
 import { loadPeersConfig, peersConfigSnapshot, type PeersConfig, type TeammateTypeConfig } from './peers-config.js'
+import { workspaceSessionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
 import { observeSession } from './passive-observer.js'
 import { modelRef, resolveModel } from './resolve-model.js'
+import { resolveMcpServersForSession } from '../mcp-config.js'
+import { ensurePluginsLoaded } from './plugins.js'
+import { SPEC_CHAT_HINT } from '../spec/prompts.js'
 import { MODE_TO_PERMISSION } from './session.js'
 
 /**
@@ -27,12 +31,11 @@ import { MODE_TO_PERMISSION } from './session.js'
  * teammate session is born, and the hook that makes a fresh teammate a real conversation —
  * a chat row in the sidebar the user can open and steer, with its model, permission mode
  * and a transcript observer. Config edits are applied by reloading the extension, which
- * re-runs its `workspace` half against the new config in every open workspace while sessions
- * stay open.
+ * re-runs its `harness` half against the new config while sessions stay open.
  *
- * The network is a WORKSPACE half: one roster, mailbox and budget per git root, alive while a
- * session there is open. A lead's roster is its workspace's; the Settings view unions every
- * open workspace's.
+ * The network is a HARNESS half: one roster, mailbox and budget for the whole process, alive
+ * from the moment the extension is loaded until it is unloaded. Every lead shares it —
+ * `rosterForSession` is the teams one lead created, `rosterAll` the whole roster for Settings.
  */
 
 export interface PeersHostDeps {
@@ -42,7 +45,7 @@ export interface PeersHostDeps {
    * workspace's `mcp.json` servers are not among them: every session there, a teammate too,
    * borrows those from the project's shared pool in the harness `sessionCapabilities` hook.
    */
-  workspaceSetup: (cwd: string) => Promise<{ servers: Record<string, McpServerConfig>; permission: PermissionManagerOptions }>
+  workspaceSetup: (cwd: string) => Promise<WorkspaceSessionSetup>
   /** The model a teammate falls back to when neither its type nor its lead names one. */
   defaultModelId: () => Promise<string>
 }
@@ -80,24 +83,55 @@ const TEAMMATE_PROTOCOL = [
   'A reply typed into this conversation is not a report. Send exactly one report per assignment; do not wait for an answer afterwards.',
 ].join('\n')
 
+function teammateInstructions(cfg: TeammateTypeConfig | undefined): string {
+  return cfg?.instructions ? `${TEAMMATE_PROTOCOL}\n\n${cfg.instructions}` : TEAMMATE_PROTOCOL
+}
+
 async function buildTeammateOptions(request: TeammateSpawnRequest): Promise<TeammateSessionOptions> {
   if (!deps) throw new Error('peers host not configured')
   const cfg = peersConfigSnapshot().types[request.type]
   if (!cfg) throw new Error(`Unknown teammate type "${request.type}"`)
   const harness = deps.harness()
-  // A root creator's roster id IS its session id (see team-tool.ts), so the creator's
-  // workDir — the workspace the team works in — comes straight off its session.
-  const creator = harness?.getSession(request.creatorId)
+  // The teammate is created on behalf of its lead (`from` in the extension), so it lands in the
+  // lead's directory; the workspace policy it runs under is read from that same directory.
+  const creator = harness?.getSession(request.creatorSessionId)
   const workDir = creator?.workDir ?? process.cwd()
   const setup = await deps.workspaceSetup(workDir)
   const mode = MODE_TO_PERMISSION[cfg.modeId ?? 'workspace'] ?? 'workspace'
+  const config = workspaceSessionConfig(setup, teammateInstructions(cfg))
   return {
     title: teammateTitle(cfg, request.type, request.name),
     workDir,
-    mcpServers: setup.servers,
-    permission: { ...setup.permission, mode },
-    appendSystemPrompt: cfg.instructions ? `${TEAMMATE_PROTOCOL}\n\n${cfg.instructions}` : TEAMMATE_PROTOCOL,
+    config: { ...config, permission: { ...config.permission, mode } },
   }
+}
+
+/**
+ * The host's part of a session's setup when it is restored without the UI handing one in: a peer
+ * message to a recipient that is not loaded (`host.resumeSession`), or any other bare
+ * `harness.resumeSession(id)`. Called from the harness's `resolveSession`, which lays it over
+ * what the session stored, so its own model, mode and extension parameters (a teammate's seat)
+ * survive. The conversation-scoped MCP servers are rebuilt from the chat record because they carry
+ * this process's ports and identities.
+ */
+export async function restoredSessionConfig(session: Pick<SessionIdentity, 'id' | 'workDir'>): Promise<SessionConfig> {
+  if (!deps) throw new Error('peers host not configured')
+  const setup = await deps.workspaceSetup(session.workDir)
+  const record = getSessionManager().findBySessionId(session.id)
+  const storage = getChatStorage()
+  const chat = storage?.findChatBySessionId(session.id)
+    ?? (record ? withId(storage?.getChatMeta(record.chatId), record.chatId) : undefined)
+  const peer = chat?.metadata?.peer
+  const instructions = peer
+    ? teammateInstructions(peersConfigSnapshot().types[peer.type])
+    : record?.params.instructions ?? (chat?.tp === 'chat' && chat.workspaceId != null ? SPEC_CHAT_HINT : undefined)
+  await ensurePluginsLoaded()
+  const servers = chat?.metadata?.workflowAgent ? {} : record?.params.mcpServers
+    ?? (chat ? resolveMcpServersForSession('custom', { chatId: chat.id, cwd: session.workDir }) : undefined)
+  return workspaceSessionConfig(
+    { ...setup, servers: (servers ?? setup.servers) as WorkspaceSessionSetup['servers'] },
+    instructions,
+  )
 }
 
 /**

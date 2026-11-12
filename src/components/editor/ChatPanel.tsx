@@ -646,6 +646,8 @@ function ChatPanelContent({
   }, [setSessionPanelOpen]);
 
   const [liveSteers, setLiveSteers] = useState<LiveSteerItem[]>([]);
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
+  const questionAnswersRef = useRef(questionAnswers);
   const steerPending = liveSteers.some((item) => item.status === 'sending');
   const showCompactBanner = compactedInfo && compactDismissed !== JSON.stringify(compactedInfo);
   const updateTabProviderId = useEditorStore((state) => state.updateTabProviderId);
@@ -857,11 +859,6 @@ function ChatPanelContent({
     handleSubmit(message);
   }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, dbChatId]);
 
-  // Not handleSubmit: that also sends whatever draft and attachments sit in the composer.
-  const handleAnswerQuestion = useCallback((text: string) => {
-    void sendMessage({ text });
-  }, [sendMessage]);
-
   // One-click "send" from the browser annotation toolbar: when its nonce bumps
   // for this workspace, the focused chat submits the queued annotations. Consume
   // immediately so only one panel acts.
@@ -919,6 +916,7 @@ function ChatPanelContent({
             : entry,
         ),
       );
+      return 'sent' as const;
     } catch (error) {
       console.error('[ChatPanel] Steer failed:', error);
       setLiveSteers((current) =>
@@ -926,10 +924,11 @@ function ChatPanelContent({
           entry.localId === item.localId ? { ...entry, status: failureStatus } : entry,
         ),
       );
+      return failureStatus;
     }
   }, [dbChatIdRef, tab?.chatId]);
 
-  const handleSteer = useCallback(async (text: string) => {
+  const enqueueSteer = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -944,9 +943,39 @@ function ChatPanelContent({
     };
 
     setLiveSteers((current) => [...current, item]);
+    return submitSteerItem(item);
+  }, [submitSteerItem]);
+
+  const handleSteer = useCallback(async (text: string) => {
+    if (!text.trim()) return;
     setInput('');
-    await submitSteerItem(item);
-  }, [setInput, submitSteerItem]);
+    await enqueueSteer(text);
+  }, [setInput, enqueueSteer]);
+
+  // Answer independently of the composer's draft, attachments, and selected context.
+  const handleAnswerQuestion = useCallback(async (questionKey: string, text: string) => {
+    if (!text.trim()) return;
+    if (questionAnswersRef.current[questionKey] !== undefined) return;
+    questionAnswersRef.current = { ...questionAnswersRef.current, [questionKey]: text };
+    setQuestionAnswers(questionAnswersRef.current);
+    try {
+      if (isGenerating) {
+        const delivery = await enqueueSteer(text);
+        // An uncertain delivery stays locked; the steer tray exposes its status.
+        if (delivery !== 'failed') return;
+      } else {
+        await sendMessage({ text });
+        return;
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Answer failed:', error);
+      toast.error('Failed to send answer. Please try again.');
+    }
+    const next = { ...questionAnswersRef.current };
+    delete next[questionKey];
+    questionAnswersRef.current = next;
+    setQuestionAnswers(next);
+  }, [isGenerating, enqueueSteer, sendMessage]);
 
   const handleRetrySteer = useCallback((localId: string) => {
     const item = liveSteers.find((entry) => entry.localId === localId);
@@ -1046,6 +1075,8 @@ function ChatPanelContent({
 
   useEffect(() => {
     setLiveSteers([]);
+    questionAnswersRef.current = {};
+    setQuestionAnswers({});
   }, [chatId]);
 
   return (
@@ -1136,7 +1167,8 @@ function ChatPanelContent({
               turnDiffs={tab?.options?.autoRun ? undefined : turnDiffs}
               onReviewTurn={tab?.options?.autoRun ? undefined : handleReviewTurn}
               externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
-              onAnswerQuestion={handleAnswerQuestion}
+              onAnswerQuestion={!isGenerating || (supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)) ? handleAnswerQuestion : undefined}
+              questionAnswers={questionAnswers}
             />
             </ChatDbIdContext.Provider>
           )}

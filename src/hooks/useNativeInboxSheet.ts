@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef } from "react"
 import { defineMessages, useIntl, type IntlShape } from "react-intl"
 import { hasNativeTabBar, NativeShell, type NativeInboxState } from "@/lib/native"
-import { useInboxStore } from "@/stores/inbox-store"
-import { isAssistantNotification } from "@/types/notification"
+import { inboxVisibleItems, isInboxFilter, useInboxStore } from "@/stores/inbox-store"
 import { INBOX_KIND_SYMBOL } from "@/components/inbox/InboxItem"
 import { formatRelativeTime } from "@/lib/format"
 import { localizeNotification } from "@/components/inbox/localize-notification"
@@ -18,7 +17,6 @@ const m = defineMessages({
   title: { id: "sidebar.inbox", defaultMessage: "Inbox" },
   all: { id: "inbox.filter.all", defaultMessage: "All" },
   action: { id: "inbox.filter.action", defaultMessage: "Needs you" },
-  info: { id: "inbox.filter.info", defaultMessage: "Done" },
   markAllRead: { id: "inbox.markAllRead", defaultMessage: "Mark all read" },
   empty: { id: "inbox.empty", defaultMessage: "You're all caught up" },
   loading: { id: "inbox.loadingMore", defaultMessage: "Loading…" },
@@ -31,7 +29,6 @@ function labels(intl: IntlShape) {
     filters: [
       { id: "all", label: intl.formatMessage(m.all) },
       { id: "action", label: intl.formatMessage(m.action) },
-      { id: "info", label: intl.formatMessage(m.info) },
     ],
     markAllRead: intl.formatMessage(m.markAllRead),
     empty: intl.formatMessage(m.empty),
@@ -42,7 +39,7 @@ function labels(intl: IntlShape) {
 
 function snapshot(intl: IntlShape): NativeInboxState {
   const s = useInboxStore.getState()
-  const visible = s.items.filter((n) => !isAssistantNotification(n) && (s.filter === "all" || n.severity === s.filter))
+  const visible = inboxVisibleItems(s.items, s.filter)
   return {
     filter: s.filter,
     items: visible.map((n) => {
@@ -91,7 +88,7 @@ export function useNativeInboxSheet(onNavigate: (n: Notification) => void): () =
           void store.archive(id)
         } else if (action === "markAllRead") {
           void store.markAllRead()
-        } else if (action === "filter" && (filter === "all" || filter === "action" || filter === "info")) {
+        } else if (action === "filter" && isInboxFilter(filter)) {
           void store.setFilter(filter)
         } else if (action === "loadMore") {
           void store.loadMore()

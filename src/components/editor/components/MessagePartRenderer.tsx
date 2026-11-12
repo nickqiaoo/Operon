@@ -49,7 +49,7 @@ import { parseContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import type { SendToModel } from '../SendToButton';
 import { useTransientFlag } from '@/hooks/useTransientFlag'
 import { QuestionForm } from '@/components/ai-elements/question-form';
-import { textPartQuestion } from './textPartQuestion';
+import { textPartQuestion, textPartQuestionAnswer } from './textPartQuestion';
 
 const skillTagPattern = /\[skill:([\w-]+)\]/g;
 
@@ -145,7 +145,8 @@ interface MessagePartRendererProps {
    */
   onRewindToHere?: () => void;
   /** Send the user's answer to a question the agent asked. */
-  onAnswerQuestion?: (text: string) => void;
+  onAnswerQuestion?: (questionKey: string, text: string) => void;
+  questionAnswers?: Readonly<Record<string, string>>;
   /** What the user said after this message; unset while it is the newest one. */
   questionAnswer?: string;
 }
@@ -171,6 +172,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     onRewindToHere,
     onAnswerQuestion,
     questionAnswer,
+    questionAnswers,
   } = props;
   const intl = useIntl();
   // Handle tool invocations
@@ -505,6 +507,10 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   if (!displayText.trim()) return null;
   const question = message.role === 'assistant' ? textPartQuestion(message.parts, partIndex) : undefined;
   if (question?.hidden) return null;
+  const questionKey = question ? `${message.id}:${question.sourceIndex}` : '';
+  const answer = question
+    ? questionAnswers?.[questionKey] ?? textPartQuestionAnswer(message.parts, question.sourceIndex) ?? questionAnswer
+    : undefined;
 
   // Compact rendering for background agent completion notifications
   if (message.role === 'user' && displayText.includes('<task-notification>')) {
@@ -593,9 +599,9 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
         <QuestionForm
           questions={question.questions}
           body={question.text}
-          answer={questionAnswer}
-          disabled={!onAnswerQuestion || isStreamingMessage || questionAnswer !== undefined}
-          onSubmit={(text) => onAnswerQuestion?.(text)}
+          answer={answer}
+          disabled={!onAnswerQuestion || answer !== undefined}
+          onSubmit={(text) => onAnswerQuestion?.(questionKey, text)}
         />
       )}
       {/* Assistant action row + turn footer render at the message level (see

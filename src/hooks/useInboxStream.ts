@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { subscribeEvents } from '@/lib/event-stream'
+import { applyInboxEventToUnread } from '@/lib/inbox-queries'
 import { useInboxStore } from '@/stores/inbox-store'
 import type { InboxEvent } from '@/types/notification'
 
@@ -10,9 +12,15 @@ import type { InboxEvent } from '@/types/notification'
  */
 export function useInboxStream() {
   const applyEvent = useInboxStore((s) => s.applyEvent)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
-    const subscription = subscribeEvents<InboxEvent>('inbox', { onEvent: applyEvent })
+    const subscription = subscribeEvents<InboxEvent>('inbox', {
+      onEvent: (event) => {
+        applyEvent(event)
+        applyInboxEventToUnread(queryClient, event)
+      },
+    })
     return () => subscription.close()
-  }, [applyEvent])
+  }, [applyEvent, queryClient])
 }

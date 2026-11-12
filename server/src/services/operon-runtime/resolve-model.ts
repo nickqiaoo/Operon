@@ -1,4 +1,5 @@
-import { createModelManager, type ChatModel, type DecisionModel, type ModelProviderRegistration, type ProviderApi } from 'operon-agents'
+import { createModelManager, type ChatModel } from 'operon-agents'
+import type { DecisionModel, ModelProviderRegistration, ProviderApi } from 'operon-agents/advanced'
 import type { EffortLevel } from '@operon/agent-runtime'
 import { getProviderConfig, getProviderConfigs, isProviderUsable, type ProviderConfig } from '../provider-config.js'
 import { customProviderBaseUrl } from '../../../../shared/provider-config.js'

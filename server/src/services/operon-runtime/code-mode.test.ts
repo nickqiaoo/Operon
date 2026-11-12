@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai'
-import { createHarness, type ExtensionDefinition, type ToolSchema } from 'operon-agents'
+import { createHarness, type ExtensionDefinition } from 'operon-agents'
+import type { ToolSchema } from 'operon-agents/advanced'
 import { createModelManager } from 'operon-agents'
 import { codeMode, RUN_CODE_NAME } from 'operon-code-mode'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
@@ -55,10 +56,8 @@ describe('Code Mode through the operon stream', () => {
     const { handle, model, modelManager } = fauxModel()
     const seen: { tools?: readonly ToolSchema[] } = {}
     const harness = createHarness({
-      model,
+      config: { defaults: { model, permission: { mode: 'manual' } }, workDir: work },
       modelManager,
-      workDir: work,
-      permission: { mode: 'manual' },
       extensions: [scheduleServer, codeMode(), requestSpy(seen)],
     })
     const session = await harness.createSession()

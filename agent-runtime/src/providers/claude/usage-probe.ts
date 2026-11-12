@@ -115,13 +115,57 @@ export function mapPushedRateLimitWindows(
 }
 
 /**
+ * The push's name for the weekly window of the models whose usage past their
+ * allowance is billed to usage credits — today only Fable (the CLI labels it
+ * "Fable limit"). The push never says which model it is; the poll reports the
+ * same window as `model_scoped:<display name>`.
+ */
+const PUSHED_MODEL_SCOPED_KEY = 'seven_day_overage_included'
+const MODEL_SCOPED_PREFIX = 'model_scoped:'
+
+/**
+ * Point a pushed per-model weekly window at the poll's key for the same window,
+ * so the two sources update one row instead of drawing two.
+ *
+ * Only when the account has exactly one per-model window: the push carries no
+ * model name, and with two of them there is nothing to tell which one it
+ * means — writing it to the wrong model is worse than showing it on its own.
+ * The CLI itself makes the same one-match attribution.
+ */
+export function attributePushedModelScopedWindow(
+  incoming: Record<string, RuntimeUsageLimitWindow>,
+  held: Record<string, RuntimeUsageLimitWindow>,
+): Record<string, RuntimeUsageLimitWindow> {
+  const pushed = incoming[PUSHED_MODEL_SCOPED_KEY]
+  if (!pushed) return incoming
+  const scoped = Object.keys(held).filter((key) => key.startsWith(MODEL_SCOPED_PREFIX))
+  if (scoped.length !== 1) return incoming
+
+  const { [PUSHED_MODEL_SCOPED_KEY]: _pushed, ...rest } = incoming
+  return { ...rest, [scoped[0]]: pushed }
+}
+
+/**
+ * How long a push outranks a poll that reports less for the same window.
+ *
+ * The usage endpoint can lag the response headers a push is derived from by a
+ * percentage point or so, for a few seconds — that race is the only thing a
+ * lower poll is allowed to be dismissed as. Past this, a lower poll is the
+ * account telling us usage really went down: a weekly limit reset by hand, or
+ * refunded, keeps its `resetsAt`, so "same window, lower number" is not proof
+ * of an old reading once the push it would undo is no longer fresh.
+ */
+const PUSH_PRECEDENCE_MS = 2 * 60_000
+
+/**
  * Whether `next` is an older snapshot of what `held` already describes.
  *
- * Usage within one window only ever grows, so a lower number for the same
- * window can only mean the reading was taken earlier — whatever else it says is
+ * Between pushes, usage within one window only grows, so a lower number for the
+ * same window means the reading was taken earlier — whatever else it says is
  * equally out of date, which is why the caller drops it whole rather than
  * salvaging fields from it. A genuinely new window arrives with a later
- * `resetsAt` and is free to start from zero.
+ * `resetsAt` and is free to start from zero. (A poll gets a narrower version of
+ * this check; see `PUSH_PRECEDENCE_MS`.)
  *
  * Reset times are compared with a tolerance because the two sources round
  * differently: a push carries epoch seconds (`1789744200` → `…200000`), a poll
@@ -171,6 +215,8 @@ export class ClaudeUsageProbe {
   private inFlight: Promise<RuntimeUsageLimits | null> | null = null
   /** Merged across polls — a single response may carry only some windows. */
   private windows: Record<string, RuntimeUsageLimitWindow> = {}
+  /** When a push last set each window (epoch ms); cleared once a poll takes the window over. */
+  private pushedAt: Record<string, number> = {}
   private subscriptionType: string | undefined
   /** Epoch ms before which polling is suppressed; 0 once a poll succeeds. */
   private retryAt = 0
@@ -193,7 +239,7 @@ export class ClaudeUsageProbe {
     if (Date.now() < this.retryAt) return this.snapshot()
     if (this.inFlight) return this.inFlight
 
-    const request = this.fetch()
+    const request = this.fetch(options?.force === true)
     this.inFlight = request
     try {
       return await request
@@ -212,7 +258,7 @@ export class ClaudeUsageProbe {
    * resume polling nor as a failure that would delay it.
    */
   applyPush(windows: Record<string, RuntimeUsageLimitWindow>): void {
-    this.mergeWindows(windows)
+    this.mergeWindows(attributePushedModelScopedWindow(windows, this.windows), 'push')
   }
 
   async dispose(): Promise<void> {
@@ -227,7 +273,7 @@ export class ClaudeUsageProbe {
     }
   }
 
-  private async fetch(): Promise<RuntimeUsageLimits | null> {
+  private async fetch(force: boolean): Promise<RuntimeUsageLimits | null> {
     const active = await this.ensureQuery()
     if (!active) return this.backoff('no probe process')
 
@@ -249,7 +295,7 @@ export class ClaudeUsageProbe {
 
       this.failureStreak = 0
       this.retryAt = 0
-      this.mergeWindows(windows)
+      this.mergeWindows(windows, force ? 'forced-poll' : 'poll')
       return this.snapshot()
     } catch (error) {
       return this.backoff(
@@ -284,18 +330,51 @@ export class ClaudeUsageProbe {
    * endpoint, which can still be a percentage point behind. A poll landing
    * after a push would lower a number the user has already seen, and the badge
    * would visibly step back for no reason they can observe.
+   *
+   * So each source gets its own rule:
+   * - a push never lowers a window it shares with the snapshot — pushes from
+   *   several sessions can arrive out of order;
+   * - a poll is the account's own answer and wins, except against a push from
+   *   the last `PUSH_PRECEDENCE_MS`, which is the lag it may be racing. Holding
+   *   it to the push rule forever is what kept a weekly limit reset by hand
+   *   at 100% until the app restarted: the reset keeps the window's `resetsAt`;
+   * - a forced poll (the Refresh button) is taken as is. The user pressed it
+   *   because the number looks wrong; keeping ours would only repeat it.
    */
-  private mergeWindows(incoming: Record<string, RuntimeUsageLimitWindow>): void {
+  private mergeWindows(
+    incoming: Record<string, RuntimeUsageLimitWindow>,
+    source: 'push' | 'poll' | 'forced-poll',
+  ): void {
+    const now = Date.now()
     const merged: Record<string, RuntimeUsageLimitWindow> = { ...this.windows }
+    const pushedAt: Record<string, number> = { ...this.pushedAt }
 
     for (const [key, next] of Object.entries(incoming)) {
       const prev = merged[key]
-      if (prev && isStaleReading(prev, next)) continue
+      if (prev && source !== 'forced-poll' && isStaleReading(prev, next)) {
+        if (source === 'push') continue
+        const lastPush = pushedAt[key]
+        if (lastPush !== undefined && now - lastPush < PUSH_PRECEDENCE_MS) continue
+      }
       merged[key] = next
+      if (source === 'push') pushedAt[key] = now
+      else delete pushedAt[key]
+    }
+
+    // A push that came in before any poll named the per-model window had to be
+    // kept under its own key. Once a poll reports exactly one such window, that
+    // is where pushes go from now on, and the stand-in is the same window twice.
+    if (source !== 'push' && merged[PUSHED_MODEL_SCOPED_KEY]) {
+      const scoped = Object.keys(incoming).filter((key) => key.startsWith(MODEL_SCOPED_PREFIX))
+      if (scoped.length === 1) {
+        delete merged[PUSHED_MODEL_SCOPED_KEY]
+        delete pushedAt[PUSHED_MODEL_SCOPED_KEY]
+      }
     }
 
     this.logChangedWindows(merged)
     this.windows = merged
+    this.pushedAt = pushedAt
   }
 
   /**

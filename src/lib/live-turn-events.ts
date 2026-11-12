@@ -2,6 +2,7 @@ import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import type { PendingInputSummary } from '@shared/pending-input'
 import { useChatBackgroundTaskStore } from '@/stores/chat-background-task-store'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
+import { useChatPresenceStore } from '@/stores/chat-presence-store'
 import { useChatPromptSuggestionStore } from '@/stores/chat-prompt-suggestion-store'
 import { subscribeEvents } from './event-stream'
 import type { SseSubscription } from './sse.js'
@@ -95,6 +96,7 @@ function ensureStream(): void {
         for (const status of frame.statuses) next.set(status.chatId, status)
         const previous = activeByChat
         activeByChat = next
+        useChatPresenceStore.getState().sync(next.keys())
         // A reconnect's sync is also the recovery path: tell every subscriber
         // where its chat stands now, including the ones whose turn ended while
         // the stream was down (present before, absent now → idle).
@@ -118,6 +120,7 @@ function ensureStream(): void {
       const { status } = frame
       if (status.active) activeByChat.set(status.chatId, status)
       else activeByChat.delete(status.chatId)
+      useChatPresenceStore.getState().set(status.chatId, status.active)
       deliver(status)
     },
     onError: () => {
@@ -135,15 +138,16 @@ function releaseStream(): void {
   // Nothing is listening, so this view is about to go stale; the next connect
   // sends a fresh sync anyway.
   activeByChat = new Map()
+  useChatPresenceStore.getState().sync([])
   useChatPendingInputStore.getState().sync([])
   useChatBackgroundTaskStore.getState().sync([])
   useChatPromptSuggestionStore.getState().sync([])
 }
 
 /**
- * Keep `useChatPendingInputStore` current for every chat — tab markers and
- * external-agent cards read it, including for chats no panel is showing. Returns
- * a release.
+ * Keep `useChatPendingInputStore` and `useChatPresenceStore` current for every
+ * chat — tab markers, external-agent cards and the sidebar's Active list read
+ * them, including for chats no panel is showing. Returns a release.
  */
 export function watchPendingInput(): () => void {
   pendingInputWatchers += 1

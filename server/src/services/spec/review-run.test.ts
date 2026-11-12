@@ -30,8 +30,8 @@ vi.mock('../workflow/dispatch.js', () => ({
     return JSON.stringify(review)
   }),
 }))
-vi.mock('operon-agents', () => ({
-  LocalEnvironment: class {},
+vi.mock('operon-agents', () => ({ LocalEnvironment: class {} }))
+vi.mock('operon-agents/advanced', () => ({
   createWorktree: vi.fn(async () => null),
   newAgentId: (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`,
   validateValue: (schema: { required?: string[] }, value: unknown) =>

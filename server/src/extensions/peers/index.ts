@@ -1,4 +1,5 @@
-import type { ExtensionDefinition, ExtensionHostContext } from 'operon-agents'
+import type { ExtensionDefinition } from 'operon-agents'
+import type { ExtensionHostContext } from 'operon-agents/advanced'
 import {
   createFilePeerRepo,
   createPeerNetwork,
@@ -30,6 +31,9 @@ import { TEAMS_SERVICE, type TeamsExtensionServices } from './contract.js'
 const definition: ExtensionDefinition<PeerNetworkHandle, PeerParams, TeamsExtensionServices> = {
   id: PEERS_SERVICE,
   uses: [TEAMS_SERVICE],
+  // `member` is a seat on the roster: a fork of a teammate is an ordinary session, not a second
+  // holder of that seat.
+  forkParams: 'drop',
 
   async harness(host: ExtensionHostContext<TeamsExtensionServices>) {
     const teams = host.services[TEAMS_SERVICE]
@@ -40,9 +44,16 @@ const definition: ExtensionDefinition<PeerNetworkHandle, PeerParams, TeamsExtens
       Object.keys(config.types).map((type): [string, TeammateFactory] => [
         type,
         async (request) => {
-          const base = await teams.teammateOptions(request)
+          const { title, workDir, config } = await teams.teammateOptions(request)
           const member: PeerMemberOptions = { name: request.name, team: request.team, type: request.type }
-          const created = await host.createSession({ ...base, params: { ...(base.params ?? {}), [PEERS_SERVICE]: { member } } })
+          // Born on behalf of its lead (`from`): the lead's directory and owner. Its seat on the
+          // roster rides `config.extensions`, stored with the session so a restore keeps it.
+          const created = await host.createSession({
+            ...(title !== undefined ? { title } : {}),
+            ...(workDir !== undefined ? { workDir } : {}),
+            from: request.creatorSessionId,
+            config: { ...(config ?? {}), extensions: { ...(config?.extensions ?? {}), [PEERS_SERVICE]: { member } } },
+          })
           try {
             await teams.onTeammateCreated(created.id, member)
           } catch (error) {
@@ -59,6 +70,7 @@ const definition: ExtensionDefinition<PeerNetworkHandle, PeerParams, TeamsExtens
       budget: config.budget,
       limits: { maxOutboundPerTurn: 20, mailboxCapacity: 200 },
       spawnable,
+      resumeSession: (id: string) => host.resumeSession(id),
     })
   },
 

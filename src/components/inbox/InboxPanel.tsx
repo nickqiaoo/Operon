@@ -1,25 +1,23 @@
 import { useCallback, useEffect, type UIEvent } from "react"
 import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "react-intl"
 import { CheckCheck, Inbox as InboxIcon } from "lucide-react"
-import { useInboxStore, type InboxFilter } from "@/stores/inbox-store"
+import { inboxVisibleItems, useInboxStore, type InboxFilter } from "@/stores/inbox-store"
 import type { Notification } from "@/types/notification"
-import { isAssistantNotification } from "@/types/notification"
+import { usePageVisible } from "@/lib/page-visibility"
 import { cn } from "@/lib/utils"
 import { InboxItem } from "./InboxItem"
 
-const filterLabels = defineMessages({
+const inboxFilterLabels = defineMessages({
   all: { id: "inbox.filter.all", defaultMessage: "All" },
   action: { id: "inbox.filter.action", defaultMessage: "Needs you" },
-  info: { id: "inbox.filter.info", defaultMessage: "Done" },
 })
 
 const FILTERS: { id: InboxFilter; label: MessageDescriptor }[] = [
-  { id: "all", label: filterLabels.all },
-  { id: "action", label: filterLabels.action },
-  { id: "info", label: filterLabels.info },
+  { id: "all", label: inboxFilterLabels.all },
+  { id: "action", label: inboxFilterLabels.action },
 ]
 
-/** All / Needs you / Done. Shared by the sheet's header and the inbox page's top bar. */
+/** All / Needs you. Shared by the sheet's header and the inbox page's top bar. */
 export function InboxFilterTabs({ className }: { className?: string }) {
   const filter = useInboxStore((s) => s.filter)
   const setFilter = useInboxStore((s) => s.setFilter)
@@ -84,13 +82,15 @@ export function InboxPanel({ onItemClick, variant = "sheet" }: InboxPanelProps) 
   const load = useInboxStore((s) => s.load)
   const loadMore = useInboxStore((s) => s.loadMore)
   const isPage = variant === "page"
+  // The inbox page stays mounted while hidden, so "opens" means "comes back on screen".
+  const pageVisible = usePageVisible()
 
-  // Refetch when the list mounts (opens); live events keep it fresh while open.
+  // Refetch each time the list opens; live events keep it fresh while open.
   useEffect(() => {
-    void load()
-  }, [load])
+    if (pageVisible) void load()
+  }, [load, pageVisible])
 
-  const visible = items.filter((n) => !isAssistantNotification(n) && (filter === "all" || n.severity === filter))
+  const visible = inboxVisibleItems(items, filter)
   const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     if (!hasMore || loadingMore) return
     const element = event.currentTarget

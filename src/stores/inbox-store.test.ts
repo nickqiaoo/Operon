@@ -14,7 +14,7 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import { useInboxStore } from "./inbox-store"
+import { inboxVisibleItems, useInboxStore } from "./inbox-store"
 
 function notification(id: number, severity: Notification["severity"] = "info"): Notification {
   return {
@@ -125,5 +125,13 @@ describe("inbox pagination", () => {
     expect(inboxList).toHaveBeenCalledWith({ severity: "action", limit: 50 })
     expect(useInboxStore.getState().filter).toBe("action")
     expect(useInboxStore.getState().items.map((item) => item.id)).toEqual([2])
+  })
+
+  it("only shows rows that asked for the user under Needs you", () => {
+    useInboxStore.setState({ items: [notification(2), notification(1, "action")] })
+    const { items } = useInboxStore.getState()
+
+    expect(inboxVisibleItems(items, "all").map((n) => n.id)).toEqual([2, 1])
+    expect(inboxVisibleItems(items, "action").map((n) => n.id)).toEqual([1])
   })
 })

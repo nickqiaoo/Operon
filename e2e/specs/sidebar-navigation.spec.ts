@@ -45,7 +45,7 @@ test('the sidebar toggle stays mounted and stationary throughout the animation',
     await expect(toggle).toHaveAttribute('aria-expanded', expanded)
   }
   const before = await toggle.boundingBox()
-  for (const name of ['Assistant', 'Inbox', 'Board', 'Channels']) {
+  for (const name of ['Assistant', 'Board', 'Channels']) {
     await page.getByTestId('left-sidebar').getByRole('button', { name, exact: true }).click()
     expect(await original!.evaluate(element => element.isConnected)).toBe(true)
     expect(await toggle.boundingBox()).toEqual(before)
@@ -61,7 +61,7 @@ test('the sidebar toggle stays mounted and stationary throughout the animation',
 test('navigation icons keep their size and alignment when the sidebar changes mode', async ({ page }, testInfo) => {
   const sidebar = page.getByTestId('left-sidebar')
   const measure = () => sidebar.evaluate(element => {
-    const labels = ['Assistant', 'Inbox', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']
+    const labels = ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']
     return labels.map(label => {
       const button = element.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
       const icon = button.querySelector('svg')!.getBoundingClientRect()
@@ -106,7 +106,6 @@ test('sidebar tooltips wait for hover and reset when the sidebar changes mode', 
   await expect(page.getByRole('tooltip')).toHaveCount(0)
   await expect(page.getByRole('tooltip')).toHaveText('Assistant')
 
-  await sidebar.getByRole('button', { name: 'Inbox', exact: true }).hover()
   await sidebar.getByRole('button', { name: 'Board', exact: true }).hover()
   await sidebar.getByRole('button', { name: 'Channels', exact: true }).hover()
   await page.mouse.move(800, 300)
@@ -126,19 +125,19 @@ test('restoring window focus does not reopen a sidebar tooltip', async ({ page }
   const sidebar = page.getByTestId('left-sidebar')
   await sidebar.getByRole('button', { name: 'Assistant', exact: true }).click()
   await page.keyboard.press('Tab')
-  await expect(sidebar.getByRole('button', { name: 'Inbox', exact: true })).toBeFocused()
-  await expect(page.getByRole('tooltip')).toHaveText('Inbox')
+  await expect(sidebar.getByRole('button', { name: 'Board', exact: true })).toBeFocused()
+  await expect(page.getByRole('tooltip')).toHaveText('Board')
 
-  const inbox = sidebar.getByRole('button', { name: 'Inbox', exact: true })
+  const board = sidebar.getByRole('button', { name: 'Board', exact: true })
   // Match the focus events delivered when macOS deactivates/reactivates a window.
-  await inbox.evaluate(element => {
+  await board.evaluate(element => {
     element.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }))
     element.dispatchEvent(new FocusEvent('focusin', { bubbles: true, relatedTarget: null }))
   })
   await page.waitForTimeout(700)
   await expect(page.getByRole('tooltip')).toHaveCount(0)
   await page.keyboard.press('Tab')
-  await expect(page.getByRole('tooltip')).toHaveText('Board')
+  await expect(page.getByRole('tooltip')).toHaveText('Channels')
 })
 
 test('sidebar labels and tooltips follow live language changes', async ({ page }) => {
@@ -148,7 +147,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await page.getByTestId('settings-back-button').click()
   const sidebar = page.getByTestId('left-sidebar')
-  for (const label of ['助理', '收件箱', '看板', '频道', '工作流', '插件', '定时任务', '设置']) {
+  for (const label of ['助理', '看板', '频道', '工作流', '插件', '定时任务', '设置']) {
     await expect(sidebar.getByRole('button', { name: label, exact: true })).toHaveText(label)
   }
   const help = sidebar.getByRole('button', { name: '帮助', exact: true })
@@ -175,7 +174,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await page.getByTestId('settings-tab-appearance').click()
   await page.getByTestId('settings-appearance-locale-en').click()
   await page.getByTestId('settings-back-button').click()
-  for (const label of ['Assistant', 'Inbox', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
+  for (const label of ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
     await expect(sidebar.getByRole('button', { name: label, exact: true })).toHaveText(label)
   }
   await expect(sidebar.getByRole('button', { name: 'Help', exact: true })).toBeVisible()
@@ -185,7 +184,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
 test('collapsed sidebar keeps all navigation destinations directly accessible', async ({ page }) => {
   await collapseSidebar(page)
   const sidebar = page.getByTestId('left-sidebar')
-  for (const name of ['Assistant', 'Inbox', 'Board', 'Channels', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
+  for (const name of ['Assistant', 'Board', 'Channels', 'Active', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
     const button = sidebar.getByRole('button', { name, exact: true })
     await expect(button).toBeVisible()
     await expect(button).toHaveText('')
@@ -193,8 +192,11 @@ test('collapsed sidebar keeps all navigation destinations directly accessible', 
   await sidebar.getByRole('button', { name: 'Assistant', exact: true }).click()
   await expect(sidebar.getByRole('button', { name: 'Assistant', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(expandButton(page)).toBeVisible()
-  await sidebar.getByRole('button', { name: 'Inbox', exact: true }).click()
-  await expect(sidebar.getByRole('button', { name: 'Inbox', exact: true })).toHaveAttribute('aria-current', 'page')
+  // The inbox is reached through the Active list's header.
+  await sidebar.getByRole('button', { name: 'Active', exact: true }).click()
+  await page.getByTestId('active-flyout').getByRole('button', { name: 'Inbox', exact: true }).click()
+  await expect(page.getByTestId('active-flyout')).toBeHidden()
+  await expect(page.locator('.drag-region > span:visible').filter({ hasText: /^Inbox$/ })).toBeVisible()
   await expandButton(page).click()
   await expect(sidebar.getByRole('button', { name: 'Workflow', exact: true })).toHaveText('Workflow')
   await expect(page.getByTestId('project-tree')).toHaveAttribute('role', 'region')
@@ -260,28 +262,29 @@ test('resting on the rail projects button floats the tree until the pointer leav
   await expect(tree).toBeHidden()
 })
 
-test('resting on the rail inbox button floats the list and a click still opens the page', async ({ page }) => {
+test('resting on the rail active button floats the list until the pointer leaves it', async ({ page }) => {
   await collapseSidebar(page)
-  const inbox = page.getByTestId('left-sidebar').getByRole('button', { name: 'Inbox', exact: true })
-  const flyout = page.getByTestId('inbox-flyout')
+  const trigger = page.getByTestId('left-sidebar').getByRole('button', { name: 'Active', exact: true })
+  const flyout = page.getByTestId('active-flyout')
 
-  await inbox.hover()
+  await trigger.hover()
   await expect(flyout).toBeVisible()
   await expect(page.getByRole('tooltip')).toHaveCount(0)
-  await flyout.getByRole('button', { name: 'Needs you', exact: true }).hover()
+  // Reaching the panel crosses the gap beside the rail without closing it.
+  await flyout.getByRole('button', { name: 'Inbox', exact: true }).hover()
   await page.waitForTimeout(500)
   await expect(flyout).toBeVisible()
   await page.mouse.move(800, 300)
   await expect(flyout).toBeHidden()
 
-  await inbox.click()
-  await expect(inbox).toHaveAttribute('aria-current', 'page')
-  await expect(flyout).toBeHidden()
-
-  // Already on the inbox page: the button goes back to a plain tooltip.
+  // A click pins it, so leaving no longer closes it; a second click does.
+  await trigger.hover()
+  await expect(flyout).toBeVisible()
+  await trigger.click()
   await page.mouse.move(800, 300)
-  await inbox.hover()
-  await expect(page.getByRole('tooltip')).toHaveText('Inbox')
+  await page.waitForTimeout(500)
+  await expect(flyout).toBeVisible()
+  await trigger.click()
   await expect(flyout).toBeHidden()
 })
 

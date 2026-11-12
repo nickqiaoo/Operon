@@ -1,4 +1,5 @@
-import { PluginManager, type McpServerConfig } from 'operon-agents'
+import type { McpServerConfig } from 'operon-agents'
+import { PluginManager } from 'operon-agents/advanced'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {

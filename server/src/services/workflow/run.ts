@@ -8,11 +8,7 @@
  * a run, and everything that happens to one happens here, as appends.
  */
 
-import {
-  WorkflowJournal,
-  runWorkflow,
-  type WorkflowMeta,
-} from 'operon-agents'
+import { WorkflowJournal, runWorkflow, type WorkflowMeta } from 'operon-agents/advanced'
 import { deliverWorkflowResult } from './completion.js'
 import { buildHooks, type WorkflowRunContext } from './engine-hooks.js'
 import { workflowJournalStore } from './journal-store.js'

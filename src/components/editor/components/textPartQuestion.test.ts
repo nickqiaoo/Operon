@@ -1,6 +1,6 @@
 import type { UIMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
-import { textPartQuestion } from './textPartQuestion';
+import { textPartQuestion, textPartQuestionAnswer } from './textPartQuestion';
 
 type Part = UIMessage['parts'][number];
 
@@ -20,17 +20,17 @@ describe('textPartQuestion', () => {
     const parts = [progress, asked, closing];
     expect(textPartQuestion(parts, 0)).toBeUndefined();
     expect(textPartQuestion(parts, 1)).toEqual({ hidden: true });
-    expect(textPartQuestion(parts, 2)).toEqual({ hidden: false, text: 'Pick one and I will start.', questions: one });
+    expect(textPartQuestion(parts, 2)).toEqual({ hidden: false, text: 'Pick one and I will start.', questions: one, sourceIndex: 1 });
   });
 
   it('shows the title and form while no closing answer has come', () => {
-    expect(textPartQuestion([asked, progress], 0)).toEqual({ hidden: false, text: 'Which?', questions: one });
+    expect(textPartQuestion([asked, progress], 0)).toEqual({ hidden: false, text: 'Which?', questions: one, sourceIndex: 0 });
     expect(textPartQuestion([asked, progress], 1)).toBeUndefined();
   });
 
   it('shows no text of its own for several questions', () => {
     const part = text('Which?\nWhy?', { phase: 'final_answer', questions: several });
-    expect(textPartQuestion([part], 0)).toEqual({ hidden: false, text: '', questions: several });
+    expect(textPartQuestion([part], 0)).toEqual({ hidden: false, text: '', questions: several, sourceIndex: 0 });
   });
 
   it('leaves replies without a question alone', () => {
@@ -42,5 +42,26 @@ describe('textPartQuestion', () => {
     const parts = [asked, closing, closing];
     expect(textPartQuestion(parts, 1)).toMatchObject({ questions: one });
     expect(textPartQuestion(parts, 2)).toBeUndefined();
+  });
+});
+
+const answer: Part = { type: 'data-injected-input', data: { id: 'reply-1', text: 'B' } };
+
+describe('answers received during the turn', () => {
+  it('keeps an answered question in place when the turn closes', () => {
+    const parts = [asked, answer, progress, closing];
+    expect(textPartQuestion(parts, 0)).toMatchObject({ hidden: false, sourceIndex: 0 });
+    expect(textPartQuestion(parts, 3)).toBeUndefined();
+    expect(textPartQuestionAnswer(parts, 0)).toBe('B');
+  });
+
+  it('does not use an answer received before the question', () => {
+    expect(textPartQuestionAnswer([answer, asked, closing], 1)).toBeUndefined();
+  });
+
+  it('does not give an earlier question the answer to a later one', () => {
+    const parts = [asked, progress, asked, answer];
+    expect(textPartQuestionAnswer(parts, 0)).toBeUndefined();
+    expect(textPartQuestionAnswer(parts, 2)).toBe('B');
   });
 });

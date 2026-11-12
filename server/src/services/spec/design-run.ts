@@ -17,7 +17,7 @@
  * agent learns that there are questions to ask or a design to present.
  */
 
-import { newAgentId } from 'operon-agents'
+import { newAgentId } from 'operon-agents/advanced'
 import type { TaskStorageAdapter } from '../../storage/interface.js'
 import type { Task } from '../../types/task.js'
 import type { SpecQuestion, SpecRun, SpecStage, SpecTicket } from '../../types/spec.js'

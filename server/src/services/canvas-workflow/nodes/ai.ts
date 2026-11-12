@@ -5,7 +5,7 @@ import type {
   CanvasAISessionNodeData,
   CanvasNode,
 } from '../../../types/canvas-workflow.js'
-import { validateValue } from 'operon-agents'
+import { validateValue } from 'operon-agents/advanced'
 import { getSessionManager, startChat } from '../../ai.js'
 import { readPreparedTextStreamParts } from '../../ai/prepared-stream-parts.js'
 import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'

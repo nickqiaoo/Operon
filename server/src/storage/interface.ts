@@ -386,6 +386,14 @@ export interface NotificationStorageAdapter {
   /** Mark the live row for `sourceKey` read. `kind` optionally protects a
    *  lifecycle-specific transition from consuming a newer row for that source. */
   notificationMarkReadBySource(sourceKey: string, kind?: NotificationKind): number[]
+  /**
+   * A chat's "waiting on you" row stops asking: its severity drops to info, so it
+   * leaves the inbox's Needs-you view and stays in its history. `markRead` also
+   * reads it (the user answered); a turn that merely ended leaves that alone.
+   * `sourceKey` null settles every one — after a restart nothing is pending.
+   * Returns the ids that changed.
+   */
+  notificationSettleNeedsInput(sourceKey: string | null, options: { markRead: boolean }): number[]
   /** Mark every live row whose source key starts with `prefix` read (e.g. all of `assistant:*`). */
   notificationMarkReadBySourcePrefix(prefix: string): number[]
   /** Archive (dismiss); returns the ids that actually transitioned. */

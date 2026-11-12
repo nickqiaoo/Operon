@@ -8,8 +8,8 @@ const { dataDir, materialize } = vi.hoisted(() => {
   return { dataDir: dir, materialize: vi.fn() }
 })
 
-vi.mock('operon-agents', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('operon-agents')>()),
+vi.mock('operon-agents/advanced', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('operon-agents/advanced')>()),
   materializeGithubRepo: materialize,
 }))
 

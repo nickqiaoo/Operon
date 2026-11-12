@@ -44,21 +44,26 @@ function announce(chatId: number, approval: PendingApproval, firstPending: boole
 }
 
 /**
- * Once a chat has no pending approvals left after an answer, retire the unread
- * needs-input row — the turn resumes, and chat_complete re-raises the same
- * sourceKey row when it finishes. A turn ending on its own leaves the row alone
- * for the same reason.
+ * Once a chat has nothing pending left, its needs-input row stops asking: it
+ * drops out of Needs you (severity → info) and stays in the history. When the
+ * user answered, it is read too. A turn that ended on its own keeps its read
+ * state — chat_complete re-raises the same sourceKey row unless the chat is on
+ * screen, and then nothing else would ever settle it.
+ *
+ * Read rows are settled as well: viewing the chat reads the row while the
+ * approval is still open, and only marking unread rows read left those asking
+ * forever.
  */
-function retire(chatId: number): void {
+function retire(chatId: number, markRead: boolean): void {
   const storage = getNotificationStorage()
   if (!storage) return
   try {
-    const readIds = storage.notificationMarkReadBySource(`chat:${chatId}`, 'chat_needs_input')
-    for (const id of readIds) {
+    const changed = storage.notificationSettleNeedsInput(`chat:${chatId}`, { markRead })
+    for (const id of changed) {
       const row = storage.notificationGet(id)
       if (row) emitInboxEvent({ type: 'notification_upsert', notification: row })
     }
-    if (readIds.length > 0) emitCounts(storage)
+    if (changed.length > 0) emitCounts(storage)
   } catch (err) {
     console.error('[Inbox] retiring needs-input row failed:', err)
   }
@@ -66,5 +71,6 @@ function retire(chatId: number): void {
 
 subscribePendingInput((change) => {
   if (change.reason === 'requested') announce(change.chatId, change.approval, change.first)
-  else if (change.reason === 'resolved' && change.pending.length === 0) retire(change.chatId)
+  else if (change.reason === 'resolved' && change.pending.length === 0) retire(change.chatId, true)
+  else if (change.reason === 'cleared') retire(change.chatId, false)
 })

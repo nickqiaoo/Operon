@@ -1,4 +1,4 @@
-import { McpOAuthService } from 'operon-agents'
+import { McpOAuthService } from 'operon-agents/advanced'
 import type { McpOAuthClientSettings } from 'operon-agents/mcp'
 import { installRefreshSingleFlight } from './oauth-refresh-single-flight.js'
 import { HARNESS_HOME_DIR } from './paths.js'

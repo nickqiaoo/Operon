@@ -1,4 +1,5 @@
-import type { AutoApprovalInput, AutoApprover, ChatModel } from 'operon-agents'
+import type { AutoApprover, ChatModel } from 'operon-agents'
+import type { AutoApprovalInput } from 'operon-agents/advanced'
 import { describe, expect, it, vi } from 'vitest'
 import { withAutoReviewModel } from './auto-review.js'
 

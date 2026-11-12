@@ -15,7 +15,8 @@
  * for permission surfaces on the run card, in its chat and in the chat's inbox.
  */
 
-import { LocalEnvironment, createWorktree, newAgentId, validateValue } from 'operon-agents'
+import { LocalEnvironment } from 'operon-agents'
+import { createWorktree, newAgentId, validateValue } from 'operon-agents/advanced'
 import { runProviderAgent } from '../workflow/dispatch.js'
 import { parseJsonReply, splitTrailingJson, summarizeStructured } from '../workflow/json-reply.js'
 import { excludeLocally } from '../git.js'

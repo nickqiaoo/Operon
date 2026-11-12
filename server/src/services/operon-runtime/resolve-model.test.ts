@@ -15,7 +15,7 @@ vi.mock('../provider-config.js', () => ({
   isProviderUsable: () => true,
 }))
 
-const { DecisionModel, ChatModel } = await import('operon-agents')
+const { DecisionModel, ChatModel } = await import('operon-agents/advanced')
 const { getModelCapabilities, listDecisionModels, modelRef, resolveModel, resolveReviewModel, syncModelProvider, syncModelProviders } = await import('./resolve-model.js')
 
 beforeEach(() => {

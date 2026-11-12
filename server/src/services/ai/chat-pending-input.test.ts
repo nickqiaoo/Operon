@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 
-const inbox = vi.hoisted(() => ({ notify: vi.fn(), markRead: vi.fn((): number[] => []) }))
+const inbox = vi.hoisted(() => ({ notify: vi.fn(), settle: vi.fn((): number[] => []) }))
 vi.mock('./state.js', () => ({
   getChatHistoryService: () => ({ getChatMeta: () => ({ title: 'Child chat', workspaceId: 42 }) }),
-  getNotificationStorage: () => ({ notificationMarkReadBySource: inbox.markRead, notificationGet: () => undefined }),
+  getNotificationStorage: () => ({ notificationSettleNeedsInput: inbox.settle, notificationGet: () => undefined }),
 }))
 vi.mock('../notification-service.js', () => ({ notify: inbox.notify, emitCounts: vi.fn() }))
 vi.mock('../channel-bus.js', () => ({ emitInboxEvent: vi.fn() }))
@@ -22,7 +22,7 @@ describe('chat pending input', () => {
     registry.clearPendingApprovals(7)
     registry.clearPendingApprovals(8)
     inbox.notify.mockClear()
-    inbox.markRead.mockClear()
+    inbox.settle.mockClear()
     changes = []
     registry.subscribePendingInput((change) => {
       changes.push({
@@ -95,13 +95,14 @@ describe('chat pending input', () => {
     expect(inbox.notify.mock.calls[0][1].workspaceId).toBe(42)
 
     registry.resolvePendingApproval(7, 'a1')
-    expect(inbox.markRead).not.toHaveBeenCalled()
+    expect(inbox.settle).not.toHaveBeenCalled()
+    // Answering the last one settles the row and reads it.
     registry.resolvePendingApproval(7, 'a2')
-    expect(inbox.markRead).toHaveBeenCalledWith('chat:7', 'chat_needs_input')
+    expect(inbox.settle).toHaveBeenCalledWith('chat:7', { markRead: true })
 
-    // A turn that simply ends leaves the row for chat_complete to replace.
+    // A turn that simply ends stops it asking too, but leaves it unread for chat_complete to replace.
     registry.observePendingInputPart(7, request('a3', 'Bash'), { userFacing: true })
     registry.clearPendingApprovals(7)
-    expect(inbox.markRead).toHaveBeenCalledTimes(1)
+    expect(inbox.settle).toHaveBeenLastCalledWith('chat:7', { markRead: false })
   })
 })

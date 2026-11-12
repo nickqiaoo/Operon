@@ -17,10 +17,11 @@ describe('tool input at approval time', () => {
     const runtime = createModelManager({ builtins: false })
     runtime.models.setProvider(handle.provider)
     const harness = createHarness({
-      model: `${handle.provider.id}/${handle.getModel().id}`,
+      config: {
+        defaults: { model: `${handle.provider.id}/${handle.getModel().id}`, permission: { mode: 'manual' } },
+        workDir: mkdtempSync(path.join(tmpdir(), 'operon-approval-input-')),
+      },
       modelManager: runtime,
-      workDir: mkdtempSync(path.join(tmpdir(), 'operon-approval-input-')),
-      permission: { mode: 'manual' },
     })
     const session = await harness.createSession()
     const mapper = new OperonStreamMapper()

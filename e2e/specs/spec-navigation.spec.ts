@@ -159,7 +159,8 @@ test('Spec conversations share the original chat, files and terminal workbench',
   fakeOnly()
   const { main, spec, implementer, implementerWorkspace } = await installSpec(page)
   await page.getByRole('button', { name: 'Chat history', exact: true }).click()
-  await page.getByRole('button', { name: /Plan post navigation/ }).click()
+  // Scope to the history popover: the sidebar's Active list shows the same chat title.
+  await page.getByRole('dialog').getByRole('button', { name: /Plan post navigation/ }).click()
   const draft = page.getByRole('textbox', { name: /Ask anything/ })
   await draft.fill('Keep the original discussion draft')
   const originalTabId = await page.evaluate(() => window.__operon?.activeTabId())

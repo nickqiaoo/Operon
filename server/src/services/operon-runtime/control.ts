@@ -1,4 +1,5 @@
-import type { CronHandle, HarnessSession } from 'operon-agents'
+import type { HarnessSession } from 'operon-agents'
+import type { CronHandle } from 'operon-agents/advanced'
 import { rosterForSession, type PeersRosterDTO } from './peers.js'
 
 /**

@@ -501,7 +501,7 @@ export function chatHistoryList(
   if (paging?.limit !== undefined) searchParams.set('limit', String(paging.limit))
   if (paging?.offset) searchParams.set('offset', String(paging.offset))
   const params = searchParams.toString() ? `?${searchParams.toString()}` : ''
-  return request<{ id: number; tp: string; title: string; updatedAt: number; model?: string; providerId?: string; metadata?: { workflowId?: number; runId?: number; nodeId?: string; nodeName?: string; cronjobId?: number } }[]>(
+  return request<{ id: number; tp: string; title: string; updatedAt: number; model?: string; providerId?: string; workspaceId?: number | null; metadata?: { workflowId?: number; runId?: number; nodeId?: string; nodeName?: string; cronjobId?: number } }[]>(
     `/chat-history${params}`
   )
 }

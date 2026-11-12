@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react"
 import { HOVER_CARD_CLOSE_DELAY_MS, HOVER_CARD_OPEN_DELAY_MS } from "@/components/ui/hover-card"
 
-export type RailFlyoutKind = "projects" | "inbox"
+export type RailFlyoutKind = "projects" | "active"
 
 interface RailFlyout {
   kind: RailFlyoutKind

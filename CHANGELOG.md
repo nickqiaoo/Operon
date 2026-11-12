@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [1.5.19] - 2026-11-12
+
+### Added
+
+- The sidebar's Active list shows every conversation in play, across projects and workspaces, grouped as Needs you, Done, Running and Recent. A row opens the chat's tab wherever it is, including one closed earlier or driven from the phone.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.31`. A session stores its own setup and restores from it, and the workspace's MCP servers, plugins and `config.toml` policy are applied on every open.
+- Teams keeps one roster, mailbox and budget per app process instead of one per workspace, and a teammate's seat on the roster survives a restore.
+- The inbox keeps the history: its Done filter is gone, and a row that stops waiting on you leaves Needs you.
+- Claude rate limits: a manual refresh wins over the number already shown, a weekly limit reset by hand is picked up instead of staying at 100%, and the per-model weekly window from response headers shares a row with the usage endpoint's.
+
+### Fixed
+
+- Answering a question sends only the answer, not the draft, attachments or context selected in the composer.
+- Answering a question while the turn is still running works, and the question locks once answered.
+- Opening a chat that is already open focuses its tab instead of opening a second one in the workspace a notification named.
+- Approval rows leave Needs you once answered or the turn ends, and rows left over from before a restart are settled at startup.
+- A follow-up sent during a running turn streams its own run in the same reply, which ends once both are done.
+- Hand-entered model IDs stay in the picker when a provider's live list fails, and a provider's live list is reused for a minute instead of fetched on every catalog refresh.
+
 ## [1.5.18] - 2026-11-10
 
 ### Added

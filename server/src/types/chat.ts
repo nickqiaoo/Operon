@@ -87,6 +87,8 @@ export interface ChatHistoryListItem {
   sessionId?: string
   thinkingLevel?: string
   metadata?: ChatMetadata
+  /** The workspace the chat belongs to; null for one outside any workspace. */
+  workspaceId?: number | null
 }
 
 /** Lightweight chat metadata (no messages loaded) */

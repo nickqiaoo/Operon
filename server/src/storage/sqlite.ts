@@ -214,6 +214,7 @@ interface ChatListRow {
   thinking_level: string | null
   updated_at: number
   metadata: string | null
+  workspace_id: number | null
 }
 
 interface CronjobRow {
@@ -833,7 +834,7 @@ export class SqliteStorage
     }
 
     const sql = `
-      SELECT id, tp, title, model, provider_id, session_id, thinking_level, updated_at, metadata
+      SELECT id, tp, title, model, provider_id, session_id, thinking_level, updated_at, metadata, workspace_id
       FROM chats
       ${where}
       ORDER BY updated_at DESC
@@ -851,6 +852,7 @@ export class SqliteStorage
       sessionId: row.session_id ?? undefined,
       thinkingLevel: row.thinking_level ?? undefined,
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+      workspaceId: row.workspace_id ?? null,
     }))
   }
 
@@ -2593,6 +2595,32 @@ export class SqliteStorage
       if (stmt.run(now, id).changes > 0) changed.push(id)
     }
     return changed
+  }
+
+  notificationSettleNeedsInput(sourceKey: string | null, { markRead }: { markRead: boolean }): number[] {
+    // Read rows count too: viewing the chat reads its row long before the approval
+    // is answered, and the row must still stop asking once it is.
+    const clauses = ["kind = 'chat_needs_input'", 'archived_at IS NULL', markRead ? "(severity = 'action' OR read_at IS NULL)" : "severity = 'action'"]
+    const params: unknown[] = []
+    if (sourceKey != null) {
+      clauses.push('source_key = ?')
+      params.push(sourceKey)
+    }
+    const rows = this.db
+      .prepare(`SELECT id FROM notifications WHERE ${clauses.join(' AND ')}`)
+      .all(...params) as { id: number }[]
+    if (rows.length === 0) return []
+    const stmt = this.db.prepare(
+      markRead
+        ? "UPDATE notifications SET severity = 'info', read_at = COALESCE(read_at, ?) WHERE id = ?"
+        : "UPDATE notifications SET severity = 'info' WHERE id = ?",
+    )
+    const now = Date.now()
+    for (const row of rows) {
+      if (markRead) stmt.run(now, row.id)
+      else stmt.run(row.id)
+    }
+    return rows.map((r) => r.id)
   }
 
   notificationMarkReadBySource(sourceKey: string, kind?: NotificationKind): number[] {

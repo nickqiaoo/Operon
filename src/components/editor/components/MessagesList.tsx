@@ -175,7 +175,8 @@ interface MessagesListProps {
   onReviewTurn?: (messageUid: string) => void;
   externalAgentNotificationsByTaskId?: ReadonlyMap<string, ExternalAgentResultMetadata>;
   /** Send the user's answer to a question the agent asked. */
-  onAnswerQuestion?: (text: string) => void;
+  onAnswerQuestion?: (questionKey: string, text: string) => void;
+  questionAnswers?: Readonly<Record<string, string>>;
 }
 
 interface MessageItemProps {
@@ -212,7 +213,8 @@ interface MessageItemProps {
   onSendToOpen?: () => void;
   onRewindToCheckpoint?: (userMessageId: string, mode: RewindMode) => void;
   onUndoRewind?: () => void;
-  onAnswerQuestion?: (text: string) => void;
+  onAnswerQuestion?: (questionKey: string, text: string) => void;
+  questionAnswers?: Readonly<Record<string, string>>;
   /** What the user said after this message; unset while it is the newest one. */
   questionAnswer?: string;
 }
@@ -272,6 +274,7 @@ const MessageItem = memo(function MessageItem({
   onRewindToCheckpoint,
   onUndoRewind,
   onAnswerQuestion,
+  questionAnswers,
   questionAnswer,
 }: MessageItemProps) {
   const intl = useIntl();
@@ -415,6 +418,7 @@ const MessageItem = memo(function MessageItem({
           externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
           onRewindToHere={rewindToHere}
           onAnswerQuestion={onAnswerQuestion}
+          questionAnswers={questionAnswers}
           questionAnswer={questionAnswer}
         />
       </div>
@@ -518,6 +522,7 @@ export const MessagesList = memo(function MessagesList({
   onReviewTurn,
   externalAgentNotificationsByTaskId,
   onAnswerQuestion,
+  questionAnswers,
 }: MessagesListProps) {
   // Guard against duplicate message ids in the source array (a history + live
   // merge can produce them). Dedupe by id — keeping each id's first position
@@ -706,6 +711,7 @@ export const MessagesList = memo(function MessagesList({
           onRewindToCheckpoint={onRewindToCheckpoint}
           onUndoRewind={onUndoRewind}
           onAnswerQuestion={onAnswerQuestion}
+          questionAnswers={questionAnswers}
           questionAnswer={index < lastMessageIndex ? (messages[index + 1].role === 'user' ? getMessageText(messages[index + 1]) : '') : undefined}
         />
       ))}

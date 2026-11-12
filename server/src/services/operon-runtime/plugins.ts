@@ -1,15 +1,5 @@
-import {
-  loadMarketplace,
-  loadMarketplaceEntryDetails,
-  LocalEnvironment,
-  materializeGithubRepo,
-  parseGithubMarketplaceSource,
-  resolveFromFiles,
-  toCoreOptions,
-  type MarketplaceEntry,
-  type MarketplaceEntryDetails,
-  type PluginSummary,
-} from 'operon-agents'
+import { LocalEnvironment } from 'operon-agents'
+import { loadMarketplace, loadMarketplaceEntryDetails, materializeGithubRepo, parseGithubMarketplaceSource, resolveFromFiles, toCoreOptions, type MarketplaceEntry, type MarketplaceEntryDetails, type PluginSummary } from 'operon-agents/advanced'
 import { mcpOAuthSettings, serverFromConfig, type MCPTool, type McpOAuthClientSettings } from 'operon-agents/mcp'
 import { access, cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'os'

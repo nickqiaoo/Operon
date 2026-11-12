@@ -27,6 +27,11 @@ interface EditorStore extends EditorState {
    * follow this id rather than the one it passed in.
    */
   openChatTab: (chatId: string, title?: string, options?: EditorTab['options'], providerId?: string, isSubAgent?: boolean) => string
+  /**
+   * Where a persisted chat is already open as an editor tab: the current workspace first, then
+   * the others. `workspaceId` is null for the global bucket. Side chats are not editor tabs.
+   */
+  findChatTab: (chatId: number) => { workspaceId: number | null; tabId: string } | undefined
   setTabChatId: (tabId: string, chatId: number) => void
   /**
    * Register a side chat so ChatPanel can find its state. Never activated and
@@ -256,6 +261,21 @@ export const useEditorStore = create<EditorStore>()(
       activeTabId: options?.background ? state.activeTabId : newTab.id,
     })
     return newTab.id
+  },
+
+  findChatTab: (chatId) => {
+    const state = get()
+    const matches = (tab: EditorTab) =>
+      tab.type === "chat" && !tab.isSideChat && (tab.chatId === chatId || tab.id === `chat:${chatId}`)
+    const current = state.tabs.find(matches)
+    if (current) return { workspaceId: state.currentWorkspaceId, tabId: current.id }
+    const currentKey = String(state.currentWorkspaceId ?? "global")
+    for (const [key, bucket] of Object.entries(state.workspaceStates)) {
+      if (key === currentKey) continue
+      const tab = bucket.tabs.find(matches)
+      if (tab) return { workspaceId: key === "global" ? null : Number(key), tabId: tab.id }
+    }
+    return undefined
   },
 
   openSideChatTab: (dbChatId, title, providerId) => {
