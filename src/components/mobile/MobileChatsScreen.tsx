@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Activity, ArrowLeft, Loader2, MessageSquarePlus, SquarePen } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { queryClient } from "@/lib/query-client"
@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { useChatHistoryList, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useEditorStore } from "@/stores/editor-store"
+import { useChatPresenceStore } from "@/stores/chat-presence-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useBackHandler } from "@/hooks/useAndroidBackButton"
 import { MobileHeader, useMobileContentBottom, useMobileContentOffset } from "./MobileHeader"
@@ -18,6 +19,9 @@ import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import { MobileSheet } from "./MobileSheet"
 import { MobileSpecChatsList, type MobileSpecChatTarget } from "./MobileSpecChatsList"
 import { formatRelativeTime } from "@/lib/format"
+import { specKeys } from "@/lib/spec-queries"
+import { PullToRefresh } from "./PullToRefresh"
+import { getChatDraft } from "@/lib/chat-drafts"
 
 interface Provider {
   id: string
@@ -69,6 +73,10 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   const openChatTab = useEditorStore((s) => s.openChatTab)
   const setTabChatId = useEditorStore((s) => s.setTabChatId)
   const setActiveTab = useEditorStore((s) => s.setActiveTab)
+  const closeTab = useEditorStore((s) => s.closeTab)
+  // Server-reported turn presence for every chat (the shell keeps the stream
+  // open), so a row shows its turn running even with no panel mounted.
+  const runningChatIds = useChatPresenceStore((s) => s.runningChatIds)
 
   const [openId, setOpenId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -96,6 +104,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     isInitialLoading: loading,
     isLoadingMore: loadingMore,
     loadMore,
+    refresh: refreshHistory,
   } = useChatHistoryList({
     workspaceId: currentWorkspaceId,
     tp: currentWorkspaceId == null ? "chat" : undefined,
@@ -139,8 +148,31 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   }, [immersive, onImmersiveChange])
   useEffect(() => () => onImmersiveChange?.(false), [onImmersiveChange])
 
+  // Leaving a chat that never got a DB id (nothing was sent) drops its tab, so
+  // tapping New and backing out doesn't leave an empty "Chat" row in the list.
+  // A typed-but-unsent draft keeps it, like any other draft.
+  const discardIfUnused = (tabId: string) => {
+    const tab = useEditorStore.getState().tabs.find((t) => t.id === tabId)
+    if (!tab || tab.type !== "chat" || tab.chatId !== undefined) return
+    if (getChatDraft(tabId).trim()) return
+    closeTab(tabId)
+  }
+  const leaveChat = () => {
+    if (openId) discardIfUnused(openId)
+    setOpenId(null)
+  }
+  // Same when the screen goes away with the chat open (switching bottom tabs):
+  // the open chat isn't restored, so the empty tab would land in the list.
+  const openIdRef = useRef(openId)
+  openIdRef.current = openId
+  const discardRef = useRef(discardIfUnused)
+  discardRef.current = discardIfUnused
+  useEffect(() => () => {
+    if (openIdRef.current) discardRef.current(openIdRef.current)
+  }, [])
+
   // Android back leaves the conversation instead of the app.
-  useBackHandler(immersive, () => setOpenId(null))
+  useBackHandler(immersive, leaveChat)
 
   // Inbox deep-link: open the target chat's conversation directly (mirrors
   // openHistory). ChatPanel loads the transcript from the DB chat id. One-shot —
@@ -261,7 +293,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
         {!hasNativeTabBar() && (
         <button
           type="button"
-          onClick={() => setOpenId(null)}
+          onClick={leaveChat}
           aria-label={intl.formatMessage({ id: "common.back", defaultMessage: "Back" })}
           // Same translucent treatment as the metrics pills above the composer:
           // `bg-background/70`, no backdrop blur, so every floating control in
@@ -294,6 +326,13 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
 
   const isEmpty = specId == null && !loading && liveTabs.length === 0 && history.length === 0
 
+  // Pull to refresh: the spec's chats come from the spec view, everything else
+  // from the workspace's chat history.
+  const refreshList = () =>
+    specId != null
+      ? queryClient.refetchQueries({ queryKey: specKeys.view(specId) })
+      : refreshHistory()
+
   return (
     <div className="flex h-full flex-col">
       <MobileHeader
@@ -307,9 +346,17 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
       />
 
       {isEmpty ? (
-        <EmptyChats onNew={openPicker} topOffset={contentOffset} />
+        <PullToRefresh onRefresh={refreshList} indicatorTop={contentOffset}>
+          <EmptyChats onNew={openPicker} topOffset={contentOffset} />
+        </PullToRefresh>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-2" style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }} onScroll={handleScroll}>
+        <PullToRefresh
+          onRefresh={refreshList}
+          indicatorTop={contentOffset}
+          className="p-2"
+          style={{ paddingTop: `calc(${contentOffset} + 0.5rem)`, paddingBottom: `calc(${contentBottom} + 0.5rem)` }}
+          onScroll={handleScroll}
+        >
           {specId != null ? <MobileSpecChatsList key={specId} specId={specId} onOpenChat={onOpenSpecChat} /> : <>
           {liveTabs.map((tab) => (
             <button
@@ -322,6 +369,9 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             >
               <AgentAvatar provider={tab.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{tab.title}</span>
+              {tab.chatId != null && runningChatIds.has(tab.chatId) && (
+                <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />
+              )}
             </button>
           ))}
 
@@ -336,9 +386,13 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             >
               <AgentAvatar provider={item.providerId} size="sm" />
               <span className="truncate text-base text-foreground/85">{item.title}</span>
-              <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">
-                {formatRelativeTime(intl, item.updatedAt)}
-              </span>
+              {runningChatIds.has(item.id) ? (
+                <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />
+              ) : (
+                <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground/60">
+                  {formatRelativeTime(intl, item.updatedAt)}
+                </span>
+              )}
             </button>
           ))}
 
@@ -360,7 +414,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
             </>
           )}
           </>}
-        </div>
+        </PullToRefresh>
       )}
 
       <MobileSheet

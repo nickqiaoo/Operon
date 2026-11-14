@@ -479,7 +479,9 @@ final class ShellChromeController: UINavigationController {
     /// page under the scrim.
     func setTopBar(mode: TopBarMode, title: String, subtitle: String?, unread: Bool, interactive: Bool, busy: Bool = false, header: HeaderSpec? = nil, actions: [HeaderSpec.Action] = []) {
         topBarMode = mode
-        setNavigationBarHidden(mode == .hidden, animated: true)
+        // No slide from/to the top edge: switching tabs puts the bar (or its
+        // absence) in place immediately, as the web header does.
+        setNavigationBarHidden(mode == .hidden, animated: false)
         navigationBar.isUserInteractionEnabled = interactive
 
         let item = tabsController.navigationItem

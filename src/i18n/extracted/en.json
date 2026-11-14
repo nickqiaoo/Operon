@@ -871,6 +871,7 @@
   "mobile.more.theme.light": "Light",
   "mobile.more.theme.system": "System",
   "mobile.more.workspace": "Workspace",
+  "mobile.pullToRefresh.refreshing": "Refreshing…",
   "mobile.sheet.close": "Close",
   "mobile.tab.assistant": "Assistant",
   "mobile.tab.changes": "Changes",

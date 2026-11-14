@@ -114,9 +114,14 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
   }
   // Primitive dependency: streaming responses must not send identical menu/config payloads each frame.
   const serialized = JSON.stringify(state)
+  const serializedRef = useRef(serialized)
+  serializedRef.current = serialized
+  // Whether UIKit holds this owner's editor in the view tree; see `measure` below.
+  const attached = useRef(false)
   useEffect(() => {
     if (!ready) return
     if (!active) {
+      attached.current = false
       void NativeComposer.hide({ id })
       return
     }
@@ -131,12 +136,21 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     // (all UIKit reads) stays put. Re-sending the same anchor would make UIKit
     // re-lay out without animation in the middle of its own grow animation.
     let sent = ''
+    // UIKit ignores a `layout` for any owner but the one its last `update`
+    // configured, and a `hide` takes the editor out of the tree, which only
+    // `update` puts back.
+    // So the first anchor after mount, and after any hide, goes out behind an
+    // `update` of its own instead of trusting the update effect to have run
+    // first: this frame can beat React's passive effects, and then the one
+    // layout UIKit gets is dropped (another chat still owns the editor) and the
+    // composer stays hidden for good — `sent` dedupes every later measure.
     const measure = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         const rect = el.getBoundingClientRect()
         if (rect.width === 0) {
           sent = ''
+          attached.current = false
           void NativeComposer.hide({ id })
           return
         }
@@ -145,7 +159,14 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
         const key = JSON.stringify(anchor)
         if (key === sent) return
         sent = key
-        void NativeComposer.layout(anchor)
+        if (attached.current) {
+          void NativeComposer.layout(anchor)
+          return
+        }
+        attached.current = true
+        void NativeComposer.update(JSON.parse(serializedRef.current) as NativeComposerState)
+          .then(() => NativeComposer.layout(anchor))
+          .catch(console.error)
       })
     }
     const observer = new ResizeObserver(measure)
