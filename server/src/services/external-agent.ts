@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { UIMessage } from 'ai'
 import type { ExternalAgentBinding, ExternalAgentFrame, ExternalAgentView } from '../../../shared/external-agent.js'
-import { getChatStorage } from './ai/state.js'
+import { getChatStorage, getProjectStorage } from './ai/state.js'
 import { abortChat } from './ai/session-ops.js'
 import { onChatTurnFinished, onChatTurnStarted, type ChatTurnFinished } from './ai/chat-turn-lifecycle.js'
 import { deliverChatMessage } from './ai/chat-delivery.js'
@@ -35,6 +35,7 @@ export function externalAgentView(childChatId: number): ExternalAgentView | unde
     turnId: last?.turnId,
     status: pending && !activeTurns.has(childChatId) ? 'interrupted' : last?.status ?? 'idle',
     error: last?.error,
+    updatedAt: meta.updatedAt,
   }
 }
 
@@ -112,16 +113,24 @@ export async function sendExternalAgent(owner: ExternalAgentOwner, agentId: stri
 }
 
 export async function createExternalAgent(params: {
-  /** A parent conversation (the child joins its workspace), or the assistant naming the workspace. */
-  parent: { chatId: number } | { assistantActivityId: string; workspaceId: number }
+  /**
+   * A parent conversation, or the assistant naming the workspace. A conversation's child
+   * joins its workspace unless it names another one of the same project.
+   */
+  parent: { chatId: number; workspaceId?: number } | { assistantActivityId: string; workspaceId: number }
   providerId: string; model: string; description: string; prompt: string
   /** Reasoning effort; unset runs at the agent's own level. */
   effort?: string
 }) {
   const storage = getChatStorage()
   const { parent } = params
-  const workspaceId = 'chatId' in parent ? storage?.getChatMeta(parent.chatId)?.workspaceId : parent.workspaceId
+  const parentWorkspaceId = 'chatId' in parent ? storage?.getChatMeta(parent.chatId)?.workspaceId : undefined
+  const workspaceId = 'chatId' in parent ? parent.workspaceId ?? parentWorkspaceId : parent.workspaceId
   if (!storage || !workspaceId) throw new Error('External agents require an existing workspace conversation')
+  // Elsewhere than the parent's own: only a workspace of the same project.
+  const elsewhere = 'chatId' in parent && workspaceId !== parentWorkspaceId
+    ? otherWorkspace(parentWorkspaceId, workspaceId)
+    : undefined
   const parentChatId = 'chatId' in parent ? parent.chatId : 0
   const owner: ExternalAgentOwner = 'chatId' in parent ? parent.chatId : 'assistant'
   const models = params.model === 'default' || params.effort ? await getProviderModels(params.providerId) : undefined
@@ -149,7 +158,17 @@ export async function createExternalAgent(params: {
   const result = await sendExternalAgent(owner, agentId, params.prompt)
   const view = externalAgentView(chatId)
   if (view) publish({ type: 'created', agent: view })
-  return result
+  // Its changes are not in the parent's worktree: say where they are.
+  return elsewhere ? { ...result, workspace_id: workspaceId, branch: elsewhere.branchName, worktree_path: elsewhere.worktreePath } : result
+}
+
+function otherWorkspace(parentWorkspaceId: number | undefined, workspaceId: number) {
+  const projects = getProjectStorage()
+  const target = projects?.getWorkspace(workspaceId)
+  if (!target) throw new Error(`There is no workspace ${workspaceId}.`)
+  const own = parentWorkspaceId ? projects?.getWorkspace(parentWorkspaceId) : null
+  if (!own || own.projectId !== target.projectId) throw new Error(`Workspace ${workspaceId} is not in this conversation's project.`)
+  return target
 }
 
 export function stopExternalAgent(owner: ExternalAgentOwner, agentId: string) {
@@ -196,6 +215,13 @@ function deliverResult(view: ExternalAgentView, event: ChatTurnFinished): void {
   const parent = getChatStorage()?.getChatMeta(view.parentChatId)
   if (!parent) return
   const source = dispatched ? 'parent agent' : 'user in child chat'
+  // Working in a workspace of its own: its changes are there, not in the parent's worktree.
+  const workspace = view.workspaceId != null && view.workspaceId !== parent.workspaceId
+    ? getProjectStorage()?.getWorkspace(view.workspaceId)
+    : undefined
+  const where = workspace
+    ? `<workspace-id>${workspace.id}</workspace-id>\n<branch>${escape(workspace.branchName)}</branch>\n<worktree-path>${escape(workspace.worktreePath)}</worktree-path>\n`
+    : ''
   const text = `[External Agent Result]\n<external-agent-result>
 <task-id>${event.turnId}</task-id>
 <agent-id>${view.agentId}</agent-id>
@@ -204,7 +230,7 @@ function deliverResult(view: ExternalAgentView, event: ChatTurnFinished): void {
 <child-chat-id>chat:${view.childChatId}</child-chat-id>
 <db-chat-id>${view.childChatId}</db-chat-id>
 <status>${event.status}</status>
-<prompt-source>${source}</prompt-source>
+${where}<prompt-source>${source}</prompt-source>
 <prompt>${escape(textOf(event.prompt).slice(0, 8_000))}</prompt>
 <result>${escape(event.status === 'completed' ? result : event.error ?? event.status)}</result>
 </external-agent-result>

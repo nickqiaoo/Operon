@@ -35,6 +35,8 @@ import { useGitStatus } from '@/lib/git-queries'
 import { useAgentSessionState, useTaskOutput, type SessionResource } from '@/lib/agent-session-queries'
 import { formatDuration } from '@/lib/format'
 import { useChatTasks } from '@/stores/chat-background-task-store'
+import { useChatChildren } from '@/hooks/useChatChildren'
+import { ChildrenSection } from './ChildrenSection'
 import type { BackgroundTaskSummary } from '@shared/background-tasks'
 import { useEditorStore } from '@/stores/editor-store'
 import { hasNativeTabBar } from '@/lib/native'
@@ -42,6 +44,7 @@ import { useBackHandler } from '@/hooks/useAndroidBackButton'
 import { useMobileBackBarOffset } from '@/components/mobile/MobileHeader'
 import type { PeerMemberDTO, PeerMemberStatus, PeersRosterDTO, PeersStatsDTO, PeerTeamDTO } from '@/types/peers'
 import * as agent from './agentControl'
+import { Badge, CARD, Dot, GroupHeader, IconButton, INDENT, ROW, ROWS, RowDot, Section } from './session-panel-parts'
 import { SkillDetail } from './SkillDetail'
 import { DisbandConfirmDialog } from './DisbandConfirmDialog'
 import type {
@@ -104,8 +107,6 @@ const EMPTY_USAGE_CARDS: SessionUsageCard[] = []
 export const SESSION_PANEL_WIDTH_CLASS = 'w-[344px]'
 export const SESSION_PANEL_PAD_CLASS = 'pr-[344px]'
 
-// Every card in the column: the resting-card tier (border /60 + shadow-card).
-const CARD = 'rounded-xl border border-border/60 bg-popover shadow-card dark:border-border/35'
 
 // Keep this in sync with the panel `duration-300` below — it's how long we wait
 // after close before unmounting, so the slide-out can finish.
@@ -211,6 +212,9 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
   // Claude Code's task list arrives on the live-status stream, not from a poll.
   const claudeTasks = useChatTasks(providerId === 'claude-code' ? chatId : undefined)
   const claudeRunning = claudeTasks.filter((t) => t.status === 'running').length
+  // The external agents this chat started: each a conversation of its own, so not in
+  // any of this session's lists. (Its own subagents are, and have their cards below.)
+  const childAgents = useChatChildren(chatId)
 
   const servers = mcp.data?.servers ?? []
   const skillList = skills.data?.skills ?? []
@@ -329,6 +333,10 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
     </section>
   )
 
+  const agentsSection = !skillDetail && childAgents.length > 0 ? (
+    <ChildrenSection key={`agents:${sessionKey}`} chatId={id} agents={childAgents} />
+  ) : null
+
   // Not behind `noSession`: the quota is the account's, and is worth reading before
   // the first message too.
   const usage = !skillDetail && usageCards.length > 0 && (
@@ -363,14 +371,20 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
             }}
           />
         </section>
-      ) : noSession ? null : (
+      ) : noSession ? (
+        // A chat with no session right now can still have agents out: each runs in a
+        // conversation of its own.
+        agentsSection
+      ) : (
         <>
           {/* NOW — what this session is doing. Sections with nothing in them are not
               rendered at all: a card plus "nothing running" is a whole card spent
               saying there is nothing to see, and three of those in a row (tasks,
               subagents, schedules) is most of a screen. MCP is the exception — a
               session's servers are worth a glance even when all is well. */}
-          {fullSessionInspector && <GroupHeader label={<FormattedMessage id="editor.session.now" defaultMessage="Now" />} />}
+          {(fullSessionInspector || agentsSection) && <GroupHeader label={<FormattedMessage id="editor.session.now" defaultMessage="Now" />} />}
+          {/* First: the one place that says which of them need you. */}
+          {agentsSection}
           {/* Running work first: it changes while you watch, the server list rarely does.
               Its own key — a sibling sharing McpSection's would make React mix the two up. */}
           {providerId === 'claude-code' && claudeTasks.length > 0 && (
@@ -445,48 +459,6 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
 type Resource<T> = SessionResource<T>
 
 // ── primitives ───────────────────────────────────────────────────────────────
-function IconButton({
-  onClick,
-  label,
-  disabled,
-  children,
-}: {
-  onClick: () => void
-  label: string
-  disabled?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-secondary-hover hover:text-foreground disabled:opacity-50"
-    >
-      {children}
-    </button>
-  )
-}
-
-function Dot({ className }: { className: string }) {
-  return <span className={cn('inline-block h-1.5 w-1.5 rounded-full shrink-0', className)} />
-}
-
-/**
- * A status dot parked in the row's left indent, so rows with one line up with rows
- * without. `w-0` takes no width, but it is still a flex item, so the row's `gap-2`
- * would follow it and push the text 8px right of every dot-less row — `-mr-2` gives
- * that gap back. The dot itself is drawn to the left of where the text starts.
- */
-function RowDot({ className }: { className: string | null }) {
-  return (
-    <span className="relative -mr-2 w-0 shrink-0" aria-hidden>
-      {className && <span className={cn('absolute -left-3.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full', className)} />}
-    </span>
-  )
-}
-
 /** Last few segments of a long path — the full one is in the tooltip. */
 function shortPath(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean)
@@ -554,112 +526,6 @@ function Stat({ dot, tone, children }: { dot?: string; tone?: 'danger'; children
   )
 }
 
-/**
- * Section header badge. Same shape everywhere so the numbers mean the same
- * thing in every section: total on the right, with running / needs-attention
- * counts called out ahead of it when they're non-zero.
- */
-function Badge({ total, active, problems }: { total: number; active?: number; problems?: number }) {
-  const intl = useIntl()
-  // Two bare numbers side by side ("● 1  2") read as one ("12"); say what each is.
-  const label = intl.formatMessage(
-    {
-      id: 'editor.session.badgeTitle',
-      defaultMessage: '{active, plural, =0 {} other {# running · }}{problems, plural, =0 {} other {# need attention · }}{total} total',
-    },
-    { active: active ?? 0, problems: problems ?? 0, total },
-  )
-  return (
-    <span title={label} aria-label={label} className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
-      {!!active && (
-        <span className="flex items-center gap-1 text-status-info">
-          <Dot className="bg-status-info animate-pulse" />
-          {active}
-        </span>
-      )}
-      {!!problems && (
-        <span className="flex items-center gap-1 text-status-error">
-          <Dot className="bg-status-error" />
-          {problems}
-        </span>
-      )}
-      <span className="text-muted-foreground/45">{total}</span>
-    </span>
-  )
-}
-
-/**
- * Splits the panel in two: what is happening now, and what this session is able to do.
- *
- * They were one flat list of eight identical headers, which made a teammate blocked on an
- * approval look exactly as urgent as the count of installed plugins. The line is drawn by
- * lifetime: the top half changes while you watch, the bottom half changes when you go and
- * change it.
- */
-function GroupHeader({ label }: { label: React.ReactNode }) {
-  return (
-    // Uppercase + letterspacing is what separates this tier from the section labels
-    // below it, which are sentence-case and darker. Two tiers of grey uppercase text
-    // would read as one.
-    // `px-3` is the cards' own padding, so the label, the overview title and every
-    // section icon start on one line.
-    <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/45">
-      {label}
-    </div>
-  )
-}
-
-function Section({
-  icon: Icon,
-  title,
-  badge,
-  expanded,
-  onToggle,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  title: React.ReactNode
-  badge: React.ReactNode
-  expanded: boolean
-  onToggle: () => void
-  children: React.ReactNode
-}) {
-  return (
-    // Each section is its own card; collapsed, the card is just its header.
-    <section className={cn(CARD, 'shrink-0')}>
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggle()
-          }
-        }}
-        className={cn(
-          // No fill, not even on hover: the card's edge already frames the header,
-          // so a grey bar would be a second lid on the same box. The chevron is
-          // what answers the pointer.
-          'group/section flex h-9 cursor-pointer select-none items-center gap-1.5 rounded-xl px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-        )}
-      >
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-        <span className="flex-1 truncate text-[13px] font-semibold text-foreground/85">{title}</span>
-        {badge}
-        <ChevronRight
-          className={cn(
-            'h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-[transform,color] group-hover/section:text-foreground',
-            expanded && 'rotate-90',
-          )}
-        />
-      </div>
-      {expanded && <div className="pb-2">{children}</div>}
-    </section>
-  )
-}
-
 /** Loading / error / empty for a section body — never all three at once. */
 function StateRow({ res, empty, emptyText }: { res: Resource<unknown>; empty: boolean; emptyText: React.ReactNode }) {
   if (!res.settled)
@@ -678,20 +544,6 @@ function StateRow({ res, empty, emptyText }: { res: Resource<unknown>; empty: bo
   if (empty) return <div className={cn(INDENT, 'py-1.5 text-xs text-muted-foreground/70')}>{emptyText}</div>
   return null
 }
-
-// Rows indent to their header's title, so nesting is visible before you read a word:
-// 32px is the header's padding (12) + icon (14) + gap (6), so the two start on one line.
-//
-// No rule between rows. A divider per row plus a bordered header per section put a
-// line every ~28px down a 400px column, which reads as a table of contents for a
-// table of contents; the indent already says "these belong to that", and rows this
-// tight do not need help staying apart. Lines are kept for the one boundary that
-// carries meaning: between sections.
-const INDENT = 'pl-8 pr-3'
-const ROWS = INDENT
-// An inspector should be dense — you scan it, you don't read it. 24px rows put the
-// whole session on one screen, which is the difference between glancing and scrolling.
-const ROW = 'py-[3px] text-sm leading-5'
 
 // ── time helpers ─────────────────────────────────────────────────────────────
 function relTime(ts: number | null | undefined): string {

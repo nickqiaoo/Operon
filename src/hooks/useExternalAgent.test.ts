@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { UIMessage } from 'ai'
-import { parseExternalAgentRun } from './useExternalAgent'
+import { matchExternalAgentRun, parseExternalAgentRun } from './useExternalAgent'
 import { parseExternalAgentResult } from '@/components/editor/components/ExternalAgentRenderer'
 
 describe('ExternalAgent chat links', () => {
@@ -29,5 +29,23 @@ describe('parseExternalAgentRun with a Codex MCP wrapper', () => {
       output: { server: 'external_agent', tool: 'external_agent_run', status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify(inner) }] } },
     } as unknown as Parameters<typeof parseExternalAgentRun>[0]
     expect(parseExternalAgentRun(part)).toMatchObject({ taskId: 't1', agentId: 'ext-20', childChatId: 20, agentType: 'opencode' })
+  })
+})
+
+describe('matchExternalAgentRun', () => {
+  const agent = (childChatId: number, patch: Partial<{ parentChatId: number; providerId: string; description: string; assistantActivityId: string }> = {}) => ({
+    agentId: `ext-${childChatId}`, parentChatId: 39, providerId: 'opencode', description: 'probe', childChatId, ...patch,
+  })
+
+  it('finds a code-mode run by its parent, agent type and title, newest first', () => {
+    const agents = [agent(40), agent(41, { providerId: 'codex' }), agent(42, { parentChatId: 7 }), agent(38)]
+    expect(matchExternalAgentRun(agents, 39, { agentType: 'opencode', description: 'probe' })).toBe('ext-40')
+  })
+
+  it('never matches the assistant’s agents, or without a parent or a title', () => {
+    const agents = [agent(40, { parentChatId: 0, assistantActivityId: 'act' })]
+    expect(matchExternalAgentRun(agents, 0, { agentType: 'opencode', description: 'probe' })).toBeUndefined()
+    expect(matchExternalAgentRun([agent(40)], undefined, { description: 'probe' })).toBeUndefined()
+    expect(matchExternalAgentRun([agent(40)], 39, { agentType: 'opencode' })).toBeUndefined()
   })
 })

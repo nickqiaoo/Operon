@@ -343,7 +343,7 @@ export async function createApp(deps: AppDeps) {
     app.route('/api/chrome-use', chromeUseRoutes())
   }
   app.route('/api/mcp', mcpRoutes())
-  app.route('/api/external-agent-mcp', externalAgentMcpRoutes())
+  app.route('/api/external-agent-mcp', externalAgentMcpRoutes(deps.storage))
   app.route('/api/schedule-mcp', scheduleMcpRoutes(deps.storage))
   app.route('/api/visual-mcp', visualMcpRoutes())
   app.route('/api/assistant', assistantRoutes(deps.storage))

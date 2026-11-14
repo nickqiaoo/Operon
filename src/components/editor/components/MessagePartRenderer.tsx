@@ -37,6 +37,7 @@ import { isOpencodeSubtaskTool } from './OpencodeSubtaskRenderer';
 import { getSubagentProgress, convertSubagentToChildParts, mapSubagentState } from './gemini-subagent-utils';
 import { getToolDisplayName, type ToolPartLike } from './toolName';
 import { TaskCreatedRenderer, createdTaskNumber } from './TaskCreatedRenderer';
+import { WorkspaceCreatedRenderer, createdWorkspace } from './WorkspaceCreatedRenderer';
 import { ScheduleTaskRenderer, isScheduleTaskResult } from './ScheduleTaskRenderer';
 import { HtmlRenderRenderer, isHtmlRenderResult } from './HtmlRenderFrame';
 import { ImageReadRenderer, imageReadPathOf } from './ImageReadRenderer';
@@ -227,6 +228,13 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     // always keeps the active part as its own segment.)
     if (createdTaskNumber(toolPart) !== null) {
       return <TaskCreatedRenderer toolPart={toolPart} />;
+    }
+
+    // A workspace a conversation made: its branch, and the way into it. Same gating
+    // as the task card: a streaming or failed call falls through.
+    const workspace = createdWorkspace(toolPart);
+    if (workspace) {
+      return <WorkspaceCreatedRenderer workspace={workspace} />;
     }
 
     // A schedule tool that created or changed a task renders its editor inline.

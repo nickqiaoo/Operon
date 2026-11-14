@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.5.21] - 2026-11-14
+
+### Added
+
+- External agents can work in a workspace of their own. A conversation creates one in its project with `workspace_create` — a new branch in its own worktree, shown in the sidebar — and hands it to a run with `workspace_id`; the run's reply and result report say which branch and worktree hold the changes. A "Created workspace" line in the thread opens it.
+- The Session panel gets an Agents card: the external agents this conversation started, the ones that need you on top, each opening its child conversation with its own model and mode. A child's approval request is answered right there — or from its card in the thread — with the request's own preview, so it is not approved blind; a question or a plan offers to open the child.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.34`. A workspace's MCP servers are told the workspace (MCP `roots`): a server that checks paths against roots (chrome-devtools-mcp saving a screenshot) accepts project paths instead of refusing them, and an stdio server with no `cwd` of its own starts in the workspace instead of inheriting the app's.
+- A new external agent no longer opens a tab of its own — ten of them would bury the tabs you opened. Its row in the Agents card and its card in the thread open it on demand.
+- A turn the agent starts on its own — woken by a finished background task or a teammate's report — asks for approvals and questions in the UI like any other turn, instead of parking where nothing shows or answers it.
+
+### Fixed
+
+- An external agent run nested in a Code Mode program shows its live status and opens its conversation: with the call's own output empty, its agent is found by what the call asked for.
+- On the web and the phone, a reply stream cut by a network drop — typically the app coming back from background — shows "Reconnecting…" while it resumes with a short backoff, and offers Retry when it cannot recover, instead of a raw "Load failed" error.
+
 ## [1.5.20] - 2026-11-14
 
 ### Added

@@ -18,6 +18,7 @@ import { setChatPromptSuggestion } from './chat-prompt-suggestions.js'
 import { claudeToggleEnv } from '../claude-toggles.js'
 import { subscribeAllLiveTurnPresence } from './live-turn-hub.js'
 import { operonAgent } from '../operon-runtime/index.js'
+import { resolvePassiveApproval } from '../operon-runtime/passive-observer.js'
 import { withAgentPrompts } from './agent-prompts.js'
 import type { ChatStorageAdapter, ProjectStorageAdapter, NotificationStorageAdapter } from '../../storage/interface.js'
 
@@ -90,14 +91,17 @@ export async function disposeRuntime(): Promise<void> {
 export function getSessionManager(): SessionManager {
   if (!sessionManager) {
     sessionManager = new SessionManager(getRuntime())
-    // Two kinds of approval originate outside a chat session's own stream, and
-    // both answer through the same `POST /permission-response`: host elicitations
-    // (Browser/Computer Use, asked from inside operonrepl) and detached sub-agent
-    // requests (workflow `agent()`, whose session has no chatId at all). Try each
-    // in turn; an id belonging to neither falls through to the normal chat lookup.
+    // Three kinds of approval originate outside a chat session's own stream, and
+    // all answer through the same `POST /permission-response`: host elicitations
+    // (Browser/Computer Use, asked from inside operonrepl), detached sub-agent
+    // requests (workflow `agent()`, whose session has no chatId at all), and turns
+    // operon's own agent started by itself (woken by a finished background task or a
+    // teammate's report — see passive-observer). Try each in turn; an id belonging to
+    // none falls through to the normal chat lookup.
     sessionManager.setExternalPermissionResolver((chatId, approvalId, decision) =>
       resolveHostApproval(chatId, approvalId, decision) ||
-      resolveDetachedApproval(chatId, approvalId, decision),
+      resolveDetachedApproval(chatId, approvalId, decision) ||
+      resolvePassiveApproval(chatId, approvalId, decision),
     )
     // Background sub-agents and replies the agent starts on its own, between turns.
     sessionManager.setBackgroundHandler(handleRuntimeBackgroundEvent)

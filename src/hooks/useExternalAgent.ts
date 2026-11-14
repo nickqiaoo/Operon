@@ -110,3 +110,26 @@ export function parseExternalAgentRun(part: UIMessage['parts'][number]): Externa
     mode: parsed.mode as string | undefined,
   }
 }
+
+/**
+ * The agent a run call started, when its own output does not say. A Code Mode
+ * program's nested call (OpenCode's `execute`) is stored with an empty output: the
+ * ids are in the program's return value, which may hold anything. Matched by
+ * what the call itself carries: the parent chat, the agent type and the title.
+ * Two runs with the same title and agent resolve to the newer one.
+ */
+export function matchExternalAgentRun(
+  agents: Iterable<{ agentId: string; parentChatId: number; assistantActivityId?: string; providerId: string; description: string; childChatId: number }>,
+  parentChatId: number | undefined,
+  call: { agentType?: unknown; description?: unknown },
+): string | undefined {
+  if (parentChatId == null || typeof call.description !== 'string' || !call.description) return undefined
+  let best: { agentId: string; childChatId: number } | undefined
+  for (const agent of agents) {
+    if (agent.parentChatId !== parentChatId || agent.assistantActivityId) continue
+    if (agent.description !== call.description) continue
+    if (typeof call.agentType === 'string' && call.agentType && agent.providerId !== call.agentType) continue
+    if (!best || agent.childChatId > best.childChatId) best = agent
+  }
+  return best?.agentId
+}

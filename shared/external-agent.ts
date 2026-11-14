@@ -27,6 +27,8 @@ export interface ExternalAgentView extends ExternalAgentBinding {
   status: ExternalAgentTurnStatus | 'idle'
   result?: string
   error?: string
+  /** When the child conversation last changed: newest first in its parent's Agents list. */
+  updatedAt?: number
 }
 
 export type ExternalAgentFrame =

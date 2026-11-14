@@ -26,6 +26,16 @@ and `selection_confirmed: true`. Set the confirmation flag only after the user's
 choices are known. The initial prompt must include the goal, constraints, and
 necessary context: the child does not see the parent conversation.
 
+## Work in a separate workspace
+
+A child works in this conversation's workspace unless `external_agent_run` gets a
+`workspace_id`, which must be in the same project. When the work needs its own
+branch and the user wants or agreed to one, create it first with
+`workspace_create({ name, base_branch? })`, then pass the
+returned `workspace_id`. Creating a workspace never starts an agent by itself.
+The child's changes then stay in that worktree, not in yours: the run's reply and
+its result report the `branch` and `worktree_path` to look at.
+
 ## Continue the same child
 
 Keep the returned `agent_id`. Send subsequent instructions with
