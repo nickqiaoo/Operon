@@ -1,9 +1,11 @@
-import type { UiElement } from './catalog'
+import type { UiElement, UiIconName, UiTone } from './catalog'
 
 export interface FlowLayoutNode {
   key: string
   id: string
   label: string
+  icon?: UiIconName
+  tone?: UiTone
   layer: number
   row: number
 }
@@ -44,13 +46,13 @@ export function layoutFlow(children: UiElement[]): FlowLayout {
 
   for (const child of children) {
     if (child.type === 'node') {
-      const { id, label, after = [] } = child.props
+      const { id, label, after = [], icon, tone } = child.props
       if (byId.has(id)) continue
       const parents = after.flatMap((parent) => byId.get(parent) ?? [])
       const layer = parents.length > 0 ? Math.max(...parents.map((parent) => parent.layer)) + 1 : 0
       const row = heights[layer] ?? 0
       heights[layer] = row + 1
-      const node = { key: child.key, id, label, layer, row }
+      const node: FlowLayoutNode = { key: child.key, id, label, icon, tone, layer, row }
       byId.set(id, node)
       for (const parent of parents) connect(parent, node)
     } else if (child.type === 'edge') {
