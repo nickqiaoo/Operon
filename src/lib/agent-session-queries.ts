@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import * as agent from '@/components/editor/agent/agentControl'
 import { useInstalledPlugins } from './plugin-queries'
@@ -56,6 +56,36 @@ export interface SessionResource<T> {
   reload: () => void
 }
 
+/** The slice of query state a `SessionResource` is folded from. */
+type ResourceQueryState = Pick<UseQueryResult<unknown>, 'data' | 'error' | 'status' | 'fetchStatus' | 'errorUpdateCount'>
+
+/**
+ * Fold query state into the panel's read-out, holding the last error across
+ * background polls.
+ *
+ * v5 resets a data-less query to `pending` on every refetch and clears `error`
+ * while the request is in flight. A chat reopened from history has no runtime
+ * session until its first message, so the panel polls "No active session"
+ * every few seconds — without the hold, each tick would swap the whole panel
+ * to its loading skeleton and back (a visible flash). The hold clears itself
+ * when data arrives, or when a fresh query (another chat / provider, zero
+ * failures so far) takes the hook's slot.
+ */
+export function foldResourceState(
+  query: ResourceQueryState,
+  lastError: string | null,
+  reloading: boolean,
+): { error: string | null; loading: boolean; settled: boolean } {
+  const failedBefore = query.errorUpdateCount > 0
+  return {
+    error: query.error ? query.error.message : query.data === undefined && failedBefore ? lastError : null,
+    // A poll of a query that never succeeded looks exactly like a first load
+    // (`pending` + `fetching`); the failure count is what tells them apart.
+    loading: (query.status === 'pending' && query.fetchStatus === 'fetching' && !failedBefore) || reloading,
+    settled: query.status !== 'pending' || failedBefore,
+  }
+}
+
 /**
  * Collapse a query to a `SessionResource`. Background polls stay silent (the
  * refresh button doesn't spin or disable every few seconds); only the first
@@ -64,11 +94,12 @@ export interface SessionResource<T> {
 function useResource<T>(query: UseQueryResult<T>, enabled: boolean): SessionResource<T> {
   const [reloading, setReloading] = useState(false)
   const { refetch } = query
+  const lastError = useRef<string | null>(null)
+  const state = foldResourceState(query, lastError.current, reloading)
+  lastError.current = state.error
   return {
     data: query.data ?? null,
-    loading: (query.isPending && query.fetchStatus === 'fetching') || reloading,
-    error: query.error ? query.error.message : null,
-    settled: query.status !== 'pending',
+    ...state,
     reload: () => {
       // `refetch` ignores `enabled`: a closed panel / unsaved chat must not fire.
       if (!enabled) return

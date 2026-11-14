@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIntl } from "react-intl"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Virtualizer, WorkerPoolContextProvider, useWorkerPool } from "@pierre/diffs/react"
+import { Virtualizer } from "@pierre/diffs/react"
 import type { FileDiffOptions } from "@pierre/diffs"
+import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider'
 import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -29,8 +30,6 @@ import {
   LARGE_DIFF_CHANGED_BYTE_THRESHOLD,
   LARGE_DIFF_CHANGED_LINE_THRESHOLD,
   LARGE_DIFF_FILE_COUNT_THRESHOLD,
-  PIERRE_HIGHLIGHTER_OPTIONS,
-  PIERRE_WORKER_POOL_OPTIONS,
 } from "./review/constants"
 import { sortFileChangesInTreeOrder } from "./review/diff-utils"
 import { loadReview } from "./review/load-review"
@@ -539,11 +538,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
   // a content row of [diff | sliding file-tree]. The tree never hosts chrome —
   // dual-hosting is what made the button strip flash on open/close.
   return (
-    <WorkerPoolContextProvider
-      poolOptions={PIERRE_WORKER_POOL_OPTIONS}
-      highlighterOptions={PIERRE_HIGHLIGHTER_OPTIONS}
-    >
-    <ReviewWorkerOptionsSync wordDiff={wordDiff} />
+    <DiffWorkerProvider>
     <div className="flex h-full min-h-0 flex-col">
       <ReviewToolbar
         scope={scope}
@@ -729,22 +724,6 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
         />
       )}
     </div>
-    </WorkerPoolContextProvider>
+    </DiffWorkerProvider>
   )
-}
-
-// ---------------------------------------------------------------------------
-
-// Worker-backed highlighting uses the pool's options rather than FileDiff's.
-// Keep the shared pool in sync when the persisted word-diff preference changes.
-function ReviewWorkerOptionsSync({ wordDiff }: { wordDiff: boolean }) {
-  const pool = useWorkerPool()
-  useEffect(() => {
-    if (!pool) return
-    void pool.setRenderOptions({
-      ...pool.getDiffRenderOptions(),
-      lineDiffType: wordDiff ? "word" : "none",
-    }).catch((error: unknown) => console.error("Failed to update diff highlighting", error))
-  }, [pool, wordDiff])
-  return null
 }

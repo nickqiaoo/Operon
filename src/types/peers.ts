@@ -1,4 +1,4 @@
-// Wire DTOs for teams / peers. Mirrors server/src/services/operon-runtime/peers.ts + peers-config.ts.
+// Wire DTOs for teams / peers. Mirrors server/src/services/operon-runtime/peers.ts.
 
 export type PeerMemberStatus = 'running' | 'idle' | 'parked' | 'error'
 
@@ -37,6 +37,7 @@ export interface PeerCountersDTO {
 export interface PeersBudgetDTO {
   maxWakes?: number
   maxTotalTokens?: number
+  maxTotalCost?: number
 }
 
 /** One line of the fleet's spend, named. Mirrors the node's `PeerAgentStatsDTO`. */
@@ -63,17 +64,4 @@ export interface PeersRosterDTO {
   teams: PeerTeamDTO[]
   stats: PeersStatsDTO | null
   types: Array<{ id: string; title: string; description?: string }>
-}
-
-export interface TeammateTypeConfig {
-  title: string
-  description?: string
-  modelId?: string
-  modeId?: string
-  instructions?: string
-}
-
-export interface PeersConfig {
-  budget: PeersBudgetDTO
-  types: Record<string, TeammateTypeConfig>
 }

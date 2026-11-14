@@ -64,7 +64,7 @@ export interface ActiveInput {
   recentLimit?: number
 }
 
-const DEFAULT_RECENT_LIMIT = 6
+const DEFAULT_RECENT_LIMIT = 20
 
 const GROUP_RANK: Record<ActiveGroup, number> = { needs: 0, done: 1, running: 2, recent: 3 }
 

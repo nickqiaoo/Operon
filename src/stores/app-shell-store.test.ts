@@ -20,11 +20,11 @@ describe("right panel and session panel", () => {
   beforeEach(() => {
     storage.clear()
     useAppShellStore.setState({ rightPanelOpen: false, rightPanelExpanded: false })
-    useSessionPanelStore.setState({ open: true, owner: "chat-1" })
+    useSessionPanelStore.setState({ open: true, owner: "chat-1", autoClosed: false })
   })
 
   it.each(["setRightPanelOpen", "toggleRightPanel"] as const)(
-    "collapses the session panel when opening with %s without restoring on close",
+    "collapses the session panel when opening with %s and restores it on close",
     (action) => {
       const store = useAppShellStore.getState()
       if (action === "setRightPanelOpen") store.setRightPanelOpen(true)
@@ -37,9 +37,29 @@ describe("right panel and session panel", () => {
       else store.toggleRightPanel()
 
       expect(useAppShellStore.getState().rightPanelOpen).toBe(false)
-      expect(useSessionPanelStore.getState().open).toBe(false)
+      expect(useSessionPanelStore.getState().open).toBe(true)
     },
   )
+
+  it("leaves the session panel closed on right-panel close when it was already closed", () => {
+    useSessionPanelStore.setState({ open: false })
+    const store = useAppShellStore.getState()
+    store.setRightPanelOpen(true)
+    expect(useSessionPanelStore.getState().open).toBe(false)
+
+    store.setRightPanelOpen(false)
+    expect(useSessionPanelStore.getState().open).toBe(false)
+  })
+
+  it("keeps a session panel the user dismissed by hand closed after the right panel closes", () => {
+    const store = useAppShellStore.getState()
+    store.setRightPanelOpen(true) // auto-closes the open session panel
+    useSessionPanelStore.getState().setOpen(true) // user reopens it
+    useSessionPanelStore.getState().setOpen(false) // user dismisses it again
+
+    store.setRightPanelOpen(false)
+    expect(useSessionPanelStore.getState().open).toBe(false)
+  })
 
   it("preserves an explicitly reopened session panel when the right panel is already open", () => {
     const store = useAppShellStore.getState()

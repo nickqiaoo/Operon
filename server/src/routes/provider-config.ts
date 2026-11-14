@@ -58,7 +58,7 @@ export function providerConfigRoutes() {
         custom: cfg.custom,
       }
     }
-    return c.json({ configs: result })
+    return c.json({ configs: result, providers: Object.entries(PROVIDER_META).map(([id, meta]) => ({ id, ...meta })) })
   })
 
   // PUT /api/provider-configs/:providerId — save apiKey, baseUrl, and/or enabled

@@ -14,10 +14,19 @@ export default function Root() {
 
   return (
     <>
-      {/* Above both shells so it survives the full-screen pages App portals to
-          body; self-hiding unless a request outlives its delay. */}
-      <RequestProgressBar />
-      {__APP_TARGET__ === "web" && isMobile ? <MobileApp /> : <App />}
+      {__APP_TARGET__ === "web" && isMobile ? (
+        // No top bar here: on a phone the conversation it tracks shows a
+        // full-screen loading state of its own (ChatPanel), which is far easier
+        // to notice than a 2px strip under the status bar.
+        <MobileApp />
+      ) : (
+        <>
+          {/* Above the shell so it survives the full-screen pages App portals
+              to body; self-hiding unless a request outlives its delay. */}
+          <RequestProgressBar />
+          <App />
+        </>
+      )}
     </>
   )
 }

@@ -1,44 +1,37 @@
-import claudeLogo from "@/assets/logos/claude.svg"
-import openaiLogo from "@/assets/logos/openai.svg"
-import opencodeLogo from "@/assets/logos/opencode.svg"
-import kimiLogo from "@/assets/logos/kimi.svg"
-import grokLogo from "@/assets/logos/grok.svg"
-import qoderLogo from "@/assets/logos/qoder.svg"
-import copilotLogo from "@/assets/logos/copilot.svg"
-import antigravityLogo from "@/assets/logos/antigravity.svg"
+import { providerLogoSrc } from "@/lib/provider-logos"
 import operonLogo from "@/assets/logos/custom.svg"
 import { cn } from "@/lib/utils"
 
 export function ClaudeCodeIcon({ className }: { className?: string }) {
-    return <img src={claudeLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("claude-code") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function CodexIcon({ className }: { className?: string }) {
-    return <img src={openaiLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("codex") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function OpenCodeIcon({ className }: { className?: string }) {
-    return <img src={opencodeLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("opencode") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function KimiIcon({ className }: { className?: string }) {
-    return <img src={kimiLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("kimi") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function GrokIcon({ className }: { className?: string }) {
-    return <img src={grokLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("grok") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function QoderIcon({ className }: { className?: string }) {
-    return <img src={qoderLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("qoder") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function CopilotIcon({ className }: { className?: string }) {
-    return <img src={copilotLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("copilot") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function AntigravityIcon({ className }: { className?: string }) {
-    return <img src={antigravityLogo} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
+    return <img src={providerLogoSrc("antigravity") ?? undefined} alt="" className={cn(className, "dark:invert dark:brightness-90")} />
 }
 
 export function OperonIcon({ className }: { className?: string }) {

@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [1.5.20] - 2026-11-14
+
+### Added
+
+- Extension settings. An extension that declares settings in its manifest gets a Configure page in Settings → Extensions, built from its schema by one form: text, numbers, switches, enums, ordered lists, and model / permission-mode pickers. Saving checks every field and reloads the extension onto the new value without interrupting an open conversation; a saved value that no longer fits the extension as installed is listed and read as its default.
+- Teams, under its own settings, shows what settings cannot: the teams running right now, what each has spent, and disbanding a team.
+- A scheduled task created or changed in a conversation renders its editor inline — the same form the Schedule page uses, over the schedule server's MCP App — instead of a trace line that linked out to it.
+
+### Changed
+
+- Update the bundled Operon agent runtime to `0.1.0-alpha.33`. Teammate types, budget and a teammate's prompt, title and model are the Teams extension's own settings and defaults; the app no longer keeps a `peers.json`, a Teams host service, or a name and description of its own for a known extension.
+- Auto mode judges tool calls with Claude Code's latest rule set: a blocked call is refused with the reason sent back to the model instead of asking you, and you are asked only after repeated blocks. A new Monitor tool streams a command's output to the model as events while it runs.
+- A finished background task reaches the model at its next step instead of waiting for the whole turn to end, and its notice carries the result — a sub-agent's final answer or a workflow's report — without a second fetch. Active sessions keep their cloud sandbox alive instead of letting it expire mid-conversation.
+- A teammate's conversation appears the moment the teammate exists, at its session start, instead of a sweep picking it up a few seconds later; a session an extension creates gets the workspace's MCP servers and `config.toml` policy like any other.
+- The sidebar's Active list, the Agent panel's task rows and the session panel keep their state through a right panel opening: the Session cards come back when it closes and it was the one that hid them.
+
+### Fixed
+
+- A conversation whose runtime session is not loaded — a chat reopened from history before its first message — no longer flashes its loading skeleton every few seconds while it polls, and keeps its last error on screen instead of blinking back to empty.
+- Re-entering a conversation from the sidebar's Active list lands on its latest output, a running turn included, instead of an earlier position its tab still held.
+- The built-in light and dark themes now reach charts, the schedule editor and other rendered HTML: row hover, tint, accent green and the scrollbar thumb are passed through instead of falling back to defaults.
+- A cloned repository can no longer ship its own auto-approval allow rules for Auto mode: only your user-level settings are read.
+
 ## [1.5.19] - 2026-11-12
 
 ### Added

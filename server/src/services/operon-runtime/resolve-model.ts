@@ -1,5 +1,6 @@
+import { piCatalog } from '../pi-catalog.js'
 import { createModelManager, type ChatModel } from 'operon-agents'
-import type { DecisionModel, ModelProviderRegistration, ProviderApi } from 'operon-agents/advanced'
+import type { DecisionModel, ModelProviderRegistration } from 'operon-agents/advanced'
 import type { EffortLevel } from '@operon/agent-runtime'
 import { getProviderConfig, getProviderConfigs, isProviderUsable, type ProviderConfig } from '../provider-config.js'
 import { customProviderBaseUrl } from '../../../../shared/provider-config.js'
@@ -26,47 +27,6 @@ export interface ModelCapabilities {
  */
 export const modelManager = createModelManager()
 
-interface ProviderShape {
-  /** Wire API of an endpoint pi's catalog doesn't describe. Absent: pi decides per model. */
-  readonly api?: ProviderApi
-  /** Default base URL when the user has not configured one. Absent: pi's catalog has the endpoints. */
-  readonly defaultBaseUrl?: string
-  /** pi's id for this provider, when it differs from operon's. */
-  readonly catalog?: string
-}
-
-const PROVIDER_SHAPES: Record<string, ProviderShape> = {
-  anthropic: { defaultBaseUrl: 'https://api.anthropic.com' },
-  google: { defaultBaseUrl: 'https://generativelanguage.googleapis.com' },
-  openai: { defaultBaseUrl: 'https://api.openai.com/v1' },
-  deepseek: { defaultBaseUrl: 'https://api.deepseek.com/v1' },
-  kimi: { catalog: 'moonshotai', defaultBaseUrl: 'https://api.moonshot.cn/v1' },
-  glm: { api: 'openai-completions', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
-  minimax: { api: 'openai-completions', defaultBaseUrl: 'https://api.minimax.chat/v1' },
-  grok: { api: 'openai-completions', defaultBaseUrl: 'https://api.x.ai/v1' },
-  // A gateway's models sit at different paths per API, which one default URL can't express.
-  openrouter: {},
-  vercel: { catalog: 'vercel-ai-gateway' },
-  mistral: {},
-  ollama: { api: 'openai-completions', defaultBaseUrl: 'http://localhost:11434/v1' },
-}
-
-// operon provider id → pi KnownProvider for capability lookup. Providers that pi
-// does not catalog use the conservative fallback in `getModelCapabilities`.
-const PI_PROVIDER_ALIAS: Record<string, string> = {
-  anthropic: 'anthropic',
-  google: 'google',
-  openai: 'openai',
-  deepseek: 'deepseek',
-  kimi: 'moonshotai',
-  glm: 'zai',
-  minimax: 'minimax',
-  grok: 'xai',
-  mistral: 'mistral',
-  openrouter: 'openrouter',
-  vercel: 'vercel-ai-gateway',
-}
-
 function splitModelId(modelId: string): { providerId: string; model: string } {
   const slash = modelId.indexOf('/')
   if (slash <= 0) return { providerId: 'anthropic', model: modelId }
@@ -81,18 +41,15 @@ function splitModelId(modelId: string): { providerId: string; model: string } {
  */
 export function getModelCapabilities(modelId: string): ModelCapabilities {
   const { providerId, model } = splitModelId(modelId)
-  const piProvider = PI_PROVIDER_ALIAS[providerId]
-  if (piProvider) {
-    const known = modelManager.models.getModel(piProvider, model)
-    if (known) {
-      // A `null` level is one the model does not support; pi would clamp it to another.
-      const levels = Object.entries(known.thinkingLevelMap ?? {})
-        .filter(([, value]) => value !== null)
-        .map(([level]) => level)
-      return {
-        effortLevels: OPERON_EFFORT_LEVELS.filter((l) => levels.includes(l)),
-        vision: known.input?.includes('image') ?? false,
-      }
+  const known = modelManager.models.getModel(providerId, model)
+  if (known) {
+    // A `null` level is one the model does not support; pi would clamp it to another.
+    const levels = Object.entries(known.thinkingLevelMap ?? {})
+      .filter(([, value]) => value !== null)
+      .map(([level]) => level)
+    return {
+      effortLevels: OPERON_EFFORT_LEVELS.filter((l) => levels.includes(l)),
+      vision: known.input?.includes('image') ?? false,
     }
   }
   return { effortLevels: [], vision: true }
@@ -116,19 +73,8 @@ function registrationFor(providerId: string, cfg: ProviderConfig): ModelProvider
       ? { ...common, api: cfg.custom.api, baseUrl: customProviderBaseUrl(cfg.custom.api, cfg.baseUrl) }
       : undefined
   }
-  const shape = PROVIDER_SHAPES[providerId]
-  const configured = cfg.baseUrl ?? shape?.defaultBaseUrl ?? ''
-  // pi's Mistral client adds `v1/` itself.
-  const baseUrl = providerId === 'mistral' ? configured.replace(/\/+$/, '').replace(/\/v1$/, '') : configured
-  // A provider operon doesn't list is an OpenAI-compatible endpoint the user pointed it at.
-  const api = shape ? shape.api : 'openai-completions'
-  if (api && !baseUrl) return undefined
-  return {
-    ...common,
-    ...(shape?.catalog ? { extends: shape.catalog } : {}),
-    ...(api ? { api } : {}),
-    ...(baseUrl ? { baseUrl } : {}),
-  }
+  if (!piCatalog.getProvider(providerId)) return undefined
+  return { ...common, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}) }
 }
 
 /** Bring one provider in the manager in line with its saved config. */
@@ -140,7 +86,7 @@ export function syncModelProvider(providerId: string): void {
 
 /** Register every provider operon knows of and every one the user has configured. */
 export function syncModelProviders(): void {
-  for (const providerId of new Set([...Object.keys(PROVIDER_SHAPES), ...Object.keys(getProviderConfigs())])) {
+  for (const providerId of new Set([...piCatalog.getProviders().map((provider) => provider.id), ...Object.keys(getProviderConfigs())])) {
     syncModelProvider(providerId)
   }
 }
@@ -162,7 +108,7 @@ export function resolveModel(modelId: string): ChatModel {
  * not be sent to the catalog's endpoints.
  */
 function decisionCatalog(providerId: string, cfg: ProviderConfig): string | undefined {
-  return cfg.custom || cfg.baseUrl ? undefined : PI_PROVIDER_ALIAS[providerId]
+  return cfg.custom || cfg.baseUrl ? undefined : providerId
 }
 
 export interface DecisionModelOption {

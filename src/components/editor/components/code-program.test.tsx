@@ -108,8 +108,9 @@ describe('Code Mode program parts', () => {
     expect(html).toContain('Schedule the digest');
     expect(html).toContain('3 calls');
     expect(html).toContain('Needs approval');
-    // The schedule card and the approval prompt render outside the fold.
-    expect(html).toContain('PR digest');
+    // The schedule card and the approval prompt render outside the fold. The card is the
+    // task's MCP App, lazy-loaded — static markup sees its Suspense fallback.
+    expect(html).toContain('Loading scheduled task…');
     expect(html).toContain('rm -rf build');
     expect(html).toContain('requests permission');
     // The routine read is folded away with the source.

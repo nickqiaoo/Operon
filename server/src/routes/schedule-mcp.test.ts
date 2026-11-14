@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { CronjobTask } from '../types/cronjob.js'
 import type { ChatMeta } from '../types/chat.js'
 import { buildScheduleMcpServer, type ScheduleMcpStorage } from './schedule-mcp.js'
+import { SCHEDULE_APP_URI, SCHEDULE_APP_MIME_TYPE } from '../../../shared/schedule-app.js'
 
 const svc = vi.hoisted(() => ({
   list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), del: vi.fn(), exec: vi.fn(), history: vi.fn(),
@@ -47,6 +48,27 @@ describe('Schedule MCP', () => {
     client = await connect(callerMeta)
   })
   afterEach(async () => { await client.close() })
+
+  it('associates create/update with a readable MCP App resource', async () => {
+    const { tools } = await client.listTools()
+    for (const name of ['schedule_create', 'schedule_update']) {
+      expect(tools.find((tool) => tool.name === name)?._meta).toMatchObject({ ui: { resourceUri: SCHEDULE_APP_URI } })
+    }
+    expect(tools.find((tool) => tool.name === 'schedule_get')?._meta).toMatchObject({ ui: { visibility: ['app'] } })
+    const resource = await client.readResource({ uri: SCHEDULE_APP_URI })
+    expect(resource.contents[0]).toMatchObject({ uri: SCHEDULE_APP_URI, mimeType: SCHEDULE_APP_MIME_TYPE })
+    await expect(client.readResource({ uri: 'ui://other/app.html' })).rejects.toThrow()
+  })
+
+  it('reads current state for old cards and refuses deleted or assistant tasks', async () => {
+    svc.get.mockReturnValue(job({ enabled: false, name: 'Latest name' }))
+    const result = await client.callTool({ name: 'schedule_get', arguments: { id: 7 } })
+    expect(result.structuredContent).toMatchObject({ task: { name: 'Latest name', enabled: false } })
+    svc.get.mockReturnValue(undefined)
+    expect((await client.callTool({ name: 'schedule_get', arguments: { id: 7 } })).isError).toBe(true)
+    svc.get.mockReturnValue(job({ taskType: 'assistant' }))
+    expect((await client.callTool({ name: 'schedule_get', arguments: { id: 7 } })).isError).toBe(true)
+  })
 
   it('creates a task with the calling conversation as defaults', async () => {
     svc.create.mockImplementation((_s, input) => job({ ...input, id: 9 }))

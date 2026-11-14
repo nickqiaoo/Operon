@@ -1,6 +1,5 @@
 import appPackage from '../../../../package.json'
 import enginePackage from 'operon-agents/package.json'
-import { TEAMS_SERVICE } from '../../extensions/peers/contract.js'
 import { installExtension, listExtensions, type OperonExtensionDTO } from './extensions.js'
 
 const DEFAULT_MARKET_URL = 'https://extensions.operon.chatcode.top'
@@ -8,7 +7,9 @@ const FALLBACK_MARKET_URL = 'https://operon-extension-market.nickqiaoo.workers.d
 const MARKET_URLS = process.env.OPERON_EXTENSION_MARKET_URL
   ? [process.env.OPERON_EXTENSION_MARKET_URL.replace(/\/$/, '')]
   : [DEFAULT_MARKET_URL, FALLBACK_MARKET_URL]
-const SUPPORTED_HOST_SERVICES: ReadonlySet<string> = new Set([TEAMS_SERVICE])
+/** Host services an extension may require (`requiresServices`). None today: Teams carries its own
+ *  settings. The check stays for the extensions that will. */
+const SUPPORTED_HOST_SERVICES: ReadonlySet<string> = new Set<string>()
 const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/
 
 export type ExtensionMarketplaceStatus = 'available' | 'installed' | 'update'

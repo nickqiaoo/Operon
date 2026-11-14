@@ -23,11 +23,11 @@ import { withAutoReviewModel } from './auto-review.js'
 import { getAutoReviewConfig } from '../auto-review-config.js'
 import { MODE_TO_PERMISSION, OperonRuntimeSession, type OperonSessionNative } from './session.js'
 import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
-import { configurePeersHost, createTeamsHostService, restoredSessionConfig } from './peers.js'
-import { TEAMS_SERVICE } from '../../extensions/peers/contract.js'
+import { teammateOf } from 'operon-agents-peers'
+import { configurePeersHost, createTeammateChat, restoredSessionConfig } from './peers.js'
 import { loadApprovedExtensions, syncApprovedExtensions } from './approved-extensions.js'
 import { resumeRuntimeSession, workspaceSessionConfig, type SessionLimitsConfig, type SessionPermissionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
-import { observeSession, startSessionWatch } from './passive-observer.js'
+import { observeSession } from './passive-observer.js'
 import { getChatStorage } from '../ai/state.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
@@ -289,17 +289,15 @@ function buildAutoApprover(): AutoApprover {
  */
 async function buildHarness(): Promise<Harness> {
   await mkdir(EXTENSIONS_DIR, { recursive: true })
-  configurePeersHost({
-    harness: () => HARNESS_INSTANCE,
-    workspaceSetup: async (cwd) => {
-      const { root: _root, ...setup } = await resolveWorkspaceSetup(cwd)
-      return setup
-    },
-    defaultModelId: async () => {
-      const models = await availableModels()
-      return models[0]?.id ?? DEFAULT_MODEL_ID
-    },
-  })
+  const workspaceSetup = async (cwd: string): Promise<WorkspaceSessionSetup> => {
+    const { root: _root, ...setup } = await resolveWorkspaceSetup(cwd)
+    return setup
+  }
+  const defaultModelId = async (): Promise<string> => {
+    const models = await availableModels()
+    return models[0]?.id ?? DEFAULT_MODEL_ID
+  }
+  configurePeersHost({ harness: () => HARNESS_INSTANCE, workspaceSetup })
   // One set of MCP connections per project root, shared by every session open there and kept
   // for a few minutes after the last one closes. Owned by this harness: its `close` below.
   const workspaceMcp = new WorkspaceMcpPool({ oauthService: mcpOAuthService })
@@ -321,12 +319,22 @@ async function buildHarness(): Promise<Harness> {
       },
     },
     autoApprover: buildAutoApprover(),
-    // Every restore the UI does not hand a setup to — a peer message to an unloaded recipient
-    // (`host.resumeSession`), any bare `resumeSession(id)` — gets the host's current one for it,
-    // laid over what the session stored so its model, mode and extension parameters survive.
-    // A restore the UI drives passes its own setup in, merged the same way. The result is final
-    // and not stored, so the stored setup stays what the session was created with.
+    // The workspace's rules hold for every session, whoever opens it.
+    // - A session an extension creates (a Teams teammate, say) gets the workspace setup of the
+    //   directory it is born in — its private MCP servers, `config.toml` policy and limits — under
+    //   what the extension asked for, so the extension's parameters (a teammate's seat), model,
+    //   mode and prompt stay. Sessions the UI creates already carry it (`openSession`).
+    // - Every restore the UI does not hand a setup to — a peer message to an unloaded recipient
+    //   (`host.resumeSession`), any bare `resumeSession(id)` — gets the host's current one for it,
+    //   laid over what the session stored so its model, mode and extension parameters survive.
+    //   A restore the UI drives passes its own setup in, merged the same way.
+    // The result is final and not stored: a create stores what it was asked for, a restore keeps
+    // what the session had.
     resolveSession: async (request) => {
+      if (request.operation === 'create' && request.origin.kind === 'extension') {
+        const workspace = workspaceSessionConfig(await workspaceSetup(request.session.workDir))
+        return { config: resolveSessionConfig(workspace, request.requested.config ?? {}) }
+      }
       if (request.operation !== 'restore') return
       const current = request.requested.config ?? (await restoredSessionConfig(request.session))
       return { config: resolveSessionConfig(request.stored ?? {}, current) }
@@ -336,9 +344,6 @@ async function buildHarness(): Promise<Harness> {
     // there runs until the user loads it from Settings → Extensions. Marketplace downloads are
     // ordinary file extensions; a previous explicit approval is restored below on startup.
     extensionDir: EXTENSIONS_DIR,
-    // Host services extensions may `use`. `operon-teams` is what the Teams bundle reads its
-    // teammate types from and reports every spawn to.
-    services: { [TEAMS_SERVICE]: createTeamsHostService() },
     // Product telemetry: the framework projects every session's turn / tool / compaction events
     // into the process service, which reaches PostHog through the host's consent-gated sink.
     // A headless run has no sink and gets the no-op service.
@@ -401,15 +406,18 @@ async function buildHarness(): Promise<Harness> {
       ? { registry: { tools: [...filesystemTools(), ...registeredExtraTools] } }
       : {}),
   })
-  // A session restored without going through `openSession` (a peer message to an unloaded
-  // recipient) is observed before its first run, so that run's transcript reaches its chat row.
-  harness.onSessionOpened((session, info) => {
-    if (info.operation !== 'restore') return
+  // Sessions that come to exist without going through `openSession`, observed before their first
+  // run so it reaches their chat row: a teammate Teams just spawned (which gets its row here
+  // first — the row failing rolls the spawn back, so no teammate runs unseen), and a session
+  // restored by a peer message to an unloaded recipient.
+  harness.onSessionOpened(async (session, info) => {
+    const member = teammateOf(session)
+    if (member && info.operation === 'create') await createTeammateChat(session, member, info.source, defaultModelId)
+    else if (info.operation !== 'restore') return
     const row = getChatStorage()?.findChatBySessionId(session.id)
     observeSession(session, { notifyOnTurnEnd: row?.tp !== 'teammate' })
   })
   HARNESS_INSTANCE = harness
-  startSessionWatch(harness)
   await loadApprovedExtensions(harness)
   // Then, off the launch path, catch the extensions up with the marketplace. Chained onto
   // `HARNESS` rather than started here: the sync reads the marketplace through

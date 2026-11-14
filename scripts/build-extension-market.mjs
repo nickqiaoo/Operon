@@ -32,7 +32,8 @@ try {
       version,
       engine,
       minOperonVersion: app.version,
-      requiresServices: ['operon-teams'],
+      // Teams depends on no host service: it carries its own settings.
+      requiresServices: [],
       publisher: { id: 'operon', name: 'Operon', verified: true },
       artifact: {
         path: artifactPath,

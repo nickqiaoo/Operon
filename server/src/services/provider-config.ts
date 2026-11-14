@@ -1,3 +1,4 @@
+import { apiKeyCatalogProviders, piCatalog } from './pi-catalog.js'
 import type { StorageAdapter } from '../storage/interface.js'
 import { customProviderBaseUrl, type CustomProviderInfo } from '../../../shared/provider-config.js'
 
@@ -46,20 +47,14 @@ export interface ProviderMeta {
   logo: string
 }
 
-export const PROVIDER_META: Record<string, ProviderMeta> = {
-  anthropic: { label: 'Anthropic', defaultBaseUrl: 'https://api.anthropic.com', logo: 'anthropic' },
-  openai:    { label: 'OpenAI',    defaultBaseUrl: 'https://api.openai.com',      logo: 'openai' },
-  google:    { label: 'Google',    defaultBaseUrl: 'https://generativelanguage.googleapis.com', logo: 'google' },
-  deepseek:  { label: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com',    logo: 'deepseek' },
-  kimi:      { label: 'Kimi',     defaultBaseUrl: 'https://api.moonshot.cn',      logo: 'moonshot' },
-  glm:       { label: 'GLM',      defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', logo: 'zhipu' },
-  minimax:   { label: 'MiniMax',  defaultBaseUrl: 'https://api.minimax.chat/v1', logo: 'minimax' },
-  grok:      { label: 'Grok',     defaultBaseUrl: 'https://api.x.ai',            logo: 'xai' },
-  mistral:   { label: 'Mistral',  defaultBaseUrl: 'https://api.mistral.ai',      logo: 'mistral' },
-  openrouter:{ label: 'OpenRouter', defaultBaseUrl: 'https://openrouter.ai/api', logo: 'openrouter' },
-  vercel:    { label: 'Vercel AI Gateway', defaultBaseUrl: 'https://ai-gateway.vercel.sh', logo: 'vercel' },
-  ollama:    { label: 'Ollama',     defaultBaseUrl: 'http://localhost:11434',      logo: 'ollama' },
-}
+/** Pi is the only source of built-in providers and endpoint defaults. */
+export const PROVIDER_META: Record<string, ProviderMeta> = Object.fromEntries(
+  apiKeyCatalogProviders().map((provider) => [provider.id, {
+    label: provider.name,
+    defaultBaseUrl: provider.baseUrl ?? '',
+    logo: provider.id,
+  }]),
+)
 
 let _storage: StorageAdapter | null = null
 const configListeners = new Set<(providerId: string) => void>()
@@ -105,10 +100,10 @@ export function getProviderMeta(providerId: string): ProviderMeta {
   return PROVIDER_META[providerId] ?? { label: providerId, defaultBaseUrl: '', logo: '' }
 }
 
-/** A provider is usable once it has its credential: a key, or for local and custom endpoints, an address. */
+/** Custom endpoints need an address; built-in providers need an API key. */
 export function isProviderUsable(providerId: string, config: ProviderConfig): boolean {
   if (config.custom) return Boolean(config.baseUrl)
-  return providerId === 'ollama' || Boolean(config.apiKey)
+  return Boolean(PROVIDER_META[providerId] && config.apiKey)
 }
 
 function normalizeProviderConfig(config: ProviderConfig): ProviderConfig {
@@ -121,7 +116,8 @@ function normalizeProviderConfig(config: ProviderConfig): ProviderConfig {
 }
 
 /**
- * Fetch available models from the provider's API.
+ * Built-ins use Pi's chat catalog unless their endpoint is overridden.
+ * An override lists models from that endpoint using the provider's wire API.
  */
 export async function fetchProviderModels(
   providerId: string,
@@ -131,10 +127,6 @@ export async function fetchProviderModels(
     ? normalizeProviderConfig(configOverride)
     : normalizeProviderConfig(getProviderConfig(providerId))
   const apiKey = config.apiKey
-
-  if (providerId === 'ollama') {
-    return fetchOllamaModels(config.baseUrl)
-  }
 
   if (config.custom) {
     // A key is optional here: a self-hosted endpoint often has none.
@@ -149,21 +141,17 @@ export async function fetchProviderModels(
     throw new Error(`No API key configured for provider: ${providerId}`)
   }
 
-  switch (providerId) {
-    case 'anthropic': return fetchAnthropicModels(apiKey, config.baseUrl)
-    case 'openai':    return fetchOpenAiModels(apiKey, config.baseUrl)
-    case 'google':    return fetchGoogleModels(apiKey, config.baseUrl)
-    case 'deepseek':  return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.deepseek.com', 'deepseek')
-    case 'kimi':      return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.moonshot.cn', 'kimi')
-    case 'glm':       return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://open.bigmodel.cn/api/paas/v4', 'glm')
-    case 'minimax':   return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.minimax.chat/v1', 'minimax')
-    case 'grok':      return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://api.x.ai', 'grok')
-    case 'mistral':   return fetchMistralModels(apiKey, config.baseUrl)
-    case 'openrouter': return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://openrouter.ai/api', 'openrouter')
-    case 'vercel':    return fetchOpenAiCompatibleModels(apiKey, config.baseUrl ?? 'https://ai-gateway.vercel.sh', 'vercel')
-    default:
-      throw new Error(`Unknown provider: ${providerId}`)
+  if (!PROVIDER_META[providerId]) throw new Error(`Unknown provider: ${providerId}`)
+  if (config.baseUrl) {
+    const api = piCatalog.getModels(providerId)[0]?.api
+    if (api === 'anthropic-messages') {
+      return fetchAnthropicModels(apiKey, customProviderBaseUrl('anthropic-messages', config.baseUrl))
+    }
+    if (api === 'google-generative-ai') return fetchGoogleModels(apiKey, config.baseUrl)
+    const base = customProviderBaseUrl('openai-completions', config.baseUrl)
+    return listOpenAiCompatibleModels(`${base}/models`, apiKey, PROVIDER_META[providerId].label)
   }
+  return piCatalog.getModels(providerId).map((model) => ({ id: model.id, name: model.name }))
 }
 
 // ---------------------------------------------------------------------------
@@ -189,89 +177,24 @@ async function fetchAnthropicModels(apiKey: string, baseUrl?: string): Promise<P
   }))
 }
 
-async function fetchOpenAiModels(apiKey: string, baseUrl?: string): Promise<ProviderModel[]> {
-  const base = (baseUrl || 'https://api.openai.com').replace(/\/$/, '')
-  const res = await fetch(`${base}/v1/models`, {
-    headers: { 'Authorization': `Bearer ${apiKey}` },
-  })
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`OpenAI API error ${res.status}: ${body}`)
-  }
-  const data = await res.json() as { data: Array<{ id: string }> }
-  return (data.data ?? [])
-    .filter((m) => /^gpt-|^o[0-9]|^chatgpt/.test(m.id))
-    .sort((a, b) => b.id.localeCompare(a.id))
-    .map((m) => ({ id: m.id, name: m.id }))
-}
-
-async function fetchGoogleModels(apiKey: string, baseUrl?: string): Promise<ProviderModel[]> {
-  const base = (baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/$/, '')
-  const res = await fetch(`${base}/v1beta/models?key=${apiKey}`)
+async function fetchGoogleModels(apiKey: string, baseUrl: string): Promise<ProviderModel[]> {
+  const base = baseUrl.replace(/\/+$/, '')
+  const url = new URL(`${base}/models`)
+  url.searchParams.set('key', apiKey)
+  const res = await fetch(url.toString())
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`Google API error ${res.status}: ${body}`)
   }
-  const data = await res.json() as { models: Array<{ name: string; displayName?: string; supportedGenerationMethods?: string[] }> }
-  return (data.models ?? [])
-    .filter((m) => m.name.includes('gemini') && (m.supportedGenerationMethods ?? []).includes('generateContent'))
-    .map((m) => ({
-      id: m.name.replace('models/', ''),
-      name: m.displayName || m.name.replace('models/', ''),
-    }))
-}
-
-async function fetchOllamaModels(baseUrl?: string): Promise<ProviderModel[]> {
-  const base = (baseUrl || 'http://localhost:11434').replace(/\/$/, '')
-  const res = await fetch(`${base}/api/tags`)
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Ollama API error ${res.status}: ${body}`)
-  }
-  const data = await res.json() as { models: Array<{ name: string; model?: string }> }
-  return (data.models ?? [])
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((m) => ({ id: m.name, name: m.name }))
-}
-
-/**
- * Not the generic fetcher: Mistral's cards say `type: 'base'`, which that one drops, and the
- * list also has embedding, OCR and moderation models. Agents always send tools, so a model
- * has to do both chat and function calling.
- */
-async function fetchMistralModels(apiKey: string, baseUrl?: string): Promise<ProviderModel[]> {
-  const base = (baseUrl || 'https://api.mistral.ai').replace(/\/+$/, '').replace(/\/v1$/, '')
-  const res = await fetch(`${base}/v1/models`, {
-    headers: { 'Authorization': `Bearer ${apiKey}` },
-  })
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Mistral API error ${res.status}: ${body}`)
-  }
   const data = await res.json() as {
-    data: Array<{ id: string; capabilities?: { completion_chat?: boolean; function_calling?: boolean } }>
+    models: Array<{ name: string; displayName?: string; supportedGenerationMethods?: string[] }>
   }
-  return (data.data ?? [])
-    .filter((m) => m.capabilities?.completion_chat !== false && m.capabilities?.function_calling !== false)
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((m) => ({ id: m.id, name: m.id }))
+  return (data.models ?? [])
+    .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
+    .map((model) => ({ id: model.name.replace(/^models\//, ''), name: model.displayName || model.name.replace(/^models\//, '') }))
 }
 
-/**
- * Generic OpenAI-compatible fetcher used by DeepSeek, Kimi, GLM, MiniMax, Grok.
- */
-async function fetchOpenAiCompatibleModels(
-  apiKey: string,
-  baseUrl: string,
-  providerLabel: string,
-): Promise<ProviderModel[]> {
-  const base = baseUrl.replace(/\/$/, '')
-  // Some providers include /v1 in their base, others don't
-  const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`
-  return listOpenAiCompatibleModels(modelsUrl, apiKey, providerLabel)
-}
-
-/** `GET /models` in the OpenAI shape, sorted by id. No key, no `Authorization` header. */
+/** `GET /models` in the OpenAI shape, sorted by id. Omit authorization for keyless endpoints. */
 async function listOpenAiCompatibleModels(
   modelsUrl: string,
   apiKey: string,
@@ -285,9 +208,12 @@ async function listOpenAiCompatibleModels(
     throw new Error(`${providerLabel} API error ${res.status}: ${body}`)
   }
   // Vercel AI Gateway also lists embedding, image, video, speech… models; others send no `type`.
-  const data = await res.json() as { data: Array<{ id: string; type?: string }> }
+  const data = await res.json() as {
+    data: Array<{ id: string; type?: string; capabilities?: { completion_chat?: boolean; function_calling?: boolean } }>
+  }
   return (data.data ?? [])
-    .filter((m) => m.type === undefined || m.type === 'language')
+    .filter((m) => (m.type === undefined || m.type === 'language' || (m.type === 'base' && m.capabilities?.completion_chat === true))
+      && m.capabilities?.completion_chat !== false && m.capabilities?.function_calling !== false)
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((m) => ({ id: m.id, name: m.id }))
 }

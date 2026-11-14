@@ -1,6 +1,7 @@
 import { build } from "esbuild";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { PEERS_SETTINGS_SCHEMA } from "operon-agents-peers";
 
 /**
  * Bundle the Teams extension (server/src/extensions/peers) into
@@ -11,6 +12,11 @@ import path from "node:path";
  * host). So neither number alone identifies a build: `version` tracks the app half and
  * `engine` the framework half, and the marketplace treats a move in EITHER as an update
  * (see `isOutdated` in `extension-marketplace.ts`). Publish after changing either one.
+ *
+ * The manifest also carries the extension's settings: the framework's `PEERS_SETTINGS_SCHEMA`,
+ * with Operon's product defaults (`settings-defaults.json`: the default teammate types and
+ * budget) written in as the schema's `default`s. They are product decisions, so they live here
+ * and not in the framework.
  */
 export async function buildPeersExtension({ root, outdir }) {
   const src = path.join(root, "server", "src", "extensions", "peers");
@@ -41,11 +47,19 @@ export async function buildPeersExtension({ root, outdir }) {
   }
 
   const manifest = JSON.parse(await readFile(path.join(src, "manifest.json"), "utf8"));
+  const defaults = JSON.parse(await readFile(path.join(src, "settings-defaults.json"), "utf8"));
+  const settings = structuredClone(PEERS_SETTINGS_SCHEMA);
+  settings.properties.types.default = defaults.types;
+  for (const [key, value] of Object.entries(defaults.budget ?? {})) {
+    const field = settings.properties.budget.properties[key];
+    if (field === undefined) throw new Error(`settings-defaults.json: no budget field "${key}" in PEERS_SETTINGS_SCHEMA`);
+    field.default = value;
+  }
   const app = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   const engine = JSON.parse(await readFile(path.join(root, "node_modules", "operon-agents", "package.json"), "utf8"));
   await writeFile(
     path.join(dest, "manifest.json"),
-    `${JSON.stringify({ ...manifest, version: app.version, engine: engine.version }, null, 2)}\n`,
+    `${JSON.stringify({ ...manifest, version: app.version, engine: engine.version, settings }, null, 2)}\n`,
   );
   return dest;
 }

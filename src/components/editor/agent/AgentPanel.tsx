@@ -1072,10 +1072,10 @@ function TaskRow({ chatId, task, onChanged }: { chatId: number; task: OperonBack
   }
 
   return (
-    <div className={cn(ROW, 'transition-colors hover:bg-row-hover')}>
+    <div className={ROW}>
       <div className="flex items-center gap-2">
         <RowDot className={TASK_DOT[task.status]} />
-        <button className="min-w-0 flex-1 truncate text-left text-foreground/85" onClick={toggleOutput}>
+        <button className="min-w-0 flex-1 truncate text-left text-foreground/85 transition-colors hover:text-foreground" onClick={toggleOutput}>
           {task.description || task.kind}
         </button>
         <span className="shrink-0 text-[11px] text-muted-foreground/50">{task.kind}</span>

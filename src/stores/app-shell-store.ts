@@ -110,9 +110,13 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
       skipSideChatCloseConfirm: false,
 
       setRightPanelOpen: (rightPanelOpen) => {
-        // Keep the transcript readable when the right panel takes its space.
+        // Keep the transcript readable when the right panel takes its space — and
+        // hand the Session cards back when it leaves, if it was the one that hid them.
+        const session = useSessionPanelStore.getState()
         if (rightPanelOpen && !get().rightPanelOpen) {
-          useSessionPanelStore.getState().setOpen(false)
+          session.suspendForRightPanel()
+        } else if (!rightPanelOpen && get().rightPanelOpen) {
+          session.restoreAfterRightPanel()
         }
         set((s) => ({
           rightPanelOpen,

@@ -62,3 +62,11 @@ export function customProviderBaseUrl(api: CustomProviderApi, baseUrl: string): 
     return trimmed
   }
 }
+
+/** Built-in endpoint metadata supplied by the server's Pi catalog. */
+export interface BuiltinProviderInfo {
+  id: string
+  label: string
+  defaultBaseUrl: string
+  logo: string
+}

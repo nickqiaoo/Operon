@@ -1,27 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Harness } from 'operon-agents'
-import type { AgentRef } from 'operon-agents-peers'
+import type { Harness, HarnessSession } from 'operon-agents'
+import type { AgentRef, TeammateIdentity } from 'operon-agents-peers'
 
 const mocks = vi.hoisted(() => ({
-  getSession: vi.fn(),
   chat: vi.fn(),
+  chatMeta: vi.fn(),
+  createChat: vi.fn(),
   record: vi.fn(),
   mcp: vi.fn(),
   plugins: vi.fn(),
-  snapshot: vi.fn(() => ({ types: { coder: { instructions: 'Review carefully', modeId: 'workspace' } } })),
+  settings: vi.fn(),
 }))
 vi.mock('../ai/state.js', () => ({
-  getChatStorage: () => ({ findChatBySessionId: mocks.chat }),
+  getChatStorage: () => ({ findChatBySessionId: mocks.chat, getChatMeta: mocks.chatMeta, createChat: mocks.createChat }),
   getSessionManager: () => ({ findBySessionId: mocks.record }),
 }))
 vi.mock('../mcp-config.js', () => ({ resolveMcpServersForSession: mocks.mcp }))
 vi.mock('./plugins.js', () => ({ ensurePluginsLoaded: mocks.plugins }))
-vi.mock('./peers-config.js', () => ({ peersConfigSnapshot: mocks.snapshot }))
-vi.mock('./passive-observer.js', () => ({ observeSession: vi.fn() }))
-vi.mock('./resolve-model.js', () => ({ modelRef: vi.fn(), resolveModel: vi.fn() }))
-vi.mock('./session.js', () => ({ MODE_TO_PERMISSION: { workspace: 'workspace' } }))
 
-import { configurePeersHost, createTeamsHostService, restoredSessionConfig } from './peers.js'
+import { configurePeersHost, createTeammateChat, restoredSessionConfig } from './peers.js'
 
 const recipient: AgentRef = {
   agentId: 'lead', sessionId: 'recipient-session', kind: 'session', type: 'lead',
@@ -35,16 +32,13 @@ const workspaceSetup = vi.fn(async (_cwd: string) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.chat.mockReturnValue(undefined)
+  mocks.chatMeta.mockReturnValue(undefined)
   mocks.record.mockReturnValue(undefined)
   mocks.plugins.mockResolvedValue(undefined)
   mocks.mcp.mockReturnValue({ operonrepl: { url: 'http://localhost/current-port/chat/42' } })
-  mocks.getSession.mockImplementation((id: string) => id === 'creator-session' ? { workDir: '/creator' } : undefined)
-  const harness = { getSession: mocks.getSession } as unknown as Harness
-  configurePeersHost({
-    harness: () => harness,
-    workspaceSetup,
-    defaultModelId: async () => 'model',
-  })
+  mocks.settings.mockResolvedValue({ schema: { type: 'object' }, value: { types: { coder: { title: 'Coder' } } }, issues: [] })
+  const harness = { extensions: { getSettings: mocks.settings } } as unknown as Harness
+  configurePeersHost({ harness: () => harness, workspaceSetup })
 })
 
 function restoredConfig() {
@@ -84,25 +78,50 @@ describe('peer session restoration', () => {
     expect(mocks.mcp).not.toHaveBeenCalled()
   })
 
-  it('restores a legacy teammate protocol and type prompt', async () => {
-    mocks.chat.mockReturnValue({ id: 43, metadata: { peer: { type: 'coder' } } })
-    const config = await restoredConfig()
-    expect(config.appendSystemPrompt).toContain('Hub tool')
-    expect(config.appendSystemPrompt).toContain('Review carefully')
+  it('names no prompt for a teammate, so the one stored at its creation survives', async () => {
+    mocks.chat.mockReturnValue({ id: 43, tp: 'teammate', workspaceId: 7, metadata: { peer: { type: 'coder' } } })
+    mocks.record.mockReturnValue({ chatId: 43, params: { instructions: 'Lead instructions' } })
+    expect(await restoredConfig()).not.toHaveProperty('appendSystemPrompt')
   })
 
   it('never names a permission mode, so the one the session last ran in survives', async () => {
     expect((await restoredConfig()).permission).not.toHaveProperty('mode')
   })
 
-  it('applies the same workspace limits at teammate creation, in its lead directory', async () => {
-    const opts = await createTeamsHostService().teammateOptions({
-      creatorId: 'creator', creatorSessionId: 'creator-session', name: 'coder', team: 'team:creator:test', type: 'coder',
-    })
-    expect(opts).toMatchObject({
-      workDir: '/creator',
-      config: { limits: { maxTurns: 4, maxStepsPerTurn: 9 }, permission: { ...permission, mode: 'workspace' } },
-    })
-    expect(opts.config?.appendSystemPrompt).toContain('Review carefully')
+})
+
+describe('teammate chat rows', () => {
+  const member: TeammateIdentity = { agentId: 'team:lead-session:crew/c1', name: 'c1', team: 'team:lead-session:crew', type: 'coder', creatorSessionId: 'lead-session' }
+  const session = { id: 'teammate-session', modelSetting: 'anthropic/claude-sonnet-5-5' } as unknown as HarnessSession
+
+  it('files the teammate under its lead, titled by its type and on the model it runs', async () => {
+    mocks.chat.mockImplementation((id: string) => id === 'lead-session' ? { id: 5, workspaceId: 9 } : undefined)
+    await createTeammateChat(session, member, { id: 'lead-session' }, async () => 'fallback/model')
+    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({
+      tp: 'teammate',
+      title: 'c1 · Coder',
+      workspaceId: 9,
+      model: 'anthropic/claude-sonnet-5-5',
+      sessionId: 'teammate-session',
+      metadata: { peer: { name: 'c1', team: 'team:lead-session:crew', type: 'coder', creatorSessionId: 'lead-session', leadChatId: 5 } },
+    }))
+  })
+
+  it('finds the lead through the session manager on its first turn', async () => {
+    mocks.record.mockImplementation((id: string) => id === 'lead-session' ? { chatId: 6 } : undefined)
+    mocks.chatMeta.mockImplementation((id: number) => id === 6 ? { workspaceId: 3 } : undefined)
+    await createTeammateChat(session, member, undefined, async () => 'fallback/model')
+    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 3, metadata: { peer: expect.objectContaining({ leadChatId: 6 }) } }))
+  })
+
+  it('falls back to the type key and the default model', async () => {
+    mocks.settings.mockResolvedValue({ schema: { type: 'object' }, value: {}, issues: [] })
+    await createTeammateChat({ id: 'teammate-session', modelSetting: undefined } as unknown as HarnessSession, member, undefined, async () => 'fallback/model')
+    expect(mocks.createChat).toHaveBeenCalledWith(expect.objectContaining({ title: 'c1 · coder', model: 'fallback/model' }))
+  })
+
+  it('throws when the row cannot be made, so the spawn is rolled back', async () => {
+    mocks.createChat.mockImplementation(() => { throw new Error('disk full') })
+    await expect(createTeammateChat(session, member, undefined, async () => 'm')).rejects.toThrow('disk full')
   })
 })

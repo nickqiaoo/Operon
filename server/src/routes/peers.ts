@@ -1,12 +1,11 @@
 import { Hono, type Context } from 'hono'
-import { loadPeersConfig, savePeersConfig } from '../services/operon-runtime/peers-config.js'
-import { disbandTeam, reloadPeersExtension, rosterAll } from '../services/operon-runtime/peers.js'
+import { disbandTeam, rosterAll } from '../services/operon-runtime/peers.js'
 import { getOperonHarness } from '../services/operon-runtime/index.js'
 
 /**
- * Teams (peers) API — session-independent. The roster spans the whole harness; the
- * config (budget, teammate types) is applied by reloading the Teams extension. On/off is
- * the extension's own load / unload (`/api/extensions/*`).
+ * Teams (peers) API — session-independent. The roster spans the whole harness. Its settings
+ * (budget, teammate types) are the extension's own, edited like any extension's
+ * (`/api/extensions/peers/settings`); on/off is its load / unload (`/api/extensions/*`).
  */
 export function peersRoutes() {
   const router = new Hono()
@@ -20,26 +19,6 @@ export function peersRoutes() {
     try {
       await getOperonHarness()
       return c.json(await rosterAll())
-    } catch (error) {
-      return fail(c, error)
-    }
-  })
-
-  router.get('/config', async (c) => {
-    try {
-      return c.json({ config: await loadPeersConfig() })
-    } catch (error) {
-      return fail(c, error)
-    }
-  })
-
-  router.post('/config', async (c) => {
-    try {
-      const body = await c.req.json<{ config?: unknown }>()
-      const config = await savePeersConfig(body.config ?? body)
-      await getOperonHarness()
-      await reloadPeersExtension()
-      return c.json({ config })
     } catch (error) {
       return fail(c, error)
     }

@@ -1,0 +1,22 @@
+{
+  "budget": { "maxWakes": 200, "maxTotalTokens": 5000000 },
+  "types": {
+    "coder": {
+      "title": "Coder",
+      "description": "Implements a well-scoped change end to end: code, tests, and a short report back.",
+      "permissionMode": "workspace"
+    },
+    "reviewer": {
+      "title": "Reviewer",
+      "description": "Reviews a change for correctness and risk; reads and runs, never edits.",
+      "permissionMode": "workspace",
+      "instructions": "You are a code reviewer. Do not modify files — read, run checks, and report findings with file:line references."
+    },
+    "researcher": {
+      "title": "Researcher",
+      "description": "Investigates a question in the codebase or on the web and reports what it found.",
+      "permissionMode": "workspace",
+      "instructions": "You are a researcher. Gather facts, cite file paths or URLs, and keep the report concise. Do not change code."
+    }
+  }
+}

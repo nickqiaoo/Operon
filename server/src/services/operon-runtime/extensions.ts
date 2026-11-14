@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import type { Harness } from 'operon-agents'
+import type { ExtensionSettingsView, Harness } from 'operon-agents'
 import { EXTENSIONS_DIR } from './paths.js'
 import { getOperonHarness } from './index.js'
 import { clearLoadFailure, loadFailure, recordLoadFailure, type ExtensionRepairOutcome } from './extension-load-failures.js'
@@ -41,6 +41,8 @@ export interface OperonExtensionDTO {
   loadRepair?: ExtensionRepairOutcome
   /** Extension ids of the sessions currently holding it — for "used by N sessions". */
   attachedSessions: number
+  /** Its manifest declares settings — Settings shows a "Configure" entry for it. */
+  hasSettings: boolean
 }
 
 async function manager(): Promise<NonNullable<Harness['extensions']>> {
@@ -72,8 +74,30 @@ export async function listExtensions(): Promise<OperonExtensionDTO[]> {
       ...(failure ? { loadError: failure.message } : {}),
       ...(failure?.repair ? { loadRepair: failure.repair } : {}),
       attachedSessions: attached.get(s.id) ?? 0,
+      hasSettings: s.settings !== undefined,
     }
   })
+}
+
+/** One extension's settings: its schema, the value it reads and what did not fit. Works whether or
+ *  not it is loaded — the framework reads only its manifest. */
+export async function getExtensionSettings(id: string): Promise<ExtensionSettingsView> {
+  const safe = assertId(id)
+  const view = await (await manager()).getSettings(safe)
+  if (!view) throw new Error(`Extension "${safe}" has no settings`)
+  return view
+}
+
+/** Replace one extension's settings. Invalid values are refused by the framework
+ *  (`ExtensionSettingsInvalidError`, with per-field issues) and nothing is stored; a loaded
+ *  extension is reloaded onto the new value without interrupting its sessions. */
+export async function setExtensionSettings(id: string, value: unknown): Promise<ExtensionSettingsView> {
+  const safe = assertId(id)
+  const m = await manager()
+  await m.setSettings(safe, value)
+  const view = await m.getSettings(safe)
+  if (!view) throw new Error(`Extension "${safe}" has no settings`)
+  return view
 }
 
 /** Load (= approve) or hot-reload one extension. */

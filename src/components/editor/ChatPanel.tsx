@@ -6,7 +6,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { isTypingTarget } from '@/lib/shadcn-react/message-scroller/components';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
-import { ChartPie, Gauge } from 'lucide-react';
+import { ChartPie, Gauge, Loader2 } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
 import type { OperonSkillDTO } from './agent/agentControl';
 import {
@@ -487,6 +487,13 @@ function ChatPanelContent({
   });
 
   const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
+
+  // Phone: reopening a conversation is a WAN round trip for its transcript.
+  // Until it lands the panel is one full-screen loading state — no transcript,
+  // no composer. A composer shown in the meantime looked ready but did nothing
+  // useful, and a thin bar at the top of the window was easy to miss. New chats
+  // (no DB id yet) have nothing to load and skip this.
+  const showMobileHistoryLoading = isMobile && historyDbChatId !== undefined && !historyLoaded;
 
   // Sits below useChatHistory because it needs that hook's loaded timestamp to
   // date a conversation reopened from history.
@@ -1202,7 +1209,10 @@ function ChatPanelContent({
           // `absolute` also anchors the floating metrics row (see below).
           isMobile && "absolute inset-x-0 bottom-0 z-20 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))]",
           isMobile &&
-            "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2"
+            "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2",
+          // Hidden, not unmounted, while the transcript loads: the composer keeps
+          // its draft and its measured height, and it can't be tapped or focused.
+          showMobileHistoryLoading && "invisible"
         )}
       >
         {chatError && status === 'error' && (
@@ -1412,6 +1422,15 @@ function ChatPanelContent({
           onSkillsChange={saveDraftSkills}
         />}
       </div>
+      {showMobileHistoryLoading && (
+        <div
+          role="status"
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground animate-in fade-in-0 duration-200"
+        >
+          <Loader2 className="size-6 animate-spin" />
+          <FormattedMessage id="editor.chat.loadingConversation" defaultMessage="Loading conversation…" />
+        </div>
+      )}
       <AgentPanel
         open={agentPanelOpen}
         live={visible}

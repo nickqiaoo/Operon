@@ -88,7 +88,8 @@ function getCreatedTaskId(toolPart: ToolPartLike): string | undefined {
   }
 
   if (typeof output === 'string') {
-    const match = output.match(/Task #([^\s]+) created successfully:/i);
+    // Operon uses "created:"; Claude uses "created successfully:".
+    const match = output.match(/Task #([^\s]+) created(?: successfully)?:/i);
     if (match) return match[1];
   }
 

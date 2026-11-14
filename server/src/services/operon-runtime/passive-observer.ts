@@ -73,31 +73,6 @@ export function unobserveSession(sessionId: string): void {
   observed.delete(sessionId)
 }
 
-let watcher: ReturnType<typeof setInterval> | undefined
-
-/**
- * Catch sessions operon did not open itself. A teammate's report reopens a lead the UI had
- * closed (tab closed → `dispose` → `HarnessSession.close`), and a message to a parked
- * teammate reopens it — both through the peers network, with no hook back to us. Every
- * open session that has a chat row gets an observer; already-observed instances are skipped.
- */
-export function startSessionWatch(harness: { readonly sessions: ReadonlyMap<string, HarnessSession> }, intervalMs = 3000): void {
-  if (watcher) return
-  const sweep = (): void => {
-    const storage = getChatStorage()
-    if (!storage) return
-    for (const session of harness.sessions.values()) {
-      const current = observed.get(session.id)
-      if (current?.session === session) continue
-      const row = storage.findChatBySessionId(session.id)
-      if (!row) continue
-      observeSession(session, { notifyOnTurnEnd: row.tp !== 'teammate' })
-    }
-  }
-  watcher = setInterval(sweep, intervalMs)
-  watcher.unref?.()
-}
-
 /**
  * Attach the passive observer to `session`. Idempotent per session id. The chat is
  * resolved lazily on each turn (a chat row may be created after the session opened).

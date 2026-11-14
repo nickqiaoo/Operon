@@ -1,13 +1,5 @@
-import googleLogo from "@/assets/logos/google.svg";
-import openaiLogo from "@/assets/logos/openai.svg";
-import anthropicLogo from "@/assets/logos/claude.svg";
-import opencodeLogo from "@/assets/logos/opencode.svg";
-import grokLogo from "@/assets/logos/grok.svg";
-import qoderLogo from "@/assets/logos/qoder.svg";
-import kimiLogo from "@/assets/logos/kimi.svg";
-import vercelLogo from "@/assets/logos/vercel.svg";
-import customLogo from "@/assets/logos/custom.svg";
-import endpointLogo from "@/assets/logos/endpoint.svg";
+import { providerLogoSrc } from '@/lib/provider-logos';
+import endpointLogo from '@/assets/logos/endpoint.svg';
 
 import {
   Command,
@@ -199,26 +191,6 @@ export type ModelSelectorLogoProps = Omit<
     | (string & {});
 };
 
-const localLogos: Record<string, string> = {
-  google: googleLogo,
-  gemini: googleLogo,
-  kimi: kimiLogo,
-  moonshot: kimiLogo,
-  moonshotai: kimiLogo,
-  "moonshotai-cn": kimiLogo,
-  openai: openaiLogo,
-  codex: openaiLogo,
-  anthropic: anthropicLogo,
-  "claude-code": anthropicLogo,
-  opencode: opencodeLogo,
-  grok: grokLogo,
-  xai: grokLogo,
-  qoder: qoderLogo,
-  vercel: vercelLogo,
-  custom: customLogo,
-  endpoint: endpointLogo,
-};
-
 export const ModelSelectorLogo = ({
   provider,
   className,
@@ -229,7 +201,7 @@ export const ModelSelectorLogo = ({
     alt={`${provider} logo`}
     className={cn("size-3 dark:invert", className)}
     height={12}
-    src={localLogos[provider] ?? `https://models.dev/logos/${provider}.svg`}
+    src={providerLogoSrc(provider) ?? endpointLogo}
     width={12}
   />
 );

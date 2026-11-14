@@ -121,7 +121,36 @@ export function ToolCallGroup({
   renderProgram,
   hasPendingApproval = false,
 }: ToolCallGroupProps) {
-  const [open, setOpen] = useState(false);
+  const toolParts = parts.filter(isToolPart) as ToolInvocationPart[];
+  const states = toolParts.map((p) => normalizeToolState(p.state));
+  // Which approvals are waiting right now. A new one opens the group; it does
+  // not hold the group open, see the note on ToolGroupCollapsible.
+  const approvalKey = [
+    ...(hasPendingApproval ? ['nested'] : []),
+    ...toolParts
+      .filter((_, i) => states[i] === 'approval-requested')
+      .map((p, i) => p.approval?.id ?? p.toolCallId ?? `part-${i}`),
+  ].join('|');
+  const hasApproval = approvalKey !== '';
+  const [open, setOpen] = useState(hasApproval);
+  // True while the group is open only because an approval opened it, so it can
+  // fold itself again once that approval is settled.
+  const [openedForApproval, setOpenedForApproval] = useState(hasApproval);
+  const [seenApprovalKey, setSeenApprovalKey] = useState(approvalKey);
+  if (approvalKey !== seenApprovalKey) {
+    setSeenApprovalKey(approvalKey);
+    if (hasApproval && !open) {
+      setOpen(true);
+      setOpenedForApproval(true);
+    } else if (!hasApproval && openedForApproval) {
+      setOpen(false);
+      setOpenedForApproval(false);
+    }
+  }
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    setOpenedForApproval(false);
+  };
   // Single item: render directly without the group wrapper.
   if (parts.length === 1 && !isCodeProgramTool(parts[0] as ToolPartLike)) {
     return (
@@ -136,23 +165,19 @@ export function ToolCallGroup({
     );
   }
 
-  const toolParts = parts.filter(isToolPart) as ToolInvocationPart[];
   const reasoningCount = parts.filter(isReasoningPart).length;
-  const states = toolParts.map((p) => normalizeToolState(p.state));
   const running = states.some((s) => s === 'input-streaming' || s === 'input-available');
   const failed = states.filter((s) => s === 'output-error').length;
-  const hasApproval = hasPendingApproval || states.includes('approval-requested');
   const summary = buildGroupSummary(toolParts, reasoningCount);
-  const isOpen = hasApproval || open;
   // Images the group read stay in view while it is folded: small beside the
   // summary on desktop, a gallery under it on a phone. Opened, they go: each
   // Read row shows its image when that row is opened.
-  const imagePaths = isOpen
+  const imagePaths = open
     ? []
     : [...new Set(toolParts.map((p) => imageReadPathOf(p)).filter((p): p is string => p !== null))];
 
   return (
-    <ToolGroupCollapsible open={isOpen} onOpenChange={setOpen}>
+    <ToolGroupCollapsible open={open} onOpenChange={handleOpenChange}>
       <ReadImagesRow paths={imagePaths}>
         <TraceCollapsibleTrigger>
           <TraceLine status={running ? 'running' : undefined}>
@@ -184,8 +209,14 @@ export function ToolCallGroup({
 
 /**
  * The group's open state (held by ToolCallGroup, whose folded summary depends on
- * it): closed unless the person opens it, or one of its steps waits on an
- * approval (so the question is in view).
+ * it): closed unless the person opens it, or a step in it starts waiting on an
+ * approval (so the question is in view). An approval opens the group once and
+ * folds it again when it is settled, provided the person hasn't touched it.
+ *
+ * It must not pin the group open. After a click on Allow the row shows the answer
+ * at once (optimistically), but the server keeps the part at `approval-requested`
+ * until the tool actually runs, sometimes for good — pinning on that state left
+ * a group the person could not fold.
  *
  * It does not open while a step runs. The step streaming right now always sits
  * outside the group (segmentMessageParts keeps the active tail as its own

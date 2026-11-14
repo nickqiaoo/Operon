@@ -136,4 +136,49 @@ describe('chat-derived task aggregation', () => {
 
     expect(result.todos.map((todo) => todo.content)).toEqual(['Current task', 'Next task'])
   })
+
+  it('merges Operon task status updates into the original tasks', () => {
+    const created = assistantMessage('assistant-1', [
+      taskPart({
+        id: 'create-1',
+        name: 'TaskCreate',
+        input: { subject: 'Commit and verify the build' },
+        output: 'Task #1 created: Commit and verify the build',
+      }),
+      taskPart({
+        id: 'create-2',
+        name: 'TaskCreate',
+        input: { subject: 'Publish the package', activeForm: 'Publishing the package' },
+        output: 'Task #2 created: Publish the package',
+      }),
+      taskPart({
+        id: 'create-3',
+        name: 'TaskCreate',
+        input: { subject: 'Upgrade the app' },
+        output: 'Task #3 created: Upgrade the app',
+      }),
+    ])
+    const updated = assistantMessage('assistant-2', [
+      taskPart({
+        id: 'update-1',
+        name: 'TaskUpdate',
+        input: { taskId: '1', status: 'completed' },
+        output: 'Task #1 updated: status',
+      }),
+      taskPart({
+        id: 'update-2',
+        name: 'TaskUpdate',
+        input: { taskId: '2', status: 'in_progress' },
+        output: 'Task #2 updated: status',
+      }),
+    ])
+
+    const result = buildTodosState([created, updated], 1, isTaskPart, extractTaskTodos)
+
+    expect(result.todos).toEqual([
+      { id: '1', content: 'Commit and verify the build', activeForm: undefined, status: 'completed' },
+      { id: '2', content: 'Publish the package', activeForm: 'Publishing the package', status: 'in_progress' },
+      { id: '3', content: 'Upgrade the app', activeForm: undefined, status: 'pending' },
+    ])
+  })
 })

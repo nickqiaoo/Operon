@@ -8,7 +8,7 @@ const validEntry = {
   version: '1.3.29',
   engine: '0.1.0-alpha.2',
   minOperonVersion: '1.3.29',
-  requiresServices: ['operon-teams'],
+  requiresServices: [],
   publisher: { id: 'operon', name: 'Operon', verified: true },
   sha256: 'a'.repeat(64),
   size: 1024,
@@ -83,6 +83,10 @@ describe('marketplaceEntryFor', () => {
   })
 
   it('hides an entry that wants a host service this build does not provide', () => {
-    expect(marketplaceEntryFor({ ...fits, requiresServices: ['operon-teams', 'operon-unknown'] }, undefined)).toBeUndefined()
+    expect(marketplaceEntryFor({ ...fits, requiresServices: ['operon-unknown'] }, undefined)).toBeUndefined()
+  })
+
+  it('hides a Teams build that still needs the retired teams-host service', () => {
+    expect(marketplaceEntryFor({ ...fits, requiresServices: ['teams-host'] }, undefined)).toBeUndefined()
   })
 })

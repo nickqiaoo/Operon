@@ -1,7 +1,7 @@
 import type { WorkspaceTask } from '@/stores/project-store'
 import type { ClaudeToggles } from '@shared/claude-toggles'
 import type { SubagentTranscript } from '@shared/background-tasks'
-import type { CustomProviderInfo } from '@shared/provider-config'
+import type { BuiltinProviderInfo, CustomProviderInfo } from '@shared/provider-config'
 import * as httpClient from './api-client.js'
 import { apiAuthHeaders, asRecord, getBaseUrl, request, withApiTokenQuery } from './api-client.js'
 import * as terminalWs from './terminal-ws.js'
@@ -21,8 +21,8 @@ import type { UIMessage } from 'ai'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
 import type { CodexGoal } from '@/types/goal'
-import type { ExtensionMarketplaceDTO, OperonExtensionDTO } from '@/types/extension'
-import type { PeersConfig, PeersRosterDTO } from '@/types/peers'
+import type { ExtensionMarketplaceDTO, ExtensionSettingsDTO, ExtensionSettingsIssue, OperonExtensionDTO } from '@/types/extension'
+import type { PeersRosterDTO } from '@/types/peers'
 import type { MarketplaceBrowseResult, OperonMarketplaceDetailsDTO, OperonMarketplaceInfoDTO, OperonMcpAuthServerDTO, OperonMcpToolDTO, OperonPluginDTO, OperonPluginInfoDTO } from '@/types/plugin'
 import type { MobilePairingSummary } from '@/types/mobile'
 import type { GithubCoverageProject, IntegrationAppStatus, LinearDelegationConfig, LinearPublishOptions } from '@/types/integrations'
@@ -169,8 +169,11 @@ function softPost<T>(path: string, body: unknown): Promise<T> {
   return softRequest<T>(path, { method: 'POST', body: JSON.stringify(body) })
 }
 
-// No softPut/softDel: no endpoint declaring `error?` uses those verbs today.
-// Add them next to softRequest if one does.
+function softPut<T>(path: string, body: unknown): Promise<T> {
+  return softRequest<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+}
+
+// No softDel: no endpoint declaring `error?` uses that verb today. Add it next to softRequest if one does.
 
 /**
  * A Chrome switch that did not take. Reported as text either way — `code` only
@@ -580,7 +583,7 @@ export const api = {
 
   // --- Provider Configs (HTTP) ---
   providerConfigGetAll: () =>
-    get<{ configs: Record<string, { hasApiKey: boolean; apiKey?: string; baseUrl?: string; enabled: boolean; manualModels?: string[]; custom?: CustomProviderInfo }> }>('/provider-configs'),
+    get<{ providers: BuiltinProviderInfo[]; configs: Record<string, { hasApiKey: boolean; apiKey?: string; baseUrl?: string; enabled: boolean; manualModels?: string[]; custom?: CustomProviderInfo }> }>('/provider-configs'),
   providerConfigSave: (providerId: string, config: { apiKey?: string; baseUrl?: string; enabled?: boolean; manualModels?: string[]; custom?: CustomProviderInfo }) =>
     put<{ success: boolean }>(`/provider-configs/${encodeURIComponent(providerId)}`, config),
   /** Only `custom-*` providers can be removed. */
@@ -1159,14 +1162,17 @@ export const api = {
     get<ExtensionMarketplaceDTO & { error?: string }>('/extensions/marketplace'),
   extensionsMarketplaceInstall: (id: string) =>
     softPost<{ extension?: OperonExtensionDTO; error?: string }>('/extensions/marketplace/install', { id }),
+  /** An extension's settings (schema, value, issues), loaded or not. */
+  extensionSettings: (id: string) =>
+    softGet<Partial<ExtensionSettingsDTO> & { error?: string }>(`/extensions/${encodeURIComponent(id)}/settings`),
+  /** Replace an extension's settings. A value its schema refuses comes back with per-field `issues`. */
+  extensionSettingsSave: (id: string, value: Record<string, unknown>) =>
+    softPut<Partial<ExtensionSettingsDTO> & { error?: string; issues?: ExtensionSettingsIssue[] }>(`/extensions/${encodeURIComponent(id)}/settings`, { value }),
 
-  // --- Teams / peers (host API consumed by the marketplace-installed Teams extension) ---
+  // --- Teams / peers (the roster of the marketplace-installed Teams extension; its settings are
+  // edited like any extension's, `extensionSettings('peers')`) ---
   peersRoster: () =>
     softGet<PeersRosterDTO & { error?: string }>('/peers/roster'),
-  peersConfig: () =>
-    softGet<{ config?: PeersConfig; error?: string }>('/peers/config'),
-  peersConfigSave: (config: PeersConfig) =>
-    softPost<{ config?: PeersConfig; error?: string }>('/peers/config', { config }),
   peersDisband: (label: string) =>
     softPost<{ members?: number; error?: string }>('/peers/disband', { label }),
 

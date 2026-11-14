@@ -12,7 +12,3 @@ export const HARNESS_HOME_DIR = path.join(OPERON_DATA_DIR, 'operon-agents')
  * `manifest.json` + bundle. Loading one is the user's approval — nothing here auto-runs.
  */
 export const EXTENSIONS_DIR = path.join(OPERON_DATA_DIR, 'extensions')
-
-/** Teams settings (budget / teammate types) edited from Settings → Extensions → Teams. Roster
- *  cards and the mailbox ledger live in the extension's own data dir (`<EXTENSIONS_DIR>/.data/peers`). */
-export const PEERS_CONFIG_PATH = path.join(OPERON_DATA_DIR, 'peers.json')

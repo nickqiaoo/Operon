@@ -3,25 +3,16 @@ import { Switch } from "@/components/ui/switch"
 import { api } from '@/lib/api'
 import { invalidateProviderQueries } from '@/lib/provider-queries'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Check, Eye, EyeOff, Loader2, RefreshCw, AlertCircle, Plus, Trash2, X } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CUSTOM_PROVIDER_APIS, customProviderId, isCustomProviderApi, type CustomProviderApi, type CustomProviderInfo } from '@shared/provider-config'
+import { ModelIcon } from '@/components/icons/ProviderLabel'
+import { providerLogoSrc } from '@/lib/provider-logos'
 import { cn } from '@/lib/utils'
 import { FormattedMessage, useIntl } from 'react-intl'
 
-// Local SVG imports — guaranteed to work in Electron renderer
-import anthropicLogo from '@/assets/logos/claude.svg'
-import openaiLogo from '@/assets/logos/openai.svg'
-import googleLogo from '@/assets/logos/google.svg'
-import deepseekLogo from '@/assets/logos/deepseek.svg'
-import kimiLogo from '@/assets/logos/kimi.svg'
-import glmLogo from '@/assets/logos/zhipuai.svg'
-import minimaxLogo from '@/assets/logos/minimax.svg'
-import grokLogo from '@/assets/logos/xai.svg'
-import mistralLogo from '@/assets/logos/mistral.svg'
-import openrouterLogo from '@/assets/logos/openrouter.svg'
-import vercelLogo from '@/assets/logos/vercel.svg'
-import ollamaLogo from '@/assets/logos/ollama.svg'
 import endpointLogo from '@/assets/logos/endpoint.svg'
 import { useTransientFlag } from '@/hooks/useTransientFlag'
 
@@ -45,23 +36,6 @@ interface ProviderMeta {
   /** Set on user-added providers: they pick their own name and wire API. */
   custom?: CustomProviderInfo
 }
-
-const PROVIDERS: ProviderMeta[] = [
-  { id: 'anthropic', label: 'Anthropic', logo: anthropicLogo, placeholder: 'sk-ant-api03-…', defaultBaseUrl: 'https://api.anthropic.com' },
-  { id: 'openai', label: 'OpenAI', logo: openaiLogo, placeholder: 'sk-…', defaultBaseUrl: 'https://api.openai.com' },
-  { id: 'google', label: 'Google', logo: googleLogo, placeholder: 'AIzaSy…', defaultBaseUrl: 'https://generativelanguage.googleapis.com' },
-  { id: 'deepseek', label: 'DeepSeek', logo: deepseekLogo, placeholder: 'sk-…', defaultBaseUrl: 'https://api.deepseek.com' },
-  { id: 'kimi', label: 'Kimi', logo: kimiLogo, placeholder: 'sk-…', defaultBaseUrl: 'https://api.moonshot.cn' },
-  { id: 'glm', label: 'GLM', logo: glmLogo, placeholder: 'API key…', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
-  { id: 'minimax', label: 'MiniMax', logo: minimaxLogo, placeholder: 'API key…', defaultBaseUrl: 'https://api.minimax.chat/v1' },
-  { id: 'grok', label: 'Grok', logo: grokLogo, placeholder: 'xai-…', defaultBaseUrl: 'https://api.x.ai' },
-  { id: 'mistral', label: 'Mistral', logo: mistralLogo, placeholder: 'API key…', defaultBaseUrl: 'https://api.mistral.ai' },
-  { id: 'openrouter', label: 'OpenRouter', logo: openrouterLogo, placeholder: 'sk-or-…', defaultBaseUrl: 'https://openrouter.ai/api' },
-  { id: 'vercel', label: 'Vercel AI Gateway', logo: vercelLogo, placeholder: 'API key…', defaultBaseUrl: 'https://ai-gateway.vercel.sh' },
-  { id: 'ollama', label: 'Ollama', logo: ollamaLogo, placeholder: '(not required)', defaultBaseUrl: 'http://localhost:11434' },
-]
-
-const NO_KEY_PROVIDERS = new Set(['ollama'])
 
 /** Selected while a custom provider is being added: it gets its real id when first saved. */
 const NEW_CUSTOM_ID = 'new-custom'
@@ -155,8 +129,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
   }, [provider.id, provider.custom?.name, provider.custom?.api, saved?.apiKey, saved?.baseUrl, saved?.manualModels])
 
   // A custom endpoint is reachable with just its address; a key is optional there.
-  const noKeyRequired = NO_KEY_PROVIDERS.has(provider.id) || isCustom
-  const hasCredential = isCustom ? !!baseUrl.trim() : noKeyRequired || !!apiKey.trim()
+  const hasCredential = isCustom ? !!baseUrl.trim() : !!apiKey.trim()
   const isConfigured = isCustom ? !!saved?.baseUrl : hasCredential
   const isEnabled = saved?.enabled ?? false
   const manualModelsDirty =
@@ -348,8 +321,6 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
         <p className="text-xs text-muted-foreground">
           {isCustom
             ? <FormattedMessage id="settings.providers.customKeyHint" defaultMessage="Optional — leave blank for an endpoint that needs no key." />
-            : noKeyRequired
-            ? <FormattedMessage id="settings.providers.apiKeyOptional" defaultMessage="API key is optional for this provider." />
             : hasCredential
               ? <FormattedMessage id="settings.providers.clickSaveToUpdate" defaultMessage="Click Save to update." />
               : <FormattedMessage id="settings.providers.apiKeyRequired" defaultMessage="Required to use this provider." />}
@@ -359,12 +330,13 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
       {/* ── Base URL ── */}
       <div className="space-y-1.5">
         <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider"><FormattedMessage id="settings.providers.baseUrl" defaultMessage="Base URL" /></div>
-        <input
-          type="text"
+        <Textarea
+          aria-label="Base URL"
+          rows={2}
           value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
+          onChange={(e) => setBaseUrl(e.target.value.replace(/[\r\n]/g, ''))}
           placeholder={isCustom ? CUSTOM_BASE_URL_PLACEHOLDERS[customApi] : provider.defaultBaseUrl}
-          className={inputCn}
+          className={cn(inputCn, 'min-h-0 resize-none leading-6 [overflow-wrap:anywhere]')}
           spellCheck={false}
         />
         <p className="text-xs text-muted-foreground">
@@ -409,6 +381,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
                 key={id}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 pl-2.5 pr-1.5 py-1 text-xs font-mono"
               >
+                <ModelIcon model={id} provider={provider.id} size={12} />
                 <span className="truncate max-w-[220px]">{id}</span>
                 <button
                   type="button"
@@ -472,7 +445,7 @@ function ProviderPanel({ provider, saved, takenIds, onSaved, onDeleted, onNameCh
             <div className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
               {models.map((m) => (
                 <div key={m.id} className="flex items-center gap-2">
-                  <span className="h-1 w-1 rounded-full bg-muted-foreground/30 flex-shrink-0" />
+                  <ModelIcon model={m.id} provider={provider.id} />
                   <span className="text-xs text-foreground/70 font-mono truncate">{m.id}</span>
                 </div>
               ))}
@@ -493,31 +466,39 @@ function ProviderItem({ provider, state, selected, onClick }: {
   selected: boolean
   onClick: () => void
 }) {
+  const label = provider.label || <FormattedMessage id="settings.providers.newCustom" defaultMessage="New provider" />
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all',
-        selected
-          ? 'bg-background text-foreground shadow-card ring-1 ring-border/40'
-          : 'text-muted-foreground hover:bg-row-hover hover:text-foreground'
-      )}
-    >
-      <div className={cn(
-        'flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0',
-        selected ? 'bg-background/80' : 'bg-muted/40'
-      )}>
-        <ProviderLogo src={provider.logo} size={14} />
-      </div>
-      <span className="flex-1 truncate text-sm font-medium">
-        {provider.label || <FormattedMessage id="settings.providers.newCustom" defaultMessage="New provider" />}
-      </span>
-      <span className={cn(
-        'h-1.5 w-1.5 rounded-full flex-shrink-0',
-        state?.enabled ? 'bg-accent-green' : state?.hasApiKey ? 'bg-accent-warm' : 'bg-muted-foreground/20'
-      )} />
-    </button>
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          className={cn(
+            'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all',
+            selected
+              ? 'bg-background text-foreground shadow-card ring-1 ring-border/40'
+              : 'text-muted-foreground hover:bg-row-hover hover:text-foreground'
+          )}
+        >
+          <div className={cn(
+            'flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0',
+            selected ? 'bg-background/80' : 'bg-muted/40'
+          )}>
+            <ProviderLogo src={provider.logo} size={14} />
+          </div>
+          <span className="flex-1 truncate text-sm font-medium">
+            {label}
+          </span>
+          <span className={cn(
+            'h-1.5 w-1.5 rounded-full flex-shrink-0',
+            state?.enabled ? 'bg-accent-green' : state?.hasApiKey ? 'bg-accent-warm' : 'bg-muted-foreground/20'
+          )} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8} className="max-w-xs whitespace-normal break-words">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -525,7 +506,8 @@ function ProviderItem({ provider, state, selected, onClick }: {
 // Root
 // ---------------------------------------------------------------------------
 export function ProvidersTab() {
-  const [selectedId, setSelectedId] = useState(PROVIDERS[0].id)
+  const [selectedId, setSelectedId] = useState('anthropic')
+  const [providers, setProviders] = useState<ProviderMeta[]>([])
   const [configs, setConfigs] = useState<Record<string, ProviderState>>({})
   const [draftName, setDraftName] = useState('')
 
@@ -533,6 +515,11 @@ export function ProvidersTab() {
     try {
       const res = await api.providerConfigGetAll()
       setConfigs(res.configs)
+      setProviders(res.providers.map((provider) => ({
+        ...provider,
+        logo: providerLogoSrc(provider.logo) ?? endpointLogo,
+        placeholder: 'API key…',
+      })))
     } catch { /* ignore */ }
   }
 
@@ -541,12 +528,20 @@ export function ProvidersTab() {
   const customProviders = Object.entries(configs).flatMap(([id, cfg]) =>
     cfg.custom ? [customProviderMeta(id, cfg.custom)] : [],
   )
+  const configPriority = (id: string): number => {
+    const config = configs[id]
+    if (config?.enabled) return 2
+    return config && (config.hasApiKey || config.baseUrl || config.manualModels?.length || config.custom) ? 1 : 0
+  }
+  const sortedProviders = [...providers, ...customProviders].sort(
+    (a, b) => configPriority(b.id) - configPriority(a.id),
+  )
   const newCustom = customProviderMeta(NEW_CUSTOM_ID, { name: '', api: 'openai-completions' })
   const draftRow = { ...newCustom, label: draftName.trim() }
   const selectedProvider =
     (selectedId === NEW_CUSTOM_ID ? newCustom : undefined) ??
-    [...PROVIDERS, ...customProviders].find((p) => p.id === selectedId) ??
-    PROVIDERS[0]
+    [...providers, ...customProviders].find((p) => p.id === selectedId) ??
+    providers[0] ?? customProviders[0]
   const takenIds = new Set(Object.keys(configs))
 
   async function handleSaved(createdId?: string) {
@@ -557,62 +552,51 @@ export function ProvidersTab() {
 
   async function handleDeleted() {
     await loadConfigs()
-    setSelectedId(PROVIDERS[0].id)
+    setSelectedId(providers[0]?.id ?? 'anthropic')
   }
 
   return (
     <div className="grid min-h-[520px] gap-4 lg:grid-cols-[232px_minmax(0,1fr)] lg:gap-5">
 
       {/* Left column */}
-      <div className="flex flex-col rounded-xl border border-border/60 bg-muted/15 p-2">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 pb-2">
+      <div className="flex min-h-0 max-h-72 flex-col self-start overflow-hidden rounded-xl border border-border/60 bg-muted/15 p-2 lg:max-h-[min(640px,70dvh)]">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 pb-2 shrink-0">
           <FormattedMessage id="settings.providers.heading" defaultMessage="Providers" />
         </p>
 
-        <div className="space-y-0.5">
-          {PROVIDERS.map((p) => (
-            <ProviderItem
-              key={p.id}
-              provider={p}
-              state={configs[p.id]}
-              selected={p.id === selectedId}
-              onClick={() => setSelectedId(p.id)}
-            />
-          ))}
-        </div>
+        <div className="min-h-0 overflow-y-auto overscroll-contain pr-1 code-scrollbar">
+          <div className="space-y-0.5">
+            {sortedProviders.map((p) => (
+              <ProviderItem
+                key={p.id}
+                provider={p}
+                state={configs[p.id]}
+                selected={p.id === selectedId}
+                onClick={() => setSelectedId(p.id)}
+              />
+            ))}
+          </div>
 
-        {/* Custom — any endpoint that speaks one of the three wire APIs. */}
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 pb-2 pt-4">
-          <FormattedMessage id="settings.providers.customHeading" defaultMessage="Custom" />
-        </p>
-        <div className="space-y-0.5">
-          {customProviders.map((p) => (
-            <ProviderItem
-              key={p.id}
-              provider={p}
-              state={configs[p.id]}
-              selected={p.id === selectedId}
-              onClick={() => setSelectedId(p.id)}
-            />
-          ))}
-          {selectedId === NEW_CUSTOM_ID ? (
-            <ProviderItem provider={draftRow} state={undefined} selected onClick={() => {}} />
-          ) : (
-            <button
-              type="button"
-              onClick={() => { setDraftName(''); setSelectedId(NEW_CUSTOM_ID) }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left text-sm text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
-            >
-              <span className="flex items-center justify-center w-6 h-6 flex-shrink-0">
-                <Plus className="h-3.5 w-3.5" />
-              </span>
-              <FormattedMessage id="settings.providers.addCustom" defaultMessage="Add provider" />
-            </button>
-          )}
+          <div className="mt-2 space-y-0.5">
+            {selectedId === NEW_CUSTOM_ID ? (
+              <ProviderItem provider={draftRow} state={undefined} selected onClick={() => {}} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setDraftName(''); setSelectedId(NEW_CUSTOM_ID) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left text-sm text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
+              >
+                <span className="flex items-center justify-center w-6 h-6 flex-shrink-0">
+                  <Plus className="h-3.5 w-3.5" />
+                </span>
+                <FormattedMessage id="settings.providers.addCustom" defaultMessage="Add provider" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Legend */}
-        <div className="mt-4 pt-3 px-2 space-y-1.5 border-t border-border/40">
+        <div className="mt-4 shrink-0 pt-3 px-2 space-y-1.5 border-t border-border/40">
           {[
             { dot: 'bg-accent-green', key: 'enabled', label: <FormattedMessage id="settings.providers.legendEnabled" defaultMessage="Enabled" /> },
             { dot: 'bg-accent-warm', key: 'keySaved', label: <FormattedMessage id="settings.providers.legendKeySaved" defaultMessage="Key saved" /> },
@@ -628,7 +612,7 @@ export function ProvidersTab() {
 
       {/* Right column */}
       <div className="min-w-0 rounded-xl border border-border/60 bg-background/80 p-4 sm:p-5">
-        <ProviderPanel
+        {selectedProvider && <ProviderPanel
           key={selectedProvider.id}
           provider={selectedProvider}
           saved={configs[selectedProvider.id]}
@@ -636,7 +620,7 @@ export function ProvidersTab() {
           onSaved={handleSaved}
           onDeleted={handleDeleted}
           onNameChange={selectedProvider.id === NEW_CUSTOM_ID ? setDraftName : undefined}
-        />
+        />}
       </div>
     </div>
   )

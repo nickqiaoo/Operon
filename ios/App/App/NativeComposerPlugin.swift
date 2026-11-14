@@ -199,6 +199,8 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     private var tokenItems: [(id: String, title: String, thumbnail: String?)] = []
     private var hasThumbnails: Bool { tokenItems.contains { $0.thumbnail != nil } }
     private static let thumbnailSize: CGFloat = 80
+    /// Matches the DOM spacer's height transition (NativeChatComposer.tsx).
+    private static let growDuration: TimeInterval = 0.2
     private var inlineTokenItems: [(id: String, title: String)] = []
     private var suggestionItems: [JSObject] = []
     private var draftSync: DispatchWorkItem?
@@ -650,7 +652,18 @@ final class NativeComposerView: UIView, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         guard !applyingText else { return }
         revision += 1
-        refresh()
+        // A new line grows the glass upward over the transcript, but the page only
+        // makes room for it after the `resize` event crosses the bridge, a few
+        // frames later. Snapping here and leaving the page to follow read as a
+        // shake: the glass jumped, then the messages did. Instead both slide over
+        // the same 0.2s ease-out (NativeChatComposer's spacer transition).
+        if UIAccessibility.isReduceMotionEnabled {
+            refresh()
+        } else {
+            UIView.animate(withDuration: Self.growDuration, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+                self.refresh()
+            }
+        }
         scheduleChange()
     }
     func textViewDidChangeSelection(_ textView: UITextView) {

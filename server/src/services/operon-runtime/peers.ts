@@ -1,41 +1,38 @@
-import type { Harness, SessionConfig, SessionIdentity } from 'operon-agents'
+import type { Harness, HarnessSession, SessionConfig, SessionIdentity } from 'operon-agents'
 import {
   budgetExceeded,
   PEERS_SERVICE,
   type AgentRef,
   type PeerCounters,
   type PeerFleetStats,
-  type PeerMemberOptions,
   type PeerNetworkHandle,
-  type TeammateSessionOptions,
-  type TeammateSpawnRequest,
+  type PeersSettings,
+  type TeammateIdentity,
 } from 'operon-agents-peers'
-import type { TeamsHostService } from '../../extensions/peers/contract.js'
 import { getChatStorage, getSessionManager } from '../ai/state.js'
-import { loadPeersConfig, peersConfigSnapshot, type PeersConfig, type TeammateTypeConfig } from './peers-config.js'
 import { workspaceSessionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
-import { observeSession } from './passive-observer.js'
-import { modelRef, resolveModel } from './resolve-model.js'
 import { resolveMcpServersForSession } from '../mcp-config.js'
 import { ensurePluginsLoaded } from './plugins.js'
 import { SPEC_CHAT_HINT } from '../spec/prompts.js'
-import { MODE_TO_PERMISSION } from './session.js'
 
 /**
- * The host side of the Teams extension.
+ * Operon's side of Teams.
  *
- * The extension itself is a FILE bundle (`server/src/extensions/peers`, distributed through
- * the Operon extension marketplace) and so shows up in Settings → Extensions like any other.
- * It reaches the app through the `operon-teams` service registered on the harness
- * (`createTeamsHostService`): the teammate types and budget from `peers.json`, how a
- * teammate session is born, and the hook that makes a fresh teammate a real conversation —
- * a chat row in the sidebar the user can open and steer, with its model, permission mode
- * and a transcript observer. Config edits are applied by reloading the extension, which
- * re-runs its `harness` half against the new config while sessions stay open.
+ * Teams itself is a FILE extension (`server/src/extensions/peers`, distributed through the Operon
+ * extension marketplace). It depends on nothing of this app: its teammate types and budget are its
+ * own settings (declared in its manifest, stored and validated by the framework, edited through the
+ * generic extension settings form), and what a teammate is born as — its prompt, title and model —
+ * is decided by `peers()` itself.
  *
- * The network is a HARNESS half: one roster, mailbox and budget for the whole process, alive
- * from the moment the extension is loaded until it is unloaded. Every lead shares it —
- * `rosterForSession` is the teams one lead created, `rosterAll` the whole roster for Settings.
+ * What is left here is what the HOST does for every session, teammates included:
+ * - a teammate gets the workspace's private MCP servers and `config.toml` policy like any other
+ *   session (the harness's `resolveSession`, see index.ts);
+ * - a new teammate gets a chat row — its transcript in the sidebar — found through the harness's
+ *   `onSessionOpened` with `teammateOf` (`createTeammateChat`);
+ * - the Settings / Agent panel views of the roster (`rosterForSession`, `rosterAll`, `disbandTeam`).
+ *
+ * The network is the extension's HARNESS half: one roster, mailbox and budget for the whole
+ * process, alive from the moment the extension is loaded until it is unloaded.
  */
 
 export interface PeersHostDeps {
@@ -46,8 +43,6 @@ export interface PeersHostDeps {
    * borrows those from the project's shared pool in the harness `sessionCapabilities` hook.
    */
   workspaceSetup: (cwd: string) => Promise<WorkspaceSessionSetup>
-  /** The model a teammate falls back to when neither its type nor its lead names one. */
-  defaultModelId: () => Promise<string>
 }
 
 let deps: PeersHostDeps | undefined
@@ -67,42 +62,16 @@ function withId<T extends object>(meta: T | undefined, id: number): (T & { id: n
   return meta ? { ...meta, id } : undefined
 }
 
-function teammateTitle(cfg: TeammateTypeConfig | undefined, type: string, name: string): string {
-  return `${name} · ${cfg?.title ?? type}`
-}
-
-/**
- * Standing orders every teammate is born with, whatever its type. The Hub tool tells it HOW
- * to message; this tells it WHEN — without it a teammate answers into its own conversation
- * and the lead, which can only be reached by a `Hub send`, never hears back.
- */
-const TEAMMATE_PROTOCOL = [
-  'You are a teammate spawned by a team lead. The lead cannot see this conversation.',
-  'When your assignment is complete (or you are blocked), you MUST report by calling the Hub tool',
-  'with op "send" to "lead", with a concise report: what you did, the result, and paths or ids to look at.',
-  'A reply typed into this conversation is not a report. Send exactly one report per assignment; do not wait for an answer afterwards.',
-].join('\n')
-
-function teammateInstructions(cfg: TeammateTypeConfig | undefined): string {
-  return cfg?.instructions ? `${TEAMMATE_PROTOCOL}\n\n${cfg.instructions}` : TEAMMATE_PROTOCOL
-}
-
-async function buildTeammateOptions(request: TeammateSpawnRequest): Promise<TeammateSessionOptions> {
-  if (!deps) throw new Error('peers host not configured')
-  const cfg = peersConfigSnapshot().types[request.type]
-  if (!cfg) throw new Error(`Unknown teammate type "${request.type}"`)
-  const harness = deps.harness()
-  // The teammate is created on behalf of its lead (`from` in the extension), so it lands in the
-  // lead's directory; the workspace policy it runs under is read from that same directory.
-  const creator = harness?.getSession(request.creatorSessionId)
-  const workDir = creator?.workDir ?? process.cwd()
-  const setup = await deps.workspaceSetup(workDir)
-  const mode = MODE_TO_PERMISSION[cfg.modeId ?? 'workspace'] ?? 'workspace'
-  const config = workspaceSessionConfig(setup, teammateInstructions(cfg))
-  return {
-    title: teammateTitle(cfg, request.type, request.name),
-    workDir,
-    config: { ...config, permission: { ...config.permission, mode } },
+/** What the Teams extension is configured with right now: its settings, as the framework resolved
+ *  them. Empty when the extension is not installed. */
+export async function peersSettings(): Promise<PeersSettings> {
+  const manager = deps?.harness()?.extensions
+  if (!manager) return {}
+  try {
+    return ((await manager.getSettings(PEERS_SERVICE))?.value ?? {}) as PeersSettings
+  } catch {
+    // Not installed (no folder under the extensions dir): nothing is configured.
+    return {}
   }
 }
 
@@ -110,9 +79,9 @@ async function buildTeammateOptions(request: TeammateSpawnRequest): Promise<Team
  * The host's part of a session's setup when it is restored without the UI handing one in: a peer
  * message to a recipient that is not loaded (`host.resumeSession`), or any other bare
  * `harness.resumeSession(id)`. Called from the harness's `resolveSession`, which lays it over
- * what the session stored, so its own model, mode and extension parameters (a teammate's seat)
- * survive. The conversation-scoped MCP servers are rebuilt from the chat record because they carry
- * this process's ports and identities.
+ * what the session stored, so its own model, mode, prompt and extension parameters (a teammate's
+ * seat and standing orders) survive. The conversation-scoped MCP servers are rebuilt from the chat
+ * record because they carry this process's ports and identities.
  */
 export async function restoredSessionConfig(session: Pick<SessionIdentity, 'id' | 'workDir'>): Promise<SessionConfig> {
   if (!deps) throw new Error('peers host not configured')
@@ -121,9 +90,10 @@ export async function restoredSessionConfig(session: Pick<SessionIdentity, 'id' 
   const storage = getChatStorage()
   const chat = storage?.findChatBySessionId(session.id)
     ?? (record ? withId(storage?.getChatMeta(record.chatId), record.chatId) : undefined)
-  const peer = chat?.metadata?.peer
-  const instructions = peer
-    ? teammateInstructions(peersConfigSnapshot().types[peer.type])
+  // A teammate's prompt was written into its stored setup when it was created; naming none here
+  // keeps it (an `appendSystemPrompt` given would replace it).
+  const instructions = chat?.metadata?.peer
+    ? undefined
     : record?.params.instructions ?? (chat?.tp === 'chat' && chat.workspaceId != null ? SPEC_CHAT_HINT : undefined)
   await ensurePluginsLoaded()
   const servers = chat?.metadata?.workflowAgent ? {} : record?.params.mcpServers
@@ -135,81 +105,50 @@ export async function restoredSessionConfig(session: Pick<SessionIdentity, 'id' 
 }
 
 /**
- * Right after a teammate session exists and BEFORE its first peer message is routed: pick
- * its model, create the chat row that is its transcript, and start observing its turns.
+ * Make a newly spawned teammate a conversation in the sidebar: the chat row that is its
+ * transcript, filed under its lead's workspace. Called from the harness's `onSessionOpened` for a
+ * create, so the row exists before the teammate's first turn. Throws when the row cannot be made —
+ * the harness then rolls the spawn back and the lead is told, instead of a teammate running that
+ * nobody can see.
  */
-async function onTeammateCreated(sessionId: string, member: PeerMemberOptions): Promise<void> {
-  if (!deps) return
-  const harness = deps.harness()
-  const session = harness?.getSession(sessionId)
-  if (!session) return
-  const type = member.type ?? 'member'
-  const cfg = peersConfigSnapshot().types[type]
+export async function createTeammateChat(
+  session: HarnessSession,
+  member: TeammateIdentity,
+  source: { readonly id: string } | undefined,
+  defaultModelId: () => Promise<string>,
+): Promise<void> {
   const storage = getChatStorage()
-  const parsed = parseTeamLabel(member.team)
+  if (!storage) return
+  const leadSessionId = source?.id ?? member.creatorSessionId
   // The lead is mid-turn right now (it is the turn that spawned us), and a chat's session id
   // only lands on its row when the turn ends — so on a lead's FIRST turn the row lookup misses.
   // The session manager still knows which chat is driving that session.
-  const leadRecord = parsed ? getSessionManager().findBySessionId(parsed.creatorSessionId) : undefined
-  const leadChat = parsed && storage
-    ? (storage.findChatBySessionId(parsed.creatorSessionId)
+  const leadRecord = leadSessionId ? getSessionManager().findBySessionId(leadSessionId) : undefined
+  const leadChat = leadSessionId
+    ? (storage.findChatBySessionId(leadSessionId)
         ?? (leadRecord ? withId(storage.getChatMeta(leadRecord.chatId), leadRecord.chatId) : undefined))
     : undefined
-
-  const modelId = cfg?.modelId ?? leadChat?.model ?? leadRecord?.params.model ?? (await deps.defaultModelId())
-  try {
-    resolveModel(modelId) // Throws for an id that names nothing, keeping the harness default.
-    session.setModel(modelRef(modelId))
-  } catch (error) {
-    console.warn(`[operon.peers] teammate ${member.name}: model ${modelId} unavailable, keeping harness default:`, error instanceof Error ? error.message : String(error))
-  }
-
-  if (storage) {
-    storage.createChat({
-      tp: 'teammate',
-      title: teammateTitle(cfg, type, member.name),
-      workspaceId: leadChat?.workspaceId,
-      model: modelId,
-      providerId: 'custom',
-      sessionId,
-      updatedAt: Date.now(),
-      metadata: {
-        peer: {
-          name: member.name,
-          team: member.team,
-          type,
-          creatorSessionId: parsed?.creatorSessionId ?? '',
-          ...(leadChat ? { leadChatId: leadChat.id } : {}),
-        },
+  const typeTitle = (await peersSettings()).types?.[member.type]?.title ?? member.type
+  // The model was settled by Teams (the type's, or the lead's); the row shows what it runs on.
+  const model = typeof session.modelSetting === 'string' ? session.modelSetting : await defaultModelId()
+  storage.createChat({
+    tp: 'teammate',
+    title: `${member.name} · ${typeTitle}`,
+    workspaceId: leadChat?.workspaceId,
+    model,
+    providerId: 'custom',
+    sessionId: session.id,
+    updatedAt: Date.now(),
+    metadata: {
+      peer: {
+        name: member.name,
+        team: member.team,
+        type: member.type,
+        creatorSessionId: leadSessionId ?? '',
+        ...(leadChat ? { leadChatId: leadChat.id } : {}),
       },
-    })
-  }
-  observeSession(session)
-}
-
-/** The `operon-teams` service the Teams extension bundle consumes (see `extensions/peers/contract.ts`). */
-export function createTeamsHostService(): TeamsHostService {
-  return {
-    async config() {
-      const config = await loadPeersConfig()
-      return {
-        budget: config.budget,
-        types: Object.fromEntries(
-          Object.entries(config.types).map(([id, t]) => [id, { title: t.title, ...(t.description ? { description: t.description } : {}) }]),
-        ),
-      }
     },
-    teammateOptions: buildTeammateOptions,
-    onTeammateCreated,
-  }
-}
-
-/** Apply a config change: re-run the extension's `harness` half against `peers.json`, if it is loaded. */
-export async function reloadPeersExtension(): Promise<void> {
-  const manager = deps?.harness()?.extensions
-  if (!manager) return
-  const status = (await manager.list()).find((s) => s.id === PEERS_SERVICE)
-  if (status?.state === 'loaded') await manager.reload(PEERS_SERVICE)
+  })
 }
 
 /**
@@ -280,7 +219,7 @@ export interface PeersStatsDTO {
   totals: PeerCounters
   /** The totals, split by who spent it. Descending by `totalTokens`. */
   agents: PeerAgentStatsDTO[]
-  budget: PeersConfig['budget']
+  budget: NonNullable<PeersSettings['budget']>
   /** The reason peer traffic is paused, when the budget is exhausted. */
   exceeded?: string
 }
@@ -293,9 +232,9 @@ export interface PeersRosterDTO {
   types: Array<{ id: string; title: string; description?: string }>
 }
 
-async function toMemberDTO(ref: AgentRef): Promise<PeerMemberDTO> {
+async function toMemberDTO(ref: AgentRef, settings: PeersSettings): Promise<PeerMemberDTO> {
   const storage = getChatStorage()
-  const cfg = peersConfigSnapshot().types[ref.type]
+  const cfg = settings.types?.[ref.type]
   const chat = storage?.findChatBySessionId(ref.sessionId)
   const session = deps?.harness()?.getSession(ref.sessionId)
   let pendingApprovals = 0
@@ -319,7 +258,7 @@ async function toMemberDTO(ref: AgentRef): Promise<PeerMemberDTO> {
   }
 }
 
-async function groupTeams(refs: readonly AgentRef[], leads: readonly AgentRef[]): Promise<PeerTeamDTO[]> {
+async function groupTeams(refs: readonly AgentRef[], leads: readonly AgentRef[], settings: PeersSettings): Promise<PeerTeamDTO[]> {
   const storage = getChatStorage()
   const byLabel = new Map<string, PeerTeamDTO>()
   const ensure = (label: string): PeerTeamDTO | undefined => {
@@ -344,7 +283,7 @@ async function groupTeams(refs: readonly AgentRef[], leads: readonly AgentRef[])
   // A creator with a team label but no members yet still shows as a team.
   for (const lead of leads) for (const label of lead.labels ?? []) ensure(label)
   for (const ref of refs) {
-    const member = await toMemberDTO(ref)
+    const member = await toMemberDTO(ref, settings)
     for (const label of ref.labels ?? []) ensure(label)?.members.push(member)
   }
   return [...byLabel.values()]
@@ -369,40 +308,41 @@ function chatTitle(sessionId: string): string | undefined {
 }
 
 /** Spend across the network, as one table. */
-function statsDTO(stats: PeerFleetStats, config: PeersConfig, teams: PeerTeamDTO[]): PeersStatsDTO {
-  const exceeded = budgetExceeded(stats, config.budget)
+function statsDTO(stats: PeerFleetStats, settings: PeersSettings, teams: PeerTeamDTO[]): PeersStatsDTO {
+  const budget = settings.budget ?? {}
+  const exceeded = budgetExceeded(stats, budget)
   const agents = stats.agents
     // A row that never spent anything is noise — every mounted hub registers one.
     .filter((a) => a.totalTokens > 0)
     .map((a) => ({ ...a, ...labelAgent(a.agentId, teams) }))
     .sort((a, b) => b.totalTokens - a.totalTokens)
-  return { totals: stats.totals, agents, budget: config.budget, ...(exceeded ? { exceeded } : {}) }
+  return { totals: stats.totals, agents, budget, ...(exceeded ? { exceeded } : {}) }
 }
 
-function typesDTO(config: PeersConfig): PeersRosterDTO['types'] {
-  return Object.entries(config.types).map(([id, t]) => ({ id, title: t.title, ...(t.description ? { description: t.description } : {}) }))
+function typesDTO(settings: PeersSettings): PeersRosterDTO['types'] {
+  return Object.entries(settings.types ?? {}).map(([id, t]) => ({ id, title: t.title, ...(t.description ? { description: t.description } : {}) }))
 }
 
 /** Teams created by `sessionId` (a lead's chat) — what the Agent panel's Team section shows. */
 export async function rosterForSession(sessionId: string): Promise<PeersRosterDTO> {
-  const config = await loadPeersConfig()
+  const settings = await peersSettings()
   const net = network()
-  if (!net) return { available: false, teams: [], stats: null, types: typesDTO(config) }
+  if (!net) return { available: false, teams: [], stats: null, types: typesDTO(settings) }
   const [members, self, stats] = await Promise.all([net.ownedMembers(sessionId), net.getAgent(sessionId), net.stats()])
-  const teams = await groupTeams(members, self ? [self] : [])
-  return { available: true, teams, stats: statsDTO(stats, config, teams), types: typesDTO(config) }
+  const teams = await groupTeams(members, self ? [self] : [], settings)
+  return { available: true, teams, stats: statsDTO(stats, settings, teams), types: typesDTO(settings) }
 }
 
 /** Every team on the roster — the chat-less view for Settings. */
 export async function rosterAll(): Promise<PeersRosterDTO> {
-  const config = await loadPeersConfig()
+  const settings = await peersSettings()
   const net = network()
-  if (!net) return { available: false, teams: [], stats: null, types: typesDTO(config) }
+  if (!net) return { available: false, teams: [], stats: null, types: typesDTO(settings) }
   const [all, stats] = await Promise.all([net.list(), net.stats()])
   const members = all.filter((r) => r.kind === 'session' && r.type !== 'lead' && !isCreatorOnly(r))
   const leads = all.filter((r) => !members.includes(r))
-  const teams = await groupTeams(members, leads)
-  return { available: true, teams, stats: statsDTO(stats, config, teams), types: typesDTO(config) }
+  const teams = await groupTeams(members, leads, settings)
+  return { available: true, teams, stats: statsDTO(stats, settings, teams), types: typesDTO(settings) }
 }
 
 /** A creator row: its labels are teams IT made (`team:<self>:…`), never memberships. */

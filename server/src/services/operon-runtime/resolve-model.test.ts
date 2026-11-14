@@ -4,7 +4,7 @@ const CUSTOM: Record<string, object> = {
   'custom-chat': { baseUrl: 'https://llm.example.com', custom: { name: 'Chat', api: 'openai-completions' } },
   'custom-responses': { apiKey: 'k', baseUrl: 'https://llm.example.com/v1', custom: { name: 'Responses', api: 'openai-responses' } },
   'custom-messages': { apiKey: 'k', baseUrl: 'https://llm.example.com/anthropic/v1', custom: { name: 'Messages', api: 'anthropic-messages' } },
-  mistral: { apiKey: 'mistral-key', baseUrl: 'https://api.mistral.ai/v1/' },
+  mistral: { apiKey: 'mistral-key', baseUrl: 'https://api.mistral.ai' },
 }
 
 let configured: Record<string, object> = {}
@@ -25,36 +25,58 @@ beforeEach(() => {
 
 describe('decision models', () => {
   it('lists only what an enabled provider can run on its own service', () => {
-    configured = { vercel: { enabled: true, apiKey: 'k' }, openrouter: { enabled: false, apiKey: 'k' } }
+    configured = { 'vercel-ai-gateway': { enabled: true, apiKey: 'k' }, openrouter: { enabled: false, apiKey: 'k' } }
     const ids = listDecisionModels().map((m) => m.modelId)
-    expect(ids).toContain('vercel/microsoft/microsoft-decision-1')
-    expect(ids.every((id) => id.startsWith('vercel/'))).toBe(true)
+    expect(ids).toContain('vercel-ai-gateway/microsoft/microsoft-decision-1')
+    expect(ids.every((id) => id.startsWith('vercel-ai-gateway/'))).toBe(true)
   })
 
   it('offers none behind a custom base URL, whose key must not reach the catalog endpoints', () => {
-    configured = { vercel: { enabled: true, apiKey: 'k', baseUrl: 'https://proxy.example.com/v1' } }
+    configured = { 'vercel-ai-gateway': { enabled: true, apiKey: 'k', baseUrl: 'https://proxy.example.com/v1' } }
     expect(listDecisionModels()).toEqual([])
   })
 
   it('resolves a pick to the kind of model it names', async () => {
-    expect(await resolveReviewModel('vercel/microsoft/microsoft-decision-1')).toBeInstanceOf(DecisionModel)
-    expect(await resolveReviewModel('vercel/deepseek/deepseek-v4-flash')).toBeInstanceOf(ChatModel)
+    expect(await resolveReviewModel('vercel-ai-gateway/microsoft/microsoft-decision-1')).toBeInstanceOf(DecisionModel)
+    expect(await resolveReviewModel('vercel-ai-gateway/deepseek/deepseek-v4-flash')).toBeInstanceOf(ChatModel)
   })
 
   it('returns the same model until its provider config changes', async () => {
-    const id = 'vercel/microsoft/microsoft-decision-1'
+    const id = 'vercel-ai-gateway/microsoft/microsoft-decision-1'
     const first = await resolveReviewModel(id)
     expect(await resolveReviewModel(id)).toBe(first)
-    CUSTOM.vercel = { apiKey: 'rotated-key' }
+    CUSTOM['vercel-ai-gateway'] = { apiKey: 'rotated-key' }
     try {
       expect(await resolveReviewModel(id)).not.toBe(first)
     } finally {
-      delete CUSTOM.vercel
+      delete CUSTOM['vercel-ai-gateway']
     }
   })
 })
 
 describe('provider sync', () => {
+  it.each(['qwen-token-plan', 'qwen-token-plan-individual'])('sends %s chat requests to the saved override', async (providerId) => {
+    const fetch = vi.fn().mockResolvedValue(new Response('{"error":{"message":"stub"}}', {
+      status: 400, headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetch)
+    CUSTOM[providerId] = { apiKey: 'override-key', baseUrl: 'https://proxy.example.com/compatible-mode/v1' }
+    try {
+      syncModelProvider(providerId)
+      await resolveModel(`${providerId}/qwen3.8-max`).complete({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }], timestamp: 0 }],
+      })
+      const args = fetch.mock.calls[0] as [string | URL | Request, RequestInit?]
+      const request = new Request(...args)
+      expect(request.url).toBe('https://proxy.example.com/compatible-mode/v1/chat/completions')
+      expect(request.headers.get('authorization')).toBe('Bearer override-key')
+    } finally {
+      delete CUSTOM[providerId]
+      syncModelProvider(providerId)
+      vi.unstubAllGlobals()
+    }
+  })
+
   const authOf = async (modelId: string) => {
     let auth: string | null | undefined
     vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
@@ -95,8 +117,15 @@ describe('provider sync', () => {
 
   it('reads a bare model id as Anthropic', () => {
     expect(modelRef('claude-sonnet-4-6')).toBe('anthropic/claude-sonnet-4-6')
-    expect(modelRef('vercel/zai/glm-5')).toBe('vercel/zai/glm-5')
+    expect(modelRef('vercel-ai-gateway/zai/glm-5')).toBe('vercel-ai-gateway/zai/glm-5')
   })
+
+  it('does not translate legacy provider IDs into Pi providers', () => {
+    expect(modelRef('vercel/anthropic/claude-haiku-4.5')).toBe('vercel/anthropic/claude-haiku-4.5')
+    expect(() => resolveModel('vercel/anthropic/claude-haiku-4.5')).toThrow(/unknown model/)
+    expect(() => resolveModel('glm/glm-5')).toThrow(/unknown model/)
+  })
+
 })
 
 describe('getModelCapabilities', () => {
@@ -164,14 +193,14 @@ describe('resolveModel on Mistral', () => {
 
 describe('resolveModel on a gateway', () => {
   it('sends Claude on Vercel AI Gateway through its Anthropic Messages endpoint', async () => {
-    const model = await resolveModel('vercel/anthropic/claude-haiku-4.5')
+    const model = await resolveModel('vercel-ai-gateway/anthropic/claude-haiku-4.5')
     expect(model.provider).toBe('vercel-ai-gateway')
     expect(model.api).toBe('anthropic-messages')
     expect(model.id).toBe('anthropic/claude-haiku-4.5')
   })
 
   it('runs other Vercel models the way pi catalogs them, with its limits', async () => {
-    const model = await resolveModel('vercel/zai/glm-5')
+    const model = await resolveModel('vercel-ai-gateway/zai/glm-5')
     expect(model.provider).toBe('vercel-ai-gateway')
     expect(model.api).toBe('anthropic-messages')
     // From pi's vercel-ai-gateway catalog, not the 200K fallback.
@@ -179,7 +208,7 @@ describe('resolveModel on a gateway', () => {
   })
 
   it('falls back to the defaults for a Vercel model pi does not know yet', async () => {
-    const model = await resolveModel('vercel/openai/not-in-the-catalog')
+    const model = await resolveModel('vercel-ai-gateway/openai/not-in-the-catalog')
     expect(model.api).toBe('anthropic-messages')
     expect(model.contextWindow).toBe(200_000)
   })
@@ -213,5 +242,18 @@ describe('resolveModel on a gateway', () => {
     const glm = await resolveModel('openrouter/z-ai/glm-4.6')
     expect(glm.provider).toBe('openrouter')
     expect(glm.api).toBe('openai-completions')
+  })
+})
+
+
+describe('Pi Token Plan providers', () => {
+  it('keeps catalog limits and capabilities instead of the custom 200K fallback', () => {
+    for (const provider of ['qwen-token-plan', 'qwen-token-plan-cn']) {
+      const model = resolveModel(`${provider}/qwen3.8-max`)
+      expect(model.contextWindow).toBe(1_000_000)
+      expect(model.api).toBe('openai-completions')
+      expect(getModelCapabilities(`${provider}/qwen3.8-max`).vision).toBe(true)
+      expect(getModelCapabilities(`${provider}/qwen3.8-max`).effortLevels).toContain('xhigh')
+    }
   })
 })

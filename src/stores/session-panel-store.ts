@@ -14,18 +14,33 @@ interface SessionPanelState {
    * button only shows while this is set.
    */
   owner: string | null
+  /**
+   * True when the right panel auto-closed us and we owe the user a restore. Set
+   * only by `suspendForRightPanel`; any explicit open/close clears it, so a panel
+   * the user dismissed by hand while the right panel was up stays dismissed.
+   * Transient — this store is not persisted.
+   */
+  autoClosed: boolean
   setOpen: (open: boolean) => void
   toggle: () => void
   claim: (owner: string) => void
   /** Clears the owner only if it is still `owner`, so a tab leaving can't undo the one arriving. */
   release: (owner: string) => void
+  /** The right panel is opening: close us, but remember whether we were open. */
+  suspendForRightPanel: () => void
+  /** The right panel is closing: bring us back only if it was the one that hid us. */
+  restoreAfterRightPanel: () => void
 }
 
 export const useSessionPanelStore = create<SessionPanelState>((set) => ({
   open: false,
   owner: null,
-  setOpen: (open) => set({ open }),
-  toggle: () => set((s) => ({ open: !s.open })),
+  autoClosed: false,
+  setOpen: (open) => set({ open, autoClosed: false }),
+  toggle: () => set((s) => ({ open: !s.open, autoClosed: false })),
   claim: (owner) => set({ owner }),
   release: (owner) => set((s) => (s.owner === owner ? { owner: null } : s)),
+  suspendForRightPanel: () => set((s) => ({ open: false, autoClosed: s.open })),
+  restoreAfterRightPanel: () =>
+    set((s) => (s.autoClosed ? { open: true, autoClosed: false } : {})),
 }))

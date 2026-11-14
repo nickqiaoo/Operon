@@ -228,8 +228,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
       return <TaskCreatedRenderer toolPart={toolPart} />;
     }
 
-    // A schedule tool that created or changed a task renders as a card that opens the
-    // Schedule page on it. Same gating as the task card above.
+    // A schedule tool that created or changed a task renders its editor inline.
     if (isScheduleTaskResult(toolPart)) {
       return <ScheduleTaskRenderer toolPart={toolPart} />;
     }

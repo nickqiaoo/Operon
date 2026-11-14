@@ -127,16 +127,25 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     const el = anchor.current
     if (!ready || !active || !el) return
     let frame = 0
+    // The spacer's height transition resizes it every frame, but its bottom edge
+    // (all UIKit reads) stays put. Re-sending the same anchor would make UIKit
+    // re-lay out without animation in the middle of its own grow animation.
+    let sent = ''
     const measure = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         const rect = el.getBoundingClientRect()
         if (rect.width === 0) {
+          sent = ''
           void NativeComposer.hide({ id })
           return
         }
         const keyboardHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keyboard-height')) || 0
-        void NativeComposer.layout({ id, x: rect.x, width: rect.width, bottom: window.innerHeight - rect.bottom, keyboardOpen: keyboardHeight > 0 })
+        const anchor = { id, x: rect.x, width: rect.width, bottom: window.innerHeight - rect.bottom, keyboardOpen: keyboardHeight > 0 }
+        const key = JSON.stringify(anchor)
+        if (key === sent) return
+        sent = key
+        void NativeComposer.layout(anchor)
       })
     }
     const observer = new ResizeObserver(measure)
@@ -154,7 +163,20 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     }
   }, [id, ready, active, height])
 
-  return <div ref={anchor} data-native-composer aria-hidden style={{ height, width: '100%' }} />
+  // UIKit grows the editor over 0.2s ease-out when a new line is typed
+  // (NativeComposerView.textViewDidChange). The spacer follows on the same curve,
+  // so the transcript pinned above it slides up with the glass. Snapping here
+  // moved the messages a few frames after the glass, which read as a shake.
+  // `ease-out` is spelled out: Tailwind's differs from UIKit's .curveEaseOut.
+  return (
+    <div
+      ref={anchor}
+      data-native-composer
+      aria-hidden
+      className="transition-[height] duration-200 ease-[cubic-bezier(0,0,0.58,1)] motion-reduce:transition-none"
+      style={{ height, width: '100%' }}
+    />
+  )
 }
 
 /** Reuses AI Elements' attachment validation, upload and duplicate-submit guard. */

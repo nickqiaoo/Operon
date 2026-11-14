@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { providerLogoSrc } from '@/lib/provider-logos'
+import { modelLogoSrc, providerLogoSrc } from '@/lib/provider-logos'
 import { cn } from '@/lib/utils'
 
 export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
@@ -11,6 +11,12 @@ export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
       style={{ width: size, height: size, objectFit: 'contain' }}
     />
   );
+}
+
+export function ModelIcon({ model, provider, size = 14 }: { model: string; provider?: string; size?: number }) {
+  const src = modelLogoSrc(model, provider);
+  if (!src) return <ProviderIcon id="endpoint" size={size} />;
+  return <img src={src} alt="" width={size} height={size} className="dark:invert shrink-0 object-contain" style={{ width: size, height: size }} />;
 }
 
 

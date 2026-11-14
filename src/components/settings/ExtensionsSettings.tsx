@@ -24,26 +24,20 @@ import { api } from "@/lib/api"
 import { ApiError } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import type { ExtensionMarketplaceEntryDTO, ExtensionRepairOutcome, OperonExtensionDTO, OperonExtensionState } from "@/types/extension"
-import { TeamsSettings } from "./TeamsSettings"
+import { ExtensionSettingsForm } from "./ExtensionSettingsForm"
+import { TeamsRosterPanel } from "./TeamsRosterPanel"
 
-/** Product-owned settings views contributed by a known extension id. */
-const CONFIGURE_VIEWS: Record<string, () => React.JSX.Element> = {
-  peers: () => <TeamsSettings />,
+/**
+ * Runtime views a known extension adds under its settings — state, not settings (the settings of
+ * any extension are the generic form). Teams: the teams running right now.
+ */
+const RUNTIME_VIEWS: Record<string, () => React.JSX.Element> = {
+  peers: () => <TeamsRosterPanel />,
 }
 
-function extensionName(intl: IntlShape, id: string, fallback: string): string {
-  if (id === "peers") return intl.formatMessage({ id: "settings.extensions.peers.name", defaultMessage: "Teams" })
-  return fallback
-}
-
-function extensionDescription(intl: IntlShape, id: string, fallback?: string): string | undefined {
-  if (id === "peers") {
-    return intl.formatMessage({
-      id: "settings.extensions.peers.description",
-      defaultMessage: "Let a conversation form a team and spawn teammates: independent sessions that work in parallel, message each other, and report back. Each teammate appears as its own conversation.",
-    })
-  }
-  return fallback
+/** Whether an extension's row offers "Configure". */
+function configurable(extension: OperonExtensionDTO): boolean {
+  return extension.hasSettings || extension.id in RUNTIME_VIEWS
 }
 
 /** Every listed entry runs on this build — the server leaves out the ones that do not — so this
@@ -134,11 +128,11 @@ export function ExtensionsSettings() {
       setNotice(entry.status === "update"
         ? intl.formatMessage(
           { id: "settings.extensions.notice.updated", defaultMessage: "{name} {version} was downloaded. Reload it below to apply the update." },
-          { name: extensionName(intl, entry.id, entry.name), version: entry.version },
+          { name: entry.name, version: entry.version },
         )
         : intl.formatMessage(
           { id: "settings.extensions.notice.installed", defaultMessage: "{name} was installed. Load it below when you are ready to enable it." },
-          { name: extensionName(intl, entry.id, entry.name) },
+          { name: entry.name },
         ))
       await reload()
     } catch (reason) {
@@ -192,9 +186,10 @@ export function ExtensionsSettings() {
     return <EmptyBlock message="Extensions are currently unavailable on this machine." />
   }
 
-  const ConfigureView = configuring ? CONFIGURE_VIEWS[configuring] : undefined
-  if (configuring && ConfigureView) {
-    const extension = items.find((item) => item.id === configuring)
+  const configuringExtension = configuring ? items.find((item) => item.id === configuring) : undefined
+  if (configuring && configuringExtension && configurable(configuringExtension)) {
+    const extension = configuringExtension
+    const RuntimeView = RUNTIME_VIEWS[configuring]
     return (
       <div className="space-y-6">
         <button
@@ -208,9 +203,10 @@ export function ExtensionsSettings() {
           <ArrowLeft className="h-3.5 w-3.5" />
           <FormattedMessage id="settings.extensions.back" defaultMessage="Extensions" />
           <span className="text-muted-foreground/60">/</span>
-          <span className="text-foreground">{extensionName(intl, configuring, extension?.name ?? configuring)}</span>
+          <span className="text-foreground">{extension?.name ?? configuring}</span>
         </button>
-        <ConfigureView />
+        {extension.hasSettings && <ExtensionSettingsForm extensionId={extension.id} onSaved={() => void reload()} />}
+        {RuntimeView && <RuntimeView />}
       </div>
     )
   }
@@ -285,7 +281,7 @@ export function ExtensionsSettings() {
                 onReload={() => void run(extension.id, () => api.extensionsReload(extension.id))}
                 onUnload={() => void run(extension.id, () => api.extensionsUnload(extension.id))}
                 onRemove={() => void run(extension.id, () => api.extensionsRemove(extension.id))}
-                onConfigure={extension.id in CONFIGURE_VIEWS ? () => setConfiguring(extension.id) : undefined}
+                onConfigure={configurable(extension) ? () => setConfiguring(extension.id) : undefined}
               />
             ))}
           </div>
@@ -347,7 +343,7 @@ export function ExtensionsSettings() {
               <FormattedMessage
                 id="settings.extensions.confirmTitle"
                 defaultMessage="Load {name}?"
-                values={{ name: confirmLoad ? extensionName(intl, confirmLoad.id, confirmLoad.name ?? confirmLoad.id) : "" }}
+                values={{ name: confirmLoad ? confirmLoad.name ?? confirmLoad.id : "" }}
               />
             </DialogTitle>
             <DialogDescription>
@@ -359,7 +355,7 @@ export function ExtensionsSettings() {
           </DialogHeader>
           {confirmLoad?.description ? (
             <div className="rounded-lg border border-border/40 bg-background/40 p-3 text-xs text-muted-foreground">
-              {extensionDescription(intl, confirmLoad.id, confirmLoad.description)}
+              {confirmLoad.description}
             </div>
           ) : null}
           <DialogFooter>
@@ -394,8 +390,8 @@ function MarketplaceCard({ entry, busy, onInstall }: { entry: ExtensionMarketpla
     : entry.status === "installed"
       ? intl.formatMessage({ id: "settings.extensions.action.installed", defaultMessage: "Installed" })
       : intl.formatMessage({ id: "settings.extensions.action.install", defaultMessage: "Install" })
-  const name = extensionName(intl, entry.id, entry.name)
-  const description = extensionDescription(intl, entry.id, entry.description)
+  const name = entry.name
+  const description = entry.description
   return (
     <article className="flex min-h-44 flex-col rounded-xl border border-border/40 bg-muted/10 p-4">
       <div className="flex items-start gap-3">
@@ -493,8 +489,8 @@ function ExtensionRow({ ext, busy, onLoad, onReload, onUnload, onRemove, onConfi
   onConfigure?: () => void
 }) {
   const intl = useIntl()
-  const name = extensionName(intl, ext.id, ext.name ?? ext.id)
-  const description = extensionDescription(intl, ext.id, ext.description)
+  const name = ext.name ?? ext.id
+  const description = ext.description
   // An import that threw leaves the approval standing, so the loader still says `approved`.
   // Saying "Approved" on a row for something that is not running is the whole bug.
   const failed = Boolean(ext.loadError)

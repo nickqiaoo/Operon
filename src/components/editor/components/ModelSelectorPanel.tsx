@@ -7,7 +7,7 @@ import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import { cn } from '@/lib/utils';
-import { ProviderIcon } from '@/components/icons/ProviderLabel';
+import { ModelIcon, ProviderIcon } from '@/components/icons/ProviderLabel';
 import { providerLogoName } from '@/lib/provider-logos';
 import { Command } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -117,7 +117,8 @@ export function ModelSelectorPanel({
             {items.map((item) => (
               <ModelSelectorItem key={item.id} value={item.id}
                 onSelect={() => { setModel(item.id); setOpen(false); }}
-                className="py-2 pl-7 md:py-1.5">
+                className="py-2 md:py-1.5">
+                <ModelIcon model={item.id} provider={item.provider} />
                 <TruncatedText className="flex-1 truncate">{item.label}</TruncatedText>
                 {model === item.id && <CheckIcon className="size-3.5 shrink-0 text-tint" />}
               </ModelSelectorItem>
@@ -138,7 +139,7 @@ export function ModelSelectorPanel({
       disabled={disabled}
       className={cn('gap-2', buttonClassName)}
     >
-      <ProviderIcon id={selectedModel?.provider ?? ''} size={14} />
+      <ModelIcon model={selectedModel?.id ?? ''} provider={selectedModel?.provider} size={14} />
       <TruncatedText className="truncate max-w-32 @max-[460px]:hidden">{selectedModel?.label ?? intl.formatMessage({ id: 'editor.model.selectPlaceholder', defaultMessage: 'Select model...' })}</TruncatedText>
       <ChevronDownIcon className={cn('size-3 opacity-50 transition-transform @max-[460px]:hidden', open && 'rotate-180')} />
     </PromptInputButton>

@@ -18,7 +18,7 @@ import { ToolIcon } from './ToolIcon';
 import { ReadImageLarge, imageReadPathOf } from '../ReadImages';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
-import { ToolInputDiff, toolInputDiffStats } from '../ToolInputDiff';
+import { ToolInputDiff, useToolInputDiffStats } from '../ToolInputDiff';
 import { extractPermissionOptions, type PermissionOutcome } from '../permission-utils';
 import { getOptimisticPermissionOutcome, type OptimisticPermissionDecision } from '../optimisticPermission';
 
@@ -90,7 +90,7 @@ export function CompactToolCall({
     lowerToolName === 'patch';
 
   const commandDescription = getToolDescription(lowerToolName, displayInput);
-  const diffStats = shouldUseDiffView ? toolInputDiffStats(toolName, displayInput) : null;
+  const diffStats = useToolInputDiffStats(toolName, displayInput, state !== 'input-streaming');
 
   const line = (
     <ToolLine

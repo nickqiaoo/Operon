@@ -1,9 +1,8 @@
-import { CalendarClock, ChevronRightIcon } from 'lucide-react'
-import { FormattedMessage } from 'react-intl'
-import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
-import { openSchedulePage } from '@/lib/open-settings'
+import { lazy, Suspense } from 'react'
 import { resultText, toolNameOf } from './TaskCreatedRenderer'
 import type { ToolPartLike } from './toolName'
+
+const ScheduleTaskApp = lazy(() => import('./ScheduleTaskApp'))
 
 /** What the schedule MCP returns for a created or updated task (server/src/routes/schedule-mcp.ts). */
 interface ScheduleTaskRef {
@@ -46,37 +45,15 @@ export function isScheduleTaskResult(toolPart: ToolPartLike): boolean {
 }
 
 /**
- * A `schedule_create` / `schedule_update` call, as a Trace line that links out:
- * it opens the Schedule page on that task.
+ * A completed create/update opens the task's MCP App inline in the conversation.
  */
 export function ScheduleTaskRenderer({ toolPart }: { toolPart: ToolPartLike }) {
   const task = scheduledTask(toolPart)
-  const action = scheduleAction(toolPart)
-  if (!task || !action) return null
-
-  const details = [task.when, task.provider_id].filter(Boolean).join(' · ')
+  if (!task) return null
 
   return (
-    <Trace>
-      <button type="button" onClick={() => openSchedulePage(task.id)}>
-        <TraceLine>
-          <TraceIcon><CalendarClock /></TraceIcon>
-          <TraceTitle>
-            {action === 'created' ? (
-              <FormattedMessage id="editor.schedule.createdLine" defaultMessage="Scheduled {name}" values={{ name: task.name }} />
-            ) : (
-              <FormattedMessage id="editor.schedule.updatedLine" defaultMessage="Updated schedule {name}" values={{ name: task.name }} />
-            )}
-          </TraceTitle>
-          {details && <TraceDescription className="min-w-0 shrink truncate">{details}</TraceDescription>}
-          {!task.enabled && (
-            <TraceDescription>
-              <FormattedMessage id="editor.schedule.paused" defaultMessage="paused" />
-            </TraceDescription>
-          )}
-          <TraceIcon><ChevronRightIcon /></TraceIcon>
-        </TraceLine>
-      </button>
-    </Trace>
+    <Suspense fallback={<p className="py-3 text-xs text-muted-foreground">Loading scheduled task…</p>}>
+      <ScheduleTaskApp key={task.id} taskId={task.id} />
+    </Suspense>
   )
 }

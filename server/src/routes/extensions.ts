@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import { ExtensionSettingsInvalidError } from 'operon-agents'
 import * as extensions from '../services/operon-runtime/extensions.js'
 import { installMarketplaceExtension, listMarketplaceExtensions } from '../services/operon-runtime/extension-marketplace.js'
 
@@ -58,6 +59,27 @@ export function extensionRoutes() {
       }
     })
   }
+
+  // Settings declared in an extension's manifest: read and replace. A value the schema refuses is
+  // a 400 carrying the per-field issues, for the form to show next to each field.
+  router.get('/:id/settings', async (c) => {
+    try {
+      return c.json(await extensions.getExtensionSettings(c.req.param('id')))
+    } catch (error) {
+      return fail(c, error)
+    }
+  })
+
+  router.put('/:id/settings', async (c) => {
+    try {
+      const body = await c.req.json<{ value?: unknown }>()
+      if (body.value === undefined) return c.json({ error: 'value is required' }, 400)
+      return c.json(await extensions.setExtensionSettings(c.req.param('id'), body.value))
+    } catch (error) {
+      if (error instanceof ExtensionSettingsInvalidError) return c.json({ error: error.message, issues: error.issues }, 400)
+      return fail(c, error)
+    }
+  })
 
   router.post('/install', async (c) => {
     try {

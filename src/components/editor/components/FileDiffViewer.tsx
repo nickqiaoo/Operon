@@ -1,10 +1,13 @@
 import { useMemo } from 'react';
-import { FormattedMessage, useIntl } from 'react-intl';
-import { PatchDiff } from '@pierre/diffs/react';
-import { createTwoFilesPatch } from 'diff';
+import { FileDiff, Virtualizer } from '@pierre/diffs/react';
+import { DEFAULT_VIRTUAL_FILE_METRICS } from '@pierre/diffs';
 import { useThemeStore } from '@/stores/theme-store';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { createPierreDiffOptions, ensureTrailingNewline } from '@shared/tool-rendering/diff';
+import { createPierreDiffOptions } from '@shared/tool-rendering/diff';
+import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider';
+import { usePreparedDiff } from '@/components/diff/usePreparedDiff';
+import { useFileOpenHandler } from '@/lib/file-open-context';
+import { Button } from '@/components/ui/button';
 
 interface FileDiffViewerProps {
   filePath: string;
@@ -13,64 +16,54 @@ interface FileDiffViewerProps {
   className?: string;
 }
 
-/**
- * Component to display file diffs for Edit and Write operations
- * Uses @pierre/diffs library for clean, syntax-highlighted diff display
- */
-export function FileDiffViewer({
-  filePath,
-  oldContent,
-  newContent,
-  className,
-}: FileDiffViewerProps) {
-  const intl = useIntl();
+export function FileDiffViewer({ filePath, oldContent, newContent, className }: FileDiffViewerProps) {
   const isMobile = useIsMobile();
+  const openFile = useFileOpenHandler();
   const theme = useThemeStore((s) => s.theme);
-  const themeType = useMemo(() => {
-    if (theme === 'system') return 'system' as const;
-    return theme === 'dark' ? ('dark' as const) : ('light' as const);
-  }, [theme]);
-  const patch = useMemo(() => {
-    return createTwoFilesPatch(
-      filePath,
-      filePath,
-      ensureTrailingNewline(oldContent),
-      ensureTrailingNewline(newContent),
-      intl.formatMessage({ id: 'editor.diff.before', defaultMessage: 'Before' }),
-      intl.formatMessage({ id: 'editor.diff.after', defaultMessage: 'After' })
-    );
-  }, [filePath, oldContent, newContent, intl]);
-
-  // Determine if this is a new file (empty old content) or an edit
-  const isNewFile = !oldContent || oldContent.trim().length === 0;
-
-  // Side-by-side splits the available width into two code columns. That is fine
-  // on a desktop pane and unreadable on a phone, where each column ends up a few
-  // characters wide and every line wraps. Stacking the versions keeps the full
-  // width for one column. `useIsMobile` tracks the viewport, so a desktop window
-  // dragged narrow gets the same treatment.
+  const result = usePreparedDiff(filePath, oldContent, newContent);
+  const isNewFile = oldContent.length === 0;
   const diffStyle = isNewFile || isMobile ? 'unified' : 'split';
+  const lineHeight = isMobile ? 20 : 18;
+  const lineCount = result?.status === 'ready'
+    ? (diffStyle === 'unified' ? result.fileDiff.unifiedLineCount : result.fileDiff.splitLineCount) : 0;
+  const isLarge = lineCount > 150 || oldContent.length + newContent.length > 100_000;
+  const options = useMemo(() => ({
+    ...createPierreDiffOptions(theme, diffStyle, isLarge || isMobile ? 'scroll' : 'wrap'),
+    disableFileHeader: true,
+  }), [theme, diffStyle, isLarge, isMobile]);
+  const metrics = useMemo(() => ({
+    ...DEFAULT_VIRTUAL_FILE_METRICS, lineHeight, spacing: 4,
+  }), [lineHeight]);
 
-  if (!patch || patch.length === 0) {
-    return (
-      <div className="rounded-lg border border-border/40 bg-muted/30 p-4 text-sm text-muted-foreground">
-        <FormattedMessage id="editor.diff.cannotGenerate" defaultMessage="Unable to generate diff preview" />
+  if (!result) return <div className="py-3 text-xs text-muted-foreground">Preparing preview…</div>;
+  if (result.status === 'limited') {
+    // Never pass oversized/failed comparisons through the main-thread highlighter.
+    const preview = (newContent || oldContent).slice(0, 16_000).split('\n').slice(0, 120).join('\n');
+    return <div className={className}>
+      <div className="flex items-center justify-between gap-3 py-2 text-xs text-muted-foreground">
+        <span>Preview limited. Showing the beginning of the {newContent ? 'new' : 'previous'} content.</span>
+        <Button variant="ghost" size="sm" onClick={() => openFile(filePath)} title="Open the current file on disk">Open file</Button>
       </div>
-    );
+      <pre className="max-h-120 overflow-auto rounded-lg bg-muted/30 p-3 text-xs">{preview}</pre>
+    </div>;
+  }
+  if (result.fileDiff.hunks.length === 0) {
+    return <div className="py-3 text-xs text-muted-foreground">No changes.</div>;
   }
 
+  const diff = <FileDiff fileDiff={result.fileDiff} options={options} metrics={metrics}
+    className="pierre-diff-file-view rounded-lg overflow-hidden text-sm" />;
   return (
     <div className={className}>
-      {/* Phone: the rounded clip moves to the sideways scroller, which the view now outgrows. */}
-      <div className={isMobile ? 'pierre-hscroll rounded-lg' : undefined}>
-        <PatchDiff
-          patch={patch}
-          className={isMobile ? 'pierre-diff-file-view text-sm' : 'pierre-diff-file-view rounded-lg overflow-hidden text-sm'}
-          // Shown inside a tool line that already names the file and carries the
-          // line counts; pierre's header would repeat both.
-          options={{ ...createPierreDiffOptions(themeType, diffStyle, isMobile ? 'scroll' : 'wrap'), disableFileHeader: true }}
-        />
-      </div>
+      <DiffWorkerProvider>
+        {isLarge ? (
+          <Virtualizer className="pierre-hscroll h-120 overflow-auto rounded-lg" config={{ overscrollSize: 400 }}>
+            {diff}
+          </Virtualizer>
+        ) : (
+          <div className={isMobile ? 'pierre-hscroll rounded-lg' : undefined}>{diff}</div>
+        )}
+      </DiffWorkerProvider>
     </div>
   );
 }

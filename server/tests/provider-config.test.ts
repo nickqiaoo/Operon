@@ -1,30 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchProviderModels } from '../src/services/provider-config.js'
+import { fetchProviderModels, initProviderConfigService } from '../src/services/provider-config.js'
 import { makeTestApp, type TestApp } from './helpers/make-app.js'
 
-describe('Mistral model list', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
+describe('built-in model lists', () => {
+  afterEach(() => vi.unstubAllGlobals())
 
-  it('keeps base models that chat and call tools, whatever the base URL form', async () => {
-    const urls: string[] = []
-    vi.stubGlobal('fetch', async (input: string) => {
-      urls.push(input)
-      return Response.json({
-        data: [
-          { id: 'mistral-small-latest', type: 'base', capabilities: { completion_chat: true, function_calling: true } },
-          { id: 'codestral-latest', type: 'base', capabilities: { completion_chat: true, function_calling: true } },
-          { id: 'mistral-embed', type: 'base', capabilities: { completion_chat: false, function_calling: false } },
-          { id: 'open-mistral-7b', type: 'base', capabilities: { completion_chat: true, function_calling: false } },
-        ],
-      })
-    })
-
-    const models = await fetchProviderModels('mistral', { apiKey: 'k', baseUrl: 'https://api.mistral.ai/v1/' })
-
-    expect(models.map((m) => m.id)).toEqual(['codestral-latest', 'mistral-small-latest'])
-    expect(urls).toEqual(['https://api.mistral.ai/v1/models'])
+  it('reads Pi chat models without a separate vendor fetcher', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('Offline'))
+    vi.stubGlobal('fetch', fetch)
+    const models = await fetchProviderModels('mistral', { apiKey: 'k' })
+    expect(models).toContainEqual({ id: 'mistral-large-latest', name: expect.any(String) })
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
 
@@ -44,13 +30,29 @@ describe('/api/provider-configs', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
       configs: Record<string, { hasApiKey: boolean; enabled: boolean }>
+      providers: Array<{ id: string; label: string }>
     }
+    expect(body.providers.filter((provider) => provider.label === 'Vercel AI Gateway').map((provider) => provider.id))
+      .toEqual(['vercel-ai-gateway'])
+    expect(body.configs.vercel).toBeUndefined()
     // A fresh storage has no configs, so every provider should report hasApiKey=false
     for (const key of ['anthropic', 'openai', 'google']) {
       expect(body.configs[key]).toBeDefined()
       expect(body.configs[key].hasApiKey).toBe(false)
       expect(body.configs[key].enabled).toBe(false)
     }
+  })
+
+  it('ignores legacy entries without migrating their credentials', async () => {
+    const saved = { vercel: { apiKey: 'saved-key', enabled: true }, glm: { apiKey: 'glm-key' } }
+    ctx.storage.set('ai:provider_configs', saved)
+    initProviderConfigService(ctx.storage)
+    const res = await ctx.request('/api/provider-configs')
+    const body = await res.json() as { configs: Record<string, { hasApiKey: boolean }> }
+    expect(body.configs['vercel-ai-gateway'].hasApiKey).toBe(false)
+    expect(body.configs.vercel).toBeUndefined()
+    expect(body.configs.glm).toBeUndefined()
+    expect(ctx.storage.get('ai:provider_configs')).toEqual(saved)
   })
 
   it('PUT persists apiKey and a subsequent GET reflects it', async () => {

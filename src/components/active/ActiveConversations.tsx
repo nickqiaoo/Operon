@@ -102,8 +102,9 @@ function useOpenActiveEntry(onOpenNotification: (notification: Notification) => 
   return useCallback((entry: ActiveEntry) => {
     const navigation = useNavigationStore.getState()
     if (entry.chatId != null) {
-      // Something happened there since: land on it, as the inbox does.
-      if (entry.group === "needs" || entry.group === "done") navigation.requestChatLatest(entry.chatId)
+      // Re-entering from the session list should show the latest output,
+      // including a running turn whose tab still holds an earlier position.
+      navigation.requestChatLatest(entry.chatId)
       onOpenChat({
         chatId: entry.chatId,
         workspaceId: entry.workspaceId ?? undefined,

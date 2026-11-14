@@ -1,7 +1,8 @@
 /** Lets any agent create and manage the app's scheduled tasks (the Schedule page) from a conversation. */
 import { Hono, type Context } from 'hono'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
+import { SCHEDULE_APP_HTML, SCHEDULE_APP_URI, SCHEDULE_APP_MIME_TYPE } from '../../../shared/schedule-app.js'
 import type { CanvasWorkflowStorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, NotificationStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
 import type { CronjobSchedule, CronjobTask, CronjobUpsertInput } from '../types/cronjob.js'
 import { createCronjob, deleteCronjob, executeCronjob, getCronjob, getCronjobExecutionHistory, listCronjobs, updateCronjob } from '../services/cronjob.js'
@@ -51,13 +52,22 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'schedule_create',
+    _meta: { ui: { resourceUri: SCHEDULE_APP_URI } },
     description: 'Create a recurring task that sends `prompt` to an agent on a schedule. Each run opens a new conversation. Before creating, restate the name, timing and prompt to the user unless they already spelled them out.',
     inputSchema: { type: 'object', properties: jobFields, required: ['name', 'prompt', 'schedule'] },
   },
   {
     name: 'schedule_update',
+    _meta: { ui: { resourceUri: SCHEDULE_APP_URI } },
     description: 'Change a scheduled task. Only the fields given change; a given `schedule` replaces the whole schedule.',
     inputSchema: { type: 'object', properties: { id: jobId, ...jobFields }, required: ['id'] },
+  },
+  {
+    name: 'schedule_get',
+    description: 'Read the current scheduled task for its editor.',
+    inputSchema: { type: 'object', properties: { id: jobId }, required: ['id'] },
+    _meta: { ui: { visibility: ['app'] } },
+    annotations: { readOnlyHint: true },
   },
   {
     name: 'schedule_delete',
@@ -136,7 +146,7 @@ const summarize = (job: CronjobTask) => ({
 const availableProviderIds = () => getProviders().filter((p) => p.available).map((p) => p.id)
 
 export function buildScheduleMcpServer(storage: ScheduleMcpStorage, callerChatId: number): Server {
-  const server = new Server({ name: 'schedule', version: '1.0.0' }, { capabilities: { tools: {} } })
+  const server = new Server({ name: 'schedule', version: '1.0.0' }, { capabilities: { tools: {}, resources: {} } })
   const caller = callerChatId > 0 ? storage.getChatMeta(callerChatId) : undefined
 
   const resolveProvider = (args: Args, fallback: { providerId?: string; modelId?: string }) => {
@@ -153,9 +163,19 @@ export function buildScheduleMcpServer(storage: ScheduleMcpStorage, callerChatId
     typeof args.workspace_id === 'number' ? args.workspace_id : undefined
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [{ uri: SCHEDULE_APP_URI, name: 'Scheduled task', mimeType: SCHEDULE_APP_MIME_TYPE }],
+  }))
+  server.setRequestHandler(ReadResourceRequestSchema, async ({ params }) => {
+    if (params.uri !== SCHEDULE_APP_URI) throw new Error('Unknown schedule UI resource')
+    return { contents: [{ uri: SCHEDULE_APP_URI, mimeType: SCHEDULE_APP_MIME_TYPE, text: SCHEDULE_APP_HTML }] }
+  })
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const args = (req.params.arguments ?? {}) as Args
-    const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] })
+    const json = (value: Record<string, unknown>) => ({
+      content: [{ type: 'text' as const, text: JSON.stringify(value) }],
+      structuredContent: value,
+    })
     try {
       const name = req.params.name
       // A scheduled run carries this server too; letting it create or fire tasks would let a
@@ -188,6 +208,8 @@ export function buildScheduleMcpServer(storage: ScheduleMcpStorage, callerChatId
       const current = getCronjob(storage, id)
       // The personal assistant's own jobs are not the coding chats' to see or touch.
       if (!current || current.taskType === 'assistant') throw new Error(`Scheduled task ${id} not found`)
+
+      if (name === 'schedule_get') return json({ task: summarize(current) })
 
       if (name === 'schedule_update') {
         const provider = current.taskType === 'chat'

@@ -7,6 +7,7 @@ import {
   ModelSelectorItem,
   ModelSelectorList,
 } from "@/components/ai-elements/model-selector"
+import { ModelIcon } from "@/components/icons/ProviderLabel"
 import { MobileSheet } from "@/components/mobile/MobileSheet"
 import { Command } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -83,9 +84,12 @@ export function ModelCombobox({
         className,
       )}
     >
-      <TruncatedText className={cn("min-w-0 truncate", !value && !defaultLabel && "text-muted-foreground")}>
-        {label ?? ""}
-      </TruncatedText>
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        {value && <ModelIcon model={value} />}
+        <TruncatedText className={cn("min-w-0 truncate", !value && !defaultLabel && "text-muted-foreground")}>
+          {label ?? ""}
+        </TruncatedText>
+      </span>
       <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground opacity-50" />
     </button>
   )
@@ -167,6 +171,7 @@ function ModelComboboxList({
             onSelect={() => onPick(m.modelId)}
             className="py-2 text-xs md:py-1.5"
           >
+            <ModelIcon model={m.modelId} />
             <TruncatedText className="min-w-0 flex-1 truncate">{m.name}</TruncatedText>
             {m.name !== m.modelId && <TruncatedText className="max-w-[45%] truncate text-muted-foreground">{m.modelId}</TruncatedText>}
             {value === m.modelId && <CheckIcon className="size-3.5 shrink-0 text-tint" />}

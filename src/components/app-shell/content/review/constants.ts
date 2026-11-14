@@ -1,12 +1,4 @@
 import { defineMessages, type MessageDescriptor } from "react-intl"
-import type { WorkerInitializationRenderOptions, WorkerPoolOptions } from "@pierre/diffs/react"
-import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
-// Pierre ships its own worker pool that runs shiki syntax highlighting off the
-// main thread. Vite's `?worker` bundles this entry as a standalone ES-module
-// worker; `WorkerPoolContextProvider` in ReviewTab feeds it to every
-// FileDiff/PatchDiff via context. If the worker can't start, Pierre falls back to
-// main-thread highlighting (isWorkingPool() → false), i.e. the previous behavior.
-import PierreDiffWorker from "@pierre/diffs/worker/worker.js?worker"
 import type { GitStatus } from "@pierre/trees"
 import type { DiffScope } from "./types"
 
@@ -16,19 +8,6 @@ export const LARGE_DIFF_CHANGED_BYTE_THRESHOLD = 12 * 1024 * 1024 // 12_582_912
 export const FULL_FILE_CHANGED_LINE_THRESHOLD = 15_000
 export const FULL_FILE_CHANGED_BYTE_THRESHOLD = 3 * 1024 * 1024
 export const FULL_FILE_MAX_CHANGED_LINE_BYTE_THRESHOLD = 1024 * 1024
-
-// Off-main-thread highlighting via Pierre's shiki worker pool. Both objects are
-// read once, when the provider first mounts (getOrCreateWorkerPoolSingleton), so
-// they're module-level constants rather than per-render literals.
-export const PIERRE_WORKER_POOL_OPTIONS: WorkerPoolOptions = {
-  workerFactory: () => new PierreDiffWorker(),
-}
-export const PIERRE_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
-  theme: PIERRE_THEME,
-  // Initial setting; ReviewWorkerOptionsSync applies the persisted preference
-  // and updates the pool when the word-level diff toggle changes.
-  lineDiffType: "none",
-}
 
 export const DIFF_SCROLLBAR_CSS = `
 /* No standard scrollbar-width/color: setting them makes Chromium 121+ ignore
