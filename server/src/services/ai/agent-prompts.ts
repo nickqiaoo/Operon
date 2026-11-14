@@ -67,7 +67,7 @@ export const UI_BLOCK_PROMPT = `### \`ui\` blocks
 A fenced code block with the language \`ui\` appears piece by piece as you write it.
 
 Write one tag per line, and quote every attribute. These tags are all there is;
-anything else is dropped, and there is no styling:
+anything else is dropped. There is no CSS; color comes only from \`tone\`:
 
 \`\`\`ui
 <row columns="1">
@@ -77,17 +77,20 @@ anything else is dropped, and there is no styling:
   <bar label="US" value="42"/>
 </bar-chart>
 <flow title="Request path">
-  <node id="client" label="Client"/>
-  <node id="api" label="API" after="client"/>
-  <node id="db" label="Database" after="api"/>
+  <node id="client" icon="user" label="Client"/>
+  <node id="api" label="API" after="client" tone="blue"/>
+  <node id="db" icon="database" label="Database" after="api" tone="green"/>
   <edge from="db" to="client"/>
 </flow>
-<stages title="Architecture">
+<stages title="Architecture" note="Either server can run the loop.">
   <stage icon="user" title="Browser" desc="Sends the request" tags="HTTP/2,TLS"/>
-  <group title="Backend" columns="2" note="Share one database">
-    <stage icon="server" title="API" desc="Validates input"/>
-    <stage icon="database" title="Store" desc="Keeps the rows"/>
+  <arrow label="HTTP / SSE"/>
+  <group title="Load balancer" columns="2">
+    <stage icon="server" title="Server A" items="Scheduler,Agent loop" tone="blue"/>
+    <stage icon="server" title="Server B" items="HTTP API,SSE" tone="blue"/>
   </group>
+  <arrow label="State and events" dir="both"/>
+  <stage icon="database" title="Postgres" desc="Sessions and turns" tone="green"/>
 </stages>
 <compare title="Options" columns="2">
   <option title="REST" summary="Simple resources" badge="Recommended">
@@ -104,6 +107,11 @@ anything else is dropped, and there is no styling:
 </line-chart>
 \`\`\`
 
+- The text a reader sees (\`title\`, \`summary\`, \`label\`, \`desc\`, \`text\`, \`hint\`,
+  \`note\`, \`items\`, \`tags\`, \`badge\`, \`time\`) is part of your reply: write it in
+  the language you are replying in, not in the English of the examples above.
+  Tag names, attribute names, ids and the fixed values of \`tone\`, \`status\`,
+  \`icon\` and \`dir\` stay as written.
 - \`row\` holds only \`metric\`; set \`columns\` (1 to 4) to the number of metrics it
   will hold. \`stack\` groups other blocks vertically.
 - Always give \`bar-chart\` a \`max\` at least as large as its largest value.
@@ -111,6 +119,16 @@ anything else is dropped, and there is no styling:
   Use \`edge\` only for a link \`after\` cannot express.
 - \`stages\` is for layers read top to bottom, with a description on each; \`flow\`
   is for branching. \`icon\` is one of: ${UI_ICON_NAMES}.
+- In \`stages\`, layers get a plain down arrow between them; put an \`arrow\` there
+  instead to say what crosses (\`label\`) and which way (\`dir\`: down, up, both).
+  \`items\` (comma separated) lists a part's components one per line. A \`group\`
+  with no \`title\` just sets its parts side by side.
+- \`tone\` is one of: blue, green, amber, orange, pink, purple, gray. It goes on
+  \`stage\`, \`group\`, \`node\`, \`metric\`, \`bar\`, \`bar-chart\` and \`line-chart\`.
+  Use it for categories (every server one tone, every store another), two or
+  three tones per block, and leave the rest uncolored.
+- A \`node\` label shows at most two short lines (about 40 characters). Name
+  the step there; put signatures, paths and detail in the text around the block.
 - Set \`columns\` on \`group\` and \`compare\` (1 to 4) to how many items they will hold.
 - \`step\` \`status\` is done, active, pending or failed.
 - Always give \`line-chart\` \`max\` and \`points\` (2 to 60, how many it will hold).

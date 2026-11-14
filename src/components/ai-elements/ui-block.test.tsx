@@ -99,6 +99,39 @@ describe('ui block in a reply', () => {
     }
   })
 
+  it('draws labelled arrows, item lists and tones from theme tokens', () => {
+    const html = render([
+      '```ui',
+      '<stages note="Either server runs the loop">',
+      '<stage icon="user" title="Client"/>',
+      '<arrow label="HTTP / SSE" dir="both"/>',
+      '<group title="LB" columns="2">',
+      '<stage title="Server A" items="Scheduler,Agent loop" tone="blue"/>',
+      '</group>',
+      '<stage title="Postgres" tone="green"/>',
+      '</stages>',
+      '<flow>',
+      '<node id="a" icon="code" label="metadata.externalAgent written on the child chat" tone="purple"/>',
+      '</flow>',
+      '<bar-chart max="10"><bar label="x" value="3" tone="amber"/></bar-chart>',
+      '```',
+    ].join('\n'))
+    expect(html).toContain('data-ui-dropped="0"')
+    for (const text of ['HTTP / SSE', '>Scheduler<', '>Agent loop<', 'Either server runs the loop', 'bg-chart-1/8', 'bg-chart-3/8', 'bg-brand/8', 'bg-chart-4']) {
+      expect(html).toContain(text)
+    }
+    // Long labels wrap to two lines instead of being cut to one.
+    expect(html).toContain('line-clamp-2')
+    // The labelled arrow replaces the implied one: one arrow before the group, one after.
+    expect(html.match(/lucide-arrow-(down|up-down)/g)).toHaveLength(2)
+  })
+
+  it('drops a tone the catalog does not know', () => {
+    const html = render('```ui\n<metric label="A" value="1" tone="#ff0000"/>\n```')
+    expect(html).toContain('data-ui-dropped="1"')
+    expect(html).not.toContain('ff0000')
+  })
+
   it('does not run or echo what the catalog refuses', () => {
     const html = render('```ui\n<metric label="A" value="1"/>\n<script>alert(1)</script>\n<img src="https://x.test/a.png"/>\n```')
     expect(html).toContain('>A<')
