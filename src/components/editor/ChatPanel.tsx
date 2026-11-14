@@ -1381,7 +1381,9 @@ function ChatPanelContent({
             {readOnlyReason}
           </div>
         ) : <ChatComposer
-          visible={visible}
+          // `invisible` above only hides the web composer: the packaged apps draw a native
+          // one over its spacer, which keeps its box, so it has to be told to hide too.
+          visible={visible && !showMobileHistoryLoading}
           promptSuggestion={promptSuggestion}
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}

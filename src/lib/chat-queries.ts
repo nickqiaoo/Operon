@@ -81,11 +81,13 @@ export function useChatHistoryList({
     [query.data]
   )
 
-  const { fetchNextPage, hasNextPage, isFetchingNextPage } = query
+  const { fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = query
   const loadMore = useCallback(() => {
     if (!hasNextPage || isFetchingNextPage) return
     void fetchNextPage()
   }, [fetchNextPage, hasNextPage, isFetchingNextPage])
+  /** Re-read every loaded page now (pull to refresh); resolves when it lands. */
+  const refresh = useCallback(() => refetch(), [refetch])
 
   return {
     items,
@@ -98,6 +100,7 @@ export function useChatHistoryList({
     isInitialLoading: query.isFetching && query.data === undefined,
     isLoadingMore: isFetchingNextPage,
     loadMore,
+    refresh,
   }
 }
 
