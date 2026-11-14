@@ -390,7 +390,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
                   moment its first poll returns would flicker on every open. A team
                   with no teammates yet still shows: the team itself is the news. */}
               {(!peers.settled || (peers.data?.teams.length ?? 0) > 0) && <TeamSection res={peers} />}
-              {(!tasks.settled || taskList.length > 0) && <TasksSection chatId={id} res={tasks} />}
+              {(!tasks.settled || taskList.length > 0) && <TasksSection chatId={id} providerId={providerId} res={tasks} />}
               {(!subagents.settled || subagentList.length > 0) && <SubagentsSection res={subagents} />}
               <CronSection chatId={id} res={cron} />
               {/* CAPABILITIES — what it CAN do. Static, global, and mostly managed
@@ -437,7 +437,7 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
         active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
       )}
     >
-      <div className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-3 pl-1 pr-3">{cards}</div>
+      <div className="code-scrollbar scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-3 pl-1 pr-3">{cards}</div>
     </div>
   )
 })
@@ -981,7 +981,7 @@ function SkillsSection({ res, onSelect }: { res: Resource<{ skills: OperonSkillD
     >
       <StateRow res={res} empty={skills.length === 0} emptyText={<FormattedMessage id="editor.session.skillsEmpty" defaultMessage="No skills available." />} />
       {/* Capped so a long skill list can't push the other sections off-screen. */}
-      <div className={cn(ROWS, 'max-h-64 overflow-y-auto')}>
+      <div className={cn(ROWS, 'code-scrollbar max-h-64 overflow-y-auto')}>
         {skills.map((s) => (
           <button
             key={s.name}
@@ -1001,7 +1001,7 @@ function SkillsSection({ res, onSelect }: { res: Resource<{ skills: OperonSkillD
 }
 
 // ── Background tasks ─────────────────────────────────────────────────────────
-function TasksSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: OperonBackgroundTaskDTO[] }> }) {
+function TasksSection({ chatId, providerId, res }: { chatId: number; providerId: string | undefined; res: Resource<{ tasks: OperonBackgroundTaskDTO[] }> }) {
   const [expanded, setExpanded] = useState(true)
   const tasks = res.data?.tasks ?? []
   const running = tasks.filter((t) => t.status === 'running').length
@@ -1023,7 +1023,7 @@ function TasksSection({ chatId, res }: { chatId: number; res: Resource<{ tasks: 
       <StateRow res={res} empty={tasks.length === 0} emptyText={<FormattedMessage id="editor.session.tasksEmpty" defaultMessage="Nothing running in the background." />} />
       <div className={ROWS}>
         {sorted.map((t) => (
-          <TaskRow key={t.taskId} chatId={chatId} task={t} onChanged={res.reload} />
+          <TaskRow key={t.taskId} chatId={chatId} providerId={providerId} task={t} onChanged={res.reload} />
         ))}
       </div>
     </Section>
@@ -1040,26 +1040,23 @@ const TASK_DOT: Record<OperonBackgroundTaskDTO['status'], string> = {
   killed: 'bg-muted-foreground/30',
 }
 
-function TaskRow({ chatId, task, onChanged }: { chatId: number; task: OperonBackgroundTaskDTO; onChanged: () => void }) {
+function TaskRow({ chatId, providerId, task, onChanged }: { chatId: number; providerId: string | undefined; task: OperonBackgroundTaskDTO; onChanged: () => void }) {
   const intl = useIntl()
-  const [output, setOutput] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const isRunning = task.status === 'running'
+  // Read while the row is open, and re-read while the task runs: a monitor's or a
+  // background command's log keeps growing, and an open row should keep up with it.
+  const output = useTaskOutput(providerId, chatId, task.taskId, { enabled: open, live: isRunning })
+  const monitor = task.monitor
+  const kind = monitor ? 'monitor' : task.kind
 
-  const toggleOutput = async () => {
-    if (output !== null) {
-      setOutput(null)
-      return
-    }
-    setBusy(true)
-    try {
-      const res = await agent.tasksOutput(chatId, task.taskId)
-      setOutput(res.output || '(no output)')
-    } catch (err) {
-      setOutput(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
+  // A live tail reads from the bottom: keep it pinned there as lines arrive.
+  const outputRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    const el = outputRef.current
+    if (el && isRunning) el.scrollTop = el.scrollHeight
+  }, [output.data, isRunning])
 
   const stop = async () => {
     setBusy(true)
@@ -1075,21 +1072,60 @@ function TaskRow({ chatId, task, onChanged }: { chatId: number; task: OperonBack
     <div className={ROW}>
       <div className="flex items-center gap-2">
         <RowDot className={TASK_DOT[task.status]} />
-        <button className="min-w-0 flex-1 truncate text-left text-foreground/85 transition-colors hover:text-foreground" onClick={toggleOutput}>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={task.description || task.kind}
+          className="min-w-0 flex-1 truncate text-left text-foreground/85 transition-colors hover:text-foreground"
+        >
           {task.description || task.kind}
         </button>
-        <span className="shrink-0 text-[11px] text-muted-foreground/50">{task.kind}</span>
-        {task.status === 'running' && (
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
+          {monitor ? (
+            <FormattedMessage
+              id="editor.session.monitorEvents"
+              defaultMessage="monitor · {count, plural, one {# event} other {# events}}"
+              values={{ count: monitor.eventsDelivered }}
+            />
+          ) : kind}
+        </span>
+        {isRunning && (
           <IconButton onClick={stop} disabled={busy} label={intl.formatMessage({ id: 'editor.session.stopTask', defaultMessage: 'Stop task' })}>
-            <StopCircle className="h-3 w-3" />
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <StopCircle className="h-3 w-3" />}
           </IconButton>
         )}
       </div>
-      {busy && output === null && <div className="mt-1 pl-3.5 text-[11px] text-muted-foreground"><FormattedMessage id="editor.session.loadingOutput" defaultMessage="Loading output…" /></div>}
-      {output !== null && (
-        <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 text-[11px] leading-relaxed">
-          {output}
-        </pre>
+      {open && (
+        <div className="mt-1 space-y-1.5 pb-1">
+          {task.command && <div className="truncate font-mono text-[11px] text-muted-foreground" title={task.command}>{task.command}</div>}
+          {monitor && monitor.eventsSuppressed > 0 && (
+            <div className="text-[11px] text-status-warn">
+              <FormattedMessage
+                id="editor.session.monitorSuppressed"
+                defaultMessage="{count, plural, one {# event} other {# events}} dropped — output rate too high"
+                values={{ count: monitor.eventsSuppressed }}
+              />
+            </div>
+          )}
+          {output.isPending ? (
+            <div className="text-[11px] text-muted-foreground">
+              <FormattedMessage id="editor.session.loadingOutput" defaultMessage="Loading output…" />
+            </div>
+          ) : output.error ? (
+            <div className="text-[11px] text-status-error">{output.error.message}</div>
+          ) : output.data ? (
+            <pre
+              ref={outputRef}
+              className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-2 font-mono text-[11px] leading-relaxed"
+            >
+              {output.data}
+            </pre>
+          ) : (
+            <div className="text-[11px] text-muted-foreground">
+              <FormattedMessage id="editor.session.noOutput" defaultMessage="No output." />
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -1194,7 +1230,9 @@ function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerI
   const [open, setOpen] = useState(false)
   const [stopRequested, setStopRequested] = useState(false)
   const isRunning = task.status === 'running'
-  const isShell = task.taskType === 'local_bash'
+  // A monitor is a shell command too; its stdout is the event stream.
+  const isMonitor = task.taskType === 'monitor'
+  const isShell = task.taskType === 'local_bash' || isMonitor
   const output = useTaskOutput(providerId, chatId, task.taskId, { enabled: open && isShell, live: isRunning })
   const title = task.command ?? task.description
   const kind = CLAUDE_TASK_KIND[task.taskType] ?? task.taskType
@@ -1257,7 +1295,11 @@ function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerI
               </pre>
             ) : (
               <div className="text-[11px] text-muted-foreground">
-                {isRunning && !task.backgrounded ? (
+                {isRunning && isMonitor ? (
+                  // Claude Code names a monitor's log only once the watch ends; until then its
+                  // events are in the chat, one row each.
+                  <FormattedMessage id="editor.session.monitorOutputPending" defaultMessage="Events show in the chat as they arrive." />
+                ) : isRunning && !task.backgrounded ? (
                   <FormattedMessage id="editor.session.outputPending" defaultMessage="Output shows when the command finishes." />
                 ) : (
                   <FormattedMessage id="editor.session.noOutput" defaultMessage="No output." />

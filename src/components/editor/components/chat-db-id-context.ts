@@ -12,3 +12,14 @@ export const ChatDbIdContext = createContext<number | undefined>(undefined);
 export function useChatDbId(): number | undefined {
   return useContext(ChatDbIdContext);
 }
+
+/**
+ * The runtime the rendered conversation runs on (`claude-code`, `custom` for operon's
+ * own agent, …), as the Session panel names it. Undefined for providers without one.
+ * Lets a tool row read live task state from the right source.
+ */
+export const ChatProviderIdContext = createContext<string | undefined>(undefined);
+
+export function useChatProviderId(): string | undefined {
+  return useContext(ChatProviderIdContext);
+}
