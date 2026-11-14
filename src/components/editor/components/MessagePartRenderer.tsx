@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai';
 import { useCallback, type ReactElement } from 'react';
-import { FormattedMessage, useIntl } from 'react-intl';
-import { CheckCircle2Icon, CheckIcon, CopyIcon, HistoryIcon, SparklesIcon } from 'lucide-react';
+import { useIntl } from 'react-intl';
+import { CheckIcon, CopyIcon, HistoryIcon, SparklesIcon } from 'lucide-react';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import {
   Message,
@@ -20,9 +20,10 @@ import { CompactToolCall } from './compact-tool/CompactToolCall';
 import { AskUserQuestionRenderer, isAskUserQuestionTool } from './AskUserQuestionRenderer';
 import { TodoWriteRenderer, isTodoWriteTool } from './TodoWriteRenderer';
 import { WorkflowToolRenderer, isWorkflowTool } from './WorkflowToolRenderer';
-import { Trace, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace';
 import { SpecNoticeMessage, WorkflowResultMessage, isSpecWorkflowResult, isWorkflowResultMessage, parseSpecNotice } from './WorkflowResultMessage';
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
+import { BackgroundNoticeList } from './MonitorNotices';
+import { parseBackgroundNotices } from './background-notice';
 import { getInjectedInput } from './steer-message';
 import {
   ExternalAgentToolRenderer,
@@ -511,16 +512,13 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
     ? questionAnswers?.[questionKey] ?? textPartQuestionAnswer(message.parts, question.sourceIndex) ?? questionAnswer
     : undefined;
 
-  // Compact rendering for background agent completion notifications
-  if (message.role === 'user' && displayText.includes('<task-notification>')) {
-    return (
-      <Trace key={`${message.id}-${partIndex}`}>
-        <TraceLine>
-          <TraceIcon><CheckCircle2Icon className="text-status-ok" /></TraceIcon>
-          <TraceTitle><FormattedMessage id="editor.msg.bgAgentCompleted" defaultMessage="Background agent completed" /></TraceTitle>
-        </TraceLine>
-      </Trace>
-    );
+  // Notices a background task wrote into the conversation: Claude Code's
+  // `<task-notification>`s (a command or sub-agent settling, every Monitor event)
+  // and operon's Monitor events / settles. User-role on the wire, but nobody typed
+  // them — one step line each, and a run of one monitor's events folds into one.
+  const backgroundNotices = message.role === 'user' ? parseBackgroundNotices(displayText) : undefined;
+  if (backgroundNotices) {
+    return <BackgroundNoticeList key={`${message.id}-${partIndex}`} notices={backgroundNotices} />;
   }
 
   // An external agent's result is how its answer reaches the model; the agent's

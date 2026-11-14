@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { CheckIcon, XIcon } from 'lucide-react';
+import { CheckIcon, RadarIcon, XIcon } from 'lucide-react';
 import {
   Confirmation,
   ConfirmationAccepted,
@@ -15,6 +15,8 @@ import { Tool, ToolContent, ToolInput, ToolLine, ToolOutput, toolTraceStatus } f
 import type { ToolPart } from '@/components/ai-elements/tool';
 import { TraceCollapsibleTrigger, TraceDescription } from '@/components/ui/trace';
 import { ToolIcon } from './ToolIcon';
+import { MonitorToolLine } from '../MonitorNotices';
+import { isMonitorTool } from '../background-notice';
 import { ReadImageLarge, imageReadPathOf } from '../ReadImages';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
@@ -89,25 +91,34 @@ export function CompactToolCall({
     lowerToolName === 'replace' || lowerToolName === 'write_file' ||
     lowerToolName === 'patch';
 
-  const commandDescription = getToolDescription(lowerToolName, displayInput);
+  const isMonitor = isMonitorTool(toolName);
+  // A Monitor's row names the watch (what the model said it is for) rather than the command.
+  const monitorDescription = isMonitor && typeof displayInput.description === 'string' && displayInput.description.trim()
+    ? displayInput.description.trim()
+    : undefined;
+
+  const commandDescription = monitorDescription ?? getToolDescription(lowerToolName, displayInput);
   const diffStats = useToolInputDiffStats(toolName, displayInput, state !== 'input-streaming');
 
-  const line = (
-    <ToolLine
-      icon={<ToolIcon toolName={toolName} />}
-      name={formatToolDisplayName(toolName)}
-      description={commandDescription}
-      status={toolTraceStatus(state)}
-      trailing={state === 'output-denied' ? (
-        <TraceDescription><FormattedMessage id="editor.confirm.denied" defaultMessage="Denied" /></TraceDescription>
-      ) : diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) ? (
-        <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
-          {diffStats.additions > 0 && <span className="text-diff-add">+{diffStats.additions}</span>}
-          {diffStats.deletions > 0 && <span className="text-diff-remove">-{diffStats.deletions}</span>}
-        </span>
-      ) : undefined}
-    />
-  );
+  const lineProps = {
+    icon: isMonitor ? <RadarIcon className="shrink-0" /> : <ToolIcon toolName={toolName} />,
+    name: formatToolDisplayName(toolName),
+    description: commandDescription,
+    status: toolTraceStatus(state),
+    trailing: state === 'output-denied' ? (
+      <TraceDescription><FormattedMessage id="editor.confirm.denied" defaultMessage="Denied" /></TraceDescription>
+    ) : diffStats && (diffStats.additions > 0 || diffStats.deletions > 0) ? (
+      <span className="inline-flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums">
+        {diffStats.additions > 0 && <span className="text-diff-add">+{diffStats.additions}</span>}
+        {diffStats.deletions > 0 && <span className="text-diff-remove">-{diffStats.deletions}</span>}
+      </span>
+    ) : undefined,
+  };
+
+  // Once armed, a watch outlives its call: that row reads the watch's live state.
+  const line = isMonitor && state === 'output-available'
+    ? <MonitorToolLine toolCallId={toolPart.toolCallId} {...lineProps} />
+    : <ToolLine {...lineProps} />;
 
   return (
     <div className="flex min-w-0 flex-col gap-2">

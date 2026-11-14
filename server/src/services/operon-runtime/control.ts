@@ -50,6 +50,8 @@ export interface OperonBackgroundTaskDTO {
   startedAt: number
   endedAt: number | null
   stopReason?: string
+  /** The tool call that started it — how a chat's tool row finds its task. */
+  toolCallId?: string
   // kind-specific extras (flattened; present only for the matching kind)
   command?: string
   /**
@@ -58,11 +60,23 @@ export interface OperonBackgroundTaskDTO {
    * stopped exposing one. Nothing here read it.
    */
   exitCode?: number | null
+  /** Set on a Monitor's task: its stdout is an event stream, each batch a notice to the model. */
+  monitor?: OperonMonitorInfoDTO
   agentId?: string
   subagentType?: string
   questionCount?: number
   workflowName?: string
   runId?: string
+}
+
+export interface OperonMonitorInfoDTO {
+  /** Event batches that reached the conversation. */
+  eventsDelivered: number
+  /** Batches the rate limit dropped. */
+  eventsSuppressed: number
+  timeoutMs: number
+  /** Why the watch ended, when the monitor ended it rather than the command exiting. */
+  endedBy?: 'expired' | 'too_much_output'
 }
 
 export interface OperonSubagentDTO {
@@ -292,9 +306,25 @@ function toBackgroundDTO(t: BackgroundTaskInfo): OperonBackgroundTaskDTO {
     startedAt: t.startedAt,
     endedAt: t.endedAt,
     ...(t.stopReason ? { stopReason: t.stopReason } : {}),
+    ...(t.toolCallId ? { toolCallId: t.toolCallId } : {}),
   }
   if (t.kind === 'process') {
-    return { ...base, command: t.command, exitCode: t.exitCode }
+    const monitor = t.monitor
+    return {
+      ...base,
+      command: t.command,
+      exitCode: t.exitCode,
+      ...(monitor
+        ? {
+            monitor: {
+              eventsDelivered: monitor.eventsDelivered,
+              eventsSuppressed: monitor.eventsSuppressed,
+              timeoutMs: monitor.timeoutMs,
+              ...(monitor.endedBy ? { endedBy: monitor.endedBy } : {}),
+            },
+          }
+        : {}),
+    }
   }
   if (t.kind === 'agent') {
     return {

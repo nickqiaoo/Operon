@@ -8,6 +8,7 @@ import { getToolDisplayName, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
 import { isWorkflowToolName } from '../workflowToolName';
 import { isCodeProgramTool } from '../codeProgram';
+import { isMonitorTool } from '../background-notice';
 
 const EXIT_PLAN_NAMES = new Set([
   'ExitPlanMode',
@@ -30,6 +31,7 @@ const EXIT_PLAN_NAMES = new Set([
  * - AskUserQuestion when awaiting approval (needs interactive question UI)
  * - Any tool surfacing live sub-agent progress (Workflow fan-out, Gemini subagents) →
  *   SubAgentRenderer; the generic compact row would just dump the progress JSON.
+ * - Monitor: drawn by CompactToolCall, but on its own line so its live state stays in view.
  * - A Code Mode program (RunCode / OpenCode `execute`) → CodeProgramRenderer, which holds
  *   the calls it made. Work groups use that renderer too, rather than a generic compact row.
  */
@@ -42,6 +44,9 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   const toolName = getToolDisplayName(part);
   if (EXIT_PLAN_NAMES.has(toolName)) return false;
   if (toolName === 'Agent') return false;
+  // A watch outlives its call: folded into "Ran 3 commands", its "Watching" tail
+  // would be out of sight. Still drawn by CompactToolCall, just on its own line.
+  if (isMonitorTool(toolName)) return false;
   if (isCodeProgramTool(part)) return false;
   if (isWorkflowToolName(toolName)) return false;
   if (getSubagentProgress(part as ToolPartLike & { result?: unknown; output?: unknown })) return false;

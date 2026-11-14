@@ -43,6 +43,43 @@ export function useTaskOutput(
   })
 }
 
+/** How often a chat row re-reads operon's task list while its task runs. */
+const OPERON_TASK_POLL_MS = 3000
+/** Re-reads while a just-started task has not shown up in the list yet. */
+const OPERON_TASK_LOOKUPS = 3
+
+/**
+ * One operon background task, found by the tool call that started it — what a chat
+ * row (a Monitor's) shows its live state from. Shares the Session panel's `tasks`
+ * cache, so the two never disagree and an open panel's poll feeds the row too.
+ *
+ * Polls only while that task runs; a task not in the list (yet) gets a few lookups,
+ * then the row stops asking — an old chat with no session behind it costs nothing.
+ */
+export function useOperonTask(
+  providerId: string | undefined,
+  chatId: number | undefined,
+  toolCallId: string | undefined,
+): agent.OperonBackgroundTaskDTO | undefined {
+  const enabled = providerId === 'custom' && chatId != null && !!toolCallId
+  const find = (data: { tasks: agent.OperonBackgroundTaskDTO[] } | undefined) =>
+    data?.tasks.find((task) => task.toolCallId === toolCallId)
+  const query = useQuery({
+    queryKey: agentSessionKeys.section(providerId, chatId ?? -1, 'tasks'),
+    queryFn: () => agent.tasksList(chatId ?? -1),
+    enabled,
+    select: find,
+    refetchInterval: (q) => {
+      const task = find(q.state.data)
+      if (task) return task.status === 'running' ? OPERON_TASK_POLL_MS : false
+      return q.state.dataUpdateCount + q.state.errorUpdateCount < OPERON_TASK_LOOKUPS ? OPERON_TASK_POLL_MS : false
+    },
+    refetchIntervalInBackground: false,
+    retry: false,
+  })
+  return enabled ? query.data : undefined
+}
+
 type AgentSessionSection = 'mcp' | 'tasks' | 'subagents' | 'skills' | 'cron' | 'extensions' | 'peers'
 
 /** What a panel section reads: the query collapsed to the few fields it renders. */

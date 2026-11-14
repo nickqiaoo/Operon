@@ -70,7 +70,7 @@ import { useCodexUsagePolling } from './hooks/useCodexUsagePolling';
 import { useCacheExpiryNotice } from './hooks/useCacheExpiryNotice';
 import { useChatSessionControls } from './hooks/useChatSessionControls';
 import { MessagesList } from './components/MessagesList';
-import { ChatDbIdContext } from './components/chat-db-id-context';
+import { ChatDbIdContext, ChatProviderIdContext } from './components/chat-db-id-context';
 import { useTurnDiffs } from '@/lib/chat-queries';
 import { ChatComposer } from './components/ChatComposer';
 import { SteerTray } from './components/SteerTray';
@@ -1159,6 +1159,7 @@ function ChatPanelContent({
         >
           {messages.length > 0 && (
             <ChatDbIdContext.Provider value={dbChatId}>
+            <ChatProviderIdContext.Provider value={sessionPanelProviderId}>
             <MessagesList
               messages={messages}
               status={status}
@@ -1177,6 +1178,7 @@ function ChatPanelContent({
               onAnswerQuestion={!isGenerating || (supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)) ? handleAnswerQuestion : undefined}
               questionAnswers={questionAnswers}
             />
+            </ChatProviderIdContext.Provider>
             </ChatDbIdContext.Provider>
           )}
           <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} retry={extractRetry(messages.at(-1))} />

@@ -28,6 +28,7 @@ import { segmentMessageParts } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { ReplyImageGallery } from './ReplyImageGallery';
 import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
+import { foldMonitorEventRuns } from './background-notice';
 import type { RewindMode } from '../hooks/useRewindController';
 
 type MessagePart = UIMessage['parts'][number];
@@ -549,7 +550,15 @@ export const MessagesList = memo(function MessagesList({
     () => groupArchivedSteers(dedupedMessages),
     [dedupedMessages],
   );
-  const messages = archivedPresentation.messages;
+  // Rounds a turn's diff hangs off: their user message must stay its own row.
+  const turnMessageIds = useMemo(
+    () => new Set((turnDiffs?.turns ?? []).map((turn) => turn.messageUid)),
+    [turnDiffs],
+  );
+  const messages = useMemo(
+    () => foldMonitorEventRuns(archivedPresentation.messages, turnMessageIds),
+    [archivedPresentation.messages, turnMessageIds],
+  );
   // Only the latest turn anchors: older rows may appear during history loading
   // or windowing, and must not be mistaken for a newly sent prompt.
   const scrollAnchorId = useMemo(() => findLatestTurnMessageId(messages), [messages]);

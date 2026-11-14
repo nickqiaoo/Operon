@@ -52,14 +52,25 @@ export interface OperonBackgroundTaskDTO {
   startedAt: number
   endedAt: number | null
   stopReason?: string
+  /** The tool call that started it — how a chat's tool row finds its task. */
+  toolCallId?: string
   command?: string
   pid?: number
   exitCode?: number | null
+  /** Set on a Monitor's task. */
+  monitor?: OperonMonitorInfoDTO
   agentId?: string
   subagentType?: string
   questionCount?: number
   workflowName?: string
   runId?: string
+}
+
+export interface OperonMonitorInfoDTO {
+  eventsDelivered: number
+  eventsSuppressed: number
+  timeoutMs: number
+  endedBy?: 'expired' | 'too_much_output'
 }
 
 export interface OperonSubagentDTO {
