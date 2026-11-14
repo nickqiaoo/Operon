@@ -1,20 +1,18 @@
-import { useState } from 'react'
-import { ChevronRightIcon, CircleAlert, ExternalLinkIcon, Loader2 } from 'lucide-react'
+import { ChevronRightIcon } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
-import { needsConversationToAnswer, type PendingInputSummary } from '@shared/pending-input'
-import { Button } from '@/components/ui/button'
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { Trace, TraceDescription, TraceIcon, TraceLine, TraceTitle } from '@/components/ui/trace'
-import { api } from '@/lib/api'
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store'
 import { useEditorStore } from '@/stores/editor-store'
 import { useExternalAgentsStore } from '@/stores/external-agents-store'
-import { parseExternalAgentRun } from '@/hooks/useExternalAgent'
+import { matchExternalAgentRun, parseExternalAgentRun } from '@/hooks/useExternalAgent'
+import { useChatDbId } from './chat-db-id-context'
+import { openChildChat, useOtherWorkspaceName } from '@/hooks/useChatChildren'
 import type { UIMessage } from 'ai'
 import type { ActivityStatus } from '@shared/assistant'
 import { codingAgentName } from '@/components/assistant/CodingAgentCard'
 import { ACTIVITY_STATUS_MESSAGES } from '@/components/assistant/assistant-i18n'
 import { ProviderIcon } from './ModelSelectorPanel'
+import { ChildPendingInput } from './ChildPendingInput'
 
 /**
  * Check if a tool part is an external agent run tool.
@@ -144,7 +142,12 @@ export function ExternalAgentToolRenderer({
   // MCP dynamic tools wrap actual args in "arguments", direct tools have them at top level
   const args = (rawArgs.arguments as Record<string, unknown>) ?? rawArgs
   const parsed = parseExternalAgentRun({ ...toolPart, type: 'dynamic-tool', toolName: 'external_agent_run' } as UIMessage['parts'][number])
-  const agentId = parsed?.agentId ?? (typeof args.agent_id === 'string' ? args.agent_id : undefined)
+  const parentChatId = useChatDbId()
+  const ownId = parsed?.agentId ?? (typeof args.agent_id === 'string' ? args.agent_id : undefined)
+  // A call nested in a Code Mode program has an empty output; find its agent by what it asked for.
+  const matchedId = useExternalAgentsStore((s) =>
+    ownId ? undefined : matchExternalAgentRun(s.agents.values(), parentChatId, { agentType: args.agent_type, description: args.description }))
+  const agentId = ownId ?? matchedId
   const live = useExternalAgentsStore((s) => agentId ? s.agents.get(agentId) : undefined)
   const agentType = live?.providerId ?? parsed?.agentType ?? (args.agent_type as string) ?? 'agent'
   const description = live?.description ?? parsed?.description ?? (args.description as string) ?? ''
@@ -156,6 +159,12 @@ export function ExternalAgentToolRenderer({
   const canClick = !!targetTabId
 
   const handleClick = () => {
+    // The usual case now that children don't open a tab when they start: open it
+    // with the child's own model and mode.
+    if (live) {
+      void openChildChat({ childChatId: live.childChatId, title: description, providerId: live.providerId, modelId: live.modelId, modeId: live.modeId, workspaceId: live.workspaceId })
+      return
+    }
     if (!targetTabId) return
     const dbChatId = notificationInfo?.dbChatId
 
@@ -179,6 +188,7 @@ export function ExternalAgentToolRenderer({
   const status = waiting ? 'waiting' : activityStatusOf(live?.status)
   const chosenModel = live?.modelId ?? parsed?.model ?? (typeof args.model === 'string' ? args.model : undefined)
   const model = chosenModel && chosenModel !== 'default' ? chosenModel : undefined
+  const workspace = useOtherWorkspaceName(live?.workspaceId)
   const error = live?.status === 'failed' ? live.error : undefined
   const openLabel = intl.formatMessage({ id: 'assistant.coding.openConversation', defaultMessage: 'Open conversation' })
 
@@ -190,7 +200,7 @@ export function ExternalAgentToolRenderer({
       <TraceIcon><ProviderIcon id={agentType} size={16} /></TraceIcon>
       <TraceTitle>{description || codingAgentName(agentType)}</TraceTitle>
       <TraceDescription className="min-w-0 shrink truncate">
-        {[codingAgentName(agentType), model].filter(Boolean).join(' · ')}
+        {[codingAgentName(agentType), model, workspace].filter(Boolean).join(' · ')}
       </TraceDescription>
       {status && status !== 'running' && (
         <TraceDescription className={status === 'waiting' ? 'text-status-warn' : undefined}>
@@ -214,7 +224,7 @@ export function ExternalAgentToolRenderer({
       </Trace>
       {error && <div className="line-clamp-2 pl-6 text-xs text-status-error">{error}</div>}
       {waiting ? (
-        <ExternalAgentPendingInput childChatId={childId} pending={pending} onOpen={handleClick} />
+        <ChildPendingInput childChatId={childId} pending={pending} onOpen={handleClick} />
       ) : null}
     </div>
   )
@@ -236,103 +246,4 @@ function activityStatusOf(status: string | undefined): ActivityStatus | null {
     default:
       return null
   }
-}
-
-/**
- * What the child chat is blocked on, answerable from the parent.
- *
- * The child usually runs in a background tab, so without this the parent just
- * shows "running" while nothing happens. A plain approval is answered here, with
- * the request's own preview so it is not approved blind; a question or a plan
- * needs the child's own UI, so those only offer to open it. Answers go through
- * the same permission response as the child tab and the inbox, and the
- * live-status stream clears every surface once one of them answers.
- */
-function ExternalAgentPendingInput({
-  childChatId,
-  pending,
-  onOpen,
-}: {
-  childChatId: number
-  pending: PendingInputSummary[]
-  onOpen: () => void
-}) {
-  const [busyId, setBusyId] = useState<string | null>(null)
-
-  const decide = async (approvalId: string, outcome: 'allow' | 'deny') => {
-    setBusyId(approvalId)
-    try {
-      const res = await api.aiPermissionResponse({ id: approvalId, outcome, chatId: childChatId })
-      if (!res.success) {
-        // Stale (answered elsewhere, or timed out): take the server's word for what is left.
-        const fresh = await api.aiPendingApprovals(childChatId)
-        useChatPendingInputStore.getState().set(childChatId, (fresh.approvals ?? []).map((a) => ({ userFacing: true, ...a })))
-      }
-    } catch (error) {
-      console.warn('[external-agent] permission response failed', error)
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  return (
-    <ItemGroup className="gap-2" onClick={(event) => event.stopPropagation()}>
-      {pending.map((item) => (
-        <Item key={item.approvalId} variant="outline" size="sm" className="bg-background">
-          <ItemMedia variant="icon">
-            <CircleAlert className="text-status-warn" />
-          </ItemMedia>
-          <ItemContent className="min-w-0">
-            <ItemTitle className="font-normal">
-              {item.toolName === 'AskUserQuestion' ? (
-                <FormattedMessage id="editor.external.pendingQuestion" defaultMessage="The agent asked you a question" />
-              ) : needsConversationToAnswer(item) ? (
-                <FormattedMessage id="editor.external.pendingPlan" defaultMessage="The agent proposed a plan for review" />
-              ) : (
-                <FormattedMessage
-                  id="editor.external.pendingApproval"
-                  defaultMessage="Approval requested · {tool}"
-                  values={{ tool: <span className="font-mono text-muted-foreground">{item.toolName}</span> }}
-                />
-              )}
-            </ItemTitle>
-            {item.inputPreview && !needsConversationToAnswer(item) ? (
-              <ItemDescription className="truncate font-mono text-xs" title={item.inputPreview}>
-                {item.inputPreview}
-              </ItemDescription>
-            ) : null}
-          </ItemContent>
-          <ItemActions>
-            {needsConversationToAnswer(item) ? (
-              <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={onOpen}>
-                <ExternalLinkIcon className="h-3.5 w-3.5" />
-                <FormattedMessage id="editor.external.openToAnswer" defaultMessage="Open" />
-              </Button>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  disabled={busyId === item.approvalId}
-                  onClick={() => void decide(item.approvalId, 'deny')}
-                >
-                  <FormattedMessage id="editor.external.deny" defaultMessage="Deny" />
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8 gap-1.5"
-                  disabled={busyId === item.approvalId}
-                  onClick={() => void decide(item.approvalId, 'allow')}
-                >
-                  {busyId === item.approvalId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  <FormattedMessage id="editor.external.allow" defaultMessage="Allow" />
-                </Button>
-              </>
-            )}
-          </ItemActions>
-        </Item>
-      ))}
-    </ItemGroup>
-  )
 }

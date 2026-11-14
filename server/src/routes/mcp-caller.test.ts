@@ -33,7 +33,7 @@ describe('per-call MCP caller identity', () => {
 
   async function connect(query: string): Promise<Client> {
     const app = new Hono()
-    app.route('/api/external-agent-mcp', externalAgentMcpRoutes())
+    app.route('/api/external-agent-mcp', externalAgentMcpRoutes({} as never))
     const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' })
     await new Promise<void>((resolve) => server.once('listening', () => resolve()))
     const { port } = server.address() as AddressInfo

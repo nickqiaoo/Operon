@@ -15,6 +15,9 @@ const IS_WEB = __APP_TARGET__ === 'web'
 /** Upper bound on how long a Stop may hold back transcript reconciliation. */
 const ABORT_SETTLE_TIMEOUT_MS = 8000
 
+/** Backoff for resuming a stream a network drop cut off (one entry per attempt). */
+const RESUME_RETRY_DELAYS_MS = [600, 2000, 5000]
+
 // A dropped tunnel/stream connection surfaces as a fetch TypeError whose message
 // varies by engine — WebKit "Load failed", Chromium "Failed to fetch", plus the
 // "network connection was lost" variants. Only these are auto-resumed: a genuine
@@ -414,26 +417,60 @@ export function useChatRuntime({
   }, [runResume])
 
   // Web safety net: a mid-turn drop can land as an error while the tab is still
-  // foreground + online — the wake handler above never fires then. Do ONE in-place
-  // resume so a transient tunnel/broker blip recovers silently instead of leaving
-  // "Load failed" on screen. Bounded to a single attempt per error episode (the
-  // ref re-arms once status leaves 'error'); a non-network error is left visible.
-  const foregroundResumedRef = useRef(false)
+  // foreground + online — the wake handler above never fires then. The common
+  // case is iOS: backgrounding the app kills the stream's fetch, and WebKit only
+  // reports it ("Load failed") once the app is back in front, i.e. after the
+  // visibilitychange wake already ran. Resume in place, with a short backoff
+  // because the network is often not usable yet in the first second after
+  // wake. Bounded per error episode (the counter re-arms once status leaves
+  // 'error'); a non-network error is left visible.
+  //
+  // While these attempts are pending the error is not a failure yet, so the
+  // panel shows "Reconnecting…" (`reconnecting` below) instead of the raw fetch
+  // message. Note that status stays 'error' for the whole reconnect request —
+  // the SDK only flips to 'submitted' once the live endpoint has answered.
+  const resumeAttemptsRef = useRef(0)
+  /** The error whose automatic resume attempts are all used up. */
+  const [reconnectGaveUpOn, setReconnectGaveUpOn] = useState<Error | null>(null)
   useEffect(() => {
     if (!IS_WEB) return
     if (status !== 'error') {
-      foregroundResumedRef.current = false
+      resumeAttemptsRef.current = 0
       return
     }
-    if (foregroundResumedRef.current) return
     if (dbChatIdRef.current === undefined) return
-    if (!isNetworkError(chatError)) return
+    if (!chatError || !isNetworkError(chatError)) return
+    // Offline / backgrounded: the wake handler resumes on 'online' /
+    // visibilitychange (onError armed pendingResumeRef for it).
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-    foregroundResumedRef.current = true
-    const timer = setTimeout(() => { void runResume({ dropPartial: true }) }, 600)
+    const attempt = resumeAttemptsRef.current
+    if (attempt >= RESUME_RETRY_DELAYS_MS.length) {
+      setReconnectGaveUpOn(chatError)
+      return
+    }
+    // Counted when the attempt actually runs, so a re-render that clears the
+    // timer doesn't burn an attempt that never happened.
+    const timer = setTimeout(() => {
+      resumeAttemptsRef.current = attempt + 1
+      void runResume({ dropPartial: true })
+    }, RESUME_RETRY_DELAYS_MS[attempt])
     return () => clearTimeout(timer)
   }, [status, chatError, runResume])
+
+  const networkDropped =
+    IS_WEB && status === 'error' && dbChatId !== undefined && isNetworkError(chatError)
+  /** A network drop we are still trying to recover from (web only). */
+  const reconnecting = networkDropped && reconnectGaveUpOn !== chatError
+  /** A network drop the automatic resume could not recover; offer a manual retry. */
+  const reconnectFailed = networkDropped && reconnectGaveUpOn === chatError
+
+  /** Manual retry after the automatic attempts gave up. */
+  const retryReconnect = useCallback(() => {
+    resumeAttemptsRef.current = 0
+    setReconnectGaveUpOn(null)
+    void runResume({ dropPartial: true })
+  }, [runResume])
 
   // One coordinator for both attach triggers:
   //   1. the initial persisted-history check after opening a chat;
@@ -591,6 +628,9 @@ export function useChatRuntime({
     messages,
     status,
     chatError,
+    reconnecting,
+    reconnectFailed,
+    retryReconnect,
     sendMessage,
     stop,
     setMessages,

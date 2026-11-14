@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from '@model
 import { getProviders } from '../services/ai/providers.js'
 import { agentModelCatalog } from '../services/agents/model-catalog.js'
 import { createExternalAgent, sendExternalAgent, stopExternalAgent, getExternalAgentStatus } from '../services/external-agent.js'
+import { createChatWorkspace, type ChatWorkspaceStorage } from '../services/chat-workspace.js'
 import { serveMcpOverHono, withCodexElicitationFallback } from './mcp-http.js'
 import { resolveMcpCallerChat } from './mcp-caller.js'
 
@@ -17,7 +18,7 @@ const requiredText = (args: Record<string, unknown>, key: string): string => {
   return value.trim()
 }
 
-export function buildExternalAgentMcpServer(availableAgents: string[], parentChatId: number): Server {
+export function buildExternalAgentMcpServer(availableAgents: string[], parentChatId: number, storage: ChatWorkspaceStorage): Server {
   const server = new Server({ name: 'external_agent', version: '2.0.0' }, { capabilities: { tools: {} } })
   const agentId = { type: 'string', description: 'agent_id returned by external_agent_run. Reuses its existing conversation.' }
   const prompt = { type: 'string', description: 'Instructions for this turn.' }
@@ -39,6 +40,7 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
         model: { type: 'string', description: `An ID from ${MODEL_TOOL}, or 'default' explicitly accepted by the user.` },
         effort: { type: 'string', description: `Reasoning effort, one of the levels ${MODEL_TOOL} lists for that agent and model. Only when the user asked for one; omit to use the agent's own.` },
         selection_confirmed: { type: 'boolean', description: 'True only when the user has chosen both the agent and model.' },
+        workspace_id: { type: 'integer', description: "Workspace the agent works in, in this conversation's project (e.g. one from workspace_create). Omit to work in this conversation's own workspace." },
       }, required: ['agent_type', 'prompt', 'description', 'model', 'selection_confirmed'] },
     },
     {
@@ -53,6 +55,14 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
     {
       name: 'external_agent_stop', description: 'Stop the current execution. Pending native input follows the provider cancellation behavior. Keeps the child conversation available for follow-up. Closing its tab does not stop execution.',
       inputSchema: { type: 'object', properties: { agent_id: agentId }, required: ['agent_id'] },
+    },
+    {
+      name: 'workspace_create',
+      description: "A new workspace in this conversation's project: a new branch in its own worktree, shown in the sidebar. Only when the user wants one, or agreed to one because the work needs its own branch. It only creates the workspace; to have an external agent work there, pass the returned workspace_id to external_agent_run.",
+      inputSchema: { type: 'object', properties: {
+        name: { type: 'string', description: 'Short, e.g. "login-redirect"; it also names the branch.' },
+        base_branch: { type: 'string', description: "What the branch starts from; the repository's default branch if left out." },
+      }, required: ['name'] },
     },
   ]
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }))
@@ -74,8 +84,16 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
         if (!availableAgents.includes(providerId)) throw new Error(`Available agents: ${availableAgents.join(', ')}`)
         if (args.selection_confirmed !== true) throw new Error(`Call ${MODEL_TOOL} and ask the user to choose the agent and model, then set selection_confirmed:true.`)
         const effort = typeof args.effort === 'string' && args.effort.trim() ? args.effort.trim() : undefined
-        return json(await createExternalAgent({ parent: { chatId: parentChatId }, providerId, model, effort,
+        if (args.workspace_id !== undefined && !(Number.isSafeInteger(args.workspace_id) && (args.workspace_id as number) > 0)) {
+          throw new Error('workspace_id must be a workspace id')
+        }
+        const workspaceId = args.workspace_id as number | undefined
+        return json(await createExternalAgent({ parent: { chatId: parentChatId, ...(workspaceId ? { workspaceId } : {}) }, providerId, model, effort,
           prompt: requiredText(args, 'prompt'), description: requiredText(args, 'description') }))
+      }
+      if (name === 'workspace_create') {
+        const base = typeof args.base_branch === 'string' && args.base_branch.trim() ? args.base_branch.trim() : undefined
+        return json(await createChatWorkspace(storage, parentChatId, { name: requiredText(args, 'name'), ...(base ? { base } : {}) }))
       }
       const id = requiredText(args, 'agent_id')
       if (name === 'external_agent_send') return json(await sendExternalAgent(parentChatId, id, requiredText(args, 'prompt'), args.delivery === 'steer' || args.delivery === 'followup' ? args.delivery : 'auto'))
@@ -89,14 +107,14 @@ export function buildExternalAgentMcpServer(availableAgents: string[], parentCha
   return withCodexElicitationFallback(server)
 }
 
-export function externalAgentMcpRoutes() {
+export function externalAgentMcpRoutes(storage: ChatWorkspaceStorage) {
   const router = new Hono()
   const handle = async (c: Context) => {
     const caller = await resolveMcpCallerChat(c, 'chatId')
     if (!caller.ok) return caller.response
     const available = getProviders().filter((p) => p.available &&
       SUPPORTED_EXTERNAL_AGENT_IDS.includes(p.id as (typeof SUPPORTED_EXTERNAL_AGENT_IDS)[number])).map((p) => p.id)
-    return serveMcpOverHono(c, buildExternalAgentMcpServer(available, caller.chatId ?? 0), caller.body)
+    return serveMcpOverHono(c, buildExternalAgentMcpServer(available, caller.chatId ?? 0, storage), caller.body)
   }
   router.post('/', handle)
   router.get('/', handle)

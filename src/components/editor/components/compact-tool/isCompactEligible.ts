@@ -1,6 +1,7 @@
 import { isAskUserQuestionTool } from '../AskUserQuestionRenderer';
 import { isExternalAgentTool } from '../ExternalAgentRenderer';
 import { createdTaskNumber } from '../TaskCreatedRenderer';
+import { createdWorkspace } from '../WorkspaceCreatedRenderer';
 import { isScheduleTaskResult } from '../ScheduleTaskRenderer';
 import { isHtmlRenderResult } from '../HtmlRenderFrame';
 import { getSubagentProgress } from '../gemini-subagent-utils';
@@ -56,6 +57,7 @@ export function isCompactEligible(part: ToolPartLike & { state?: string }): bool
   // create stays compact: TaskCreatedRenderer declines to draw those, so a part
   // pulled out of the group with nothing to render would vanish entirely.
   if (createdTaskNumber(part) !== null) return false;
+  if (createdWorkspace(part) !== null) return false;
   if (isScheduleTaskResult(part)) return false;
   if (isHtmlRenderResult(part)) return false;
   // Same condition MessagePartRenderer uses to draw the agent card. Without it

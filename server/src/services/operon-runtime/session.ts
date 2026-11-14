@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { RuntimeInjectionUnavailableError, QueuedFollowup } from '@operon/agent-runtime'
 import type { ModelMessage } from 'ai'
 import { SessionClosedError, SessionInterruptedError, type AgentInput, type ApprovalResponse, type HarnessSession, type ImageContent, type Message, type PermissionMode, type QuestionResult, type TextContent, type ThinkingLevel as EngineThinkingLevel } from 'operon-agents'
@@ -16,10 +15,11 @@ import type {
   SessionPatch,
   SessionPatchApplied,
 } from '@operon/agent-runtime'
-import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
+import { OperonStreamMapper } from './message-mapper.js'
 import { operonAgentControl } from './control.js'
 import { modelRef } from './resolve-model.js'
-import { markDriven, unmarkDriven } from './passive-observer.js'
+import { markDriven, restoreIdleHandlers, unmarkDriven } from './passive-observer.js'
+import { answerPending, cancelPending, interactiveHandlers } from './interactive-handlers.js'
 import { PartQueue } from './part-queue.js'
 
 /**
@@ -177,23 +177,6 @@ function toImageContent(part: unknown): ImageContent | undefined {
   return { type: 'image', data: base64, mimeType: mime ?? 'image/png' }
 }
 
-function toApprovalResponse(decision: PermissionDecision): ApprovalResponse {
-  switch (decision.type) {
-    case 'allow':
-      return { decision: 'approved' }
-    case 'allow-always':
-      return { decision: 'approved', scope: 'session' }
-    case 'deny':
-      return { decision: 'rejected', feedback: decision.reason }
-  }
-}
-
-function toQuestionResult(decision: PermissionDecision): QuestionResult {
-  if (decision.type === 'deny') return null
-  const answers = (decision.updatedInput?.answers ?? {}) as Record<string, string | string[]>
-  return { answers }
-}
-
 // operon mode id → engine permission mode. operon's mode ids are aligned 1:1 with the engine
 // modes: manual / workspace / yolo / auto. `auto` is the LLM-judged tier (Claude-Code-style):
 // the static chain runs first and any residual would-prompt action is handed to the
@@ -308,81 +291,16 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
       }
     })
 
-    // Tool approvals: surface a request part, then block until resolvePermission().
-    this.harness.setApprovalHandler(
-      (request, options) =>
-        new Promise<ApprovalResponse>((resolve) => {
-          const signal = options?.signal ?? turnSignal
-          if (signal?.aborted) {
-            resolve({ decision: 'cancelled' })
-            return
-          }
-          const approvalId = randomUUID()
-          let onAbort: (() => void) | undefined
-          const settle = (response: ApprovalResponse): void => {
-            if (onAbort) signal?.removeEventListener('abort', onAbort)
-            resolve(response)
-          }
-          onAbort = () => {
-            const pending = this.pendingApprovals.get(approvalId)
-            if (!pending) return
-            this.pendingApprovals.delete(approvalId)
-            pending({ decision: 'cancelled' })
-          }
-          this.pendingApprovals.set(approvalId, settle)
-          signal?.addEventListener('abort', onAbort, { once: true })
-          if (signal?.aborted) {
-            onAbort()
-            return
-          }
-          // Plan review: re-emit the ExitPlanMode tool-call carrying the plan markdown
-          // (it lives in the approval's display, not the tool args) so PlanRenderer shows it.
-          const planPart = planReviewToolCallPart(request)
-          if (planPart) queue.push(planPart)
-          queue.push({
-            type: 'tool-approval-request',
-            approvalId,
-            toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: request.toolName, input: mapper.toolInput(request.toolCallId) ?? {}, dynamic: true },
-          } as unknown as RuntimeStreamPart)
-        }),
-    )
-
-    // AskUserQuestion: same channel as approvals. The AskUserQuestion tool-call part
-    // (already in the message stream) renders the form, keyed by toolCallId; this
-    // approval-request carries the approvalId the UI submits the answer against.
-    this.harness.setQuestionHandler(
-      (request, options) =>
-        new Promise<QuestionResult>((resolve) => {
-          const signal = options?.signal ?? turnSignal
-          if (signal?.aborted) {
-            resolve(null)
-            return
-          }
-          const approvalId = randomUUID()
-          let onAbort: (() => void) | undefined
-          const settle = (result: QuestionResult): void => {
-            if (onAbort) signal?.removeEventListener('abort', onAbort)
-            resolve(result)
-          }
-          onAbort = () => {
-            const pending = this.pendingQuestions.get(approvalId)
-            if (!pending) return
-            this.pendingQuestions.delete(approvalId)
-            pending(null)
-          }
-          this.pendingQuestions.set(approvalId, settle)
-          signal?.addEventListener('abort', onAbort, { once: true })
-          if (signal?.aborted) {
-            onAbort()
-            return
-          }
-          queue.push({
-            type: 'tool-approval-request',
-            approvalId,
-            toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: 'AskUserQuestion', input: mapper.toolInput(request.toolCallId) ?? {}, dynamic: true },
-          } as unknown as RuntimeStreamPart)
-        }),
-    )
+    // Approvals and AskUserQuestion: surface a request part, then block until respond().
+    const handlers = interactiveHandlers({
+      push: (part) => queue.push(part),
+      toolInput: (toolCallId) => mapper.toolInput(toolCallId),
+      approvals: this.pendingApprovals,
+      questions: this.pendingQuestions,
+      signal: turnSignal,
+    })
+    this.harness.setApprovalHandler(handlers.approval)
+    this.harness.setQuestionHandler(handlers.question)
 
     // Goal turn: set an active thread goal first (emits `goal_updated` → the mapper turns
     // it into `goal` metadata, lighting up the banner), then run the pursuit turn.
@@ -409,8 +327,9 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     } finally {
       unsubscribe()
       unmarkDriven(this.harness.id)
-      this.harness.setApprovalHandler(undefined)
-      this.harness.setQuestionHandler(undefined)
+      // Not simply cleared: a run the harness starts on its own right after this one (a
+      // finished background task waking it) may already be up, and it needs handlers too.
+      restoreIdleHandlers(this.harness)
     }
   }
 
@@ -473,18 +392,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   }
 
   respond(approvalId: string, decision: PermissionDecision): boolean {
-    // AskUserQuestion answers arrive on this same channel (updatedInput.answers).
-    const resolveQuestion = this.pendingQuestions.get(approvalId)
-    if (resolveQuestion) {
-      this.pendingQuestions.delete(approvalId)
-      resolveQuestion(toQuestionResult(decision))
-      return true
-    }
-    const resolve = this.pendingApprovals.get(approvalId)
-    if (!resolve) return false
-    this.pendingApprovals.delete(approvalId)
-    resolve(toApprovalResponse(decision))
-    return true
+    return answerPending({ approvals: this.pendingApprovals, questions: this.pendingQuestions }, approvalId, decision)
   }
 
   async steer(text: string, options?: InjectOptions) {
@@ -627,10 +535,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   }
 
   private rejectPending(): void {
-    for (const resolve of this.pendingApprovals.values()) resolve({ decision: 'cancelled' })
-    this.pendingApprovals.clear()
-    for (const resolve of this.pendingQuestions.values()) resolve(null)
-    this.pendingQuestions.clear()
+    cancelPending({ approvals: this.pendingApprovals, questions: this.pendingQuestions })
   }
 
   /** Agent runtime control (MCP / cron / tasks / skills / …) — delegates each

@@ -327,6 +327,9 @@ function ChatPanelContent({
     messages,
     status,
     chatError,
+    reconnecting,
+    reconnectFailed,
+    retryReconnect,
     sendMessage,
     stop,
     setMessages,
@@ -1217,11 +1220,34 @@ function ChatPanelContent({
           showMobileHistoryLoading && "invisible"
         )}
       >
-        {chatError && status === 'error' && (
+        {reconnecting ? (
+          // A dropped stream (typically the phone coming back from background)
+          // that is being resumed: not an error yet, so no red banner with the
+          // raw fetch message ("Load failed").
+          <NoticeGlass on={isMobile}>
+          <div className="mb-2 flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
+            <span><FormattedMessage id="editor.chat.reconnecting" defaultMessage="Reconnecting…" /></span>
+          </div>
+          </NoticeGlass>
+        ) : chatError && status === 'error' && (
           <NoticeGlass on={isMobile}>
           <div className="mb-2 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
-            <span className="break-all">{chatError.message || intl.formatMessage({ id: 'editor.chat.errorOccurred', defaultMessage: 'An error occurred' })}</span>
+            {reconnectFailed ? (
+              <>
+                <span className="flex-1"><FormattedMessage id="editor.chat.connectionLost" defaultMessage="Connection lost. The reply may still be running on your computer." /></span>
+                <button
+                  type="button"
+                  onClick={retryReconnect}
+                  className="shrink-0 font-medium underline-offset-2 hover:underline"
+                >
+                  <FormattedMessage id="editor.chat.reconnect" defaultMessage="Retry" />
+                </button>
+              </>
+            ) : (
+              <span className="break-all">{chatError.message || intl.formatMessage({ id: 'editor.chat.errorOccurred', defaultMessage: 'An error occurred' })}</span>
+            )}
           </div>
           </NoticeGlass>
         )}

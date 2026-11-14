@@ -20,13 +20,16 @@ vi.mock('../services/ai/providers.js', () => ({
   }),
 }))
 vi.mock('../services/ai/provider-models-cache.js', () => ({ warmAllProviders: async () => {} }))
+const createWorkspace = vi.hoisted(() => vi.fn())
+vi.mock('../services/chat-workspace.js', () => ({ createChatWorkspace: createWorkspace }))
+const storage = {} as never
 
 describe('ExternalAgent MCP', () => {
   let client: Client
   beforeEach(async () => {
     vi.clearAllMocks()
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair()
-    const server = buildExternalAgentMcpServer(['codex'], 42)
+    const server = buildExternalAgentMcpServer(['codex'], 42, storage)
     client = new Client({ name: 'external-test', version: '1' })
     await server.connect(serverTransport)
     await client.connect(clientTransport)
@@ -43,6 +46,24 @@ describe('ExternalAgent MCP', () => {
     handlers.create.mockResolvedValue({ agent_id: 'ext-10', chat_id: 10 })
     await client.callTool({ name: 'external_agent_run', arguments: { ...input, model: 'fresh-model', selection_confirmed: true } })
     expect(handlers.create).toHaveBeenCalledWith({ parent: { chatId: 42 }, providerId: 'codex', model: 'fresh-model', prompt: 'Review', description: 'Review' })
+  })
+
+  it('passes a chosen workspace on, and rejects one that is not an id', async () => {
+    handlers.create.mockResolvedValue({ agent_id: 'ext-10', chat_id: 10 })
+    const input = { agent_type: 'codex', model: 'fresh-model', selection_confirmed: true, prompt: 'Fix', description: 'Fix' }
+    expect((await client.callTool({ name: 'external_agent_run', arguments: { ...input, workspace_id: 'main' } })).isError).toBe(true)
+    expect(handlers.create).not.toHaveBeenCalled()
+    await client.callTool({ name: 'external_agent_run', arguments: { ...input, workspace_id: 7 } })
+    expect(handlers.create.mock.calls[0][0].parent).toEqual({ chatId: 42, workspaceId: 7 })
+  })
+
+  it('creates a workspace for the calling conversation, and only that', async () => {
+    createWorkspace.mockResolvedValue({ workspace_id: 90, name: 'login', branch: 'login', worktree_path: '/wt/login' })
+    const result = await client.callTool({ name: 'workspace_create', arguments: { name: ' login ', base_branch: 'develop' } })
+    expect(createWorkspace).toHaveBeenCalledWith(storage, 42, { name: 'login', base: 'develop' })
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0].text).workspace_id).toBe(90)
+    expect(handlers.create).not.toHaveBeenCalled()
+    expect((await client.callTool({ name: 'workspace_create', arguments: {} })).isError).toBe(true)
   })
 
   it('lists effort levels per model and passes the chosen one on', async () => {

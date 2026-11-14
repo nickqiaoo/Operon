@@ -644,6 +644,9 @@
   "editor.chat.loadingOlder": "正在加载更早的消息…",
   "editor.chat.loadingConversation": "正在加载会话…",
   "editor.chat.errorOccurred": "发生错误",
+  "editor.chat.connectionLost": "连接已断开，回复可能仍在电脑上继续生成。",
+  "editor.chat.reconnect": "重试",
+  "editor.chat.reconnecting": "正在重新连接…",
   "editor.chat.collapsePrompts": "折叠提示词",
   "editor.chat.expandPrompts": "展开提示词",
   "editor.agentPanel.open": "活动面板",
@@ -2261,5 +2264,9 @@
   "editor.msg.bgTaskFinished": "后台任务已结束",
   "editor.session.monitorEvents": "监听 · {count} 个事件",
   "editor.session.monitorOutputPending": "事件到达后会显示在对话里。",
-  "editor.session.monitorSuppressed": "{count} 个事件因输出过快被丢弃"
+  "editor.session.monitorSuppressed": "{count} 个事件因输出过快被丢弃",
+  "editor.session.agents": "Agent",
+  "editor.session.agentsFinished": "已完成 {count}",
+  "editor.workspaceCreated.open": "打开工作区",
+  "editor.workspaceCreated.title": "已创建工作区 {name}"
 }
