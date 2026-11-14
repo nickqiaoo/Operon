@@ -696,9 +696,11 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       )}
 
       {/* Expanded: the same list sits above the projects, there whenever something is in play.
-          Fixed width and clipped while the sidebar animates, like the tree below. */}
+          Fixed width and clipped while the sidebar animates, like the tree below.
+          Height capped so the project tree keeps most of the sidebar: ~6 rows on
+          tall windows, a proportional share on short ones. The rest scrolls. */}
       {!collapsed && (
-        <div className="sidebar-label-fade flex max-h-[40%] min-h-0 shrink-0 flex-col" style={{ width }}>
+        <div className="sidebar-label-fade flex max-h-[min(30%,16rem)] min-h-0 shrink-0 flex-col" style={{ width }}>
           <ActiveConversations variant="section" onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} />
         </div>
       )}
