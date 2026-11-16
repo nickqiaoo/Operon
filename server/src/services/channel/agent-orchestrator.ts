@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import type { UIMessage } from 'ai'
 import type {
   AgentBindingStorageAdapter,
@@ -25,12 +26,16 @@ import {
   excludeLocally,
   MergeConflictError,
   worktreeList,
+  worktreePrune,
+  localBranchExists,
 } from '../git.js'
 import { worktreePathFor, sanitizeSegment } from '../worktree-paths.js'
 import { broadcastTask } from '../task-events.js'
 import { SPEC_FILES, restoreSpecFiles, specDir, withSpecFilesArchived, type SpecLocation } from '../spec/files.js'
 import { specDesignChanged } from '../spec/spec-service.js'
 import { startIntegration, unreviewedFiles } from '../spec/review-run.js'
+import { stopDesignRun } from '../spec/design-run.js'
+import { RewindService } from '../rewind/index.js'
 import {
   isReviewedTicket,
   onTicketInReview,
@@ -69,6 +74,7 @@ const AUTO_COMPACT_THRESHOLD = 0.8
 const SELF_COMPACTING_PROVIDERS = new Set(['opencode'])
 
 let _storage: Storage | null = null
+let _stopWatchingTasks: (() => void) | null = null
 
 // ---- Public helpers ----
 
@@ -83,6 +89,8 @@ export function isAgentOwnedChat(chatId: number): boolean {
 
 export function initOrchestrator(storage: Storage): void {
   _storage = storage
+  _stopWatchingTasks?.()
+  _stopWatchingTasks = storage.onTaskChange(onTaskChanged)
   // Repair existing Specs too; these agents are hidden from ordinary pickers.
   for (const binding of storage.listBindings({ scopeKind: 'task' })) {
     const task = storage.taskGet(Number(binding.scopeKey))
@@ -1152,11 +1160,12 @@ export async function completeTaskAfterHumanReview(
 }
 
 /**
- * Reclaim a finished task's worktree + workspace row. Removes the git worktree
- * DIRECTORY only — the branch is kept (its commits live on and reach main via the
- * change merge). Drops the workspace row and clears the now-dangling pointers on
- * the task + its binding so a later re-dispatch re-provisions cleanly. Best-effort:
- * failures are logged, never thrown.
+ * Reclaim a task's worktree + workspace row — after its merge (done), or when it
+ * is archived or cancelled. Force-removes the git worktree DIRECTORY only — the
+ * branch is kept (its commits live on, reach main via the change merge, and let
+ * `restoreSpecWorktree` check it out again). Drops the workspace row and clears
+ * the now-dangling pointers on the task + its binding so a later re-dispatch
+ * re-provisions cleanly. Best-effort: failures are logged, never thrown.
  */
 export async function cleanupTaskWorktree(taskId: number): Promise<void> {
   const storage = _storage
@@ -1166,22 +1175,98 @@ export async function cleanupTaskWorktree(taskId: number): Promise<void> {
   const staleWsId = task.workspaceId
   const ws = storage.getWorkspace(staleWsId)
   const project = storage.getProject(task.projectId)
-  if (ws && project) {
+  if (ws && project && path.resolve(ws.worktreePath) !== path.resolve(project.rootPath)) {
     try {
-      await worktreeRemove(project.rootPath, ws.worktreePath, true)
+      if (existsSync(ws.worktreePath)) await worktreeRemove(project.rootPath, ws.worktreePath, true)
+      else await worktreePrune(project.rootPath)
     } catch (err) {
       console.warn(`[Cleanup] worktree remove failed for task ${taskId}:`, err)
     }
-    storage.deleteWorkspace(ws.id)
   }
-  storage.taskUpdate(taskId, { workspaceId: null }, { type: 'system', name: 'system' })
-  if (task.assignedAgentId != null) {
-    const binding = storage.getBindingByScope('task', String(taskId), task.assignedAgentId)
-    if (binding && binding.workspaceId === staleWsId) {
-      storage.updateBinding(binding.id, { workspaceId: null })
+  forgetWorkspace(storage, task.projectId, staleWsId)
+}
+
+/**
+ * Drop a workspace row and every pointer at it — the tasks and task bindings that
+ * ran in it — so nothing dangles and a later dispatch provisions afresh.
+ */
+function forgetWorkspace(storage: Storage, projectId: number, workspaceId: number): void {
+  const ws = storage.getWorkspace(workspaceId)
+  storage.deleteWorkspace(workspaceId)
+  if (ws) void RewindService.removeRepo(ws.worktreePath)
+  for (const task of storage.taskList({ projectId, includeArchived: true })) {
+    if (task.workspaceId !== workspaceId) continue
+    storage.taskUpdate(task.id, { workspaceId: null }, { type: 'system', name: 'system' })
+    broadcastTask(storage, task.id)
+  }
+  for (const binding of storage.listBindings({ scopeKind: 'task', projectId })) {
+    if (binding.workspaceId === workspaceId) storage.updateBinding(binding.id, { workspaceId: null })
+  }
+}
+
+/** Archived or cancelled: the task is set aside, and nothing should keep running for it. */
+function isParked(task: Task): boolean {
+  return task.archivedAt != null || task.status === 'cancelled'
+}
+
+/**
+ * Every task write passes through `onTaskChange`, so this is where a task that
+ * was just set aside gives its worktree back — whichever path archived or
+ * cancelled it — and an open spec brought back gets its change worktree again.
+ */
+function onTaskChanged(before: Task, after: Task): void {
+  if (!isParked(before) && isParked(after)) {
+    void reclaimParkedTaskWorktree(after.id).catch((err) => console.warn(`[Cleanup] reclaim failed for task ${after.id}:`, err))
+  } else if (isParked(before) && !isParked(after)) {
+    void restoreSpecWorktree(after.id).catch((err) => console.warn(`[Cleanup] spec worktree restore failed for task ${after.id}:`, err))
+  }
+}
+
+/** Stop what still runs in a parked task's worktree, then delete it. */
+async function reclaimParkedTaskWorktree(taskId: number): Promise<void> {
+  const storage = _storage
+  if (!storage) return
+  const task = storage.taskGet(taskId)
+  if (!task || task.workspaceId == null) return
+  stopDesignRun(task.id)
+  const binding = task.bindingId != null ? storage.getBinding(task.bindingId) : null
+  if (binding?.activeChatId != null) abortChat(binding.activeChatId)
+  await cleanupTaskWorktree(task.id)
+}
+
+/**
+ * Give an open spec back its change worktree after it was archived or cancelled
+ * and then brought back: the spec's files live on its branch, and every spec
+ * step reads them from this worktree. Ordinary tasks and spec tickets don't need
+ * this — dispatch provisions their worktree on demand.
+ */
+export async function restoreSpecWorktree(taskId: number): Promise<boolean> {
+  const storage = _storage
+  if (!storage) return false
+  const task = storage.taskGet(taskId)
+  if (!task || task.specStage == null || task.specStage === 'done') return false
+  if (task.workspaceId != null || !task.branchName || isParked(task) || task.status === 'done') return false
+  const project = storage.getProject(task.projectId)
+  if (!project) return false
+  if (!(await localBranchExists(project.rootPath, task.branchName))) return false
+  const worktreePath = worktreePathFor(project.id, project.rootPath, `task-${task.number}`)
+  const registered = (await worktreeList(project.rootPath)).some((w) => path.resolve(w.path) === path.resolve(worktreePath))
+  if (!registered) {
+    if (existsSync(worktreePath)) {
+      console.warn(`[Cleanup] can't restore spec #${task.number}: ${worktreePath} exists but isn't a worktree`)
+      return false
     }
+    await fs.mkdir(path.dirname(worktreePath), { recursive: true })
+    await worktreeAdd(project.rootPath, worktreePath, task.branchName, false)
   }
-  broadcastTask(storage, taskId)
+  const workspace = storage.createWorkspace(project.id, {
+    name: `Spec · task #${task.number}`,
+    branchName: task.branchName,
+    worktreePath,
+  })
+  storage.taskUpdate(task.id, { workspaceId: workspace.id }, { type: 'system', name: 'system' })
+  broadcastTask(storage, task.id)
+  return true
 }
 
 /**

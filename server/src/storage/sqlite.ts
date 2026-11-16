@@ -27,6 +27,7 @@ import type {
   ProjectStorageAdapter,
   StorageAdapter,
   TaskStorageAdapter,
+  TaskChangeListener,
   NotificationStorageAdapter,
   AssistantStorageAdapter,
 } from './interface.js'
@@ -301,6 +302,7 @@ const ASSISTANT_EXTRACTED_KEY = 'memory:assistant_extracted_until'
 export class SqliteStorage
   implements StorageAdapter, ChatStorageAdapter, CronjobStorageAdapter, CheckpointStorageAdapter, CanvasWorkflowStorageAdapter, ProjectStorageAdapter, ChannelStorageAdapter, TaskStorageAdapter, NotificationStorageAdapter, AssistantStorageAdapter, IMStorageAdapter, AgentBindingStorageAdapter, MemoryMaintenanceStorageAdapter, MobilePairingStorageAdapter {
   private db: Database.Database
+  private readonly taskChangeListeners = new Set<TaskChangeListener>()
 
   constructor(dbPath: string, options: SqliteStorageOptions = {}) {
     fs.mkdirSync(dbPath.replace(/\/[^/]+$/, ''), { recursive: true })
@@ -2116,13 +2118,31 @@ export class SqliteStorage
       }
     })
     tx()
-    return this.taskGet(id)
+    const after = this.taskGet(id)
+    if (after) this.emitTaskChange(before, after)
+    return after
+  }
+
+  onTaskChange(listener: TaskChangeListener): () => void {
+    this.taskChangeListeners.add(listener)
+    return () => this.taskChangeListeners.delete(listener)
+  }
+
+  private emitTaskChange(before: Task, after: Task): void {
+    for (const listener of this.taskChangeListeners) {
+      try {
+        listener(before, after)
+      } catch (err) {
+        console.warn(`[Storage] task change listener failed for task ${after.id}:`, err)
+      }
+    }
   }
 
   taskSetArchived(id: number, archived: boolean, actor?: TaskActor): Task | null {
     const before = this.taskGet(id)
     if (!before) return null
     const now = Date.now()
+    const changed: Task[] = []
     const tx = this.db.transaction(() => {
       // Both follow the subtree atomically. Archiving stamps every not-yet-archived
       // descendant with the same time; restoring brings back exactly the ones
@@ -2142,6 +2162,8 @@ export class SqliteStorage
           : []
       const update = this.db.prepare('UPDATE tasks SET archived_at = ?, updated_at = ? WHERE id = ?')
       for (const target of targets) {
+        const previous = this.taskGet(target.id)
+        if (previous) changed.push(previous)
         update.run(archived ? now : null, now, target.id)
         this.appendActivityInternal(
           target.id,
@@ -2158,6 +2180,10 @@ export class SqliteStorage
       }
     })
     tx()
+    for (const previous of changed) {
+      const after = this.taskGet(previous.id)
+      if (after) this.emitTaskChange(previous, after)
+    }
     return this.taskGet(id)
   }
 

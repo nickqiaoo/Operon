@@ -313,6 +313,13 @@ export async function worktreeRemove(repoPath: string, worktreePath: string, for
   return true
 }
 
+/** Forget worktrees whose directory is gone (`git worktree prune`); never touches one that exists. */
+export async function worktreePrune(repoPath: string): Promise<void> {
+  const git = await ensureRepo(repoPath)
+  if (!git) return
+  await git.raw(['worktree', 'prune'])
+}
+
 export interface DiffStatEntry {
   additions: number
   deletions: number

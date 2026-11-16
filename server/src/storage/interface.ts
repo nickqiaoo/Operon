@@ -318,6 +318,8 @@ export interface ChannelStorageAdapter {
   getUnreadChannelMessages(agentId: number, channelId: number): ChannelMessage[]
 }
 
+export type TaskChangeListener = (before: Task, after: Task) => void
+
 /**
  * Project-level first-class tasks ("local Linear"). These are the only current
  * task APIs.
@@ -333,6 +335,12 @@ export interface TaskStorageAdapter {
   taskUpdate(id: number, updates: UpdateProjectTaskInput, actor?: TaskActor): Task | null
   /** Archive a task and its descendants, or restore only this task. Logs each change. */
   taskSetArchived(id: number, archived: boolean, actor?: TaskActor): Task | null
+  /**
+   * Called after every committed task write (`taskUpdate`, `taskSetArchived`) with the
+   * task before and after it. The one place every path that moves a task passes
+   * through — the board, agents, Linear — so lifecycle side effects hang here.
+   */
+  onTaskChange(listener: TaskChangeListener): () => void
 
   // Activity feed (events + comments)
   taskAppendActivity(taskId: number, entry: TaskActivityInput): TaskActivity
