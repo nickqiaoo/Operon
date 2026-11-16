@@ -61,7 +61,7 @@ test('the sidebar toggle stays mounted and stationary throughout the animation',
 test('navigation icons keep their size and alignment when the sidebar changes mode', async ({ page }, testInfo) => {
   const sidebar = page.getByTestId('left-sidebar')
   const measure = () => sidebar.evaluate(element => {
-    const labels = ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']
+    const labels = ['New chat', 'Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']
     return labels.map(label => {
       const button = element.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
       const icon = button.querySelector('svg')!.getBoundingClientRect()
@@ -79,7 +79,7 @@ test('navigation icons keep their size and alignment when the sidebar changes mo
   const tabButton = await page.getByTestId('new-tab-button').boundingBox()
   expect(tabButton).not.toBeNull()
   expect(Math.abs(expanded[0].y - (tabButton!.y + tabButton!.height / 2))).toBeLessThanOrEqual(1)
-  const selectionGap = await sidebar.getByRole('button', { name: 'Assistant', exact: true }).evaluate(button => {
+  const selectionGap = await sidebar.getByRole('button', { name: 'New chat', exact: true }).evaluate(button => {
     const style = getComputedStyle(button)
     const header = button.closest('nav')!.previousElementSibling!.getBoundingClientRect()
     return { clip: style.backgroundClip, gap: button.getBoundingClientRect().top + parseFloat(style.borderTopWidth) - header.bottom }
