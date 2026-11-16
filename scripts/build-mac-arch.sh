@@ -13,6 +13,10 @@
 # scripts/merge-latest-mac.mjs then folds latest-mac-arm64.yml into latest-mac.yml.
 set -e
 
+# CI runs this with bash directly, not through an npm script, so the repo's own
+# bins (vite, electron-builder, tsc) are not on PATH unless we put them there.
+export PATH="$PWD/node_modules/.bin:$PATH"
+
 arch="$1"
 case "$arch" in
   arm64) builder_config=electron-builder.yml ;;

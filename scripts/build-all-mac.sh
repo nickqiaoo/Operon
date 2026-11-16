@@ -4,6 +4,10 @@
 # (.github/workflows/release-mac.yml) and merges latest-mac.yml in the publish job.
 set -e
 
+# Works run directly too, not only through `npm run build:mac:all`: put the
+# repo's own bins (tsc and those build-mac-arch.sh uses) on PATH either way.
+export PATH="$PWD/node_modules/.bin:$PATH"
+
 echo "=== TypeScript check ==="
 tsc
 
