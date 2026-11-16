@@ -163,8 +163,9 @@ it('un-cancelling a spec restores its worktree as well', async () => {
 
   storage.taskUpdate(spec.taskId, { status: 'todo' })
 
-  await vi.waitFor(() => expect(existsSync(spec.worktreePath)).toBe(true), { timeout: 5000 })
-  expect(storage.taskGet(spec.taskId)?.workspaceId).not.toBeNull()
+  // The row is the restore's last step; the directory appears while git is still checking out.
+  await vi.waitFor(() => expect(storage.taskGet(spec.taskId)?.workspaceId).not.toBeNull(), { timeout: 5000 })
+  expect(existsSync(spec.worktreePath)).toBe(true)
 })
 
 it('leaves the worktree of a task that is only moving between open states', async () => {
