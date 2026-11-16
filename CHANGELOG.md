@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.5.22] - 2026-11-16
+
+### Added
+
+- New chat: ⌘N and the sidebar's New chat entry open a blank chat in the current workspace on the agent you used last. Until the first message a bar above the composer switches its agent and moves it to another workspace — one already there, or a new worktree created on the spot — so all three are settled before anything starts running.
+- A menu-bar icon on macOS shows the unread count, lists what needs you, and opens the inbox, the Assistant, a new chat or an update check. It reads the inbox from the app's own storage, so it stays current while the window is hidden.
+
+### Changed
+
+- On macOS the close button now hides the window instead of quitting: Operon keeps running in the menu bar and the dock, and a dock click or the menu-bar icon brings the window back with its tabs as they were.
+- Steer — a follow-up while the model answers — appears only once there is something to send, and takes the filled send button's place while Stop steps back to outline, so the composer shows one primary action at a time. Its icon is a steer mark rather than a plain message bubble.
+
+### Fixed
+
+- On the phone, the last row of the file tree is no longer hidden behind the floating tab bar, and an open file preview gives it the full height, clear of the bottom safe area.
+
 ## [1.5.21] - 2026-11-14
 
 ### Added
