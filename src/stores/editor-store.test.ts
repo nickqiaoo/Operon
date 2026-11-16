@@ -236,3 +236,54 @@ describe("editor tab field updates", () => {
     expect(nextSecond).toBe(second)
   })
 })
+
+describe("draft chats", () => {
+  const draftTab = (id: string) => ({
+    id,
+    title: "Chat",
+    type: "chat" as const,
+    closable: true,
+    providerId: "claude-code",
+  })
+
+  it("switches the agent of an unsent chat and bumps its mount revision", () => {
+    useEditorStore.setState({ tabs: [draftTab("chat:draft")], activeTabId: "chat:draft" })
+
+    useEditorStore.getState().switchDraftProvider("chat:draft", "codex")
+
+    const tab = useEditorStore.getState().tabs[0]
+    expect(tab.providerId).toBe("codex")
+    expect(tab.mountRev).toBe(1)
+  })
+
+  it("never switches the agent of a chat that was already sent", () => {
+    useEditorStore.setState({ tabs: [chatTab("chat:sent", 7)], activeTabId: "chat:sent" })
+
+    useEditorStore.getState().switchDraftProvider("chat:sent", "codex")
+
+    const tab = useEditorStore.getState().tabs[0]
+    expect(tab.providerId).toBe("grok")
+    expect(tab.mountRev).toBeUndefined()
+  })
+
+  it("moves a tab into another workspace, where it becomes active once that workspace loads", () => {
+    useEditorStore.setState({
+      tabs: [chatTab("chat:keep", 1), draftTab("chat:draft")],
+      activeTabId: "chat:draft",
+      currentWorkspaceId: 1,
+      currentProjectId: 10,
+      workspaceStates: { "2": { tabs: [chatTab("chat:other", 2)], activeTabId: "chat:other" } },
+    })
+
+    useEditorStore.getState().moveTabToWorkspace("chat:draft", 2)
+    let state = useEditorStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(["chat:keep"])
+    expect(state.activeTabId).toBe("chat:keep")
+
+    useEditorStore.getState().setWorkspace(2, 10)
+    state = useEditorStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(["chat:other", "chat:draft"])
+    expect(state.activeTabId).toBe("chat:draft")
+    expect(state.workspaceStates["1"].tabs.map((t) => t.id)).toEqual(["chat:keep"])
+  })
+})

@@ -73,6 +73,8 @@ import { MessagesList } from './components/MessagesList';
 import { ChatDbIdContext, ChatProviderIdContext } from './components/chat-db-id-context';
 import { useTurnDiffs } from '@/lib/chat-queries';
 import { ChatComposer } from './components/ChatComposer';
+import { DraftChatBar } from './components/DraftChatBar';
+import { isDraftChatTab } from '@/lib/new-chat';
 import { SteerTray } from './components/SteerTray';
 import {
   findLatestTurnMessageId,
@@ -361,6 +363,14 @@ function ChatPanelContent({
 
   // One rail tick per prompt, with the reply's opening line for the hover card.
   const navigatorEntries = useMemo(() => buildChatNavigatorEntries(messages), [messages]);
+  // Agent and workspace stay open to change until the first send.
+  const showDraftBar =
+    !isMobile &&
+    isDraftChatTab(tab) &&
+    !isCanvasChatId(chatId) &&
+    messages.length === 0 &&
+    status === 'ready' &&
+    dbChatIdRef.current === undefined;
 
   const setStreaming = useStreamingStore((s) => s.setStreaming);
   const clearUnseen = useStreamingStore((s) => s.clearUnseen);
@@ -1396,6 +1406,9 @@ function ChatPanelContent({
           onRetry={handleRetrySteer}
           onDismiss={handleDismissSteer}
         />
+        {showDraftBar && (
+          <DraftChatBar tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} />
+        )}
         {readOnlyReason != null ? (
           <div
             role="status"

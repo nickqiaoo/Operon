@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { ChatStatus } from 'ai';
-import { Loader2, MessageSquarePlus, PaperclipIcon, Target, Zap } from 'lucide-react';
+import { Loader2, PaperclipIcon, Target, Zap } from 'lucide-react';
+import { SteerIcon } from '@/components/icons/SteerIcon';
 
 import {
   PromptInput,
@@ -454,6 +455,10 @@ export function ChatInputArea({
   });
   const composerCompact = compactWhenIdle && !mobileKeyboardOpen && !mobileActionExpanded && !hasDraft && !mention.isOpen && !slashCommand.isOpen;
   const compactStopVisible = composerCompact && isGenerating;
+  // Steer only shows once there is something to send; while it shows it is the
+  // primary action and Stop steps back to ghost, so only one button is filled.
+  const showSteer = canSteer && (steerPending || input.trim().length > 0);
+  const submitVariant = showSteer ? 'ghost' : 'brand';
   const submitDisabled = availableModels.length === 0 || (!hasDraft && !isGenerating);
   const submitTitle = availableModels.length === 0
     ? intl.formatMessage({ id: 'editor.input.noModels', defaultMessage: 'No models available. Please configure a provider first.' })
@@ -631,6 +636,7 @@ export function ChatInputArea({
               title={submitTitle}
               status={status}
               onStop={() => void onStop()}
+              variant={submitVariant}
               className="size-9 shrink-0 rounded-lg"
             />
           )}
@@ -750,14 +756,14 @@ export function ChatInputArea({
 
         </PromptInputTools>
         <div className="flex shrink-0 items-center gap-1.5">
-          {canSteer && (
+          {showSteer && (
             <PromptInputButton
               data-composer-submit
               type="button"
               data-testid="chat-steer"
-              variant="default"
+              variant="brand"
               size="icon-sm"
-              disabled={steerPending || !input.trim()}
+              disabled={steerPending}
               onClick={() => void handleSteer()}
               className="shrink-0 rounded-lg"
               title={intl.formatMessage({ id: 'editor.input.steerHint', defaultMessage: 'Send a follow-up while the model is responding' })}
@@ -766,7 +772,7 @@ export function ChatInputArea({
               {steerPending ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
-                <MessageSquarePlus className="size-4" />
+                <SteerIcon className="size-4" />
               )}
             </PromptInputButton>
           )}
@@ -778,6 +784,7 @@ export function ChatInputArea({
               title={submitTitle}
               status={status}
               onStop={() => void onStop()}
+              variant={submitVariant}
               className="shrink-0 rounded-lg"
             />
           )}

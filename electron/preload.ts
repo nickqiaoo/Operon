@@ -3,6 +3,7 @@ import type { OpenInIdeRequest, OpenInIdeResult } from '../src/types/open-in-ide
 import type { OpenWithApp, OpenWithRequest, OpenWithResult } from '../src/types/open-with.ts'
 import type { LocalServerProbe } from '../src/types/local-server.ts'
 import type { MobilePairingSummary } from '../src/types/mobile.ts'
+import type { TrayCommand } from '../src/types/tray.ts'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Server port discovery (needed to bootstrap HTTP client)
@@ -50,6 +51,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('updater:status', listener)
     return () => ipcRenderer.removeListener('updater:status', listener)
   },
+
+  // Menu-bar (tray) clicks. takePendingTrayCommand collects one that was
+  // clicked while the window was still loading, before anyone was listening.
+  onTrayCommand: (callback: (command: TrayCommand) => void) => {
+    const listener = (_event: unknown, command: TrayCommand) => callback(command)
+    ipcRenderer.on('tray:command', listener)
+    return () => ipcRenderer.removeListener('tray:command', listener)
+  },
+  takePendingTrayCommand: () => ipcRenderer.invoke('tray:take-pending-command') as Promise<TrayCommand | null>,
 
   // Device-pairing approval. Routed over IPC rather than the local HTTP server
   // on purpose: approving a device mints a persistent, internet-reachable

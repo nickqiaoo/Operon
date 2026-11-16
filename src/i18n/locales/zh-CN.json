@@ -2268,5 +2268,15 @@
   "editor.session.agents": "Agent",
   "editor.session.agentsFinished": "已完成 {count}",
   "editor.workspaceCreated.open": "打开工作区",
-  "editor.workspaceCreated.title": "已创建工作区 {name}"
+  "editor.workspaceCreated.title": "已创建工作区 {name}",
+  "sidebar.newChat": "新对话",
+  "shortcut.newChat.title": "新对话",
+  "shortcut.newChat.desc": "新建对话，发送前可选择 agent 和工作区",
+  "draftChat.agent": "Agent",
+  "draftChat.agentAria": "Agent：{name}",
+  "draftChat.agentMenuTitle": "Agent",
+  "draftChat.workspaceAria": "工作区",
+  "draftChat.noWorkspace": "选择工作区",
+  "draftChat.noProjects": "还没有项目",
+  "draftChat.newWorkspace": "新建工作区…"
 }

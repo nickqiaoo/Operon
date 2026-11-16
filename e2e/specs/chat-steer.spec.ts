@@ -26,13 +26,13 @@ for (const action of ['button', 'enter'] as const) {
     await chat.openNewChat(page)
     await chat.sendMessage(page, 'long stream please')
 
-    // Wait until stream is active so the Steer button appears.
+    // Wait until the stream is active; Steer only appears once there is a draft.
     await expect
       .poll(() => page.evaluate(() => window.__operon?.streamState() ?? 'idle'), { timeout: 5_000 })
       .toBe('streaming')
 
     const steerBtn = page.getByTestId('chat-steer')
-    await expect(steerBtn).toBeVisible()
+    await expect(steerBtn).toHaveCount(0)
 
     // Enter must respect editing and IME confirmation before it sends a steer.
     const input = page.getByPlaceholder('Ask anything, @ to mention files, / to use commands...')
@@ -54,6 +54,7 @@ for (const action of ['button', 'enter'] as const) {
       await expect(page.getByTestId('steer-tray')).toHaveCount(0)
     }
     await input.fill('actually focus on edge cases')
+    await expect(steerBtn).toBeVisible()
     if (action === 'enter') await input.press('Enter')
     else await steerBtn.click()
 
@@ -80,7 +81,7 @@ test('chat-steer: Enter preserves the draft while a steer is still being sent', 
   await setFakeScript('blocking-permission')
   await chat.openNewChat(page)
   await chat.sendMessage(page, 'keep working')
-  await expect(page.getByTestId('chat-steer')).toBeVisible()
+  await expect(page.getByTestId('chat-submit')).toHaveAttribute('aria-label', 'Stop')
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
@@ -93,6 +94,7 @@ test('chat-steer: Enter preserves the draft while a steer is still being sent', 
   const input = page.getByTestId('chat-input')
   try {
     await input.fill('first follow-up')
+    await expect(page.getByTestId('chat-steer')).toBeVisible()
     await input.press('Enter')
     await expect(page.getByTestId('steer-tray-item')).toHaveAttribute('data-status', 'sending')
     await expect.poll(() => injectionCount).toBe(1)

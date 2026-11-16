@@ -4,6 +4,7 @@ import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { SessionPanelToggle } from "@/components/app-shell/TopBarControls"
 import { EditorTabs } from "@/components/editor/EditorTabs"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
+import { rememberChatProvider } from "@/lib/new-chat"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -40,6 +41,7 @@ export const WorkspaceHeader = memo(function WorkspaceHeader() {
   const editorStripTabs = useMemo(() => tabs.filter((tab) => !tab.isSideChat), [tabs])
 
   const handleProviderSelected = useCallback((providerId: string) => {
+    rememberChatProvider(providerId)
     createChatTab(providerId, "Chat")
   }, [createChatTab])
 

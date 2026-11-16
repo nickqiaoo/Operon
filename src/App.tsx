@@ -25,6 +25,7 @@ import { InboxPage } from "@/components/inbox/InboxPage"
 import { AssistantPage } from "@/components/assistant/AssistantPage"
 import { useOpenWorkspaceSessions } from "@/hooks/useOpenWorkspaceSessions"
 import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
+import { useTrayCommands } from "@/hooks/useTrayCommands"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
 import type { Notification } from "@/types/notification"
@@ -240,6 +241,7 @@ export default function App() {
   useOpenWorkspaceSessions(currentWorkspaceId)
 
   useUpdateNotifications()
+  useTrayCommands({ openNotification: handleOpenNotification })
 
   // A task card in a chat transcript asked to open that task — same landing as an
   // inbox task notification: the board, detail open.
@@ -393,7 +395,8 @@ export default function App() {
                   const isActive = activeTabId === tab.id;
                   return (
                     <div
-                      key={tab.id}
+                      // mountRev: a not-yet-sent chat remounts when its agent changes.
+                      key={tab.mountRev ? `${tab.id}#${tab.mountRev}` : tab.id}
                       className="absolute inset-0 bg-background"
                       aria-hidden={!isActive}
                       inert={!isActive}

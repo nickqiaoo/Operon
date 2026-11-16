@@ -1,6 +1,7 @@
 import { defineMessages, type MessageDescriptor } from "react-intl"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useTabsStore } from "@/stores/tabs-store"
+import { startNewChat } from "@/lib/new-chat"
 import {
   activeWorkspaceRoot,
   newTabEntries,
@@ -23,6 +24,11 @@ import type { PanelId, TabType } from "@/components/app-shell/tabs/types"
  */
 
 const M = defineMessages({
+  newChatTitle: { id: "shortcut.newChat.title", defaultMessage: "New chat" },
+  newChatDesc: {
+    id: "shortcut.newChat.desc",
+    defaultMessage: "Start a chat, then pick its agent and workspace before sending",
+  },
   openFilesTitle: { id: "shortcut.openFiles.title", defaultMessage: "Files" },
   openFilesDesc: {
     id: "shortcut.openFiles.desc",
@@ -120,6 +126,14 @@ function focusedPanelWithTab(): PanelId | null {
 }
 
 export const shortcutCommands: ShortcutCommand[] = [
+  {
+    id: "newChat",
+    section: "tabs",
+    title: M.newChatTitle,
+    description: M.newChatDesc,
+    defaultKeys: ["CmdOrCtrl+N"],
+    run: () => void startNewChat(),
+  },
   {
     id: "openFiles",
     section: "tabs",
