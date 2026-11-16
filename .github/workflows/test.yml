@@ -10,8 +10,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A newer PR commit can replace its tests. A push to main must not cancel
-  # another commit's release after that commit has already passed its tests.
+  # A newer PR commit replaces its whole run. Pushes to main each get their own
+  # run here; the jobs below then share one group per job across those runs, so
+  # a newer push cancels an older one's tests and build — whatever it had not
+  # published yet, the newer run releases — but never a publish under way.
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
@@ -19,6 +21,9 @@ jobs:
   test:
     name: Vitest (${{ matrix.suite }})
     runs-on: macos-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'main' || github.run_id }}-vitest-${{ matrix.suite }}
+      cancel-in-progress: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -85,6 +90,9 @@ jobs:
   swift:
     name: Swift
     runs-on: macos-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'main' || github.run_id }}-swift
+      cancel-in-progress: true
     timeout-minutes: 30
     defaults:
       run:
@@ -104,6 +112,9 @@ jobs:
   e2e:
     name: E2E (Playwright)
     runs-on: macos-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'main' || github.run_id }}-e2e
+      cancel-in-progress: true
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -142,6 +153,10 @@ jobs:
   release-build:
     name: Release macOS
     if: github.event_name == 'push' && github.repository == 'Nickqiaoo/Operon'
+    # A newer push builds the same unpublished version from newer code.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'main' || github.run_id }}-release-build
+      cancel-in-progress: true
     # Read-only inside; write is only the ceiling for release-mac.yml's nested
     # publish job, which exists for workflow_dispatch and is skipped here. GitHub
     # still checks nested permissions against the caller when the run starts.
@@ -150,6 +165,8 @@ jobs:
     uses: ./.github/workflows/release-mac.yml
     secrets: inherit
 
+  # No concurrency here on purpose: a publish that has started finishes, and
+  # release-mac-publish.yml queues and de-duplicates publishes itself.
   release-publish:
     name: Publish macOS
     needs: [test, swift, e2e, release-build]
