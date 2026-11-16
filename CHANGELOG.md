@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.5.23] - 2026-11-16
+
+### Added
+
+- A new chat's bar gets a project picker and, under "More settings", a New worktree switch and a branch — no branch name to make up. With the switch on, the chat's first message cuts a worktree from that branch, names it after the message (`operon/fix-login-timeout`, or `chat-…` when the message has no Latin words) and is sent from there; a draft that is never sent leaves no worktree behind, and if the worktree cannot be made the message stays in the composer. With it off, picking a branch checks it out where the chat runs.
+
+### Changed
+
+- New chat starts on the project's own checkout instead of in the worktree the previous chat made. The bar's menus open upward, clear of the composer.
+
+### Fixed
+
+- Archiving or cancelling a task — from the board, by its agent or from Linear — deletes its worktree and its workspace, so abandoned specs no longer pile up in the sidebar; the branch is kept. Bringing a spec back checks its worktree out again from that branch.
+
 ## [1.5.22] - 2026-11-16
 
 ### Added
