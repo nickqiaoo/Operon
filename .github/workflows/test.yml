@@ -137,11 +137,26 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  release:
+  # The macOS build does not need the test results, so it starts with them and
+  # overlaps their ~10 min. Only publishing waits for the tests.
+  release-build:
     name: Release macOS
-    needs: [test, swift, e2e]
     if: github.event_name == 'push' && github.repository == 'Nickqiaoo/Operon'
+    # Read-only inside; write is only the ceiling for release-mac.yml's nested
+    # publish job, which exists for workflow_dispatch and is skipped here. GitHub
+    # still checks nested permissions against the caller when the run starts.
     permissions:
       contents: write
     uses: ./.github/workflows/release-mac.yml
+    secrets: inherit
+
+  release-publish:
+    name: Publish macOS
+    needs: [test, swift, e2e, release-build]
+    if: needs.release-build.outputs.version != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-mac-publish.yml
+    with:
+      version: ${{ needs.release-build.outputs.version }}
     secrets: inherit

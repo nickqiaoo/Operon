@@ -1,0 +1,79 @@
+name: Publish macOS release
+
+# Publishes the installers that release-mac.yml built in the same workflow run:
+# merges the two architectures' latest-mac.yml, creates the GitHub release and
+# points the download page at it.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Desktop version that release-mac.yml built
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish GitHub release and update download page
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: write
+    concurrency:
+      group: macos-production-release
+      queue: max
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: macos-${{ inputs.version }}-*
+          merge-multiple: true
+          path: release
+
+      - name: Merge latest-mac.yml for both architectures
+        run: node scripts/merge-latest-mac.mjs
+
+      - name: Install Wrangler
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-tools" --no-save --no-package-lock wrangler@4.158.0
+          echo "$RUNNER_TEMP/release-tools/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Publish the current desktop version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          RELEASE_TARGET: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          main_version=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=main" --jq .content \
+            | base64 --decode | node -pe 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')
+          if [[ "$main_version" != "$RELEASE_VERSION" ]]; then
+            echo "Skipping $RELEASE_VERSION because main now specifies $main_version."
+            exit 0
+          fi
+          # Every push to main builds a still-unpublished version, so two quick
+          # pushes can both get here. The queue lets the first one publish; the
+          # second then finds the release on another commit and steps aside.
+          # (A rerun of the same commit falls through, so publish-release.sh can
+          # finish a release whose KV update failed.)
+          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch ]] \
+            && [[ "$(gh release view "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)" == false ]]; then
+            tag_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/v$RELEASE_VERSION" --jq .sha)
+            if [[ "$tag_commit" != "$RELEASE_TARGET" ]]; then
+              echo "v$RELEASE_VERSION is already published from $tag_commit; skipping."
+              exit 0
+            fi
+          fi
+          npm run release

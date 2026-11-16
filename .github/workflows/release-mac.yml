@@ -1,7 +1,19 @@
 name: Release macOS
 
+# Builds, signs and notarizes both macOS architectures in parallel, one runner each.
+#
+# Called from test.yml on every push to main WITHOUT waiting for the tests, so the
+# ~10 min build overlaps them. test.yml publishes (release-mac-publish.yml) only
+# once both the tests and this build have passed; a build whose tests fail is
+# simply never published.
+#
+# workflow_dispatch rebuilds a version by hand and publishes it right away.
 on:
   workflow_call:
+    outputs:
+      version:
+        description: Desktop version that was built, or empty when there is nothing to release
+        value: ${{ jobs.version.outputs.version }}
   workflow_dispatch:
     inputs:
       release_version:
@@ -29,61 +41,76 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Verify the requested release or detect a stable version increase
+      # A push releases the version in package.json when it is stable, newer than
+      # the latest published release, and not published yet. This deliberately
+      # does not look at what the push changed: comparing against the previous
+      # commit lost a release whenever the version-bump commit failed its tests,
+      # because the next push no longer "increased" the version. Now any later
+      # push with passing tests picks the pending version up again.
+      - name: Verify the requested release or find an unpublished stable version
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
-          BEFORE_SHA: ${{ github.event.before }}
           REQUESTED_VERSION: ${{ inputs.release_version }}
         run: |
-          previous_manifest=''
-          if [[ -z "$REQUESTED_VERSION" ]]; then
-            if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-              echo 'No previous branch tip to compare.'
-              exit 0
+          current=$(node -p 'require("./package.json").version')
+          if [[ ! "$current" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            if [[ -n "$REQUESTED_VERSION" ]]; then
+              echo "::error::Requested release must match the stable desktop version on main."
+              exit 1
             fi
-            previous_manifest=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$BEFORE_SHA" --jq .content | base64 --decode)
-          fi
-
-          version=$(node --input-type=commonjs - "$previous_manifest" "$REQUESTED_VERSION" <<'NODE'
-          const [, , previousManifest, requested] = process.argv
-          const current = require('./package.json').version
-          const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
-          if (requested) {
-            if (current !== requested || !stableVersion.test(current)) {
-              throw new Error('Requested release must match the stable desktop version on main.')
-            }
-            console.log(current)
-            process.exit(0)
-          }
-          const previous = JSON.parse(previousManifest).version
-          if (typeof previous !== 'string' || typeof current !== 'string') {
-            throw new Error('Expected a desktop version in both manifests.')
-          }
-          const previousCore = previous.split(/[-+]/)[0]
-          if (!stableVersion.test(previousCore)) throw new Error(`Invalid previous version: ${previous}`)
-          if (!stableVersion.test(current)) process.exit(0)
-
-          const order = current.localeCompare(previousCore, 'en', { numeric: true })
-          if (order > 0 || (order === 0 && previous.startsWith(`${previousCore}-`))) console.log(current)
-          NODE
-          )
-
-          if [[ -z "$version" ]]; then
-            echo 'No stable desktop version increase.'
+            echo "Desktop version $current is not a stable release."
             exit 0
           fi
 
-          node scripts/extract-release-notes.mjs "$version" > /dev/null
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ -n "$REQUESTED_VERSION" ]]; then
+            if [[ "$current" != "$REQUESTED_VERSION" ]]; then
+              echo "::error::Requested release must match the stable desktop version on main."
+              exit 1
+            fi
+          else
+            # Drafts are invisible to this read-only token, so a half-finished
+            # draft counts as unpublished, which is what we want.
+            if [[ "$(gh release view "v$current" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)" == false ]]; then
+              echo "v$current is already published."
+              exit 0
+            fi
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+            if [[ -n "$latest" ]] && ! node -e '
+              const parse = (v) => v.replace(/^v/, "").split(/[-+]/)[0].split(".").map(Number)
+              const [a, b] = [parse(process.argv[1]), parse(process.argv[2])]
+              const order = a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+              process.exit(order > 0 ? 0 : 1)
+            ' "$current" "$latest"; then
+              echo "Desktop version $current is not newer than the latest release $latest."
+              exit 0
+            fi
+          fi
+
+          node scripts/extract-release-notes.mjs "$current" > /dev/null
+          echo "Releasing $current."
+          echo "version=$current" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build and sign macOS installers
+    name: Build and sign macOS ${{ matrix.arch }}
     needs: version
     if: needs.version.outputs.version != ''
     runs-on: macos-26
-    timeout-minutes: 180
+    timeout-minutes: 120
     environment: production
+    strategy:
+      # One architecture failing makes the release unpublishable; stop the other.
+      fail-fast: true
+      matrix:
+        include:
+          # Both run on Apple Silicon runners; x64 is cross-compiled, as it was
+          # when both architectures shared one runner.
+          - arch: arm64
+            app: release/mac-arm64/Operon.app
+            lipo_arch: arm64
+          - arch: x64
+            app: release/mac/Operon.app
+            lipo_arch: x86_64
     steps:
       - uses: actions/checkout@v6
         with:
@@ -99,7 +126,12 @@ jobs:
         env:
           SKIP_ELECTRON_REBUILD: '1'
 
-      - name: Build, sign and notarize both architectures
+      # Type checking does not depend on the architecture; once is enough.
+      - name: TypeScript check
+        if: matrix.arch == 'arm64'
+        run: npx tsc
+
+      - name: Build, sign and notarize
         env:
           NODE_OPTIONS: --max-old-space-size=4096
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -114,20 +146,19 @@ jobs:
               exit 1
             fi
           done
-          npm run build:mac:all
+          bash scripts/build-mac-arch.sh "${{ matrix.arch }}"
 
-      - name: Verify signed and notarized apps
+      - name: Verify signed and notarized app
         run: |
-          for app in release/mac-arm64/Operon.app release/mac/Operon.app; do
-            codesign --verify --deep --strict "$app"
-            xcrun stapler validate "$app"
-          done
-          lipo release/mac-arm64/Operon.app/Contents/MacOS/Operon -verify_arch arm64
-          lipo release/mac/Operon.app/Contents/MacOS/Operon -verify_arch x86_64
+          codesign --verify --deep --strict "${{ matrix.app }}"
+          xcrun stapler validate "${{ matrix.app }}"
+          lipo "${{ matrix.app }}/Contents/MacOS/Operon" -verify_arch "${{ matrix.lipo_arch }}"
 
+      # arm64 uploads latest-mac-arm64.yml, x64 uploads latest-mac.yml; the
+      # publish job downloads both into one folder and merges them.
       - uses: actions/upload-artifact@v6
         with:
-          name: macos-${{ needs.version.outputs.version }}
+          name: macos-${{ needs.version.outputs.version }}-${{ matrix.arch }}
           path: |
             release/Operon-${{ needs.version.outputs.version }}*.dmg
             release/Operon-${{ needs.version.outputs.version }}*.zip
@@ -139,48 +170,13 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish GitHub release and update download page
+    name: Publish
     needs: [version, build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: production
+    # From test.yml the caller publishes after the tests; here only the manual path.
+    if: github.event_name == 'workflow_dispatch' && needs.version.outputs.version != ''
     permissions:
       contents: write
-    concurrency:
-      group: macos-production-release
-      queue: max
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      - uses: actions/download-artifact@v7
-        with:
-          name: macos-${{ needs.version.outputs.version }}
-          path: release
-
-      - name: Install Wrangler
-        run: |
-          npm install --prefix "$RUNNER_TEMP/release-tools" --no-save --no-package-lock wrangler@4.158.0
-          echo "$RUNNER_TEMP/release-tools/node_modules/.bin" >> "$GITHUB_PATH"
-
-      - name: Publish the current desktop version
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          RELEASE_TARGET: ${{ github.sha }}
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          main_version=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=main" --jq .content \
-            | base64 --decode | node -pe 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')
-          if [[ "$main_version" != "$RELEASE_VERSION" ]]; then
-            echo "Skipping $RELEASE_VERSION because main now specifies $main_version."
-            exit 0
-          fi
-          npm run release
+    uses: ./.github/workflows/release-mac-publish.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets: inherit
