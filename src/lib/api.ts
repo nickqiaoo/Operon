@@ -406,6 +406,7 @@ export const api = {
   gitCommit: httpClient.gitCommit,
   gitGenerateCommitMessage: httpClient.gitGenerateCommitMessage,
   gitGeneratePrSummary: httpClient.gitGeneratePrSummary,
+  gitCheckout: httpClient.gitCheckout,
   gitCheckoutNewBranch: httpClient.gitCheckoutNewBranch,
   gitPush: httpClient.gitPush,
   gitPushStatus: httpClient.gitPushStatus,
@@ -790,6 +791,9 @@ export const api = {
     get<{ workspaces: WorkspaceDTO[] }>(`/projects/${projectId}/workspaces`),
   workspaceCreate: (projectId: number, input: { name: string; branchName: string; worktreePath: string }) =>
     post<{ workspace: WorkspaceDTO }>(`/projects/${projectId}/workspaces`, input),
+  /** A worktree on a fresh branch cut from `base`, named after `hint` (a chat's first message). */
+  workspaceCreateAuto: (projectId: number, input: { base?: string; hint?: string }) =>
+    post<{ workspace: WorkspaceDTO }>(`/projects/${projectId}/workspaces/auto`, input),
   workspaceDelete: (id: number) =>
     del<{ success: boolean }>(`/projects/workspaces/${id}`),
   /** Agent sessions the server started in a workspace (a dispatched task's agent). */

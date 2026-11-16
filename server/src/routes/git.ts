@@ -183,6 +183,19 @@ export function gitRoutes() {
 
   // Creating the branch is its own step so the commit modal can offer "commit
   // to a new branch" without the caller having to know git's checkout rules.
+  router.post('/checkout', async (c) => {
+    const { repoPath, branchName } = await c.req.json<{ repoPath: string; branchName: string }>()
+    if (!repoPath || !branchName?.trim()) {
+      return c.json({ error: 'repoPath and branchName are required' }, 400)
+    }
+    try {
+      await gitService.checkoutBranch(repoPath, branchName.trim())
+      return c.json({ success: true })
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : 'Failed to switch branch' }, 409)
+    }
+  })
+
   router.post('/checkout-new-branch', async (c) => {
     const { repoPath, branchName } = await c.req.json<{ repoPath: string; branchName: string }>()
     if (!repoPath || !branchName?.trim()) {

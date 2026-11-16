@@ -37,3 +37,25 @@ export async function syncProjectWorkspaces(project: Project): Promise<Workspace
 export function findSyncedWorkspace(workspaces: Workspace[], workspace: Workspace): Workspace {
   return workspaces.find((w) => trimSlash(w.worktreePath) === trimSlash(workspace.worktreePath)) ?? workspace
 }
+
+/**
+ * A worktree on a fresh branch the server names from `hint` (a chat's first
+ * message), cut from `base` (the default branch when unset). Returns the synced
+ * workspace so a tab can move into it right away.
+ */
+export async function createAutoWorkspace(project: Project, input: { base?: string; hint?: string }): Promise<Workspace> {
+  const { workspace } = await api.workspaceCreateAuto(project.id, input)
+  try {
+    return findSyncedWorkspace(await syncProjectWorkspaces(project), workspace)
+  } catch (error) {
+    // The workspace exists; the sidebar picks up the rest on its next load.
+    console.warn("[workspace] Failed to sync workspaces:", error)
+    return workspace
+  }
+}
+
+/** The workspace on the project's own checkout (its root folder), else its first one. */
+export function mainWorkspaceOf(project: Project): Workspace | undefined {
+  const root = trimSlash(project.rootPath)
+  return project.workspaces.find((w) => trimSlash(w.worktreePath) === root) ?? project.workspaces[0]
+}

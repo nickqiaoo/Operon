@@ -39,7 +39,8 @@ interface ChatInputAreaProps {
   input: string;
   setInput: (val: string) => void;
   attachments: ReturnType<typeof usePromptInputAttachments>;
-  onSubmit: (message: PromptInputMessage) => void;
+  /** A returned promise holds the draft until it settles; a rejection keeps the text in the composer. */
+  onSubmit: (message: PromptInputMessage) => void | Promise<void>;
   status: ChatStatus;
   onStop: () => void;
   isGenerating: boolean;
@@ -322,11 +323,11 @@ export function ChatInputArea({
     else textarea?.focus();
     if (selectedSkills.length > 0) {
       const skillPrefix = formatSlashCommandPrefix(selectedSkills);
-      onSubmit({ ...message, text: `${skillPrefix} ${message.text}`.trim() });
+      const result = onSubmit({ ...message, text: `${skillPrefix} ${message.text}`.trim() });
       clearSkills();
-    } else {
-      onSubmit(message);
+      return result;
     }
+    return onSubmit(message);
   }, [floating, textareaContainerRef, selectedSkills, onSubmit, clearSkills]);
 
   const handleComposerPointerDownCapture = useCallback((event: ReactPointerEvent<HTMLFormElement>) => {

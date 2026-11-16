@@ -4,6 +4,7 @@ import type { CreateProjectInput, CreateWorkspaceInput, Workspace, WorkspaceChat
 import type { Task } from '../types/task.js'
 import { specChatRef } from '../services/spec/chats.js'
 import { RewindService } from '../services/rewind/index.js'
+import { provisionAutoWorkspace } from '../services/workspace-provision.js'
 
 export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStorageAdapter & ChatStorageAdapter & TaskStorageAdapter) {
   const router = new Hono()
@@ -129,6 +130,24 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     const input = await c.req.json<CreateWorkspaceInput>()
     const workspace = storage.createWorkspace(projectId, input)
     return c.json({ workspace })
+  })
+
+  // A new chat's worktree, named for the user: a fresh branch cut from `base`,
+  // its name taken from the chat's first message (`hint`).
+  router.post('/:id/workspaces/auto', async (c) => {
+    const projectId = parseInt(c.req.param('id'), 10)
+    if (!storage.getProject(projectId)) return c.json({ error: 'Not found' }, 404)
+    const body = await c.req.json<{ base?: string; hint?: string }>().catch(() => ({}) as { base?: string; hint?: string })
+    try {
+      const workspace = await provisionAutoWorkspace(storage, {
+        projectId,
+        base: body.base?.trim() || undefined,
+        hint: body.hint,
+      })
+      return c.json({ workspace })
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : 'Failed to create workspace' }, 500)
+    }
   })
 
   // The agent sessions working in a workspace: a task dispatched from the board

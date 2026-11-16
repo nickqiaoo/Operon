@@ -942,6 +942,13 @@ export async function getCurrentBranch(repoPath: string): Promise<string | null>
   return status.current ?? null
 }
 
+/** Switch the checkout at `repoPath` to an existing branch. git refuses when local changes would be overwritten. */
+export async function checkoutBranch(repoPath: string, branchName: string): Promise<void> {
+  const git = await ensureRepo(repoPath)
+  if (!git) throw new Error('Not a git repository')
+  await git.checkout(branchName)
+}
+
 export async function checkoutNewBranch(repoPath: string, branchName: string): Promise<void> {
   const git = await ensureRepo(repoPath)
   if (!git) throw new Error('Not a git repository')

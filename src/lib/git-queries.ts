@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import {
   subscribe,
@@ -38,6 +38,8 @@ export const gitKeys = {
   fileDiff: (root: string, path: string, variant: string) => ['git', root, 'file-diff', path, variant] as const,
   // Recent commits (newest first), for the commit pickers.
   commits: (root: string) => ['git', root, 'commits'] as const,
+  // Local and remote branches, with the checked-out one flagged.
+  branches: (root: string) => ['git', root, 'branches'] as const,
   // One commit's changed files with their patches (parent → commit), as the phone renders them.
   commitFiles: (root: string, sha: string) => ['git', root, 'commit-files', sha] as const,
 }
@@ -65,6 +67,19 @@ export function useGitStatus(root: string, options?: { enabled?: boolean; refetc
     enabled: options?.enabled,
     refetchInterval: options?.refetchInterval,
   })
+}
+
+/** Branches of the repo at `root` (local and remote); `current` marks what is checked out there. */
+export function gitBranchesQuery(root: string) {
+  return queryOptions({
+    queryKey: gitKeys.branches(root),
+    queryFn: () => api.gitBranches(root),
+    staleTime: FIVE_SECONDS,
+  })
+}
+
+export function useGitBranches(root: string, options?: { enabled?: boolean }) {
+  return useQuery({ ...gitBranchesQuery(root), enabled: options?.enabled })
 }
 
 /** Recent commits on HEAD, newest first. */

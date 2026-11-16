@@ -236,6 +236,11 @@ export function gitGeneratePrSummary(repoPath: string, baseBranch: string, signa
   })
 }
 
+/** Switch the checkout at `repoPath` to an existing branch; rejects when local changes are in the way. */
+export function gitCheckout(repoPath: string, branchName: string) {
+  return post<{ success: boolean }>('/git/checkout', { repoPath, branchName })
+}
+
 export function gitCheckoutNewBranch(repoPath: string, branchName: string) {
   return post<{ success: boolean }>('/git/checkout-new-branch', { repoPath, branchName })
 }

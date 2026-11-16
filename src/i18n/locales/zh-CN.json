@@ -2275,8 +2275,15 @@
   "draftChat.agent": "Agent",
   "draftChat.agentAria": "Agent：{name}",
   "draftChat.agentMenuTitle": "Agent",
-  "draftChat.workspaceAria": "工作区",
-  "draftChat.noWorkspace": "选择工作区",
+  "draftChat.projectAria": "项目",
+  "draftChat.noProject": "选择项目",
   "draftChat.noProjects": "还没有项目",
-  "draftChat.newWorkspace": "新建工作区…"
+  "draftChat.moreSettings": "更多设置",
+  "draftChat.newWorktree": "新建工作树",
+  "draftChat.branch": "分支",
+  "draftChat.baseBranch": "基于分支",
+  "draftChat.remoteBranches": "远程",
+  "draftChat.creatingWorktree": "正在创建工作树…",
+  "draftChat.checkoutFailed": "无法切换到 {branch}",
+  "draftChat.worktreeFailed": "无法创建工作树"
 }

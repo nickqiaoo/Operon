@@ -74,7 +74,11 @@ import { ChatDbIdContext, ChatProviderIdContext } from './components/chat-db-id-
 import { useTurnDiffs } from '@/lib/chat-queries';
 import { ChatComposer } from './components/ChatComposer';
 import { DraftChatBar } from './components/DraftChatBar';
-import { isDraftChatTab } from '@/lib/new-chat';
+import { isDraftChatTab, moveDraftToWorkspace } from '@/lib/new-chat';
+import { draftWorktreeIntent, useDraftChatStore } from '@/stores/draft-chat-store';
+import { createAutoWorkspace } from '@/lib/workspace-actions';
+import { gitBranchesQuery } from '@/lib/git-queries';
+import { queryClient } from '@/lib/query-client';
 import { SteerTray } from './components/SteerTray';
 import {
   findLatestTurnMessageId,
@@ -879,6 +883,41 @@ function ChatPanelContent({
     handleSubmit(message);
   }, [goalArmed, supportsGoal, startGoal, handleSubmit, setInput, attachments.files.length, currentWorkspaceId, dbChatId]);
 
+  // A draft that asked for a new worktree gets it on its first send: cut the
+  // worktree, move this tab into it, then send there once the panel sees the new
+  // workspace (the request body takes the workspace from the render). Until the
+  // worktree exists the composer keeps the text, and a failure leaves it there.
+  const pendingWorktreeSendRef = useRef<{ workspaceId: number; message: { text: string; files: FileUIPart[] } } | null>(null);
+  const handleComposerSubmit = useCallback((message: { text: string; files: FileUIPart[] }): void | Promise<void> => {
+    const intent = draftWorktreeIntent(chatId);
+    if (!showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
+    const project = useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === currentWorkspaceId));
+    const workspace = project?.workspaces.find((w) => w.id === currentWorkspaceId);
+    if (!project || !workspace) return handleSubmitOrGoal(message);
+    const draft = useDraftChatStore.getState();
+    draft.setCreating(chatId, true);
+    return (async () => {
+      const base = intent.baseBranch
+        ?? (await queryClient.fetchQuery(gitBranchesQuery(workspace.worktreePath))).find((b) => b.current && !b.remote)?.name;
+      const created = await createAutoWorkspace(project, { base, hint: message.text });
+      pendingWorktreeSendRef.current = { workspaceId: created.id, message };
+      draft.clear(chatId);
+      moveDraftToWorkspace(chatId, created.id, project.id);
+    })().catch((error: unknown) => {
+      draft.setCreating(chatId, false);
+      toast.error(intl.formatMessage({ id: 'draftChat.worktreeFailed', defaultMessage: 'Could not create the worktree' }), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    });
+  }, [chatId, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
+  useEffect(() => {
+    const pending = pendingWorktreeSendRef.current;
+    if (!pending || pending.workspaceId !== currentWorkspaceId) return;
+    pendingWorktreeSendRef.current = null;
+    handleSubmitOrGoal(pending.message);
+  }, [currentWorkspaceId, handleSubmitOrGoal]);
+
   // One-click "send" from the browser annotation toolbar: when its nonce bumps
   // for this workspace, the focused chat submits the queued annotations. Consume
   // immediately so only one panel acts.
@@ -1426,7 +1465,7 @@ function ChatPanelContent({
           promptSuggestion={promptSuggestion}
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}
-          onSubmit={handleSubmitOrGoal}
+          onSubmit={handleComposerSubmit}
           status={status}
           onStop={handleStop}
           isGenerating={isGenerating}

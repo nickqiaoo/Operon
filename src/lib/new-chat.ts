@@ -5,12 +5,15 @@ import { useEditorStore } from "@/stores/editor-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useStreamingStore } from "@/stores/streaming-store"
+import { mainWorkspaceOf } from "@/lib/workspace-actions"
 import type { EditorTab } from "@/types/editor"
 
 /**
- * The global "New chat" (sidebar entry, ⌘N): a blank chat in the current
- * workspace on the agent last started, whose composer then lets the user pick
- * another agent or move it to another workspace before the first send.
+ * The global "New chat" (sidebar entry, ⌘N): a blank chat on the current
+ * project's own checkout, on the agent last started, whose composer then lets
+ * the user pick another agent, project or a new worktree before the first send.
+ * A worktree belongs to the chat that asked for it, so the next chat does not
+ * land in it just because it was the last one open.
  */
 
 const LAST_PROVIDER_KEY = "operon.chat.last-provider:v1"
@@ -73,6 +76,15 @@ export async function startNewChat(): Promise<void> {
   const navigation = useNavigationStore.getState()
   for (const page of navigation.pages) navigation.closePage(page.kind)
   navigation.showWorkbench()
+
+  // Back to the project's main checkout (switching is synchronous, so the tab
+  // below opens there).
+  const projects = useProjectStore.getState()
+  const project =
+    projects.projects.find((p) => p.id === projects.activeProjectId) ??
+    projects.projects.find((p) => p.workspaces.some((w) => w.id === projects.activeWorkspaceId))
+  const main = project ? mainWorkspaceOf(project) : undefined
+  if (project && main && main.id !== projects.activeWorkspaceId) projects.setActiveWorkspace(main.id, project.id)
 
   // Pressing ⌘N twice must not stack empty tabs: reuse the blank one.
   const existing = useEditorStore.getState().tabs.find(isBlankDraft)
