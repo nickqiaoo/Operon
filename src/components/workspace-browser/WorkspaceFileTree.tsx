@@ -45,6 +45,15 @@ const TREE_UNSAFE_CSS = `
       --truncate-marker-background-overlay-color: transparent;
     }
   }
+
+  /*
+   * Room under the last row for whatever floats over the bottom of the tree
+   * (the iOS tab bar). Set on a wrapper outside the shadow root; custom
+   * properties inherit through it.
+   */
+  [data-file-tree-virtualized-scroll='true'] {
+    padding-bottom: var(--file-tree-bottom-inset, 0px);
+  }
 `
 
 /**
@@ -149,6 +158,11 @@ interface WorkspaceFileTreeProps {
    * one, including folders not loaded yet. Absent = no badges (mobile).
    */
   gitStatus?: readonly GitStatusEntry[] | null
+  /**
+   * Extra scroll room under the last row, for a bar floating over the bottom
+   * of the tree (the iOS tab bar on mobile). Any CSS length.
+   */
+  bottomInset?: string
   className?: string
 }
 
@@ -165,6 +179,7 @@ export function WorkspaceFileTree({
   onSelectFile,
   apiRef,
   gitStatus,
+  bottomInset,
   className,
 }: WorkspaceFileTreeProps) {
   const [initialPaths, setInitialPaths] = useState<string[] | null>(null)
@@ -230,7 +245,10 @@ export function WorkspaceFileTree({
   return (
     <div className={cn("flex flex-col", className)}>
       <FileFilterInput value={query} onChange={(value) => setQuery(rootPath, value)} />
-      <div className="relative min-h-0 flex-1">
+      <div
+        className="relative min-h-0 flex-1"
+        style={bottomInset ? ({ "--file-tree-bottom-inset": bottomInset } as React.CSSProperties) : undefined}
+      >
         {/* Hidden, not unmounted, while a filter is up: clearing it brings the
             tree back with the folders that were open. */}
         <div className={cn("absolute inset-0", searching && "invisible")}>{tree}</div>

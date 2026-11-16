@@ -5,6 +5,7 @@ import type { OpenInIdeRequest, OpenInIdeResult } from "@/types/open-in-ide"
 import type { OpenWithApp, OpenWithRequest, OpenWithResult } from "@/types/open-with"
 import type { LocalServerProbe } from "@/types/local-server"
 import type { MobilePairingSummary } from "@/types/mobile"
+import type { TrayCommand } from "@/types/tray"
 
 type UpdateStatus =
   | { event: 'checking' }
@@ -21,6 +22,8 @@ interface ElectronAPI {
   checkForUpdate: () => Promise<unknown>
   installUpdate: () => void
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
+  onTrayCommand?: (callback: (command: TrayCommand) => void) => () => void
+  takePendingTrayCommand?: () => Promise<TrayCommand | null>
   openInIde: (payload: OpenInIdeRequest) => Promise<OpenInIdeResult>
   listOpenWith: () => Promise<OpenWithApp[]>
   openWith: (payload: OpenWithRequest) => Promise<OpenWithResult>

@@ -42,6 +42,13 @@ interface EditorStore extends EditorState {
   updateTabTitle: (id: string, title: string) => void
   updateTabProvider: (id: string, provider: string) => void
   updateTabProviderId: (id: string, providerId: string) => void
+  /** Switch the agent of a chat that has not been sent yet; remounts its panel. */
+  switchDraftProvider: (id: string, providerId: string) => void
+  /**
+   * Move a tab of the current workspace into another workspace's bucket, where
+   * it becomes the active tab. The caller then activates that workspace.
+   */
+  moveTabToWorkspace: (id: string, workspaceId: number | null) => void
   clearTabInputAttachment: (id: string) => void
 }
 
@@ -313,6 +320,36 @@ export const useEditorStore = create<EditorStore>()(
 
   updateTabProviderId: (id, providerId) => {
     set((state) => patchTab(state, id, "providerId", providerId))
+  },
+
+  switchDraftProvider: (id, providerId) => {
+    set((state) => {
+      const index = state.tabs.findIndex((tab) => tab.id === id)
+      if (index < 0) return state
+      const tab = state.tabs[index]
+      if (tab.chatId !== undefined || tab.providerId === providerId) return state
+      const tabs = state.tabs.slice()
+      tabs[index] = { ...tab, providerId, provider: undefined, mountRev: (tab.mountRev ?? 0) + 1 }
+      return { tabs }
+    })
+  },
+
+  moveTabToWorkspace: (id, workspaceId) => {
+    const state = get()
+    if (workspaceId === state.currentWorkspaceId) return
+    const tab = state.tabs.find((t) => t.id === id)
+    if (!tab) return
+    const tabs = state.tabs.filter((t) => t.id !== id)
+    const targetKey = String(workspaceId ?? "global")
+    const target = state.workspaceStates[targetKey] ?? { tabs: [], activeTabId: "" }
+    set({
+      tabs,
+      activeTabId: state.activeTabId === id ? (tabs[0]?.id ?? "") : state.activeTabId,
+      workspaceStates: {
+        ...state.workspaceStates,
+        [targetKey]: { tabs: [...target.tabs, tab], activeTabId: id },
+      },
+    })
   },
 
   clearTabInputAttachment: (id) => {

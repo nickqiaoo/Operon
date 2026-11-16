@@ -25,12 +25,14 @@ import { registerHtmlSnapshotter } from './html-snapshot.js'
 import { disposeRuntime } from '../server/src/services/ai/state.js'
 import { initAutoUpdater, checkForUpdates, installUpdate } from './updater.js'
 import { registerBrowserUseIpc, startIabBackend, stopIabBackend } from './browser-use-driver.js'
+import { createTray, destroyTray, watchTrayInbox } from './tray.js'
 import { runChromeNativeHost } from '../packages/browser-use/chrome-native-host-main.ts'
 
 declare const __ENABLE_MEMORY__: boolean
 import type { OpenInIdeApp, OpenInIdeRequest, OpenInIdeResult } from '../src/types/open-in-ide.ts'
 import type { OpenWithApp, OpenWithKind, OpenWithRequest, OpenWithResult } from '../src/types/open-with.ts'
 import type { LocalServerProbe } from '../src/types/local-server.ts'
+import type { TrayCommand } from '../src/types/tray.ts'
 
 // —— Chrome native messaging host mode ——
 //
@@ -480,11 +482,14 @@ const probeLocalServers = (ports: number[]): Promise<LocalServerProbe[]> =>
     })
   )
 
+/** The server's storage, kept for main-process readers such as the tray. */
+let serverStorage: Awaited<ReturnType<typeof startServer>>['storage'] | null = null
+
 async function startHonoServer(): Promise<number> {
   const userData = app.getPath('userData')
   const migrationsDir = path.join(app.getAppPath(), 'server', 'src', 'storage', 'migrations')
 
-  const { port } = await startServer({
+  const { port, storage } = await startServer({
     dbPath: path.join(userData, 'operon.db'),
     migrationsDir,
     port: 0,
@@ -511,6 +516,7 @@ async function startHonoServer(): Promise<number> {
       }).show()
     },
   })
+  serverStorage = storage
   return port
 }
 
@@ -619,6 +625,39 @@ if (process.env.VITE_DEV_SERVER_URL) {
  */
 app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1')
 
+/**
+ * Set once the app is really quitting (or installing an update), so the
+ * hide-on-close handler in createWindow() lets the window go.
+ */
+let allowWindowClose = false
+
+/** A menu-bar command clicked before the renderer could take it. */
+let pendingTrayCommand: TrayCommand | null = null
+
+function showMainWindow() {
+  if (mainWindow == null || mainWindow.isDestroyed()) {
+    createWindow()
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+  }
+  // Menu-bar clicks don't activate the app by themselves.
+  app.focus({ steal: true })
+  mainWindow?.focus()
+}
+
+/** Bring the window forward and have the renderer carry out a menu-bar click. */
+function sendTrayCommand(command: TrayCommand) {
+  const ready = mainWindow != null && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()
+  showMainWindow()
+  if (ready) {
+    mainWindow?.webContents.send('tray:command', command)
+  } else {
+    // The renderer collects this once it has subscribed (`tray:take-pending-command`).
+    pendingTrayCommand = command
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     title: isDev ? 'Operon Dev' : 'Operon',
@@ -637,6 +676,22 @@ function createWindow() {
       // Browser tabs share one persistent partition, matching Codex's separate
       // built-in-browser profile while keeping it isolated from the app session.
       webviewTag: true,
+    }
+  })
+  // macOS: the close button hides the window instead of destroying it, the way
+  // ChatGPT and other menu-bar apps behave — the app keeps running in the menu
+  // bar and the dock, and reopening is instant with the UI state intact. It also
+  // has to: createWindow() registers ipcMain handlers that throw when registered
+  // a second time, so the window is created exactly once per launch.
+  mainWindow.on('close', (event) => {
+    if (process.platform !== 'darwin' || allowWindowClose) return
+    event.preventDefault()
+    // A full-screen window hidden directly leaves an empty black Space behind.
+    if (mainWindow?.isFullScreen()) {
+      mainWindow.once('leave-full-screen', () => mainWindow?.hide())
+      mainWindow.setFullScreen(false)
+    } else {
+      mainWindow?.hide()
     }
   })
   mainWindow.on('closed', () => {
@@ -878,7 +933,16 @@ app.whenReady().then(async () => {
 
   // Auto-updater IPC handlers
   ipcMain.handle('updater:check', () => checkForUpdates())
-  ipcMain.handle('updater:install', () => installUpdate())
+  ipcMain.handle('updater:install', () => {
+    // quitAndInstall closes the windows *before* `before-quit` fires.
+    allowWindowClose = true
+    installUpdate()
+  })
+  ipcMain.handle('tray:take-pending-command', () => {
+    const pending = pendingTrayCommand
+    pendingTrayCommand = null
+    return pending
+  })
   ipcMain.handle('system:open-in-ide', (_event, payload: OpenInIdeRequest) => openInIde(payload))
   ipcMain.handle('system:list-open-with', () => listOpenWithApps())
   ipcMain.handle('system:open-with', (_event, payload: OpenWithRequest) => openWith(payload))
@@ -1003,15 +1067,28 @@ app.whenReady().then(async () => {
   })
 
   createWindow()
+  createTray(
+    {
+      showWindow: showMainWindow,
+      newChat: () => sendTrayCommand({ type: 'new-chat' }),
+      openNotification: (notification) => sendTrayCommand({ type: 'open-notification', notification }),
+      openInbox: () => sendTrayCommand({ type: 'open-inbox' }),
+      openAssistant: () => sendTrayCommand({ type: 'open-assistant' }),
+      checkForUpdates: () => void checkForUpdates(),
+    },
+    isDev ? 'Operon Dev' : 'Operon',
+  )
+  if (serverStorage) watchTrayInbox(serverStorage)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
+    // Dock click: bring back the window the close button hid.
+    showMainWindow()
   })
 })
 
 app.on('before-quit', () => {
+  allowWindowClose = true
+  destroyTray()
   cleanupAll()
 })
 

@@ -7,6 +7,8 @@ import {
   WorkspaceFileTree,
   type WorkspaceFileTreeHandle,
 } from "@/components/workspace-browser/WorkspaceFileTree"
+import { useNativeShellOverlay } from "@/hooks/useNativeShellOverlay"
+import { useMobileContentBottom } from "./MobileHeader"
 
 interface MobileFilesScreenProps {
   onBack: () => void
@@ -34,13 +36,21 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
 
   const [selected, setSelected] = useState<string | null>(null)
   const treeApiRef = useRef<WorkspaceFileTreeHandle | null>(null)
+  // The iOS tab bar floats over this page (it is portaled above the shell),
+  // so the tree pads its last row clear of it like the other list screens.
+  const contentBottom = useMobileContentBottom()
+  // A file being read is a detail page, like an open conversation: the tab bar
+  // steps aside (the preview's code / markdown / image views each scroll on
+  // their own, so padding them clear of a floating bar would mean threading an
+  // inset into all three).
+  useNativeShellOverlay(selected != null)
 
   // A file is open → full-screen preview with a back affordance in the header.
   if (selected != null) {
     return (
       <div
         className="flex h-full flex-col bg-background"
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <FilePreviewPane
           selectedPath={selected}
@@ -110,6 +120,7 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
           selectedPath={selected}
           onSelectFile={setSelected}
           apiRef={treeApiRef}
+          bottomInset={contentBottom}
           className="min-h-0 flex-1"
         />
       )}

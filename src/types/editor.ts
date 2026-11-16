@@ -26,6 +26,12 @@ export type EditorTab = {
    * state from — the editor surfaces just filter it out.
    */
   isSideChat?: boolean
+  /**
+   * Bumped when a not-yet-sent chat switches agent. ChatPanel seeds its model,
+   * mode and runtime from the provider once on mount, so the tab is keyed by
+   * this to remount under the new one. Never changes once the chat is sent.
+   */
+  mountRev?: number
   // Terminal tabs (type === "terminal")
   terminalId?: string
   launch?: string  // logical launcher, e.g. "claude"

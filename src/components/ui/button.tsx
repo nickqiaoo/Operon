@@ -10,6 +10,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/80 hover:shadow-card active:bg-primary/70",
+        // Brand-filled primary for "send a user message" actions (composer
+        // send / steer), matching the user bubble's bg-brand-fill.
+        brand: "bg-brand-fill text-brand-fg hover:bg-brand-fill/85 hover:shadow-card active:bg-brand-fill/75",
         destructive:
           "bg-destructive text-white hover:bg-destructive/80 hover:shadow-card active:bg-destructive/70 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:

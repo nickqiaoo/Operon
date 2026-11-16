@@ -1,7 +1,7 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, type LucideIcon } from "lucide-react"
+import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { ActiveChatsIcon } from "@/components/icons/ActiveChatsIcon"
 import { toast } from "sonner"
@@ -27,6 +27,8 @@ import { ActiveConversations, useActiveAttentionCounts } from "@/components/acti
 import type { OpenChat } from "@/lib/active-conversations"
 import type { Notification } from "@/types/notification"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
+import { createProjectWorkspace } from "@/lib/workspace-actions"
+import { startNewChat } from "@/lib/new-chat"
 import { useRailFlyout } from "./use-rail-flyout"
 import { projectSidebarEntries } from "./workspace-groups"
 
@@ -448,7 +450,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const projectsLoaded = useProjectStore((s) => s.projectsLoaded)
   const activeWorkspaceId = useProjectStore((s) => s.activeWorkspaceId)
   const addProject = useProjectStore((s) => s.addProject)
-  const addWorkspace = useProjectStore((s) => s.addWorkspace)
   const setActiveWorkspace = useProjectStore((s) => s.setActiveWorkspace)
   const setProjectWorkspaces = useProjectStore((s) => s.setProjectWorkspaces)
   const setProjectPinned = useProjectStore((s) => s.setProjectPinned)
@@ -592,24 +593,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     const project = projects.find(p => p.id === newWorkspaceProjectId)
     if (!project) return
 
-    const safeBranch = branchName.replace(/[^a-zA-Z0-9._-]+/g, "-")
-
     try {
-      // Server places it under operon's managed worktrees dir
-      // (~/.operon/worktrees/<id>-<repo>/<name>) and returns the absolute path.
-      const worktreePath = await api.gitWorktreeAdd(
-        project.rootPath,
-        "",
-        branchName,
-        true,
-        undefined,
-        { projectId: project.id, name: safeBranch }
-      )
-      await addWorkspace(project.id, {
-        name: safeBranch || branchName,
-        branchName,
-        worktreePath,
-      })
+      await createProjectWorkspace(project, branchName)
       await syncWorktrees(project)
     } catch (error) {
       console.error("Failed to add worktree:", error)
@@ -655,6 +640,9 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
             <Folder className="size-5 shrink-0" />
           </div>
         )}
+        <SidebarNavItem icon={SquarePen} label={intl.formatMessage({ id: "sidebar.newChat", defaultMessage: "New chat" })} collapsed={collapsed}
+          data-testid="sidebar-new-chat"
+          onClick={() => { closeFlyout(); void startNewChat() }} />
         <SidebarNavItem icon={MessageCircle} label={intl.formatMessage({ id: "sidebar.assistant", defaultMessage: "Assistant" })} collapsed={collapsed} active={assistantActive}
           count={assistantTotal} actionCount={assistantAction}
           onClick={() => { closeFlyout(); showMain({ kind: "assistant" }) }} />
