@@ -25,7 +25,7 @@ describe.skipIf(!opened)('assistant storage', () => {
         role: i % 2 ? 'user' : 'assistant',
         text: `t${i}`,
         createdAt: i * 10,
-        ...(i === 4 ? { trigger: { kind: 'worker' as const, activityId: 'a1' }, activityId: 'a1', remembered: ['x'] } : {}),
+        ...(i === 4 ? { trigger: { kind: 'worker' as const, activityId: 'a1' }, activityId: 'a1' } : {}),
       })
     }
     expect(storage.assistantMessageList({ limit: 2 }).map((m) => m.id)).toEqual(['m4', 'm5'])
@@ -37,7 +37,6 @@ describe.skipIf(!opened)('assistant storage', () => {
       createdAt: 40,
       trigger: { kind: 'worker', activityId: 'a1' },
       activityId: 'a1',
-      remembered: ['x'],
     })
   })
 

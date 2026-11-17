@@ -111,7 +111,6 @@ export function AssistantPage({ onOpenChat }: AssistantPageProps) {
   // Whatever it writes lands while it replies or a worker runs: list again when either moves.
   const filesRefreshKey = `${messages.length}|${typing}|${activities.map((a) => a.status).join(",")}`
   // Stable, so the thread's memoized bubbles don't all re-render on every event.
-  const openMemory = useCallback(() => openProfileFile("memory"), [openProfileFile])
   const onDecide = useCallback(
     (approvalId: string, decision: "allowed_once" | "denied") => void decide(approvalId, decision).catch(reportError),
     [decide],
@@ -177,7 +176,6 @@ export function AssistantPage({ onOpenChat }: AssistantPageProps) {
                       })
                     }
                     onDecide={onDecide}
-                    onOpenMemory={openMemory}
                     activities={activities}
                     onOpenChat={openCoding}
                     onAtBottom={settleAtBottom}

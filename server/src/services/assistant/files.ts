@@ -90,17 +90,6 @@ export function writeProfileFile(name: ProfileFileName, content: string, by: 'as
 
 export { parseIdentity } from '../../../../shared/assistant.js'
 
-/** Bullets in `after` that `before` didn't have, as the user would read them: no marker, no date. */
-export function addedFacts(before: string, after: string): string[] {
-  const had = new Set(before.split('\n').map((l) => l.trim()))
-  return after
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^[-*]\s+\S/.test(l) && !had.has(l))
-    .map((l) => l.replace(/^[-*]\s+/, '').replace(/^\d{4}-\d{2}-\d{2}\s*[:：]\s*/, '').trim())
-    .filter(Boolean)
-}
-
 /**
  * Report edits made outside the app's own writes — the agents' file tools, an editor — credited to
  * whoever `by` says is likely at work. Debounced per file: editors often write in several steps.

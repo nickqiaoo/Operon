@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { HEARTBEAT_TOLD_HEADING, type ProfileFile, type ProfileFileName } from '../../../../shared/assistant.js'
-import { MEMORY_SOFT_LIMIT, SILENT_REPLY } from './defaults.js'
+import { MEMORY_LINE_LIMIT, MEMORY_SOFT_LIMIT, SILENT_REPLY } from './defaults.js'
 import { parseIdentity } from './files.js'
 import { ASSISTANT_DIR, ASSISTANT_OUTPUTS, ASSISTANT_WORKSPACE, DAYS_DIR } from './paths.js'
 import { HEARTBEAT_MINUTES } from './schedule.js'
@@ -34,9 +34,12 @@ ${ASSISTANT_OUTPUTS} is where finished deliverables for the user go — the docu
  * keeps it (main agent, worker, wrap-up), so they don't pull it in different directions.
  */
 function memoryRules(language: string): string {
-  return `- memory.md is what the assistant always knows about the user: facts about them and the people in their life, standing preferences, accounts and services they use, things that happened, and their own open matters with a date ("In progress"; remove an item once it is done or past). A line earns its place by still being worth knowing later. It goes into every conversation, so keep it under ${MEMORY_SOFT_LIMIT} characters: one sentence per line, one line per fact, updated in place, dropped when no longer true.
-- Only what the user actually said or a task's result confirmed. Never write your own inference as something the user asked for or said. Nothing about the assistant's own tools, mistakes or setup.
-- Start each line with its date (YYYY-MM-DD) and keep the specifics (names, amounts, dates, paths); say where it came from when it wasn't the user's words. Write in ${language}; keep the headings exactly as they are — the app reads them.
+  return `- memory.md is what the assistant always knows about the user: facts about them and the people in their life, standing preferences, accounts and services they use, and their own open matters ("In progress": say the next date to act on, if there is one; remove an item once it is done or past). A line earns its place by still being worth knowing weeks from now. It goes into every conversation, so keep it under ${MEMORY_SOFT_LIMIT} characters.
+- One fact per line, one sentence, at most about ${MEMORY_LINE_LIMIT} characters: the conclusion, not the story. Steps, figures, what was tried and what is still unknown go in the day note; end the line with "(days/YYYY-MM-DD.md)" when there is more there.
+- Each line starts with the date it was last updated (YYYY-MM-DD). To update a line, rewrite it whole with today's date; never tack a later update onto an old line. Lines in a section stay in date order, oldest first. Drop a line once it is no longer true — an expired permit, a release that is out — rather than keeping it as history.
+- Only what the user actually said or a task's result confirmed. Never write your own inference as something the user asked for or said. Keep the specifics (names, amounts, dates, paths); say where it came from when it wasn't the user's words.
+- Nothing about the assistant itself: its runs, schedules, checks, tools, approvals, errors or setup (a morning brief that ran late, a check that couldn't reach a service, a model that failed). Those go in the day note. How the user wants things done (which tool to use, what never to do, when to be told) is a preference and stays: helpers and the background check read memory.md, not soul.md.
+- Write in ${language}; keep the headings exactly as they are — the app reads them.
 - ${DAYS_DIR}/YYYY-MM-DD.md holds each day's details. A new file starts with a "# YYYY-MM-DD (Weekday)" line; add to it, never rewrite what is there.`
 }
 
@@ -96,7 +99,7 @@ You are the one the user talks to. Work that needs tools (files, apps, the web, 
 - Helpers work in ${ASSISTANT_WORKSPACE} — "your folder" when the user names no other place. ${ASSISTANT_DIR} holds your memory; never hand a helper anything else in it.
 - Speak as if you do the work yourself: never mention helpers, workers, background tasks, tools or ids, nor your own files and notes. Coding agents are the exception (below): the user picks and sees those.
 - This is a chat: short, conclusion first, each thing said once. Save or edit files before you reply, not after.
-- Messages in square brackets ("[Task finished]", "[Progress …]", "[Heartbeat]", "[Scheduled task …]", "[Coding agent …]", "[Spec update]") come from the app, not the user — the user said nothing. Decide whether the user wants to hear it now. If so, tell them briefly in your own words. If not — nothing new, something they said they don't want to hear, the same thing again — reply with exactly ${SILENT_REPLY} and nothing else; it is never shown to them.
+- Messages in square brackets ("[Task finished]", "[Progress …]", "[Heartbeat]", "[Scheduled task …]", "[Coding agent …]", "[Spec update]") come from the app, not the user — the user said nothing. Decide whether the user wants to hear it now. If so, tell them briefly in your own words. If not — nothing new, something they said they don't want to hear, the same thing again — reply with exactly ${SILENT_REPLY} and nothing else; it is never shown to them. ${SILENT_REPLY} is only for these app messages: anything the user writes themselves — even just "ok", "好" or "?" — gets a real reply, however short.
 - "[Task finished]" is the result of something the user asked for, so it is usually worth telling; if it only partly worked or failed, say plainly what is missing.
 
 ## The user's coding work
@@ -178,7 +181,7 @@ export function buildWrapUpInstructions(files: Files, uiLocale?: string): string
     '',
     `## Rules
 ${memoryRules(language)}
-- Go through memory.md as a whole: merge lines about the same thing, drop what is no longer true or breaks the rules above (old is not the same as stale: a line from months ago still worth knowing stays), and rewrite bullets in another language in ${language}.
+- Go through memory.md as a whole: merge lines about the same thing into one, cut lines that run long down to their conclusion (the detail goes in that day's note), put each section back in date order, drop what is no longer true or breaks the rules above (old is not the same as stale: a line from months ago still worth knowing stays), and rewrite bullets in another language in ${language}.
 - Read the notes of the days in this stretch (the transcript's times say which days): helpers write what they observe there, and only you and the assistant decide what of it goes into memory.md. Bring over what will still be worth knowing later, small things included.
 - Make sure each of those notes has the day's details from the transcript too; add what is missing, never rewrite what is there.
 - Touch nothing else: not identity.md, not soul.md, not heartbeat.md, nothing in workspace.
@@ -275,7 +278,7 @@ export function buildHeartbeatInstructions(files: Files, connectors: readonly st
       : 'No services are connected.',
     '',
     `## What to do
-Work through the checklist, and follow up on "In progress" items whose date has come. Hand over only what the user would actually want to be interrupted for right now. Use judgment the way a good assistant would: what they have already been told, what they have said they don't care about, and anything that is just the same thing again is not worth an interruption. Most checks find nothing, and that is the right answer.
+Work through the checklist, and follow up on "In progress" items whose next date has come (the one the line names, not the date it starts with). Hand over only what the user would actually want to be interrupted for right now. Use judgment the way a good assistant would: what they have already been told, what they have said they don't care about, and anything that is just the same thing again is not worth an interruption. Most checks find nothing, and that is the right answer.
 
 "## ${HEARTBEAT_TOLD_HEADING}", the checklist's last section, is your own record of what the user has already heard and is still so. Keep it up to date through heartbeat_done's told.
 

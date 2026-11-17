@@ -33,8 +33,6 @@ export interface AssistantMessage {
   trigger?: AssistantTrigger
   /** The worker this message is about — the UI links it to the Activity entry. */
   activityId?: string
-  /** Lines the main agent wrote to memory.md while producing this message. */
-  remembered?: string[]
   /** A worker is blocked on a permission decision; the thread renders it as a card. */
   approval?: AssistantApproval
   /** The message asks the user these; the answer goes back as their next message. */

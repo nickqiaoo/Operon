@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { BookmarkCheck, PaperclipIcon } from "lucide-react"
+import { PaperclipIcon } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { Attachment, AttachmentPreview, AttachmentRemove, Attachments } from "@/components/ai-elements/attachments"
 import { Conversation, ConversationContent, ConversationItem, ConversationScrollButton, useConversationScroll } from "@/components/ai-elements/conversation"
@@ -79,7 +79,6 @@ interface AssistantChatProps {
   onSend: (text: string, attachments: AssistantAttachment[]) => Promise<void>
   /** Answer an approval card a worker is waiting on. */
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
-  onOpenMemory: () => void
   /** Activities by id: a message about a coding agent's conversation shows its card. */
   activities: ActivitySummary[]
   /** Open a coding agent's conversation in its workspace. */
@@ -115,7 +114,6 @@ export function AssistantChat({
   onLoadOlder,
   onSend,
   onDecide,
-  onOpenMemory,
   activities,
   onOpenChat,
   onAtBottom,
@@ -252,7 +250,6 @@ export function AssistantChat({
                     answer={m.questions ? nextUserText(shown, i) : undefined}
                     onSend={onSend}
                     onDecide={onDecide}
-                    onOpenMemory={onOpenMemory}
                     onOpenChat={onOpenChat}
                     compact={compact}
                   />
@@ -535,15 +532,14 @@ interface AssistantBubbleProps {
   answer?: string
   onSend: AssistantChatProps["onSend"]
   onDecide: (approvalId: string, decision: "allowed_once" | "denied") => void
-  onOpenMemory: () => void
   onOpenChat: (activity: ActivitySummary) => void
   compact: boolean
 }
 
 /** Memoized: the thread re-renders on every store event (typing, activities); an unchanged reply skips re-parsing its markdown. */
-const AssistantBubble = memo(function AssistantBubble({ message, coding, answer, onSend, onDecide, onOpenMemory, onOpenChat, compact }: AssistantBubbleProps) {
+const AssistantBubble = memo(function AssistantBubble({ message, coding, answer, onSend, onDecide, onOpenChat, compact }: AssistantBubbleProps) {
   const intl = useIntl()
-  const { remembered, approval } = message
+  const { approval } = message
   const waitingForUser = !!coding?.coding?.pending?.length
 
   return (
@@ -595,26 +591,6 @@ const AssistantBubble = memo(function AssistantBubble({ message, coding, answer,
         <ApprovalCard approval={approval} compact={compact} onDecide={(d) => onDecide(approval.id, d)} />
       )}
 
-      {remembered?.length ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-muted-foreground/80">
-          {remembered?.map((fact) => (
-            <button
-              key={fact}
-              type="button"
-              onClick={onOpenMemory}
-              // One line: the fact in full is a hover (or a tap into memory.md) away.
-              className="flex min-w-0 max-w-full items-center gap-1.5 transition-colors hover:text-foreground"
-              title={fact}
-              aria-label={intl.formatMessage({ id: "assistant.chat.openMemory", defaultMessage: "Open memory.md" })}
-            >
-              <BookmarkCheck className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">
-                <FormattedMessage id="assistant.chat.remembered" defaultMessage="Remembered: {fact}" values={{ fact }} />
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
     </Message>
   )
 })

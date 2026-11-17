@@ -89,25 +89,6 @@ describe('AssistantProjector (the thread)', () => {
     expect(t.messages()[0]).toMatchObject({ trigger: { kind: 'worker', activityId: 'w5' } })
   })
 
-  it('attaches a line saved before any reply to the next reply only', () => {
-    const t = thread()
-    t.projector.begin({ kind: 'user' })
-    t.projector.remember('Prefers driving')
-    said(t.projector, 'Noted.')
-    said(t.projector, 'Anything else?', 't2')
-    t.projector.end()
-    expect(t.messages().map((m) => m.remembered)).toEqual([['Prefers driving'], undefined])
-  })
-
-  it('puts a line saved after the reply onto that same reply', () => {
-    const t = thread()
-    t.projector.begin({ kind: 'user' })
-    said(t.projector, 'Got it.')
-    t.projector.remember('Daughter: Duoduo')
-    t.projector.end()
-    expect(t.messages()).toEqual([expect.objectContaining({ text: 'Got it.', remembered: ['Daughter: Duoduo'] })])
-  })
-
   describe('a question for the user', () => {
     /** A finished Codex message: its text arrives whole, with what the provider says about it. */
     const completed = (projector: AssistantProjector, id: string, text: string, details: Record<string, unknown>) => {
@@ -206,12 +187,12 @@ describe('AssistantProjector (the thread)', () => {
     expect(t.messages().map((m) => m.text)).toEqual([text])
   })
 
-  it('keeps the marker when replying to the user', () => {
+  it('never shows the bare marker, even when replying to the user', () => {
     const t = thread()
     t.projector.begin({ kind: 'user' })
-    said(t.projector, 'NO_REPLY')
+    said(t.projector, 'NO_REPLY\n')
     t.projector.end()
-    expect(t.messages().map((m) => m.text)).toEqual(['NO_REPLY'])
+    expect(t.messages()).toEqual([])
   })
 
   it('says something when a turn fails, and nothing when it was stopped', () => {

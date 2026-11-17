@@ -124,7 +124,6 @@ export function MobileAssistantScreen({
     (approvalId: string, decision: "allowed_once" | "denied") => void decide(approvalId, decision).catch(reportError),
     [decide],
   )
-  const openMemory = useCallback(() => push({ kind: "file", name: "memory" }), [push])
   // File references in its replies are its own, not the active workspace's.
   const openFileRef = useAssistantFileOpener(useCallback((file: OpenAssistantFile) => push({ kind: "workspaceFile", file }), [push]))
   const filesRefreshKey = `${messages.length}|${typing}|${activities.map((a) => a.status).join(",")}`
@@ -331,7 +330,6 @@ export function MobileAssistantScreen({
                 })
               }
               onDecide={onDecide}
-              onOpenMemory={openMemory}
               activities={activities}
               onOpenChat={openCoding}
               onAtBottom={settleAtBottom}

@@ -49,3 +49,6 @@ Every 30 minutes a background check works through this list. One section per che
 
 /** memory.md is injected whole into every turn, so it has to stay small. */
 export const MEMORY_SOFT_LIMIT = 12_000
+
+/** A memory.md line is one fact: past this, the detail belongs in the day note. */
+export const MEMORY_LINE_LIMIT = 120

@@ -153,7 +153,7 @@ class TextSegments {
 
 /** Where the thread projector's output goes: persisted and broadcast by the runtime. */
 export interface ThreadSink {
-  /** Insert, or replace the message with the same id (a reply gaining a link or a remembered line). */
+  /** Insert, or replace the message with the same id (a reply gaining a link). */
   message(message: AssistantMessage): void
   typing(typing: boolean): void
   /** The main agent's own work this turn, as an Activity (insert or replace by id). */
@@ -212,9 +212,7 @@ function triggerOf(cause: Cause): AssistantTrigger | undefined {
  */
 export class AssistantProjector {
   private cause: Cause = { kind: 'user' }
-  /** Lines saved to memory.md this turn before any reply existed to carry them. */
-  private remembered: string[] = []
-  /** Replies emitted in the current turn — a remembered line attaches to the latest. */
+  /** Replies emitted in the current turn. */
   private turnMessages: AssistantMessage[] = []
   private segments = new TextSegments()
   private segmentCause: Cause | undefined
@@ -284,23 +282,7 @@ export class AssistantProjector {
     }
     this.setTyping(false)
     this.turnMessages = []
-    this.remembered = []
     this.openQuestion = undefined
-  }
-
-  /**
-   * A line saved to memory.md by the main agent. The model usually says "noted" around the save,
-   * so the line goes onto the latest reply of this turn (re-emitted with the same id); with no
-   * reply yet, onto the next one.
-   */
-  remember(line: string): void {
-    const last = this.turnMessages.at(-1)
-    if (!last) {
-      this.remembered.push(line)
-      return
-    }
-    last.remembered = [...(last.remembered ?? []), line]
-    this.sink.message({ ...last })
   }
 
   /** The turn's first call that changes something opens its Activity, named after that call. */
@@ -336,7 +318,9 @@ export class AssistantProjector {
    * takes the message's text and the two read as one message.
    */
   private speak(piece: TextPiece, cause = this.cause): void {
-    if (cause.kind !== 'user' && piece.text === SILENT_REPLY && !piece.questions) return
+    // The bare marker is never for the user to read, whatever started the turn: a model that
+    // answers a plain "ok" with it means "nothing to add", not the word itself.
+    if (piece.text.trim() === SILENT_REPLY && !piece.questions) return
     if (piece.questions) {
       this.openQuestion = this.say(piece.questions.length === 1 ? piece.questions[0].title : '', cause, piece.questions)
     } else if (piece.final && this.openQuestion) {
@@ -358,7 +342,6 @@ export class AssistantProjector {
       ...(trigger ? { trigger } : {}),
       // About one coding conversation, known for certain (the host said which): the UI links it.
       ...(cause.kind === 'coding' ? { activityId: cause.activityId } : {}),
-      ...(this.remembered.length ? { remembered: this.remembered.splice(0) } : {}),
       ...(questions ? { questions } : {}),
     }
     this.turnMessages.push(message)

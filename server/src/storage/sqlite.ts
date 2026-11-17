@@ -2832,11 +2832,11 @@ export class SqliteStorage
   assistantMessageUpsert(message: AssistantMessage): void {
     this.db
       .prepare(
-        `INSERT INTO assistant_messages (id, role, text, created_at, trigger_json, activity_id, remembered, approval_json, attachments_json, questions_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO assistant_messages (id, role, text, created_at, trigger_json, activity_id, approval_json, attachments_json, questions_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            text = excluded.text, trigger_json = excluded.trigger_json, activity_id = excluded.activity_id,
-           remembered = excluded.remembered, approval_json = excluded.approval_json, attachments_json = excluded.attachments_json,
+           approval_json = excluded.approval_json, attachments_json = excluded.attachments_json,
            questions_json = excluded.questions_json`,
       )
       .run(
@@ -2846,7 +2846,6 @@ export class SqliteStorage
         message.createdAt,
         message.trigger ? JSON.stringify(message.trigger) : null,
         message.activityId ?? null,
-        message.remembered?.length ? JSON.stringify(message.remembered) : null,
         message.approval ? JSON.stringify(message.approval) : null,
         message.attachments?.length ? JSON.stringify(message.attachments) : null,
         message.questions?.length ? JSON.stringify(message.questions) : null,
@@ -2868,7 +2867,6 @@ export class SqliteStorage
       createdAt: row.created_at as number,
       ...(row.trigger_json ? { trigger: JSON.parse(row.trigger_json as string) as AssistantTrigger } : {}),
       ...(row.activity_id ? { activityId: row.activity_id as string } : {}),
-      ...(row.remembered ? { remembered: JSON.parse(row.remembered as string) as string[] } : {}),
       ...(row.approval_json ? { approval: JSON.parse(row.approval_json as string) as AssistantApproval } : {}),
       ...(row.attachments_json ? { attachments: JSON.parse(row.attachments_json as string) as AssistantAttachment[] } : {}),
       ...(row.questions_json ? { questions: JSON.parse(row.questions_json as string) as AssistantQuestion[] } : {}),

@@ -53,7 +53,7 @@ import { AssistantNotifier } from './notifier.js'
 import { getNotificationStorage } from '../ai/state.js'
 import { isAssistantBeingViewed } from '../chat-viewers.js'
 import { buildUserInput } from './attachments.js'
-import { addedFacts, ensureProfileFiles, listProfileFiles, parseIdentity, peekProfileFile, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
+import { ensureProfileFiles, listProfileFiles, parseIdentity, peekProfileFile, readProfileFile, watchProfileFiles, writeProfileFile } from './files.js'
 import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import { setAssistantElicitationHandler, type AssistantRole } from './node-repl-bridge.js'
 import { ASSISTANT_DIR, ASSISTANT_OUTPUTS, ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR } from './paths.js'
@@ -826,14 +826,11 @@ export class AssistantRuntime {
    * often and reach the main agent as a note ahead of its next input — unless it made the edit.
    */
   /**
-   * The main agent edits memory.md with its own file tools. What it added this turn shows on its
-   * reply ("Remembered: …"), and the change isn't echoed back to it as someone else's.
+   * The main agent edits memory.md with its own file tools; the change isn't echoed back to it as
+   * someone else's.
    */
   private onMainTurnMemory(before: { memory: string }, reminder: ContextReminder): void {
-    const after = peekProfileFile('memory')
-    if (after === before.memory) return
-    reminder.mark('memory')
-    for (const line of addedFacts(before.memory, after)) this.projector.remember(line)
+    if (peekProfileFile('memory') !== before.memory) reminder.mark('memory')
   }
 
   private onProfileChanged(name: ProfileFileName, byMainAgent: boolean): void {

@@ -74,7 +74,7 @@ describe('AssistantNotifier', () => {
     const { notifier, upserts } = setup()
     notifier.message(msg('a', 'Morning brief:', { kind: 'schedule', name: 'brief' }))
     notifier.message(msg('b', '**Nasdaq** fell 2%.', { kind: 'schedule', name: 'brief' }))
-    // The same message re-emitted (gaining a remembered line) is not news.
+    // The same message re-emitted (gaining a link) is not news.
     notifier.message(msg('b', '**Nasdaq** fell 2%.', { kind: 'schedule', name: 'brief' }))
     notifier.turnEnded()
     expect(upserts).toHaveLength(1)
