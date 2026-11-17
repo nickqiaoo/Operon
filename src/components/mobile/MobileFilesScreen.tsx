@@ -37,7 +37,8 @@ export function MobileFilesScreen({ onBack }: MobileFilesScreenProps) {
   const [selected, setSelected] = useState<string | null>(null)
   const treeApiRef = useRef<WorkspaceFileTreeHandle | null>(null)
   // The iOS tab bar floats over this page (it is portaled above the shell),
-  // so the tree pads its last row clear of it like the other list screens.
+  // so the tree's viewport stops above it — the last row must be able to
+  // scroll clear of the bar, which swallows touches.
   const contentBottom = useMobileContentBottom()
   // A file being read is a detail page, like an open conversation: the tab bar
   // steps aside (the preview's code / markdown / image views each scroll on

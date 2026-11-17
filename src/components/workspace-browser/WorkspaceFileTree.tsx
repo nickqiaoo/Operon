@@ -45,15 +45,6 @@ const TREE_UNSAFE_CSS = `
       --truncate-marker-background-overlay-color: transparent;
     }
   }
-
-  /*
-   * Room under the last row for whatever floats over the bottom of the tree
-   * (the iOS tab bar). Set on a wrapper outside the shadow root; custom
-   * properties inherit through it.
-   */
-  [data-file-tree-virtualized-scroll='true'] {
-    padding-bottom: var(--file-tree-bottom-inset, 0px);
-  }
 `
 
 /**
@@ -159,8 +150,11 @@ interface WorkspaceFileTreeProps {
    */
   gitStatus?: readonly GitStatusEntry[] | null
   /**
-   * Extra scroll room under the last row, for a bar floating over the bottom
-   * of the tree (the iOS tab bar on mobile). Any CSS length.
+   * Shrinks the tree's viewport from the bottom, for a bar floating over the
+   * page (the iOS tab bar on mobile). Any CSS length. Must shorten the scroll
+   * element itself: Pierre clamps scrollTop to rows × rowHeight − viewport, so
+   * padding inside the scroll element is fought back on every scroll event
+   * (jitter at the bottom, last rows stuck under the bar).
    */
   bottomInset?: string
   className?: string
@@ -245,15 +239,17 @@ export function WorkspaceFileTree({
   return (
     <div className={cn("flex flex-col", className)}>
       <FileFilterInput value={query} onChange={(value) => setQuery(rootPath, value)} />
-      <div
-        className="relative min-h-0 flex-1"
-        style={bottomInset ? ({ "--file-tree-bottom-inset": bottomInset } as React.CSSProperties) : undefined}
-      >
+      <div className="relative min-h-0 flex-1">
         {/* Hidden, not unmounted, while a filter is up: clearing it brings the
             tree back with the folders that were open. */}
-        <div className={cn("absolute inset-0", searching && "invisible")}>{tree}</div>
+        <div
+          className={cn("absolute inset-x-0 top-0", searching && "invisible")}
+          style={{ bottom: bottomInset ?? 0 }}
+        >
+          {tree}
+        </div>
         {searching && (
-          <div className="absolute inset-0">
+          <div className="absolute inset-x-0 top-0" style={{ bottom: bottomInset ?? 0 }}>
             <SearchResults
               rootPath={rootPath}
               query={query.trim()}
