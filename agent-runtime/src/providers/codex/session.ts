@@ -7,6 +7,8 @@ import type {
   GoalControl,
   McpServerInfo,
   McpStatusControl,
+  RuntimeBackgroundEvent,
+  TaskControl,
   Model,
   PermissionDecision,
   ProviderDescriptor,
@@ -49,6 +51,7 @@ import { cleanupTempFiles, convertPrompt, isCompactCommand } from './message-map
 import { SIDE_CHAT_BOUNDARY_PROMPT } from '../../side-chat-prompt.js'
 import { SIDE_CHAT_EXPIRED_MESSAGE } from './side-chat-prompt.js'
 import { NotificationRouter } from './notification-router.js'
+import { CodexBackgroundSubagents, readCodexSubagentTranscript, type CodexSubagentTranscript } from './background-subagents.js'
 import { listModels } from './sdk/discovery.js'
 import type { AppServerClient } from './sdk/app-server-client.js'
 import { SessionImpl } from './sdk/session.js'
@@ -197,6 +200,10 @@ export function disabledMcpConfig(
 export interface CodexSessionNative {
   /** MCP status as the app-server reports it; Codex has no per-session control. */
   mcp: McpStatusControl
+  /** Sub-agents this session spawned (`subAgentActivity`): stop one, clear the finished. */
+  tasks: TaskControl
+  /** The steps of the sub-agent the parent's `subAgentActivity` item `toolUseId` spawned. */
+  subagentTranscript(toolUseId: string): Promise<CodexSubagentTranscript | null>
 }
 
 export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
@@ -234,6 +241,12 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   private readonly writableDirs: string[]
   /** Latest known thread goal, mirrored from goal RPC responses + notifications. */
   private currentGoal: CodexGoal | null = null
+  private backgroundListener: ((event: RuntimeBackgroundEvent) => void) | null = null
+  /** Sub-agents outlive the turn that spawned them; tracked on the connection, not the turn's router. */
+  private readonly subagents = new CodexBackgroundSubagents(
+    (threadId) => this.threadId != null && String(threadId) === String(this.threadId),
+    (tasks) => this.backgroundListener?.({ type: 'tasks', tasks }),
+  )
 
   constructor(params: SessionOptions & CodexSessionOptions, private readonly ctx: RuntimeContext) {
     this.currentModelId = params.model ?? DEFAULT_CODEX_MODEL_ID
@@ -369,6 +382,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
       // MCP elicitation is auto-accepted by the connection itself, once per
       // app-server rather than once per session — see `sdk/client-registry.ts`.
 
+      this.clientUnsubscribers.push(...this.subagents.attach(this.client))
       // Session-level goal mirror: keep currentGoal fresh across turns/streams so
       // the loop's continuation decision and the GET endpoint see the latest state.
       this.clientUnsubscribers.push(
@@ -1240,6 +1254,31 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
 
   readonly native: CodexSessionNative = {
     mcp: { list: () => this.listMcpServers() },
+    tasks: {
+      stop: async (taskId) => {
+        const turnId = this.subagents.activeTurn(taskId)
+        if (!this.client || !turnId) return
+        await this.client.interruptTurn({ threadId: taskId, turnId })
+      },
+      // A sub-agent's steps are read from its thread (`subagentTranscript`), not as output.
+      output: async () => null,
+      clearFinished: () => this.subagents.clearFinished(),
+    },
+    subagentTranscript: async (toolUseId) => {
+      if (!this.threadId) return null
+      return readCodexSubagentTranscript(this.getClient(), this.threadId, toolUseId)
+    },
+  }
+
+  /**
+   * The sub-agents this session spawned, as they start, work and end. Codex does
+   * not answer a finished sub-agent on its own, so only the task list travels here.
+   */
+  onBackground(listener: (event: RuntimeBackgroundEvent) => void): () => void {
+    this.backgroundListener = listener
+    return () => {
+      if (this.backgroundListener === listener) this.backgroundListener = null
+    }
   }
 
   async close(): Promise<void> {

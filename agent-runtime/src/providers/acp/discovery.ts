@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type { ProviderDescriptor } from '../../types.js'
@@ -145,7 +145,7 @@ export async function probeAcpModels(ctx: RuntimeContext, config: AcpProviderCon
       },
     })
     const initialize = await withTimeout(
-      connection.agent.initialize({
+      connection.agent.request('initialize', {
         protocolVersion: ACP_PROTOCOL_VERSION,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       }),
@@ -154,7 +154,7 @@ export async function probeAcpModels(ctx: RuntimeContext, config: AcpProviderCon
     )
     let session: AcpDiscoveryContext['session'] = null
     if (needsSession) {
-      const pendingSession = connection.agent.newSession({ cwd: process.cwd(), mcpServers: [] })
+      const pendingSession = connection.agent.request('session/new', { cwd: process.cwd(), mcpServers: [] })
       const settled = await Promise.race([
         pendingSession.then((value) => ({ value })),
         delay(NEW_SESSION_TIMEOUT_MS).then(() => null),

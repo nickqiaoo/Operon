@@ -12,17 +12,22 @@ import type {
   McpControl,
   McpServerInfo,
   PermissionDecision,
+  RuntimeBackgroundEvent,
+  RuntimeBackgroundTask,
   RuntimeStreamPart,
   SendOptions,
   SessionCloseReason,
   SessionOptions,
   SessionPatch,
   SessionPatchApplied,
+  TaskControl,
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
 import { toUserMessages, inputText } from '../../utils/agent-input.js'
 import { bindOpencodeCaller, unbindOpencodeCaller } from './caller-identity.js'
 import { OpencodeClientManager } from './client-manager.js'
+import { OpencodeBackgroundSubagents } from './background-subagents.js'
+import { OpencodeEventHub, type EventSubscription } from './event-hub.js'
 import { createAscendingMessageId } from './message-id.js'
 import { extractErrorMessage, isAbortError } from './errors.js'
 import {
@@ -142,6 +147,8 @@ export interface OpencodeSessionOptions {
 /** What only OpenCode sessions offer. */
 export interface OpencodeSessionNative {
   mcp: McpControl
+  /** Background sub-agents (OpenCode 2.3+): stop one, clear the finished. */
+  tasks: TaskControl
 }
 
 type NativeEvent = Parameters<NativeEventAdapter['convert']>[0]
@@ -168,6 +175,16 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
    * so only a branch that has not run yet still owes one.
    */
   private boundaryPending: boolean
+  /** The session's event stream, shared by its turns and kept open while a background sub-agent runs. */
+  private hub: OpencodeEventHub | null = null
+  private hubClient: OpencodeClient | null = null
+  private readonly subagents = new OpencodeBackgroundSubagents(() => this.sessionId, (tasks) => this.onSubagentsChanged(tasks))
+  private backgroundListener: ((event: RuntimeBackgroundEvent) => void) | null = null
+  /** A user turn is reading the parent's runs; every run that starts meanwhile is its own. */
+  private turnActive = false
+  /** A reply the agent started on its own, until it ends. */
+  private backgroundTurn: Promise<void> | null = null
+  private releaseTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(params: SessionOptions & OpencodeSessionOptions, ctx: RuntimeContext) {
     this.cwd = params.cwd
@@ -245,20 +262,63 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
       files: parts.flatMap((part) => part.type === 'file' ? [{ uri: part.url, name: part.filename }] : []),
       ...(skills.length ? { skills } : {}),
     }
+    // A reply the agent started on its own owns the session until it ends. No
+    // await may come between this check and `turnActive`, or such a reply could
+    // start in the gap and run alongside this turn.
+    while (this.backgroundTurn) await this.backgroundTurn
+    this.turnActive = true
     const abortController = new AbortController()
     this.abortController = abortController
     const onAbort = () => abortController.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
     if (signal?.aborted) abortController.abort()
-    yield { type: 'start' }
+    try {
+      yield { type: 'start' }
+      // Subscriptions connect lazily; `consumeExecution` waits for server.connected before admitting input.
+      const events = this.eventHub(client).subscribe(abortController.signal)
+      yield* this.consumeExecution({
+        kind: 'user',
+        client,
+        sessionId,
+        events,
+        abortController,
+        initialStepRequest: { body: requestBody },
+        warnings,
+        admit: () => command
+          ? client.session.command({ ...requestBody, name: command.name })
+          : client.session.prompt(requestBody),
+      })
+    } finally {
+      this.turnActive = false
+      signal?.removeEventListener('abort', onAbort)
+    }
+  }
 
+  /**
+   * Read one run of the parent session off `events` and turn it into stream
+   * parts, until the parent goes idle.
+   *
+   * A user turn passes `admit`, which sends its input once the stream is up. A
+   * reply the agent started on its own (a background sub-agent's report came
+   * in) has nothing to send: its events are already arriving.
+   */
+  private async *consumeExecution(options: {
+    kind: 'user' | 'background'
+    client: OpencodeClient
+    sessionId: string
+    events: EventSubscription
+    abortController: AbortController
+    initialStepRequest: NonNullable<Parameters<typeof createStreamState>[0]>['initialStepRequest']
+    warnings: string[]
+    admit?: () => Promise<unknown>
+  }): AsyncIterable<RuntimeStreamPart> {
+    const { client, sessionId, abortController, warnings } = options
     const adapter = new NativeEventAdapter()
-    const nativeEvents = client.event.subscribe({ signal: abortController.signal })[Symbol.asyncIterator]()
-    // Subscriptions connect lazily. Wait for server.connected before admitting input.
+    const nativeEvents = options.events
     let promptError: string | undefined
 
     const state = createStreamState({
-      initialStepRequest: { body: requestBody },
+      initialStepRequest: options.initialStepRequest,
       initialStepWarnings: warnings.map((message) => ({ type: 'other', message })),
       modelId: this.currentModelId,
       pendingInjections: this.pendingInjections,
@@ -277,15 +337,15 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
     })
 
     try {
-      const connected = await nativeEvents.next()
-      if (connected.done) throw new Error('OpenCode event stream did not connect')
-      const admitted = command
-        ? client.session.command({ ...requestBody, name: command.name })
-        : client.session.prompt(requestBody)
-      void admitted.catch((error: unknown) => {
-        promptError = extractErrorMessage(error)
-        abortController.abort()
-      })
+      if (options.admit) {
+        const connected = await nativeEvents.next()
+        if (connected.done) throw new Error('OpenCode event stream did not connect')
+        const admitted = options.admit()
+        void admitted.catch((error: unknown) => {
+          promptError = extractErrorMessage(error)
+          abortController.abort()
+        })
+      }
       nativeLoop: while (true) {
         const next = await Promise.race([nativeEvents.next(), completionReleased])
         if (next !== 'released' && next.done) throw new Error('OpenCode event stream disconnected before the turn completed')
@@ -380,6 +440,11 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
             ? state.childSessions.get(sessionForEvent)
             : undefined
 
+          // A background sub-agent launched by an earlier run: this run's message
+          // has no card for it, so its steps would hang off nothing. Its card
+          // reads them from the sub-agent's own history instead.
+          if (sessionForEvent && !parentCallId && this.subagents.has(sessionForEvent)) continue
+
           if (sessionForEvent && !isEventForSession(rawEvent, sessionId) && !parentCallId) {
             if (sessionForEvent !== sessionId) {
               const buffered = bufferedChildEvents.get(sessionForEvent) ?? []
@@ -463,13 +528,123 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
         yield* createFinishParts(state, { unified: 'error', raw: 'stream-error' }, sessionId, this.currentModelId)
       }
     } finally {
-      signal?.removeEventListener('abort', onAbort)
-      // A read is still pending on the subscription, and `return()` would queue behind it.
-      if (completionWasReleased) abortController.abort()
-      await nativeEvents.return?.()
-      this.abortController = null
+      // The parent may already have started its next run — a background
+      // sub-agent's report came in right as this one ended. Its events sit in
+      // this subscription's queue; hand them on rather than drop them. This and
+      // clearing `turnActive` (the caller's finally, with no await in between)
+      // settle who owns that run: once it is clear, the hub's observer opens a
+      // reply for any run it sees start. With a read still pending
+      // (`completionWasReleased`) an event may be lost to it, so no handoff.
+      const nextRun = completionWasReleased ? -1 : nativeEvents.pending().findIndex((event) =>
+        event.type === 'session.execution.started' && event.data.sessionID === sessionId)
+      if (this.abortController === abortController) this.abortController = null
       this.pendingFollowups.clear()
       this.releaseHeldCompletion = null
+      if (options.kind === 'user') this.turnActive = false
+      if (nextRun >= 0 && !abortController.signal.aborted) {
+        nativeEvents.drop(nextRun)
+        this.openBackgroundTurn(nativeEvents)
+      } else {
+        // A read is still pending on the subscription, and `return()` would queue behind it.
+        if (completionWasReleased) abortController.abort()
+        await nativeEvents.return?.()
+      }
+    }
+  }
+
+  /**
+   * Give a reply the agent started on its own — the parent taking in a
+   * background sub-agent's report — a turn of its own, handed to the background
+   * listener as a stream. A user turn waits for it to end (`backgroundTurn`).
+   */
+  private openBackgroundTurn(events: EventSubscription): void {
+    const listener = this.backgroundListener
+    const client = this.hubClient
+    const sessionId = this.sessionId
+    if (!listener || !client || !sessionId) {
+      void events.return?.()
+      return
+    }
+    let finished!: () => void
+    const done = new Promise<void>((resolve) => {
+      finished = resolve
+    })
+    this.backgroundTurn = done
+    const abortController = new AbortController()
+    this.abortController = abortController
+    // Nothing reads the subscription with this signal, so a stop has to end it.
+    abortController.signal.addEventListener('abort', () => void events.return?.(), { once: true })
+    const run = async function* (this: OpencodeRuntimeSession): AsyncIterable<RuntimeStreamPart> {
+      try {
+        yield { type: 'start' }
+        yield* this.consumeExecution({
+          kind: 'background',
+          client,
+          sessionId,
+          events,
+          abortController,
+          initialStepRequest: {},
+          warnings: [],
+        })
+      } finally {
+        if (this.backgroundTurn === done) this.backgroundTurn = null
+        finished()
+      }
+    }.call(this)
+    this.logger.info('Agent started a turn on its own; routing it to the background listener')
+    listener({ type: 'turn', parts: run })
+  }
+
+  /** The session's one event stream, opened on first use. */
+  private eventHub(client: OpencodeClient): OpencodeEventHub {
+    if (!this.hub) {
+      this.hubClient = client
+      this.hub = new OpencodeEventHub(
+        (signal) => client.event.subscribe({ signal }),
+        (event) => this.observe(event),
+        () => this.subagents.active(),
+        this.logger,
+      )
+    }
+    return this.hub
+  }
+
+  /** Every event, before any reader sees it. */
+  private observe(event: OpenCodeEvent): void {
+    this.subagents.handle(event)
+    if (
+      event.type === 'session.execution.started' &&
+      event.data.sessionID === this.sessionId &&
+      !this.turnActive &&
+      !this.backgroundTurn &&
+      this.hub
+    ) {
+      this.openBackgroundTurn(this.hub.subscribe())
+    }
+    this.hub?.release()
+  }
+
+  private onSubagentsChanged(tasks: RuntimeBackgroundTask[]): void {
+    this.backgroundListener?.({ type: 'tasks', tasks })
+    if (this.subagents.active()) this.hub?.retain()
+    // A finished sub-agent whose report never reaches the parent stops holding
+    // the stream open once its grace period runs out.
+    if (this.releaseTimer) clearTimeout(this.releaseTimer)
+    this.releaseTimer = null
+    const deadline = this.subagents.nextDeadline()
+    if (deadline !== undefined) {
+      this.releaseTimer = setTimeout(() => {
+        this.releaseTimer = null
+        this.hub?.release()
+      }, Math.max(0, deadline - Date.now()) + 50)
+      this.releaseTimer.unref?.()
+    }
+  }
+
+  onBackground(listener: (event: RuntimeBackgroundEvent) => void): () => void {
+    this.backgroundListener = listener
+    return () => {
+      if (this.backgroundListener === listener) this.backgroundListener = null
     }
   }
 
@@ -490,6 +665,10 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
 
   async close(reason: SessionCloseReason = 'discard'): Promise<void> {
     this.abort()
+    if (this.releaseTimer) clearTimeout(this.releaseTimer)
+    this.releaseTimer = null
+    this.hub?.close()
+    this.hub = null
     // A rebuild hands the same OpenCode session to its replacement, which may
     // already have bound it; only a discarded conversation gives the id up.
     if (reason === 'discard' && this.sessionId && this.hostConversationId) {
@@ -654,6 +833,16 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
             await this.waitForMcpStatus(mcp, name, 'disabled')
           }
         }),
+    },
+    tasks: {
+      stop: async (taskId) => {
+        if (!this.subagents.has(taskId)) return
+        const client = await this.clientManager.getClient()
+        await client.session.interrupt({ sessionID: taskId })
+      },
+      // A sub-agent's steps are read from its history (`subagentTranscript`), not as output.
+      output: async () => null,
+      clearFinished: () => this.subagents.clearFinished(),
     },
   }
 

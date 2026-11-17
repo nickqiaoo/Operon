@@ -171,8 +171,9 @@ export function aiRoutes(storage: AiRouteStorage) {
   })
 
   // GET /api/ai/chat/:chatId/subagent/:toolUseId — the steps of the sub-agent a
-  // chat's Agent call spawned, read from Claude Code's transcript of it. A
-  // background agent's card has no other source for them.
+  // chat's Agent (Claude Code) or subagent (OpenCode) call spawned, read from the
+  // provider's own record of it. A background agent's card has no other source
+  // for them.
   router.get('/chat/:chatId/subagent/:toolUseId', async (c) => {
     const chatId = parseInt(c.req.param('chatId'), 10)
     if (!Number.isFinite(chatId)) return c.json({ error: 'Invalid chat id' }, 400)

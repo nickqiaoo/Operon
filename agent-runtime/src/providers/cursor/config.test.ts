@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import { describe, expect, it } from 'vitest'
 import { toSlashCommands } from '../acp/commands.js'
 import { CURSOR_CONFIG } from './config.js'

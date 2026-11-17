@@ -325,14 +325,18 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
       const codexProgress = getSubagentProgress(
         toolPart as ToolPartLike & { result?: unknown; output?: unknown },
       );
-      if (codexProgress && codexProgress.recentActivity.length > 0) {
-        const codexChildParts = convertSubagentToChildParts(codexProgress.recentActivity);
+      const codexInput = (toolPart.args ?? toolPart.input ?? {}) as Record<string, unknown>;
+      // A sub-agent spawned through `subAgentActivity` runs on past its turn: its
+      // card shows from the start and follows the session's task list after that.
+      const codexBackground = codexInput.run_in_background === true;
+      if (codexBackground || (codexProgress && codexProgress.recentActivity.length > 0)) {
+        const codexChildParts = convertSubagentToChildParts(codexProgress?.recentActivity ?? []);
         const codexWrapped = {
           ...toolPart,
-          state: mapSubagentState(codexProgress.state),
+          ...(codexProgress ? { state: mapSubagentState(codexProgress.state) } : {}),
           args: {
-            ...((toolPart.args ?? {}) as Record<string, unknown>),
-            description: codexProgress.agentName,
+            ...codexInput,
+            ...(codexProgress ? { description: codexProgress.agentName } : {}),
           },
         };
         return (

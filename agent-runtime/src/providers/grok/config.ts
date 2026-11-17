@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { EffortLevel, Model } from '../../types.js'
 import type { AcpDiscoveryContext, AcpModelDiscovery, AcpProviderConfig, AcpUsage } from '../acp/index.js'
 

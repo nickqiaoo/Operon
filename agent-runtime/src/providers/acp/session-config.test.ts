@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import { createRuntimeContext } from '../../context.js'
 import { AcpRuntimeSession } from './session.js'
 import type { AcpSessionCallbacks } from './connection.js'
@@ -33,12 +33,19 @@ function harness(options: acp.SessionConfigOption[] | null = defaults()) {
     }
     return { configOptions: current }
   })
-  const request = vi.fn(async () => ({}))
   const prompt = vi.fn(async () => ({ stopReason: 'end_turn' as const }))
+  const request = vi.fn(async (method: string, params: acp.SetSessionConfigOptionRequest) => {
+    switch (method) {
+      case 'session/new': return { sessionId: 's', configOptions: options ?? undefined }
+      case 'session/load': return { configOptions: options ?? undefined }
+      case 'session/set_config_option': return setConfig(params)
+      case 'session/prompt': return prompt()
+      default: return {}
+    }
+  })
   acquire.mockResolvedValue({
     connection: {
-      agent: { newSession: vi.fn(async () => ({ sessionId: 's', configOptions: options ?? undefined })),
-        loadSession: vi.fn(async () => ({ configOptions: options ?? undefined })), setSessionConfigOption: setConfig, request, prompt },
+      agent: { request },
       registerSession: (_id: string, cb: AcpSessionCallbacks) => { callbacks = cb; return () => {} },
     },
     initialize: { protocolVersion: 1, agentCapabilities: { loadSession: true } }, release: vi.fn(),

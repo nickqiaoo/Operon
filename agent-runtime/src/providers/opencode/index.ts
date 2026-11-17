@@ -9,6 +9,7 @@ import {
   type OpencodeSessionNative,
   type OpencodeSessionOptions,
 } from './session.js'
+import { readOpencodeSubagentTranscript, type OpencodeSubagentTranscript } from './subagent-transcript.js'
 
 export class OpencodeRuntimeProvider
   implements RuntimeProviderFactory<SessionOptions & OpencodeSessionOptions, OpencodeSessionNative>
@@ -104,6 +105,12 @@ export class OpencodeRuntimeProvider
 
 export type OpencodeMode = 'build' | 'plan' | 'fullAccess'
 
+/** OpenCode extras that need no session. */
+export interface OpencodeNative {
+  /** The steps of the background sub-agent that call `toolUseId` in session `sessionId` launched. */
+  subagentTranscript(sessionId: string, toolUseId: string): Promise<OpencodeSubagentTranscript | null>
+}
+
 /** OpenCode, driven through one `opencode serve` shared by the runtime's sessions. */
 export const opencode = () =>
   defineProvider<'opencode', {
@@ -111,8 +118,12 @@ export const opencode = () =>
     effort: EffortLevel
     options: OpencodeSessionOptions
     sessionNative: OpencodeSessionNative
+    native: OpencodeNative
   }>({
     id: 'opencode',
     info: OpencodeRuntimeProvider.providerInfo,
     create: (ctx) => new OpencodeRuntimeProvider(ctx),
+    native: (ctx) => ({
+      subagentTranscript: (sessionId, toolUseId) => readOpencodeSubagentTranscript(ctx, sessionId, toolUseId),
+    }),
   })

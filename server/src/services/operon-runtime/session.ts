@@ -9,6 +9,7 @@ import type {
   GoalControl,
   InjectOptions,
   PermissionDecision,
+  RuntimeBackgroundEvent,
   RuntimeGoal,
   RuntimeStreamPart,
   SendOptions,
@@ -21,6 +22,8 @@ import { modelRef } from './resolve-model.js'
 import { markDriven, restoreIdleHandlers, unmarkDriven } from './passive-observer.js'
 import { answerPending, cancelPending, interactiveHandlers } from './interactive-handlers.js'
 import { PartQueue } from './part-queue.js'
+import { OperonBackgroundSubagents, readOperonSubagentTranscript } from './background-subagents.js'
+import type { SubagentTranscript } from '../../../../shared/background-tasks.js'
 
 /**
  * Build the framework `AgentInput` from the request's latest user message. The
@@ -211,6 +214,8 @@ const injectionLabel = (id: string): string =>
 /** What only Operon's own agent offers: its harness control plane (MCP, cron, tasks, skills, …). */
 export interface OperonSessionNative {
   control(method: string, params: unknown): Promise<unknown>
+  /** The steps of the background sub-agent that call `toolUseId` launched (`Agent` with `run_in_background`). */
+  subagentTranscript(toolUseId: string): Promise<SubagentTranscript | null>
 }
 
 export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
@@ -233,10 +238,33 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
    */
   private readonly pendingQuestions = new Map<string, (result: QuestionResult) => void>()
 
+  /** Background sub-agents, reported between turns as the task list their cards read. */
+  private readonly subagents: OperonBackgroundSubagents
+  private backgroundListener: ((event: RuntimeBackgroundEvent) => void) | null = null
+
   constructor(harness: HarnessSession, modelId: string, modeId: string) {
     this.harness = harness
     this.currentModelId = modelId
     this.currentModeId = modeId
+    this.subagents = new OperonBackgroundSubagents(harness, (tasks) => this.backgroundListener?.({ type: 'tasks', tasks }))
+  }
+
+  /**
+   * Only the task list travels here. A reply the agent starts on its own (a
+   * background agent's report waking it) is picked up by the passive observer,
+   * which persists it onto the chat like any turn.
+   */
+  onBackground(listener: (event: RuntimeBackgroundEvent) => void): () => void {
+    this.backgroundListener = listener
+    this.subagents.start()
+    // A resumed session may already have agents running (or finished) from before.
+    const tasks = this.subagents.list()
+    if (tasks.length > 0) listener({ type: 'tasks', tasks })
+    return () => {
+      if (this.backgroundListener !== listener) return
+      this.backgroundListener = null
+      this.subagents.stop()
+    }
   }
 
   private readonly attachmentFollowups = new QueuedFollowup()
@@ -528,6 +556,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
   }
 
   async close(): Promise<void> {
+    this.subagents.stop()
     this.attachmentFollowups.cancel()
     this.abort()
     await this.harness.close()
@@ -542,5 +571,6 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
    *  method to this session's harness. See `control.ts`. */
   readonly native: OperonSessionNative = {
     control: (method, params) => operonAgentControl(this.harness, method, params),
+    subagentTranscript: (toolUseId) => readOperonSubagentTranscript(this.harness, this.subagents, toolUseId),
   }
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import { buildStreamMessageMetadata } from '../../stream-message-metadata.js'
 import type { RuntimeStreamPart, RuntimeTextStreamPart } from '../../types.js'
 import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'

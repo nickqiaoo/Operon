@@ -1,4 +1,5 @@
 import { stripOpencodeCallerArg } from './caller-identity.js'
+import { childSessionOf } from './background-subagents.js'
 import {
   createCodeModeProgram,
   fileNestedResults,
@@ -798,8 +799,9 @@ function handleToolPart(part: ToolPart, state: StreamState, logger?: OpencodeLog
         parts.push({ type: 'tool-approval-request', approvalId: pendingApproval.permissionId, toolCall })
         state.pendingApprovals.delete(part.callID)
       }
-      if (part.state.metadata?.sessionId) {
-        state.childSessions.set(part.state.metadata.sessionId, part.callID)
+      const childSessionId = childSessionOf(part.state.metadata)
+      if (childSessionId) {
+        state.childSessions.set(childSessionId, part.callID)
       } else if ((part.tool === 'task' || part.tool === 'Subtask' || part.tool === 'subagent') && !state.pendingTaskCallIds.includes(part.callID)) {
         state.pendingTaskCallIds.push(part.callID)
       }

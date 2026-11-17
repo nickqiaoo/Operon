@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { Model, Mode, ProviderFeatures, RuntimeTextStreamPart } from '../../types.js'
 
 /** The AI-SDK `finish-step` usage shape the mapper reports for a turn. */
@@ -13,7 +13,7 @@ export interface AcpModelDiscovery {
 /**
  * The model list on a `session/new` response. ACP 1.x moved model choice to `configOptions`
  * (category `model`) and dropped this field from its types, but Cursor and Antigravity still
- * send it, and `ClientSideConnection` hands that response back unparsed, so it arrives intact.
+ * send it. Keep that extension when reading responses through `ClientContext.request`.
  */
 export interface AcpSessionModelState {
   availableModels: Array<{ modelId: string; name: string; description?: string | null; _meta?: Record<string, unknown> }>

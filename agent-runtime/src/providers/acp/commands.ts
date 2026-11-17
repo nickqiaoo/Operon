@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { SlashCommandItem } from '../../types.js'
 import type { AcpProviderConfig } from './types.js'
 

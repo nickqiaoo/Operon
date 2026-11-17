@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { Readable, Transform, Writable } from 'node:stream'
-import * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk/unstable'
 import { logProviderRaw } from '../../provider-raw-log.js'
 
 /** ACP protocol version negotiated on `initialize` (v1 is current). */
@@ -103,11 +103,12 @@ export interface AcpConnectionOptions {
 /**
  * The client half of an ACP connection over a spawned CLI's stdio. Uses the
  * official `@agentclientprotocol/sdk` SDK for all JSON-RPC framing
- * and correlation; we only implement the two required `Client` callbacks
- * (`sessionUpdate`, `requestPermission`) and drive the agent via `this.agent`.
+ * and correlation; we register the two client handlers
+ * (`session/update`, `session/request_permission`) and drive the agent via `this.agent`.
  */
 export class AcpConnection {
-  readonly agent: acp.ClientSideConnection
+  readonly agent: acp.ClientContext
+  private readonly connection: acp.ClientConnection
   private readonly proc: ChildProcessWithoutNullStreams
   private exited = false
   private readonly sessions = new Map<string, AcpSessionCallbacks>()
@@ -142,7 +143,8 @@ export class AcpConnection {
     const output = Writable.toWeb(this.proc.stdin) as unknown as Parameters<typeof acp.ndJsonStream>[0]
     const stream = acp.ndJsonStream(output, input)
 
-    this.agent = new acp.ClientSideConnection(() => this.createClient(), stream)
+    this.connection = this.createClient().connect(stream)
+    this.agent = this.connection.agent
 
     this.wireStderr()
     this.proc.on('error', (error) => this.handleExit(error))
@@ -175,9 +177,9 @@ export class AcpConnection {
     return this.sessions.size
   }
 
-  private createClient(): acp.Client {
-    return {
-      sessionUpdate: async (params) => {
+  private createClient(): acp.ClientApp {
+    return acp.client()
+      .onNotification(acp.methods.client.session.update, ({ params }) => {
         logProviderRaw(this.options.providerId, { dir: 'notify', method: 'session/update', params })
         const session = this.sessions.get(params.sessionId)
         if (session) {
@@ -187,8 +189,8 @@ export class AcpConnection {
         const queued = this.pendingUpdates.get(params.sessionId) ?? []
         queued.push(params)
         this.pendingUpdates.set(params.sessionId, queued)
-      },
-      requestPermission: async (params) => {
+      })
+      .onRequest(acp.methods.client.session.requestPermission, ({ params }) => {
         logProviderRaw(this.options.providerId, { dir: 'request', method: 'session/request_permission', params })
         const session = this.sessions.get(params.sessionId)
         if (!session) {
@@ -197,8 +199,7 @@ export class AcpConnection {
           return { outcome: { outcome: 'cancelled' } }
         }
         return session.onRequestPermission(params)
-      },
-    }
+      })
   }
 
   private wireStderr(): void {
@@ -218,6 +219,7 @@ export class AcpConnection {
   private handleExit(error?: Error): void {
     if (this.exited) return
     this.exited = true
+    this.connection.close(error)
     // The process is gone, so every conversation on it is gone with it.
     const sessions = [...this.sessions.values()]
     this.sessions.clear()
@@ -228,6 +230,7 @@ export class AcpConnection {
 
   async dispose(): Promise<void> {
     this.exited = true
+    this.connection.close()
     const pid = this.proc.pid
     if (pid !== undefined && process.platform !== 'win32') {
       // The whole group: the agent and anything it left running (see the spawn).

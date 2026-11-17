@@ -1,6 +1,6 @@
 import { QueuedFollowup } from '../../queued-followup.js'
 import { randomUUID } from 'node:crypto'
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { RuntimeContext } from '../../context.js'
 import { createRuntimeLogger } from '../../logger.js'
 import type {
@@ -242,7 +242,7 @@ export class AcpRuntimeSession implements AgentSession {
     }
     try {
       this.logger.info(`Prompting ${this.config.providerId} session ${this.sessionId} (model=${this.currentModelId}, mode=${this.currentModeId})`)
-      const result = await connection.agent.prompt({ sessionId: this.sessionId, prompt })
+      const result = await connection.agent.request('session/prompt', { sessionId: this.sessionId, prompt })
       for (const part of mapper.finalize(result.stopReason, result._meta ?? undefined)) queue.push(part)
     } catch (error) {
       this.logger.error(`Prompt failed for ${this.config.providerId} session ${this.sessionId}: ${describeError(error)}`)
@@ -318,7 +318,7 @@ export class AcpRuntimeSession implements AgentSession {
 
     const resumed = await this.tryLoadSession(connection, lease.initialize, sessionCallbacks)
     if (!resumed) {
-      const newSession = await connection.agent.newSession({ cwd: this.cwd, mcpServers: this.mcpServers })
+      const newSession = await connection.agent.request('session/new', { cwd: this.cwd, mcpServers: this.mcpServers })
       this.sessionId = newSession.sessionId
       this.updateConfigOptions(newSession.configOptions)
       this.unregisterSession = connection.registerSession(this.sessionId, sessionCallbacks)
@@ -359,7 +359,7 @@ export class AcpRuntimeSession implements AgentSession {
   ): Promise<boolean> {
     const sessionId = this.sessionId
     if (!sessionId) return false
-    if (initialize.agentCapabilities?.loadSession !== true || !connection.agent.loadSession) {
+    if (initialize.agentCapabilities?.loadSession !== true) {
       this.logger.debug(
         `${this.config.label} does not advertise session/load; starting a new session`,
       )
@@ -368,7 +368,7 @@ export class AcpRuntimeSession implements AgentSession {
 
     const unregister = connection.registerSession(sessionId, callbacks)
     try {
-      const loaded = await connection.agent.loadSession({ sessionId, cwd: this.cwd, mcpServers: this.mcpServers })
+      const loaded = await connection.agent.request('session/load', { sessionId, cwd: this.cwd, mcpServers: this.mcpServers })
       this.updateConfigOptions(loaded?.configOptions)
       this.unregisterSession = unregister
       this.logger.info(`${this.config.label} session resumed: ${sessionId}`)
@@ -424,7 +424,7 @@ export class AcpRuntimeSession implements AgentSession {
       throw new UserFacingRuntimeError(`Unsupported ${option.name} value: ${value}`)
     }
     if (option.currentValue === value) return true
-    const response = await this.connection.agent.setSessionConfigOption({
+    const response = await this.connection.agent.request('session/set_config_option', {
       sessionId: this.sessionId,
       configId: option.id,
       value,
@@ -462,8 +462,7 @@ export class AcpRuntimeSession implements AgentSession {
     if (!this.connection || !this.sessionId) return false
     if (findConfigOption(this.configOptions ?? [], 'mode')) return this.applyConfig('mode', value)
     try {
-      if (!this.connection.agent.setSessionMode) return false
-      await this.connection.agent.setSessionMode({ sessionId: this.sessionId, modeId: value })
+      await this.connection.agent.request('session/set_mode', { sessionId: this.sessionId, modeId: value })
       this.currentModeId = value
       return true
     } catch (error) {
@@ -518,7 +517,7 @@ export class AcpRuntimeSession implements AgentSession {
     }
     if (!this.activeQueue) return
     this.logger.info(`Abort requested for ${this.config.providerId} session ${this.sessionId}`)
-    void this.connection.agent.cancel({ sessionId: this.sessionId }).catch((error) => {
+    void this.connection.agent.notify('session/cancel', { sessionId: this.sessionId }).catch((error) => {
       this.logger.warn(`Failed to cancel ${this.config.label} turn: ${describeError(error)}`)
     })
   }

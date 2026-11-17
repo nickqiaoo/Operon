@@ -73,17 +73,29 @@ async function runAgentStartedTurn(chatId: number, parts: AsyncIterable<RuntimeS
 }
 
 /**
- * The steps of the sub-agent a chat's `Agent` call `toolUseId` spawned, read from
- * Claude Code's own transcript of it. A background agent's steps never reach the
- * chat's messages, and this outlives the process that ran it. Null when the chat
- * has no Claude session or no such sub-agent.
+ * The steps of the sub-agent a chat's `Agent` (Claude Code, Operon), `subagent`
+ * (OpenCode) or collab (Codex) call `toolUseId` spawned, read from the
+ * provider's own record of it. A background agent's steps never reach the
+ * chat's messages, and this outlives the process that ran it. Null when the chat has no session of a
+ * provider that keeps one, or no such sub-agent.
  */
 export async function getSubagentTranscript(chatId: number, toolUseId: string): Promise<SubagentTranscript | null> {
   // The live session knows its id before the chat row does (that is written as
   // the turn ends).
-  const sessionId =
-    getSessionManager().get(chatId)?.runtime.id ??
-    getChatHistoryService()?.getChatMeta(chatId)?.sessionId
+  const live = getSessionManager().get(chatId)
+  // A session that reads its own (Operon's in-process harness) answers directly.
+  const own = sessionTranscriptReader(live?.runtime.native)
+  if (own) return own(toolUseId)
+  const meta = getChatHistoryService()?.getChatMeta(chatId)
+  const sessionId = live?.runtime.id ?? meta?.sessionId
   if (!sessionId) return null
+  const providerId = live?.providerId ?? meta?.providerId
+  if (providerId === 'opencode') return getRuntime().native('opencode').subagentTranscript(sessionId, toolUseId)
   return getRuntime().native('claude-code').subagentTranscript(sessionId, toolUseId)
+}
+
+function sessionTranscriptReader(native: unknown): ((toolUseId: string) => Promise<SubagentTranscript | null>) | undefined {
+  if (typeof native !== 'object' || native === null || !('subagentTranscript' in native)) return undefined
+  const read = native.subagentTranscript
+  return typeof read === 'function' ? (toolUseId) => read.call(native, toolUseId) as Promise<SubagentTranscript | null> : undefined
 }

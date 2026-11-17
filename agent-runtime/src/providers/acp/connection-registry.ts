@@ -15,7 +15,7 @@
  * process, which is the win.
  */
 
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import { createRuntimeLogger } from '../../logger.js'
 import { ACP_PROTOCOL_VERSION, AcpConnection } from './connection.js'
 
@@ -79,7 +79,7 @@ export async function acquireAcpConnection(options: AcquireAcpOptions): Promise<
     entry = {
       connection,
       // Handshake once per process, not once per conversation.
-      initialize: connection.agent.initialize({
+      initialize: connection.agent.request('initialize', {
         protocolVersion: ACP_PROTOCOL_VERSION,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       }),

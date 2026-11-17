@@ -1,5 +1,5 @@
 import { unwrapFileData } from '../../utils/file-data.js'
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { ModelMessage } from 'ai'
 
 export interface AcpPromptWarning {

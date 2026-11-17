@@ -35,6 +35,7 @@ import {
   type ThreadTokenUsage,
 } from './text-stream-emitter.js'
 import { ToolTracker, buildToolResultPayload, isToolItem, resolveToolName } from './tool-tracker.js'
+import { isSubAgentActivity, subAgentName, type SubAgentActivityItem } from './background-subagents.js'
 
 type ToolItem = CommandExecution | FileChange | McpToolCall | WebSearch | CollabAgentToolCall
 type AccountUpdatedPayload = { authMode: string | null; planType: string | null }
@@ -78,6 +79,11 @@ interface SubAgentTracking {
   agentName: string
   activities: SubAgentActivity[]
   finalStatus?: 'completed' | 'error'
+  /**
+   * Spawned through `subAgentActivity`: it runs on past this turn, so the turn
+   * ending says nothing about it — only its own `completed` activity does.
+   */
+  outlivesTurn?: boolean
 }
 
 interface ActiveSubTurn {
@@ -198,6 +204,38 @@ export class NotificationRouter {
     for (const threadId of receiverThreadIds) {
       this.threadToCollabCall.set(threadId, item.id)
     }
+  }
+
+  /** A sub-agent spawned in this turn (`subAgentActivity` `started`): its card, and its thread's steps under it. */
+  private startSubAgentActivity(item: SubAgentActivityItem): void {
+    if (item.kind === 'started') {
+      if (this.subAgentTracker.has(item.id)) return
+      const agentName = subAgentName(item.agentPath)
+      const input = JSON.stringify({ description: agentName, agent_path: item.agentPath, run_in_background: true })
+      this.emitter.flushText()
+      this.emitter.flushReasoning()
+      this.emitter.emitToolInput(item.id, 'codex_collab_agent', input, true)
+      this.emitter.emitToolCall(item.id, 'codex_collab_agent', input, true)
+      this.emittedToolCallIds.add(item.id)
+      this.subAgentTracker.set(item.id, { agentName, activities: [], outlivesTurn: true })
+      this.threadToCollabCall.set(item.agentThreadId, item.id)
+      this.emitSubAgentProgress(item.id, 'running')
+      return
+    }
+    this.settleSubAgentActivity(item)
+  }
+
+  /** A sub-agent that ended while this turn was still running. */
+  private settleSubAgentActivity(item: SubAgentActivityItem): void {
+    if (item.kind !== 'completed' && item.kind !== 'interrupted') return
+    const collabCallId = this.threadToCollabCall.get(item.agentThreadId)
+    const tracking = collabCallId ? this.subAgentTracker.get(collabCallId) : undefined
+    if (!collabCallId || !tracking || tracking.finalStatus) return
+    tracking.finalStatus = item.kind === 'completed' ? 'completed' : 'error'
+    for (const activity of tracking.activities) {
+      if (activity.status === 'running') activity.status = item.kind === 'completed' ? 'completed' : 'cancelled'
+    }
+    this.emitSubAgentProgress(collabCallId, tracking.finalStatus)
   }
 
   private emitSubAgentProgress(
@@ -353,6 +391,10 @@ export class NotificationRouter {
           return
         }
         this.releaseAcceptedInjections()
+        if (isSubAgentActivity(payload.item)) {
+          this.startSubAgentActivity(payload.item)
+          return
+        }
         if (!isToolItem(payload.item)) return
 
         const item = payload.item as ToolItem
@@ -383,6 +425,10 @@ export class NotificationRouter {
         if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turnId, turnId)) return
         if (isContextCompaction(payload.item)) {
           this.emitter.emitContextCompactionCompleted(payload.item.id)
+          return
+        }
+        if (isSubAgentActivity(payload.item)) {
+          this.settleSubAgentActivity(payload.item)
           return
         }
         if (isToolItem(payload.item)) {
@@ -597,6 +643,8 @@ export class NotificationRouter {
         if (!sameThread(payload.threadId, threadId) || !sameTurn(payload.turn.id, turnId)) return
         this.releaseAcceptedInjections()
         for (const [collabCallId, tracking] of this.subAgentTracker) {
+          // Still working after this turn: its card follows the session's task list from here.
+          if (tracking.outlivesTurn && !tracking.finalStatus) continue
           if (tracking.activities.length === 0) continue
           for (const activity of tracking.activities) {
             if (activity.status === 'running') activity.status = 'completed'

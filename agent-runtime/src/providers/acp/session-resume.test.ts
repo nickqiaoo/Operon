@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { SessionOptions } from '../../types.js'
 import type { AcpProviderConfig } from './types.js'
 import { createRuntimeContext } from '../../context.js'
@@ -66,8 +66,11 @@ function mockConnection(options: { canLoad: boolean; loadFails?: boolean }): Har
 
   const connection = {
     agent: {
-      newSession: harness.newSession,
-      ...(options.canLoad ? { loadSession: harness.loadSession } : {}),
+      request: (method: string, params: unknown) => {
+        if (method === 'session/new') return harness.newSession(params)
+        if (method === 'session/load') return harness.loadSession(params)
+        throw new Error(`Unexpected ACP method: ${method}`)
+      },
     },
     registerSession: harness.registerSession,
   }

@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import type * as acp from '@agentclientprotocol/sdk/unstable'
 import type { ThinkingLevel } from '../../types.js'
 
 type SelectOption = Extract<acp.SessionConfigOption, { type: 'select' }>
