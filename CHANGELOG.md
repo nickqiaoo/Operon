@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.5.25] - 2026-11-17
+
+### Changed
+
+- The assistant's memory keeps the conclusion, not the story: one fact per line, at most about 120 characters, with steps, figures and open questions left in the day note and the line pointing at it ("(days/YYYY-MM-DD.md)"). Updating a line rewrites it whole with today's date, sections stay in date order, and a line that is no longer true is dropped rather than kept as history. Nothing about the assistant itself — its runs, checks, tools or errors — goes into memory.md; how the user wants things done stays. "In progress" items name the next date to act on, and the background check follows that date. The wrap-up pass merges lines about the same thing, cuts long lines down to their conclusion and restores date order.
+- A reply no longer carries "Remembered: …" chips when the assistant saves something to memory; the save is silent.
+
+### Fixed
+
+- The bare NO_REPLY marker never reaches the thread, whatever started the turn, and anything the user writes — even just "ok" — gets a real reply.
+- The phone's file tree no longer shakes at its bottom edge: iOS's rubber-band bounce fought the virtualizer's scroll clamp, so the scroller no longer overscrolls.
+
 ## [1.5.24] - 2026-11-17
 
 ### Added
