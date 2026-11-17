@@ -138,6 +138,36 @@ describe('AssistantProjector (the thread)', () => {
       expect(t.messages()).toEqual([expect.objectContaining({ text: 'Sure. Pick one and I will start.', questions: asked })])
     })
 
+    it('puts an AskUserQuestion call up as a form, once, and not as a step of work', () => {
+      const t = thread()
+      const input = {
+        questions: [
+          { question: 'Which agent?', header: 'Agent', options: [{ label: 'Codex', description: 'GPT' }, { label: 'Claude' }] },
+          { question: 'Anything else?', options: [] },
+        ],
+      }
+      t.projector.begin({ kind: 'user' })
+      said(t.projector, 'Two things first.')
+      t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'AskUserQuestion', input }))
+      t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'AskUserQuestion', input }))
+      t.projector.part(p({ type: 'tool-result', toolCallId: 'q1', output: { answers: {} } }))
+      t.projector.end()
+      expect(t.messages()).toEqual([
+        expect.objectContaining({ text: 'Two things first.' }),
+        expect.objectContaining({ text: '', questions: [{ title: 'Which agent?', options: ['Codex', 'Claude'] }, { title: 'Anything else?', options: [] }] }),
+      ])
+      expect(t.activities()).toEqual([])
+    })
+
+    it("reads Codex's request_user_input, whose input is JSON text", () => {
+      const t = thread()
+      t.projector.begin({ kind: 'user' })
+      const input = JSON.stringify({ questions: [{ id: 'agent', question: 'Which agent?', options: [{ label: 'Codex' }] }] })
+      t.projector.part(p({ type: 'tool-call', toolCallId: 'q1', toolName: 'AskUserQuestion', input }))
+      t.projector.end()
+      expect(t.messages()).toEqual([expect.objectContaining({ text: 'Which agent?', questions: [{ title: 'Which agent?', options: ['Codex'] }] })])
+    })
+
     it('keeps progress said after the question as its own message', () => {
       const t = thread()
       t.projector.begin({ kind: 'user' })

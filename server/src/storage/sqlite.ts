@@ -30,6 +30,7 @@ import type {
   TaskChangeListener,
   NotificationStorageAdapter,
   AssistantStorageAdapter,
+  AssistantTaskQuery,
 } from './interface.js'
 import type { Activity, ActivityCoding, ActivityStep, ActivitySummary, ApprovalIcon, AssistantApproval, AssistantQuestion, AssistantAttachment, AssistantMessage, AssistantScheduleRun, AssistantTrigger, AuditRecord, ScheduleRunOutcome } from '../../../shared/assistant.js'
 import { MAIN_ACTIVITY_TASK_PREFIX } from '../../../shared/assistant.js'
@@ -2932,6 +2933,27 @@ export class SqliteStorage
         .all(...ids) as Array<Record<string, unknown>>
     }
     return rows.map((row) => this.rowToAssistantActivitySummary(row))
+  }
+
+  assistantTaskPage(query: AssistantTaskQuery): { items: ActivitySummary[]; total: number } {
+    // The main agent's own turns are kept as activities too, but they are not tasks.
+    const where = ['task_id NOT LIKE ?']
+    const params: Array<string | number> = [`${MAIN_ACTIVITY_TASK_PREFIX}%`]
+    if (query.kind) where.push(query.kind === 'coding' ? 'coding_json IS NOT NULL' : 'coding_json IS NULL')
+    if (query.statuses) {
+      if (!query.statuses.length) return { items: [], total: 0 }
+      where.push(`status IN (${query.statuses.map(() => '?').join(', ')})`)
+      params.push(...query.statuses)
+    }
+    const clause = where.join(' AND ')
+    const { n } = this.db.prepare(`SELECT COUNT(*) AS n FROM assistant_activities WHERE ${clause}`).get(...params) as { n: number }
+    const rows = this.db
+      .prepare(
+        `SELECT id, task_id, title, summary, status, source, started_at, finished_at, coding_json
+         FROM assistant_activities WHERE ${clause} ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, query.limit, query.offset) as Array<Record<string, unknown>>
+    return { items: rows.map((row) => this.rowToAssistantActivitySummary(row)), total: n }
   }
 
   assistantAuditInsert(record: AuditRecord): void {

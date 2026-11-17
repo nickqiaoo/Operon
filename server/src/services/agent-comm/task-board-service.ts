@@ -106,7 +106,8 @@ export class TaskBoardService {
     return agentId != null ? this.storage.getAgent(agentId)?.name ?? null : null
   }
 
-  private formatRow(t: Task): string {
+  /** One task as a line: number, status, title, assignee, labels. */
+  formatRow(t: Task): string {
     const assignee = t.assignedAgentId ? ` -> @${this.agentName(t.assignedAgentId) ?? t.assignedAgentId}` : ''
     const labels = this.storage.taskGetLabels(t.id).map((l) => l.name)
     const labelStr = labels.length ? ` [${labels.join(', ')}]` : ''

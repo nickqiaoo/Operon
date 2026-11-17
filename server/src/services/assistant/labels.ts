@@ -8,9 +8,10 @@ import { ASSISTANT_TOOL_NAMES } from './tools.js'
 
 /** The assistant tool a call is to (`start_task`…), or undefined for any other tool. */
 export function assistantToolName(toolName: string): string | undefined {
-  // mcp__assistant__start_task (Claude, Codex), assistant_worker_finish_task (OpenCode), …
+  // mcp__assistant__start_task (Claude, Codex), assistant_worker_finish_task (OpenCode), and
+  // start_task as it is on Operon's own runtime, which runs them in process.
   const bare = toolName.replace(/^mcp__assistant(_\w+?)?__/, '').replace(/^assistant(_(worker|heartbeat|wrapup))?_/, '')
-  return bare !== toolName && ASSISTANT_TOOL_NAMES.has(bare) ? bare : undefined
+  return ASSISTANT_TOOL_NAMES.has(bare) ? bare : undefined
 }
 
 /** Whether a tool call is one of the assistant's own tools rather than real work. */

@@ -29,7 +29,7 @@ describe('host session restoration', () => {
   it('joins UI and peer opens, including config preparation and observation', async () => {
     const f = fixture()
     const config = { appendSystemPrompt: 'host prompt', mcp: { servers: {} } }
-    const prepare = vi.fn(async () => config)
+    const prepare = vi.fn(async () => ({ config }))
     const other = vi.fn()
     const [a, b] = await Promise.all([
       resumeRuntimeSession(f.harness, 'existing', prepare),
@@ -43,10 +43,17 @@ describe('host session restoration', () => {
     expect(observe).toHaveBeenCalledOnce()
   })
 
+  it('hands the live tools a session was created with back in on a restore', async () => {
+    const f = fixture()
+    const tools = [{ schema: { name: 'start_task', description: '', parameters: {} }, resolve: vi.fn() }]
+    await resumeRuntimeSession(f.harness, 'existing', async () => ({ config: {}, bindings: { extraTools: tools } }))
+    expect(f.resumeSession).toHaveBeenCalledWith('existing', { config: {}, bindings: { extraTools: tools } })
+  })
+
   it('propagates missing-history errors and allows retry without creating a conversation', async () => {
     const f = fixture()
     f.resumeSession.mockRejectedValueOnce(new Error('history not found'))
-    const prepare = async () => ({})
+    const prepare = async () => ({ config: {} })
     await expect(resumeRuntimeSession(f.harness, 'existing', prepare)).rejects.toThrow('history not found')
     expect(f.createSession).not.toHaveBeenCalled()
     expect(observe).not.toHaveBeenCalled()
@@ -63,7 +70,7 @@ describe('host session restoration', () => {
   it('joins a load already in flight elsewhere instead of failing on its own options', async () => {
     const f = fixture()
     f.resumeSession.mockRejectedValueOnce(new SessionAlreadyLoadingError('existing'))
-    expect(await resumeRuntimeSession(f.harness, 'existing', async () => ({}))).toBe(f.session)
+    expect(await resumeRuntimeSession(f.harness, 'existing', async () => ({ config: {} }))).toBe(f.session)
     expect(f.resumeSession).toHaveBeenCalledTimes(2)
     expect(f.resumeSession).toHaveBeenLastCalledWith('existing')
   })
@@ -71,8 +78,8 @@ describe('host session restoration', () => {
   it('closes a newly restored instance when observer wiring fails', async () => {
     const f = fixture()
     observe.mockImplementationOnce(() => { throw new Error('observer failed') })
-    await expect(resumeRuntimeSession(f.harness, 'existing', async () => ({}))).rejects.toThrow('observer failed')
+    await expect(resumeRuntimeSession(f.harness, 'existing', async () => ({ config: {} }))).rejects.toThrow('observer failed')
     expect(f.session.close).toHaveBeenCalledOnce()
-    expect(await resumeRuntimeSession(f.harness, 'existing', async () => ({}))).toBe(f.session)
+    expect(await resumeRuntimeSession(f.harness, 'existing', async () => ({ config: {} }))).toBe(f.session)
   })
 })

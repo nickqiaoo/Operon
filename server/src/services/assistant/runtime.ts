@@ -57,7 +57,7 @@ import { addedFacts, ensureProfileFiles, listProfileFiles, parseIdentity, peekPr
 import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
 import { setAssistantElicitationHandler, type AssistantRole } from './node-repl-bridge.js'
 import { ASSISTANT_DIR, ASSISTANT_OUTPUTS, ASSISTANT_WORKSPACE, ASSISTANT_WRAPUP_DIR, DAYS_DIR } from './paths.js'
-import { AssistantProjector, record, summaryLine, type Cause } from './projector.js'
+import { ASK_USER_TOOL, AssistantProjector, record, summaryLine, type Cause } from './projector.js'
 import {
   buildHeartbeatInstructions,
   buildHeartbeatPrompt,
@@ -122,6 +122,33 @@ type RuntimeEvent = Exclude<AssistantEvent, { type: 'activity' }> | { type: 'act
 const NO_MODEL = 'No model is set up for the assistant yet. Add a provider in Settings → AI Providers, then pick models in Settings → Assistant.'
 const ONBOARDING_KICK = '(The user just opened the assistant for the first time. Start the first meeting.)'
 const MAIN_DENIED = 'You do not do tool work yourself. Hand it to a helper with start_task.'
+const QUESTION_SHOWN =
+  'Not answered yet: the question is now in front of the user as a form in this thread. End your turn without restating it; their choice arrives as their next message.'
+
+/**
+ * The main agent asked the user with AskUserQuestion. The thread shows it as a form (projector.ts)
+ * and the turn does not wait: the agent is told so in place of answers, and the user's choice
+ * comes back as their next message. Keyed by question id (Codex) or text (Claude Code, Operon).
+ */
+function questionShown(input: unknown): PermissionDecision {
+  let parsed = input
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed) as unknown
+    } catch {
+      parsed = undefined
+    }
+  }
+  const given = record(parsed)
+  const questions = Array.isArray(given.questions) ? given.questions.map(record) : []
+  const answers = Object.fromEntries(
+    questions.flatMap((q) => {
+      const key = typeof q.id === 'string' ? q.id : typeof q.question === 'string' ? q.question : undefined
+      return key ? [[key, QUESTION_SHOWN]] : []
+    }),
+  )
+  return { type: 'allow', updatedInput: { ...given, answers } }
+}
 
 /** The main agent's session as stored: which agent, and the agent's own id for it. */
 interface StoredSession {
@@ -200,7 +227,6 @@ function approvalScope(workerId: string): string {
 
 /** Longest worker result the main agent is handed in a notice; the drawer shows all of it. */
 const NOTICE_RESULT_LIMIT = 6_000
-const LISTED_TASKS = 10
 
 const END_LABEL: Record<WorkerOutcome['end'], string> = {
   completed: 'finished',
@@ -616,11 +642,7 @@ export class AssistantRuntime {
       return this.coding.send(chatId, message, {}).then(() => 'continued' as const)
     },
     stopTask: (id) => this.stopActivity(id, { byMain: true }),
-    listTasks: () =>
-      this.storage
-        .assistantActivityList(LISTED_TASKS)
-        .filter((a) => a.agent !== 'main')
-        .map((a) => ({ id: a.id, title: a.title, status: a.status, summary: a.summary })),
+    listTasks: (query) => this.storage.assistantTaskPage(query),
     progress: (activityId, text) => {
       if (!this.workers.progress(activityId, text) || this.workers.isUnattended(activityId)) return
       void this.toMain({ text: `[Progress from task ${activityId}] ${text}`, cause: { kind: 'progress', activityId } })
@@ -669,7 +691,7 @@ export class AssistantRuntime {
         this.emit({ type: 'projects' })
         return result
       },
-      boardList: (projectId, status) => this.operonActions().boardList(projectId, status),
+      boardList: (projectId, query) => this.operonActions().boardList(projectId, query),
       boardGet: (projectId, task) => this.operonActions().boardGet(projectId, task),
       boardCreate: (projectId, input) => this.operonActions().boardCreate(projectId, input),
       boardUpdate: (projectId, task, updates) => this.operonActions().boardUpdate(projectId, task, updates),
@@ -691,8 +713,9 @@ export class AssistantRuntime {
     },
     // Built on first use: field initializers run before the constructor has `storage`.
     operon: {
-      workspaceList: () => this.operonState().workspaceList(),
-      workspaceOverview: (id) => this.operonState().workspaceOverview(id),
+      workspaceList: (filter) => this.operonState().workspaceList(filter),
+      workspaceOverview: (id, offset) => this.operonState().workspaceOverview(id, offset),
+      runningList: (offset) => this.operonState().runningList(offset),
       waitingList: () => this.operonState().waitingList(),
     },
   }
@@ -949,7 +972,11 @@ export class AssistantRuntime {
         this.onMainTurnMemory(memoryBefore, reminder)
         this.projector.end(end)
       },
-      onApproval: async (toolName) => (isAssistantTool(toolName) ? { type: 'allow' } : { type: 'deny', reason: MAIN_DENIED }),
+      onApproval: async (toolName, input) => {
+        if (isAssistantTool(toolName)) return { type: 'allow' }
+        if (bareToolName(toolName) === ASK_USER_TOOL) return questionShown(input)
+        return { type: 'deny', reason: MAIN_DENIED }
+      },
       onSessionId: (sessionId) => {
         const current = this.storedSession()
         if (current?.generation === generation && current.sessionId !== sessionId) this.storage.set(SESSION_KEY, { ...current, sessionId })

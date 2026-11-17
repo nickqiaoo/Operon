@@ -17,7 +17,7 @@ const host = {
   startTask,
   continueTask: async () => 'delivered' as const,
   stopTask: async () => true,
-  listTasks: () => [],
+  listTasks: () => ({ items: [], total: 0 }),
   progress: () => undefined,
   finish: (id: string) => finish(id),
   heartbeatDone: () => true,

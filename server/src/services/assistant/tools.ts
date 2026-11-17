@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AssistantSchedule, ProfileFileName } from '../../../../shared/assistant.js'
+import type { ActivityStatus, ActivitySummary, AssistantSchedule, ProfileFileName } from '../../../../shared/assistant.js'
 import { MemoryService } from '../memory/index.js'
 import { execMemorySearch } from '../memory/operations.js'
 import { readProfileFile, writeProfileFile } from './files.js'
@@ -9,6 +9,7 @@ import type { OperonActions } from './operon-actions.js'
 import type { ScheduleInput } from './schedule.js'
 import type { AssistantSpecs } from './specs.js'
 import { START_SPEC_DESCRIPTION } from '../spec/prompts.js'
+import { DEFAULT_PAGE, MAX_PAGE, emptyPage, pageRange } from './paging.js'
 
 /**
  * The assistant's own tools — the main agent's and a worker's — whatever agent runs
@@ -17,12 +18,20 @@ import { START_SPEC_DESCRIPTION } from '../spec/prompts.js'
  * the caller's role, not by what a client happened to list.
  */
 
-/** A worker as the main agent sees it when listing. */
-export interface TaskListing {
-  id: string
-  title: string
-  status: string
-  summary: string
+/** Which tasks to list: a filter and a page of it, newest first. */
+export interface TaskQuery {
+  /** Only these statuses; all when left out. */
+  statuses?: readonly ActivityStatus[]
+  /** `task`: a helper's; `coding`: a coding agent in a workspace. Both when left out. */
+  kind?: 'task' | 'coding'
+  offset: number
+  limit: number
+}
+
+/** A page of tasks, and how many match the filter in all. */
+export interface TaskPage {
+  items: ActivitySummary[]
+  total: number
 }
 
 /** What a worker hands in at the end of a task. */
@@ -56,7 +65,7 @@ export interface AssistantToolHost {
   /** Add to a running task, or pick a finished one back up. */
   continueTask(id: string, message: string): Promise<'delivered' | 'continued' | 'missing'>
   stopTask(id: string): Promise<boolean>
-  listTasks(): TaskListing[]
+  listTasks(query: TaskQuery): TaskPage
   /** A milestone worker `activityId` wants passed on. */
   progress(activityId: string, text: string): void
   /** Worker `activityId` handed in its result. False: no such running worker. */
@@ -202,39 +211,135 @@ const stopTask = defineTool({
   run: async ({ task_id }, _caller, host) => ((await host.stopTask(task_id)) ? 'Stopped.' : 'That task is not running.'),
 })
 
+const ACTIVE_STATUSES: readonly ActivityStatus[] = ['running', 'waiting']
+const FINISHED_STATUSES: readonly ActivityStatus[] = ['done', 'partial', 'failed', 'stopped']
+/** Finished tasks shown under the active ones when no status is asked for. */
+const RECENT_FINISHED = 10
+/** A safety cap on the active section; in practice far fewer run at once. */
+const MAX_ACTIVE = 200
+
 const listTasks = defineTool({
   name: 'list_tasks',
-  description: 'The most recent tasks with their status and one-line result — for when the user asks how things are going.',
-  parameters: z.object({}),
+  description:
+    'Your tasks and the coding agents you started, newest first — for when the user asks how things are going or what is working right now. ' +
+    'With no status: every task still running or waiting, then a page of finished ones. With a status: a page of just those. ' +
+    'Each section says how many there are in all; page on with offset to see the rest.',
+  parameters: z.object({
+    status: z
+      .enum(['active', 'finished', 'all'])
+      .optional()
+      .describe('active: running or waiting for the user; finished: done, partly done, failed or stopped. Leave out for every active one plus finished ones'),
+    kind: z.enum(['task', 'coding']).optional().describe('task: helpers; coding: coding agents in the workspaces. Both when left out'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('How many to skip; with no status it pages the finished ones'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_PAGE)
+      .optional()
+      .describe(`How many to show, at most ${MAX_PAGE}. Default ${DEFAULT_PAGE}, or ${RECENT_FINISHED} finished ones under the active ones`),
+  }),
   roles: ['main'],
-  run: (_args, _caller, host) => {
-    const tasks = host.listTasks()
-    if (!tasks.length) return 'No tasks yet.'
-    return tasks.map((t) => `- ${t.id} · ${t.status} · ${t.title} — ${t.summary}`).join('\n')
+  run: ({ status, kind, offset = 0, limit }, _caller, host) => {
+    const now = Date.now()
+    const query = (statuses: readonly ActivityStatus[] | undefined, size: number, skip: number) =>
+      host.listTasks({ ...(statuses ? { statuses } : {}), ...(kind ? { kind } : {}), offset: skip, limit: size })
+
+    if (status) {
+      const statuses = status === 'active' ? ACTIVE_STATUSES : status === 'finished' ? FINISHED_STATUSES : undefined
+      const page = query(statuses, limit ?? DEFAULT_PAGE, offset)
+      const label = status === 'active' ? 'Running or waiting' : status === 'finished' ? 'Finished' : 'All tasks'
+      return formatSection(label, page, offset, now) ?? emptyPage(offset, page.total, 'None.')
+    }
+
+    const active = query(ACTIVE_STATUSES, MAX_ACTIVE, 0)
+    const finished = query(FINISHED_STATUSES, limit ?? RECENT_FINISHED, offset)
+    if (!active.total && !finished.total) return 'No tasks yet.'
+    return [
+      formatSection('Running or waiting', active, 0, now) ?? 'Nothing is running or waiting.',
+      formatSection('Finished', finished, offset, now) ?? emptyPage(offset, finished.total, 'Nothing finished yet.'),
+    ].join('\n\n')
   },
 })
+
+/** A heading that says which slice of how many this is and how to get the next, then one line each. */
+function formatSection(label: string, page: TaskPage, offset: number, now: number): string | undefined {
+  if (!page.items.length) return undefined
+  return [`${label}, most recent first (${pageRange(offset, page.items.length, page.total)}):`, ...page.items.map((t) => taskLine(t, now))].join('\n')
+}
+
+function taskLine(task: ActivitySummary, now: number): string {
+  const when = task.finishedAt ? `finished ${ago(task.finishedAt, now)}` : `started ${ago(task.startedAt, now)}`
+  const parts = [`- ${task.id} · ${task.status} · ${task.title} — ${task.summary}`]
+  if (task.coding) {
+    const c = task.coding
+    const where = `workspace "${c.workspaceName}"${c.projectName ? ` in project "${c.projectName}"` : ''}`
+    parts.push(`coding agent ${c.providerId} / ${c.model} · chat ${c.chatId} · ${where}`)
+  }
+  if (task.source) parts.push(`from a ${task.source}`)
+  parts.push(when)
+  return parts.join(' · ')
+}
+
+function ago(at: number, now: number): string {
+  const minutes = Math.round((now - at) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
+}
 
 // ---------------------------------------------------------------------------
 // The user's coding work in the rest of the app (docs/assistant/operon-manager.md). Read-only and
 // local, so the main agent looks these up itself rather than handing them to a helper.
 // ---------------------------------------------------------------------------
 
+const offsetParam = z.number().int().min(0).optional().describe('How many to skip, to see the next page; a list says the offset for its next page')
+const limitParam = z
+  .number()
+  .int()
+  .min(1)
+  .max(MAX_PAGE)
+  .optional()
+  .describe(`How many to show, at most ${MAX_PAGE}; default ${DEFAULT_PAGE}`)
+
 const workspaceList = defineTool({
   name: 'workspace_list',
   description:
-    "The user's projects and their workspaces (each a git worktree on its own branch), with how many conversations in each are running or waiting for the user. Start here when the user asks about their coding work.",
-  parameters: z.object({}),
+    "The user's projects and their workspaces (each a git worktree on its own branch), with how many conversations in each are running or waiting for the user. Start here when the user asks about their coding work. " +
+    'With many projects, narrow it: project_id for one, active_only for just the busy workspaces.',
+  parameters: z.object({
+    project_id: z.number().int().optional().describe('Only this project'),
+    active_only: z.boolean().optional().describe('Only workspaces with a conversation running or waiting for the user'),
+  }),
   roles: ['main'],
-  run: (_args, _caller, host) => host.operon.workspaceList(),
+  run: ({ project_id, active_only }, _caller, host) =>
+    host.operon.workspaceList({ ...(project_id != null ? { projectId: project_id } : {}), ...(active_only ? { activeOnly: true } : {}) }),
 })
 
 const workspaceOverview = defineTool({
   name: 'workspace_overview',
   description:
-    "One workspace in detail: its uncommitted changes, its recent conversations (agent, running / waiting / idle, the last reply of idle ones) and the project's open board tasks.",
-  parameters: z.object({ workspace_id: z.number().int().describe('From workspace_list') }),
+    "One workspace in detail: its uncommitted changes, its conversations, most recent first (agent, running / waiting / idle, the last reply of the latest idle ones) and the project's open board tasks. " +
+    'It shows a page of conversations and says how many there are; offset pages on (later pages are only conversations).',
+  parameters: z.object({ workspace_id: z.number().int().describe('From workspace_list'), offset: offsetParam }),
   roles: ['main'],
-  run: ({ workspace_id }, _caller, host) => host.operon.workspaceOverview(workspace_id),
+  run: ({ workspace_id, offset }, _caller, host) => host.operon.workspaceOverview(workspace_id, offset),
+})
+
+const runningList = defineTool({
+  name: 'running_list',
+  description:
+    'Every conversation in any workspace with an agent working right now — whoever started it, you or the user — with its agent, title and where it is. ' +
+    'For "what is working right now"; those waiting for the user are counted here and listed by waiting_list.',
+  parameters: z.object({ offset: offsetParam }),
+  roles: ['main'],
+  run: ({ offset }, _caller, host) => host.operon.runningList(offset),
 })
 
 const waitingList = defineTool({
@@ -350,10 +455,20 @@ const taskNumber = z.number().int().describe('The task number, as in "#12"')
 
 const boardList = defineTool({
   name: 'board_list',
-  description: "A project's board: its tasks with status, priority and assignee.",
-  parameters: z.object({ project_id: projectId, status: TASK_STATUS.optional() }),
+  description:
+    "A project's board: a page of its tasks with status, assignee and labels, and how many there are; offset pages on. Open tasks unless a status says otherwise.",
+  parameters: z.object({
+    project_id: projectId,
+    status: z
+      .enum(['open', 'all', ...TASK_STATUS.options])
+      .optional()
+      .describe('open (the default): not done or cancelled; all: every task; or one status'),
+    offset: offsetParam,
+    limit: limitParam,
+  }),
   roles: ['main'],
-  run: ({ project_id, status }, _caller, host) => attempt(() => host.actions.boardList(project_id, status)),
+  run: ({ project_id, status, offset, limit }, _caller, host) =>
+    attempt(() => host.actions.boardList(project_id, { ...(status ? { status } : {}), offset: offset ?? 0, limit: limit ?? DEFAULT_PAGE })),
 })
 
 const boardGet = defineTool({
@@ -810,6 +925,7 @@ export const ASSISTANT_TOOLS: readonly AssistantTool[] = [
   listTasks,
   workspaceList,
   workspaceOverview,
+  runningList,
   waitingList,
   workspaceCreate,
   projectAdd,

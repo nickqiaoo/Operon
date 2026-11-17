@@ -73,6 +73,34 @@ function questionsOf(value: unknown): AssistantQuestion[] | undefined {
   return questions.length ? questions : undefined
 }
 
+/** The built-in tool an agent asks the user with (Claude Code's, Codex's request_user_input, Operon's own). */
+export const ASK_USER_TOOL = 'AskUserQuestion'
+
+/**
+ * An AskUserQuestion call's questions as the thread shows them. Every provider sends
+ * `{ questions: [{ question, options: [{ label }] }] }`; Codex's input arrives as JSON text.
+ */
+export function askedQuestions(input: unknown): AssistantQuestion[] | undefined {
+  let value = input
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown
+    } catch {
+      return undefined
+    }
+  }
+  const items = record(value).questions
+  if (!Array.isArray(items)) return undefined
+  const questions = items.flatMap((item): AssistantQuestion[] => {
+    const { question, options } = record(item)
+    const title = str(question)
+    if (!title) return []
+    const labels = Array.isArray(options) ? options.flatMap((option) => str(record(option).label) ?? str(option) ?? []) : []
+    return [{ title, options: labels }]
+  })
+  return questions.length ? questions : undefined
+}
+
 /**
  * Text as the agent says it, cut into the pieces it said between tool calls: a piece ends at a
  * tool call, the end of a step or the end of the text block. Providers mark these differently;
@@ -138,7 +166,7 @@ export interface ThreadSink {
  */
 const QUIET_MAIN_TOOLS: ReadonlySet<string> = new Set([
   'start_task', 'continue_task', 'stop_task', 'list_tasks', 'schedule_list', 'memory_search',
-  'workspace_list', 'workspace_overview', 'waiting_list', 'board_list', 'board_get', 'board_agents', 'github_prs', 'github_pr',
+  'workspace_list', 'workspace_overview', 'running_list', 'waiting_list', 'board_list', 'board_get', 'board_agents', 'github_prs', 'github_pr',
   'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
   'start_spec', 'answer_spec_questions', 'spec_status',
 ])
@@ -192,6 +220,8 @@ export class AssistantProjector {
   private segmentCause: Cause | undefined
   /** A question asked this turn; the turn's closing answer goes on it rather than repeating it. */
   private openQuestion: AssistantMessage | undefined
+  /** AskUserQuestion calls already put up as a form (a provider may send the same call again). */
+  private readonly asked = new Set<string>()
   private typing = false
   /** This turn's own work, once it has done any. */
   private work: ActivityProjector | undefined
@@ -209,6 +239,7 @@ export class AssistantProjector {
     this.segments = new TextSegments()
     this.segmentCause = undefined
     this.openQuestion = undefined
+    this.asked.clear()
     this.setTyping(true)
   }
 
@@ -221,8 +252,24 @@ export class AssistantProjector {
     if (part.type === 'text-start' || (part.type === 'text-delta' && !this.segmentCause)) this.segmentCause = this.cause
     const piece = this.segments.feed(part)
     if (piece) { this.speak(piece, this.segmentCause); this.segmentCause = undefined }
+    if (part.type === 'tool-call' && this.ask(part)) return
     if (!this.work && part.type === 'tool-call') this.startWork(part)
     this.work?.part(part)
+  }
+
+  /**
+   * The agent asked the user with AskUserQuestion: its questions go up as a form, as Codex's own
+   * questions do (the runtime tells the agent the answer comes as the next message). Not a step.
+   */
+  private ask(part: RuntimeStreamPart): boolean {
+    const p = part as Record<string, unknown>
+    if (bareToolName(String(p.toolName ?? '')) !== ASK_USER_TOOL) return false
+    const id = String(p.toolCallId ?? '')
+    if (id && this.asked.has(id)) return true
+    if (id) this.asked.add(id)
+    const questions = askedQuestions(p.input)
+    if (questions) this.speak({ text: '', questions })
+    return true
   }
 
   /** The turn is over: say what is left, and say so if it failed. */
@@ -273,7 +320,7 @@ export class AssistantProjector {
       steps: [],
     }
     this.work = new ActivityProjector(activity, (a) => this.sink.activity(a), this.newId, this.now, undefined, (name) =>
-      QUIET_MAIN_TOOLS.has(assistantToolName(name) ?? ''),
+      QUIET_MAIN_TOOLS.has(assistantToolName(name) ?? '') || bareToolName(name) === ASK_USER_TOOL,
     )
   }
 

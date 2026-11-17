@@ -1,4 +1,4 @@
-import type { Activity, ActivitySummary, AssistantMessage, AssistantScheduleRun, AuditRecord } from '../../../shared/assistant.js'
+import type { Activity, ActivityStatus, ActivitySummary, AssistantMessage, AssistantScheduleRun, AuditRecord } from '../../../shared/assistant.js'
 import type { ChatConfigPatch, ChatHistoryEntry, ChatHistoryListItem, ChatMeta, CreateChatInput, PutChatMessageInput, PutChatMessageResult } from '../types/chat.js'
 import type { CronjobExecutionHistoryItem, CronjobTask } from '../types/cronjob.js'
 import type {
@@ -411,6 +411,16 @@ export interface NotificationStorageAdapter {
   notificationPrune(before: number): number
 }
 
+/** Which of the assistant's tasks to page through (`assistantTaskPage`). */
+export interface AssistantTaskQuery {
+  /** Only these statuses; all when left out. */
+  statuses?: readonly ActivityStatus[]
+  /** `task`: a worker's; `coding`: a coding agent in a workspace. Both when left out. */
+  kind?: 'task' | 'coding'
+  offset: number
+  limit: number
+}
+
 /** The personal assistant's single thread and the workers it ran (docs/assistant/design.md). */
 export interface AssistantStorageAdapter {
   /** Insert, or update the message with the same id. */
@@ -426,6 +436,11 @@ export interface AssistantStorageAdapter {
    * (`live`) every one still running or waiting.
    */
   assistantActivitySummaries(query: { limit: number } | { ids: readonly string[]; live: boolean }): ActivitySummary[]
+  /**
+   * One page of the workers' tasks and coding agents (not the main agent's own turns), newest
+   * first, without steps or report; `total` counts every one matching the filter.
+   */
+  assistantTaskPage(query: AssistantTaskQuery): { items: ActivitySummary[]; total: number }
   assistantAuditInsert(record: AuditRecord): void
   /** Newest first. */
   assistantAuditList(limit: number): AuditRecord[]

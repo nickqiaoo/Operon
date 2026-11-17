@@ -2,7 +2,7 @@ import path from 'path'
 import { getOperonHome } from '../../../../shared/operon-home.js'
 import { mkdir, stat } from 'fs/promises'
 import { codeMode } from 'operon-code-mode'
-import { createLocalHarness, LocalEnvironment, resolveSessionConfig, type AutoApprover, type Harness, type HarnessSession, type McpServerConfig, type PermissionMode, type PermissionRule, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
+import { createLocalHarness, LocalEnvironment, resolveSessionConfig, type AutoApprover, type Harness, type HarnessSession, type McpServerConfig, type PermissionMode, type PermissionRule, type SessionConfig, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
 import { createAutoApprover, defaultCapabilities, filesystemTools, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions } from 'operon-agents/advanced'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
@@ -428,6 +428,28 @@ async function buildHarness(): Promise<Harness> {
   return harness
 }
 
+/** Options only this provider reads; the others ignore the `operon` block. */
+export interface OperonSessionOptions {
+  operon?: {
+    /**
+     * The host's own tools for this session (`bindings.extraTools`): run in process and offered
+     * directly next to the built-in ones, where the other agents reach the same tools over MCP and
+     * Code Mode would hide them behind RunCode. Live objects, so a resume hands them in again.
+     */
+    tools?: readonly Tool[]
+    /** Tools the session never offers, built-in or not (`Bash`, `Agent`…): `SessionConfig.disabledTools`. */
+    disabledTools?: readonly string[]
+  }
+}
+
+/** What `operon` adds to a session's setup: its configuration, and the live tools to open it with. */
+function sessionSetup(config: SessionConfig, operon: OperonSessionOptions['operon']): { config: SessionConfig; bindings?: { extraTools: readonly Tool[] } } {
+  return {
+    config: operon?.disabledTools?.length ? { ...config, disabledTools: [...operon.disabledTools] } : config,
+    ...(operon?.tools?.length ? { bindings: { extraTools: operon.tools } } : {}),
+  }
+}
+
 /**
  * Runtime provider backed by the in-process `operon-agents` engine (our own framework).
  * Replaces the hand-rolled aisdk `custom` loop: real session tree, capabilities
@@ -507,14 +529,14 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
     return models[0]?.id ?? this.currentModelId
   }
 
-  async createSession(params: SessionOptions): Promise<OperonRuntimeSession> {
+  async createSession(params: SessionOptions & OperonSessionOptions): Promise<OperonRuntimeSession> {
     const modelId = params.model ?? (await this.defaultModelId())
     const modeId = params.mode ?? this.currentModeId
     this.currentModelId = modelId
     this.currentModeId = modeId
     if (params.effort !== undefined) this.currentThinkingLevel = params.effort
 
-    const session = await this.openSession(params.resume, params.cwd, params.mcpServers, params.instructions)
+    const session = await this.openSession(params.resume, params.cwd, params.mcpServers, params.instructions, params.operon)
     session.setModel(modelRef(modelId))
     session.setPermissionMode(MODE_TO_PERMISSION[modeId] ?? 'manual')
     // Only the models that advertise the level will surface it in the picker, so a
@@ -530,14 +552,15 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
     cwd: string,
     mcpServers?: RuntimeMcpServers,
     instructions?: string,
+    operon?: OperonSessionOptions['operon'],
   ): Promise<HarnessSession> {
     const harness = await this.harness()
     if (sessionId !== undefined) {
       return resumeRuntimeSession(harness, sessionId, async () =>
-        workspaceSessionConfig(await resolveWorkspaceSetup(cwd, mcpServers), instructions))
+        sessionSetup(workspaceSessionConfig(await resolveWorkspaceSetup(cwd, mcpServers), instructions), operon))
     }
     const { root, ...setup } = await resolveWorkspaceSetup(cwd, mcpServers)
-    const session = await harness.createSession({ workDir: root, config: workspaceSessionConfig(setup, instructions) })
+    const session = await harness.createSession({ workDir: root, ...sessionSetup(workspaceSessionConfig(setup, instructions), operon) })
     observeSession(session, { notifyOnTurnEnd: true })
     return session
   }

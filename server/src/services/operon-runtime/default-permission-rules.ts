@@ -4,11 +4,16 @@ import type { PermissionRule } from 'operon-agents'
  * How a background assistant session hands its result back. They only record into the session
  * that called them, and a prompt or a judge round trip on them can lose the finished work.
  * Exact names on purpose: a tool added to these servers later doesn't inherit the exemption.
+ * Over MCP they carry the server's name; on this runtime the assistant hands them in as the
+ * session's own tools (assistant/agents.ts operonOwnTools), under their bare names.
  */
 const REPORT_BACK_TOOLS = [
   'mcp__assistant_heartbeat__heartbeat_done',
   'mcp__assistant_worker__finish_task',
   'mcp__assistant_worker__report_progress',
+  'heartbeat_done',
+  'finish_task',
+  'report_progress',
 ] as const
 
 export const DEFAULT_PERMISSION_RULES: readonly PermissionRule[] = REPORT_BACK_TOOLS.map((pattern) => ({

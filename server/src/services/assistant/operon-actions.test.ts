@@ -163,3 +163,33 @@ describe('createOperonActions', () => {
     )
   })
 })
+
+describe('the board, a page at a time', () => {
+  const statuses = ['todo', 'in_progress', 'done', 'cancelled'] as const
+  // 30 tasks, #1–#30, taking the four statuses in turn: 16 open, 7 done, 7 cancelled.
+  const tasks = Array.from({ length: 30 }, (_, i) => ({ id: 100 + i, projectId: 5, number: i + 1, title: `T${i + 1}`, status: statuses[i % 4], assignedAgentId: null }) as Task)
+  const withBoard = () =>
+    ({
+      ...storage(),
+      taskList: (q: { status?: string }) => tasks.filter((t) => !q.status || t.status === q.status),
+      taskGetLabels: () => [],
+    }) as unknown as OperonActionsStorage
+
+  it('shows open tasks by default, with how many and where the next page starts', () => {
+    const actions = createOperonActions(withBoard(), () => '小Q')
+    const first = actions.boardList(5, { offset: 0, limit: 10 }).split('\n')
+    expect(first[0]).toBe('## Tasks (1–10 of 16; offset 10 for the next)')
+    expect(first[1]).toBe('#1 [todo] T1')
+    expect(first.some((l) => l.includes('[done]') || l.includes('[cancelled]'))).toBe(false)
+    expect(actions.boardList(5, { offset: 10, limit: 10 }).split('\n')[0]).toBe('## Tasks (11–16 of 16)')
+    expect(actions.boardList(5, { offset: 20, limit: 10 })).toBe('No more: there are 16.')
+  })
+
+  it('takes every task, or one status', () => {
+    const actions = createOperonActions(withBoard(), () => '小Q')
+    expect(actions.boardList(5, { status: 'all', offset: 0, limit: 50 }).split('\n')[0]).toBe('## Tasks (30)')
+    expect(actions.boardList(5, { status: 'done', offset: 0, limit: 50 }).split('\n')[0]).toBe('## Tasks (7)')
+    expect(createOperonActions({ ...withBoard(), taskList: () => [] } as unknown as OperonActionsStorage, () => '小Q').boardList(5, { offset: 0, limit: 10 }))
+      .toBe('No open tasks.')
+  })
+})

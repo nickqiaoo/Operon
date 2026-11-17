@@ -1,4 +1,9 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai'
+import { createHarness, createModelManager } from 'operon-agents'
 import type { AgentInput, AgentSession, RuntimeStreamPart } from '@operon/agent-runtime'
 import type { AssistantMessage } from '../../../../shared/assistant.js'
 import { AssistantProjector, type Cause } from './projector.js'
@@ -20,7 +25,8 @@ vi.mock('../mcp-config.js', () => ({
   }),
 }))
 
-const { AgentChannel, openRuntimeSession, sessionMcpServers } = await import('./agents.js')
+const { AgentChannel, MAIN_DISABLED_TOOLS, openRuntimeSession, operonOwnTools, sessionMcpServers } = await import('./agents.js')
+const { setAssistantToolHost } = await import('./tools.js')
 
 const worker = { role: 'worker' as const, id: 'w1' }
 
@@ -78,6 +84,68 @@ describe('assistant session servers', () => {
         operonrepl: expect.objectContaining({ type: 'http' }),
       }),
     }))
+  })
+
+  it("hands the assistant's own tools to Operon's runtime in process, and keeps the main agent off the shell", async () => {
+    createStandaloneSession.mockClear()
+    expect(Object.keys(sessionMcpServers({ role: 'main' }, true, 'custom'))).toEqual([])
+    expect(Object.keys(sessionMcpServers(worker, true, 'custom'))).not.toContain('assistant_worker')
+
+    await openRuntimeSession({ providerId: 'custom', modelId: '', kind: 'main', caller: { role: 'main' }, cwd: '/assistant', instructions: '' })
+    const main = createStandaloneSession.mock.calls[0]?.[1] as { operon?: { tools: Array<{ schema: { name: string } }>; disabledTools?: readonly string[] } }
+    expect(main.operon?.tools.map((tool) => tool.schema.name)).toEqual(expect.arrayContaining(['start_task', 'coding_start', 'board_dispatch']))
+    expect(main.operon?.tools.map((tool) => tool.schema.name)).not.toContain('finish_task')
+    expect(main.operon?.disabledTools).toEqual(['Bash', 'Agent', 'Workflow'])
+
+    await openRuntimeSession({ providerId: 'custom', modelId: '', kind: 'worker', caller: worker, cwd: '/workspace', instructions: '' })
+    const helper = createStandaloneSession.mock.calls[1]?.[1] as { operon?: { tools: Array<{ schema: { name: string } }>; disabledTools?: readonly string[] } }
+    expect(helper.operon?.tools.map((tool) => tool.schema.name)).toEqual(expect.arrayContaining(['finish_task', 'report_progress']))
+    expect(helper.operon?.disabledTools).toBeUndefined()
+  })
+})
+
+describe("the main agent on Operon's own runtime", () => {
+  it('calls its own tools directly, without approval in auto mode, and has no shell', async () => {
+    const handle = fauxProvider()
+    const runtime = createModelManager({ builtins: false })
+    runtime.models.setProvider(handle.provider)
+    const harness = createHarness({
+      config: {
+        defaults: { model: `${handle.provider.id}/${handle.getModel().id}`, permission: { mode: 'auto' } },
+        workDir: mkdtempSync(path.join(tmpdir(), 'assistant-main-tools-')),
+      },
+      modelManager: runtime,
+    })
+    const startTask = vi.fn(async () => 'a1')
+    setAssistantToolHost({ startTask } as never)
+    handle.setResponses([
+      fauxAssistantMessage(fauxToolCall('start_task', { title: 'Release', prompt: 'Ship it' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('Bash', { command: 'git push', description: 'Push' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('done', { stopReason: 'stop' }),
+    ])
+    const session = await harness.createSession({
+      config: { disabledTools: [...MAIN_DISABLED_TOOLS] },
+      bindings: { extraTools: operonOwnTools({ role: 'main' }) },
+    })
+    const asked: string[] = []
+    session.setApprovalHandler(async (request) => {
+      asked.push(request.toolName)
+      return { decision: 'rejected' }
+    })
+    const results: Record<string, string> = {}
+    session.onEvent((event) => {
+      if (event.type === 'tool.result') results[event.toolName] = JSON.stringify(event.result)
+    })
+    try {
+      await session.prompt('release')
+    } finally {
+      await harness.close()
+      setAssistantToolHost(undefined)
+    }
+    expect(startTask).toHaveBeenCalledWith({ title: 'Release', prompt: 'Ship it' })
+    expect(results.start_task).toContain('Started task a1.')
+    expect(results.Bash).toContain('unknown tool: Bash')
+    expect(asked).toEqual([])
   })
 })
 

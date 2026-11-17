@@ -1,19 +1,20 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ActivityStatus, ActivitySummary } from '../../../../shared/assistant.js'
 import { bareToolName, isAssistantTool, stepLabel } from './labels.js'
-import { callAssistantTool, toolsFor, type AssistantToolHost } from './tools.js'
+import { callAssistantTool, toolsFor, type AssistantToolHost, type TaskPage, type TaskQuery } from './tools.js'
 
 function host(overrides: Partial<AssistantToolHost> = {}): AssistantToolHost {
   return {
     startTask: vi.fn(async () => 'w1'),
     continueTask: vi.fn(async () => 'delivered' as const),
     stopTask: vi.fn(async () => true),
-    listTasks: () => [],
+    listTasks: () => ({ items: [], total: 0 }),
     progress: vi.fn(),
     finish: vi.fn(() => true),
     heartbeatDone: vi.fn(() => true),
     onFileWritten: vi.fn(),
     schedules: { list: () => [], create: vi.fn(), update: vi.fn(), remove: vi.fn(() => true) } as unknown as AssistantToolHost['schedules'],
-    operon: { workspaceList: () => '', workspaceOverview: async () => '', waitingList: () => '' },
+    operon: { workspaceList: () => '', workspaceOverview: async () => '', runningList: () => '', waitingList: () => '' },
     actions: {
       addProject: vi.fn(async () => 'Added'),
       githubPrs: vi.fn(async () => ''),
@@ -45,7 +46,7 @@ describe('the tools each kind of session is offered', () => {
   it('gives the main agent talking and dispatching; a worker only its hand-in tools; the wrap-up none (memory is files)', () => {
     expect(toolsFor('main').map((t) => t.name)).toEqual([
       'set_identity', 'memory_search', 'start_task', 'continue_task', 'stop_task', 'list_tasks',
-      'workspace_list', 'workspace_overview', 'waiting_list',
+      'workspace_list', 'workspace_overview', 'running_list', 'waiting_list',
       'workspace_create', 'project_add', 'github_prs', 'github_pr', 'github_pr_create', 'board_list', 'board_get', 'board_create', 'board_update', 'board_comment', 'board_agents', 'board_dispatch',
       'coding_agents', 'coding_start', 'coding_send', 'coding_status', 'coding_stop',
       'start_spec', 'answer_spec_questions', 'spec_status', 'spec_switch_agent', 'spec_decline_switch', 'spec_message_coordinator',
@@ -114,13 +115,77 @@ describe('callAssistantTool', () => {
   })
 })
 
+describe('list_tasks', () => {
+  const main = { role: 'main', id: 'm' } as const
+  const NOW = 1_000_000_000
+  const task = (id: string, status: ActivityStatus, extra: Partial<ActivitySummary> = {}): ActivitySummary => ({
+    id, taskId: `agent-${id}`, title: `T${id}`, summary: `s${id}`, status, startedAt: NOW - 5 * 60_000, ...extra,
+  })
+  // 3 running or waiting, 25 finished, newest first.
+  const all: ActivitySummary[] = [
+    task('r1', 'running', { agent: 'coding', coding: { chatId: 42, workspaceId: 3, workspaceName: 'login', projectName: 'web', providerId: 'codex', model: 'gpt-5' } }),
+    task('r2', 'waiting'),
+    task('r3', 'running', { source: 'schedule' }),
+    ...Array.from({ length: 25 }, (_, i) => task(`d${i + 1}`, 'done', { finishedAt: NOW - 2 * 3_600_000 })),
+  ]
+  const listTasks = vi.fn((q: TaskQuery): TaskPage => {
+    const matching = all.filter((t) => (!q.statuses || q.statuses.includes(t.status)) && (!q.kind || (q.kind === 'coding') === Boolean(t.coding)))
+    return { items: matching.slice(q.offset, q.offset + q.limit), total: matching.length }
+  })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    listTasks.mockClear()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('shows every active task, then a page of finished ones, saying how to see more', async () => {
+    const { text } = await callAssistantTool('list_tasks', {}, main, host({ listTasks }))
+    const [active, finished] = text.split('\n\n')
+    expect(active).toBe([
+      'Running or waiting, most recent first (3):',
+      '- r1 · running · Tr1 — sr1 · coding agent codex / gpt-5 · chat 42 · workspace "login" in project "web" · started 5m ago',
+      '- r2 · waiting · Tr2 — sr2 · started 5m ago',
+      '- r3 · running · Tr3 — sr3 · from a schedule · started 5m ago',
+    ].join('\n'))
+    expect(finished.split('\n')[0]).toBe('Finished, most recent first (1–10 of 25; offset 10 for the next):')
+    expect(finished.split('\n')).toHaveLength(11)
+    expect(finished).toContain('- d1 · done · Td1 — sd1 · finished 2h ago')
+  })
+
+  it('pages through one status with offset and limit', async () => {
+    const h = host({ listTasks })
+    expect((await callAssistantTool('list_tasks', { status: 'finished', offset: 20 }, main, h)).text.split('\n')[0])
+      .toBe('Finished, most recent first (21–25 of 25):')
+    expect((await callAssistantTool('list_tasks', { status: 'finished', offset: 30 }, main, h)).text).toBe('No more: there are 25.')
+    expect((await callAssistantTool('list_tasks', { status: 'all', limit: 2 }, main, h)).text.split('\n')[0])
+      .toBe('All tasks, most recent first (1–2 of 28; offset 2 for the next):')
+    expect(listTasks).toHaveBeenLastCalledWith({ offset: 0, limit: 2 })
+  })
+
+  it('narrows to coding agents and rejects a page past the cap', async () => {
+    const h = host({ listTasks })
+    const { text } = await callAssistantTool('list_tasks', { status: 'active', kind: 'coding' }, main, h)
+    expect(text.split('\n')).toHaveLength(2)
+    expect(listTasks).toHaveBeenLastCalledWith({ statuses: ['running', 'waiting'], kind: 'coding', offset: 0, limit: 20 })
+    expect((await callAssistantTool('list_tasks', { limit: 500 }, main, h)).isError).toBe(true)
+  })
+
+  it('says so when there is nothing at all', async () => {
+    expect((await callAssistantTool('list_tasks', {}, main, host())).text).toBe('No tasks yet.')
+  })
+})
+
 describe('labels', () => {
   it("recognizes the assistant's own tools under every agent's naming", () => {
     expect(isAssistantTool('mcp__assistant__start_task')).toBe(true)
     expect(isAssistantTool('mcp__assistant_worker__finish_task')).toBe(true)
     expect(isAssistantTool('assistant_worker_report_progress')).toBe(true)
     expect(isAssistantTool('assistant_start_task')).toBe(true)
-    expect(isAssistantTool('finish_task')).toBe(false)
+    // Operon's own runtime runs them in process, under their own names.
+    expect(isAssistantTool('finish_task')).toBe(true)
+    expect(isAssistantTool('Bash')).toBe(false)
     expect(isAssistantTool('mcp__other__finish_task')).toBe(false)
     expect(isAssistantTool('mcp__assistant__rm')).toBe(false)
   })

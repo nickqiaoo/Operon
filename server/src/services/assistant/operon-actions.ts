@@ -11,6 +11,7 @@ import { TaskBoardService, formatAssignableAgents, type TaskBoardStorage } from 
 import { broadcastTask } from '../task-events.js'
 import { commentOnTaskAsHuman, updateTaskAsHuman, type HumanTaskStorage } from '../task-human-actions.js'
 import { provisionWorkspace } from '../workspace-provision.js'
+import { emptyPage, pageRange } from './paging.js'
 
 /**
  * What the main agent changes in the rest of the app on the user's behalf
@@ -21,6 +22,9 @@ import { provisionWorkspace } from '../workspace-provision.js'
 
 export type OperonActionsStorage = TaskBoardStorage & HumanTaskStorage
 
+/** A board status, or `open` (not done or cancelled) or `all`. */
+export type BoardListStatus = TaskStatus | 'open' | 'all'
+
 export interface OperonActions {
   /** Register a repository on disk as a project, cloning it there first when `cloneUrl` is given. */
   addProject(input: { path: string; cloneUrl?: string; name?: string }): Promise<string>
@@ -29,7 +33,11 @@ export interface OperonActions {
   githubPr(projectId: number, number: number): Promise<string>
   /** Commit what the workspace has, push its branch and open a pull request from it. */
   githubPrCreate(workspaceId: number, input: { title: string; body?: string; base?: string; draft?: boolean }): Promise<string>
-  boardList(projectId: number, status?: TaskStatus): string
+  /**
+   * A page of a project's board. `open` (the default) is everything not done or cancelled; `all`
+   * includes those too.
+   */
+  boardList(projectId: number, query: { status?: BoardListStatus; offset: number; limit: number }): string
   boardGet(projectId: number, task: number): Promise<string>
   boardCreate(projectId: number, input: { title: string; description?: string; priority?: TaskPriority }): string
   boardUpdate(projectId: number, task: number, updates: UpdateTaskInput): Promise<string>
@@ -147,9 +155,15 @@ export function createOperonActions(
       return `Created workspace ${ws.id} "${ws.name}" in project "${p.name}" on a new branch ${ws.branchName}${base ? ` from ${base}` : ''}, at ${ws.worktreePath}.`
     },
 
-    boardList(projectId, status) {
+    boardList(projectId, { status = 'open', offset, limit }) {
       project(projectId)
-      return new TaskBoardService(storage, projectId).list(status ? { status } : {})
+      const board = new TaskBoardService(storage, projectId)
+      const all = storage.taskList({ projectId, ...(status !== 'open' && status !== 'all' ? { status } : {}) })
+      const tasks = status === 'open' ? all.filter((t) => t.status !== 'done' && t.status !== 'cancelled') : all
+      const page = tasks.slice(offset, offset + limit)
+      const none = status === 'open' ? 'No open tasks.' : 'No tasks match.'
+      if (!page.length) return emptyPage(offset, tasks.length, none)
+      return [`## Tasks (${pageRange(offset, page.length, tasks.length)})`, ...page.map((t) => board.formatRow(t))].join('\n')
     },
 
     async boardGet(projectId, number) {

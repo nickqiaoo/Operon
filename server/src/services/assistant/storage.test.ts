@@ -77,6 +77,27 @@ describe.skipIf(!opened)('assistant storage', () => {
     expect(storage.assistantActivitySummaries({ ids: [], live: false })).toEqual([])
   })
 
+  it('pages tasks by status and kind, counting every match and leaving out the main agent', () => {
+    // a1 (done, started 5) and a2 (running, started 7) from the tests above.
+    const coding = { chatId: 42, workspaceId: 3, workspaceName: 'login', providerId: 'codex', model: 'default' }
+    storage.assistantActivityUpsert({ id: 'm1', taskId: 'am-1', title: 'Main', summary: '', status: 'running', startedAt: 8, steps: [], agent: 'main' })
+    storage.assistantActivityUpsert({ id: 'c1', taskId: 'ac-42', title: 'Fix login', summary: 'Waiting', status: 'waiting', startedAt: 9, steps: [], agent: 'coding', coding })
+    storage.assistantActivityUpsert({ id: 'f1', taskId: 'agent-2', title: 'F', summary: 'broke', status: 'failed', startedAt: 3, finishedAt: 4, steps: [] })
+    const ids = (q: Parameters<typeof storage.assistantTaskPage>[0]) => {
+      const page = storage.assistantTaskPage(q)
+      return { ids: page.items.map((a) => a.id), total: page.total }
+    }
+
+    expect(ids({ offset: 0, limit: 10 })).toEqual({ ids: ['c1', 'a2', 'a1', 'f1'], total: 4 })
+    expect(ids({ offset: 1, limit: 2 })).toEqual({ ids: ['a2', 'a1'], total: 4 })
+    expect(ids({ statuses: ['running', 'waiting'], offset: 0, limit: 10 })).toEqual({ ids: ['c1', 'a2'], total: 2 })
+    expect(ids({ statuses: ['done', 'failed'], offset: 1, limit: 1 })).toEqual({ ids: ['f1'], total: 2 })
+    expect(ids({ kind: 'coding', offset: 0, limit: 10 })).toEqual({ ids: ['c1'], total: 1 })
+    expect(ids({ kind: 'task', statuses: ['running'], offset: 0, limit: 10 })).toEqual({ ids: ['a2'], total: 1 })
+    expect(ids({ statuses: [], offset: 0, limit: 10 })).toEqual({ ids: [], total: 0 })
+    expect(storage.assistantTaskPage({ kind: 'coding', offset: 0, limit: 1 }).items[0]?.coding).toEqual(coding)
+  })
+
   it('keeps an approval card on its message and lists the audit log newest first', () => {
     const approval = { id: 'ap1', title: 'Browser Use · Access https://x.com', detail: 'Allow?', icon: 'globe' as const, activityId: 'a1' }
     storage.assistantMessageUpsert({ id: 'card', role: 'assistant', text: '', createdAt: 100, approval })

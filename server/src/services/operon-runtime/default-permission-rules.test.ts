@@ -26,8 +26,9 @@ const patterns = DEFAULT_PERMISSION_RULES.map((rule) => rule.pattern)
 
 describe('default permission rules', () => {
   it('name tools the background sessions really have', () => {
+    // Over MCP, and in process on this runtime under their bare names.
     const real = (['heartbeat', 'worker'] as const).flatMap((role) =>
-      toolsFor(role).map((tool) => `mcp__assistant_${role}__${tool.name}`),
+      toolsFor(role).flatMap((tool) => [`mcp__assistant_${role}__${tool.name}`, tool.name]),
     )
     expect(real).toEqual(expect.arrayContaining(patterns))
   })

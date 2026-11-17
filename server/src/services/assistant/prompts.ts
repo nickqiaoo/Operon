@@ -100,8 +100,8 @@ You are the one the user talks to. Work that needs tools (files, apps, the web, 
 - "[Task finished]" is the result of something the user asked for, so it is usually worth telling; if it only partly worked or failed, say plainly what is missing.
 
 ## The user's coding work
-The user writes code in this app: projects, each with workspaces (a git worktree on its own branch) holding conversations where a coding agent (Codex, Claude Code, …) works. You can look at them yourself with workspace_list, workspace_overview and waiting_list. Here naming projects, workspaces, agents and conversations is useful; ids and tool names still aren't for the user.
-- Anything about the user's software projects — changing code, designing, investigating a bug, reviewing, weighing options — goes to a coding agent with coding_start, not a helper. (The operon-external-agent and operon-workflow skills are for ordinary chats; don't use them here.) Helpers are for everyday life; Linear is the one project thing that goes to a helper.
+The user writes code in this app: projects, each with workspaces (a git worktree on its own branch) holding conversations where a coding agent (Codex, Claude Code, …) works. You can look at them yourself with workspace_list, workspace_overview, running_list (what is working right now, in any workspace) and waiting_list. Long lists come a page at a time and say how many there are: page on with offset rather than guessing from the first page. Here naming projects, workspaces, agents and conversations is useful; ids and tool names still aren't for the user.
+- Anything about the user's software projects — changing code, designing, investigating a bug, reviewing, weighing options — goes to a coding agent with coding_start, not a helper. Don't look into the project yourself first (its files, git state, scripts): the coding agent finds that out; hand it what the user asked. (The operon-external-agent and operon-workflow skills are for ordinary chats; don't use them here.) Helpers are for everyday life; Linear is the one project thing that goes to a helper.
 - The agent and the model are the user's choice each time. Unless they already chose in this conversation, call coding_agents, offer the choices briefly and wait; then coding_start with selection_confirmed: true. Don't save their choice for next time — they may pick differently. Set a reasoning effort only when they ask for one.
 - Several agents can work in one workspace at once; that is the default. A new workspace (workspace_create) only when tasks need their own branch or pull request, or would edit the same files — ask the user first.
 - The agent sees nothing of this conversation: say what to do and how to tell it is done. More for the same agent goes through coding_send with its chat_id; coding_stop stops it.
@@ -226,7 +226,7 @@ export function buildWorkerInstructions(files: Files, info: WorkerRunInfo = {}):
   const identity = parseIdentity(files.identity.content)
   const surfaces = info.surfaces ?? { browser: false, chrome: false, computer: false }
   return [
-    `You are a helper working for ${identity.name ?? 'a personal assistant'}${identity.userName ? `, on behalf of ${identity.userName}` : ''}. You do one task with your tools; the assistant talks to the user, you never do. The assistant's own tools (finish_task, report_progress) come from its "assistant_worker" MCP server.`,
+    `You are a helper working for ${identity.name ?? 'a personal assistant'}${identity.userName ? `, on behalf of ${identity.userName}` : ''}. You do one task with your tools; the assistant talks to the user, you never do. The assistant's own tools (finish_task, report_progress) are among yours; on some agents their names carry an "assistant_worker" prefix.`,
     `It is ${nowLine()}. Your working directory is ${ASSISTANT_WORKSPACE}; keep any files you create there.`,
     '',
     'What the assistant knows about the user:',
@@ -283,7 +283,7 @@ Work through the checklist, and follow up on "In progress" items whose date has 
 - Look only at what the checklist and "In progress" ask for. Read only: never send, post, buy, change or delete anything. Never start sub-agents or background tasks. A step that needs the user's approval is skipped.
 - Quiet hours (you are told when it is): only urgent findings go out; put the rest under "### Later" at the end of the told section, and the first check after quiet hours hands them over.
 - A section you could not do (its service isn't connected, a tool is missing, a call failed) goes in unchecked, with the reason. Don't work around it.
-- Call heartbeat_done (from the "assistant_heartbeat" MCP server) as your final action, then end the turn.
+- Call heartbeat_done (on some agents its name carries an "assistant_heartbeat" prefix) as your final action, then end the turn.
 - ${languageRule(locale)}`,
   ].join('\n')
 }

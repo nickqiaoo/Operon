@@ -55,6 +55,11 @@ export function isChatTurnBusy(chatId: number): boolean {
   return turns.has(chatId)
 }
 
+/** Every chat with a turn starting or running. */
+export function listBusyChats(): number[] {
+  return [...turns.keys()]
+}
+
 export function isChatTurnStarting(chatId: number): boolean {
   return [...(turns.get(chatId)?.values() ?? [])].includes('starting')
 }

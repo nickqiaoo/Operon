@@ -1,4 +1,4 @@
-import { SessionAlreadyLoadedError, SessionAlreadyLoadingError, type Harness, type HarnessSession, type McpServerConfig, type SessionConfig } from 'operon-agents'
+import { SessionAlreadyLoadedError, SessionAlreadyLoadingError, type Harness, type HarnessSession, type McpServerConfig, type SessionConfig, type Tool } from 'operon-agents'
 import { observeSession } from './passive-observer.js'
 
 export type SessionPermissionConfig = NonNullable<SessionConfig['permission']>
@@ -34,6 +34,12 @@ export function workspaceSessionConfig(setup: WorkspaceSessionSetup, instruction
 // All provider instances share restoration for the same harness/id.
 const restoring = new WeakMap<Harness, Map<string, Promise<HarnessSession>>>()
 
+/** What a restore is opened with: the configuration, and the host's own tools it was created with, if any. */
+export interface RestoreSetup {
+  readonly config: SessionConfig
+  readonly bindings?: { readonly extraTools: readonly Tool[] }
+}
+
 /**
  * Restore `id` with the host's current setup for it, or return the instance already loaded.
  *
@@ -45,7 +51,7 @@ const restoring = new WeakMap<Harness, Map<string, Promise<HarnessSession>>>()
 export function resumeRuntimeSession(
   harness: Harness,
   id: string,
-  prepareConfig: () => Promise<SessionConfig>,
+  prepareSetup: () => Promise<RestoreSetup>,
 ): Promise<HarnessSession> {
   const sessions = restoring.get(harness) ?? new Map<string, Promise<HarnessSession>>()
   restoring.set(harness, sessions)
@@ -55,10 +61,10 @@ export function resumeRuntimeSession(
   const task = Promise.resolve().then(async () => {
     const loaded = harness.getSession(id)
     if (loaded) return loaded
-    const config = await prepareConfig()
+    const { config, bindings } = await prepareSetup()
     let session: HarnessSession
     try {
-      session = await harness.resumeSession(id, { config })
+      session = await harness.resumeSession(id, { config, ...(bindings ? { bindings } : {}) })
     } catch (error) {
       if (!(error instanceof SessionAlreadyLoadedError || error instanceof SessionAlreadyLoadingError)) throw error
       return harness.resumeSession(id)

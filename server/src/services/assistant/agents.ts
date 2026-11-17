@@ -14,7 +14,9 @@ import { getSessionManager } from '../ai/state.js'
 import type { HostSessionOptions } from '../ai/session-options.js'
 import { mcpCliName, userMcpServersForCli, withApiToken } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
-import { toolsFor } from './tools.js'
+import type { Tool } from 'operon-agents'
+import { z } from 'zod'
+import { assistantToolHost, callAssistantTool, toolsFor } from './tools.js'
 import {
   ASSISTANT_WORKER_PARAM,
   assistantConversationId,
@@ -50,7 +52,9 @@ export type SessionKind = 'main' | 'worker' | 'unattended'
  */
 const MODES: Record<AssistantProviderId, Record<SessionKind, string>> = {
   // manual | workspace | auto | yolo                   (services/operon-runtime/index.ts)
-  custom: { main: 'workspace', worker: 'auto', unattended: 'auto' },
+  // The main session has no Bash or subagents (MAIN_DISABLED_TOOLS), so `auto` is left with its own
+  // file edits to judge; what the judge sends on to a person is still turned down.
+  custom: { main: 'auto', worker: 'auto', unattended: 'auto' },
   // default | auto | acceptEdits | plan | bypassPermissions | dontAsk   (providers/claude/config.ts)
   'claude-code': { main: 'acceptEdits', worker: 'auto', unattended: 'auto' },
   // requestApproval | approveForMe | fullAccess | plan  (providers/codex/index.ts) — both sandboxed
@@ -64,6 +68,42 @@ const MODES: Record<AssistantProviderId, Record<SessionKind, string>> = {
 
 export function modeFor(providerId: AssistantProviderId, kind: SessionKind): string {
   return MODES[providerId][kind]
+}
+
+/**
+ * What the main session never gets on Operon's own runtime: a shell and subagents. A mode only
+ * decides what gets asked, and `workspace` / `auto` let a shell command in the working directory
+ * through without asking, so the main agent did the work itself (git, reading a project) instead
+ * of handing it on. Taken away, they are not in its requests at all.
+ */
+export const MAIN_DISABLED_TOOLS = ['Bash', 'Agent', 'Workflow'] as const
+
+function jsonSchemaOf(parameters: z.ZodObject<z.ZodRawShape>): Record<string, unknown> {
+  const { $schema: _schema, ...schema } = z.toJSONSchema(parameters) as Record<string, unknown>
+  return schema
+}
+
+/**
+ * The assistant's own tools as Operon runtime tools, for `caller`: run in process through the
+ * same entry point the MCP server uses (routes/assistant-mcp.ts), so they sit among the model's
+ * tools under their own names instead of behind Code Mode's RunCode with every other MCP tool.
+ */
+export function operonOwnTools(caller: AssistantCaller): Tool[] {
+  return toolsFor(caller.role).map((spec) => ({
+    schema: { name: spec.name, description: spec.description, parameters: jsonSchemaOf(spec.parameters) },
+    // Ours carry our own policy (as Codex is told to trust their server): nothing for the judge.
+    toAutoApprovalInput: () => '',
+    resolve: (args) => ({
+      approvalRule: spec.name,
+      run: async () => {
+        const host = assistantToolHost()
+        const result = host
+          ? await callAssistantTool(spec.name, args, caller, host)
+          : { text: 'The assistant is not running.', isError: true }
+        return { content: [{ type: 'text' as const, text: result.text }], ...(result.isError ? { isError: true } : {}) }
+      },
+    }),
+  }))
 }
 
 export const PROVIDER_LABEL: Record<AssistantProviderId, string> = {
@@ -115,7 +155,8 @@ export function workerServiceServers(providerId: AssistantProviderId): RuntimeMc
 }
 
 /**
- * The servers a session of the assistant gets: its own tools, a worker's services, and for a worker operonrepl (web,
+ * The servers a session of the assistant gets: its own tools (except on Operon's own runtime, which
+ * runs them in process), a worker's services, and for a worker operonrepl (web,
  * Chrome, Mac apps) when Settings allow any of it. Each URL names the session and carries the
  * process key. Separate server names per role keep OpenCode, which shares one client per name
  * in a directory, from offering a worker the main agent's tools.
@@ -128,8 +169,9 @@ export function sessionMcpServers(
   const id = caller.id ? `&id=${encodeURIComponent(caller.id)}` : ''
   const servers: RuntimeMcpServers = {
     ...(worksWithServices(caller.role) ? workerServiceServers(providerId) : {}),
-    // The wrap-up has none of its own: it only edits files.
-    ...(toolsFor(caller.role).length
+    // The wrap-up has none of its own: it only edits files. Operon's own runtime takes them in
+    // process instead (operonOwnTools).
+    ...(toolsFor(caller.role).length && providerId !== 'custom'
       ? {
           [toolServerName(caller)]: {
             type: 'http' as const,
@@ -187,6 +229,9 @@ export async function openRuntimeSession(params: OpenParams): Promise<AgentSessi
     ...(params.writableDirs?.length ? { writableDirs: params.writableDirs } : {}),
     opencode: { callerTag: assistantConversationId(params.caller) },
     qoder: { alwaysLoadTools: qoderAlwaysLoad(params.caller, mcpServers) },
+    ...(params.providerId === 'custom'
+      ? { operon: { tools: operonOwnTools(params.caller), ...(params.kind === 'main' ? { disabledTools: MAIN_DISABLED_TOOLS } : {}) } }
+      : {}),
     ...(params.sessionId ? { resume: params.sessionId } : {}),
   }
   return getSessionManager().createStandaloneSession(params.providerId, runtimeParams)
