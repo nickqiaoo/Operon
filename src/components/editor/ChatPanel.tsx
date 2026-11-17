@@ -1146,7 +1146,12 @@ function ChatPanelContent({
         "h-full flex flex-col relative",
         // Desktop: the session cards get a column of their own and the chat (composer
         // included) slides over to make room, in step with the cards sliding in.
-        !isMobile && "transition-[padding-right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        // Same duration and curve as the right panel (PANEL_ANIMATION_DURATION /
+        // usePanelAnimation): closing the right panel restores the Session cards, so
+        // both run at once. On different curves the right panel gave its room back
+        // faster than the padding took it, the column overshot its final width and
+        // then visibly sprang back at the end.
+        !isMobile && "transition-[padding-right] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
         !isMobile && agentPanelOpen && SESSION_PANEL_PAD_CLASS,
       )}
     >

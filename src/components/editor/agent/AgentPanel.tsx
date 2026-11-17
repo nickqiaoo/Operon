@@ -109,8 +109,8 @@ export const SESSION_PANEL_WIDTH_CLASS = 'w-[344px]'
 export const SESSION_PANEL_PAD_CLASS = 'pr-[344px]'
 
 
-// Keep this in sync with the panel `duration-300` below — it's how long we wait
-// after close before unmounting, so the slide-out can finish.
+// At least the panel's transition below (300ms overlay, 220ms inline) — it's how
+// long we wait after close before unmounting, so the slide-out can finish.
 const PANEL_TRANSITION_MS = 300
 
 // Sections whose contents change on their own (connection state, running work)
@@ -448,7 +448,8 @@ export const AgentPanel = memo(function AgentPanel({ open, live = open, chatId, 
       className={cn(
         'absolute inset-y-0 right-0 z-30 flex flex-col',
         SESSION_PANEL_WIDTH_CLASS,
-        'transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform',
+        // In step with ChatPanel's padding, which matches the right panel's animation.
+        'transition-[transform,opacity] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform',
         active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
       )}
     >
