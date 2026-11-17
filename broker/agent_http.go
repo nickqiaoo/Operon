@@ -150,7 +150,13 @@ func (s *Server) handleAgentDown(w http.ResponseWriter, r *http.Request) {
 	// Publish (and keep fresh) the node→owner and conn→owner routes for the front
 	// router; every uplink POST is routed by the latter. Drops the node if the
 	// directory becomes unreachable, so a zombie owner can't hold an unroutable node.
-	go s.dir.heartbeatRoutes(c.ctx, userID, nodeID, connID, c.cancel)
+	// A newer conn for this node on ANOTHER instance supersedes this one the same way a
+	// local reconnect does (Register above); see Directory.heartbeatRoutes.
+	supersede := func() {
+		c.send(&Frame{T: FrameClose, Code: "superseded", Message: "another agent connected for this node"})
+		c.cancel()
+	}
+	go s.dir.heartbeatRoutes(c.ctx, userID, nodeID, connID, supersede, c.cancel)
 	go c.runDispatchLoop()
 
 	// The node dropping the SSE stream cancels the whole connection (so the write loop
@@ -217,7 +223,10 @@ func (s *Server) handleAgentUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch err := c.applyBatch(batch.Seq, batch.Events); {
+	c.upInflight.Add(1)
+	err = c.applyBatch(batch.Seq, batch.Events)
+	c.upInflight.Add(-1)
+	switch {
 	case errors.Is(err, errSeqGap):
 		slog.Warn("broker: uplink sequence gap, dropping conn",
 			"node", c.nodeID, "conn", connID, "got", batch.Seq)

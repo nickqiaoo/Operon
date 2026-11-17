@@ -34,10 +34,12 @@ type AgentConn struct {
 	inbox    chan Frame  // frames off the uplink, drained by runDispatchLoop
 
 	// Uplink batch state. upMu serialises applyBatch across the (independent) POST
-	// handlers; lastSeq is the dedup/gap watermark; lastUpAt feeds the stall backstop.
-	upMu     sync.Mutex
-	lastSeq  uint64
-	lastUpAt atomic.Int64
+	// handlers; lastSeq is the dedup/gap watermark; lastUpAt feeds the stall backstop,
+	// which upInflight (POSTs currently inside applyBatch) suspends.
+	upMu       sync.Mutex
+	lastSeq    uint64
+	lastUpAt   atomic.Int64
+	upInflight atomic.Int32
 
 	mu        sync.Mutex
 	pending   map[string]*pendingReq
@@ -49,12 +51,17 @@ type AgentConn struct {
 var errSeqGap = errors.New("uplink sequence gap")
 
 // uplinkStallTimeout bounds how long a conn may go without ANY accepted uplink
-// batch before we assume the node is gone. Deliberately generous: a stalled uplink
-// is NOT an error — the node retries indefinitely rather than dropping frames, and
-// the browser is held warm by SSE keepalives meanwhile (see http_proxy.go) — so this
-// is a leak backstop, not a liveness probe. The node's contract is to send an empty
-// keepalive batch every 60s, so anything near this bound is genuinely dead.
-const uplinkStallTimeout = 10 * time.Minute
+// batch, while no batch is being applied, before we assume the node is gone. The
+// node sends an empty keepalive batch at least every ~80s when idle and retries a
+// failed POST with ≤30s backoff, so three minutes is two lost keepalives plus retries.
+//
+// It has to be this short because the downlink cannot tell us: behind Cloudflare a
+// node that vanished (network drop, proxy reset) leaves the SSE stream accepting
+// writes, so pings keep "succeeding". Until this fires, web requests routed here hang.
+//
+// A POST blocked on backpressure (full inbox while a slow browser drains a big
+// response) is not a stall — see upInflight — so this never cuts a busy conn.
+const uplinkStallTimeout = 3 * time.Minute
 
 type AgentConnStats struct {
 	PendingRequests int
@@ -215,7 +222,7 @@ func (c *AgentConn) heartbeat() {
 	for {
 		select {
 		case <-t.C:
-			if since := time.Since(time.UnixMilli(c.lastUpAt.Load())); since > uplinkStallTimeout {
+			if stalled, since := c.uplinkStalled(time.Now()); stalled {
 				slog.Warn("broker: uplink stalled, dropping conn",
 					"node", c.nodeID, "conn", c.connID, "stalled_for", since.Round(time.Second))
 				c.cancel()
@@ -226,6 +233,13 @@ func (c *AgentConn) heartbeat() {
 			return
 		}
 	}
+}
+
+// uplinkStalled reports whether the uplink has been silent past uplinkStallTimeout
+// with no batch in flight, and for how long.
+func (c *AgentConn) uplinkStalled(now time.Time) (bool, time.Duration) {
+	since := now.Sub(time.UnixMilli(c.lastUpAt.Load()))
+	return since > uplinkStallTimeout && c.upInflight.Load() == 0, since
 }
 
 // applyBatch admits one uplink POST's worth of frames. It is the whole ordering and

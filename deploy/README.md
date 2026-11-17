@@ -12,8 +12,15 @@ Each owner publishes its routes to Redis (TTL 30s, refreshed every 10s):
 ```
 route:node:<uid>:<nid>  ->  http://<owner-host>:<port>
 route:conn:<connId>     ->  http://<owner-host>:<port>
+route:owner:<uid>:<nid> ->  <connId>   (broker-only; the router never reads it)
 drain:instance:<host:port> -> 1
 ```
+
+A node owns at most one route. The newest connection claims `route:owner`, and every
+refresh of `route:node` is conditional on still holding that claim. A leftover
+connection on another instance (the node reconnected there while this instance's
+downlink still looked alive) sees it has lost the claim, drops itself within one
+refresh, and its teardown leaves the successor's route alone.
 
 OpenResty (`openresty/lua/route.lua`, via `balancer_by_lua`) reads them and dials the
 owner directly — no broker→broker hop. Drain markers are skipped for new round-robin

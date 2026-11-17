@@ -15,9 +15,12 @@ func TestDirectoryDisabledIsNoop(t *testing.T) {
 			t.Fatalf("directory should be disabled: %+v", d)
 		}
 		// none of these should panic or touch Redis
-		d.setNode(ctx, "u", "n", time.Second)
+		d.claimNode(ctx, "u", "n", "c", time.Second)
+		if owned, err := d.refreshNode(ctx, "u", "n", "c", time.Second); !owned || err != nil {
+			t.Fatalf("disabled refreshNode = %v,%v want true,nil", owned, err)
+		}
 		d.setConn(ctx, "c", time.Second)
-		d.delNode(ctx, "u", "n")
+		d.releaseNode(ctx, "u", "n", "c")
 		d.delConn(ctx, "c")
 		if err := d.setDrain(ctx, time.Second); err != nil {
 			t.Fatal(err)

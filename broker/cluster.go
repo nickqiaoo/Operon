@@ -50,18 +50,79 @@ func routeAddr(addr string) string {
 	return addr
 }
 
-func (d *Directory) setNode(ctx context.Context, uid, nid string, ttl time.Duration) error {
+// Node ownership. route:node is what the front router reads, so its value stays the
+// bare owner URL; route:owner records WHICH connection that owner holds. A node can
+// briefly have connections on two instances: when its network drops, the node
+// reconnects — possibly to the other instance — while the old instance still thinks
+// its conn is alive (behind Cloudflare a dead downlink keeps accepting writes). If both
+// kept refreshing route:node, the route would flip between them every few seconds and
+// half the web requests would land on the dead conn and hang. So the NEWEST conn
+// claims the node outright, every refresh is conditional on still holding the claim,
+// and a conn that finds it has lost the claim drops itself.
+
+func nodeOwnerKey(uid, nid string) string { return "route:owner:" + uid + ":" + nid }
+
+// refreshNodeScript extends both keys only while this conn still owns the node. An
+// absent owner key (expired after a Redis outage) is re-claimable, which is what lets
+// a live owner recover from a flush without reconnecting.
+var refreshNodeScript = redis.NewScript(`
+local cur = redis.call('GET', KEYS[1])
+if cur and cur ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[3])
+redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
+return 1
+`)
+
+// releaseNodeScript removes the routes only if this conn still owns them; otherwise a
+// superseded conn's teardown would delete the route its successor just published and
+// the node would read as offline until the next refresh.
+var releaseNodeScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('DEL', KEYS[1], KEYS[2])
+  return 1
+end
+return 0
+`)
+
+// claimNode makes connID the node's owner unconditionally: a fresh connection is by
+// definition newer than whatever the directory holds.
+func (d *Directory) claimNode(ctx context.Context, uid, nid, connID string, ttl time.Duration) error {
 	if !d.enabled() {
 		return nil
 	}
-	return d.rdb.Set(ctx, nodeRouteKey(uid, nid), d.self, ttl).Err()
+	_, err := d.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.Set(ctx, nodeOwnerKey(uid, nid), connID, ttl)
+		p.Set(ctx, nodeRouteKey(uid, nid), d.self, ttl)
+		return nil
+	})
+	return err
 }
 
-func (d *Directory) delNode(ctx context.Context, uid, nid string) {
+// refreshNode extends the node routes if connID still owns the node. owned=false
+// means a newer connection (on this or another instance) has taken over.
+func (d *Directory) refreshNode(ctx context.Context, uid, nid, connID string, ttl time.Duration) (owned bool, err error) {
+	if !d.enabled() {
+		return true, nil
+	}
+	n, err := refreshNodeScript.Run(ctx, d.rdb,
+		[]string{nodeOwnerKey(uid, nid), nodeRouteKey(uid, nid)},
+		connID, d.self, ttl.Milliseconds(),
+	).Int()
+	if err != nil {
+		return true, err
+	}
+	return n == 1, nil
+}
+
+// releaseNode drops the node routes if connID still owns them.
+func (d *Directory) releaseNode(ctx context.Context, uid, nid, connID string) {
 	if !d.enabled() {
 		return
 	}
-	_ = d.rdb.Del(ctx, nodeRouteKey(uid, nid)).Err()
+	_ = releaseNodeScript.Run(ctx, d.rdb,
+		[]string{nodeOwnerKey(uid, nid), nodeRouteKey(uid, nid)},
+		connID,
+	).Err()
 }
 
 // nodeOnline reports whether some instance currently owns this node's tunnel, per
@@ -112,6 +173,11 @@ func (d *Directory) ping(ctx context.Context) error {
 	return d.rdb.Ping(ctx).Err()
 }
 
+// routeHeartbeatInterval is how often a live conn refreshes its routes (TTL is 3×).
+// It also bounds how long a superseded conn on another instance survives. A var so
+// tests can shorten it.
+var routeHeartbeatInterval = 10 * time.Second
+
 // heartbeatRoutes keeps BOTH owner routes fresh while the connection lives, and
 // removes them on teardown. A crashed owner stops refreshing → TTLs expire → the
 // routes self-clean and the node (which reconnects elsewhere) re-registers.
@@ -120,44 +186,74 @@ func (d *Directory) ping(ctx context.Context) error {
 // uplink is discrete POSTs: every one of them is routed by conn→owner, so letting
 // that key lapse would strand a live connection's uplink.
 //
+// Supersede across instances: if a refresh finds a newer conn owns the node, this
+// conn is a leftover from before the node reconnected, so onSuperseded drops it.
+//
 // Partition self-protection: if we can't publish for heartbeatMaxFails in a row (e.g.
 // this instance is cut off from Redis), we still hold the node's tunnel but it's
 // unreachable via the directory — a zombie owner. So we call onDead() to drop the
 // connection, forcing the node to reconnect (and the router to re-route it).
-func (d *Directory) heartbeatRoutes(ctx context.Context, uid, nid, connID string, onDead func()) {
+func (d *Directory) heartbeatRoutes(ctx context.Context, uid, nid, connID string, onSuperseded, onDead func()) {
 	if !d.enabled() {
 		return
 	}
 	const heartbeatMaxFails = 3
+	ttl := 3 * routeHeartbeatInterval
 	fails := 0
-	refresh := func() {
-		err := d.setNode(ctx, uid, nid, 30*time.Second)
-		if err == nil {
-			err = d.setConn(ctx, connID, 30*time.Second)
+	// publish returns false once the conn is finished (superseded or zombie).
+	publish := func(first bool) bool {
+		var err error
+		owned := true
+		if first {
+			err = d.claimNode(ctx, uid, nid, connID, ttl)
+		} else {
+			owned, err = d.refreshNode(ctx, uid, nid, connID, ttl)
+		}
+		if err == nil && owned {
+			err = d.setConn(ctx, connID, ttl)
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return false // torn down mid-refresh; not a directory failure
+			}
 			fails++
 			slog.Warn("broker: directory heartbeat failed", "node", nid, "fails", fails, "err", err)
 			if fails >= heartbeatMaxFails {
 				slog.Error("broker: dropping node — directory unreachable (zombie-owner guard)", "node", nid)
 				onDead()
+				return false
 			}
-			return
+			return true
 		}
 		fails = 0
+		if !owned {
+			slog.Warn("broker: superseded by a newer connection, dropping conn", "node", nid, "conn", connID)
+			onSuperseded()
+			return false
+		}
+		return true
 	}
-	refresh()
-	t := time.NewTicker(10 * time.Second)
+	cleanup := func() {
+		// ctx is done → fresh ctx for cleanup
+		bg := context.Background()
+		d.releaseNode(bg, uid, nid, connID)
+		d.delConn(bg, connID)
+	}
+	if !publish(true) {
+		cleanup()
+		return
+	}
+	t := time.NewTicker(routeHeartbeatInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			refresh()
+			if !publish(false) {
+				cleanup()
+				return
+			}
 		case <-ctx.Done():
-			// ctx is done → fresh ctx for cleanup
-			cleanup := context.Background()
-			d.delNode(cleanup, uid, nid)
-			d.delConn(cleanup, connID)
+			cleanup()
 			return
 		}
 	}

@@ -167,3 +167,25 @@ func TestApplyBatchStopsOnClosedConn(t *testing.T) {
 		t.Fatal("applyBatch on a cancelled conn should fail")
 	}
 }
+
+// A silent uplink is a stall only while no batch is being applied: a POST blocked on
+// backpressure (slow browser draining a big response) must not get the conn dropped.
+func TestUplinkStalledIgnoresInflightBatch(t *testing.T) {
+	c := newAgentConn("conn-1", "user-1", "node-1", "node", "sess")
+	defer c.cancel()
+
+	now := time.Now()
+	c.lastUpAt.Store(now.Add(-uplinkStallTimeout - time.Second).UnixMilli())
+	if stalled, _ := c.uplinkStalled(now); !stalled {
+		t.Fatal("silent past the timeout with nothing in flight should be a stall")
+	}
+	c.upInflight.Add(1)
+	if stalled, _ := c.uplinkStalled(now); stalled {
+		t.Fatal("an in-flight batch must suspend the stall check")
+	}
+	c.upInflight.Add(-1)
+	c.lastUpAt.Store(now.Add(-uplinkStallTimeout + time.Second).UnixMilli())
+	if stalled, _ := c.uplinkStalled(now); stalled {
+		t.Fatal("silent for less than the timeout is not a stall")
+	}
+}
