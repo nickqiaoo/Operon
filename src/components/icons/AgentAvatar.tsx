@@ -28,10 +28,10 @@ const NEUTRAL_WASH = 'bg-[color-mix(in_oklab,var(--color-foreground)_10%,var(--c
 const RING = 'ring-1 ring-[color-mix(in_oklab,var(--agent-hue)_35%,transparent)]'
 const NEUTRAL_RING = 'ring-1 ring-border/60'
 
-const SIZE_CLASSES: Record<NonNullable<AgentAvatarProps['size']>, { box: string; img: string; icon: string }> = {
-  sm: { box: 'w-6 h-6', img: 'w-3.5 h-3.5', icon: 'w-3 h-3' },
-  md: { box: 'w-8 h-8', img: 'w-4 h-4', icon: 'w-4 h-4' },
-  lg: { box: 'w-10 h-10', img: 'w-5 h-5', icon: 'w-5 h-5' },
+const SIZE_CLASSES: Record<NonNullable<AgentAvatarProps['size']>, { box: string; img: string; bareImg: string; icon: string }> = {
+  sm: { box: 'w-6 h-6', img: 'w-3.5 h-3.5', bareImg: 'w-4 h-4', icon: 'w-3 h-3' },
+  md: { box: 'w-8 h-8', img: 'w-4 h-4', bareImg: 'w-5 h-5', icon: 'w-4 h-4' },
+  lg: { box: 'w-10 h-10', img: 'w-5 h-5', bareImg: 'w-7 h-7', icon: 'w-5 h-5' },
 }
 
 interface AgentAvatarProps {
@@ -40,6 +40,8 @@ interface AgentAvatarProps {
   size?: 'sm' | 'md' | 'lg'
   className?: string
   ring?: boolean
+  /** Just the logo, no wash or ring — for lists that manage agents rather than show them acting. */
+  bare?: boolean
 }
 
 /**
@@ -47,9 +49,18 @@ interface AgentAvatarProps {
  * coding agent's row). The logo stays monochrome; the wash behind it tells agents apart.
  * Controls (model pickers, tabs, chips) use the bare `ProviderIcon` instead.
  */
-export function AgentAvatar({ provider, size = 'md', className, ring = false }: AgentAvatarProps) {
+export function AgentAvatar({ provider, size = 'md', className, ring = false, bare = false }: AgentAvatarProps) {
   const dims = SIZE_CLASSES[size]
   const logo = providerLogoSrc(provider)
+  if (bare) {
+    return (
+      <div className={cn('flex-none flex items-center justify-center', dims.box, className)}>
+        {logo
+          ? <img src={logo} alt="" className={cn(dims.bareImg, 'object-contain dark:invert dark:brightness-95')} />
+          : <Bot className={cn(dims.bareImg, 'text-muted-foreground')} />}
+      </div>
+    )
+  }
   if (!logo) {
     return (
       <div

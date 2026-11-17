@@ -51,7 +51,7 @@ export function AgentMenu({ onOpenAgent, onManageAgents }: AgentMenuProps) {
             ).length
             return (
               <button key={agent.id} type="button" onClick={() => onOpenAgent(agent)} className={ROW}>
-                <AgentAvatar provider={agent.provider} size="sm" />
+                <AgentAvatar provider={agent.provider} size="sm" bare />
                 <span className="min-w-0 flex-1 truncate">{agent.name}</span>
                 {liveCount > 1 && (
                   <span
@@ -202,7 +202,7 @@ function AgentDetailDialog({
         <div className="px-5 pt-5 pb-4 shrink-0">
           <DialogHeader className="flex flex-row items-start justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <AgentAvatar provider={agent.provider} size="lg" ring />
+              <AgentAvatar provider={agent.provider} size="lg" bare />
               <div className="min-w-0">
                 <DialogTitle className="truncate">
                   {agent.name}

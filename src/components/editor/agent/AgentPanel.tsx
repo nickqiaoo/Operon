@@ -15,6 +15,7 @@ import {
   PowerOff,
   Puzzle,
   Blocks,
+  Radar,
   RefreshCw,
   Sparkles,
   SquareStack,
@@ -882,6 +883,11 @@ function TasksSection({ chatId, providerId, res }: { chatId: number; providerId:
   )
 }
 
+/** Marks a monitor's row: the same radar the chat draws on the Monitor call and its events. */
+function MonitorMark() {
+  return <Radar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+}
+
 const TASK_DOT: Record<OperonBackgroundTaskDTO['status'], string> = {
   running: 'bg-status-info animate-pulse',
   completed: 'bg-status-ok/70',
@@ -924,6 +930,7 @@ function TaskRow({ chatId, providerId, task, onChanged }: { chatId: number; prov
     <div className={ROW}>
       <div className="flex items-center gap-2">
         <RowDot className={TASK_DOT[task.status]} />
+        {monitor && <MonitorMark />}
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
@@ -1086,8 +1093,11 @@ function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerI
   const isMonitor = task.taskType === 'monitor'
   const isShell = task.taskType === 'local_bash' || isMonitor
   const output = useTaskOutput(providerId, chatId, task.taskId, { enabled: open && isShell, live: isRunning })
-  const title = task.command ?? task.description
+  // A monitor's command is a long watch loop; the row names it by what it watches for.
+  const title = isMonitor ? task.description || task.command || '' : task.command ?? task.description
+  const titleIsCommand = !!task.command && title === task.command
   const kind = CLAUDE_TASK_KIND[task.taskType] ?? task.taskType
+  const elapsed = isRunning || task.endedAt == null ? undefined : formatDuration(task.endedAt - task.startedAt)
   const stopping = stopRequested && isRunning
 
   // A live tail reads from the bottom: keep it pinned there as lines arrive.
@@ -1110,16 +1120,18 @@ function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerI
     <div className={ROW}>
       <div className="flex items-center gap-2">
         <RowDot className={CLAUDE_TASK_DOT[task.status]} />
+        {isMonitor && <MonitorMark />}
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           title={title}
-          className={cn('min-w-0 flex-1 truncate text-left text-foreground/85 transition-colors hover:text-foreground', task.command && 'font-mono text-[12px]')}
+          className={cn('min-w-0 flex-1 truncate text-left text-foreground/85 transition-colors hover:text-foreground', titleIsCommand && 'font-mono text-[12px]')}
         >
           {title}
         </button>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
-          {isRunning || task.endedAt == null ? kind : formatDuration(task.endedAt - task.startedAt)}
+          {/* A finished monitor keeps its kind: the duration alone reads like any command's. */}
+          {isMonitor ? (elapsed ? `${kind} · ${elapsed}` : kind) : elapsed ?? kind}
         </span>
         {isRunning && (
           <IconButton onClick={stop} disabled={stopping} label={intl.formatMessage({ id: 'editor.session.stopTask', defaultMessage: 'Stop task' })}>
@@ -1129,8 +1141,12 @@ function ClaudeTaskRow({ chatId, providerId, task }: { chatId: number; providerI
       </div>
       {open && (
         <div className="mt-1 space-y-1.5 pb-1">
-          {/* The row shows the command; the model's own words for it go here. */}
-          {task.command && task.description && <div className="text-xs text-muted-foreground">{task.description}</div>}
+          {/* The row shows the command; the model's own words for it go here. A monitor's
+              row shows those words, so its command goes here instead. */}
+          {titleIsCommand && task.description && <div className="text-xs text-muted-foreground">{task.description}</div>}
+          {!titleIsCommand && task.command && (
+            <div className="truncate font-mono text-[11px] text-muted-foreground" title={task.command}>{task.command}</div>
+          )}
           {isShell ? (
             output.isPending ? (
               <div className="text-[11px] text-muted-foreground">
