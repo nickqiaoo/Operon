@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [1.5.24] - 2026-11-17
+
+### Added
+
+- The assistant's question reaches the user as a form in the thread — the same card Codex's own questions use — whichever agent it runs on (Claude Code's AskUserQuestion, Codex's `request_user_input`, Operon's own). The turn no longer waits for it: the agent is told the question is in front of the user and ends its turn, and the choice comes back as the next message.
+- Its list tools take a page at a time and say which slice of how many they show, so a long history is read in full instead of the first rows: `list_tasks` filters by status (active, finished, all) and kind (helpers or coding agents) and shows what is running before what has finished, `board_list` lists a project's open tasks unless asked otherwise, `workspace_list` narrows to one project or to the workspaces with something running or waiting, and `workspace_overview` pages a workspace's conversations. A new `running_list` reads what is live in memory, so a conversation that has run for days is still found.
+- On Operon's own runtime the assistant's own actions are the session's tools, run in process — no MCP server in the middle and no RunCode to call them through.
+
+### Changed
+
+- On Operon's own runtime the assistant's main session is not offered a shell or subagents (`Bash`, `Agent`, `Workflow`) and runs in auto mode, so it hands work to a helper or a coding agent instead of doing it itself; its prompt now says not to look into the project first — the coding agent finds that out.
+- Update the bundled Operon agent runtime to `0.1.0-alpha.35`. A session can take tools away by name wherever they come from (`SessionConfig.disabledTools`), and a host can hand in its own tools to run in process beside the agent profile's (`bindings.extraTools`).
+- Agent lists show each agent's logo without the coloured wash, which made a row read as acting; OperonSpec's mark is a document with a sparkle in its open corner.
+- A background monitor's row in the session panel names what it watches for rather than the whole watch loop, keeps the radar mark and its kind, and shows the command underneath.
+
+### Fixed
+
+- An ACP agent that opens a browser sign-in — Antigravity's login once its stored credentials are rejected — is no longer killed by the model probe's timeout, which made the sign-in impossible to finish and opened a fresh login page on every refresh. The probe is kept alive for up to ten minutes and the provider's static models are used meanwhile; a failed probe now replays what the agent wrote to stderr.
+- A node that reconnected to the other broker instance could flip its route back and forth, so about half the web requests landed on the dead connection and hung. The newest connection now owns the node's route, a leftover one drops itself within a heartbeat, and its teardown no longer deletes its successor's route; an uplink silent for three minutes with no batch in flight is dropped instead of ten.
+- On the phone the file tree's last rows scroll clear of the floating tab bar instead of jittering at the bottom and staying under it.
+
 ## [1.5.23] - 2026-11-16
 
 ### Added
