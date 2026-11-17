@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.5.26] - 2026-11-17
+
+### Added
+
+- Background sub-agents are no longer Claude Code's alone. Codex's spawned agents, OpenCode's `subagent` calls and Operon's own runtime's background `Agent` all show in the session panel as they start, work and end — long past the turn that spawned them. Each can be stopped, finished ones cleared, and its steps are read from the provider's own record of it, so a background agent's card has content even though its steps never reach the chat's messages.
+- On OpenCode, the reply the parent agent writes on its own when a sub-agent's report comes in arrives in the chat as a turn of its own instead of being dropped; the next message you send waits for that reply to finish.
+
+### Changed
+
+- Update the bundled agent SDKs: Claude Agent SDK 0.3.326, Copilot SDK 1.0.34, OpenCode client 2.3.0, Qoder Agent SDK 1.0.59 and the ACP SDK 2.7. OpenCode session events now run through one shared stream that reconnects on a drop and stays open while a background sub-agent is still running.
+
+### Fixed
+
+- Closing the right panel no longer makes the session cards' column overshoot its width and spring back: the chat's padding and the panel animate on the same duration and curve.
+
 ## [1.5.25] - 2026-11-17
 
 ### Changed
