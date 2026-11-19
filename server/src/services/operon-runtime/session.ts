@@ -322,7 +322,7 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     // Approvals and AskUserQuestion: surface a request part, then block until respond().
     const handlers = interactiveHandlers({
       push: (part) => queue.push(part),
-      toolInput: (toolCallId) => mapper.toolInput(toolCallId),
+      mapper,
       approvals: this.pendingApprovals,
       questions: this.pendingQuestions,
       signal: turnSignal,

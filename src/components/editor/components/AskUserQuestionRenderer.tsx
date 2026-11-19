@@ -38,6 +38,8 @@ interface Question {
   type?: 'choice' | 'text' | 'yesno';
   options?: QuestionOption[];
   multiSelect?: boolean;
+  /** Operon's tool arguments use snake case. */
+  multi_select?: boolean;
   /** OpenCode uses "multiple" instead of "multiSelect" */
   multiple?: boolean;
   placeholder?: string;
@@ -97,7 +99,7 @@ export function AskUserQuestionRenderer({
   const rawQuestions = rawInput.questions ?? [];
   // Normalize: unify "multiple" → "multiSelect", ensure options exist for yesno type
   const questions = rawQuestions.map((q) => {
-    const normalized = { ...q, multiSelect: q.multiSelect ?? q.multiple ?? false };
+    const normalized = { ...q, multiSelect: q.multiSelect ?? q.multi_select ?? q.multiple ?? false };
     if (normalized.type === 'yesno' && (!normalized.options || normalized.options.length === 0)) {
       return {
         ...normalized,

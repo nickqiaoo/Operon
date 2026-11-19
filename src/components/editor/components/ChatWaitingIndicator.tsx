@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { FormattedMessage } from 'react-intl';
 import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
 import { Spinner } from '@/components/ui/spinner';
+import { MessageCircleQuestionIcon } from 'lucide-react';
+import { useChatPendingInputStore } from '@/stores/chat-pending-input-store';
 import type { StreamMessageMetadata } from '@operon/agent-runtime';
 
 function formatElapsed(ms: number): string {
@@ -12,12 +14,15 @@ function formatElapsed(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-export function ChatWaitingIndicator({ active, retry }: { active: boolean; retry?: StreamMessageMetadata['retry'] }) {
+export function ChatWaitingIndicator({ active, chatId, retry }: { active: boolean; chatId?: number; retry?: StreamMessageMetadata['retry'] }) {
+  const needsInput = useChatPendingInputStore((s) =>
+    chatId != null && s.pendingByChat.get(chatId)?.some((request) => !request.origin) === true);
+  const working = active && !needsInput;
   const startRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
-    if (active) {
+    if (working) {
       if (!startRef.current) {
         startRef.current = Date.now();
         setElapsedMs(0);
@@ -26,18 +31,26 @@ export function ChatWaitingIndicator({ active, retry }: { active: boolean; retry
     }
     startRef.current = null;
     setElapsedMs(0);
-  }, [active]);
+  }, [working]);
 
   useEffect(() => {
-    if (!active || !startRef.current) return;
+    if (!working || !startRef.current) return;
     const interval = window.setInterval(() => {
       if (!startRef.current) return;
       setElapsedMs(Date.now() - startRef.current);
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [active]);
+  }, [working]);
 
   if (!active) return null;
+  if (needsInput) {
+    return (
+      <Marker role="status" className="text-xs">
+        <MarkerIcon><MessageCircleQuestionIcon /></MarkerIcon>
+        <MarkerContent><FormattedMessage id="editor.tabs.needsInput" defaultMessage="Waiting for your input" /></MarkerContent>
+      </Marker>
+    );
+  }
   const retrySeconds = retry ? Math.max(0, Math.ceil((retry.retryAt - Date.now()) / 1000)) : 0;
 
   // shadcn's live-status Marker: a spinner and shimmering text while the agent works.

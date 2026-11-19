@@ -107,7 +107,7 @@ function installHandlers(session: HarnessSession, run: ActiveRun): void {
   }
   const handlers = interactiveHandlers({
     push: (part) => run.queue.push(part),
-    toolInput: (toolCallId) => run.mapper.toolInput(toolCallId),
+    mapper: run.mapper,
     approvals: run.approvals,
     questions: run.questions,
   })

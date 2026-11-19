@@ -1,4 +1,4 @@
-import type { AgentEvent, Usage } from 'operon-agents'
+import type { AgentEvent, QuestionRequest, Usage } from 'operon-agents'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
 
 /**
@@ -124,6 +124,20 @@ export class OperonStreamMapper {
   /** The arguments of a call the model has made and that has no result yet. */
   toolInput(toolCallId: string): unknown {
     return this.runningToolInputs.get(toolCallId)
+  }
+
+  /** The live handler can run before the tool.call.started event reaches this mapper. */
+  mapQuestion(request: QuestionRequest, approvalId: string): RuntimeStreamPart[] {
+    const parts: RuntimeStreamPart[] = []
+    const toolCallId = request.toolCallId
+    const input = { questions: request.questions }
+    this.emitToolCallOnce((part) => parts.push(part), toolCallId, 'AskUserQuestion', input)
+    parts.push({
+      type: 'tool-approval-request',
+      approvalId,
+      toolCall: { type: 'tool-call', toolCallId, toolName: 'AskUserQuestion', input, dynamic: true },
+    })
+    return parts
   }
 
   map(event: AgentEvent): RuntimeStreamPart[] {

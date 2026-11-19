@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
+import { readUIMessageStream } from 'ai'
+import { toUIMessageStream } from '@operon/agent-runtime/ai-sdk'
 import type { AgentEvent } from 'operon-agents'
 import { OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 
@@ -46,6 +48,32 @@ function parentTag(part: unknown): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+
+describe('Operon question delivery', () => {
+  it.each(['request-first', 'start-first'])('keeps the form answerable until a reply (%s)', async (order) => {
+    const mapper = new OperonStreamMapper()
+    const questions = [{
+      question: 'Release now?', header: 'Release', multiSelect: false,
+      options: [{ label: 'Release', description: '' }, { label: 'Wait', description: '' }],
+    }]
+    const request = { toolCallId: 'q1', turnId: 'turn', questions }
+    const start = () => mapper.map(toolCall('main', 'q1', 'AskUserQuestion', { questions }))
+    const ask = () => mapper.mapQuestion(request, 'approval-1')
+    const parts = [
+      ...mapper.map(ev('main', { type: 'turn.step.started' })),
+      ...(order === 'request-first' ? [...ask(), ...start()] : [...start(), ...ask()]),
+    ]
+    expect(parts.filter((part) => part.type === 'tool-call')).toHaveLength(1)
+    async function* stream() { yield* parts }
+    let last
+    for await (const message of readUIMessageStream({
+      stream: toUIMessageStream(stream(), { messageId: 'reply' }), terminateOnError: true,
+    })) last = message
+    expect(last?.parts.at(-1)).toMatchObject({
+      toolName: 'AskUserQuestion', state: 'approval-requested', approval: { id: 'approval-1' }, input: { questions },
+    })
+  })
+})
 
 describe('OperonStreamMapper retry status', () => {
   const retry = { type: 'turn.step.retrying', attempt: 1, maxAttempts: 10, delayMs: 5000, reason: '429 Too Many Requests' };

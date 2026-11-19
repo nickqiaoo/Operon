@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { ApprovalHandler, ApprovalResponse, QuestionHandler, QuestionResult } from 'operon-agents'
 import type { PermissionDecision, RuntimeStreamPart } from '@operon/agent-runtime'
-import { planReviewToolCallPart } from './message-mapper.js'
+import { type OperonStreamMapper, planReviewToolCallPart } from './message-mapper.js'
 
 /**
  * Where a run's "the agent is waiting for you" requests go, and where their answers wait.
@@ -15,8 +15,7 @@ import { planReviewToolCallPart } from './message-mapper.js'
 export interface InteractiveSink {
   /** The run's UI stream: the request part goes here. */
   push(part: RuntimeStreamPart): void
-  /** Arguments of the asking call (the request itself carries none). */
-  toolInput(toolCallId: string): unknown
+  mapper: OperonStreamMapper
   /** Answers awaiting `answerPending`, by approvalId. */
   approvals: Map<string, (response: ApprovalResponse) => void>
   questions: Map<string, (result: QuestionResult) => void>
@@ -72,20 +71,13 @@ export function interactiveHandlers(sink: InteractiveSink): { approval: Approval
       sink.push({
         type: 'tool-approval-request',
         approvalId,
-        toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: request.toolName, input: sink.toolInput(request.toolCallId) ?? {}, dynamic: true },
+        toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: request.toolName, input: sink.mapper.toolInput(request.toolCallId) ?? {}, dynamic: true },
       } as unknown as RuntimeStreamPart)
     })
 
-  // AskUserQuestion: same channel as approvals. The AskUserQuestion tool-call part
-  // (already in the message stream) renders the form, keyed by toolCallId; this
-  // approval-request carries the approvalId the UI submits the answer against.
   const question: QuestionHandler = (request, options) =>
     waitForAnswer<QuestionResult>(sink.questions, options?.signal ?? sink.signal, null, (approvalId) => {
-      sink.push({
-        type: 'tool-approval-request',
-        approvalId,
-        toolCall: { type: 'tool-call', toolCallId: request.toolCallId, toolName: 'AskUserQuestion', input: sink.toolInput(request.toolCallId) ?? {}, dynamic: true },
-      } as unknown as RuntimeStreamPart)
+      for (const part of sink.mapper.mapQuestion(request, approvalId)) sink.push(part)
     })
 
   return { approval, question }

@@ -21,6 +21,7 @@ test('AskUserQuestion: select option + submit echoes answer in reply', async ({ 
   await expect(page.getByText('Which theme color do you prefer?')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('Blue')).toBeVisible()
   await expect(page.getByText('Green')).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Waiting for your input' })).toBeVisible()
 
   const submit = page.getByTestId('ask-user-question-submit')
   await page.getByRole('radio', { name: /^Blue/ }).check()
@@ -28,6 +29,7 @@ test('AskUserQuestion: select option + submit echoes answer in reply', async ({ 
   await submit.click()
 
   await waitForStreamIdle(page)
+  await expect(page.getByRole('status').filter({ hasText: 'Waiting for your input' })).toHaveCount(0)
 
   // Closing text from the script quotes the answer back.
   await expect(page.locator('[data-testid="message-assistant"]').last()).toContainText(/Blue/)
