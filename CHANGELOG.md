@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.5.27] - 2026-11-19
+
+### Added
+
+- Operon chats can run on another machine over SSH. Add an environment under Settings → Operon — host, user, a remote working directory, and a private key, the SSH agent or a password — test the connection, then pick it from the environment menu on a new chat's bar. The chat's tools read, edit and run on that machine; the choice is fixed by the first message, and reopening the chat reconnects. Passwords are kept in the system's secure storage, and a host key that OpenSSH's known hosts does not already trust is shown as a fingerprint to confirm before anything connects.
+- The phone gets the environment menu too: a new Operon chat there can start on an SSH environment, and an established remote chat names its environment above the composer.
+
+### Changed
+
+- An SSH chat keeps its distance from the local workspace: no project or worktree picker, file mentions, annotation trays or side chats, and file references and images in replies stay plain text rather than opening files that exist only on the remote machine.
+
+### Fixed
+
+- A question from Operon's own runtime reaches the chat even when it arrives before the asking tool call's own stream event, and its multi-select options keep their checkboxes.
+- While a question or an approval waits for you, the thread's status reads "Waiting for your input" instead of a spinner counting seconds as if the agent were still working.
+- A mermaid diagram's action buttons align with its compact header.
+
 ## [1.5.26] - 2026-11-17
 
 ### Added
