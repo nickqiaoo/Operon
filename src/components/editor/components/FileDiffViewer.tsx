@@ -42,7 +42,7 @@ export function FileDiffViewer({ filePath, oldContent, newContent, className }: 
     return <div className={className}>
       <div className="flex items-center justify-between gap-3 py-2 text-xs text-muted-foreground">
         <span>Preview limited. Showing the beginning of the {newContent ? 'new' : 'previous'} content.</span>
-        <Button variant="ghost" size="sm" onClick={() => openFile(filePath)} title="Open the current file on disk">Open file</Button>
+        {openFile && <Button variant="ghost" size="sm" onClick={() => openFile(filePath)} title="Open the current file on disk">Open file</Button>}
       </div>
       <pre className="max-h-120 overflow-auto rounded-lg bg-muted/30 p-3 text-xs">{preview}</pre>
     </div>;

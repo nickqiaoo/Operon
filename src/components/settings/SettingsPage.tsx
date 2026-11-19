@@ -20,6 +20,7 @@ import { LinearSettings } from "./LinearSettings"
 import { GithubSettings } from "./GithubSettings"
 import { CommitMessageSettings } from "./CommitMessageSettings"
 import { AutoReviewSettings } from "./AutoReviewSettings"
+import { SshEnvironmentSettings } from "./SshEnvironmentSettings"
 import { BrowserSettings } from "./BrowserSettings"
 import { ComputerUseSettings } from "./ComputerUseSettings"
 import { SaasSettings } from "./SaasSettings"
@@ -341,6 +342,7 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                             {activeTab === "custom" && (
                                 <div className="space-y-6">
                                     <AutoReviewSettings />
+                                    <SshEnvironmentSettings />
                                     <ConfigEditor configDir=".operon" files={OPERON_FILES} />
                                 </div>
                             )}

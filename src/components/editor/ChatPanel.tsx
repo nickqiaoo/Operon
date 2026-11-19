@@ -6,7 +6,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { isTypingTarget } from '@/lib/shadcn-react/message-scroller/components';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { FileUIPart } from 'ai';
-import { ChartPie, Gauge, Loader2 } from 'lucide-react';
+import { ChartPie, Gauge, Loader2, Server } from 'lucide-react';
 import { AgentPanel, SESSION_PANEL_PAD_CLASS, type SessionUsageCard } from './agent/AgentPanel';
 import type { OperonSkillDTO } from './agent/agentControl';
 import {
@@ -359,6 +359,7 @@ function ChatPanelContent({
     thinkingEffort,
     thinkingEffortValues: thinkingEffortOptions.map((o) => o.value),
     currentWorkspaceId,
+    draftSshEnvironmentId: tab?.sshEnvironment?.id,
     autoRun: tab?.options?.autoRun,
     setTabChatId,
   });
@@ -369,7 +370,7 @@ function ChatPanelContent({
   const navigatorEntries = useMemo(() => buildChatNavigatorEntries(messages), [messages]);
   // Agent and workspace stay open to change until the first send.
   const showDraftBar =
-    !isMobile &&
+    (!isMobile || (tab?.providerId ?? providerId) === 'custom') &&
     isDraftChatTab(tab) &&
     !isCanvasChatId(chatId) &&
     messages.length === 0 &&
@@ -503,7 +504,8 @@ function ChatPanelContent({
     providerGroup: selectedModel?.group,
   });
 
-  const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
+  const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
+  const sshEnvironment = loadedSshEnvironment ?? tab?.sshEnvironment;
 
   // Phone: reopening a conversation is a WAN round trip for its transcript.
   // Until it lands the panel is one full-screen loading state — no transcript,
@@ -693,7 +695,7 @@ function ChatPanelContent({
 
   // Per-turn file diffs, rendered as a card at the end of each turn that changed
   // files. Refetched once the turn settles so the new turn's card appears.
-  const reviewCwd = useProjectStore((s) => s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
+  const reviewCwd = useProjectStore((s) => sshEnvironment ? null : s.projects.flatMap((project) => project.workspaces).find((workspace) => workspace.id === currentWorkspaceId)?.worktreePath ?? null);
   // Phone: there is no side file viewer, so a file the chat cites opens in a sheet over it.
   const inheritedOpenFile = useFileOpenHandler();
   const [mobilePreview, setMobilePreview] = useState<MobileFilePreview | null>(null);
@@ -813,31 +815,33 @@ function ChatPanelContent({
     // (context markdown + screenshot), then clear them — sending consumes them,
     // which also drops their on-page pins via the store subscription.
     const annStore = useAnnotationsStore.getState();
-    const annotations = annotationsForWorkspace(annStore.items, currentWorkspaceId);
+    const annotations = sshEnvironment ? [] : annotationsForWorkspace(annStore.items, currentWorkspaceId);
     const annFiles = annotations.flatMap(annotationToFiles);
     // Fold this workspace's queued inline line comments (diff / file preview) in
     // as text context, then clear them — same one-shot consume as annotations.
     const lineStore = useLineCommentsStore.getState();
-    const lineComments = lineCommentsForWorkspace(lineStore.items, currentWorkspaceId);
+    const lineComments = sshEnvironment ? [] : lineCommentsForWorkspace(lineStore.items, currentWorkspaceId);
     const lineCommentFiles = lineComments.map(lineCommentToFile);
     // Same one-shot consume for text picked out of a file preview.
     const selectedStore = useSelectedTextStore.getState();
-    const selectedSnippets = selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId);
+    const selectedSnippets = sshEnvironment ? [] : selectedTextForChat(selectedStore.items, currentWorkspaceId, dbChatId);
     const selectedFiles = selectedSnippets.map(selectedTextToFile);
     const extraFiles = [...annFiles, ...lineCommentFiles, ...selectedFiles];
     const merged = extraFiles.length > 0
       ? { ...message, files: [...message.files, ...extraFiles] as FileUIPart[] }
       : message;
     submitMessage(merged, attachments.files, setInput);
-    for (const a of annotations) annStore.remove(a.id);
-    lineStore.clearWorkspace(currentWorkspaceId);
-    selectedStore.clearWorkspace(currentWorkspaceId);
+    if (!sshEnvironment) {
+      for (const a of annotations) annStore.remove(a.id);
+      lineStore.clearWorkspace(currentWorkspaceId);
+      selectedStore.clearWorkspace(currentWorkspaceId);
+    }
     trackEvent('message_sent', {
       provider_id: currentProviderId,
       model: model || undefined,
       has_attachments: attachments.files.length > 0 || extraFiles.length > 0,
     });
-  }, [attachments.files, currentWorkspaceId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact]);
+  }, [attachments.files, currentWorkspaceId, dbChatId, model, providerId, selectedModel?.providerId, setInput, submitMessage, handleCompact, sshEnvironment]);
 
   // --- Goal (codex) ---
   const sendGoalMessage = useCallback((objective: string) => {
@@ -890,7 +894,7 @@ function ChatPanelContent({
   const pendingWorktreeSendRef = useRef<{ workspaceId: number; message: { text: string; files: FileUIPart[] } } | null>(null);
   const handleComposerSubmit = useCallback((message: { text: string; files: FileUIPart[] }): void | Promise<void> => {
     const intent = draftWorktreeIntent(chatId);
-    if (!showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
+    if (isMobile || sshEnvironment || !showDraftBar || !intent.newWorktree || intent.creating || !message.text.trim()) return handleSubmitOrGoal(message);
     const project = useProjectStore.getState().projects.find((p) => p.workspaces.some((w) => w.id === currentWorkspaceId));
     const workspace = project?.workspaces.find((w) => w.id === currentWorkspaceId);
     if (!project || !workspace) return handleSubmitOrGoal(message);
@@ -910,7 +914,7 @@ function ChatPanelContent({
       });
       throw error;
     });
-  }, [chatId, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
+  }, [chatId, isMobile, sshEnvironment, showDraftBar, currentWorkspaceId, handleSubmitOrGoal, intl]);
   useEffect(() => {
     const pending = pendingWorktreeSendRef.current;
     if (!pending || pending.workspaceId !== currentWorkspaceId) return;
@@ -935,7 +939,7 @@ function ChatPanelContent({
   const consumePendingSkill = useCallback(() => setPendingSkill(null), []);
   const sendNonce = useAnnotationSendStore((s) => s.nonce);
   useEffect(() => {
-    if (sendNonce === 0 || !visible) return;
+    if (sendNonce === 0 || !visible || sshEnvironment) return;
     const { workspaceId: reqWs, consume } = useAnnotationSendStore.getState();
     // Browser-send leaves the browser panel focused. The visible conversation
     // in the matching workspace consumes the request once.
@@ -944,7 +948,7 @@ function ChatPanelContent({
     if (anns.length === 0) { consume(); return; }
     consume();
     handleSubmitRef.current({ text: getInput().trim(), files: [] });
-  }, [sendNonce, currentWorkspaceId, getInput, visible]);
+  }, [sendNonce, currentWorkspaceId, getInput, visible, sshEnvironment]);
 
   const submitSteerItem = useCallback(async (item: LiveSteerItem) => {
     const currentChatId = tab?.chatId ?? dbChatIdRef.current;
@@ -1139,7 +1143,7 @@ function ChatPanelContent({
   }, [chatId]);
 
   return (
-    <FileOpenProvider value={isMobile ? openFileOnMobile : inheritedOpenFile}>
+    <FileOpenProvider value={sshEnvironment ? null : isMobile ? openFileOnMobile : inheritedOpenFile}>
     <div
       ref={transcriptRef}
       className={cn(
@@ -1238,7 +1242,7 @@ function ChatPanelContent({
             </ChatProviderIdContext.Provider>
             </ChatDbIdContext.Provider>
           )}
-          <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} retry={extractRetry(messages.at(-1))} />
+          <ChatWaitingIndicator active={(status === 'submitted' || status === 'streaming')} chatId={dbChatId} retry={extractRetry(messages.at(-1))} />
         </ConversationContent>
         {chatLoadingMore && (
           <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">
@@ -1429,9 +1433,13 @@ function ChatPanelContent({
             <TodoQueue todos={latestTodos} live={status === 'streaming' || status === 'submitted'} />
           </div>
         ) : null}
-        <AnnotationTray workspaceId={currentWorkspaceId} />
-        <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
-        <LineCommentTray workspaceId={currentWorkspaceId} />
+        {!sshEnvironment && (
+          <>
+            <AnnotationTray workspaceId={currentWorkspaceId} />
+            <SelectedTextTray workspaceId={currentWorkspaceId} chatId={dbChatId} />
+            <LineCommentTray workspaceId={currentWorkspaceId} />
+          </>
+        )}
         <WorkflowApprovalsBar chatId={tab?.chatId ?? dbChatIdRef.current} />
         <SpecChatBar chatId={tab?.chatId ?? dbChatIdRef.current} />
         {goal && (
@@ -1450,8 +1458,14 @@ function ChatPanelContent({
           onRetry={handleRetrySteer}
           onDismiss={handleDismissSteer}
         />
-        {showDraftBar && (
-          <DraftChatBar tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} />
+        {showDraftBar ? (
+          <DraftChatBar tabId={chatId} providerId={tab?.providerId ?? providerId} workspaceId={currentWorkspaceId} sshEnvironment={sshEnvironment} isMobile={isMobile} />
+        ) : sshEnvironment && (
+          <div className="mb-1.5 flex min-w-0 items-center gap-1.5 px-3 text-xs text-muted-foreground">
+            <Server className="size-3.5 shrink-0" />
+            <span className="truncate">{sshEnvironment.name}</span>
+            <span className="shrink-0 text-muted-foreground/70">SSH</span>
+          </div>
         )}
         {readOnlyReason != null ? (
           <div
@@ -1502,7 +1516,7 @@ function ChatPanelContent({
           compactWhenIdle={isMobile}
           floating={isMobile}
           mobileKeyboardOpen={isMobile && mobileKeyboardOpen}
-          hasPendingContext={pendingAnnotationCount > 0 || pendingLineCommentCount > 0}
+          hasPendingContext={!sshEnvironment && (pendingAnnotationCount > 0 || pendingLineCommentCount > 0)}
           pendingSkill={pendingSkill}
           onPendingSkillConsumed={consumePendingSkill}
           initialSkills={initialSkills}

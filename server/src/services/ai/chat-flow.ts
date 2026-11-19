@@ -13,6 +13,7 @@ import { observePendingInputPart, clearPendingApprovals } from './chat-pending-i
 import './approval-inbox.js'
 import { resolveMcpServersForSession } from '../mcp-config.js'
 import { ensurePluginsLoaded } from '../operon-runtime/plugins.js'
+import { getSshEnvironment } from '../ssh-environments.js'
 import { SPEC_CHAT_HINT } from '../spec/prompts.js'
 import type { ChatMetadata } from '../../types/chat.js'
 import type {
@@ -74,7 +75,18 @@ export async function startChat(
   // an image would write those bytes straight back into the DB row the
   // attachment store just moved them out of.
   const normalizedMessages = normalizeUiMessagesFileAttachments(rawMessages)
-  const providerId = resolveProviderId(payload)
+  const existingChat = payload.chatId ? chatHistoryService?.getChatMeta(payload.chatId) : undefined
+  const storedSshId = existingChat?.metadata?.sshEnvironment?.id
+  const providerId = storedSshId && payload.providerId === undefined ? 'custom' : resolveProviderId(payload)
+  if (payload.chatId && payload.sshEnvironmentId !== undefined && payload.sshEnvironmentId !== storedSshId) {
+    throw new Error('The execution environment is fixed after the first message.')
+  }
+  const sshId = payload.chatId ? storedSshId : payload.sshEnvironmentId
+  if (sshId !== undefined && (typeof sshId !== 'string' || providerId !== 'custom')) {
+    throw new Error('SSH environments are available for Operon chats.')
+  }
+  const sshEnvironment = sshId === undefined ? undefined : getSshEnvironment(sshId)
+  if (sshEnvironment && existingChat) payload = { ...payload, workspaceId: existingChat.workspaceId }
   const latestPayloadMessage = normalizedMessages[normalizedMessages.length - 1]
   const latestUserMessage = findLatestUserMessage(normalizedMessages)
 
@@ -92,7 +104,7 @@ export async function startChat(
   ) {
     const dbEntry = chatHistoryService.getChat(payload.chatId!)
     dbHistory = normalizeUiMessagesFileAttachments(dbEntry.messages as UIMessage[])
-    const meta = chatHistoryService.getChatMeta(payload.chatId!)
+    const meta = existingChat
     if (!meta) {
       throw new Error(`Chat history not found for chatId=${payload.chatId}`)
     }
@@ -108,10 +120,9 @@ export async function startChat(
   }
 
   if (!chatRecord && normalizedMessages.length > 0 && options?.skipUserMessagePersistence) {
-    const existingMeta = chatHistoryService?.getChatMeta(payload.chatId ?? 0)
     chatRecord = {
       chatId: payload.chatId ?? 0,
-      sessionId: existingMeta?.sessionId,
+      sessionId: existingChat?.sessionId,
     }
     if (providerId === 'custom') {
       messagesForModel = buildCompactAwareView(
@@ -119,25 +130,25 @@ export async function startChat(
       )
     }
   } else if (!chatRecord && normalizedMessages.length > 0) {
-    chatRecord = prepareChatRecord(payload, rawMessages)
+    chatRecord = prepareChatRecord(payload, rawMessages, sshEnvironment && { id: sshEnvironment.id, name: sshEnvironment.name })
     if (providerId === 'custom') {
       messagesForModel = buildCompactAwareView(
         dbHistory && latestUserMessage ? [...dbHistory, latestUserMessage] : latestUserMessage ? [latestUserMessage] : []
       )
     }
   } else if (!chatRecord) {
-    const existingMeta = chatHistoryService?.getChatMeta(payload.chatId ?? 0)
     chatRecord = {
       chatId: payload.chatId ?? 0,
-      sessionId: existingMeta?.sessionId,
+      sessionId: existingChat?.sessionId,
     }
   }
 
   const assistantMessageId = continuation?.assistantMessage.id ?? randomUUID()
 
   const chatId = chatRecord.chatId
-  const workflowAgent = chatId > 0 ? getChatStorage()?.getChatMeta(chatId)?.metadata?.workflowAgent : undefined
-  const cwd = workflowAgentCwd(workflowAgent) ?? resolveWorkspaceCwd(payload.workspaceId)
+  if (sshEnvironment && chatId > 0) options?.onChatRecord?.(chatId)
+  const workflowAgent = existingChat?.metadata?.workflowAgent
+  const cwd = sshEnvironment?.cwd ?? workflowAgentCwd(workflowAgent) ?? resolveWorkspaceCwd(payload.workspaceId)
   // Backfill the spec source chat with the server-assigned chatId. The route
   // sets agentId/projectId but leaves sourceChatId unset because a new chat's
   // first message has no chatId yet; chatRecord.chatId is the real id even on
@@ -146,6 +157,7 @@ export async function startChat(
   // so it's never rebuilt (setting sourceChatId on a later turn would change the
   // session params key and destroy the cached stateful-provider session).
   if (
+    !sshEnvironment &&
     payload.agentContext &&
     payload.agentContext.channelId == null &&
     payload.agentContext.sourceChatId == null &&
@@ -156,15 +168,11 @@ export async function startChat(
   // operonrepl (Computer Use / Browser Use) is scoped by the conversation itself,
   // not by the optional agent-communication context. Plain chats, cron jobs and
   // canvases still have a chatId and must receive their own persistent kernel.
-  const mcpContext = chatId > 0
-    ? { ...(payload.agentContext ?? {}), chatId, cwd }
-    : payload.agentContext
+  const mcpContext = chatId > 0 ? { ...payload.agentContext, chatId, cwd } : payload.agentContext
   // Plugin MCP servers are merged in from the plugin store, which must be loaded first.
-  await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
-  // A workflow sub-agent runs with its provider's own tools, as it did before it
-  // was a chat: the app's servers would let it start workflows, delegate and
-  // schedule from inside a run.
-  const mcpServers = workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
+  if (!sshEnvironment) await ensurePluginsLoaded().catch((error) => console.error('[plugins] load failed:', error))
+  // SSH chats and workflow sub-agents use the provider's own tools.
+  const mcpServers = sshEnvironment || workflowAgent ? undefined : resolveMcpServersForSession(providerId, mcpContext)
   // OperonSpec hint for a direct workspace chat (sourceChatId set): opt-in
   // guidance delivered as session
   // instructions layered once onto the provider's system prompt. It used to ride every user message
@@ -172,7 +180,7 @@ export async function startChat(
   // stateful provider, so a long chat carried one copy per turn. sourceChatId
   // is resolved above, before the session exists, so the hint is baked in on
   // message #1 and never changes the session's params afterwards.
-  const instructions = payload.agentContext?.sourceChatId != null
+  const instructions = !sshEnvironment && payload.agentContext?.sourceChatId != null
     ? [payload.instructions?.trim(), SPEC_CHAT_HINT].filter(Boolean).join('\n\n')
     : payload.instructions
   const session = await sessionManager.getOrCreate(chatId, providerId, {
@@ -185,6 +193,7 @@ export async function startChat(
     resume: chatRecord.sessionId,
     mcpServers,
     instructions,
+    ...(sshEnvironment ? { operon: { sshEnvironment } } : {}),
     ...(chatId > 0 ? { opencode: { callerTag: String(chatId) } } : {}),
     ...resolveForkSource(chatId),
   })
@@ -209,12 +218,13 @@ export async function startChat(
     chatId,
     cwd,
     rawMessages,
-    skipSnapshot: payload.skipSnapshot,
+    skipSnapshot: payload.skipSnapshot || !!sshEnvironment,
   })
 
   let resultMessage: UIMessage | undefined
   let turnError: string | undefined
   const sessionIdRef: { value?: string } = { value: chatRecord.sessionId }
+  if (sshEnvironment && session.runtime.id) persistSessionId(chatId, sessionIdRef, session.runtime.id)
 
   // Keyed by the reply's id: the first save adds it (or updates the assistant
   // message a continuation picked up), later ones update it in place.
@@ -546,6 +556,7 @@ export async function handleChat(
     clientSignal?.removeEventListener('abort', abort)
     unregisterAbort?.()
   }
+  let sshChatId: number | undefined
   try {
     // A server-owned child keeps its selected configuration even when a newly
     // attached UI has not loaded its model catalog yet.
@@ -571,7 +582,10 @@ export async function handleChat(
     }
     if (payload.chatId) unregisterAbort = registerChatTurnAbort(payload.chatId, abort)
     emitChatTurnStarted(payload)
-    const ctx = await startChat(payload, controller.signal, { notifyInbox: true })
+    const ctx = await startChat(payload, controller.signal, {
+      notifyInbox: true,
+      onChatRecord: (chatId) => { sshChatId = chatId },
+    })
     chatContexts.set(ctx.session, { agentContext: payload.agentContext, instructions: payload.instructions, env: payload.env })
 
     if (!payload.chatId && ctx.chatId > 0) {
@@ -659,6 +673,8 @@ export async function handleChat(
     if (payload.chatId) emitChatTurnFinished({ chatId: payload.chatId, turnId: payload.requestId!,
       status: controller.signal.aborted ? 'cancelled' : 'failed', prompt: findLatestUserMessage(payload.messages),
       error: err instanceof Error ? err.message : String(err) })
-    return createErrorResponse('[AI] Setup Error:', err)
+    const response = createErrorResponse('[AI] Setup Error:', err)
+    if (!payload.chatId && sshChatId) response.headers.set('X-Chat-Id', String(sshChatId))
+    return response
   }
 }

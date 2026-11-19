@@ -3,7 +3,7 @@ import { getOperonHome } from '../../../../shared/operon-home.js'
 import { mkdir, stat } from 'fs/promises'
 import { codeMode } from 'operon-code-mode'
 import { createLocalHarness, LocalEnvironment, resolveSessionConfig, type AutoApprover, type Harness, type HarnessSession, type McpServerConfig, type PermissionMode, type PermissionRule, type SessionConfig, type ThinkingLevel as EngineThinkingLevel, type Tool } from 'operon-agents'
-import { createAutoApprover, defaultCapabilities, filesystemTools, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions } from 'operon-agents/advanced'
+import { createAutoApprover, defaultCapabilities, filesystemTools, loadConfigFile, resolveFromFiles, toCoreOptions, WorkspaceMcpPool, type AutoApprovalOptions } from 'operon-agents/advanced'
 import { loadMcpServers } from 'operon-agents/mcp'
 import { getTelemetry } from '../analytics/telemetry.js'
 import { getProviderConfigs, isProviderUsable, onProviderConfigChange } from '../provider-config.js'
@@ -26,13 +26,15 @@ import { EXTENSIONS_DIR, HARNESS_HOME_DIR } from './paths.js'
 import { teammateOf } from 'operon-agents-peers'
 import { configurePeersHost, createTeammateChat, restoredSessionConfig } from './peers.js'
 import { loadApprovedExtensions, syncApprovedExtensions } from './approved-extensions.js'
-import { resumeRuntimeSession, workspaceSessionConfig, type SessionLimitsConfig, type SessionPermissionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
+import { resumeRuntimeSession, workspaceSessionConfig, type RestoreSetup, type SessionLimitsConfig, type SessionPermissionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
 import { observeSession } from './passive-observer.js'
 import { getChatStorage } from '../ai/state.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
 import { availableModels } from './models.js'
 import { DEFAULT_PERMISSION_RULES, withDefaultPermissionRules } from './default-permission-rules.js'
+import { getSshEnvironment, sshSessionBindings } from '../ssh-environments.js'
+import type { SshEnvironmentProfile } from '../../../../shared/ssh-environment.js'
 
 const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6'
 
@@ -112,9 +114,12 @@ async function loadWorkspaceMcpServers(root: string): Promise<Record<string, Mcp
  * pieces that map onto harness options: permission rules + loop control. A malformed
  * config degrades to defaults rather than failing the chat.
  */
-async function loadWorkspaceConfig(root: string): Promise<WorkspaceConfig> {
+async function loadWorkspaceConfig(root?: string): Promise<WorkspaceConfig> {
   try {
-    const { config } = await resolveFromFiles({ appName: APP_NAME, cwd: root, homeDir: getOperonHome() })
+    const config = root === undefined
+      ? await loadConfigFile(path.join(getOperonHome(), 'config.toml'))
+      : (await resolveFromFiles({ appName: APP_NAME, cwd: root, homeDir: getOperonHome() })).config
+    if (!config) return { permission: { rules: DEFAULT_PERMISSION_RULES } }
     const core = toCoreOptions(config)
     return {
       permission: { ...core.permission, rules: withDefaultPermissionRules(core.permission.rules) },
@@ -122,7 +127,7 @@ async function loadWorkspaceConfig(root: string): Promise<WorkspaceConfig> {
       ...(core.loopControl.maxStepsPerTurn !== undefined ? { maxStepsPerTurn: core.loopControl.maxStepsPerTurn } : {}),
     }
   } catch (error) {
-    console.warn(`[operon] failed to load config.toml under ${root}: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`[operon] failed to load config.toml under ${root ?? getOperonHome()}: ${error instanceof Error ? error.message : String(error)}`)
     return { permission: { rules: DEFAULT_PERMISSION_RULES } }
   }
 }
@@ -227,7 +232,7 @@ export function getOperonHarness(): Promise<Harness> {
   return HARNESS
 }
 
-async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
+async function loadWorkspaceSetup(root?: string): Promise<WorkspaceSetup> {
   const config = await loadWorkspaceConfig(root)
   // The workspace's config.toml can extend the `auto`-tier judge's allow/deny/environment
   // sections. They ride the session's configuration; the one judge on the harness
@@ -253,6 +258,18 @@ async function loadWorkspaceSetup(root: string): Promise<WorkspaceSetup> {
       ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
       ...(config.maxStepsPerTurn !== undefined ? { maxStepsPerTurn: config.maxStepsPerTurn } : {}),
     },
+  }
+}
+
+async function sshSessionConfig(instructions?: string): Promise<SessionConfig> {
+  const setup = await loadWorkspaceSetup()
+  return {
+    ...workspaceSessionConfig({ ...setup, servers: {} }, instructions),
+    mcp: false,
+    // The framework dispatches its Agent and Workflow tools on the session's own environment.
+    subagents: { workflowTool: true },
+    // Teams spawns independent harness sessions through the app's local workspace setup.
+    disabledTools: ['Team', 'Hub'],
   }
 }
 
@@ -336,6 +353,15 @@ async function buildHarness(): Promise<Harness> {
         return { config: resolveSessionConfig(workspace, request.requested.config ?? {}) }
       }
       if (request.operation !== 'restore') return
+      if (!request.requested.config) {
+        const ssh = getChatStorage()?.findChatBySessionId(request.session.id)?.metadata?.sshEnvironment
+        if (ssh) {
+          return {
+            config: resolveSessionConfig(request.stored ?? {}, await sshSessionConfig()),
+            bindings: sshSessionBindings(getSshEnvironment(ssh.id)),
+          }
+        }
+      }
       const current = request.requested.config ?? (await restoredSessionConfig(request.session))
       return { config: resolveSessionConfig(request.stored ?? {}, current) }
     },
@@ -369,6 +395,7 @@ async function buildHarness(): Promise<Harness> {
     // session-start into the set. Reading the manager per session means installs/enables take
     // effect on the next chat with no cache eviction.
     sessionCapabilities: async (ctx) => {
+      if (ctx.ownEnvironment) return defaultCapabilities({ ownEnvironment: true, mcp: false })
       await ensurePluginsLoaded()
       const root = await resolveProjectRoot(ctx.workDir)
       const workspaceServers = await loadWorkspaceMcpServers(root)
@@ -431,6 +458,7 @@ async function buildHarness(): Promise<Harness> {
 /** Options only this provider reads; the others ignore the `operon` block. */
 export interface OperonSessionOptions {
   operon?: {
+    sshEnvironment?: SshEnvironmentProfile
     /**
      * The host's own tools for this session (`bindings.extraTools`): run in process and offered
      * directly next to the built-in ones, where the other agents reach the same tools over MCP and
@@ -443,10 +471,14 @@ export interface OperonSessionOptions {
 }
 
 /** What `operon` adds to a session's setup: its configuration, and the live tools to open it with. */
-function sessionSetup(config: SessionConfig, operon: OperonSessionOptions['operon']): { config: SessionConfig; bindings?: { extraTools: readonly Tool[] } } {
+function sessionSetup(config: SessionConfig, operon: OperonSessionOptions['operon']): RestoreSetup {
+  const bindings = operon?.sshEnvironment ? sshSessionBindings(operon.sshEnvironment) : undefined
+  const extraTools = operon?.tools?.length ? { extraTools: operon.tools } : undefined
   return {
-    config: operon?.disabledTools?.length ? { ...config, disabledTools: [...operon.disabledTools] } : config,
-    ...(operon?.tools?.length ? { bindings: { extraTools: operon.tools } } : {}),
+    config: operon?.disabledTools?.length
+      ? { ...config, disabledTools: [...(config.disabledTools ?? []), ...operon.disabledTools] }
+      : config,
+    ...(bindings || extraTools ? { bindings: { ...bindings, ...extraTools } } : {}),
   }
 }
 
@@ -555,6 +587,13 @@ export class OperonRuntimeProvider implements RuntimeProviderFactory<SessionOpti
     operon?: OperonSessionOptions['operon'],
   ): Promise<HarnessSession> {
     const harness = await this.harness()
+    if (operon?.sshEnvironment) {
+      const setup = async () => sessionSetup(await sshSessionConfig(instructions), operon)
+      if (sessionId !== undefined) return resumeRuntimeSession(harness, sessionId, setup)
+      const session = await harness.createSession({ workDir: operon.sshEnvironment.cwd, ...await setup() })
+      observeSession(session, { notifyOnTurnEnd: true })
+      return session
+    }
     if (sessionId !== undefined) {
       return resumeRuntimeSession(harness, sessionId, async () =>
         sessionSetup(workspaceSessionConfig(await resolveWorkspaceSetup(cwd, mcpServers), instructions), operon))

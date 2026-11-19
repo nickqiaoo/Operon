@@ -11,6 +11,8 @@ export interface AiChatRequest {
   serviceTier?: 'fast'
   providerId?: string
   workspaceId?: number
+  /** Selected for the first message of an Operon chat. Later turns use the stored binding. */
+  sshEnvironmentId?: string
   /** When true, the latest user message is set as an active thread goal (codex). */
   asGoal?: boolean
   tp?: ChatType
@@ -100,6 +102,7 @@ export type PreparedMetadataState = {
 }
 
 export interface StartChatOptions {
+  onChatRecord?: (chatId: number) => void
   /** Merged into the persisted assistant message's metadata. Used by compact to
    *  stamp `{ compact: true }` on the summary message so it can be located later. */
   assistantMetadata?: Record<string, unknown>

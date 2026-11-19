@@ -2,6 +2,7 @@ import { api } from "@/lib/api";
 import { trackRequest } from "@/lib/request-progress";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
+import type { SshEnvironmentRef } from '@shared/ssh-environment';
 
 /**
  * Deliberately small: a page is sized by bytes on the wire, not by what fits on
@@ -62,6 +63,7 @@ export function useChatHistory(
   const [loadedModel, setLoadedModel] = useState<string | null>(null);
   const [loadedProviderId, setLoadedProviderId] = useState<string | null>(null);
   const [loadedThinkingLevel, setLoadedThinkingLevel] = useState<string | null>(null);
+  const [loadedSshEnvironment, setLoadedSshEnvironment] = useState<SshEnvironmentRef>();
   /** Server-side time of the last persisted message — survives closing the tab. */
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -84,6 +86,7 @@ export function useChatHistory(
     setMessagesRef.current([]);
     setHasMore(false);
     setLoadedUpdatedAt(null);
+    setLoadedSshEnvironment(undefined);
     nextCursorRef.current = undefined;
 
     if (dbChatId === undefined) {
@@ -107,6 +110,7 @@ export function useChatHistory(
         }
         setMessagesRef.current(normalized);
         setHasMore(result?.hasMore ?? false);
+        setLoadedSshEnvironment(result?.sshEnvironment);
         nextCursorRef.current = result?.nextCursor;
         if (result?.model) {
           setLoadedModel(result.model);
@@ -161,5 +165,5 @@ export function useChatHistory(
     }
   }, [hasMore, loadingMore]);
 
-  return { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, hasMore, loadingMore, loadMore };
+  return { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, loadedSshEnvironment, hasMore, loadingMore, loadMore };
 }

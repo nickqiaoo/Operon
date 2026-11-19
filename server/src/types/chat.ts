@@ -12,6 +12,7 @@ export interface ChatMetadata {
   cronjobId?: number
   /** chat-runtime fields */
   modeId?: string
+  sshEnvironment?: import('../../../shared/ssh-environment.js').SshEnvironmentRef
   /** A workflow or spec sub-agent's conversation (tp 'workflow-agent'): which run row it is. */
   workflowAgent?: {
     runId: string

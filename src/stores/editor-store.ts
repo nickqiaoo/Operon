@@ -44,6 +44,7 @@ interface EditorStore extends EditorState {
   updateTabProviderId: (id: string, providerId: string) => void
   /** Switch the agent of a chat that has not been sent yet; remounts its panel. */
   switchDraftProvider: (id: string, providerId: string) => void
+  setDraftSshEnvironment: (id: string, environment: EditorTab["sshEnvironment"]) => void
   /**
    * Move a tab of the current workspace into another workspace's bucket, where
    * it becomes the active tab. The caller then activates that workspace.
@@ -329,8 +330,16 @@ export const useEditorStore = create<EditorStore>()(
       const tab = state.tabs[index]
       if (tab.chatId !== undefined || tab.providerId === providerId) return state
       const tabs = state.tabs.slice()
-      tabs[index] = { ...tab, providerId, provider: undefined, mountRev: (tab.mountRev ?? 0) + 1 }
+      tabs[index] = { ...tab, providerId, provider: undefined, sshEnvironment: undefined, mountRev: (tab.mountRev ?? 0) + 1 }
       return { tabs }
+    })
+  },
+
+  setDraftSshEnvironment: (id, environment) => {
+    set((state) => {
+      const tab = state.tabs.find((item) => item.id === id)
+      if (!tab || tab.chatId !== undefined || tab.providerId !== 'custom') return state
+      return patchTab(state, id, "sshEnvironment", environment)
     })
   },
 

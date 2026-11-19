@@ -21,7 +21,7 @@ const MENTION_SEARCH_DEBOUNCE_MS = 120;
 
 const normalizeToPosixPath = (value: string) => value.replace(/\\/g, '/');
 
-export function useMentionSuggestions(input: string, cursorPos: number) {
+export function useMentionSuggestions(input: string, cursorPos: number, enabled: boolean) {
   const [mentionState, setMentionState] = useState<MentionState>({
     isOpen: false,
     query: '',
@@ -31,6 +31,7 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
 
   // Subscribe reactively to project store so we get the path after persistence loads
   const workspacePath = useProjectStore((state) => {
+    if (!enabled) return null;
     const wsId = state.activeWorkspaceId;
     if (wsId) {
       for (const project of state.projects) {
@@ -45,6 +46,10 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
 
   // Detect @ trigger in input based on cursor position
   useEffect(() => {
+    if (!enabled) {
+      if (mentionState.isOpen) setMentionState({ isOpen: false, query: '', triggerIndex: -1 });
+      return;
+    }
     const textBeforeCursor = input.slice(0, cursorPos);
     const lastAtIndex = textBeforeCursor.lastIndexOf('@');
 
@@ -76,7 +81,7 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
 
     setMentionState({ isOpen: true, query, triggerIndex: lastAtIndex });
     setSelectedIndex(0);
-  }, [input, cursorPos]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [input, cursorPos, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce typing (not the bare "@", which lists the root at once), then read
   // from the shared query cache: a fuzzy search for a plain word, a directory
@@ -120,7 +125,7 @@ export function useMentionSuggestions(input: string, cursorPos: number) {
   }, [workspacePath]);
 
   return {
-    isOpen: mentionState.isOpen,
+    isOpen: enabled && mentionState.isOpen,
     query: mentionState.query,
     triggerIndex: mentionState.triggerIndex,
     suggestions,

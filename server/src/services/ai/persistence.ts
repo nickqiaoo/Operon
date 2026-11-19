@@ -3,6 +3,7 @@ import type { AiChatRequest, ChatRecordState } from './types.js'
 import type { ChatMetadata } from '../../types/chat.js'
 import { getChatStorage, getChatHistoryService } from './state.js'
 import { findLatestUserMessage } from './helpers.js'
+import type { SshEnvironmentRef } from '../../../../shared/ssh-environment.js'
 
 /**
  * Remember the permission mode the person last sent with. The composer holds it
@@ -18,7 +19,8 @@ const persistModeId = (chatId: number, modeId: string | undefined, metadata: Cha
 
 export const prepareChatRecord = (
   payload: AiChatRequest,
-  normalizedMessages: UIMessage[]
+  normalizedMessages: UIMessage[],
+  sshEnvironment?: SshEnvironmentRef,
 ): ChatRecordState => {
   const chatHistoryService = getChatHistoryService()
   if (!chatHistoryService) {
@@ -65,8 +67,8 @@ export const prepareChatRecord = (
     providerId: payload.providerId,
     thinkingLevel: payload.thinkingLevel,
     messages: [lastUserMessage],
+    ...(sshEnvironment || payload.modeId ? { metadata: { sshEnvironment, modeId: payload.modeId } } : {}),
   })
-  persistModeId(createdId, payload.modeId, undefined)
   return { chatId: createdId }
 }
 

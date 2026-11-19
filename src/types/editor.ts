@@ -1,4 +1,5 @@
 import type { FileUIPart } from "ai"
+import type { SshEnvironmentRef } from "@shared/ssh-environment"
 
 export type EditorTabType = "chat" | "terminal"
 
@@ -18,6 +19,7 @@ export type EditorTab = {
   content?: string
   provider?: string
   providerId?: string
+  sshEnvironment?: SshEnvironmentRef
   isSubAgent?: boolean
   /**
    * A side chat: a throwaway branch of another conversation, rendered as a tab

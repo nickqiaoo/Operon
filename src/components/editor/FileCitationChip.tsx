@@ -28,7 +28,7 @@ type FileCitationChipProps = FileReference & {
 export function FileCitationChip({ path, line, endLine, className }: FileCitationChipProps) {
   const openFile = useFileOpenHandler()
   const rootPath = useCitationRoot()
-  const target = rootPath === undefined ? null : resolveCitationFile(rootPath, cleanPath(path))
+  const target = !openFile || rootPath === undefined ? null : resolveCitationFile(rootPath, cleanPath(path))
   const { data: stat } = useFileStat(target)
   const available = target && stat?.isFile ? target : null
   const basename = getBasename(cleanPath(path))
@@ -39,12 +39,12 @@ export function FileCitationChip({ path, line, endLine, className }: FileCitatio
   const handleClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault()
-      openFile(cleanPath(path), line != null && !wholeFile ? { line } : undefined)
+      openFile?.(cleanPath(path), line != null && !wholeFile ? { line } : undefined)
     },
     [openFile, path, line, wholeFile]
   )
 
-  if (rootPath !== undefined && (!target || available !== target)) {
+  if (!openFile || (rootPath !== undefined && (!target || available !== target))) {
     return <span title={path} className={className}>{basename}{wholeFile || line == null ? '' : `:${line}${endLine != null && endLine !== line ? `-${endLine}` : ''}`}</span>
   }
 

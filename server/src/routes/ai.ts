@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import * as aiService from '../services/ai.js'
+import { getChatStorage } from '../services/ai/state.js'
 import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
 import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
@@ -30,7 +31,10 @@ type AiRouteStorage = Pick<ChannelStorageAdapter, 'getAgentByName' | 'createAgen
  * stateful provider session mid-chat).
  */
 function enrichChatAgentContext(payload: AiChatRequest, storage: AiRouteStorage): void {
-  if (payload.agentContext) return
+  if (
+    payload.agentContext || payload.sshEnvironmentId !== undefined ||
+    (payload.chatId && getChatStorage()?.getChatMeta(payload.chatId)?.metadata?.sshEnvironment)
+  ) return
   if (payload.tp && payload.tp !== 'chat') return
   // A person typing into a task's session (taking over a stuck ticket) speaks for
   // the task's assignee, exactly as the orchestrator does when it wakes that

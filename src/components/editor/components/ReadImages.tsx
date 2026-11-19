@@ -6,6 +6,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { getImageMediaType } from '@/lib/file-preview';
 import { useFileStat, useFileUrl } from '@/lib/fs-queries';
 import { cn } from '@/lib/utils';
+import { useFileOpenHandler } from '@/lib/file-open-context';
 import { toolNameOf } from './TaskCreatedRenderer';
 import { unwrapToolEnvelope, type ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
@@ -37,7 +38,8 @@ export function imageReadPathOf(toolPart: ToolPartLike & { state?: string }): st
  */
 export function ReadImagesRow({ paths, children }: { paths: string[]; children: ReactNode }) {
   const isMobile = useIsMobile();
-  if (paths.length === 0) return <>{children}</>;
+  const openFile = useFileOpenHandler();
+  if (!openFile || paths.length === 0) return <>{children}</>;
   if (isMobile) {
     return (
       <div className="min-w-0">
@@ -142,7 +144,8 @@ function ReadImageThumb({
   variant: ThumbVariant;
   onRatio?: (path: string, ratio: number) => void;
 }) {
-  const { data: stat, isError: statFailed } = useFileStat(path);
+  const openFile = useFileOpenHandler();
+  const { data: stat, isError: statFailed } = useFileStat(openFile ? path : null);
   const { data: url = null, isError: urlFailed } = useFileUrl(stat?.isFile ? path : null);
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -151,7 +154,7 @@ function ReadImageThumb({
   const src = __APP_TARGET__ === 'web' ? authedUrl : url;
   const name = basename(path);
 
-  if (statFailed || urlFailed || stat?.isFile === false || (src !== null && src === brokenSrc)) return null;
+  if (!openFile || statFailed || urlFailed || stat?.isFile === false || (src !== null && src === brokenSrc)) return null;
   // A figure takes real room in the thread: a placeholder for a file that turns out
   // to be gone would open a gap and then collapse it.
   if (variant === 'figure' && !stat) return null;

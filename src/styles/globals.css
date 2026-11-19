@@ -944,13 +944,10 @@ body > div > button[title="Exit fullscreen"] {
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
 }
 
-/* Actions overlay: pull it back up onto the header row, right-aligned */
+/* Align Streamdown's absolutely positioned actions with the compact header. */
 [data-streamdown="mermaid-block"] > div:has([data-streamdown="mermaid-block-actions"]) {
-  position: relative;
   top: 0 !important;
   height: 1.75rem !important;
-  margin-top: -1.75rem !important;
-  padding-right: 0.5rem;
 }
 
 /* Actions cluster: no frame, no fill — plain icon buttons like the code copy button */
@@ -971,7 +968,7 @@ body > div > button[title="Exit fullscreen"] {
 
 [data-streamdown="mermaid-block-actions"] > button,
 [data-streamdown="mermaid-block-actions"] > div > button {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 0.25rem;

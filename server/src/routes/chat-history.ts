@@ -45,6 +45,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
         model: meta?.model,
         providerId: meta?.providerId,
         thinkingLevel: meta?.thinkingLevel,
+        sshEnvironment: meta?.metadata?.sshEnvironment,
         // When the last message landed. The client times prompt-cache expiry
         // from this so a conversation reopened from history knows it went cold
         // while it was closed.
@@ -55,7 +56,7 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     // Full mode: return all messages (for AI context, backward compat)
     const result = service.getChat(chatId)
     const { sessionId: _sessionId, ...payload } = result
-    return c.json(payload)
+    return c.json({ ...payload, sshEnvironment: storage.getChatMeta(chatId)?.metadata?.sshEnvironment })
   })
 
   // POST /api/chat-history - create a chat, optionally with its first messages
@@ -104,6 +105,9 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     }
     if (parent.tp === 'side') {
       return c.json({ success: false, error: 'Cannot open a side chat from a side chat' }, 400)
+    }
+    if (parent.metadata?.sshEnvironment) {
+      return c.json({ success: false, error: 'Side chats are unavailable for SSH conversations.' }, 400)
     }
 
     const chatId = storage.createChat({

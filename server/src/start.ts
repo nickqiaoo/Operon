@@ -24,6 +24,7 @@ import { initTelemetry } from './services/analytics/telemetry.js'
 import { isApiTokenAuthDisabled, publishApiToken } from './services/api-token.js'
 import type { RemoteE2EEMode } from '@shared/e2ee/protocol'
 import type { MobilePairingSummary } from './types/mobile.js'
+import type { SshPasswordEncryption } from './services/ssh-environments.js'
 
 declare const __ENABLE_MEMORY__: boolean
 
@@ -38,6 +39,7 @@ export interface StartServerOptions {
   appVersion?: string
   /** Remote clients require E2EE unless an unpackaged developer explicitly opts out. */
   remoteE2eeMode?: RemoteE2EEMode
+  sshPasswordEncryption?: SshPasswordEncryption
   /**
    * Set by hosts that can approve a device pairing over a channel no same-user
    * HTTP caller can reach (Electron IPC). Closes the HTTP approve route.
@@ -126,7 +128,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   const remoteE2eeMode = options.remoteE2eeMode
     ?? (process.env.OPERON_REMOTE_E2EE === 'off' ? 'off' : 'required')
-  const { app, injectWebSocket } = await createApp({ storage, remoteE2eeMode, secureApprovalChannel, onDevicePaired })
+  const { app, injectWebSocket } = await createApp({
+    storage, remoteE2eeMode, secureApprovalChannel, onDevicePaired,
+    sshPasswordEncryption: options.sshPasswordEncryption,
+  })
 
   if (__ENABLE_MEMORY__) {
     try {

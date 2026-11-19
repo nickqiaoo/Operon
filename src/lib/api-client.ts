@@ -1,4 +1,5 @@
 import type { UIMessage } from 'ai'
+import type { SshEnvironmentRef } from '@shared/ssh-environment'
 import type {
   Agent,
   CreateAgentInput,
@@ -473,7 +474,7 @@ export function chatHistoryGet(chatId: number, opts?: { before?: number; limit?:
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts?.before !== undefined) params.set('before', String(opts.before))
   const qs = params.toString() ? `?${params.toString()}` : ''
-  return request<{ messages: UIMessage[]; model?: string; providerId?: string; thinkingLevel?: string; total?: number; hasMore?: boolean; nextCursor?: number; updatedAt?: number }>(
+  return request<{ messages: UIMessage[]; model?: string; providerId?: string; thinkingLevel?: string; total?: number; hasMore?: boolean; nextCursor?: number; updatedAt?: number; sshEnvironment?: SshEnvironmentRef }>(
     `/chat-history/${chatId}${qs}`
   )
 }

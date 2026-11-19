@@ -28,6 +28,7 @@ import { ModelSelectorPanel, type DynamicModel } from './ModelSelectorPanel';
 import { ComposerOptionPicker } from './ComposerOptionPicker';
 import { ThinkingEffortPicker } from './ThinkingEffortPicker';
 import { useMentionOverlay } from './useMentionOverlay';
+import { useFileOpenHandler } from '@/lib/file-open-context';
 import { formatSlashCommandPrefix, useSlashCommand } from './useSlashCommand';
 import { SlashCommandPopup } from './SlashCommandPopup';
 import { SkillChips } from './SkillChips';
@@ -172,6 +173,7 @@ export function ChatInputArea({
   visible = true,
 }: ChatInputAreaProps) {
   const intl = useIntl();
+  const localMentions = useFileOpenHandler() !== null;
   const {
     mentionOverlayParts,
     mentionOverlayRef,
@@ -185,7 +187,7 @@ export function ChatInputArea({
     handleTextareaSelect,
     handleTextareaScroll,
     setMentionCursor,
-  } = useMentionOverlay({ input, setInput });
+  } = useMentionOverlay({ input, setInput, enabled: localMentions });
 
   const [cursorPos, setCursorPos] = useState(0);
   const [mobileActionExpanded, setMobileActionExpanded] = useState(false);
@@ -440,10 +442,10 @@ export function ChatInputArea({
   const steerLabel = steerPending
     ? intl.formatMessage({ id: 'editor.input.steering', defaultMessage: 'Steering...' })
     : intl.formatMessage({ id: 'editor.input.steer', defaultMessage: 'Steer' });
-  const fullPlaceholder = intl.formatMessage({
+  const fullPlaceholder = localMentions ? intl.formatMessage({
     id: 'editor.input.placeholder',
     defaultMessage: 'Ask anything, @ to mention files, / to use commands...',
-  });
+  }) : 'Ask anything, / to use commands…';
   const compactPlaceholder = intl.formatMessage({
     id: 'editor.input.compactPlaceholder',
     defaultMessage: 'Ask anything...',

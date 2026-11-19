@@ -8,7 +8,7 @@ const openInWorkspace: FileOpenHandler = (path, options) => {
   openWorkspaceFilePreview(path, options)
 }
 
-const FileOpenContext = createContext<FileOpenHandler>(openInWorkspace)
+const FileOpenContext = createContext<FileOpenHandler | null>(openInWorkspace)
 
 /**
  * Where file references inside it open. Outside any provider they resolve
@@ -17,7 +17,7 @@ const FileOpenContext = createContext<FileOpenHandler>(openInWorkspace)
  */
 export const FileOpenProvider = FileOpenContext.Provider
 
-export function useFileOpenHandler(): FileOpenHandler {
+export function useFileOpenHandler(): FileOpenHandler | null {
   return useContext(FileOpenContext)
 }
 

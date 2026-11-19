@@ -1,5 +1,5 @@
 import './profile.js'
-import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, Notification, clipboard, nativeImage, powerMonitor, safeStorage } from 'electron'
 import { spawn, execFile } from 'child_process'
 import http from 'node:http'
 import fs from 'fs'
@@ -493,6 +493,12 @@ async function startHonoServer(): Promise<number> {
     dbPath: path.join(userData, 'operon.db'),
     migrationsDir,
     port: 0,
+    sshPasswordEncryption: {
+      isAvailable: () => safeStorage.isEncryptionAvailable() &&
+        (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
+      encryptString: (password) => safeStorage.encryptString(password),
+      decryptString: (ciphertext) => safeStorage.decryptString(ciphertext),
+    },
     // Route server analytics through the existing main-process posthog-node client.
     // Buffered until the renderer reports consent and its distinct id via
     // 'analytics:sync-id', and inherits its `disabled: isDev` so dev runs no-op.

@@ -85,6 +85,7 @@ const buildStructuralKey = (params: HostSessionOptions): string =>
     // disabled servers and sandbox, OpenCode's caller tag).
     codex: params.codex ?? {},
     opencode: params.opencode ?? {},
+    sshEnvironment: params.operon?.sshEnvironment,
     // NOTE: instructions is intentionally excluded. For a given chat it is stable:
     // a workspace chat gets the spec hint from its first message on (chat-flow
     // resolves sourceChatId before the session exists), and a channel agent's

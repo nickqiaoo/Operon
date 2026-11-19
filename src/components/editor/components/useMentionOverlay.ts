@@ -88,14 +88,15 @@ function findMentionRangeForReplace(
 interface UseMentionOverlayOptions {
   input: string;
   setInput: (val: string) => void;
+  enabled: boolean;
 }
 
-export function useMentionOverlay({ input, setInput }: UseMentionOverlayOptions) {
-  const mentionOverlayParts = useMemo(() => parseMentionOverlayParts(input), [input]);
-  const mentionRanges = useMemo(() => parseMentionRanges(input), [input]);
+export function useMentionOverlay({ input, setInput, enabled }: UseMentionOverlayOptions) {
+  const mentionOverlayParts = useMemo(() => enabled ? parseMentionOverlayParts(input) : [], [input, enabled]);
+  const mentionRanges = useMemo(() => enabled ? parseMentionRanges(input) : [], [input, enabled]);
 
   const [cursorPos, setCursorPos] = useState(input.length);
-  const mention = useMentionSuggestions(input, cursorPos);
+  const mention = useMentionSuggestions(input, cursorPos, enabled);
   const textareaContainerRef = useRef<HTMLDivElement>(null);
   const pendingCursorRef = useRef<number | null>(null);
   const textareaElRef = useRef<HTMLTextAreaElement | null>(null);

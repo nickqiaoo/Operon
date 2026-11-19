@@ -48,6 +48,7 @@ export function useChatRuntime({
   thinkingEffort,
   thinkingEffortValues,
   currentWorkspaceId,
+  draftSshEnvironmentId,
   autoRun,
   setTabChatId,
 }: {
@@ -74,6 +75,7 @@ export function useChatRuntime({
   /** Effort levels valid for the selected model (capability-filtered). */
   thinkingEffortValues?: string[]
   currentWorkspaceId: number | null
+  draftSshEnvironmentId?: string
   autoRun?: boolean
   setTabChatId: (tabId: string, chatId: number) => void
 }) {
@@ -144,6 +146,8 @@ export function useChatRuntime({
     workspaceId: currentWorkspaceId ?? undefined,
     ...(autoRun ? { skipSnapshot: true } : {}),
   }
+  const draftSshEnvironmentIdRef = useRef(draftSshEnvironmentId)
+  draftSshEnvironmentIdRef.current = draftSshEnvironmentId
 
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/ai/chat',
@@ -182,6 +186,7 @@ export function useChatRuntime({
       return { api: `${baseUrl}/ai/chat/live/${dbChatIdRef.current}` }
     },
     prepareSendMessagesRequest: async ({ messages, body }) => {
+      const sshEnvironmentId = dbChatIdRef.current === undefined ? draftSshEnvironmentIdRef.current : undefined
       const baseUrl = await getBaseUrl()
       // Send only the current turn (from the last user message onward), not the
       // whole history. The server is the source of truth: it persists each turn and
@@ -212,6 +217,7 @@ export function useChatRuntime({
           // Per-call body (e.g. { asGoal: true }) overrides session defaults.
           ...(body ?? {}),
           chatId: dbChatIdRef.current,
+          sshEnvironmentId,
           frontendChatId: chatId,
           messages: outboundMessages,
           tp: currentTab?.isSubAgent ? 'subagent' : undefined,

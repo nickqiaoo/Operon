@@ -54,12 +54,14 @@ function MessageLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnch
     // Local file path
     if (href.startsWith("/")) {
       const hash = href.match(/#L(\d+)/);
-      openFile(
+      openFile?.(
         decodeLocalPath(href.split("#")[0]),
         hash ? { line: Number.parseInt(hash[1], 10) } : undefined
       );
     }
   }, [href, openFile]);
+
+  if (href?.startsWith("/") && !openFile) return <span>{children}</span>;
 
   return (
     <a href={href} onClick={handleClick} {...props}>

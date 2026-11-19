@@ -54,12 +54,14 @@ function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnc
         // Local file path (absolute path like /Users/...)
         if (href.startsWith("/")) {
             const hash = href.match(/#L(\d+)/);
-            openFile(
+            openFile?.(
                 href.split("#")[0],
                 hash ? { line: Number.parseInt(hash[1], 10) } : undefined
             );
         }
     }, [href, openFile]);
+
+    if (href?.startsWith("/") && !openFile) return <span>{children}</span>;
 
     return (
         <a href={href} onClick={handleClick} {...props}>

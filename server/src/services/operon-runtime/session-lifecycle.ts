@@ -1,4 +1,5 @@
-import { SessionAlreadyLoadedError, SessionAlreadyLoadingError, type Harness, type HarnessSession, type McpServerConfig, type SessionConfig, type Tool } from 'operon-agents'
+import { SessionAlreadyLoadedError, SessionAlreadyLoadingError, type Harness, type HarnessSession, type McpServerConfig, type SessionConfig } from 'operon-agents'
+import type { SessionBindings } from 'operon-agents/advanced'
 import { observeSession } from './passive-observer.js'
 
 export type SessionPermissionConfig = NonNullable<SessionConfig['permission']>
@@ -37,7 +38,7 @@ const restoring = new WeakMap<Harness, Map<string, Promise<HarnessSession>>>()
 /** What a restore is opened with: the configuration, and the host's own tools it was created with, if any. */
 export interface RestoreSetup {
   readonly config: SessionConfig
-  readonly bindings?: { readonly extraTools: readonly Tool[] }
+  readonly bindings?: SessionBindings
 }
 
 /**
