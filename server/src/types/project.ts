@@ -14,6 +14,12 @@ export interface Workspace {
   name: string
   branchName: string
   worktreePath: string
+  /**
+   * The conversation that made this workspace for an external agent it dispatched
+   * (`workspace_create`). Listed under that conversation in the sidebar, never at the
+   * top. Null: the user, a spec or a board task made it.
+   */
+  originChatId?: number | null
   createdAt: number
   updatedAt: number
 }
@@ -59,4 +65,6 @@ export interface CreateWorkspaceInput {
   name: string
   branchName: string
   worktreePath: string
+  /** See `Workspace.originChatId`. */
+  originChatId?: number
 }

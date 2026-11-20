@@ -236,6 +236,8 @@ test('Board keeps its original task detail while the sidebar opens the dedicated
   await expect(page.getByText('Activity', { exact: true })).toBeVisible()
   await expect(page.getByTestId('spec-page')).toHaveCount(0)
 
+  // The panel makes way on the Board; the tree floats out of the rail's Projects.
+  await page.getByRole('button', { name: 'Projects', exact: true }).hover()
   await page.getByTestId('sidebar-spec-100').click()
   await expect(page.getByTestId('spec-page')).toBeVisible()
   await page.getByRole('button', { name: 'Board', exact: true }).click()

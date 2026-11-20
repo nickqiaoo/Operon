@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 
 import { startNewChat } from "@/lib/new-chat"
+import { useAppShellStore } from "@/stores/app-shell-store"
 import { useInboxStore } from "@/stores/inbox-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import type { Notification } from "@/types/notification"
@@ -31,9 +32,14 @@ export function useTrayCommands(handlers: TrayCommandHandlers): void {
           handlersRef.current.openNotification(n)
           break
         }
-        case "open-inbox":
-          useNavigationStore.getState().showMain({ kind: "inbox" })
+        case "open-inbox": {
+          // Unread notices live in the sidebar's Focus view now; bring it out.
+          const shell = useAppShellStore.getState()
+          shell.setSidebarFocus(true)
+          shell.setSidebarCollapsed(false)
+          useNavigationStore.getState().showWorkbench()
           break
+        }
         case "open-assistant":
           useNavigationStore.getState().showMain({ kind: "assistant" })
           break

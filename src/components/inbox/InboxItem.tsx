@@ -11,7 +11,9 @@ import {
   XCircle,
 } from "lucide-react"
 import { useIntl } from "react-intl"
-import type { Notification, NotificationKind } from "@/types/notification"
+import type { NotificationKind } from "@/types/notification"
+import { AgentIcon, activeEntryTitle } from "@/components/active/ActiveConversations"
+import { dismissibleNotification, type ActiveEntry } from "@/lib/active-conversations"
 import { cn } from "@/lib/utils"
 import { useInboxStore } from "@/stores/inbox-store"
 import { InboxApprovals } from "./InboxApprovals"
@@ -36,6 +38,7 @@ const KIND_ICON: Record<NotificationKind, typeof MessageSquare> = {
 
 /**
  * Symbol per kind for the native inbox sheets — the same mapping as KIND_ICON.
+ * A chat row no notice speaks for uses `focusEntrySymbol`'s extra names.
  *
  * Named in SF Symbols because iOS can use these directly; the Android shell
  * translates them to its own icons (`InboxSheet.iconFor`). One vocabulary with
@@ -57,72 +60,70 @@ export const INBOX_KIND_SYMBOL: Record<NotificationKind, string> = {
   assistant_approval: "checkmark.shield",
 }
 
-interface InboxItemProps {
-  notification: Notification
-  /** Jump to the source (the conversation / the task on its board). */
-  onClick: (n: Notification) => void
+/** A turn in progress, in the native sheets (Android maps it in `InboxSheet.iconFor`). */
+export const RUNNING_SYMBOL = "waveform"
+
+/** The native sheets' icon for a priority row. */
+export function focusEntrySymbol(entry: ActiveEntry): string {
+  if (entry.group === "running") return RUNNING_SYMBOL
+  if (entry.notification) return INBOX_KIND_SYMBOL[entry.notification.kind] ?? "message"
+  return entry.group === "needs" ? INBOX_KIND_SYMBOL.chat_needs_input : INBOX_KIND_SYMBOL.chat_complete
+}
+
+interface FocusInboxRowProps {
+  entry: ActiveEntry
+  /** "Project / Workspace", from `useLocationLabel`. */
+  location: string
+  /** Go to the source (the conversation / the task on its board). */
+  onOpen: (entry: ActiveEntry) => void
 }
 
 /**
- * One inbox list row: kind icon + title/body + relative time, hover to dismiss.
- * The row is a pointer, not a copy — clicking it opens the source. The only
- * thing answered in place is a chat waiting on an approval.
+ * One row of the phone's inbox, which lists the Focus view's priority rows: a
+ * conversation (its agent, with whose turn it is as a dot) or a board / device
+ * notice (its kind icon). The row is a pointer: tapping opens the source. The
+ * only thing answered in place is a chat waiting on an approval.
  */
-export function InboxItem({ notification, onClick }: InboxItemProps) {
-  const archive = useInboxStore((s) => s.archive)
+export function FocusInboxRow({ entry, location, onOpen }: FocusInboxRowProps) {
+  const markRead = useInboxStore((s) => s.markRead)
   const intl = useIntl()
-  const { title, body } = localizeNotification(notification, intl)
-  const Icon = KIND_ICON[notification.kind] ?? MessageSquare
-  const unread = notification.readAt == null
-  const isAction = notification.severity === "action"
-  // Not gated on unread: "Mark all read" must not hide an approval still
-  // waiting. A row whose asks were all answered fetches an empty list.
-  const awaitingApproval = notification.kind === "chat_needs_input" && notification.chatId != null
+  const { notification } = entry
+  const title = activeEntryTitle(entry, intl)
+  // What the notice says, else where the conversation is.
+  const body = (notification ? localizeNotification(notification, intl).body : null) || location
+  const dismissible = dismissibleNotification(entry)
+  const wantsYou = entry.group === "needs"
+  const Icon = notification ? KIND_ICON[notification.kind] ?? MessageSquare : MessageSquare
+  const approvalChatId = notification?.kind === "chat_needs_input" ? notification.chatId : null
 
   return (
     <div>
       <div
         role="button"
         tabIndex={0}
-        onClick={() => onClick(notification)}
+        data-testid="focus-inbox-row"
+        data-group={entry.group}
+        onClick={() => onOpen(entry)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault()
-            onClick(notification)
+            onOpen(entry)
           }
         }}
         className={cn(
           "group relative flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-row-hover",
-          unread && "bg-muted/20",
+          entry.group === "running" && "animate-shimmer-sweep",
         )}
       >
-        <span
-          className={cn(
-            "mt-0.5 shrink-0",
-            isAction ? "text-status-warn" : "text-muted-foreground",
-          )}
-        >
-          <Icon className="size-4" />
+        <span className={cn("mt-0.5 shrink-0", wantsYou ? "text-status-warn" : "text-muted-foreground")}>
+          {entry.chatId != null
+            ? <AgentIcon providerId={entry.providerId} group={entry.group} ringClassName="ring-background" />
+            : <Icon className="size-4" />}
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            {unread && (
-              <span
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  isAction ? "bg-accent-warm" : "bg-tint",
-                )}
-              />
-            )}
-            <span
-              className={cn(
-                "truncate text-sm",
-                unread ? "font-medium text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {title}
-            </span>
+          <div className={cn("truncate text-sm", entry.group === "running" ? "text-foreground/70" : "font-medium text-foreground")}>
+            {title}
           </div>
           {body && (
             <div className="mt-0.5 truncate text-xs text-muted-foreground/80">
@@ -133,25 +134,29 @@ export function InboxItem({ notification, onClick }: InboxItemProps) {
 
         {/* Time, replaced by a dismiss button on hover. */}
         <div className="relative mt-0.5 w-10 shrink-0 text-right">
-          <span className="text-[11px] tabular-nums text-muted-foreground/60 group-hover:invisible">
-            {formatRelativeTime(intl, notification.createdAt, { compact: true })}
-          </span>
-          <button
-            type="button"
-            aria-label={intl.formatMessage({ id: "inbox.dismiss", defaultMessage: "Dismiss" })}
-            onClick={(e) => {
-              e.stopPropagation()
-              void archive(notification.id)
-            }}
-            className="invisible absolute right-0 top-0 rounded-md p-0.5 text-muted-foreground/60 hover:bg-accent-hover hover:text-foreground group-hover:visible"
-          >
-            <X className="size-3.5" />
-          </button>
+          {entry.at > 0 && (
+            <span className={cn("text-[11px] tabular-nums text-muted-foreground/60", dismissible && "group-hover:invisible")}>
+              {formatRelativeTime(intl, entry.at, { compact: true })}
+            </span>
+          )}
+          {dismissible && (
+            <button
+              type="button"
+              aria-label={intl.formatMessage({ id: "inbox.dismiss", defaultMessage: "Dismiss" })}
+              onClick={(e) => {
+                e.stopPropagation()
+                void markRead([dismissible.id])
+              }}
+              className="invisible absolute right-0 top-0 rounded-md p-0.5 text-muted-foreground/60 hover:bg-accent-hover hover:text-foreground group-hover:visible"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
         </div>
       </div>
-      {awaitingApproval ? (
+      {notification && approvalChatId != null ? (
         <div className="pb-2 pl-10 pr-3">
-          <InboxApprovals chatId={notification.chatId!} version={notification.updatedAt} />
+          <InboxApprovals chatId={approvalChatId} version={notification.updatedAt} />
         </div>
       ) : null}
     </div>

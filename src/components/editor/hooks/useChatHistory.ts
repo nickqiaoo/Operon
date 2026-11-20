@@ -1,5 +1,4 @@
 import { api } from "@/lib/api";
-import { trackRequest } from "@/lib/request-progress";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
 import type { SshEnvironmentRef } from '@shared/ssh-environment';
@@ -63,6 +62,8 @@ export function useChatHistory(
   const [loadedModel, setLoadedModel] = useState<string | null>(null);
   const [loadedProviderId, setLoadedProviderId] = useState<string | null>(null);
   const [loadedThinkingLevel, setLoadedThinkingLevel] = useState<string | null>(null);
+  /** The mode the chat last ran or was switched to (server-side `metadata.modeId`). */
+  const [loadedModeId, setLoadedModeId] = useState<string | null>(null);
   const [loadedSshEnvironment, setLoadedSshEnvironment] = useState<SshEnvironmentRef>();
   /** Server-side time of the last persisted message — survives closing the tab. */
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<number | null>(null);
@@ -87,6 +88,7 @@ export function useChatHistory(
     setHasMore(false);
     setLoadedUpdatedAt(null);
     setLoadedSshEnvironment(undefined);
+    setLoadedModeId(null);
     nextCursorRef.current = undefined;
 
     if (dbChatId === undefined) {
@@ -94,11 +96,9 @@ export function useChatHistory(
       return;
     }
 
-    // The one load the global progress bar exists for: the transcript area is
-    // blank until this returns, and on web it is a WAN round trip. `loadMore`
-    // below is deliberately not tracked — it renders its own inline spinner and
-    // the messages already on screen keep the surface readable.
-    trackRequest(() => api.chatHistoryGet(dbChatId, { limit: CHAT_PAGE_SIZE }))
+    // Until this returns ChatPanel shows its "Loading conversation…" state
+    // (keyed off `historyLoaded`); on web it is a WAN round trip.
+    api.chatHistoryGet(dbChatId, { limit: CHAT_PAGE_SIZE })
       .then(async (result) => {
         if (!active) return;
         const rawMessages: UIMessage[] = result?.messages ?? [];
@@ -120,6 +120,9 @@ export function useChatHistory(
         }
         if (result?.thinkingLevel) {
           setLoadedThinkingLevel(result.thinkingLevel);
+        }
+        if (result?.modeId) {
+          setLoadedModeId(result.modeId);
         }
         if (typeof result?.updatedAt === 'number') {
           setLoadedUpdatedAt(result.updatedAt);
@@ -165,5 +168,5 @@ export function useChatHistory(
     }
   }, [hasMore, loadingMore]);
 
-  return { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, loadedSshEnvironment, hasMore, loadingMore, loadMore };
+  return { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore, loadingMore, loadMore };
 }

@@ -17,8 +17,9 @@ test('opening a waiting chat from the inbox lands on its newest message', async 
   await chat.sendMessage(page, tallPrompt('second'))
   await expect(page.locator('[data-testid="permission-dialog"]').first()).toBeVisible({ timeout: 10_000 })
 
-  await page.getByRole('button', { name: 'Inbox', exact: true }).first().click()
-  await page.locator('[role="button"]', { hasText: 'Waiting for approval' }).first().click()
+  // What waits on the user is listed in the sidebar's Focus view.
+  await page.getByTestId('sidebar-focus-button').click()
+  await page.getByTestId('sidebar-focus').locator('[data-testid="active-row"][data-group="needs"]').first().click()
 
   const scroller = page.locator('[aria-hidden="false"] [data-conversation-scroller]')
   await expect(scroller).toBeVisible()

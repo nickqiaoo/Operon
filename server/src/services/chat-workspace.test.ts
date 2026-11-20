@@ -23,7 +23,7 @@ describe('createChatWorkspace', () => {
     expect(await createChatWorkspace(storage, 42, { name: 'login', base: 'develop' })).toEqual({
       workspace_id: 90, name: 'login', branch: 'login', worktree_path: '/wt/5-app/login', base_branch: 'develop',
     })
-    expect(provision).toHaveBeenCalledWith(storage, { projectId: 5, name: 'login', base: 'develop' })
+    expect(provision).toHaveBeenCalledWith(storage, { projectId: 5, name: 'login', originChatId: 42, base: 'develop' })
   })
 
   it('refuses outside a project workspace', async () => {

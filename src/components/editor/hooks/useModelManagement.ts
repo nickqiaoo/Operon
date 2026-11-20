@@ -186,6 +186,12 @@ export function useModelManagement(
     [providerId, modelsData],
   );
   const availableModels = catalog?.models ?? NO_MODELS;
+  // Not loaded yet, or the agent is still starting (the server answers
+  // `modelsPending` with an empty model list). Saved selections must not be
+  // checked against this stand-in catalog: with no model picked the effort list
+  // drops xhigh / max, and the mode list may be the bare default, so a
+  // remembered choice read as invalid and was replaced for good.
+  const catalogPending = !modelsData || modelsData.modelsPending === true;
   const providerConfigs = useMemo(
     () => (providerId && catalog ? { [providerId]: catalog.config } : NO_CONFIGS),
     [providerId, catalog],
@@ -198,7 +204,7 @@ export function useModelManagement(
   // never overwrites what the user picked.
   const seededFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!providerId || !catalog) return;
+    if (!providerId || !catalog || catalogPending) return;
     const initialMode = initialOptions?.modeId;
     const initialServiceTier = initialOptions?.serviceTier;
     const { modes, defaultMode, serviceTiers, defaultServiceTier } = catalog.config;
@@ -219,7 +225,7 @@ export function useModelManagement(
     };
     setCurrentModes(seed(resolvedMode));
     setCurrentServiceTiers(seed(resolvedServiceTier));
-  }, [providerId, catalog, initialOptions?.modeId, initialOptions?.serviceTier]);
+  }, [providerId, catalog, catalogPending, initialOptions?.modeId, initialOptions?.serviceTier]);
 
 
   // Auto-select first available model when the list changes
@@ -322,6 +328,7 @@ export function useModelManagement(
     modeOptions, currentMode,
     serviceTierOptions, currentServiceTier,
     thinkingEffortOptions,
+    catalogPending,
     setMode,
     setServiceTier, toggleFastMode,
     commands,

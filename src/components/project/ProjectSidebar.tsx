@@ -1,11 +1,10 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
 import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, CircleHelp, Folder, FolderOpen, GitBranch, Hash, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
+import { CalendarClock, ChevronRight, CircleHelp, Folder, FolderOpen, GitBranch, Hash, ListFilter, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
-import { ActiveChatsIcon } from "@/components/icons/ActiveChatsIcon"
 import { toast } from "sonner"
-import { Fragment, memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ComponentType } from "react"
+import { Fragment, memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react"
 import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -15,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
 import { useWorkspaceDiffStats } from "@/hooks/useWorkspaceDiffStats"
-import { useMediaQuery } from "@/hooks/useMediaQuery"
+import { isWorkspaceView, useAppShellStore } from "@/stores/app-shell-store"
 import { useEditorStore } from "@/stores/editor-store"
 import type { EditorTab } from "@/types/editor"
 import { useStreamingStore } from "@/stores/streaming-store"
@@ -23,9 +22,14 @@ import { useInboxStore } from "@/stores/inbox-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import { trackEvent } from "@/lib/analytics"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
-import { LEFT_SIDEBAR_DEFAULT_WIDTH } from "@/components/app-shell/constants"
-import { ActiveConversations, useActiveAttentionCounts } from "@/components/active/ActiveConversations"
-import type { OpenChat } from "@/lib/active-conversations"
+import { LEFT_SIDEBAR_DEFAULT_WIDTH, LEFT_SIDEBAR_RAIL_WIDTH } from "@/components/app-shell/constants"
+import { AgentIcon, FocusConversations, RecentConversations, useActiveAttentionCounts, useChatAttention } from "@/components/active/ActiveConversations"
+import { chatIdOfTab, type ActiveGroup, type OpenChat } from "@/lib/active-conversations"
+import { childCounts, type ChatChild, type ChildState } from "@/lib/chat-children"
+import { openChildChat, useChatChildren } from "@/hooks/useChatChildren"
+import { useExternalAgentsStore } from "@/stores/external-agents-store"
+import { useWorkspaceLatestChats, type ChatHistoryListItem } from "@/lib/chat-queries"
+import { formatRelativeTime } from "@/lib/format"
 import type { Notification } from "@/types/notification"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
 import { createProjectWorkspace } from "@/lib/workspace-actions"
@@ -44,6 +48,7 @@ interface ProjectItemProps {
   project: Project
   onSelectWorkspace: (workspaceId: number, projectId: number) => void
   onNewChatInWorkspace: (workspaceId: number, projectId: number) => void
+  onOpenChat: OpenTreeChat
   activeWorkspaceId?: number | null
   onAddWorkspace: (project: Project) => void
   onTogglePin: (project: Project) => void
@@ -96,6 +101,7 @@ const ProjectItem = memo(function ProjectItem({
   project,
   onSelectWorkspace,
   onNewChatInWorkspace,
+  onOpenChat,
   activeWorkspaceId,
   onAddWorkspace,
   onTogglePin,
@@ -113,11 +119,24 @@ const ProjectItem = memo(function ProjectItem({
   const hiddenSpecIds = useProjectStore((s) => s.hiddenSpecIds)
   const shownSpecIds = useProjectStore((s) => s.shownSpecIds)
   const entries = projectSidebarEntries(project, shownSpecIds, hiddenSpecIds)
+  const collapsedWorkspaceIds = useProjectStore((s) => s.collapsedWorkspaceIds)
+  const setWorkspaceCollapsed = useProjectStore((s) => s.setWorkspaceCollapsed)
+  // A click on the workspace you are in folds / unfolds its conversations; on
+  // another one it goes there, unfolding it if it was folded.
+  const handleWorkspaceClick = (workspaceId: number, workspaceCollapsed: boolean) => {
+    if (activeWorkspaceId === workspaceId) {
+      setWorkspaceCollapsed(workspaceId, !workspaceCollapsed)
+      return
+    }
+    if (workspaceCollapsed) setWorkspaceCollapsed(workspaceId, false)
+    onSelectWorkspace(workspaceId, project.id)
+  }
   return (
     <Collapsible
       open={!collapsed}
       onOpenChange={(open) => setProjectCollapsed(project.id, !open)}
-      className="px-4"
+      // An 8px inset, not 16: chat titles need the width more than the margin does.
+      className="px-2"
     >
       <div className={cn(
         "group/project-header relative mb-0.5 flex items-center gap-1 rounded-lg text-sm font-medium text-foreground/80 transition-colors hover:bg-row-hover",
@@ -126,7 +145,7 @@ const ProjectItem = memo(function ProjectItem({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-1 pl-1 text-left [@media(pointer:coarse)]:py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-1 pl-2 text-left [@media(pointer:coarse)]:py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             aria-label={`${collapsed ? "Expand" : "Collapse"} ${project.name}`}
             title={project.name}
           >
@@ -189,18 +208,28 @@ const ProjectItem = memo(function ProjectItem({
           <div className="pb-1">
             {[...entries.workspaces]
               .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
-              .map((workspace) => (
-                <WorkspaceRow
-                  key={workspace.id}
-                  workspaceId={workspace.id}
-                  label={workspace.name}
-                  title={workspace.worktreePath}
-                  isActive={activeWorkspaceId === workspace.id}
-                  stats={workspaceDiffStats?.[workspace.worktreePath]}
-                  onSelect={() => onSelectWorkspace(workspace.id, project.id)}
-                  onNewChat={() => onNewChatInWorkspace(workspace.id, project.id)}
-                />
-              ))}
+              .map((workspace) => {
+                const workspaceCollapsed = collapsedWorkspaceIds.includes(workspace.id)
+                return (
+                  <Fragment key={workspace.id}>
+                    <WorkspaceRow
+                      workspaceId={workspace.id}
+                      label={workspace.name}
+                      title={workspace.worktreePath}
+                      isActive={activeWorkspaceId === workspace.id}
+                      expanded={!workspaceCollapsed}
+                      stats={workspaceDiffStats?.[workspace.worktreePath]}
+                      onSelect={() => handleWorkspaceClick(workspace.id, workspaceCollapsed)}
+                      onNewChat={() => {
+                        // A new chat lands in this list, so show it.
+                        if (workspaceCollapsed) setWorkspaceCollapsed(workspace.id, false)
+                        onNewChatInWorkspace(workspace.id, project.id)
+                      }}
+                    />
+                    {!workspaceCollapsed && <WorkspaceChats workspaceId={workspace.id} onOpenChat={onOpenChat} />}
+                  </Fragment>
+                )
+              })}
           </div>
         )}
         {entries.specs.length > 0 && (
@@ -230,7 +259,7 @@ function SpecRow({ spec, active, onSelect }: { spec: WorkspaceTask; active: bool
       onClick={onSelect}
       title={`Spec #${spec.number} · ${spec.title} · ${status}`}
       className={cn(
-        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
+        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-5 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
         active && 'bg-row-selected hover:bg-row-selected',
       )}
     >
@@ -258,16 +287,25 @@ function useWorkspaceChatActivity(workspaceId: number) {
   return { streaming, unseen }
 }
 
-function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect, onNewChat }: {
+function WorkspaceRow({ workspaceId, label, title, isActive, expanded, stats, onSelect, onNewChat }: {
   workspaceId: number
   label: string
   title: string
   isActive: boolean
+  /** Whether its conversations are listed under it. */
+  expanded: boolean
   stats?: WorkspaceDiffStat
   onSelect: () => void
   onNewChat: () => void
 }) {
   const { streaming, unseen } = useWorkspaceChatActivity(workspaceId)
+  // A saved chat on screen is highlighted in its own row below; filling this
+  // one too stacked two selected rows into one block. Bold is enough here.
+  const chatOnScreen = useEditorStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    return tab?.type === "chat" && chatIdOfTab(tab) != null
+  })
+  const filled = isActive && !chatOnScreen
   return (
     // The pen is a sibling of the row button (buttons can't nest), revealed on
     // hover / keyboard focus in the slot the diff stats and counts occupy.
@@ -276,10 +314,12 @@ function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect, on
       type="button"
       onClick={onSelect}
       aria-current={isActive ? 'page' : undefined}
+      aria-expanded={expanded}
+      data-testid={`workspace-row-${workspaceId}`}
       title={title}
       className={cn(
-        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover group-hover/workspace-row:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
-        isActive && 'bg-row-selected hover:bg-row-selected group-hover/workspace-row:bg-row-selected',
+        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-5 pr-3 text-left transition-colors hover:bg-row-hover group-hover/workspace-row:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
+        filled && 'bg-row-selected hover:bg-row-selected group-hover/workspace-row:bg-row-selected',
         streaming > 0 && 'animate-shimmer-sweep',
       )}
     >
@@ -313,6 +353,238 @@ function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect, on
     >
       <SquarePen className="size-3.5" strokeWidth={1.5} />
     </Button>
+    </div>
+  )
+}
+
+/** Open a conversation listed under a workspace in the tree. */
+type OpenTreeChat = (chat: ChatHistoryListItem, workspaceId: number) => void
+
+// One 12px step in from the workspace row (pl-5), as the workspace is from its project.
+const treeRowClassName = "group/chat-row flex h-7 w-full min-w-0 items-center gap-2 rounded-lg pl-8 pr-2 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:h-9"
+
+/** The chat on screen right now, as a boolean so only its row and the one it left re-render. */
+function useIsCurrentChat(chatId: number) {
+  const onWorkbench = useNavigationStore((s) => s.main.kind === "workbench")
+  const current = useEditorStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    return tab?.type === "chat" && chatIdOfTab(tab) === chatId
+  })
+  return onWorkbench && current
+}
+
+const ChatRow = memo(function ChatRow({ chat, workspaceId, onOpen }: {
+  chat: ChatHistoryListItem
+  workspaceId: number
+  onOpen: OpenTreeChat
+}) {
+  const intl = useIntl()
+  const attention = useChatAttention(chat.id)
+  const current = useIsCurrentChat(chat.id)
+  const hasChildren = useHasChatChildren(chat.id)
+  const title = fileCitationsToText(chat.title) || "New chat"
+  const wantsYou = attention === "needs" || attention === "done"
+  const row = (
+    <button
+      type="button"
+      data-testid={`sidebar-chat-${chat.id}`}
+      aria-current={current ? "page" : undefined}
+      onClick={() => onOpen(chat, workspaceId)}
+      title={title}
+      className={cn(
+        treeRowClassName,
+        // Room for the agents toggle, so it never covers the title.
+        hasChildren && "pr-12",
+        current && "bg-row-selected hover:bg-row-selected",
+      )}
+    >
+      <AgentIcon providerId={chat.providerId} group={attention} />
+      {/* Running shimmers the title, not the row: a lead and its agents often
+          run at once, and stacked full-row sweeps merged into one blue block. */}
+      <span className={cn(
+        "min-w-0 flex-1 truncate text-sm",
+        current || wantsYou ? "font-medium text-foreground" : "text-foreground/70",
+        attention === "running" && "shimmer",
+      )}>
+        {title}
+      </span>
+      {/* On hover only: the title needs the room more, and whose turn it is
+          already shows as the dot on the icon. A lead's slot holds its agents toggle. */}
+      {chat.updatedAt > 0 && !hasChildren && (
+        <span className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground/60 group-hover/chat-row:inline group-focus-visible/chat-row:inline [@media(hover:none)]:!hidden">
+          {formatRelativeTime(intl, chat.updatedAt, { compact: true })}
+        </span>
+      )}
+    </button>
+  )
+  if (!hasChildren) return row
+  return <ChatWithAgents chatId={chat.id} workspaceId={workspaceId} current={current}>{row}</ChatWithAgents>
+})
+
+/** Whether a conversation has dispatched any external agent, as a boolean so rows re-render only when that flips. */
+function useHasChatChildren(chatId: number) {
+  return useExternalAgentsStore((s) => {
+    for (const agent of s.agents.values()) {
+      if (agent.parentChatId === chatId && !agent.assistantActivityId) return true
+    }
+    return false
+  })
+}
+
+/** The conversation on screen in the workbench, if any. */
+function useCurrentChatId() {
+  const onWorkbench = useNavigationStore((s) => s.main.kind === "workbench")
+  const chatId = useEditorStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    return tab?.type === "chat" ? chatIdOfTab(tab) ?? null : null
+  })
+  return onWorkbench ? chatId : null
+}
+
+/**
+ * A lead conversation with the external agents it dispatched nested under it.
+ * Open on its own while any of them is in play (running, failed, waiting on you)
+ * or one of them is on screen; folded once they are all finished. A click on the
+ * toggle overrides that until the sidebar remounts.
+ */
+function ChatWithAgents({ chatId, workspaceId, current, children: row }: {
+  chatId: number
+  workspaceId: number
+  current: boolean
+  children: ReactNode
+}) {
+  const intl = useIntl()
+  const agents = useChatChildren(chatId)
+  const counts = childCounts(agents)
+  const currentChatId = useCurrentChatId()
+  const [override, setOverride] = useState<boolean | null>(null)
+  const inPlay = counts.needsYou + counts.failed + counts.running > 0
+  const agentOnScreen = currentChatId != null && agents.some((agent) => agent.childChatId === currentChatId)
+  const expanded = override ?? (inPlay || current || agentOnScreen)
+  const groupId = useId()
+  return (
+    <>
+      <div className="relative">
+        {row}
+        <button
+          type="button"
+          data-testid={`sidebar-chat-agents-toggle-${chatId}`}
+          aria-expanded={expanded}
+          aria-controls={groupId}
+          aria-label={expanded
+            ? intl.formatMessage({ id: "sidebar.agents.hide", defaultMessage: "Hide agents" })
+            : intl.formatMessage({ id: "sidebar.agents.show", defaultMessage: "Show {count, plural, one {# agent} other {# agents}}" }, { count: counts.total })}
+          title={intl.formatMessage(
+            { id: "sidebar.agents.summary", defaultMessage: "{finished} of {total} agents finished" },
+            { finished: counts.finished, total: counts.total },
+          )}
+          onClick={() => setOverride(!expanded)}
+          className={cn(
+            "absolute right-1.5 top-1/2 flex h-5 -translate-y-1/2 items-center gap-0.5 rounded-md px-1 text-[11px] tabular-nums transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            counts.needsYou > 0 ? "text-status-warn" : counts.failed > 0 ? "text-status-error" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {counts.finished}/{counts.total}
+          <ChevronRight className={cn("size-3 transition-transform", expanded && "rotate-90")} strokeWidth={1.75} />
+        </button>
+      </div>
+      {expanded && (
+        <div id={groupId} role="group" data-testid={`sidebar-chat-agents-${chatId}`}>
+          {agents.map((agent) => (
+            <AgentRow key={agent.key} agent={agent} parentWorkspaceId={workspaceId} current={agent.childChatId === currentChatId} />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+const AGENT_DOT: Partial<Record<ChildState, ActiveGroup>> = { "needs-you": "needs", running: "running" }
+
+/** One dispatched agent under its lead: where it works and what it changed when that is a workspace of its own. */
+function AgentRow({ agent, parentWorkspaceId, current }: {
+  agent: ChatChild
+  parentWorkspaceId: number
+  current: boolean
+}) {
+  const intl = useIntl()
+  const ownWorkspace = agent.workspaceId != null && agent.workspaceId !== parentWorkspaceId ? agent.workspaceId : undefined
+  const workspace = useProjectStore((s) => {
+    if (ownWorkspace == null) return undefined
+    for (const project of s.projects) {
+      const found = project.workspaces.find((w) => w.id === ownWorkspace)
+      if (found) return found
+    }
+    return undefined
+  })
+  const stats = useProjectStore((s) => (workspace ? s.workspaceDiffStats[workspace.worktreePath] : undefined))
+  const finished = agent.state === "done" || agent.state === "stopped"
+  const title = fileCitationsToText(agent.title) || "Agent"
+  return (
+    <button
+      type="button"
+      data-testid={`sidebar-agent-${agent.childChatId}`}
+      aria-current={current ? "page" : undefined}
+      onClick={() => void openChildChat(agent)}
+      title={workspace ? `${title} · ${workspace.name}` : title}
+      className={cn(
+        treeRowClassName,
+        // One more 12px step in from its lead.
+        "pl-11",
+        current && "bg-row-selected hover:bg-row-selected",
+      )}
+    >
+      <AgentIcon providerId={agent.providerId} group={AGENT_DOT[agent.state] ?? null} />
+      <span className={cn(
+        "min-w-0 flex-1 truncate text-sm",
+        current || agent.state === "needs-you" ? "font-medium text-foreground" : finished ? "text-muted-foreground" : "text-foreground/70",
+        agent.state === "running" && "shimmer",
+      )}>
+        {title}
+      </span>
+      {agent.state === "failed" && (
+        <span className="shrink-0 text-[11px] text-status-error">
+          {intl.formatMessage({ id: "sidebar.agents.failed", defaultMessage: "Failed" })}
+        </span>
+      )}
+      {stats && (stats.additions > 0 || stats.deletions > 0) && (
+        <span className="shrink-0 text-[11px] tabular-nums opacity-80">
+          {stats.additions > 0 && <span className="text-diff-add">+{stats.additions}</span>}
+          {stats.deletions > 0 && <span className="ml-0.5 text-diff-remove">-{stats.deletions}</span>}
+        </span>
+      )}
+      {/* Its workspace is in the tooltip: in a 240px panel a branch name beside the
+          title cut both down to a few letters. */}
+    </button>
+  )
+}
+
+/** A workspace's latest conversations under its row, newest first. */
+function WorkspaceChats({ workspaceId, onOpenChat }: {
+  workspaceId: number
+  onOpenChat: OpenTreeChat
+}) {
+  const intl = useIntl()
+  const { chats, hasMore, expanded, isFetching, loadMore, showLess } = useWorkspaceLatestChats(workspaceId)
+  if (chats.length === 0) return null
+  return (
+    <div role="group" data-testid={`workspace-chats-${workspaceId}`}>
+      {chats.map((chat) => (
+        <ChatRow key={chat.id} chat={chat} workspaceId={workspaceId} onOpen={onOpenChat} />
+      ))}
+      {(hasMore || expanded) && (
+        <button
+          type="button"
+          disabled={isFetching}
+          onClick={hasMore ? loadMore : showLess}
+          // Starts where the agent icons above do.
+          className={cn(treeRowClassName, "text-xs text-muted-foreground hover:text-foreground disabled:opacity-60")}
+        >
+          {hasMore
+            ? intl.formatMessage({ id: "sidebar.showMore", defaultMessage: "Show more" })
+            : intl.formatMessage({ id: "sidebar.showLess", defaultMessage: "Show less" })}
+        </button>
+      )}
     </div>
   )
 }
@@ -362,9 +634,6 @@ interface ProjectSidebarProps {
 const railFlyoutClassName = "absolute bottom-2 left-[calc(100%+8px)] top-12 z-50 rounded-xl border border-border/60 bg-popover shadow-float"
 const railFlyoutEnterClassName = "animate-in fade-in-0 slide-in-from-left-1 duration-150"
 const RAIL_FLYOUT_MAX_WIDTH = "calc(100vw - 68px)"
-// Active rows carry an icon, two lines of text and a timestamp column: a bit
-// wider than the project tree so titles are not cut to a word.
-const ACTIVE_FLYOUT_WIDTH = 300
 
 const noop = () => {}
 
@@ -381,6 +650,7 @@ function WorkspaceDiffStatsSync() {
 interface SidebarNavItemProps extends ComponentProps<"button"> {
   icon: LucideIcon | ComponentType<{ className?: string }>
   label: string
+  /** Sidebar mode; a change dismisses an open tooltip. */
   collapsed: boolean
   active?: boolean
   count?: number
@@ -388,17 +658,17 @@ interface SidebarNavItemProps extends ComponentProps<"button"> {
   tooltip?: boolean
   /** Off for buttons whose hover floats a panel: the tooltip then stays keyboard-only. */
   hoverTooltip?: boolean
-  tooltipSide?: "right" | "top"
 }
 
-// One rail/row slot: 40px tall, its 4px transparent border insetting the
+// One rail slot: 40px tall, its 4px transparent border insetting the
 // hover/selection fill to a 32px pill with an 8px radius.
 const navItemClassName = (active: boolean | undefined) => cn(
   "relative flex h-10 w-full shrink-0 items-center gap-2 rounded-xl border-4 border-transparent bg-clip-padding px-1.5 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
   active ? "bg-row-selected text-foreground hover:bg-row-selected" : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
 )
 
-function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, hoverTooltip = true, tooltipSide = "right", className, ...props }: SidebarNavItemProps) {
+/** A rail destination: icon only in both sidebar modes, named by its tooltip. */
+function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, hoverTooltip = true, className, ...props }: SidebarNavItemProps) {
   const total = actionCount || count
   const [tooltipOpen, setTooltipOpen] = useState(false)
 
@@ -408,10 +678,10 @@ function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actio
 
   return (
     <Tooltip
-      key={collapsed ? "icon" : "label"}
+      key={collapsed ? "collapsed" : "expanded"}
       delayDuration={600}
-      open={collapsed && tooltip && tooltipOpen}
-      onOpenChange={(open) => setTooltipOpen(collapsed && tooltip && open)}
+      open={tooltip && tooltipOpen}
+      onOpenChange={(open) => setTooltipOpen(tooltip && open)}
     >
       <TooltipTrigger
         asChild
@@ -427,7 +697,7 @@ function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actio
           }
         }}
         onKeyUp={(event) => {
-          if (event.key === "Tab") setTooltipOpen(collapsed && tooltip)
+          if (event.key === "Tab") setTooltipOpen(tooltip)
         }}
       >
         <button
@@ -438,46 +708,46 @@ function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actio
           {...props}
         >
           <Icon className="size-5 shrink-0" />
-          {/* Clipped, not ellipsized: while the sidebar closes the row narrows with
-              its edge and the label fades out; "Assist…" would flash meanwhile. */}
-          {!collapsed && <span className="sidebar-label-fade min-w-0 flex-1 overflow-hidden whitespace-nowrap">{label}</span>}
           {total > 0 && (
             <span className={cn(
-              "shrink-0 text-[10px] font-medium tabular-nums",
+              "absolute -right-0.5 top-0 min-w-3 shrink-0 text-center text-[10px] font-medium tabular-nums animate-in fade-in duration-150",
               actionCount > 0 ? "rounded-full bg-accent-warm px-1 text-white" : "text-tint",
-              collapsed ? "absolute -right-0.5 top-0 min-w-3 text-center animate-in fade-in duration-150" : "sidebar-label-fade px-1",
             )}>
               {total > 99 ? "99+" : total}
             </span>
           )}
         </button>
       </TooltipTrigger>
-      {collapsed && tooltip && <TooltipContent side={tooltipSide}>{label}</TooltipContent>}
+      {tooltip && <TooltipContent side="right">{label}</TooltipContent>}
     </Tooltip>
   )
 }
 
-/** The rail's Active button. Its own component: the badge follows every tab, turn and inbox event. */
-function ActiveRailButton(props: Omit<SidebarNavItemProps, "icon" | "count" | "actionCount" | "collapsed">) {
+/**
+ * The rail's Projects button. It carries the cross-project badge (chats waiting
+ * on the user or with a reply they have not read): with the panel away it is
+ * the only place that says so. Its own component: the badge follows every tab,
+ * turn and inbox event.
+ */
+function ProjectsRailButton(props: Omit<SidebarNavItemProps, "icon" | "count" | "actionCount">) {
   const { needs, done } = useActiveAttentionCounts()
-  return <SidebarNavItem icon={ActiveChatsIcon} collapsed count={needs + done} actionCount={needs} {...props} />
+  return <SidebarNavItem icon={Folder} count={needs + done} actionCount={needs} {...props} />
 }
 
 export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH, maxWidth }: ProjectSidebarProps) {
   const intl = useIntl()
   const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
-  const activeLabel = intl.formatMessage({ id: "sidebar.active", defaultMessage: "Active" })
+  const focusLabel = intl.formatMessage({ id: "sidebar.focus", defaultMessage: "Focus" })
   const addRepositoryLabel = intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })
-  // Short windows (iPad landscape, a squat desktop window): the fixed nav above
-  // and below would leave the project tree a sliver, so the bottom tools fold
-  // into one row of icons. The rail keeps its column: it has no tree to protect.
-  const compactTools = useMediaQuery("(max-height: 820px)") && !collapsed
+  // Collapsed by the user, as opposed to the panel making way off the workspace views.
+  const userCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
   const mainView = useNavigationStore((s) => s.main)
   const showMain = useNavigationStore((s) => s.showMain)
   const showWorkbench = useNavigationStore((s) => s.showWorkbench)
   const openPage = useNavigationStore((s) => s.openPage)
   const assistantActive = mainView.kind === "assistant"
-  const inboxActive = mainView.kind === "inbox"
+  const sidebarFocus = useAppShellStore((s) => s.sidebarFocus)
+  const setSidebarFocus = useAppShellStore((s) => s.setSidebarFocus)
   const boardActive = mainView.kind === "board" && mainView.view === "board"
   const channelsActive = mainView.kind === "board" && mainView.view === "channels"
   const activeSpecId = mainView.kind === "spec" ? mainView.taskId : null
@@ -516,26 +786,29 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       root.style.removeProperty("--sidebar-inline-size")
     }
   }, [])
-  const activeTriggerRef = useRef<HTMLButtonElement>(null)
-  const activeFlyoutRef = useRef<HTMLDivElement>(null)
   const projectTreeId = useId()
   const { flyout, close: closeFlyout, pin: pinFlyout, holdOpen: holdFlyoutOpen, triggerHover, panelHover } = useRailFlyout()
   const flyoutOpen = collapsed && flyout !== null
   const flyoutPinned = flyoutOpen && flyout.pinned
   const floating = collapsed && flyout?.kind === "projects"
-  const activeFloating = collapsed && flyout?.kind === "active"
 
+  // Escape: the floating tree is about to go inert, so hand focus back to its
+  // trigger rather than drop it. Only if it is in there: a hover-opened panel
+  // must not pull focus from the composer.
   const closePreview = useCallback(() => {
     closeFlyout()
-    // The tree is about to go inert, so hand focus back rather than drop it. Only
-    // if it is in there: a hover-opened panel must not pull focus from the
-    // composer. The trigger is mounted only in rail mode. Keep this callback
-    // stable so expanding the sidebar does not invalidate the memoized rows.
     if (projectTreeRef.current?.contains(document.activeElement)) {
       projectsTriggerRef.current?.focus({ preventScroll: true })
-    } else if (activeFlyoutRef.current?.contains(document.activeElement)) {
-      activeTriggerRef.current?.focus({ preventScroll: true })
     }
+  }, [closeFlyout])
+
+  // A row took the user somewhere else. Focus leaves the tree instead of going
+  // to the rail's Projects button: the rail is there in both modes now, and a
+  // focused rail button opens its tooltip. Stable, so the memoized rows keep.
+  const closeAfterNavigate = useCallback(() => {
+    closeFlyout()
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement && projectTreeRef.current?.contains(focused)) focused.blur()
   }, [closeFlyout])
 
   useEffect(() => {
@@ -546,10 +819,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     if (!flyoutOpen || newWorkspaceProjectId !== null) return
     const tree = projectTreeRef.current
     const trigger = projectsTriggerRef.current
-    const activeTrigger = activeTriggerRef.current
-    const active = activeFlyoutRef.current
     const isInside = (target: EventTarget | null) => target instanceof Node &&
-      (tree?.contains(target) || trigger?.contains(target) || activeTrigger?.contains(target) || active?.contains(target))
+      (tree?.contains(target) || trigger?.contains(target))
     const dismissOutside = (event: Event) => {
       if (!isInside(event.target)) closeFlyout()
     }
@@ -561,8 +832,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     }
     if (flyoutPinned) {
       // Focus the current item without moving the saved scroll position.
-      const panel = flyout.kind === "active" ? active : tree
-      const focusTarget = panel?.querySelector<HTMLElement>('[aria-current="page"]') ?? panel
+      const focusTarget = tree?.querySelector<HTMLElement>('[aria-current="page"]') ?? tree
       focusTarget?.focus({ preventScroll: true })
       document.addEventListener("focusin", dismissOutside)
     }
@@ -573,12 +843,12 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       document.removeEventListener("focusin", dismissOutside)
       window.removeEventListener("keydown", dismissEscape)
     }
-  }, [flyoutOpen, flyoutPinned, flyout?.kind, closeFlyout, closePreview, newWorkspaceProjectId])
+  }, [flyoutOpen, flyoutPinned, closeFlyout, closePreview, newWorkspaceProjectId])
 
   const handleOpenSpec = useCallback((taskId: number, projectId: number) => {
     onOpenSpec?.(taskId, projectId)
-    closePreview()
-  }, [onOpenSpec, closePreview])
+    closeAfterNavigate()
+  }, [onOpenSpec, closeAfterNavigate])
 
   // Clear unseen when user switches to a workspace. Tabs are read at click time
   // rather than subscribed: they change on every send (chat id, title, draft),
@@ -589,15 +859,22 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     const chatTabIds = tabs.filter((t) => t.type === "chat").map((t) => t.id)
     if (chatTabIds.length > 0) clearUnseen(chatTabIds)
     setActiveWorkspace(workspaceId, projectId)
-    // Picking a workspace leaves the Assistant / Inbox / Board view.
+    // Picking a workspace leaves the Assistant / Board view.
     showWorkbench()
-    closePreview()
-  }, [clearUnseen, setActiveWorkspace, showWorkbench, closePreview])
+    closeAfterNavigate()
+  }, [clearUnseen, setActiveWorkspace, showWorkbench, closeAfterNavigate])
 
   const handleNewChatInWorkspace = useCallback((workspaceId: number, projectId: number) => {
     void startNewChatInWorkspace(workspaceId, projectId)
-    closePreview()
-  }, [closePreview])
+    closeAfterNavigate()
+  }, [closeAfterNavigate])
+
+  const handleOpenChat = useCallback<OpenTreeChat>((chat, workspaceId) => {
+    // Coming back to a chat from the list shows its latest output.
+    useNavigationStore.getState().requestChatLatest(chat.id)
+    onOpenChat?.({ chatId: chat.id, workspaceId, title: chat.title })
+    closeAfterNavigate()
+  }, [onOpenChat, closeAfterNavigate])
 
   const handleTogglePin = useCallback((project: Project) => {
     void setProjectPinned(project.id, project.pinnedAt == null).catch((error: unknown) => {
@@ -661,234 +938,189 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     }
   }
 
-  // The root follows the animated sidebar width, so the nav rows' hover and
-  // selection pills narrow with the edge into the rail's 32px ones instead of
-  // being cut off square. The project tree keeps the full width (below) and is
-  // clipped instead: reflowing it every frame would cost a layout.
+  const onWorkspaceView = isWorkspaceView(mainView)
+  const projectsSelected = onWorkspaceView || floating
+  const treeShown = !collapsed || floating
+  // Web reserves room for the machine badge (WebAuthGate): a 28px pill fixed
+  // 12px above the viewport's bottom edge, drawn across this whole column.
+  const bottomInset = __APP_TARGET__ === "web" ? "pb-11" : "pb-3"
+
+  // Two columns: the icon rail, identical in both modes, and the panel beside
+  // it (the project tree or the Active list), which is what collapses. The
+  // panel's content keeps its full width and is clipped while it animates:
+  // reflowing the tree every frame would cost a layout.
   return (
-    <div ref={rootRef} className="relative flex h-full w-full min-h-0 flex-col sidebar-surface-fade text-sidebar-foreground">
+    <div ref={rootRef} className="relative flex h-full w-full min-h-0 sidebar-surface-fade text-sidebar-foreground">
       <WorkspaceDiffStatsSync />
-      {/* Titlebar cell. Canvas-coloured under a sidebar-coloured layer that
-          fades with the labels: expanded it is the sidebar's grey top, while
-          the rail (narrower than the traffic lights + toggle) leaves the
-          titlebar one white band across the window. No bottom line: the
-          workspace titlebar beside it has none either (its tab bar below
-          carries the chrome/content edge), so the band stays one piece. */}
-      <div className="drag-region relative h-10 shrink-0 bg-background">
-        <div className="sidebar-label-fade pointer-events-none absolute inset-0 bg-sidebar" />
+
+      <div data-testid="sidebar-rail" className="flex min-h-0 shrink-0 flex-col" style={{ width: LEFT_SIDEBAR_RAIL_WIDTH }}>
+        {/* Titlebar cell: the traffic lights and the sidebar toggle sit across it. */}
+        <div className="drag-region h-10 shrink-0" />
+
+        <nav aria-label="Workspace navigation" className="relative shrink-0 space-y-1 px-1.5">
+          <SidebarNavItem icon={SquarePen} label={intl.formatMessage({ id: "sidebar.newChat", defaultMessage: "New chat" })} collapsed={collapsed}
+            data-testid="sidebar-new-chat"
+            onClick={() => { closeFlyout(); void startNewChat() }} />
+          <SidebarNavItem icon={MessageCircle} label={intl.formatMessage({ id: "sidebar.assistant", defaultMessage: "Assistant" })} collapsed={collapsed} active={assistantActive}
+            count={assistantTotal} actionCount={assistantAction}
+            onClick={() => { closeFlyout(); showMain({ kind: "assistant" }) }} />
+          <SidebarNavItem icon={LayoutDashboard} label={intl.formatMessage({ id: "sidebar.board", defaultMessage: "Board" })} collapsed={collapsed} active={boardActive}
+            onClick={() => { closeFlyout(); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
+          <SidebarNavItem icon={Hash} label={intl.formatMessage({ id: "sidebar.channels", defaultMessage: "Channels" })} collapsed={collapsed} active={channelsActive}
+            onClick={() => { closeFlyout(); showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }} />
+          <ProjectsRailButton ref={projectsTriggerRef} label={projectsLabel} collapsed={collapsed}
+            active={projectsSelected} data-testid="sidebar-projects-button"
+            aria-expanded={collapsed ? floating : undefined} aria-controls={projectTreeId} aria-haspopup={collapsed ? "dialog" : undefined}
+            tooltip={!floating} hoverTooltip={!collapsed}
+            {...(collapsed ? triggerHover("projects") : {})}
+            onClick={() => {
+              // Off the workspace views the panel only made way: going back
+              // to the workspace brings it back with it.
+              if (!onWorkspaceView && !userCollapsed) {
+                closeFlyout()
+                showWorkbench()
+              } else if (!collapsed) {
+                showWorkbench()
+              } else if (floating && flyoutPinned) {
+                // A click landing just after the hover delay must not close
+                // what just opened, so it pins; only a pinned panel toggles shut.
+                closeFlyout()
+              } else {
+                pinFlyout("projects")
+              }
+            }} />
+        </nav>
+
+        <div className="min-h-0 flex-1" />
+
+        <nav aria-label="Tools and settings" className={cn("relative shrink-0 space-y-1 px-1.5 pt-2", bottomInset)}>
+          {/* A pending update shows above this group, out of the layout. */}
+          <div className="absolute bottom-full left-1.5 mb-1 w-10">
+            <UpdateReadyPill variant="rail" />
+          </div>
+          <SidebarNavItem icon={Network} label={intl.formatMessage({ id: "sidebar.workflow", defaultMessage: "Workflow" })} collapsed={collapsed}
+            onClick={() => openPage({ kind: "canvas" })} />
+          <SidebarNavItem icon={Package} label={intl.formatMessage({ id: "sidebar.plugins", defaultMessage: "Plugins" })} collapsed={collapsed}
+            onClick={() => openPage({ kind: "plugins" })} />
+          <SidebarNavItem icon={CalendarClock} label={intl.formatMessage({ id: "sidebar.schedule", defaultMessage: "Schedule" })} collapsed={collapsed}
+            onClick={() => openPage({ kind: "schedule" })} />
+          <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })} collapsed={collapsed}
+            data-testid="settings-button" onClick={() => openPage({ kind: "settings" })} />
+          <SidebarNavItem icon={CircleHelp} label={intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })} collapsed={collapsed}
+            onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")} />
+        </nav>
       </div>
 
-      {/* Global destinations keep their labels when expanded and become a rail when collapsed. */}
-      <nav aria-label="Workspace navigation" className="relative shrink-0 space-y-1 px-1.5">
-        {/* The rail's Active and Projects buttons exist only once the sidebar has
-            finished collapsing. Until then these stand-ins sit in their slots (just
-            below the nav, 40px rows 4px apart) and fade in as the labels fade out,
-            so the real ones replace them without a pop. First children, so space-y
-            doesn't add a margin under Channels. */}
+      {/* The panel. Positioned and clipping only while it is (or is becoming)
+          visible: once collapsed, the tree inside floats out of the rail and
+          must be placed against the root, not cut off by a 0px column. */}
+      <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !collapsed && "relative overflow-hidden")}>
         {!collapsed && (
-          <div aria-hidden="true"
-            className={cn(navItemClassName(false),
-              "sidebar-rail-fade pointer-events-none absolute left-1.5 top-full mt-1 w-10")}>
-            <ActiveChatsIcon className="size-5 shrink-0" />
-          </div>
+          <>
+            {/* Rail/panel divider, below the titlebar band the traffic lights cross. */}
+            <div aria-hidden className="pointer-events-none absolute bottom-0 left-0 top-10 z-10 w-px bg-border/50 sidebar-label-fade" />
+            <div className="drag-region h-10 shrink-0" style={{ width, maxWidth }} />
+          </>
         )}
-        {!collapsed && (
-          <div aria-hidden="true"
-            className={cn(navItemClassName(mainView.kind === "workbench" || mainView.kind === "spec"),
-              "sidebar-rail-fade pointer-events-none absolute left-1.5 top-full mt-12 w-10")}>
-            <Folder className="size-5 shrink-0" />
-          </div>
-        )}
-        <SidebarNavItem icon={SquarePen} label={intl.formatMessage({ id: "sidebar.newChat", defaultMessage: "New chat" })} collapsed={collapsed}
-          data-testid="sidebar-new-chat"
-          onClick={() => { closeFlyout(); void startNewChat() }} />
-        <SidebarNavItem icon={MessageCircle} label={intl.formatMessage({ id: "sidebar.assistant", defaultMessage: "Assistant" })} collapsed={collapsed} active={assistantActive}
-          count={assistantTotal} actionCount={assistantAction}
-          onClick={() => { closeFlyout(); showMain({ kind: "assistant" }) }} />
-        <SidebarNavItem icon={LayoutDashboard} label={intl.formatMessage({ id: "sidebar.board", defaultMessage: "Board" })} collapsed={collapsed} active={boardActive}
-          onClick={() => { closeFlyout(); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
-        <SidebarNavItem icon={Hash} label={intl.formatMessage({ id: "sidebar.channels", defaultMessage: "Channels" })} collapsed={collapsed} active={channelsActive}
-          onClick={() => { closeFlyout(); showMain({ kind: "board", view: "channels" }); trackEvent("page_opened", { page: "channels" }) }} />
-        {collapsed && (
-          <ActiveRailButton ref={activeTriggerRef} label={activeLabel}
-            aria-expanded={activeFloating} aria-haspopup="true" tooltip={!activeFloating} hoverTooltip={false}
-            {...triggerHover("active")}
-            onClick={() => { if (activeFloating && flyoutPinned) closeFlyout(); else pinFlyout("active") }} />
-        )}
-        {collapsed && (
-          <SidebarNavItem ref={projectsTriggerRef} icon={Folder} label={projectsLabel} collapsed
-            active={mainView.kind === "workbench" || mainView.kind === "spec"}
-            aria-expanded={floating} aria-controls={projectTreeId} aria-haspopup="dialog" tooltip={!floating} hoverTooltip={false}
-            {...triggerHover("projects")}
-            // A click landing just after the hover delay must not close what
-            // just opened, so it pins; only a pinned panel toggles shut.
-            onClick={() => { if (floating && flyoutPinned) closeFlyout(); else pinFlyout("projects") }} />
-        )}
-      </nav>
 
-      {activeFloating && (
+        {/* One mounted tree: switching the sidebar mode keeps its scroll and
+            folder state. */}
         <div
-          ref={activeFlyoutRef}
-          data-testid="active-flyout"
-          role="region"
-          aria-label={activeLabel}
+          ref={projectTreeRef}
+          id={projectTreeId}
+          data-testid="project-tree"
+          role={collapsed ? "dialog" : "region"}
+          aria-label={projectsLabel}
+          aria-hidden={!treeShown}
+          inert={!treeShown}
           tabIndex={-1}
-          // As tall as the list, up to where the tree's panel would end.
-          className={cn(railFlyoutClassName, railFlyoutEnterClassName, "bottom-auto flex max-h-[calc(100%-3.5rem)] flex-col overflow-hidden py-2 outline-none")}
-          style={{ width: ACTIVE_FLYOUT_WIDTH, maxWidth: RAIL_FLYOUT_MAX_WIDTH }}
+          className={cn(
+            "flex min-h-0 flex-col outline-none",
+            collapsed
+              ? cn(railFlyoutClassName, "py-2")
+              : cn("sidebar-label-fade flex-1", bottomInset),
+            !treeShown && "invisible pointer-events-none opacity-0",
+            floating && railFlyoutEnterClassName,
+          )}
+          style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}
           {...panelHover}
         >
-          <ActiveConversations variant="flyout" onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} onNavigate={closeFlyout} />
-        </div>
-      )}
-
-      {/* Expanded: the same list sits above the projects, there whenever something is in play.
-          Fixed width and clipped while the sidebar animates, like the tree below.
-          Height capped so the project tree keeps most of the sidebar: ~6 rows on
-          tall windows, a proportional share on short ones. The rest scrolls.
-          It also gives way (shrink) once the tree is down to its floor below. */}
-      {!collapsed && (
-        <div className="sidebar-label-fade flex max-h-[min(30%,16rem)] min-h-0 shrink flex-col [@media(max-height:820px)]:max-h-[min(20%,9rem)]" style={{ width, maxWidth }}>
-          <ActiveConversations variant="section" onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} />
-        </div>
-      )}
-
-      {/* One mounted tree: changing its placement preserves scroll and project state. */}
-      <div
-        ref={projectTreeRef}
-        id={projectTreeId}
-        data-testid="project-tree"
-        role={collapsed ? "dialog" : "region"}
-        aria-label={projectsLabel}
-        aria-hidden={collapsed && !floating}
-        inert={collapsed && !floating}
-        tabIndex={-1}
-        className={cn(
-          "flex min-h-0 flex-col outline-none",
-          collapsed
-            ? cn(railFlyoutClassName, "py-2")
-            // Floor: header + ~3 rows, taken from the Active list above first.
-            : "sidebar-label-fade min-h-[min(9rem,40%)] flex-1 shrink-0",
-          collapsed && !floating && "invisible pointer-events-none opacity-0",
-          floating && railFlyoutEnterClassName,
-        )}
-        style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}
-        {...panelHover}
-      >
-        {/* Secondary Header */}
-        <div className="h-9 px-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 heading-section">
-            <span>{projectsLabel}</span>
+          {/* pr-3: the action icons end where the rows' content does. */}
+          <div className="h-9 pl-4 pr-3 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2 heading-section">
+              <span>{sidebarFocus ? focusLabel : projectsLabel}</span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              {/* Swaps the tree for what wants the user, then every chat by day. */}
+              <Button
+                variant="ghost"
+                size="icon"
+                data-testid="sidebar-focus-button"
+                className={cn("h-6 w-6 rounded-md text-muted-foreground hover:text-foreground", sidebarFocus && "bg-row-selected text-foreground hover:bg-row-selected")}
+                onClick={() => setSidebarFocus(!sidebarFocus)}
+                title={focusLabel}
+                aria-label={focusLabel}
+                aria-pressed={sidebarFocus}
+              >
+                <ListFilter className="h-4 w-4" />
+              </Button>
+              {canAddProject && !sidebarFocus && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
+                  onClick={handleAddProject}
+                  title={addRepositoryLabel}
+                  aria-label={addRepositoryLabel}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
-          {canAddProject && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="mr-2 h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={handleAddProject}
-              title={addRepositoryLabel}
-              aria-label={addRepositoryLabel}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          )}
+          <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0" viewportClassName="scroll-fade-y [--scroll-fade-gutter:0px]">
+            <div className="space-y-0.5 pb-3 pt-0">
+              {sidebarFocus ? (
+                <FocusConversations onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} onNavigate={closeAfterNavigate} />
+              ) : projects.length === 0 && !projectsLoaded ? (
+                // First load with nothing cached. Without this the empty state
+                // shows while the fetch is still out — a lie on web, where it can
+                // take a second.
+                <WorkspaceListSkeleton />
+              ) : projects.length === 0 ? (
+                <div className="mx-4 mt-6 rounded-xl border border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
+                  No projects yet.
+                </div>
+              ) : (
+                projects.map((project, i) => (
+                  <Fragment key={project.id}>
+                    {/* A hairline where the pinned ones end. */}
+                    {i > 0 && projects[i - 1].pinnedAt != null && project.pinnedAt == null && (
+                      <div className="mx-3 my-1 border-t border-border/40" />
+                    )}
+                    <ProjectItem
+                      project={project}
+                      onSelectWorkspace={handleSelectWorkspace}
+                      onNewChatInWorkspace={handleNewChatInWorkspace}
+                      onOpenChat={handleOpenChat}
+                      // Only one place is "current": while the Assistant is showing, no workspace is.
+                      activeWorkspaceId={assistantActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
+                      onAddWorkspace={handleOpenAddWorkspace}
+                      onTogglePin={handleTogglePin}
+                      error={projectErrors[String(project.id)] ?? null}
+                      workspaceDiffStats={workspaceDiffStats}
+                      activeSpecId={activeSpecId}
+                      onOpenSpec={handleOpenSpec}
+                    />
+                  </Fragment>
+                ))
+              )}
+              {/* Below the tree, every conversation in play across projects. */}
+              {!sidebarFocus && <RecentConversations onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} onNavigate={closeAfterNavigate} />}
+            </div>
+          </ScrollArea>
         </div>
-        <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0" viewportClassName="scroll-fade-y [--scroll-fade-gutter:0px]">
-          <div className="space-y-0.5 pb-3 pt-0">
-            {projects.length === 0 && !projectsLoaded ? (
-              // First load with nothing cached. Without this the empty state
-              // shows while the fetch is still out — a lie on web, where it can
-              // take a second.
-              <WorkspaceListSkeleton />
-            ) : projects.length === 0 ? (
-              <div className="mx-4 mt-6 rounded-xl border border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
-                No projects yet.
-              </div>
-            ) : (
-              projects.map((project, i) => (
-                <Fragment key={project.id}>
-                  {/* A hairline where the pinned ones end. */}
-                  {i > 0 && projects[i - 1].pinnedAt != null && project.pinnedAt == null && (
-                    <div className="mx-4 my-1 border-t border-border/40" />
-                  )}
-                  <ProjectItem
-                    project={project}
-                    onSelectWorkspace={handleSelectWorkspace}
-                    onNewChatInWorkspace={handleNewChatInWorkspace}
-                    // Only one place is "current": while the Assistant is showing, no workspace is.
-                    activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
-                    onAddWorkspace={handleOpenAddWorkspace}
-                    onTogglePin={handleTogglePin}
-                    error={projectErrors[String(project.id)] ?? null}
-                    workspaceDiffStats={workspaceDiffStats}
-                    activeSpecId={activeSpecId}
-                    onOpenSpec={handleOpenSpec}
-                  />
-                </Fragment>
-              ))
-            )}
-          </div>
-        </ScrollArea>
       </div>
-      {collapsed && <div className="min-h-0 flex-1" />}
-
-      {/* Keep every bottom destination directly accessible in both modes.
-          Web reserves room for the machine badge (WebAuthGate): a 28px pill
-          fixed 12px above the viewport's bottom edge, which this column also
-          reaches on iPad (the shell runs under the home indicator). */}
-      <nav
-        aria-label="Tools and settings"
-        className={cn("relative shrink-0 space-y-1 border-t border-border/40 px-1.5 pt-2", __APP_TARGET__ === "web" ? "pb-11" : "pb-3")}
-      >
-        {/* The rail shows a pending update above this group. Always mounted in
-            its slot, out of the layout: expanded it fades out with the labels
-            (the row one beside Settings takes over), so the mode switch never
-            moves or remounts it. First child: see the Projects stand-in. */}
-        <div
-          className={cn("absolute bottom-full left-1.5 mb-1 w-10", !collapsed && "sidebar-rail-fade pointer-events-none")}
-          inert={!collapsed}
-          aria-hidden={!collapsed || undefined}
-        >
-          <UpdateReadyPill variant="rail" />
-        </div>
-        {/* Compact: one row of icons — the tools, Settings, then Help at the end. */}
-        <div className={compactTools ? "flex items-center gap-0.5" : "space-y-1"}>
-        <div className={compactTools ? "contents" : "space-y-1"}>
-          <SidebarNavItem icon={Network} label={intl.formatMessage({ id: "sidebar.workflow", defaultMessage: "Workflow" })}
-            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} className={cn(compactTools && "w-10")}
-            onClick={() => openPage({ kind: "canvas" })} />
-          <SidebarNavItem icon={Package} label={intl.formatMessage({ id: "sidebar.plugins", defaultMessage: "Plugins" })}
-            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} className={cn(compactTools && "w-10")}
-            onClick={() => openPage({ kind: "plugins" })} />
-          <SidebarNavItem icon={CalendarClock} label={intl.formatMessage({ id: "sidebar.schedule", defaultMessage: "Schedule" })}
-            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} className={cn(compactTools && "w-10")}
-            onClick={() => openPage({ kind: "schedule" })} />
-        </div>
-        <div className={compactTools ? "contents" : "flex items-center gap-0.5"}>
-          <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })}
-            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} data-testid="settings-button"
-            // min-w-10: while the sidebar closes, Help and the update button
-            // overflow past the edge (and are clipped) rather than squeeze this.
-            className={cn("min-w-10", compactTools ? "w-10" : !collapsed && "flex-1")} onClick={() => openPage({ kind: "settings" })} />
-          {compactTools && <div className="min-w-0 flex-1" />}
-          {!collapsed && <UpdateReadyPill className="sidebar-label-fade" />}
-          {!collapsed && (
-            <Tooltip delayDuration={600}>
-              <TooltipTrigger asChild onFocus={(event) => {
-                if (!event.relatedTarget) event.preventDefault()
-              }}>
-                <button type="button" aria-label={intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}
-                  className="sidebar-label-fade flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground active:bg-accent-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")}>
-                  <CircleHelp className="size-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">{intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-        </div>
-      </nav>
 
       <NewWorkspaceDialog
         open={!!newWorkspaceProjectId}

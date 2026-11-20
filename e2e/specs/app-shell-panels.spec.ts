@@ -157,8 +157,9 @@ test('narrowing the desktop window shrinks and closes the right panel before the
   await expect(browserTab).toBeVisible()
   await expect.poll(async () => (await right.boundingBox())?.width).toBe(720)
 
+  // 1080 - 276 (52px rail + 224px panel) - 360 center reserve.
   await page.setViewportSize({ width: 1080, height: 820 })
-  await expect.poll(async () => (await right.boundingBox())?.width).toBe(496)
+  await expect.poll(async () => (await right.boundingBox())?.width).toBe(444)
   await expect(leftToggle).toHaveAttribute('aria-expanded', 'true')
 
   await page.setViewportSize({ width: 903, height: 820 })
@@ -166,10 +167,12 @@ test('narrowing the desktop window shrinks and closes the right panel before the
   await expect(browserTab).toBeHidden()
   await expect(leftToggle).toHaveAttribute('aria-expanded', 'true')
 
-  await page.setViewportSize({ width: 635, height: 820 })
-  await expect.poll(async () => (await left.boundingBox())?.width).toBe(215)
+  // Capped at 100vw - 420 once that is under the full 276.
+  await page.setViewportSize({ width: 690, height: 820 })
+  await expect.poll(async () => (await left.boundingBox())?.width).toBe(270)
 
-  await page.setViewportSize({ width: 627, height: 820 })
+  // Below rail + panel minimum + center reserve (52 + 208 + 420) it collapses.
+  await page.setViewportSize({ width: 679, height: 820 })
   await expect(leftToggle).toHaveAttribute('aria-expanded', 'false')
   await expect.poll(async () => (await left.boundingBox())?.width).toBe(52)
 
@@ -191,7 +194,7 @@ test('narrowing the desktop window shrinks and closes the right panel before the
   await expect.poll(async () => (await right.boundingBox())?.width).toBe(720)
 
   await leftToggle.click()
-  await expect.poll(async () => (await left.boundingBox())?.width).toBe(224)
+  await expect.poll(async () => (await left.boundingBox())?.width).toBe(276)
   await page.setViewportSize({ width: 480, height: 820 })
   await expect(rightToggle).toHaveAttribute('aria-pressed', 'false')
   await expect.poll(async () => (await left.boundingBox())?.width).toBe(52)

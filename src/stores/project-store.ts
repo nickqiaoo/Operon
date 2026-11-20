@@ -18,6 +18,11 @@ export interface Workspace {
   name: string
   branchName: string
   worktreePath: string
+  /**
+   * The conversation that made this workspace for an external agent it dispatched.
+   * The sidebar lists it under that conversation, never at the top.
+   */
+  originChatId?: number | null
   /** The board task whose agent runs here, when one does (absent in a tree cached before the field existed). */
   task?: WorkspaceTask
 }
@@ -91,6 +96,8 @@ interface ProjectStore {
   activeWorkspaceId: number | null
   /** Local sidebar preference; omitted ids stay expanded. */
   collapsedProjectIds: number[]
+  /** Local sidebar preference: workspaces whose conversations are folded away. */
+  collapsedWorkspaceIds: number[]
   /** Local display preference, independent of task status and archiving. */
   hiddenSpecIds: number[]
   /** Explicitly shown specs can appear even without a workspace. */
@@ -115,6 +122,7 @@ interface ProjectStore {
   /** Pin to / unpin from the top of the list. Moves it at once; puts it back if the server refuses. */
   setProjectPinned: (id: number, pinned: boolean) => Promise<void>
   setProjectCollapsed: (id: number, collapsed: boolean) => void
+  setWorkspaceCollapsed: (id: number, collapsed: boolean) => void
   setSpecHidden: (taskId: number, hidden: boolean) => void
   setWorkspaceTaskArchived: (taskId: number, archivedAt: number | null) => void
   setActiveProject: (id: number | null) => void
@@ -136,6 +144,7 @@ export const useProjectStore = create<ProjectStore>()(
       activeProjectId: null,
       activeWorkspaceId: null,
       collapsedProjectIds: [],
+      collapsedWorkspaceIds: [],
       hiddenSpecIds: [],
       shownSpecIds: [],
       projectsLoaded: false,
@@ -148,6 +157,7 @@ export const useProjectStore = create<ProjectStore>()(
           activeProjectId: null,
           activeWorkspaceId: null,
           collapsedProjectIds: [],
+          collapsedWorkspaceIds: [],
           hiddenSpecIds: [],
           shownSpecIds: [],
           projectsLoaded: false,
@@ -198,6 +208,9 @@ export const useProjectStore = create<ProjectStore>()(
             projects: replaceEqualDeep(state.projects, fullProjects),
             collapsedProjectIds: state.collapsedProjectIds.filter((id) =>
               fullProjects.some((project) => project.id === id)
+            ),
+            collapsedWorkspaceIds: state.collapsedWorkspaceIds.filter((id) =>
+              fullProjects.some((project) => project.workspaces.some((workspace) => workspace.id === id))
             ),
             activeProjectId: nextActiveProjectId,
             activeWorkspaceId: nextActiveWorkspaceId,
@@ -257,6 +270,16 @@ export const useProjectStore = create<ProjectStore>()(
               ? state.collapsedProjectIds
               : [...state.collapsedProjectIds, id]
             : state.collapsedProjectIds.filter((projectId) => projectId !== id),
+        }))
+      },
+
+      setWorkspaceCollapsed: (id, collapsed) => {
+        set((state) => ({
+          collapsedWorkspaceIds: collapsed
+            ? state.collapsedWorkspaceIds.includes(id)
+              ? state.collapsedWorkspaceIds
+              : [...state.collapsedWorkspaceIds, id]
+            : state.collapsedWorkspaceIds.filter((workspaceId) => workspaceId !== id),
         }))
       },
 
@@ -390,6 +413,7 @@ export const useProjectStore = create<ProjectStore>()(
         activeProjectId: state.activeProjectId,
         activeWorkspaceId: state.activeWorkspaceId,
         collapsedProjectIds: state.collapsedProjectIds,
+        collapsedWorkspaceIds: state.collapsedWorkspaceIds,
         hiddenSpecIds: state.hiddenSpecIds,
         shownSpecIds: state.shownSpecIds,
         cacheNodeId: state.cacheNodeId,
@@ -406,6 +430,7 @@ export const useProjectStore = create<ProjectStore>()(
           ...saved,
           projects: stale ? [] : saved.projects ?? [],
           collapsedProjectIds: stale ? [] : saved.collapsedProjectIds ?? [],
+          collapsedWorkspaceIds: stale ? [] : saved.collapsedWorkspaceIds ?? [],
           hiddenSpecIds: stale ? [] : saved.hiddenSpecIds ?? [],
           shownSpecIds: stale ? [] : saved.shownSpecIds ?? [],
         }

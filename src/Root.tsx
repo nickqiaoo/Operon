@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef } from "react"
 import App from "./App"
 import { MobileApp } from "./components/mobile/MobileApp"
-import { RequestProgressBar } from "./components/RequestProgressBar"
 import { useIsMobile } from "./hooks/useIsMobile"
 import { useNativeStatusBar } from "./hooks/useNativeStatusBar"
 import { useApplyCodeFont } from "./stores/code-font-store"
@@ -26,17 +25,9 @@ export default function Root() {
   return (
     <>
       {__APP_TARGET__ === "web" && isMobile ? (
-        // No top bar here: on a phone the conversation it tracks shows a
-        // full-screen loading state of its own (ChatPanel), which is far easier
-        // to notice than a 2px strip under the status bar.
         <MobileApp resumeWorkbench={resumeWorkbench} />
       ) : (
-        <>
-          {/* Above the shell so it survives the full-screen pages App portals
-              to body; self-hiding unless a request outlives its delay. */}
-          <RequestProgressBar />
-          <App />
-        </>
+        <App />
       )}
     </>
   )

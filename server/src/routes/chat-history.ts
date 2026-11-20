@@ -16,6 +16,30 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     const offsetStr = c.req.query('offset')
     const limit = limitStr ? parseInt(limitStr, 10) : undefined
     const offset = offsetStr ? parseInt(offsetStr, 10) : undefined
+    // An empty cursor requests the first page. Existing callers still get an array.
+    const cursor = c.req.query('cursor')
+    if (cursor !== undefined) {
+      const pageSize = limitStr === undefined ? 30 : Number(limitStr)
+      if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        return c.json({ error: 'limit must be an integer between 1 and 100' }, 400)
+      }
+      const match = /^(-?\d+):(\d+)$/.exec(cursor)
+      const updatedAt = Number(match?.[1])
+      const id = Number(match?.[2])
+      if (cursor !== '' && (!Number.isSafeInteger(updatedAt) || !Number.isSafeInteger(id) || id < 1)) {
+        return c.json({ error: 'Invalid chat history cursor' }, 400)
+      }
+      const rows = service.listChats(workspaceId, tp, {
+        limit: pageSize + 1,
+        before: match ? { updatedAt, id } : undefined,
+      })
+      const items = rows.slice(0, pageSize).map(({ sessionId: _sessionId, ...entry }) => entry)
+      const last = items.at(-1)
+      return c.json({
+        items,
+        nextCursor: last && rows.length > pageSize ? `${last.updatedAt}:${last.id}` : null,
+      })
+    }
     const result = service.listChats(workspaceId, tp, {
       limit: Number.isFinite(limit) ? limit : undefined,
       offset: Number.isFinite(offset) ? offset : undefined,
@@ -45,6 +69,9 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
         model: meta?.model,
         providerId: meta?.providerId,
         thinkingLevel: meta?.thinkingLevel,
+        // The mode the chat last ran (or was switched) in; the composer
+        // reopens in it rather than the provider's default.
+        modeId: meta?.metadata?.modeId,
         sshEnvironment: meta?.metadata?.sshEnvironment,
         // When the last message landed. The client times prompt-cache expiry
         // from this so a conversation reopened from history knows it went cold
@@ -56,7 +83,8 @@ export function chatHistoryRoutes(storage: ChatStorageAdapter) {
     // Full mode: return all messages (for AI context, backward compat)
     const result = service.getChat(chatId)
     const { sessionId: _sessionId, ...payload } = result
-    return c.json({ ...payload, sshEnvironment: storage.getChatMeta(chatId)?.metadata?.sshEnvironment })
+    const metadata = storage.getChatMeta(chatId)?.metadata
+    return c.json({ ...payload, modeId: metadata?.modeId, sshEnvironment: metadata?.sshEnvironment })
   })
 
   // POST /api/chat-history - create a chat, optionally with its first messages

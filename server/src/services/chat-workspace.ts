@@ -17,7 +17,9 @@ export async function createChatWorkspace(
   const workspaceId = storage.getChatMeta(chatId)?.workspaceId
   const own = workspaceId ? storage.getWorkspace(workspaceId) : null
   if (!own) throw new Error('This conversation is not in a project workspace, so there is no project to add one to.')
-  const ws = await provisionWorkspace(storage, { projectId: own.projectId, name: input.name, ...(input.base ? { base: input.base } : {}) })
+  const ws = await provisionWorkspace(storage, {
+    projectId: own.projectId, name: input.name, originChatId: chatId, ...(input.base ? { base: input.base } : {}),
+  })
   return {
     workspace_id: ws.id, name: ws.name, branch: ws.branchName, worktree_path: ws.worktreePath,
     ...(input.base ? { base_branch: input.base } : {}),

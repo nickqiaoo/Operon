@@ -41,6 +41,8 @@ object InboxSheet {
         val symbol: String,
         val action: Boolean,
         val unread: Boolean,
+        /** Swipe to dismiss. Off for a row dismissing would not remove (a running turn). */
+        val dismissible: Boolean,
     )
 
     data class State(
@@ -76,6 +78,8 @@ object InboxSheet {
         "checkmark.shield" -> R.drawable.ic_shield_check
         "clock" -> R.drawable.ic_clock
         "sparkles" -> R.drawable.ic_sparkles
+        // A chat mid-turn (`RUNNING_SYMBOL` in InboxItem.tsx).
+        "waveform" -> R.drawable.ic_activity
         else -> R.drawable.ic_message_square
     }
 
@@ -160,7 +164,9 @@ object InboxSheet {
             )
 
             addView(header(), SheetUi.matchWidth())
-            addView(filterRow(), SheetUi.matchWidth())
+            // The phone inbox sends none; the toggle group is still built so `update` can sync it.
+            val filterRow = filterRow()
+            if (labels.filters.isNotEmpty()) addView(filterRow, SheetUi.matchWidth())
 
             placeholder = TextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -283,6 +289,13 @@ object InboxSheet {
          */
         private fun attachSwipeToArchive(list: RecyclerView) {
             val callback = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.END) {
+                override fun getSwipeDirs(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int =
+                    if (adapter.itemAt(viewHolder.bindingAdapterPosition)?.dismissible == true) {
+                        super.getSwipeDirs(recyclerView, viewHolder)
+                    } else {
+                        0
+                    }
+
                 override fun onMove(
                     recyclerView: RecyclerView,
                     viewHolder: RecyclerView.ViewHolder,

@@ -128,6 +128,9 @@ const MobileTurnDiffReview = lazy(() =>
   }))
 );
 
+/** Off the phone, how long a transcript load runs before its loading state shows. */
+const HISTORY_LOADING_DELAY_MS = 300;
+
 interface ChatPanelProps {
   chatId: string;
   providerId?: string;
@@ -319,7 +322,7 @@ function ChatPanelContent({
   );
   const {
     model, setModel, availableModels, selectedModel,
-    modeOptions, currentMode, setMode, serviceTierOptions, currentServiceTier, toggleFastMode, thinkingEffortOptions,
+    modeOptions, currentMode, setMode, serviceTierOptions, currentServiceTier, toggleFastMode, thinkingEffortOptions, catalogPending,
     slashCommands, supportsInjection, supportsGoal,
     supportsDynamicSwitch, supportsContextUsage,
   } = modelManagement;
@@ -445,10 +448,12 @@ function ChatPanelContent({
   }, [canDynamicSwitch, dbChatIdRef, rememberRecentOptions, tab?.isSubAgent, thinkingEffortOptions]);
 
   useEffect(() => {
-    if (!thinkingEffortOptions.length) return;
+    // Wait for the real catalog: the stand-in one has no model picked, so its
+    // effort list is not this model's and would reset a remembered xhigh / max.
+    if (catalogPending || !thinkingEffortOptions.length) return;
     if (thinkingEffortOptions.some((option) => option.value === thinkingEffort)) return;
     setThinkingEffort(thinkingEffortOptions[0].value);
-  }, [thinkingEffortOptions, thinkingEffort]);
+  }, [catalogPending, thinkingEffortOptions, thinkingEffort]);
 
   useEffect(() => {
     if (selectedModel) updateTabProvider(chatId, selectedModel.provider);
@@ -506,15 +511,27 @@ function ChatPanelContent({
     providerGroup: selectedModel?.group,
   });
 
-  const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
+  const { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore: chatHasMore, loadingMore: chatLoadingMore, loadMore: chatLoadMore } = useChatHistory(historyDbChatId, setMessages, tab?.options?.timestamp);
   const sshEnvironment = loadedSshEnvironment ?? tab?.sshEnvironment;
 
-  // Phone: reopening a conversation is a WAN round trip for its transcript.
-  // Until it lands the panel is one full-screen loading state — no transcript,
+  // Reopening a conversation waits for its transcript (a WAN round trip on web
+  // and iPad). Until it lands the panel is one loading state — no transcript,
   // no composer. A composer shown in the meantime looked ready but did nothing
-  // useful, and a thin bar at the top of the window was easy to miss. New chats
-  // (no DB id yet) have nothing to load and skip this.
-  const showMobileHistoryLoading = isMobile && historyDbChatId !== undefined && !historyLoaded;
+  // useful, and the old thin bar at the top of the window was easy to miss.
+  // New chats (no DB id yet) have nothing to load and skip this. Off the phone
+  // it waits HISTORY_LOADING_DELAY_MS first: the desktop app loads from a local
+  // process in a few ms, and flashing the state there would only flicker.
+  const historyLoading = historyDbChatId !== undefined && !historyLoaded;
+  const [historyLoadingDelayed, setHistoryLoadingDelayed] = useState(false);
+  useEffect(() => {
+    if (!historyLoading || isMobile) {
+      setHistoryLoadingDelayed(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setHistoryLoadingDelayed(true), HISTORY_LOADING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [historyLoading, isMobile]);
+  const showHistoryLoading = historyLoading && (isMobile || historyLoadingDelayed);
 
   // Sits below useChatHistory because it needs that hook's loaded timestamp to
   // date a conversation reopened from history.
@@ -752,6 +769,20 @@ function ChatPanelContent({
   useEffect(() => {
     if (tab?.options?.modeId) setMode(tab.options.modeId);
   }, [tab?.options?.modeId, modeOptions, setMode]);
+
+  // A chat reopened from history comes back in the mode it last ran or was
+  // switched to, not the provider default. Applied once per loaded value, as
+  // soon as the mode list has it (the catalog may land after the transcript):
+  // re-applying on every `modeOptions` change would undo a later pick. Plain
+  // setMode, not the remembering one: reopening an old chat must not change
+  // what new chats start in.
+  const appliedLoadedModeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (tab?.options?.modeId || !loadedModeId || appliedLoadedModeRef.current === loadedModeId) return;
+    if (!modeOptions.some((option) => option.value === loadedModeId)) return;
+    appliedLoadedModeRef.current = loadedModeId;
+    setMode(loadedModeId);
+  }, [loadedModeId, modeOptions, setMode, tab?.options?.modeId]);
 
   useEffect(() => {
     if (loadedProviderId && providerId !== loadedProviderId) updateTabProviderId(chatId, loadedProviderId);
@@ -1249,7 +1280,10 @@ function ChatPanelContent({
             // back button; start the first message just below them. Not where
             // the native top bar is a real bar above the web view (Android) —
             // there is nothing to run under, so the room is already made.
-            isMobile && !nativeTopBarTakesSpace() && "pt-[calc(env(safe-area-inset-top)+3rem)]"
+            // 4.25rem = the 44pt button (sitting ~4pt under the safe area) plus
+            // a ~20pt gap, so the first message doesn't butt against it
+            // (3rem left ~4pt, which read as cramped next to ChatGPT's ~22pt).
+            isMobile && !nativeTopBarTakesSpace() && "pt-[calc(env(safe-area-inset-top)+4.25rem)]"
           )}
         >
           {messages.length > 0 && (
@@ -1309,7 +1343,7 @@ function ChatPanelContent({
             "group-data-[keyboard-open=true]/mobile-shell:fixed group-data-[keyboard-open=true]/mobile-shell:bottom-[var(--keyboard-height)] group-data-[keyboard-open=true]/mobile-shell:z-50 group-data-[keyboard-open=true]/mobile-shell:max-w-none group-data-[keyboard-open=true]/mobile-shell:px-4 group-data-[keyboard-open=true]/mobile-shell:pb-1 group-data-[keyboard-open=true]/mobile-shell:pt-2",
           // Hidden, not unmounted, while the transcript loads: the composer keeps
           // its draft and its measured height, and it can't be tapped or focused.
-          showMobileHistoryLoading && "invisible"
+          showHistoryLoading && "invisible"
         )}
       >
         {reconnecting ? (
@@ -1514,7 +1548,7 @@ function ChatPanelContent({
         ) : <ChatComposer
           // `invisible` above only hides the web composer: the packaged apps draw a native
           // one over its spacer, which keeps its box, so it has to be told to hide too.
-          visible={visible && !showMobileHistoryLoading}
+          visible={visible && !showHistoryLoading}
           promptSuggestion={promptSuggestion}
           isOperonProvider={isOperonProvider}
           dbChatId={tab?.chatId ?? dbChatIdRef.current}
@@ -1556,7 +1590,7 @@ function ChatPanelContent({
           onSkillsChange={saveDraftSkills}
         />}
       </div>
-      {showMobileHistoryLoading && (
+      {showHistoryLoading && (
         <div
           role="status"
           className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground animate-in fade-in-0 duration-200"

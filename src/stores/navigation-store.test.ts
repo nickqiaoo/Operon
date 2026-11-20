@@ -38,11 +38,11 @@ describe("full-screen page stack", () => {
 describe("main view", () => {
   it("records each view the first time it is shown, so it stays mounted afterwards", () => {
     const { showMain, showWorkbench } = useNavigationStore.getState()
-    showMain({ kind: "inbox" })
+    showMain({ kind: "assistant" })
     showWorkbench()
     const { main, visited } = useNavigationStore.getState()
     expect(main).toEqual({ kind: "workbench" })
-    expect([...visited].sort()).toEqual(["inbox", "workbench"])
+    expect([...visited].sort()).toEqual(["assistant", "workbench"])
   })
 
   it("remembers the last Board view while another view is up", () => {

@@ -93,11 +93,14 @@ export const chat = {
   async openNewChat(page: Page, scriptName?: string): Promise<void> {
     if (scriptName) await setFakeScript(scriptName)
     const newTab = page.getByTestId('new-tab-button')
-    if (await newTab.count() === 0) {
+    const tabCount = () => page.evaluate(() => window.__operon?.tabs().length ?? 0)
+    if (await tabCount() === 0) {
       // No tabs yet, so no "+": the first chat comes from the sidebar's New
-      // chat, which opens on the last-used agent.
+      // chat, which opens on the last-used agent. Read from the store, not
+      // the DOM: a tab opened a moment ago may not have rendered its "+" yet.
       await page.evaluate(() => localStorage.setItem('operon.chat.last-provider:v1', 'fake'))
       await page.getByTestId('sidebar-new-chat').click()
+      await expect(newTab).toBeVisible()
       return
     }
     await newTab.click()

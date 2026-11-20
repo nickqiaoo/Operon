@@ -206,3 +206,56 @@ describe("workspace preview history", () => {
     expect(historyOf("tab-2").entries).toEqual(["/z.ts"])
   })
 })
+
+describe("sidebar panel follows the view", async () => {
+  const { sidebarPanelShown } = await import("./app-shell-store")
+  const { useNavigationStore } = await import("./navigation-store")
+  const shown = () => sidebarPanelShown(useAppShellStore.getState(), useNavigationStore.getState().main)
+
+  beforeEach(() => {
+    useAppShellStore.setState({ sidebarCollapsed: false, sidebarPeekView: null })
+    useNavigationStore.getState().showWorkbench()
+  })
+
+  it("makes way off the workspace views and comes back with them", () => {
+    expect(shown()).toBe(true)
+    useNavigationStore.getState().showMain({ kind: "board", view: "board" })
+    expect(shown()).toBe(false)
+    useNavigationStore.getState().showMain({ kind: "spec", taskId: 1, projectId: 1 })
+    expect(shown()).toBe(true)
+    // Nothing the user chose changed along the way.
+    expect(useAppShellStore.getState().sidebarCollapsed).toBe(false)
+  })
+
+  it("peeks on the view the toggle was used on, until the next navigation", () => {
+    useNavigationStore.getState().showMain({ kind: "assistant" })
+    useAppShellStore.getState().toggleSidebar()
+    expect(shown()).toBe(true)
+    useNavigationStore.getState().showMain({ kind: "board", view: "channels" })
+    expect(shown()).toBe(false)
+  })
+
+  it("hides a peek without collapsing the workspace's panel", () => {
+    useNavigationStore.getState().showMain({ kind: "assistant" })
+    const { toggleSidebar } = useAppShellStore.getState()
+    toggleSidebar()
+    toggleSidebar()
+    expect(shown()).toBe(false)
+    useNavigationStore.getState().showWorkbench()
+    expect(shown()).toBe(true)
+  })
+
+  it("opens from collapsed on a non-workspace view as a peek", () => {
+    useAppShellStore.setState({ sidebarCollapsed: true })
+    useNavigationStore.getState().showMain({ kind: "board", view: "board" })
+    useAppShellStore.getState().toggleSidebar()
+    expect(shown()).toBe(true)
+    expect(useAppShellStore.getState().sidebarCollapsed).toBe(false)
+  })
+
+  it("collapses on a workspace view", () => {
+    useAppShellStore.getState().toggleSidebar()
+    expect(shown()).toBe(false)
+    expect(useAppShellStore.getState().sidebarCollapsed).toBe(true)
+  })
+})

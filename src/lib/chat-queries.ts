@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react'
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChatStatus } from 'ai'
 import type { SubagentTranscript } from '@shared/background-tasks'
 import { api } from './api'
@@ -22,6 +22,14 @@ export type ChatHistoryListItem = Awaited<ReturnType<typeof api.chatHistoryList>
 export const chatHistoryKeys = {
   list: (workspaceId: number | null | undefined, tp?: string) =>
     ['chat-history-list', workspaceId ?? 'all', tp ?? 'all'] as const,
+  /**
+   * The sidebar tree's latest conversations of one workspace. Under `list`'s
+   * prefix, so invalidating a workspace's list refreshes its tree rows too.
+   */
+  workspaceLatest: (workspaceId: number) =>
+    ['chat-history-list', workspaceId, 'chat', 'sidebar'] as const,
+  /** Every sidebar tree list, to refresh them together when a turn starts or ends. */
+  allLists: () => ['chat-history-list'] as const,
   /** The user's own conversations across every workspace, most recently active first. */
   recent: () => ['chat-history-recent'] as const,
   /** `revision` is the caller's "something changed" marker (another call, finished). */
@@ -29,7 +37,7 @@ export const chatHistoryKeys = {
     ['subagent-transcript', chatId, toolUseId, revision] as const,
 }
 
-/** Keeps the first row per id — a chat that moves across the offset boundary between pages comes back twice. */
+/** Keeps the first row per id when an update moves a chat across a page boundary. */
 const dedupeById = (items: ChatHistoryListItem[]): ChatHistoryListItem[] => {
   const seen = new Set<number>()
   return items.filter((item) => {
@@ -101,6 +109,40 @@ export function useChatHistoryList({
     isLoadingMore: isFetchingNextPage,
     loadMore,
     refresh,
+  }
+}
+
+const WORKSPACE_CHAT_PREVIEW_SIZE = 5
+const WORKSPACE_CHAT_PAGE_SIZE = 10
+
+/** Sidebar conversations, mounted only for expanded projects. */
+export function useWorkspaceLatestChats(workspaceId: number) {
+  const queryClient = useQueryClient()
+  const queryKey = chatHistoryKeys.workspaceLatest(workspaceId)
+  const query = useInfiniteQuery({
+    queryKey,
+    initialPageParam: null as string | number | null,
+    queryFn: ({ pageParam, signal }) => api.workspaceChatHistoryPage(
+      workspaceId,
+      pageParam === null ? WORKSPACE_CHAT_PREVIEW_SIZE : WORKSPACE_CHAT_PAGE_SIZE,
+      pageParam,
+      signal,
+    ),
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  })
+  const chats = useMemo(() => dedupeById(query.data?.pages.flatMap((page) => page.items) ?? []), [query.data])
+
+  return {
+    chats,
+    hasMore: query.hasNextPage,
+    expanded: chats.length > WORKSPACE_CHAT_PREVIEW_SIZE,
+    isFetching: query.isFetching,
+    loadMore: () => void query.fetchNextPage({ cancelRefetch: false }),
+    showLess: () => queryClient.setQueryData<NonNullable<typeof query.data>>(queryKey, (data) =>
+      data && { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) },
+    ),
   }
 }
 

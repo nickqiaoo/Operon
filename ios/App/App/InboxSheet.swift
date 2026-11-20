@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// The notification inbox as a system sheet. Unlike the other sheets this one
+/// The phone inbox (the Focus view's priority rows) as a system sheet. Unlike the other sheets this one
 /// is live: JS pushes a fresh `InboxSheetState` on every store change while
 /// the sheet is up (`updateInboxSheet`), and every control here is a plain
 /// intent sent back (`inboxAction`) — the store stays the single owner.
@@ -11,10 +11,12 @@ struct InboxSheetItem: Identifiable {
     let body: String?
     /// Already relative ("3m", "2d"), formatted by JS.
     let time: String
-    /// Notification kind → SF Symbol.
+    /// Notification kind (or a chat's state) → SF Symbol.
     let symbol: String
     let action: Bool
     let unread: Bool
+    /// Swipe to dismiss. Off for a row dismissing would not remove (a running turn).
+    let dismissible: Bool
 }
 
 struct InboxSheetState {
@@ -64,16 +66,18 @@ struct InboxSheetView: View {
             .padding(.horizontal, 20)
             .padding(.top, 24)
 
-            Picker("", selection: Binding(
-                get: { model.state.filter },
-                set: { onAction("filter", $0) }
-            )) {
-                ForEach(labels.filters, id: \.id) { filter in
-                    Text(filter.label).tag(filter.id)
+            if !labels.filters.isEmpty {
+                Picker("", selection: Binding(
+                    get: { model.state.filter },
+                    set: { onAction("filter", $0) }
+                )) {
+                    ForEach(labels.filters, id: \.id) { filter in
+                        Text(filter.label).tag(filter.id)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
 
             list
         }
@@ -139,8 +143,10 @@ struct InboxSheetView: View {
                     .buttonStyle(.plain)
                     .listRowBackground(Color(.secondarySystemGroupedBackground))
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) { onAction("archive", String(item.id)) } label: {
-                            Label("Dismiss", systemImage: "xmark")
+                        if item.dismissible {
+                            Button(role: .destructive) { onAction("archive", String(item.id)) } label: {
+                                Label("Dismiss", systemImage: "xmark")
+                            }
                         }
                     }
                     .onAppear {

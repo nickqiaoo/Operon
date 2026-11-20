@@ -124,3 +124,14 @@ describe('project navigation', () => {
     expect(projectSidebarEntries(project([ws(1)], [{ ...spec, archivedAt: 100 }]), [10], []).specs).toEqual([])
   })
 })
+
+describe("projectSidebarEntries: dispatched workspaces", () => {
+  it("keeps a workspace a conversation made for its agent out of the directory rows", () => {
+    const main = ws(1)
+    const dispatched = { ...ws(2), originChatId: 40 }
+    const project = { id: 1, name: "p", rootPath: "/w/1", workspaces: [main, dispatched] } as unknown as Project
+    const entries = projectSidebarEntries(project, [], [])
+    expect(entries.workspaces.map((w) => w.id)).toEqual([1])
+    expect(entries.dispatched.map((w) => w.id)).toEqual([2])
+  })
+})

@@ -6,6 +6,7 @@ import { getChatStorage } from '../services/ai/state.js'
 import type { PermissionOutcome } from '../services/ai.js'
 import type { AiChatRequest } from '../services/ai/types.js'
 import { waitForChatTurnIdle } from '../services/ai/chat-turn-lifecycle.js'
+import { rememberChatModeId } from '../services/ai/persistence.js'
 import { replaceLiveAgent, steerLiveAgent } from '../services/workflow/live-agents.js'
 import { getOrCreateWorkspaceAssistant } from '../services/workspace-assistant.js'
 import type { AgentBindingStorageAdapter, ChannelStorageAdapter, ProjectStorageAdapter } from '../storage/interface.js'
@@ -400,6 +401,7 @@ export function aiRoutes(storage: AiRouteStorage) {
       serviceTier?: string
     }>()
     const { chatId, modelId, modeId, thinkingLevel } = payload
+    rememberChatModeId(chatId, modeId)
     const result = await aiService.handleCCDynamicSet(chatId, {
       model: modelId,
       mode: modeId,

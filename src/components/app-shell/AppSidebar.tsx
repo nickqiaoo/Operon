@@ -1,8 +1,9 @@
-import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { memo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { useTransform } from "motion/react"
 import { useIntl } from "react-intl"
 import { PanelLeft } from "lucide-react"
-import { useAppShellStore } from "@/stores/app-shell-store"
+import { sidebarPanelShown, useAppShellStore, useSidebarPanelShown } from "@/stores/app-shell-store"
+import { useNavigationStore } from "@/stores/navigation-store"
 import { ProjectSidebar } from "@/components/project/ProjectSidebar"
 import type { Notification } from "@/types/notification"
 import type { OpenChat } from "@/lib/active-conversations"
@@ -36,12 +37,18 @@ interface AppSidebarProps {
 }
 
 export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotification, onOpenChat, children }: AppSidebarProps) {
-  const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
+  // The panel is out only on the workspace views (or when the toggle asked for
+  // it elsewhere); everywhere else the rail is all there is.
+  const panelShown = useSidebarPanelShown()
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const [width, setWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
   const previousWindowWidth = useRef(Infinity)
+  // `width` is the panel's; the rail is always there on top of it.
   const maxWidth = __APP_TARGET__ === "electron"
-    ? `max(${LEFT_SIDEBAR_MIN_WIDTH}px, calc(100vw - ${LEFT_SIDEBAR_CENTER_RESERVE}px))`
+    ? `max(${LEFT_SIDEBAR_RAIL_WIDTH + LEFT_SIDEBAR_MIN_WIDTH}px, calc(100vw - ${LEFT_SIDEBAR_CENTER_RESERVE}px))`
+    : undefined
+  const panelMaxWidth = __APP_TARGET__ === "electron"
+    ? `max(${LEFT_SIDEBAR_MIN_WIDTH}px, calc(100vw - ${LEFT_SIDEBAR_CENTER_RESERVE + LEFT_SIDEBAR_RAIL_WIDTH}px))`
     : undefined
 
   useLayoutEffect(() => {
@@ -54,12 +61,13 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
       if (!shrinking) return
 
       const shell = useAppShellStore.getState()
-      const sidebarWidth = shell.sidebarCollapsed ? LEFT_SIDEBAR_RAIL_WIDTH : width
+      const shown = sidebarPanelShown(shell, useNavigationStore.getState().main)
+      const sidebarWidth = LEFT_SIDEBAR_RAIL_WIDTH + (shown ? width : 0)
       const splitMinWidth = sidebarWidth + CENTER_CONTENT_MIN_WIDTH + RIGHT_PANEL_AUTO_CLOSE_BELOW
       if (shell.rightPanelOpen && !shell.rightPanelExpanded && windowWidth < splitMinWidth) {
         shell.setRightPanelOpen(false)
       }
-      if (!shell.sidebarCollapsed && windowWidth < LEFT_SIDEBAR_MIN_WIDTH + LEFT_SIDEBAR_CENTER_RESERVE) {
+      if (shown && windowWidth < LEFT_SIDEBAR_RAIL_WIDTH + LEFT_SIDEBAR_MIN_WIDTH + LEFT_SIDEBAR_CENTER_RESERVE) {
         shell.setSidebarCollapsed(true)
       }
     }
@@ -70,11 +78,11 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
   }, [width])
 
   const { progress, collapsed: rail } = usePanelAnimation({
-    size: width - LEFT_SIDEBAR_RAIL_WIDTH,
-    isVisible: !sidebarCollapsed,
+    size: width,
+    isVisible: panelShown,
   })
   const animatedWidth = useTransform(progress, (value) =>
-    LEFT_SIDEBAR_RAIL_WIDTH + value * (width - LEFT_SIDEBAR_RAIL_WIDTH)
+    LEFT_SIDEBAR_RAIL_WIDTH + value * width
   )
   const titlebarClearance = useTransform(animatedWidth, (value) =>
     Math.max(0, TITLEBAR_TOGGLE_CLEARANCE - value)
@@ -82,9 +90,17 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
 
   return (
     <TitlebarClearanceContext.Provider value={titlebarClearance}>
-      <div className="flex h-full w-full">
+      {/* With only the rail left it is canvas-coloured with no edge line, so a
+          page's own left gutter reads as extra rail: the icons sat 16px from
+          the window edge but 32px from the board. Pages that run edge to edge
+          take their left padding from this (0 here; 1rem fallback elsewhere).
+          Keyed to where the panel is going, not to the end of its animation:
+          switched at the end, the Board slid left with the closing panel and
+          then jumped another 16px. Not eased either: a custom property on this
+          root restyles the whole app on every frame (~7ms). */}
+      <div className="flex h-full w-full" style={panelShown ? undefined : { "--rail-page-gutter": "0px" } as CSSProperties}>
         <LeftSidebar
-          isOpen={!sidebarCollapsed}
+          isOpen={panelShown}
           rail={rail}
           animatedWidth={animatedWidth}
           maxWidth={maxWidth}
@@ -93,7 +109,7 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
           onClose={() => setSidebarCollapsed(true)}
         >
           <ProjectSidebar onOpenSpec={onOpenSpec} onOpenNotification={onOpenNotification} onOpenChat={onOpenChat}
-            collapsed={rail} width={width} maxWidth={maxWidth} />
+            collapsed={rail} width={width} maxWidth={panelMaxWidth} />
         </LeftSidebar>
         {children}
       </div>
@@ -109,22 +125,22 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
  */
 export function SidebarToggle() {
   const intl = useIntl()
-  const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
+  const panelShown = useSidebarPanelShown()
   const toggleSidebar = useAppShellStore((s) => s.toggleSidebar)
-  const label = sidebarCollapsed
+  const label = !panelShown
     ? intl.formatMessage({ id: "app.expandSidebar", defaultMessage: "Expand sidebar" })
     : intl.formatMessage({ id: "sidebar.collapse", defaultMessage: "Collapse sidebar" })
 
   return (
     <div
-      className="no-drag absolute top-0 z-50 flex h-10 w-6 items-center border-b border-transparent"
+      className="no-drag absolute top-0 z-50 flex h-10 w-6 items-center"
       style={{ left: SIDEBAR_TOGGLE_LEFT }}
     >
       <button
         type="button"
         data-testid="toggle-sidebar"
         aria-label={label}
-        aria-expanded={!sidebarCollapsed}
+        aria-expanded={panelShown}
         title={label}
         onClick={toggleSidebar}
         className="no-drag pointer-events-auto flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"

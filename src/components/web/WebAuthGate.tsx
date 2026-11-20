@@ -31,7 +31,7 @@ import {
 } from '@/lib/web-auth'
 import { resetNodeScopedCaches } from '@/lib/node-cache-reset'
 import { syncAnalyticsIdentity } from '@/lib/analytics'
-import { useAppShellStore } from '@/stores/app-shell-store'
+import { useSidebarPanelShown } from '@/stores/app-shell-store'
 import { hasRemotePairing } from '@/lib/e2ee/device-store'
 import { nodeRequiresPairing } from '@/lib/e2ee/node-mode'
 import { SecurePairingCard } from './SecurePairingCard'
@@ -807,7 +807,7 @@ function MachineBadge({
 }) {
   const intl = useIntl()
   const [open, setOpen] = useState(false)
-  const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
+  const sidebarCollapsed = !useSidebarPanelShown()
   // Don't leave the menu hanging open for the next expand.
   useEffect(() => {
     if (sidebarCollapsed) setOpen(false)

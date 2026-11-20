@@ -24,6 +24,8 @@ const SIDEBAR_TOGGLE_SIZE = 24
 export const TITLEBAR_TOGGLE_CLEARANCE =
   __APP_TARGET__ === "web" ? 0 : SIDEBAR_TOGGLE_LEFT + SIDEBAR_TOGGLE_SIZE + 12
 
+// The sidebar is the icon rail (always there) plus a panel beside it that
+// collapses. These sizes are the panel's; the sidebar is RAIL + panel wide.
 // Narrower than the 256 Codex opens at: project/chat names truncate anyway, so
 // the extra width bought nothing and the centre column reads better with it.
 export const LEFT_SIDEBAR_DEFAULT_WIDTH = 224

@@ -2,20 +2,25 @@ import { Bell } from "lucide-react"
 import { useState } from "react"
 import { useIntl } from "react-intl"
 import { MobileSheet } from "@/components/mobile/MobileSheet"
-import { useIsMobileShell } from "@/hooks/useIsMobile"
-import { useInboxStore } from "@/stores/inbox-store"
+import { activeAttentionCounts, type ActiveEntry } from "@/lib/active-conversations"
 import { cn } from "@/lib/utils"
-import type { Notification } from "@/types/notification"
-import { InboxPanel } from "./InboxPanel"
+import { useInboxStore } from "@/stores/inbox-store"
+import { InboxPanel, usePhoneFocusEntries } from "./InboxPanel"
 
-interface InboxButtonProps {
-  /** Desktop: open the full-screen inbox page. */
-  onOpenPage?: () => void
-  /** Mobile: deep-link on tap (no detail pane on phones). */
-  onNavigate?: (n: Notification) => void
-  /** Mobile: open the inbox some other way (the packaged apps' native sheet) instead of the web one. */
-  onOpenSheet?: () => void
-  className?: string
+/** Go to a row, reading the notice behind it so it leaves the list. */
+export function openFocusEntry(entry: ActiveEntry, onOpen: (entry: ActiveEntry) => void): void {
+  const { notification } = entry
+  if (notification && notification.readAt == null) void useInboxStore.getState().markRead([notification.id])
+  onOpen(entry)
+}
+
+/**
+ * What the bell says: an amber count for rows waiting on the user, a quiet
+ * dot when there are only unread replies and notices. A running turn alone
+ * lights nothing, as on the desktop rail.
+ */
+export function useFocusAttention(): { needs: number; done: number } {
+  return activeAttentionCounts(usePhoneFocusEntries())
 }
 
 /**
@@ -26,73 +31,60 @@ interface InboxButtonProps {
 export function MobileInboxSheet({
   open,
   onClose,
-  onNavigate,
+  onOpen,
 }: {
   open: boolean
   onClose: () => void
-  onNavigate?: (n: Notification) => void
+  onOpen: (entry: ActiveEntry) => void
 }) {
-  const handleTap = (n: Notification) => {
+  const handleTap = (entry: ActiveEntry) => {
     onClose()
-    if (n.readAt == null) void useInboxStore.getState().markRead([n.id])
-    onNavigate?.(n)
+    openFocusEntry(entry, onOpen)
   }
   return (
     <MobileSheet open={open} onClose={onClose}>
-      <InboxPanel onItemClick={handleTap} />
+      <InboxPanel onOpen={handleTap} />
     </MobileSheet>
   )
 }
 
-/**
- * Top-bar bell + unread indicator. Desktop click opens the full inbox page;
- * phone click opens a bottom sheet with the list (tapping a row navigates).
- * The badge is two-tier: an amber count for "needs you" (action) items, and a
- * quiet dot when there are only ordinary unread items (e.g. a finished chat).
- */
-export function InboxButton({ onOpenPage, onNavigate, onOpenSheet, className }: InboxButtonProps) {
+interface InboxButtonProps {
+  /** Deep-link on tap (no detail pane on phones). */
+  onOpen: (entry: ActiveEntry) => void
+  /** Open the inbox some other way (the packaged apps' native sheet) instead of the web one. */
+  onOpenSheet?: () => void
+  className?: string
+}
+
+/** The phone's top-bar bell: opens the inbox sheet, badged with what wants the user. */
+export function InboxButton({ onOpen, onOpenSheet, className }: InboxButtonProps) {
   const intl = useIntl()
   const inboxLabel = intl.formatMessage({ id: "sidebar.inbox", defaultMessage: "Inbox" })
-  const isMobile = useIsMobileShell()
   const [sheetOpen, setSheetOpen] = useState(false)
-  const action = useInboxStore((s) => s.counts.action)
-  const total = useInboxStore((s) => s.counts.total)
-
-  const badge =
-    action > 0 ? (
-      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
-        {action > 99 ? "99+" : action}
-      </span>
-    ) : total > 0 ? (
-      <span className="absolute right-0.5 top-0.5 size-2 rounded-full bg-tint ring-2 ring-background" />
-    ) : null
-
-  const triggerClass = cn(
-    "no-drag relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground",
-    className,
-  )
-
-  if (isMobile) {
-    return (
-      <>
-        <button
-          type="button"
-          aria-label={inboxLabel}
-          onClick={() => (onOpenSheet ? onOpenSheet() : setSheetOpen(true))}
-          className={triggerClass}
-        >
-          <Bell className="h-4 w-4" />
-          {badge}
-        </button>
-        <MobileInboxSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onNavigate={onNavigate} />
-      </>
-    )
-  }
+  const { needs, done } = useFocusAttention()
 
   return (
-    <button type="button" aria-label={inboxLabel} onClick={() => onOpenPage?.()} className={triggerClass}>
-      <Bell className="h-4 w-4" />
-      {badge}
-    </button>
+    <>
+      <button
+        type="button"
+        aria-label={inboxLabel}
+        data-testid="mobile-inbox-button"
+        onClick={() => (onOpenSheet ? onOpenSheet() : setSheetOpen(true))}
+        className={cn(
+          "no-drag relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground",
+          className,
+        )}
+      >
+        <Bell className="h-4 w-4" />
+        {needs > 0 ? (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-warm px-1 text-[10px] font-medium leading-none text-white">
+            {needs > 99 ? "99+" : needs}
+          </span>
+        ) : done > 0 ? (
+          <span className="absolute right-0.5 top-0.5 size-2 rounded-full bg-tint ring-2 ring-background" />
+        ) : null}
+      </button>
+      <MobileInboxSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onOpen={onOpen} />
+    </>
   )
 }

@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { api } from '@/lib/api'
+import { applyInboxEventToUnread, inboxKeys } from '@/lib/inbox-queries'
+import { queryClient } from '@/lib/query-client'
 import type { InboxEvent, Notification, UnreadCounts } from '@/types/notification'
 import { isAssistantNotification } from '@/types/notification'
 
@@ -17,6 +19,14 @@ export function isInboxFilter(value: unknown): value is InboxFilter {
 }
 
 const PAGE_SIZE = 50
+
+/**
+ * Take rows off the cached unread list now rather than on the server's echo,
+ * so a row read from the Focus list leaves it as it is tapped or swiped.
+ */
+function dropFromUnread(ids: number[]): void {
+  if (ids.length > 0) applyInboxEventToUnread(queryClient, { type: 'notification_read', ids })
+}
 let loadGeneration = 0
 
 interface InboxStore {
@@ -144,6 +154,7 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
     set((s) => ({
       items: s.items.map((n) => (ids.includes(n.id) && n.readAt == null ? { ...n, readAt: now } : n)),
     }))
+    dropFromUnread(ids)
     try {
       await api.inboxMarkRead({ ids })
     } catch {
@@ -186,6 +197,8 @@ export const useInboxStore = create<InboxStore>((set, get) => ({
   markAllRead: async () => {
     const now = Date.now()
     set((s) => ({ items: s.items.map((n) => (n.readAt == null && !isAssistantNotification(n) ? { ...n, readAt: now } : n)) }))
+    const unread = queryClient.getQueryData<Notification[]>(inboxKeys.unread()) ?? []
+    dropFromUnread(unread.filter((n) => !isAssistantNotification(n)).map((n) => n.id))
     try {
       await api.inboxMarkRead({ all: true })
     } catch {

@@ -474,7 +474,7 @@ export function chatHistoryGet(chatId: number, opts?: { before?: number; limit?:
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts?.before !== undefined) params.set('before', String(opts.before))
   const qs = params.toString() ? `?${params.toString()}` : ''
-  return request<{ messages: UIMessage[]; model?: string; providerId?: string; thinkingLevel?: string; total?: number; hasMore?: boolean; nextCursor?: number; updatedAt?: number; sshEnvironment?: SshEnvironmentRef }>(
+  return request<{ messages: UIMessage[]; model?: string; providerId?: string; thinkingLevel?: string; modeId?: string; total?: number; hasMore?: boolean; nextCursor?: number; updatedAt?: number; sshEnvironment?: SshEnvironmentRef }>(
     `/chat-history/${chatId}${qs}`
   )
 }
@@ -496,6 +496,17 @@ export function chatHistorySideCreate(parentChatId: number, title?: string) {
   })
 }
 
+interface ChatHistoryItem {
+  id: number
+  tp: string
+  title: string
+  updatedAt: number
+  model?: string
+  providerId?: string
+  workspaceId?: number | null
+  metadata?: { workflowId?: number; runId?: number; nodeId?: string; nodeName?: string; cronjobId?: number }
+}
+
 export function chatHistoryList(
   workspaceId?: number,
   tp?: string,
@@ -507,9 +518,30 @@ export function chatHistoryList(
   if (paging?.limit !== undefined) searchParams.set('limit', String(paging.limit))
   if (paging?.offset) searchParams.set('offset', String(paging.offset))
   const params = searchParams.toString() ? `?${searchParams.toString()}` : ''
-  return request<{ id: number; tp: string; title: string; updatedAt: number; model?: string; providerId?: string; workspaceId?: number | null; metadata?: { workflowId?: number; runId?: number; nodeId?: string; nodeName?: string; cronjobId?: number } }[]>(
-    `/chat-history${params}`
+  return request<ChatHistoryItem[]>(`/chat-history${params}`)
+}
+
+export async function workspaceChatHistoryPage(
+  workspaceId: number,
+  limit: number,
+  page: string | number | null,
+  signal: AbortSignal,
+) {
+  const params = new URLSearchParams({ workspaceId: String(workspaceId), tp: 'chat', limit: String(limit) })
+  if (typeof page === 'number') params.set('offset', String(page))
+  else params.set('cursor', page ?? '')
+
+  const result = await request<{ items: ChatHistoryItem[]; nextCursor: string | null } | ChatHistoryItem[]>(
+    `/chat-history?${params}`, { signal },
   )
+  // Older web-connected nodes ignore cursor and return the legacy array.
+  if (Array.isArray(result)) {
+    return {
+      items: result,
+      nextCursor: result.length === limit ? (typeof page === 'number' ? page : 0) + result.length : null,
+    }
+  }
+  return result
 }
 
 // --- AI turn control ---

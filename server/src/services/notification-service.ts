@@ -100,8 +100,12 @@ export function notifyTaskStatusChange(
   })
 }
 
-/** Read or dismissed rows are kept this long, then deleted. */
-export const NOTIFICATION_RETENTION_MS = 30 * 24 * 60 * 60_000
+/**
+ * Read or dismissed rows are kept this long, then deleted. No screen lists them
+ * any more (the Focus view and the phone inbox show unread rows only), so this
+ * is just a short buffer, not a history.
+ */
+export const NOTIFICATION_RETENTION_MS = 7 * 24 * 60 * 60_000
 const PRUNE_INTERVAL_MS = 24 * 60 * 60_000
 
 /**

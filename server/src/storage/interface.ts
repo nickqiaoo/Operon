@@ -97,6 +97,8 @@ export interface ListChatEntriesQuery {
   limit?: number
   /** Rows to skip, for "load more" paging over the `updated_at DESC` order. */
   offset?: number
+  /** Exclusive boundary for cursor paging, ordered by update time then chat ID. */
+  before?: Pick<ChatHistoryListItem, 'updatedAt' | 'id'>
 }
 
 export interface ChatStorageAdapter {

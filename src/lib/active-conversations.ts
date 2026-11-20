@@ -38,6 +38,11 @@ export interface ActiveEntry {
   tab?: { workspaceId: number | null; tabId: string }
   /** The unread inbox row behind this entry: the way in for a board item, which has no chat. */
   notification?: Notification
+  /**
+   * Unread rows of the external agents folded into this lead conversation (see
+   * `ActiveInput.parentOfChat`): read along with it by "Mark all read".
+   */
+  childNotifications?: Notification[]
   title: string
   /** The title is a notification's (a server template the UI localizes), not the chat's own. */
   titleFromNotification?: boolean
@@ -62,13 +67,26 @@ export interface ActiveInput {
   unseenTabIds: ReadonlySet<string>
   projectOfWorkspace: (workspaceId: number) => number | null
   recentLimit?: number
+  /**
+   * External agents' conversations, by the conversation that dispatched them.
+   * An agent does not get a row of its own: it is part of its lead's work, so it
+   * lifts the lead's row instead (running, finished). Only one waiting on the user
+   * keeps its own row, since that is where the approval or question is answered.
+   */
+  parentOfChat?: ReadonlyMap<number, number>
+  /**
+   * Also list unread board / device notices that ask nothing of the user (a
+   * task finished, a phone paired), as `done`. The sidebar's Focus view does:
+   * it replaced the Inbox page, so an unread notice has nowhere else to show.
+   */
+  includeInfo?: boolean
 }
 
 const DEFAULT_RECENT_LIMIT = 20
 
 const GROUP_RANK: Record<ActiveGroup, number> = { needs: 0, done: 1, running: 2, recent: 3 }
 
-function chatIdOfTab(tab: EditorTab): number | undefined {
+export function chatIdOfTab(tab: EditorTab): number | undefined {
   if (tab.chatId != null) return tab.chatId
   const match = /^chat:(\d+)$/.exec(tab.id)
   return match ? Number(match[1]) : undefined
@@ -150,11 +168,11 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
     if (isAssistantNotification(n)) continue
     if (n.chatId == null) {
       // A board item asking for the user. Finished tasks and paired devices are
-      // history, not work in progress: they stay in the inbox.
-      if (n.severity !== "action") continue
+      // news rather than work in progress: only the Focus view lists them.
+      if (n.severity !== "action" && !input.includeInfo) continue
       entries.push({
         key: `notification:${n.id}`,
-        group: "needs",
+        group: n.severity === "action" ? "needs" : "done",
         notification: n,
         title: n.title,
         titleFromNotification: true,
@@ -178,14 +196,40 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
     c.at = Math.max(c.at, n.updatedAt)
   }
 
+  const groupOf = (c: Candidate): ActiveGroup | null =>
+    input.pendingChatIds.has(c.chatId) || c.notification?.severity === "action" ? "needs"
+      : runningChatIds.has(c.chatId) ? "running"
+      : unseenChatIds.has(c.chatId) || c.notification != null ? "done"
+      : c.inRecent ? "recent"
+      : null
+
+  // Fold each external agent into its lead, unless it waits on the user or the
+  // lead is not known here (no title to show it by): then it keeps its own row.
+  const folded = new Map<number, { group: ActiveGroup | null; at: number; notifications: Notification[] }>()
+  const foldedAway = new Set<number>()
+  for (const c of candidates.values()) {
+    const parentId = input.parentOfChat?.get(c.chatId)
+    if (parentId == null) continue
+    const group = groupOf(c)
+    if (group === "needs") continue
+    const parent = candidates.get(parentId)
+    if (!parent || parent.title === undefined) continue
+    foldedAway.add(c.chatId)
+    const into = folded.get(parentId) ?? { group: null, at: 0, notifications: [] }
+    if (group && group !== "recent" && (into.group == null || GROUP_RANK[group] < GROUP_RANK[into.group])) into.group = group
+    into.at = Math.max(into.at, c.at)
+    if (c.notification && c.notification.readAt == null) into.notifications.push(c.notification)
+    folded.set(parentId, into)
+  }
+
   const recent: ActiveEntry[] = []
   for (const c of candidates.values()) {
-    const group: ActiveGroup | null =
-      input.pendingChatIds.has(c.chatId) || c.notification?.severity === "action" ? "needs"
-        : runningChatIds.has(c.chatId) ? "running"
-        : unseenChatIds.has(c.chatId) || c.notification != null ? "done"
-        : c.inRecent ? "recent"
-        : null
+    if (foldedAway.has(c.chatId)) continue
+    const own = groupOf(c)
+    const children = folded.get(c.chatId)
+    const group: ActiveGroup | null = children?.group != null && (own == null || GROUP_RANK[children.group] < GROUP_RANK[own])
+      ? children.group
+      : own
     // Running or blocked chats nobody listed (a sub-agent, a teammate) have nothing to show them by.
     if (!group || c.title === undefined) continue
     const workspaceId = c.workspaceId ?? null
@@ -195,12 +239,13 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
       chatId: c.chatId,
       tab: c.tab,
       notification: c.notification,
+      ...(children?.notifications.length ? { childNotifications: children.notifications } : {}),
       title: c.title,
       titleFromNotification: c.titleFromNotification,
       providerId: c.providerId,
       workspaceId,
       projectId: c.notification?.projectId ?? projectOf(workspaceId),
-      at: c.at,
+      at: Math.max(c.at, children?.at ?? 0),
     }
     if (group === "recent") recent.push(entry)
     else entries.push(entry)
@@ -209,6 +254,32 @@ export function buildActiveEntries(input: ActiveInput): ActiveEntry[] {
   entries.sort((a, b) => GROUP_RANK[a.group] - GROUP_RANK[b.group] || b.at - a.at)
   recent.sort((a, b) => b.at - a.at)
   return [...entries, ...recent.slice(0, input.recentLimit ?? DEFAULT_RECENT_LIMIT)]
+}
+
+/** The Focus view's top section (and the phone's inbox): every row but the plain recent ones. */
+export function focusPriorityEntries(entries: readonly ActiveEntry[]): ActiveEntry[] {
+  return entries.filter((entry) => entry.group !== "recent")
+}
+
+/** The unread notices behind these rows: what "Mark all read" reads. */
+export function unreadNotificationIds(entries: readonly ActiveEntry[]): number[] {
+  return entries.flatMap((entry) => [
+    ...(entry.notification && entry.notification.readAt == null ? [entry.notification.id] : []),
+    ...(entry.childNotifications ?? []).map((n) => n.id),
+  ])
+}
+
+/**
+ * The unread notice whose reading takes this row off the priority list, so
+ * dismissing the row means reading it. Null when the row would stay anyway: a
+ * running turn, or a chat blocked on an approval no notice speaks for.
+ */
+export function dismissibleNotification(entry: ActiveEntry): Notification | null {
+  const notification = entry.notification
+  if (!notification || notification.readAt != null) return null
+  if (entry.group === "running") return null
+  if (entry.group === "needs" && notification.severity !== "action") return null
+  return notification
 }
 
 /** How many rows want the user: the rail badge. */

@@ -17,6 +17,15 @@ const persistModeId = (chatId: number, modeId: string | undefined, metadata: Cha
   getChatStorage()?.updateChatMetadata(chatId, { ...metadata, modeId })
 }
 
+/**
+ * The composer switched mode without sending (`/cc/dynamic-set`). Saved now so
+ * the chat reopens in it, instead of only once the next turn is written.
+ */
+export const rememberChatModeId = (chatId: number, modeId: string | undefined): void => {
+  if (!modeId || chatId <= 0) return
+  persistModeId(chatId, modeId, getChatStorage()?.getChatMeta(chatId)?.metadata)
+}
+
 export const prepareChatRecord = (
   payload: AiChatRequest,
   normalizedMessages: UIMessage[],

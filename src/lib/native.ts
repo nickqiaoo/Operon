@@ -281,7 +281,17 @@ export interface NativeInboxLabels {
 
 export interface NativeInboxState {
   filter: string
-  items: { id: number; title: string; body?: string; time: string; symbol: string; action: boolean; unread: boolean }[]
+  items: {
+    id: number
+    title: string
+    body?: string
+    time: string
+    symbol: string
+    action: boolean
+    unread: boolean
+    /** Offer swipe-to-dismiss (sent back as `archive`). Absent means yes. */
+    dismissible?: boolean
+  }[]
   loading: boolean
   loadingMore: boolean
   hasMore: boolean

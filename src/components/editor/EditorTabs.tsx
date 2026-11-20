@@ -206,7 +206,12 @@ export function EditorTabs({
                 data-testid={`tab-close-${index}`}
                 aria-label={intl.formatMessage({ id: "editor.tabs.closeAria", defaultMessage: "Close {title}" }, { title: tab.title })}
                 title={intl.formatMessage({ id: "appShell.closeTab", defaultMessage: "Close tab" })}
-                className="absolute inset-y-0 right-0 flex w-8 items-center justify-center opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto"
+                className={cn(
+                  "absolute inset-y-0 right-0 flex w-8 items-center justify-center opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto",
+                  // Touch (iPad) has no hover to reveal it: the active tab keeps
+                  // its close button, like Safari on iPad; tap another tab first.
+                  activeTabId === tab.id && "[@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto",
+                )}
                 onClick={(e) => {
                   e.stopPropagation()
                   onCloseTab(tab.id)

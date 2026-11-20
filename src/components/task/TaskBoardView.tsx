@@ -68,7 +68,7 @@ export function TaskBoardView({
       onDragCancel={() => setActiveId(null)}
     >
       {/* Phone: a column nearly fills the screen and a swipe settles on the next one. */}
-      <div className="h-full flex gap-3 overflow-x-auto p-4 bg-background snap-x snap-mandatory scroll-px-4 md:snap-none">
+      <div className="h-full flex gap-3 overflow-x-auto py-4 pr-4 pl-[var(--rail-page-gutter,1rem)] bg-background snap-x snap-mandatory scroll-px-4 md:snap-none">
         {groups.map((group) => (
           <Column
             key={group.key}

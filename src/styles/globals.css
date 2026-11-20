@@ -977,9 +977,9 @@ samp {
   background-size: 32px 32px;
 }
 
-/* Sidebar content that only exists in the expanded layout (labels, project
-   tree, help): fades with the open/close animation. LeftSidebar sets the
-   variable on itself. */
+/* The sidebar panel's content (project tree / Active list, beside the icon
+   rail): fades with the open/close animation. LeftSidebar sets the variable
+   on itself. */
 @utility sidebar-label-fade {
   opacity: var(--sidebar-label-opacity, 1);
 }
@@ -995,10 +995,6 @@ samp {
   );
 }
 
-/* The inverse, for rail-only stand-ins shown during the same animation. */
-@utility sidebar-rail-fade {
-  opacity: calc(1 - var(--sidebar-label-opacity, 1));
-}
 
 @utility scroll-fade-y {
   --scroll-fade-size: 24px;
@@ -1153,22 +1149,6 @@ samp {
     transform: translateX(100%);
     opacity: 0;
   }
-}
-
-/* Indeterminate sweep for the global request indicator (RequestProgressBar).
-   Indeterminate rather than a percentage: we know requests are outstanding,
-   never how far along they are. */
-@keyframes request-progress {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(350%);
-  }
-}
-
-.animate-request-progress {
-  animation: request-progress 1100ms ease-in-out infinite;
 }
 
 .animate-shimmer-sweep {

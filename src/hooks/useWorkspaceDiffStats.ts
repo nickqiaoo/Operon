@@ -33,7 +33,11 @@ export function useWorkspaceDiffStats(): void {
 
   const pathsKey = useMemo(
     // Spec rows have no diff badge; their execution worktrees need no request.
-    () => [...new Set(projects.flatMap((p) => projectSidebarEntries(p, [], []).workspaces.map((w) => w.worktreePath)).filter(Boolean))].sort().join("\n"),
+    // Dispatched agents' worktrees do: the agent's row under its parent shows it.
+    () => [...new Set(projects.flatMap((p) => {
+      const entries = projectSidebarEntries(p, [], [])
+      return [...entries.workspaces, ...entries.dispatched].map((w) => w.worktreePath)
+    }).filter(Boolean))].sort().join("\n"),
     [projects],
   )
 

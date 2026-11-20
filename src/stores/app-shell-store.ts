@@ -1,12 +1,27 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { useSessionPanelStore } from "./session-panel-store"
+import { useNavigationStore, type MainView } from "./navigation-store"
 import {
   BOTTOM_PANEL_DEFAULT_HEIGHT,
   RIGHT_PANEL_AUTO_CLOSE_BELOW,
   RIGHT_PANEL_DEFAULT_WIDTH,
   STORAGE_KEY,
 } from "@/components/app-shell/constants"
+
+/** The sidebar's panel (the project tree) belongs to the workspace views. */
+export const isWorkspaceView = (main: MainView) => main.kind === "workbench" || main.kind === "spec"
+
+/**
+ * Whether the panel beside the icon rail is out. It is the workspace navigator,
+ * so on the Assistant, Inbox, Board and Channels it makes way (those pages bring
+ * their own list column) unless the user asked for it there with the toggle.
+ * `sidebarCollapsed` stays the user's own choice for the workspace views.
+ */
+export const sidebarPanelShown = (
+  shell: Pick<AppShellState, "sidebarCollapsed" | "sidebarPeekView">,
+  main: MainView,
+) => !shell.sidebarCollapsed && (isWorkspaceView(main) || shell.sidebarPeekView === main)
 
 interface AppShellState {
   /** Open state of the panels in the live workspace; see `switchPanelWorkspace`. */
@@ -28,6 +43,17 @@ interface AppShellState {
    * previous `useState` behaviour: every launch starts expanded).
    */
   sidebarCollapsed: boolean
+  /**
+   * The non-workspace view the toggle brought the panel out on. Compared by
+   * identity: `showMain` makes a new object, so the next navigation ends the
+   * peek without anyone having to clear it. Transient.
+   */
+  sidebarPeekView: MainView | null
+  /**
+   * The panel shows the Focus view (what wants the user, then every chat by
+   * date) instead of the project tree. Persisted: a standing way of working.
+   */
+  sidebarFocus: boolean
   /**
    * Per-tab visibility of the workspace-browser file tree. Default is visible;
    * a `true` entry means the user explicitly hid it. Transient — not persisted.
@@ -91,7 +117,9 @@ interface AppShellActions {
   stepWorkspacePreviewHistory: (tabId: string, delta: number) => string | null
   setSkipSideChatCloseConfirm: (skip: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
+  /** The titlebar toggle: hides or shows the panel for the view on screen. */
   toggleSidebar: () => void
+  setSidebarFocus: (focus: boolean) => void
 }
 
 export const useAppShellStore = create<AppShellState & AppShellActions>()(
@@ -105,6 +133,8 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
       bottomPanelHeight: BOTTOM_PANEL_DEFAULT_HEIGHT,
       rightPanelExpanded: false,
       sidebarCollapsed: false,
+      sidebarPeekView: null,
+      sidebarFocus: false,
       workspaceTreeHidden: {},
       workspacePreviewHistory: {},
       skipSideChatCloseConfirm: false,
@@ -185,10 +215,22 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
         }))
         return path
       },
+      setSidebarFocus: (sidebarFocus) => set({ sidebarFocus }),
       setSkipSideChatCloseConfirm: (skipSideChatCloseConfirm) =>
         set({ skipSideChatCloseConfirm }),
-      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarCollapsed: (sidebarCollapsed) =>
+        set(sidebarCollapsed ? { sidebarCollapsed, sidebarPeekView: null } : { sidebarCollapsed }),
+      toggleSidebar: () => {
+        const { main } = useNavigationStore.getState()
+        const workspace = isWorkspaceView(main)
+        if (sidebarPanelShown(get(), main)) {
+          // Off a workspace view the panel was only peeking; the user's
+          // expanded preference for the workspace stays as it was.
+          set(workspace ? { sidebarCollapsed: true, sidebarPeekView: null } : { sidebarPeekView: null })
+        } else {
+          set({ sidebarCollapsed: false, sidebarPeekView: workspace ? null : main })
+        }
+      },
     }),
     {
       name: STORAGE_KEY,
@@ -214,7 +256,14 @@ export const useAppShellStore = create<AppShellState & AppShellActions>()(
         rightPanelWidth: s.rightPanelWidth,
         bottomPanelHeight: s.bottomPanelHeight,
         skipSideChatCloseConfirm: s.skipSideChatCloseConfirm,
+        sidebarFocus: s.sidebarFocus,
       }),
     }
   )
 )
+
+/** `sidebarPanelShown` for the view on screen, live. */
+export function useSidebarPanelShown(): boolean {
+  const main = useNavigationStore((s) => s.main)
+  return useAppShellStore((s) => sidebarPanelShown(s, main))
+}

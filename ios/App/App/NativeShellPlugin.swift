@@ -270,7 +270,8 @@ public class NativeShellPlugin: CAPPlugin, CAPBridgedPlugin {
             return InboxSheetItem(
                 id: id, title: title, body: r["body"] as? String, time: r["time"] as? String ?? "",
                 symbol: r["symbol"] as? String ?? "message", action: r["action"] as? Bool ?? false,
-                unread: r["unread"] as? Bool ?? false
+                unread: r["unread"] as? Bool ?? false,
+                dismissible: r["dismissible"] as? Bool ?? true
             )
         }
         return InboxSheetState(

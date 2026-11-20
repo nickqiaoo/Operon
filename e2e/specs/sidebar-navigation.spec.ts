@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 import type { Project, Workspace } from '../../src/stores/project-store'
-import { test, expect, fakeOnly } from '../ci-fixtures'
+import { test, expect, fakeOnly, waitForStreamIdle } from '../ci-fixtures'
+import { chat } from '../helpers'
 
 const apiUrl = `http://127.0.0.1:${process.env.PW_CI_SERVER_PORT ?? 4100}/api`
 const expandButton = (page: Page) => page.getByRole('button', { name: /^(Expand sidebar|展开侧栏)$/ })
@@ -59,11 +60,10 @@ test('the sidebar toggle stays mounted and stationary throughout the animation',
 })
 
 test('navigation icons keep their size and alignment when the sidebar changes mode', async ({ page }, testInfo) => {
-  // Tall window: at ≤820px the bottom tools fold into a compact row (its own test below).
   await page.setViewportSize({ width: 1280, height: 900 })
   const sidebar = page.getByTestId('left-sidebar')
   const measure = () => sidebar.evaluate(element => {
-    const labels = ['New chat', 'Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']
+    const labels = ['New chat', 'Assistant', 'Board', 'Channels', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings', 'Help']
     return labels.map(label => {
       const button = element.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
       const icon = button.querySelector('svg')!.getBoundingClientRect()
@@ -93,7 +93,7 @@ test('navigation icons keep their size and alignment when the sidebar changes mo
   expect(await measure()).toEqual(expanded)
   await page.screenshot({ path: testInfo.outputPath('collapsed-aligned.png') })
   await expandButton(page).click()
-  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(224)
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(276)
   expect(await measure()).toEqual(expanded)
 })
 
@@ -151,22 +151,17 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await page.getByTestId('settings-back-button').click()
   const sidebar = page.getByTestId('left-sidebar')
-  for (const label of ['助理', '看板', '频道', '工作流', '插件', '定时任务', '设置']) {
-    await expect(sidebar.getByRole('button', { name: label, exact: true })).toHaveText(label)
+  // The rail is icons in both modes: the names live in aria-label and tooltip.
+  for (const label of ['助理', '看板', '频道', '工作流', '插件', '定时任务', '设置', '帮助']) {
+    await expect(sidebar.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
-  const help = sidebar.getByRole('button', { name: '帮助', exact: true })
-  const settingsBox = await sidebar.getByTestId('settings-button').boundingBox()
-  const helpBox = await help.boundingBox()
-  expect(helpBox).not.toBeNull()
-  expect(helpBox!.width).toBe(36)
-  const helpIcon = await help.locator('svg').boundingBox()
-  expect(helpIcon!.width).toBe(16)
-  expect(helpIcon!.height).toBe(16)
-  expect(helpBox!.y + helpBox!.height / 2).toBe(settingsBox!.y + settingsBox!.height / 2)
+  await sidebar.getByRole('button', { name: '看板', exact: true }).hover()
+  await expect(page.getByRole('tooltip')).toHaveText('看板')
+  await expect(page.getByTestId('project-tree').getByText('项目', { exact: true })).toBeVisible()
   await expect(page.getByTestId('toggle-sidebar')).toHaveAttribute('aria-label', '收起侧栏')
   await page.getByTestId('toggle-sidebar').click()
   await expect(page.getByTestId('toggle-sidebar')).toHaveAttribute('aria-label', '展开侧栏')
-  await expect(sidebar.getByRole('button', { name: '帮助', exact: true })).toHaveCount(0)
+  await expect(sidebar.getByRole('button', { name: '帮助', exact: true })).toBeVisible()
   await sidebar.getByRole('button', { name: '项目', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '项目', exact: true })).toBeVisible()
   await expect(page.getByTestId('project-tree').getByRole('button', { name: '添加仓库', exact: true })).toBeVisible()
@@ -178,10 +173,10 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await page.getByTestId('settings-tab-appearance').click()
   await page.getByTestId('settings-appearance-locale-en').click()
   await page.getByTestId('settings-back-button').click()
-  for (const label of ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
-    await expect(sidebar.getByRole('button', { name: label, exact: true })).toHaveText(label)
+  for (const label of ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings', 'Help']) {
+    await expect(sidebar.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
-  await expect(sidebar.getByRole('button', { name: 'Help', exact: true })).toBeVisible()
+  await expect(page.getByTestId('project-tree').getByText('Projects', { exact: true })).toBeVisible()
   await expect(page.getByTestId('toggle-sidebar')).toHaveAttribute('aria-label', 'Collapse sidebar')
 })
 
@@ -189,7 +184,7 @@ test('collapsed sidebar keeps all navigation destinations directly accessible', 
   await page.setViewportSize({ width: 1280, height: 900 })
   await collapseSidebar(page)
   const sidebar = page.getByTestId('left-sidebar')
-  for (const name of ['Assistant', 'Board', 'Channels', 'Active', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
+  for (const name of ['Assistant', 'Board', 'Channels', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
     const button = sidebar.getByRole('button', { name, exact: true })
     await expect(button).toBeVisible()
     await expect(button).toHaveText('')
@@ -197,35 +192,81 @@ test('collapsed sidebar keeps all navigation destinations directly accessible', 
   await sidebar.getByRole('button', { name: 'Assistant', exact: true }).click()
   await expect(sidebar.getByRole('button', { name: 'Assistant', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(expandButton(page)).toBeVisible()
-  // The inbox is reached through the Active list's header.
-  await sidebar.getByRole('button', { name: 'Active', exact: true }).click()
-  await page.getByTestId('active-flyout').getByRole('button', { name: 'Inbox', exact: true }).click()
-  await expect(page.getByTestId('active-flyout')).toBeHidden()
-  await expect(page.locator('.drag-region > span:visible').filter({ hasText: /^Inbox$/ })).toBeVisible()
+  // The Focus view is a switch in the floating tree's header, and stays on.
+  await sidebar.getByRole('button', { name: 'Projects', exact: true }).click()
+  await page.getByTestId('sidebar-focus-button').click()
+  await expect(page.getByTestId('sidebar-focus-button')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('sidebar-focus')).toBeVisible()
+  await page.getByTestId('sidebar-focus-button').click()
+  await page.keyboard.press('Escape')
+  // Off the workspace, expanding brings the panel out over the Assistant.
   await expandButton(page).click()
-  await expect(sidebar.getByRole('button', { name: 'Workflow', exact: true })).toHaveText('Workflow')
+  await expect(sidebar.getByRole('button', { name: 'Workflow', exact: true })).toHaveText('')
   await expect(page.getByTestId('project-tree')).toHaveAttribute('role', 'region')
 })
 
-test('short windows fold the bottom tools into one row of icons', async ({ page }) => {
+test('the rail keeps one column of icons on short windows', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 })
   const sidebar = page.getByTestId('left-sidebar')
-  const buttons = ['Workflow', 'Plugins', 'Schedule', 'Settings'].map(name =>
+  const buttons = ['Workflow', 'Plugins', 'Schedule', 'Settings', 'Help'].map(name =>
     sidebar.getByRole('button', { name, exact: true }))
   const boxes = await Promise.all(buttons.map(async button => {
     await expect(button).toBeVisible()
     await expect(button).toHaveText('')
     return (await button.boundingBox())!
   }))
-  // One row, left to right, each a 40px icon slot.
-  expect(new Set(boxes.map(box => box.y)).size).toBe(1)
-  for (let index = 1; index < boxes.length; index++) expect(boxes[index].x).toBeGreaterThan(boxes[index - 1].x)
+  // Top to bottom, each a 40px slot in the rail's column.
+  expect(new Set(boxes.map(box => box.x)).size).toBe(1)
+  for (let index = 1; index < boxes.length; index++) expect(boxes[index].y).toBeGreaterThan(boxes[index - 1].y)
   for (const box of boxes) expect(box.height).toBe(40)
+  expect(boxes[boxes.length - 1].y + 40).toBeLessThanOrEqual(720)
   await buttons[0].hover()
   await expect(page.getByRole('tooltip')).toHaveText('Workflow')
-  // A tall window brings the labels back.
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await expect(buttons[0]).toHaveText('Workflow')
+})
+
+test('the panel makes way off the workspace views and comes back with them', async ({ page }) => {
+  const sidebar = page.getByTestId('left-sidebar')
+  const tree = page.getByTestId('project-tree')
+  const width = async () => (await sidebar.boundingBox())?.width
+  await expect(tree).toHaveAttribute('role', 'region')
+  for (const name of ['Assistant', 'Board', 'Channels']) {
+    await sidebar.getByRole('button', { name, exact: true }).click()
+    await expect.poll(width).toBe(52)
+    // The user's choice did not change, only the view: the toggle can bring it out.
+    await expect(page.getByTestId('toggle-sidebar')).toHaveAttribute('aria-expanded', 'false')
+  }
+  // The toggle peeks it out on this view; the next navigation ends the peek.
+  await page.getByTestId('toggle-sidebar').click()
+  await expect.poll(width).toBe(276)
+  await sidebar.getByRole('button', { name: 'Board', exact: true }).click()
+  await expect.poll(width).toBe(52)
+  // Going back to the workspace (here through the rail's Projects) brings it back.
+  await sidebar.getByRole('button', { name: 'Projects', exact: true }).click()
+  await expect.poll(width).toBe(276)
+  await expect(tree).toHaveAttribute('role', 'region')
+  await expect(sidebar.getByRole('button', { name: 'Projects', exact: true })).toHaveAttribute('aria-current', 'page')
+})
+
+test('a workspace lists its latest chats in the tree, and Recent lists them across projects', async ({ page }) => {
+  const project = await seededProject(page)
+  const main = project.workspaces[0]
+  await chat.openNewChat(page)
+  await chat.sendMessage(page, 'Sidebar tree chat')
+  await waitForStreamIdle(page)
+  const tree = page.getByTestId('project-tree')
+  const rows = tree.getByTestId(`workspace-chats-${main.id}`)
+  await expect(rows.getByRole('button')).not.toHaveCount(0)
+  const row = rows.getByRole('button').first()
+  await expect(row).toHaveAttribute('aria-current', 'page')
+  await expect(tree.getByTestId('sidebar-recent')).toBeVisible()
+
+  // From another view, the row brings the chat back up in the workspace.
+  await page.getByTestId('left-sidebar').getByRole('button', { name: 'Board', exact: true }).click()
+  await page.getByRole('button', { name: 'Projects', exact: true }).hover()
+  await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).toBeVisible()
+  await rows.getByRole('button').first().click()
+  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(276)
+  await expect(rows.getByRole('button').first()).toHaveAttribute('aria-current', 'page')
 })
 
 test('project preview toggles and dismisses without resizing or changing the workspace', async ({ page }) => {
@@ -288,32 +329,6 @@ test('resting on the rail projects button floats the tree until the pointer leav
   await expect(tree).toBeHidden()
 })
 
-test('resting on the rail active button floats the list until the pointer leaves it', async ({ page }) => {
-  await collapseSidebar(page)
-  const trigger = page.getByTestId('left-sidebar').getByRole('button', { name: 'Active', exact: true })
-  const flyout = page.getByTestId('active-flyout')
-
-  await trigger.hover()
-  await expect(flyout).toBeVisible()
-  await expect(page.getByRole('tooltip')).toHaveCount(0)
-  // Reaching the panel crosses the gap beside the rail without closing it.
-  await flyout.getByRole('button', { name: 'Inbox', exact: true }).hover()
-  await page.waitForTimeout(500)
-  await expect(flyout).toBeVisible()
-  await page.mouse.move(800, 300)
-  await expect(flyout).toBeHidden()
-
-  // A click pins it, so leaving no longer closes it; a second click does.
-  await trigger.hover()
-  await expect(flyout).toBeVisible()
-  await trigger.click()
-  await page.mouse.move(800, 300)
-  await page.waitForTimeout(500)
-  await expect(flyout).toBeVisible()
-  await trigger.click()
-  await expect(flyout).toBeHidden()
-})
-
 test('closing the project preview hides its add button on the next frame', async ({ page }) => {
   await collapseSidebar(page)
   await page.getByRole('button', { name: 'Projects', exact: true }).click()
@@ -367,7 +382,7 @@ test('project tree keeps its node, scroll and folder state when the preview beco
   await page.screenshot({ path: testInfo.outputPath('preview.png') })
   await expandButton(page).click()
   await expect(tree).toHaveAttribute('role', 'region')
-  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(224)
+  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(276)
   await expect(viewport).toHaveAttribute('data-preserved-node', 'yes')
   expect(await viewport.evaluate(element => element.scrollTop)).toBe(140)
   await viewport.evaluate(element => { element.scrollTop = 0 })
@@ -419,7 +434,7 @@ test('sidebar can expand while the right panel occupies the center', async ({ pa
   await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).toBeVisible()
   await expandButton(page).click()
   await expect(page.getByTestId('project-tree')).toHaveAttribute('role', 'region')
-  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(224)
+  await expect.poll(async () => (await page.getByTestId('left-sidebar').boundingBox())?.width).toBe(276)
 })
 
 test('project preview fits the minimum desktop window in light and dark modes', async ({ page }, testInfo) => {

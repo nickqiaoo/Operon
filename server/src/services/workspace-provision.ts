@@ -23,6 +23,8 @@ export async function provisionWorkspace(
     dir?: string
     /** What the branch starts from; defaults to the repository's default branch. */
     base?: string
+    /** The conversation making it for an agent it dispatches (`Workspace.originChatId`). */
+    originChatId?: number
   },
 ): Promise<Workspace> {
   const project = storage.getProject(input.projectId)
@@ -34,7 +36,10 @@ export async function provisionWorkspace(
   // git worktree add won't create missing parent dirs.
   await mkdir(dirname(worktreePath), { recursive: true })
   await worktreeAdd(project.rootPath, worktreePath, branch, true, base)
-  return storage.createWorkspace(input.projectId, { name: input.name, branchName: branch, worktreePath })
+  return storage.createWorkspace(input.projectId, {
+    name: input.name, branchName: branch, worktreePath,
+    ...(input.originChatId != null ? { originChatId: input.originChatId } : {}),
+  })
 }
 
 /**

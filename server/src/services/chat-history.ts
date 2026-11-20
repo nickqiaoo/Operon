@@ -1,4 +1,4 @@
-import type { ChatStorageAdapter } from '../storage/interface.js'
+import type { ChatStorageAdapter, ListChatEntriesQuery } from '../storage/interface.js'
 import type {
   ChatHistoryListItem,
   CreateChatInput,
@@ -78,13 +78,12 @@ export class ChatHistoryService {
   listChats(
     workspaceId?: number,
     tp?: string,
-    paging?: { limit?: number; offset?: number },
+    paging?: Omit<ListChatEntriesQuery, 'workspaceId' | 'tp'>,
   ): ChatHistoryListItem[] {
     return this.chatStorage.listChatEntries({
       workspaceId,
       tp,
-      limit: paging?.limit,
-      offset: paging?.offset,
+      ...paging,
     })
   }
 }

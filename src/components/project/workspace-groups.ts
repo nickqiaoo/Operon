@@ -52,7 +52,13 @@ export function sidebarSpecShortcuts(project: Project, shownIds: readonly number
   )
 }
 
-/** Directory navigation and task navigation have separate identities. */
+/**
+ * Directory navigation and task navigation have separate identities.
+ *
+ * A workspace a conversation made for an agent it dispatched is not a directory
+ * row: it goes under that conversation, with the agent (`dispatched`). It stays
+ * there even if the user later works in it, so the tree never reshuffles.
+ */
 export function projectSidebarEntries(project: Project, shownIds: readonly number[], hiddenIds: readonly number[]) {
   const specsById = new Map((project.specs ?? []).map((spec) => [spec.id, spec]))
   const withWorkspace = new Set<number>()
@@ -64,6 +70,7 @@ export function projectSidebarEntries(project: Project, shownIds: readonly numbe
   }
   return {
     workspaces: project.workspaces.filter((workspace) =>
+      workspace.originChatId == null &&
       workspace.task?.archivedAt == null &&
       workspace.task?.specStage == null &&
       (workspace.task?.parentTaskId == null || !specsById.has(workspace.task.parentTaskId)),
@@ -72,5 +79,6 @@ export function projectSidebarEntries(project: Project, shownIds: readonly numbe
       !hiddenIds.includes(spec.id) && spec.archivedAt == null &&
       (spec.specStage !== 'done' || withWorkspace.has(spec.id) || shownIds.includes(spec.id)),
     ),
+    dispatched: project.workspaces.filter((workspace) => workspace.originChatId != null),
   }
 }

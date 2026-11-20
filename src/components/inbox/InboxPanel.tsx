@@ -1,155 +1,75 @@
-import { useCallback, useEffect, type UIEvent } from "react"
-import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "react-intl"
+import { useMemo } from "react"
+import { defineMessages, FormattedMessage } from "react-intl"
 import { CheckCheck, Inbox as InboxIcon } from "lucide-react"
-import { inboxVisibleItems, useInboxStore, type InboxFilter } from "@/stores/inbox-store"
-import type { Notification } from "@/types/notification"
-import { usePageVisible } from "@/lib/page-visibility"
-import { cn } from "@/lib/utils"
-import { InboxItem } from "./InboxItem"
+import { useFocusPriority, useLocationLabel } from "@/components/active/ActiveConversations"
+import { unreadNotificationIds, type ActiveEntry } from "@/lib/active-conversations"
+import { useInboxUnread } from "@/lib/inbox-queries"
+import { useInboxStore } from "@/stores/inbox-store"
+import { FocusInboxRow } from "./InboxItem"
 
-const inboxFilterLabels = defineMessages({
-  all: { id: "inbox.filter.all", defaultMessage: "All" },
-  action: { id: "inbox.filter.action", defaultMessage: "Needs you" },
+// Same ids as the desktop's Focus view, so both read the same in every locale.
+export const focusInboxMessages = defineMessages({
+  title: { id: "sidebar.focus", defaultMessage: "Focus" },
+  markAllRead: { id: "focus.markAllRead", defaultMessage: "Mark all read" },
+  empty: { id: "focus.nothingPending", defaultMessage: "Nothing waiting on you" },
+  loading: { id: "inbox.loading", defaultMessage: "Loading…" },
 })
 
-const FILTERS: { id: InboxFilter; label: MessageDescriptor }[] = [
-  { id: "all", label: inboxFilterLabels.all },
-  { id: "action", label: inboxFilterLabels.action },
-]
-
-/** All / Needs you. Shared by the sheet's header and the inbox page's top bar. */
-export function InboxFilterTabs({ className }: { className?: string }) {
-  const filter = useInboxStore((s) => s.filter)
-  const setFilter = useInboxStore((s) => s.setFilter)
-  const intl = useIntl()
-  return (
-    <div className={cn("flex gap-1", className)}>
-      {FILTERS.map((f) => (
-        <button
-          key={f.id}
-          type="button"
-          onClick={() => void setFilter(f.id)}
-          className={cn(
-            "rounded-full px-2.5 py-1 text-xs transition-colors",
-            filter === f.id
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-secondary-hover hover:text-foreground",
-          )}
-        >
-          {intl.formatMessage(f.label)}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-export function InboxMarkAllRead({ className }: { className?: string }) {
-  const markAllRead = useInboxStore((s) => s.markAllRead)
-  const unreadCount = useInboxStore((s) => s.counts.total)
-  return (
-    <button
-      type="button"
-      disabled={unreadCount === 0}
-      onClick={() => void markAllRead()}
-      className={cn(
-        "flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40",
-        className,
-      )}
-    >
-      <CheckCheck className="size-3.5" />
-      <FormattedMessage id="inbox.markAllRead" defaultMessage="Mark all read" />
-    </button>
-  )
+/**
+ * The phone's inbox rows: the desktop Focus view's priority section, minus a
+ * new chat's first turn, which has no id to open it by from here. The
+ * conversations by day are left out; the Chats tab already lists them.
+ */
+export function usePhoneFocusEntries(): ActiveEntry[] {
+  const priority = useFocusPriority()
+  return useMemo(() => priority.filter((entry) => entry.chatId != null || entry.notification != null), [priority])
 }
 
 interface InboxPanelProps {
-  onItemClick: (n: Notification) => void
-  /**
-   * "sheet" (default): a self-contained list with its own heading, filters and actions.
-   * "page": just the list — the page's top bar carries the filters — scrolling the full
-   * width (scrollbar at the window edge) with the rows held to a reading column.
-   */
-  variant?: "sheet" | "page"
+  onOpen: (entry: ActiveEntry) => void
 }
 
-/** The notification list — the body of the inbox page and the mobile sheet. */
-export function InboxPanel({ onItemClick, variant = "sheet" }: InboxPanelProps) {
-  const items = useInboxStore((s) => s.items)
-  const filter = useInboxStore((s) => s.filter)
-  const loading = useInboxStore((s) => s.loading)
-  const loadingMore = useInboxStore((s) => s.loadingMore)
-  const hasMore = useInboxStore((s) => s.hasMore)
-  const load = useInboxStore((s) => s.load)
-  const loadMore = useInboxStore((s) => s.loadMore)
-  const isPage = variant === "page"
-  // The inbox page stays mounted while hidden, so "opens" means "comes back on screen".
-  const pageVisible = usePageVisible()
-
-  // Refetch each time the list opens; live events keep it fresh while open.
-  useEffect(() => {
-    if (pageVisible) void load()
-  }, [load, pageVisible])
-
-  const visible = inboxVisibleItems(items, filter)
-  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
-    if (!hasMore || loadingMore) return
-    const element = event.currentTarget
-    if (element.scrollHeight - element.scrollTop - element.clientHeight < 200) {
-      void loadMore()
-    }
-  }, [hasMore, loadingMore, loadMore])
+/**
+ * The phone's inbox sheet: what wants the user now (an approval or question,
+ * an unread reply, a running turn, an unread board or device notice). Opening
+ * a row reads it, which takes it off the list; there is no read history.
+ */
+export function InboxPanel({ onOpen }: InboxPanelProps) {
+  const entries = usePhoneFocusEntries()
+  const locationOf = useLocationLabel()
+  const markRead = useInboxStore((s) => s.markRead)
+  const { isPending } = useInboxUnread()
+  const unreadIds = unreadNotificationIds(entries)
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      {isPage ? null : (
-        <>
-          <div className="flex items-center justify-between px-3 pt-3 pb-2">
-            <span className="text-sm font-semibold text-foreground/90"><FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" /></span>
-            <InboxMarkAllRead />
-          </div>
-          <InboxFilterTabs className="px-3 pb-2" />
-        </>
-      )}
+      <div className="flex items-center justify-between px-3 pt-3 pb-2">
+        <span className="text-sm font-semibold text-foreground/90"><FormattedMessage {...focusInboxMessages.title} /></span>
+        <button
+          type="button"
+          data-testid="focus-inbox-mark-all-read"
+          disabled={unreadIds.length === 0}
+          onClick={() => void markRead(unreadIds)}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+        >
+          <CheckCheck className="size-3.5" />
+          <FormattedMessage {...focusInboxMessages.markAllRead} />
+        </button>
+      </div>
 
-      <div
-        className={cn(
-          "min-h-0 flex-1 overflow-y-auto scroll-fade-y",
-          isPage ? "px-4 py-3" : "px-1.5 pb-2",
+      <div className="min-h-0 flex-1 overflow-y-auto scroll-fade-y px-1.5 pb-2">
+        {isPending && entries.length === 0 ? (
+          <div className="px-3 py-10 text-center text-sm text-muted-foreground"><FormattedMessage {...focusInboxMessages.loading} /></div>
+        ) : entries.length === 0 ? (
+          <div className="m-1.5 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border/50 px-4 py-10 text-center">
+            <InboxIcon className="size-6 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground"><FormattedMessage {...focusInboxMessages.empty} /></p>
+          </div>
+        ) : (
+          entries.map((entry) => (
+            <FocusInboxRow key={entry.key} entry={entry} location={locationOf(entry)} onOpen={onOpen} />
+          ))
         )}
-        onScroll={handleScroll}
-      >
-        <div className={cn(isPage && "mx-auto w-full max-w-3xl")}>
-          {loading && items.length === 0 ? (
-            <div className="px-3 py-10 text-center text-sm text-muted-foreground"><FormattedMessage id="inbox.loading" defaultMessage="Loading…" /></div>
-          ) : visible.length === 0 && !hasMore ? (
-            <div className="m-1.5 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border/50 px-4 py-10 text-center">
-              <InboxIcon className="size-6 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground"><FormattedMessage id="inbox.empty" defaultMessage="You're all caught up" /></p>
-            </div>
-          ) : (
-            visible.map((n) => (
-              <InboxItem
-                key={n.id}
-                notification={n}
-                onClick={onItemClick}
-              />
-            ))
-          )}
-          {!loading && hasMore ? (
-            <div className="flex justify-center px-3 py-3">
-              <button
-                type="button"
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-                className="rounded-full bg-muted/70 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-              >
-                {loadingMore
-                  ? <FormattedMessage id="inbox.loadingMore" defaultMessage="Loading…" />
-                  : <FormattedMessage id="inbox.loadMore" defaultMessage="Load more" />}
-              </button>
-            </div>
-          ) : null}
-        </div>
       </div>
     </div>
   )

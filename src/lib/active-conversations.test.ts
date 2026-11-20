@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest"
 import type { EditorTab } from "@/types/editor"
 import type { Notification } from "@/types/notification"
-import { activeAttentionCounts, buildActiveEntries, type ActiveInput, type RecentChat } from "./active-conversations"
+import {
+  activeAttentionCounts,
+  buildActiveEntries,
+  dismissibleNotification,
+  focusPriorityEntries,
+  unreadNotificationIds,
+  type ActiveInput,
+  type RecentChat,
+} from "./active-conversations"
 
 const tab = (id: string, chatId?: number, extra: Partial<EditorTab> = {}): EditorTab => ({
   id,
@@ -146,6 +154,19 @@ describe("buildActiveEntries", () => {
     expect(summary(entries)).toEqual([["notification:6", "needs"]])
   })
 
+  it("lists unread notices as done when asked to (the Focus view), still not the assistant's", () => {
+    const entries = buildActiveEntries(input({
+      includeInfo: true,
+      unread: [
+        notification(6, { kind: "task_in_review", severity: "action", chatId: null, taskId: 3, sourceKey: "task:3" }),
+        notification(7, { kind: "task_done", chatId: null, taskId: 4, sourceKey: "task:4" }),
+        notification(8, { kind: "assistant_message", chatId: null, sourceKey: "assistant:8" }),
+      ],
+    }))
+
+    expect(summary(entries)).toEqual([["notification:6", "needs"], ["notification:7", "done"]])
+  })
+
   it("skips running chats nothing names (a sub-agent), side chats, and caps Recent", () => {
     const entries = buildActiveEntries(input({
       recentChats: [recent(1, 1), recent(2, 2), recent(3, 3)],
@@ -179,5 +200,67 @@ describe("buildActiveEntries", () => {
     }))
 
     expect(activeAttentionCounts(entries)).toEqual({ needs: 1, done: 1 })
+  })
+
+  it("dismisses a row by reading its notice, only when reading takes it off the list", () => {
+    const entries = buildActiveEntries(input({
+      recentChats: [recent(1), recent(2), recent(3), recent(4), recent(5)],
+      unread: [
+        notification(1, { severity: "action", kind: "chat_needs_input" }),
+        notification(2),
+        notification(3),
+        notification(4),
+        notification(7, { chatId: null, kind: "task_done", sourceKey: "task:7" }),
+      ],
+      // 3 is mid-turn; 4 waits on an approval its (info) notice does not speak for.
+      runningChatIds: new Set([3]),
+      pendingChatIds: new Set([4]),
+      includeInfo: true,
+    }))
+    const priority = focusPriorityEntries(entries)
+
+    expect(priority.map((e) => e.key)).not.toContain("chat:5")
+    expect(Object.fromEntries(priority.map((e) => [e.key, dismissibleNotification(e)?.id ?? null]))).toEqual({
+      "chat:1": 1,
+      "chat:2": 2,
+      "chat:3": null,
+      "chat:4": null,
+      "notification:7": 7,
+    })
+    expect(unreadNotificationIds(priority).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 7])
+  })
+})
+
+describe("buildActiveEntries: external agents fold into their lead", () => {
+  const parentOfChat = new Map([[54, 53], [55, 53], [56, 53]])
+
+  it("lists a finished or running agent as its lead, lifted to the lead's row", () => {
+    const entries = buildActiveEntries(input({
+      recentChats: [recent(53, 10), recent(7, 30)],
+      unread: [notification(54, { title: "Agent: Create hello.txt", updatedAt: 60 })],
+      runningChatIds: new Set([55]),
+      buckets: [{ workspaceId: 10, tabs: [tab("chat:55", 55, { title: "Agent: Append" })] }],
+      parentOfChat,
+    }))
+    expect(summary(entries)).toEqual([["chat:53", "done"], ["chat:7", "recent"]])
+    expect(entries[0].at).toBe(60)
+    expect(unreadNotificationIds(entries)).toEqual([54])
+  })
+
+  it("keeps an agent waiting on the user as a row of its own", () => {
+    const entries = buildActiveEntries(input({
+      recentChats: [recent(53, 10)],
+      unread: [notification(56, { title: "Agent: Write e2e", severity: "action" })],
+      parentOfChat,
+    }))
+    expect(summary(entries)).toEqual([["chat:56", "needs"], ["chat:53", "recent"]])
+  })
+
+  it("keeps an agent's own row when its lead is not known here", () => {
+    const entries = buildActiveEntries(input({
+      unread: [notification(54, { title: "Agent: Create hello.txt" })],
+      parentOfChat,
+    }))
+    expect(summary(entries)).toEqual([["chat:54", "done"]])
   })
 })

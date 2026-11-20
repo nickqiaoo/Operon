@@ -28,6 +28,16 @@ interface Provider {
   label: string
 }
 
+/**
+ * The open conversation's "New chat" button in the packaged apps lives in the
+ * native top bar (MobileApp), which can't reach this screen's state; it asks
+ * through here, and the mounted screen answers.
+ */
+const newChatListeners = new Set<() => void>()
+export function requestNewChatFromOpenChat() {
+  for (const listener of newChatListeners) listener()
+}
+
 type ChatHistoryItem = ChatHistoryListItem
 
 interface MobileChatsScreenProps {
@@ -236,7 +246,26 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // New chat from inside one (ChatGPT's compose button): the same agent picker
+  // as the list's New. The current chat stays on screen until an agent is
+  // picked (startChat leaves it), so dismissing the picker changes nothing.
+  const newChatFromOpenChat = () => {
+    void openPicker()
+  }
+  const newChatRef = useRef(newChatFromOpenChat)
+  newChatRef.current = newChatFromOpenChat
+  useEffect(() => {
+    const listener = () => newChatRef.current()
+    newChatListeners.add(listener)
+    return () => {
+      newChatListeners.delete(listener)
+    }
+  }, [])
+
   const startChat = (providerId: string) => {
+    // Started from inside a chat: leave it the way Back would. Read through the
+    // refs — the native sheet's listener holds the first render's closure.
+    if (openIdRef.current) discardRef.current(openIdRef.current)
     const id = createChatTab(providerId, "Chat")
     setActiveTab(id)
     setOpenId(id)
@@ -272,6 +301,35 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // here: the transcript runs from edge to edge, under the status bar and the
   // floating back button at the top and under the floating composer at the
   // bottom, which clears the home indicator (or the keyboard) itself (ChatPanel).
+  // The agent picker for New: the list's button and, inside a chat, the bar's.
+  const pickerSheet = (
+    <MobileSheet
+      open={pickerOpen}
+      onClose={() => setPickerOpen(false)}
+      title={intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" })}
+    >
+      {providers.length === 0 ? (
+        <p className="px-2 py-6 text-center text-base text-muted-foreground/70">
+          <FormattedMessage id="mobile.chats.loadingAgents" defaultMessage="Loading agents…" />
+        </p>
+      ) : (
+        <div className="space-y-0.5">
+          {providers.map((provider) => (
+            <button
+              key={provider.id}
+              type="button"
+              onClick={() => startChat(provider.id)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 hover:bg-row-hover"
+            >
+              <ProviderIcon id={provider.id} size={18} />
+              {provider.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </MobileSheet>
+  )
+
   if (openTab) {
     const floatingButton =
       "absolute z-30 grid size-9 place-items-center rounded-full border border-border/50 bg-background/70 text-muted-foreground active:bg-muted/60"
@@ -306,22 +364,49 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
           <ArrowLeft className="size-5" />
         </button>
         )}
-        {/* Its partner on the right: the Session panel, which holds the context
-            and quota read-outs too. The apps put this in the native bar. */}
-        {!hasNativeTabBar() && sessionPanelOffered && (
-        <button
-          type="button"
-          onClick={() => setSessionPanelOpen(true)}
-          aria-label={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
-          className={cn(floatingButton, "right-2")}
+        {/* On the right, as in ChatGPT: New chat, then the Session panel (which
+            holds the context and quota read-outs too), sharing one capsule.
+            The apps put both in the native bar. */}
+        {!hasNativeTabBar() && (
+        <div
+          className="absolute right-2 z-30 flex h-9 items-center rounded-full border border-border/50 bg-background/70 px-0.5 text-muted-foreground"
           style={{ top: "calc(env(safe-area-inset-top) + 0.25rem)" }}
         >
-          <Activity className="size-[18px]" />
-        </button>
+          {specId == null && (
+          <button
+            type="button"
+            onClick={newChatFromOpenChat}
+            aria-label={intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" })}
+            className="grid size-8 place-items-center rounded-full active:bg-muted/60"
+          >
+            <SquarePen className="size-[18px]" />
+          </button>
+          )}
+          {sessionPanelOffered && (
+          <button
+            type="button"
+            onClick={() => setSessionPanelOpen(true)}
+            aria-label={intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" })}
+            className="grid size-8 place-items-center rounded-full active:bg-muted/60"
+          >
+            <Activity className="size-[18px]" />
+          </button>
+          )}
+        </div>
         )}
         <div className="min-h-0 flex-1">
-          <ChatPanel chatId={openTab.id} providerId={openTab.providerId} mobileKeyboardOpen={keyboardOpen} />
+          {/* Keyed like the desktop tabs (App.tsx): starting a new chat from
+              inside one (the native compose button) must mount a fresh panel.
+              Reused, it kept the old chat's state and never restored the
+              last-used mode / effort, which is read once, on mount. */}
+          <ChatPanel
+            key={openTab.mountRev ? `${openTab.id}#${openTab.mountRev}` : openTab.id}
+            chatId={openTab.id}
+            providerId={openTab.providerId}
+            mobileKeyboardOpen={keyboardOpen}
+          />
         </div>
+        {pickerSheet}
       </div>
     )
   }
@@ -419,31 +504,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
         </PullToRefresh>
       )}
 
-      <MobileSheet
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        title={intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" })}
-      >
-        {providers.length === 0 ? (
-          <p className="px-2 py-6 text-center text-base text-muted-foreground/70">
-            <FormattedMessage id="mobile.chats.loadingAgents" defaultMessage="Loading agents…" />
-          </p>
-        ) : (
-          <div className="space-y-0.5">
-            {providers.map((provider) => (
-              <button
-                key={provider.id}
-                type="button"
-                onClick={() => startChat(provider.id)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-left text-base text-foreground/85 hover:bg-row-hover"
-              >
-                <ProviderIcon id={provider.id} size={18} />
-                {provider.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </MobileSheet>
+      {pickerSheet}
     </div>
   )
 }

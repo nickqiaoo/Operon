@@ -7,13 +7,14 @@ import {
   LEFT_SIDEBAR_DEFAULT_WIDTH,
   LEFT_SIDEBAR_MAX_WIDTH,
   LEFT_SIDEBAR_MIN_WIDTH,
+  LEFT_SIDEBAR_RAIL_WIDTH,
 } from "./constants"
 
 interface LeftSidebarProps {
   children: ReactNode
   /** Whether the sidebar should currently be open. */
   isOpen: boolean
-  /** Switch to the icon rail once the close animation finishes. */
+  /** The panel beside the rail has finished closing (only the rail is left). */
   rail: boolean
   animatedWidth: MotionValue<number>
   maxWidth?: string
@@ -32,7 +33,7 @@ const clampWidth = (value: number) =>
 const labelOpacity = (progress: number) =>
   Math.max(0, Math.min(1, (progress - 0.25) / 0.75))
 
-/** Keeps the navigation rail visible while the project sidebar is collapsed. */
+/** The icon rail plus the collapsible panel beside it; `animatedWidth` covers both. */
 export function LeftSidebar({
   children,
   isOpen,
@@ -91,8 +92,9 @@ export function LeftSidebar({
         <ResizeHandle
           edge="right"
           defaultSize={LEFT_SIDEBAR_DEFAULT_WIDTH}
-          // The sidebar is docked at the viewport's left edge.
-          getSizeFromPointer={({ x }) => x}
+          // Docked at the viewport's left edge; the size is the panel's,
+          // right of the fixed rail.
+          getSizeFromPointer={({ x }) => x - LEFT_SIDEBAR_RAIL_WIDTH}
           setSize={handleResize}
         />
       )}

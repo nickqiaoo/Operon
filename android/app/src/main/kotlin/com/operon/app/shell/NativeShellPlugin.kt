@@ -394,6 +394,7 @@ class NativeShellPlugin : Plugin() {
                 symbol = raw.optString("symbol").takeIf { it.isNotEmpty() } ?: "message",
                 action = raw.optBoolean("action", false),
                 unread = raw.optBoolean("unread", false),
+                dismissible = raw.optBoolean("dismissible", true),
             )
         }
         return InboxSheet.State(

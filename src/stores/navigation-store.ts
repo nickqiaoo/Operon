@@ -17,7 +17,6 @@ export type MainView =
   /** The editor: the workspace's chat / terminal tabs. */
   | { kind: "workbench" }
   | { kind: "assistant" }
-  | { kind: "inbox" }
   /** Board and Channels are one page with two views, so they share state. */
   | { kind: "board"; view: BoardPageView }
   /** A Spec keeps the workbench's panels and chat surface, with its own header. */

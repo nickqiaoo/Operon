@@ -820,6 +820,11 @@ export class SqliteStorage
         : "tp NOT IN ('side', 'workflow-agent')")
     }
 
+    if (query?.before) {
+      whereClauses.push('(updated_at, id) < (?, ?)')
+      params.push(query.before.updatedAt, query.before.id)
+    }
+
     const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
 
     // Paging is opt-in: without `limit` this still returns the whole workspace,
@@ -840,7 +845,7 @@ export class SqliteStorage
       SELECT id, tp, title, model, provider_id, session_id, thinking_level, updated_at, metadata, workspace_id
       FROM chats
       ${where}
-      ORDER BY updated_at DESC
+      ORDER BY updated_at DESC, id DESC
       ${pagination}
     `
     const rows = this.db.prepare(sql).all(...params) as ChatListRow[]
@@ -1630,14 +1635,15 @@ export class SqliteStorage
   createWorkspace(projectId: number, input: CreateWorkspaceInput): Workspace {
     const now = Date.now()
     const result = this.db.prepare(
-      'INSERT INTO workspaces (project_id, name, branch_name, worktree_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(projectId, input.name, input.branchName, input.worktreePath, now, now)
+      'INSERT INTO workspaces (project_id, name, branch_name, worktree_path, origin_chat_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(projectId, input.name, input.branchName, input.worktreePath, input.originChatId ?? null, now, now)
     return {
       id: Number(result.lastInsertRowid),
       projectId,
       name: input.name,
       branchName: input.branchName,
       worktreePath: input.worktreePath,
+      originChatId: input.originChatId ?? null,
       createdAt: now,
       updatedAt: now,
     }
@@ -1645,29 +1651,12 @@ export class SqliteStorage
 
   getWorkspace(id: number): Workspace | null {
     const row = this.db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as Record<string, unknown> | undefined
-    if (!row) return null
-    return {
-      id: row.id as number,
-      projectId: row.project_id as number,
-      name: row.name as string,
-      branchName: row.branch_name as string,
-      worktreePath: row.worktree_path as string,
-      createdAt: row.created_at as number,
-      updatedAt: row.updated_at as number,
-    }
+    return row ? rowToWorkspace(row) : null
   }
 
   listWorkspaces(projectId: number): Workspace[] {
     const rows = this.db.prepare('SELECT * FROM workspaces WHERE project_id = ? ORDER BY created_at ASC').all(projectId) as Array<Record<string, unknown>>
-    return rows.map(row => ({
-      id: row.id as number,
-      projectId: row.project_id as number,
-      name: row.name as string,
-      branchName: row.branch_name as string,
-      worktreePath: row.worktree_path as string,
-      createdAt: row.created_at as number,
-      updatedAt: row.updated_at as number,
-    }))
+    return rows.map(rowToWorkspace)
   }
 
   deleteWorkspace(id: number): void {
@@ -3693,6 +3682,19 @@ function rowToProject(row: Record<string, unknown>): Project {
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
     pinnedAt: (row.pinned_at as number | null) ?? null,
+  }
+}
+
+function rowToWorkspace(row: Record<string, unknown>): Workspace {
+  return {
+    id: row.id as number,
+    projectId: row.project_id as number,
+    name: row.name as string,
+    branchName: row.branch_name as string,
+    worktreePath: row.worktree_path as string,
+    originChatId: (row.origin_chat_id as number | null) ?? null,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
   }
 }
 

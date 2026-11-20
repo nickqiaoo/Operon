@@ -21,7 +21,6 @@ import { PluginsPage } from "@/components/plugins/PluginsPage"
 import { BoardPage } from "@/components/channel/BoardPage"
 import { SpecPage } from "@/components/spec/SpecPage"
 import { CanvasPage } from "@/components/canvas-workflow/CanvasPage"
-import { InboxPage } from "@/components/inbox/InboxPage"
 import { AssistantPage } from "@/components/assistant/AssistantPage"
 import { useOpenWorkspaceSessions } from "@/hooks/useOpenWorkspaceSessions"
 import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
@@ -129,7 +128,7 @@ export default function App() {
     setSpecChatIds((previous) => previous.has(tabId) ? previous : new Set([...previous, tabId]))
   }, [focusSpecWorkspace, openChatTab, setTabChatId])
   // Switching to a tab from anywhere (Inbox, a card, a shortcut) means the
-  // editor is wanted back, so it replaces the Assistant / Inbox view.
+  // editor is wanted back, so it replaces the Assistant / Board view.
   const lastActiveTabIdRef = useRef(activeTabId)
   useEffect(() => {
     if (lastActiveTabIdRef.current === activeTabId) return
@@ -364,14 +363,11 @@ export default function App() {
       <AppSidebar onOpenSpec={openSpec} onOpenNotification={handleOpenNotification} onOpenChat={openChat}>
         {/* Main Content Area (Center + Right) */}
         <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-background">
-          {/* The Assistant, the Inbox and the Board take over center + right. Like the editor,
+          {/* The Assistant and the Board take over center + right. Like the editor,
               each stays mounted once opened, so switching back keeps its state; the browser
               webview hides itself once its placeholder has no size. */}
           <KeepAliveView mounted={visited.has('assistant')} active={mainView.kind === 'assistant'} visible={mainView.kind === 'assistant' && !isPageOpen}>
             <AssistantPage onOpenChat={openChat} />
-          </KeepAliveView>
-          <KeepAliveView mounted={visited.has('inbox')} active={mainView.kind === 'inbox'} visible={mainView.kind === 'inbox' && !isPageOpen}>
-            <InboxPage onOpenSource={handleOpenNotification} />
           </KeepAliveView>
           {/* One instance for both entries, so switching between them keeps the loaded data and filter. */}
           <KeepAliveView mounted={lastBoardView !== null} active={mainView.kind === 'board'} visible={mainView.kind === 'board' && !isPageOpen}>

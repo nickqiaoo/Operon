@@ -256,7 +256,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
           instead of getting crushed into vertical text. Not there when controlled. */}
       {!controls && (
       <div className="h-12 flex items-center shrink-0 bg-background">
-        <div className="h-full min-w-0 flex-1 flex items-center gap-2 px-4 overflow-x-auto [&>*]:shrink-0">
+        <div className="h-full min-w-0 flex-1 flex items-center gap-2 pl-[var(--rail-page-gutter,1rem)] pr-4 overflow-x-auto [&>*]:shrink-0">
           <div className="flex items-center rounded-lg bg-muted/25 p-0.5">
             <ToolbarToggle
               active={view === 'list'}

@@ -444,6 +444,7 @@ export const api = {
   chatHistoryGet: httpClient.chatHistoryGet,
   chatHistoryClear: httpClient.chatHistoryClear,
   chatHistoryList: httpClient.chatHistoryList,
+  workspaceChatHistoryPage: httpClient.workspaceChatHistoryPage,
   chatHistorySideCreate: httpClient.chatHistorySideCreate,
 
   // --- AI turn control (HTTP) ---

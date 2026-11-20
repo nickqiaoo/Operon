@@ -2,6 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { chatHistoryRoutes } from '../routes/chat-history.js'
 import { SqliteStorage } from './sqlite.js'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'operon-chat-messages-'))
@@ -31,6 +32,39 @@ const texts = (chatId: number, id: string): unknown[] =>
   messagesOf(chatId).find((m) => m.id === id)!.parts.map((p) => p.text)
 const partRows = (): number =>
   (storage.getDatabase().prepare('SELECT COUNT(*) AS n FROM chat_message_parts').get() as { n: number }).n
+
+describe.skipIf(!opened)('workspace chat history paging', () => {
+  it('uses an exclusive boundary for tied timestamps and keeps the legacy array response', async () => {
+    const workspaceId = 401
+    const insertChat = (updatedAt: number, ws = workspaceId) =>
+      storage.createChat({ tp: 'chat', title: 'Chat', workspaceId: ws, updatedAt })
+    const oldest = insertChat(10)
+    const firstTie = insertChat(20)
+    const secondTie = insertChat(20)
+    storage.updateChatSessionId(secondTie, 'internal')
+    const newest = insertChat(30)
+    insertChat(40, 402)
+    storage.createChat({ tp: 'side', title: 'Side chat', workspaceId, updatedAt: 40 })
+
+    const history = chatHistoryRoutes(storage)
+    const path = `/?workspaceId=${workspaceId}&tp=chat&limit=2`
+    const first = await history.request(`${path}&cursor=`)
+    expect(first.status).toBe(200)
+    const boundary = `20:${secondTie}`
+    const firstPage = await first.json() as { items: unknown[] }
+    expect(firstPage).toMatchObject({ items: [{ id: newest }, { id: secondTie }], nextCursor: boundary })
+    expect(firstPage.items[1]).not.toHaveProperty('sessionId')
+
+    insertChat(50)
+    const second = await history.request(`${path}&cursor=${encodeURIComponent(boundary)}`)
+    expect(await second.json()).toMatchObject({ items: [{ id: firstTie }, { id: oldest }], nextCursor: null })
+
+    const legacy = await history.request(`${path}&offset=2`)
+    expect(await legacy.json()).toMatchObject([{ id: secondTie }, { id: firstTie }])
+    const invalid = await history.request(`${path}&cursor=invalid`)
+    expect(invalid.status).toBe(400)
+  })
+})
 
 describe.skipIf(!opened)('chat message storage', () => {
   it('stores a message as head + parts and reads it back unchanged', () => {

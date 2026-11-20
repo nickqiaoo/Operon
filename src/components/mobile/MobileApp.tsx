@@ -5,10 +5,11 @@ import { useIntl } from "react-intl"
 import { hasNativeAssistantBar, hasNativeHeaderBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace, type NativeMenuNode, type NativeTopBarHeader } from "@/lib/native"
 import { observeIosKeyboard } from "@/lib/ios-keyboard"
 import { useNativeShellFullscreenCount, useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
-import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
 import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
 import { useNativePushNotifications } from "@/hooks/useNativePushNotifications"
 import { InboxButton, MobileInboxSheet } from "@/components/inbox/InboxButton"
+import { NativeInboxSheet, type NativeInboxHandle } from "@/components/inbox/NativeInboxSheet"
+import type { ActiveEntry } from "@/lib/active-conversations"
 import { useInboxStore } from "@/stores/inbox-store"
 import { useSessionPanelStore } from "@/stores/session-panel-store"
 import { useInboxStream } from "@/hooks/useInboxStream"
@@ -24,7 +25,7 @@ import { MobileHeaderContext, type MobileHeaderShell, type MobileHeaderSpec, typ
 import { MobileTabBar, MOBILE_TABS, MOBILE_TAB_LABELS, isMobileTab, type MobileTab } from "./MobileTabBar"
 import { MobileContextSwitcher } from "./MobileContextSwitcher"
 import { useProjectFilter } from "@/components/project/ProjectFilterSelect"
-import { MobileChatsScreen } from "./MobileChatsScreen"
+import { MobileChatsScreen, requestNewChatFromOpenChat } from "./MobileChatsScreen"
 import { MobileSpecScreen } from "./MobileSpecScreen"
 import { MobileChannelScreen } from "./MobileChannelScreen"
 import { MobileReviewScreen } from "./MobileReviewScreen"
@@ -36,6 +37,8 @@ import { setAnalyticsScreen } from "@/lib/analytics"
 
 /** The open conversation's native-bar button (`action:session`) that opens its Session panel. */
 const SESSION_PANEL_ACTION = "session"
+/** Its partner to the left (`action:new-chat`): start a fresh chat with the same agent. */
+const NEW_CHAT_ACTION = "new-chat"
 
 type NotificationTarget = Partial<
   Pick<Notification, "chatId" | "taskId" | "projectId" | "workspaceId" | "title">
@@ -291,7 +294,23 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
     setDeepLink({ chatId: target.chatId, title: target.title, subAgent: target.subAgent })
   }, [selectedSpec?.projectId])
 
-  const openNativeInbox = useNativeInboxSheet(handleOpenNotification)
+  // An inbox row: its conversation, else wherever its notice points (a board task).
+  const handleOpenFocusEntry = useCallback((entry: ActiveEntry) => {
+    if (entry.chatId != null) {
+      handleOpenNotification({
+        chatId: entry.chatId,
+        workspaceId: entry.workspaceId,
+        title: entry.titleFromNotification ? undefined : entry.title,
+      })
+    } else if (entry.notification) {
+      handleOpenNotification(entry.notification)
+    }
+  }, [handleOpenNotification])
+
+  const nativeInbox = useRef<NativeInboxHandle | null>(null)
+  const openNativeInbox = useCallback(() => nativeInbox.current?.open() ?? Promise.resolve(false), [])
+  // Set by NativeInboxSheet, so this shell does not re-render on every turn.
+  const [focusAttention, setFocusAttention] = useState(false)
 
   useEffect(() => {
     if (!nativeTabBar) return
@@ -305,6 +324,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
         if (action.startsWith("segment:")) spec?.segments?.onSelect(action.slice("segment:".length))
         // An open conversation's bar (`back` mode) has the one button, no page spec behind it.
         else if (action === `action:${SESSION_PANEL_ACTION}`) useSessionPanelStore.getState().setOpen(true)
+        else if (action === `action:${NEW_CHAT_ACTION}`) requestNewChatFromOpenChat()
         else if (action.startsWith("action:")) spec?.actions?.find((a) => a.id === action.slice("action:".length))?.onClick()
         else if (action.startsWith("menu:")) spec?.menu?.onSelect(action.slice("menu:".length))
         else if (action === "context") {
@@ -580,7 +600,6 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
     headerRef.current = null
     setHeaderKey(null)
   }, [])
-  const inboxUnread = useInboxStore((s) => s.counts.total > 0)
   // The open conversation can show its Session panel (context, quota, MCP…): offer
   // it from the bar, and drop the button while the panel is up over the chat.
   const sessionPanelOffered = useSessionPanelStore((s) => s.owner != null && !s.open)
@@ -641,14 +660,23 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
       mode,
       title: topBarTitle,
       subtitle: topBarSubtitle,
-      unread: inboxUnread,
+      unread: focusAttention,
       interactive: overlayCount === 0,
       header,
-      actions: mode === "back" && sessionPanelOffered
-        ? [{ id: SESSION_PANEL_ACTION, symbol: "waveform.path.ecg", label: intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" }) }]
+      // Left to right, as in ChatGPT: New chat, then the Session panel. iOS
+      // groups adjacent bar items into one glass capsule.
+      actions: mode === "back"
+        ? [
+            ...(selectedSpec == null
+              ? [{ id: NEW_CHAT_ACTION, symbol: "square.and.pencil", label: intl.formatMessage({ id: "mobile.chats.newChat", defaultMessage: "New chat" }) }]
+              : []),
+            ...(sessionPanelOffered
+              ? [{ id: SESSION_PANEL_ACTION, symbol: "waveform.path.ecg", label: intl.formatMessage({ id: "editor.agentPanel.open", defaultMessage: "Session panel" }) }]
+              : []),
+          ]
         : [],
     }).catch(() => {})
-  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, inboxUnread, overlayCount, fullscreenOverlayCount, headerKey, sessionPanelOffered, showBell, intl])
+  }, [nativeTabBar, nativeAssistantBar, nativeHeader, tab, assistantHeader, hideTopBar, immersive, topBarTitle, topBarSubtitle, focusAttention, overlayCount, fullscreenOverlayCount, headerKey, sessionPanelOffered, selectedSpec, showBell, intl])
 
   // On iOS the top safe-area inset already includes the native navigation
   // bar, so list screens just pad by it; immersive screens carry their own
@@ -681,7 +709,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
     openContext: () => (nativeTabBar ? void openNativeContextSheet() : setSwitcherOpen(true)),
     bell: showBell ? (
       <InboxButton
-        onNavigate={handleOpenNotification}
+        onOpen={handleOpenFocusEntry}
         onOpenSheet={nativeTabBar ? openInboxSheet : undefined}
         className="size-9 rounded-lg"
       />
@@ -789,11 +817,14 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
         onClose={() => setSwitcherOpen(false)}
       />
       {nativeTabBar && (
-        <MobileInboxSheet
-          open={nativeInboxOpen}
-          onClose={() => setNativeInboxOpen(false)}
-          onNavigate={handleOpenNotification}
-        />
+        <>
+          <NativeInboxSheet handle={nativeInbox} onOpen={handleOpenFocusEntry} onAttentionChange={setFocusAttention} />
+          <MobileInboxSheet
+            open={nativeInboxOpen}
+            onClose={() => setNativeInboxOpen(false)}
+            onOpen={handleOpenFocusEntry}
+          />
+        </>
       )}
       <InstallPrompt />
     </div>
