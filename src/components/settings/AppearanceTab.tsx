@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { FormattedMessage } from "react-intl"
 import { useThemeStore, applyTheme } from "@/stores/theme-store"
 import { useTerminalThemeStore } from "@/stores/terminal-theme-store"
@@ -9,9 +10,13 @@ import {
     type TerminalTheme,
 } from "@/lib/terminal-themes"
 import { cn } from "@/lib/utils"
-import { Palette, SquareTerminal } from "lucide-react"
+import { MessageSquare, Palette, SquareTerminal } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { useChatDisplayStore } from "@/stores/chat-display-store"
 import { SettingsRow, SettingsSection } from "./SettingsSection"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useCodeFontStore } from "@/stores/code-font-store"
+import { availableCodeFonts, codeFontLabel, codeFontStack, type CodeFontOption } from "@/lib/code-fonts"
 
 // Literal-id labels keyed by enum value — kept as discrete <FormattedMessage>
 // nodes so @formatjs/cli can statically extract each id/defaultMessage.
@@ -34,6 +39,9 @@ export function AppearanceTab() {
     const darkTerminalTheme = useTerminalThemeStore((s) => s.darkTheme)
     const setLightTerminalTheme = useTerminalThemeStore((s) => s.setLightTheme)
     const setDarkTerminalTheme = useTerminalThemeStore((s) => s.setDarkTheme)
+    const [codeFonts] = useState(availableCodeFonts)
+    const conciseMode = useChatDisplayStore((s) => s.conciseMode)
+    const setConciseMode = useChatDisplayStore((s) => s.setConciseMode)
 
     const handleLightUITheme = (id: string) => {
         setLightUITheme(id)
@@ -120,6 +128,34 @@ export function AppearanceTab() {
                             />
                         }
                     />
+                    {/* Nothing to choose between (one or no built-in font found): no row. */}
+                    {codeFonts.length > 1 && (
+                        <SettingsRow
+                            title={<FormattedMessage id="settings.appearance.codeFont.title" defaultMessage="Code Font" />}
+                            description={<FormattedMessage id="settings.appearance.codeFont.desc" defaultMessage="Font for code blocks, inline code and diffs" />}
+                            control={<CodeFontDropdown options={codeFonts} />}
+                        />
+                    )}
+                </div>
+            </SettingsSection>
+
+            <SettingsSection
+                icon={MessageSquare}
+                title={<FormattedMessage id="settings.appearance.section.chat" defaultMessage="Chat" />}
+                description={<FormattedMessage id="settings.appearance.section.chatDesc" defaultMessage="How replies read in a conversation." />}
+            >
+                <div>
+                    <SettingsRow
+                        title={<FormattedMessage id="settings.appearance.conciseMode.title" defaultMessage="Concise mode" />}
+                        description={<FormattedMessage id="settings.appearance.conciseMode.desc" defaultMessage="Fold each finished reply's thinking and tool calls behind its duration, showing only the final answer" />}
+                        control={
+                            <Switch
+                                data-testid="settings-appearance-concise-mode"
+                                checked={conciseMode}
+                                onCheckedChange={setConciseMode}
+                            />
+                        }
+                    />
                 </div>
             </SettingsSection>
 
@@ -201,6 +237,29 @@ function ThemeDropdown({ themes, value, onChange, selectedName, selectedPreview 
 
 function ThemeSwatch({ preview }: { preview: string }) {
     return <span aria-hidden="true" className="flex size-5 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white" style={{ backgroundColor: preview }}>Aa</span>
+}
+
+// ── Code font ──
+
+function CodeFontDropdown({ options }: { options: CodeFontOption[] }) {
+    const codeFont = useCodeFontStore((s) => s.codeFont)
+    const setCodeFont = useCodeFontStore((s) => s.setCodeFont)
+    return (
+        <Select value={codeFont} onValueChange={setCodeFont}>
+            <SelectTrigger aria-label="Code font" className="min-w-[200px] bg-muted/30 shadow-none">
+                <SelectValue>
+                    <span style={{ fontFamily: codeFontStack(codeFont) }}>{codeFontLabel(codeFont)}</span>
+                </SelectValue>
+            </SelectTrigger>
+            <SelectContent position="popper" align="end" className="min-w-[200px]">
+                {options.map((option) => (
+                    <SelectItem key={option.family} value={option.family} textValue={option.label}>
+                        <span style={{ fontFamily: codeFontStack(option.family) }}>{option.label}</span>
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    )
 }
 
 // ── Terminal theme dropdown ──

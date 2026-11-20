@@ -726,6 +726,12 @@
     0 4px 12px -4px rgba(0, 0, 0, 0.5);
 }
 
+:root {
+  /* First paint only; useApplyCodeFont (stores/code-font-store.ts) then writes
+     the chosen stack. Keep in sync with its default preset. */
+  --font-code: Monaco, "SF Mono", ui-monospace, Menlo, monospace;
+}
+
 body {
   font-family: "SF Pro Text", "SF Pro Display", "Avenir Next", "Helvetica Neue", sans-serif;
   margin: 0;
@@ -739,6 +745,21 @@ body {
   position: fixed;
   inset: env(safe-area-inset-top) env(safe-area-inset-right)
     max(env(safe-area-inset-bottom), var(--keyboard-height, 0px)) env(safe-area-inset-left);
+}
+
+/* The iPad workbench itself runs to the screen's bottom edge so the sidebar's
+   grey reaches it (an inset frame left a white band under the sidebar: the
+   body's canvas showing through the home-indicator strip). Scrolling content
+   runs under the home indicator too; only controls pinned to the bottom edge
+   clear it, with `max(<their own gap>, var(--ios-shell-safe-bottom, 0px))` —
+   never the sum, which doubles the gap. It drops to 0 once the keyboard is up
+   and already covers that strip, and is unset (0) everywhere else. Full-screen
+   pages keep `.ios-workbench-frame`. */
+.ios-workbench-shell {
+  position: fixed;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) var(--keyboard-height, 0px)
+    env(safe-area-inset-left);
+  --ios-shell-safe-bottom: max(0px, calc(env(safe-area-inset-bottom) - var(--keyboard-height, 0px)));
 }
 
 /* Phone shell (MobileApp sets the class while mounted). Named SF faces are not
@@ -764,11 +785,13 @@ html.mobile-shell,
   min-height: var(--app-height, 100dvh);
 }
 
+/* `ui-monospace` is how WebKit hands out SF Mono: a WKWebView can't reach it by
+   name (same as SF Pro, see .mobile-shell body), so without it iOS falls to Menlo. */
 code,
 pre,
 kbd,
 samp {
-  font-family: "SF Mono", "Menlo", "Monaco", ui-monospace, monospace;
+  font-family: var(--font-code);
 }
 
 .drag-region {
@@ -1377,6 +1400,10 @@ samp {
 .pierre-diff-file-view {
   border: 0;
   background-color: var(--code-bg);
+
+  /* Pierre's own fallback (SF Mono, Monaco, Consolas, … Courier New) has nothing
+     iOS can reach by name and lands on thin Courier New there. */
+  --diffs-font-family: var(--font-code);
 
   --diffs-font-size: 12px;
   --diffs-line-height: 18px;

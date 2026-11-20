@@ -4,6 +4,7 @@ import { MobileApp } from "./components/mobile/MobileApp"
 import { RequestProgressBar } from "./components/RequestProgressBar"
 import { useIsMobile } from "./hooks/useIsMobile"
 import { useNativeStatusBar } from "./hooks/useNativeStatusBar"
+import { useApplyCodeFont } from "./stores/code-font-store"
 import { nativePlatform } from "./lib/native"
 
 /**
@@ -15,6 +16,7 @@ import { nativePlatform } from "./lib/native"
 export default function Root() {
   const isMobile = useIsMobile()
   useNativeStatusBar()
+  useApplyCodeFont()
   const wasMobile = useRef(isMobile)
   const resumeWorkbench = nativePlatform() === "ios" && !wasMobile.current
   useLayoutEffect(() => {
