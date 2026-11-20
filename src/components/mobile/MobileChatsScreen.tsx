@@ -34,6 +34,8 @@ interface MobileChatsScreenProps {
   specId?: number
   onOpenSpecChat: (target: MobileSpecChatTarget) => void
   keyboardOpen?: boolean
+  /** Already-open editor tab when the iPad changes to the compact layout. */
+  initialChatTabId?: string
   /** Inbox deep-link: open this DB chat directly. Cleared via onDeepLinkConsumed. */
   openChatId?: number | null
   openChatTitle?: string
@@ -61,7 +63,7 @@ const CHATS_PAGE_SIZE = 30
  * the active workspace — otherwise switching workspace or reloading the web app
  * would show "No chats yet" even though past conversations exist.
  */
-export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
+export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false, initialChatTabId, openChatId, openChatTitle, openChatSubAgent, onDeepLinkConsumed, onImmersiveChange }: MobileChatsScreenProps) {
   const intl = useIntl()
   const sessionPanelOffered = useSessionPanelStore((s) => s.owner != null && !s.open)
   const setSessionPanelOpen = useSessionPanelStore((s) => s.setOpen)
@@ -78,7 +80,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
   // open), so a row shows its turn running even with no panel mounted.
   const runningChatIds = useChatPresenceStore((s) => s.runningChatIds)
 
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialChatTabId ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
   // Subscribed for the whole screen, not just while the picker is open, so the
   // "New" tap finds the list already cached instead of waiting on a round trip

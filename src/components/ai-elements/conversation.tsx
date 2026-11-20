@@ -67,7 +67,6 @@ type ConversationRefs = {
   restoring: boolean;
   setRestoring: (restoring: boolean) => void;
   positionKey?: string;
-  restorePoint: ReadingPoint | null;
 };
 const ConversationContext = createContext<ConversationRefs | null>(null);
 
@@ -146,11 +145,10 @@ export function Conversation({ className, children, contextRef, positionKey, tur
   const contentRef = useRef<HTMLDivElement>(null);
   const [selecting, setSelecting] = useState(false);
   const [holding, setHolding] = useState(false);
-  const [restorePoint] = useState(() => (positionKey && savedReadingPoints.get(positionKey)) || null);
-  const [restoring, setRestoring] = useState(() => restorePoint !== null);
+  const [restoring, setRestoring] = useState(() => positionKey !== undefined && savedReadingPoints.has(positionKey));
   const refs = useMemo(
-    () => ({ scrollRef, contentRef, setSelecting, setHolding, restoring, setRestoring, positionKey, restorePoint }),
-    [restoring, positionKey, restorePoint],
+    () => ({ scrollRef, contentRef, setSelecting, setHolding, restoring, setRestoring, positionKey }),
+    [restoring, positionKey],
   );
   return (
     <MessageScrollerProvider autoScroll={!selecting && !holding && !restoring} defaultScrollPosition="end" turnActive={turnActive}>
@@ -186,10 +184,12 @@ export type ConversationContentProps = ComponentProps<"div"> & {
    * scroll-linked sizes lag a frame and flicker while content shrinks.
    */
   fadeEdges?: boolean;
+  /** Whether the first page of messages is ready for reading position restoration. */
+  readingPositionReady?: boolean;
 };
 
-export function ConversationContent({ className, scrollClassName, fadeEdges = false, children, ...props }: ConversationContentProps) {
-  const { scrollRef, contentRef, scrollToEnd, scrollToMessage, stopFollowing, setHolding, setRestoring, positionKey, restorePoint } = useConversationScroll();
+export function ConversationContent({ className, scrollClassName, fadeEdges = false, readingPositionReady = true, children, ...props }: ConversationContentProps) {
+  const { scrollRef, contentRef, scrollToEnd, scrollToMessage, stopFollowing, setHolding, setRestoring, positionKey } = useConversationScroll();
 
   // Return a remounted transcript to the row its reader left it at, in place of
   // the primitive's default position (a jump it is asked for first replaces that).
@@ -198,17 +198,28 @@ export function ConversationContent({ className, scrollClassName, fadeEdges = fa
   // When the row is gone (reloaded or trimmed), stay at the end the primitive chose.
   useLayoutEffect(() => {
     const content = contentRef.current;
-    if (!restorePoint || !content) return;
-    if (content.querySelector(`[data-message-id="${CSS.escape(restorePoint.messageId)}"]`)) {
+    if (!positionKey || !content) return;
+    // When two shells swap in one commit, the outgoing one records its point
+    // during cleanup, after the incoming shell has already rendered.
+    const point = savedReadingPoints.get(positionKey);
+    if (!point) {
+      setRestoring(false);
+      return;
+    }
+    if (!readingPositionReady) {
+      setRestoring(true);
+      return;
+    }
+    if (content.querySelector(`[data-message-id="${CSS.escape(point.messageId)}"]`)) {
       // `start` alignment measures from the content's top padding.
-      const scrollMargin = restorePoint.offset - Number.parseFloat(getComputedStyle(content).paddingTop);
-      scrollToMessage(restorePoint.messageId, { align: "start", behavior: "instant", scrollMargin });
+      const scrollMargin = point.offset - Number.parseFloat(getComputedStyle(content).paddingTop);
+      scrollToMessage(point.messageId, { align: "start", behavior: "instant", scrollMargin });
     }
     // The scroller publishes its state on the next frame; this frame callback is
     // queued after its own, so the snapshot is current when the hold lifts.
     const frame = requestAnimationFrame(() => setRestoring(false));
     return () => cancelAnimationFrame(frame);
-  }, [contentRef, restorePoint, scrollToMessage, setRestoring]);
+  }, [contentRef, positionKey, readingPositionReady, scrollToMessage, setRestoring]);
 
   // Unmount still has the DOM laid out: the layout cleanup runs before it is removed.
   useLayoutEffect(() => {
@@ -216,6 +227,7 @@ export function ConversationContent({ className, scrollClassName, fadeEdges = fa
     const content = contentRef.current;
     if (!positionKey || !viewport || !content) return;
     return () => {
+      if (viewport.clientHeight === 0) return;
       if (distanceToEnd(viewport) <= 2) {
         savedReadingPoints.delete(positionKey);
         return;

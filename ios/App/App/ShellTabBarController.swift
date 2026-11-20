@@ -134,11 +134,15 @@ final class ShellRootController: UIViewController {
         applyAppearance()
     }
 
-    // The bridge controller owns the status bar (the StatusBar plugin drives
-    // its style with the app theme) and the orientation lock.
+    // The StatusBar plugin drives the bridge controller's appearance.
     override var childForStatusBarStyle: UIViewController? { bridgeController }
     override var childForStatusBarHidden: UIViewController? { bridgeController }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { bridgeController.supportedInterfaceOrientations }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        // Capacitor reads the base portrait-only plist key. Let UIKit apply
+        // the iPad-specific orientation list to the root controller.
+        traitCollection.userInterfaceIdiom == .pad ? .all : bridgeController.supportedInterfaceOrientations
+    }
 }
 
 /// Hosts the chrome above the web view. Only the bars' controls take touches;
@@ -572,6 +576,11 @@ final class ShellTabsController: UITabBarController, UITabBarControllerDelegate 
         super.viewDidLoad()
         delegate = self
         view.backgroundColor = .clear
+        // Only the compact web shell shows these tabs. It reserves space at
+        // the bottom, so use the compact system tab bar on iPad as well.
+        if #available(iOS 18.0, *), traitCollection.userInterfaceIdiom == .pad {
+            traitOverrides.horizontalSizeClass = .compact
+        }
         // Monochrome, as the web tab bar draws it, instead of the system blue:
         // the selected tab is the label colour and a filled glyph. iOS 26's
         // glass bar ignores the unselected tint (those stay label too, and the

@@ -65,13 +65,16 @@
 	<array>
 		<string>armv7</string>
 	</array>
-	<!-- Portrait only, matching the PWA manifest. The shell this app wraps is
-	     the phone layout (Root only mounts MobileApp under 768px); there is no
-	     landscape design for it, and letting it rotate just breaks the
-	     keyboard-height math the composer relies on. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>

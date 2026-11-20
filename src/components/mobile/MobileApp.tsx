@@ -1,13 +1,12 @@
 import { contextProjectGroups } from './context-projects'
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Keyboard } from "@capacitor/keyboard"
 import { Toaster } from "sonner"
 import { useIntl } from "react-intl"
 import { hasNativeAssistantBar, hasNativeHeaderBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace, type NativeMenuNode, type NativeTopBarHeader } from "@/lib/native"
+import { observeIosKeyboard } from "@/lib/ios-keyboard"
 import { useNativeShellFullscreenCount, useNativeShellOverlayCount } from "@/hooks/useNativeShellOverlay"
 import { useNativeInboxSheet } from "@/hooks/useNativeInboxSheet"
 import { dispatchBack, useAndroidBackButton } from "@/hooks/useAndroidBackButton"
-import { useNativeStatusBar } from "@/hooks/useNativeStatusBar"
 import { useNativePushNotifications } from "@/hooks/useNativePushNotifications"
 import { InboxButton, MobileInboxSheet } from "@/components/inbox/InboxButton"
 import { useInboxStore } from "@/stores/inbox-store"
@@ -16,6 +15,8 @@ import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
 import type { Notification } from "@/types/notification"
 import { useProjectStore } from "@/stores/project-store"
+import { useEditorStore } from "@/stores/editor-store"
+import { useNavigationStore } from "@/stores/navigation-store"
 import { MOBILE_WORKSPACE_SYNC, useWorkspaceStoreSync } from "@/stores/workspace-sync"
 import { useTaskNavigationHandler, type TaskNavigationRequest } from "@/lib/task-navigation"
 import { useThemeStore, applyTheme } from "@/stores/theme-store"
@@ -67,15 +68,42 @@ function readSavedTab(): MobileTab {
  * only owns the layout. Mounted by {@link Root} for web on small viewports;
  * the desktop multi-pane app is left completely untouched.
  */
-export function MobileApp() {
+export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boolean }) {
   useTaskStream()
-  const [tab, setTab] = useState<MobileTab>(readSavedTab)
+  const [entry] = useState<{ tab: MobileTab; chatTabId?: string }>(() => {
+    if (resumeWorkbench) {
+      const { main } = useNavigationStore.getState()
+      if (main.kind === "assistant") return { tab: "assistant" }
+      if (main.kind === "board") return { tab: "channel" }
+      if (main.kind === "workbench") {
+        const { activeTabId, tabs } = useEditorStore.getState()
+        const chat = tabs.find((item) => item.id === activeTabId && item.type === "chat")
+        return { tab: "chats", chatTabId: chat?.id }
+      }
+    }
+    return { tab: readSavedTab() }
+  })
+  const [tab, setTab] = useState(entry.tab)
+  const [initialChatTabId, setInitialChatTabId] = useState(entry.chatTabId)
+  // Subsequent mounts of the Chats screen (e.g. after backing out and changing tabs) start at the list.
+  useEffect(() => {
+    setInitialChatTabId(undefined)
+  }, [])
+
   useEffect(() => {
     try {
       localStorage.setItem(TAB_STORAGE_KEY, tab)
     } catch {
       // Storage blocked: the app opens on Chats next time, as it always did.
     }
+  }, [tab])
+
+  useEffect(() => {
+    if (nativePlatform() !== "ios") return
+    const navigation = useNavigationStore.getState()
+    if (tab === "chats") navigation.showWorkbench()
+    if (tab === "assistant") navigation.showMain({ kind: "assistant" })
+    if (tab === "channel") navigation.showMain({ kind: "board", view: "board" })
   }, [tab])
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [selectedSpec, setSelectedSpec] = useState<{ id: number; projectId: number; returnWorkspaceId: number | null; returnProjectId: number | null } | null>(null)
@@ -196,6 +224,15 @@ export function MobileApp() {
     void NativeShell.setTabBarVisible({ visible: tabBarVisible && overlayCount === 0 }).catch(() => {})
   }, [nativeTabBar, tabBarVisible, overlayCount])
 
+  // The UIKit overlays outlive this React tree when an iPad window widens.
+  useEffect(() => {
+    if (!nativeTabBar) return
+    return () => {
+      void NativeShell.setTabBarVisible({ visible: false }).catch(() => {})
+      void NativeShell.setTopBar({ mode: "hidden", title: "", unread: false, interactive: false }).catch(() => {})
+    }
+  }, [nativeTabBar])
+
   // The phone's type is the system font, not the desktop stack (globals.css).
   // On <html> rather than this tree's root: the pages pushed over a screen are
   // portalled to <body>.
@@ -205,7 +242,6 @@ export function MobileApp() {
   }, [])
 
   useInboxStream()
-  useNativeStatusBar()
   // Last resorts, after every screen has had its turn: close the context
   // sheet, then fall back to Chats, and only then let back exit the app.
   useAndroidBackButton(() => {
@@ -370,31 +406,21 @@ export function MobileApp() {
     // Android uses viewport events below to detect keyboard visibility, but
     // lets the resized WebView position both fixed and absolute composers.
     if (nativePlatform() === "ios") {
-      // The input accessory bar (the "Done" / prev-next strip UIKit stacks on
-      // top of the keyboard) is dead weight in an app with its own composer.
-      void Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => {})
       const syncShellHeight = () =>
         setMetric("--app-height", Math.max(1, window.innerHeight))
       syncShellHeight()
 
-      const handles = [
-        Keyboard.addListener("keyboardWillShow", (info) => {
-          setMetric("--keyboard-height", info.keyboardHeight)
-          setKeyboardOpen(true)
-        }),
-        Keyboard.addListener("keyboardWillHide", () => {
-          setMetric("--keyboard-height", 0)
-          setKeyboardOpen(false)
-        }),
-      ]
-      // Rotation is the only thing left that changes the shell's height.
+      const stopObservingKeyboard = observeIosKeyboard((height, visible) => {
+        setMetric("--keyboard-height", height)
+        setKeyboardOpen(visible)
+      })
       window.addEventListener("resize", syncShellHeight)
       window.addEventListener("orientationchange", syncShellHeight)
 
       return () => {
         window.removeEventListener("resize", syncShellHeight)
         window.removeEventListener("orientationchange", syncShellHeight)
-        for (const handle of handles) void handle.then((h) => h.remove()).catch(() => {})
+        stopObservingKeyboard()
         restore()
       }
     }
@@ -715,6 +741,7 @@ export function MobileApp() {
             key={`workspace:${activeWorkspaceId}`}
             onOpenSpecChat={openContextChat}
             keyboardOpen={keyboardOpen}
+            initialChatTabId={initialChatTabId}
             openChatId={deepLink?.chatId ?? null}
             openChatTitle={deepLink?.title}
             openChatSubAgent={deepLink?.subAgent}

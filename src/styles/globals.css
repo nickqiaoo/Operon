@@ -730,6 +730,12 @@ body {
   color: var(--color-foreground);
 }
 
+.ios-workbench-frame {
+  position: fixed;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right)
+    max(env(safe-area-inset-bottom), var(--keyboard-height, 0px)) env(safe-area-inset-left);
+}
+
 /* Phone shell (MobileApp sets the class while mounted). Named SF faces are not
    reachable from a WKWebView — iOS keeps its system font out of the family
    list — so the desktop stack above falls through to Avenir Next there, whose

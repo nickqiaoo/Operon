@@ -28,6 +28,7 @@ import { useUpdateNotifications } from "@/hooks/useUpdateNotifications"
 import { useTrayCommands } from "@/hooks/useTrayCommands"
 import { useInboxStream } from "@/hooks/useInboxStream"
 import { useTaskStream } from "@/hooks/useTaskStream"
+import { useNativePushNotifications, type PushTarget } from "@/hooks/useNativePushNotifications"
 import type { Notification } from "@/types/notification"
 import { useEditorStore } from "@/stores/editor-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -37,6 +38,8 @@ import { DESKTOP_WORKSPACE_SYNC, useWorkspaceStoreSync } from "@/stores/workspac
 import { trackEvent, syncAnalyticsIdentity, setAnalyticsScreen } from "@/lib/analytics"
 import { api } from "@/lib/api"
 import { useTaskNavigationHandler, type TaskNavigationRequest } from "@/lib/task-navigation"
+import { observeIosKeyboard } from "@/lib/ios-keyboard"
+import { nativePlatform } from "@/lib/native"
 import type { SpecChatRef } from '@shared/spec'
 
 /** Full-screen pages in the order they are rendered; which is on top comes from the stack, by z-index. */
@@ -63,6 +66,19 @@ const logOpenWorkspaceError = (error: unknown) => console.error('Could not open 
 export default function App() {
   useTaskStream()
   useWorkspaceStoreSync(DESKTOP_WORKSPACE_SYNC)
+  const iosWorkbench = nativePlatform() === "ios"
+
+  useEffect(() => {
+    if (!iosWorkbench) return
+    const root = document.documentElement
+    const stopObservingKeyboard = observeIosKeyboard((height) => {
+      root.style.setProperty("--keyboard-height", `${height}px`)
+    })
+    return () => {
+      stopObservingKeyboard()
+      root.style.removeProperty("--keyboard-height")
+    }
+  }, [iosWorkbench])
   // Where the shell is: see navigation-store.ts.
   const mainView = useNavigationStore((s) => s.main)
   const pages = useNavigationStore((s) => s.pages)
@@ -157,7 +173,7 @@ export default function App() {
 
   // Deep-link from an inbox notification to its source (task board / workspace chat).
   const handleOpenNotification = useCallback(
-    (n: Notification) => {
+    (n: Notification | PushTarget) => {
       // The assistant's rows have no chat or task to land on: they open its page.
       if (n.kind === 'assistant_message' || n.kind === 'assistant_approval') {
         showMain({ kind: 'assistant' })
@@ -177,6 +193,7 @@ export default function App() {
     },
     [openChat, openTask, requestChatLatest, showMain, showWorkbench],
   )
+  useNativePushNotifications(handleOpenNotification)
 
   // A full-screen page that opens a chat (a workflow node's, a scheduled run's) closes itself and
   // lands on that chat's tab; the tab change brings the editor back.
@@ -326,7 +343,7 @@ export default function App() {
             const index = pages.findIndex((page) => page.kind === kind)
             if (index < 0) return null
             return (
-              <div key={kind} className="fixed inset-0" style={{ zIndex: Z_FULL_PAGE + index }}>
+              <div key={kind} className={iosWorkbench ? "ios-workbench-frame" : "fixed inset-0"} style={{ zIndex: Z_FULL_PAGE + index }}>
                 {renderFullPage(pages[index])}
               </div>
             )
@@ -342,7 +359,7 @@ export default function App() {
         document.body
       )}
 
-    <div className={`relative h-screen w-screen text-foreground overflow-hidden bg-background ${isPageOpen ? 'invisible' : ''}`}>
+    <div className={cn("overflow-hidden bg-background text-foreground", iosWorkbench ? "ios-workbench-frame" : "relative h-screen w-screen", isPageOpen && "invisible")}>
       {/* Main Content */}
       <AppSidebar onOpenSpec={openSpec} onOpenNotification={handleOpenNotification} onOpenChat={openChat}>
         {/* Main Content Area (Center + Right) */}

@@ -17,7 +17,8 @@ import {
 } from '@/components/ai-elements/conversation';
 import { useNavigationStore } from '@/stores/navigation-store';
 import { buildChatNavigatorEntries, ChatNavigator } from './components/ChatNavigator';
-import { nativeTopBarTakesSpace } from '@/lib/native';
+import { nativePlatform, nativeTopBarTakesSpace } from '@/lib/native';
+import { getSelectedNodeId } from '@/lib/web-auth';
 import { useConversationScroll } from '@/components/ai-elements/conversation';
 import {
   usePromptInputActions,
@@ -1180,6 +1181,7 @@ function ChatPanelContent({
       />
       <Conversation
         contextRef={conversationRef}
+        positionKey={nativePlatform() === 'ios' ? `chat:${getSelectedNodeId()}:${chatId}` : undefined}
         className="flex-1 rounded-xl bg-background font-sans"
         turnActive={isGenerating || turnSettling}
         onKeyDown={handleTranscriptKeyDown}
@@ -1193,6 +1195,7 @@ function ChatPanelContent({
           onLoadMore={handleLoadMoreHistory}
         />
         <ConversationContent
+          readingPositionReady={historyDbChatId === undefined || (historyLoaded && messages.length > 0)}
           // Fade the edges that meet the tab bar and the composer toolbar
           // instead of clipping a half-cut row of text there.
           // Chromium's thin scrollbar takes an 11px gutter on the right, which
