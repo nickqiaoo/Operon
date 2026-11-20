@@ -1,4 +1,5 @@
 import { ConversationItem } from '@/components/ai-elements/conversation';
+import { cn } from '@/lib/utils';
 import type { UIMessage } from 'ai';
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
@@ -29,6 +30,7 @@ import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { ReplyImageGallery } from './ReplyImageGallery';
 import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
 import { foldMonitorEventRuns } from './background-notice';
+import { automatedTrigger, type AutomatedTrigger } from './automated-turn';
 import type { RewindMode } from '../hooks/useRewindController';
 
 type MessagePart = UIMessage['parts'][number];
@@ -186,6 +188,20 @@ interface MessageItemProps {
   archivedSteers?: readonly UIMessage[];
   isStreamingMessage: boolean;
   isLastAssistantInRound: boolean;
+  /**
+   * The round was started by a notice nobody typed (a background task settling, a
+   * workflow result…): the reply hangs off that notice on a rail and has no
+   * copy / share row — it is the agent reacting, not an answer to hand on.
+   */
+  isAutomatedTurn: boolean;
+  /** Draw the rail: the notice that started the round shows as a line to hang it from. */
+  automatedRail: boolean;
+  /**
+   * What the rail does below an automated reply: `notice` when the next row is the
+   * notice that starts another automated round, `reply` when the round goes on,
+   * unset when the run ends here.
+   */
+  railContinues?: 'notice' | 'reply';
   /** Let the browser skip layout/paint while this message is out of view. */
   deferOffscreen: boolean;
   /** Loaded with older history: mount as a placeholder, render the message when idle. */
@@ -255,6 +271,9 @@ const MessageItem = memo(function MessageItem({
   archivedSteers = [],
   isStreamingMessage,
   isLastAssistantInRound,
+  isAutomatedTurn,
+  automatedRail,
+  railContinues,
   deferOffscreen,
   deferMount,
   precedingUserMessageId,
@@ -434,9 +453,22 @@ const MessageItem = memo(function MessageItem({
       // Anchor for the left-hand turn rail (ChatNavigator), which locates each
       // prompt by id to compute its scroll offset.
       data-message-id={message.id}
+      data-automated-turn={isAutomatedTurn || undefined}
       // Phone: 12px between a reply's parts so a text block doesn't sit flush
       // against the tool row under it at the 17px reading size.
-      className="space-y-1 max-md:space-y-3"
+      // An automated turn's reply hangs off the notice above it on a rail: one 1px
+      // line under the notices' 16px icons (their centre, 8px in), the reply starting
+      // where a notice's title does. Back-to-back automated rounds read as one
+      // timeline — notice icons are its nodes, the line runs on between them.
+      // The line is drawn inside the row and the row takes in the list's 4px gap
+      // (-mt-1 pt-1 / -mb-1 pb-*) instead of the line reaching out over it: older
+      // rows carry content-visibility, whose paint containment clips overflow.
+      className={cn(
+        'space-y-1 phone:space-y-3',
+        automatedRail && 'relative -mt-1 pt-1 pl-6 before:absolute before:inset-y-0 before:left-[7.5px] before:w-px before:bg-border/50 dark:before:bg-border/35',
+        railContinues === 'notice' && '-mb-1 pb-3',
+        railContinues === 'reply' && '-mb-1 pb-1',
+      )}
       style={deferOffscreen ? OFFSCREEN_DEFER_STYLE : LIVE_ROW_STYLE}
     >
       {sortedParts.length > 0 ? (
@@ -489,7 +521,7 @@ const MessageItem = memo(function MessageItem({
       {message.role === 'assistant' && !isStreamingMessage && isLastAssistantInRound && (
         <ReplyImageGallery text={lastTextPart?.text ?? getMessageText(message)} />
       )}
-      {message.role === 'assistant' && !isStreamingMessage && (
+      {message.role === 'assistant' && !isStreamingMessage && !isAutomatedTurn && (
         <AssistantMessageActions
           text={getFilteredMessageText(message)}
           onCopy={onCopy}
@@ -605,6 +637,27 @@ export const MessagesList = memo(function MessagesList({
     return ids;
   }, [messages]);
 
+  // Rounds a notice started rather than the user (see automatedTrigger).
+  const automatedTriggers = useMemo(() => {
+    const triggers = new Map<string, AutomatedTrigger>();
+    for (const message of messages) {
+      const trigger = automatedTrigger(message);
+      if (trigger) triggers.set(message.id, trigger);
+    }
+    return triggers;
+  }, [messages]);
+  const triggerOfReplyAt = (index: number) => {
+    const userId = precedingUserMessageIds[index];
+    return messages[index]?.role === 'assistant' && userId != null ? automatedTriggers.get(userId) : undefined;
+  };
+  const railContinuesAt = (index: number): 'notice' | 'reply' | undefined => {
+    if (triggerOfReplyAt(index) !== 'notice') return undefined;
+    const next = messages[index + 1];
+    if (!next) return undefined;
+    if (automatedTriggers.get(next.id) === 'notice') return 'notice';
+    return triggerOfReplyAt(index + 1) === 'notice' ? 'reply' : undefined;
+  };
+
   const lastAssistantInRoundIds = useMemo(() => {
     const ids = new Set<string>();
     let latestAssistantInRoundFound = false;
@@ -685,6 +738,9 @@ export const MessagesList = memo(function MessagesList({
           archivedSteers={archivedPresentation.steersByUserMessageId.get(message.id)}
           isStreamingMessage={status === 'streaming' && index === lastMessageIndex}
           isLastAssistantInRound={lastAssistantInRoundIds.has(message.id)}
+          isAutomatedTurn={triggerOfReplyAt(index) !== undefined}
+          automatedRail={triggerOfReplyAt(index) === 'notice'}
+          railContinues={railContinuesAt(index)}
           deferOffscreen={index < lastMessageIndex - LIVE_TAIL_SIZE}
           deferMount={deferredMountIdsRef.current.has(message.id)}
           precedingUserMessageId={precedingUserMessageIds[index]}
