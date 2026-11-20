@@ -5,14 +5,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { MessageCircleQuestionIcon } from 'lucide-react';
 import { useChatPendingInputStore } from '@/stores/chat-pending-input-store';
 import type { StreamMessageMetadata } from '@operon/agent-runtime';
+import { formatElapsed } from './turn-duration';
 
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds}s`;
-}
 
 export function ChatWaitingIndicator({ active, chatId, retry }: { active: boolean; chatId?: number; retry?: StreamMessageMetadata['retry'] }) {
   const needsInput = useChatPendingInputStore((s) =>

@@ -107,7 +107,10 @@ describe('runAgentTurn checkpoints', () => {
         ...(withCheckpoints ? { onCheckpoint: () => undefined } : {}),
       })
       await drain(turn.preparedParts)
-      return (await turn.done).message
+      const { message } = await turn.done
+      // The turn's wall-clock bounds differ between the two runs.
+      const { turnStartedAt: _start, turnEndedAt: _end, ...metadata } = (message.metadata ?? {}) as Record<string, unknown>
+      return { ...message, metadata }
     }
     expect(await run(true)).toEqual(await run(false))
   })

@@ -268,6 +268,14 @@ function createCheckpointPacer(onCheckpoint: (message: UIMessage) => number | vo
   }
 }
 
+/** The start already stamped on the reply this turn continues, if any. */
+const continuedTurnStartedAt = (messages: UIMessage[], assistantMessageId: string): number | undefined => {
+  const last = messages.at(-1)
+  if (last?.role !== 'assistant' || last.id !== assistantMessageId) return undefined
+  const value = (last.metadata as UiMessageMetadata | undefined)?.turnStartedAt
+  return typeof value === 'number' ? value : undefined
+}
+
 /** Run one turn on `session` and produce the standard event stream + final message. */
 export function runAgentTurn(session: AgentSession, input: AgentTurnInput): AgentTurnResult {
   const rawParts =
@@ -281,6 +289,12 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
   const parts: AsyncIterable<RuntimeStreamPart> = recorder ? recorder.tee(rawParts) : rawParts
 
   const metaState: PreparedMetadataState = { hasExplicitMetadata: false }
+  // Stamp the turn's wall-clock bounds on the reply so "Worked for 4m 47s" reads
+  // the same after a reload or on another device. A continuation (the reply picked
+  // up after an approval) keeps the start of the turn it continues.
+  let turnStartPending = !continuedTurnStartedAt(input.originalMessages, input.assistantMessageId)
+  let turnEndStamped = false
+  const turnStartedAt = Date.now()
   const iterator = parts[Symbol.asyncIterator]()
   let detachHostApprovalStream: (() => void) | undefined
   let streamClosed = false
@@ -308,6 +322,7 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
       if (next.done) {
         streamClosed = true
         detachHostApprovalStream?.()
+        if (!turnEndStamped) controller.enqueue({ metadata: { turnEndedAt: Date.now() } })
         controller.close()
         return
       }
@@ -317,7 +332,15 @@ export function runAgentTurn(session: AgentSession, input: AgentTurnInput): Agen
       }
       logPart(next.value)
       input.onPart?.(next.value)
-      const preparedPart = prepareTextStreamPart({ part: next.value, state: metaState })
+      let preparedPart = prepareTextStreamPart({ part: next.value, state: metaState })
+      // The bounds ride on the reply's own `start` / `finish` chunks.
+      if (next.value.type === 'start' && turnStartPending) {
+        turnStartPending = false
+        preparedPart = { ...preparedPart, metadata: { ...preparedPart.metadata, turnStartedAt } }
+      } else if (next.value.type === 'finish') {
+        turnEndStamped = true
+        preparedPart = { ...preparedPart, metadata: { ...preparedPart.metadata, turnEndedAt: Date.now() } }
+      }
       if (preparedPart.metadata?.usage) input.onUsage?.(preparedPart.metadata.usage)
       const sessionId = 'providerMetadata' in next.value
         ? getSessionIdFromProviderMetadata(next.value.providerMetadata)

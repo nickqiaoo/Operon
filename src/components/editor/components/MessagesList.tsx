@@ -25,13 +25,16 @@ import type { ToolPartLike } from './toolName';
 import { normalizeToolState } from './toolState';
 import { textPartQuestion } from './textPartQuestion';
 import type { SendToModel } from '../SendToButton';
-import { segmentMessageParts } from './compact-tool/segmentParts';
+import { segmentMessageParts, type Segment } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { ReplyImageGallery } from './ReplyImageGallery';
 import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
 import { foldMonitorEventRuns } from './background-notice';
 import { automatedTrigger, type AutomatedTrigger } from './automated-turn';
 import type { RewindMode } from '../hooks/useRewindController';
+import { useChatDisplayStore } from '@/stores/chat-display-store';
+import { TurnWorkFold } from './TurnWorkFold';
+import { turnDurationMs } from './turn-duration';
 
 type MessagePart = UIMessage['parts'][number];
 type AttachmentPart = Extract<MessagePart, { type: 'file' | 'source-document' }>;
@@ -298,6 +301,7 @@ const MessageItem = memo(function MessageItem({
   questionAnswer,
 }: MessageItemProps) {
   const intl = useIntl();
+  const conciseMode = useChatDisplayStore((s) => s.conciseMode);
   const [mounted, setMounted] = useState(!deferMount);
   useEffect(() => {
     if (mounted) return;
@@ -474,7 +478,7 @@ const MessageItem = memo(function MessageItem({
       {sortedParts.length > 0 ? (
         (() => {
           const segments = segmentMessageParts(sortedParts, childIndices, activeStreamingPartIndex);
-          return segments.map((segment, segIdx) => {
+          const renderSegment = (segment: Segment, segIdx: number) => {
             if (segment.type === 'tool-group') {
               return (
                 <div key={`${message.id}-group-${segIdx}`}>
@@ -496,7 +500,44 @@ const MessageItem = memo(function MessageItem({
             }
 
             return renderPart(segment.partIndex);
-          });
+          };
+
+          // Concise mode: a finished reply shows its final text; the work before it
+          // folds behind "Worked for …". Not while the turn waits on an approval —
+          // that question has to stay in view — and a published page stays out of
+          // the fold, as it does out of a work group.
+          const segmentStart = (segment: Segment) =>
+            segment.type === 'tool-group' ? segment.partIndices[0] : segment.partIndex;
+          const awaitsApproval = (index: number) =>
+            isToolPart(sortedParts[index])
+            && normalizeToolState((sortedParts[index] as ToolPartLike & { state?: string }).state) === 'approval-requested';
+          const segmentAwaitsApproval = (segment: Segment) =>
+            (segment.type === 'tool-group' ? segment.partIndices : [segment.partIndex]).some((index) => {
+              const id = isToolPart(sortedParts[index]) ? getToolCallId(sortedParts[index]) : null;
+              return awaitsApproval(index) || (id != null && (childPartsMap.get(id) ?? []).some(awaitsApproval));
+            });
+          const foldEnd =
+            conciseMode && message.role === 'assistant' && !isStreamingMessage && lastTextPartIndex != null
+              ? lastTextPartIndex
+              : -1;
+          const before = segments.filter((segment) => segmentStart(segment) < foldEnd);
+          const pinned = (segment: Segment) =>
+            segment.type === 'single' && isToolPart(sortedParts[segment.partIndex])
+            && isHtmlRenderResult(sortedParts[segment.partIndex] as ToolPartLike);
+          const folded = before.filter((segment) => !pinned(segment));
+          if (folded.length === 0 || before.some(segmentAwaitsApproval)) {
+            return segments.map(renderSegment);
+          }
+          return (
+            <>
+              <TurnWorkFold durationMs={turnDurationMs(message)}>
+                {folded.map((segment) => renderSegment(segment, segments.indexOf(segment)))}
+              </TurnWorkFold>
+              {segments
+                .filter((segment) => segmentStart(segment) >= foldEnd || pinned(segment))
+                .map((segment) => renderSegment(segment, segments.indexOf(segment)))}
+            </>
+          );
         })()
       ) : (
         <Message from={message.role}>

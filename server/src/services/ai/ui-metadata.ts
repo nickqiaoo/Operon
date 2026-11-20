@@ -18,6 +18,10 @@ export type UiMessageMetadata = {
   claudeRateLimits?: RuntimeUsageLimits
   /** The thread goal, from any provider with `features.goal` (named for the one that had it first). */
   codexGoal?: RuntimeGoal
+  /** When this turn began (epoch ms); a continuation keeps the first turn's value. */
+  turnStartedAt?: number
+  /** When this turn's stream ended (epoch ms). Absent while running or when the turn died. */
+  turnEndedAt?: number
 }
 
 export function toUiMessageMetadata(metadata: StreamMessageMetadata & Record<string, unknown>): UiMessageMetadata {
