@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.5.28] - 2026-11-20
+
+### Added
+
+- Operon runs natively on iPad: the full desktop workbench in wide windows and the phone-style tab shell in compact ones, with rotation, a keyboard-aware layout, push-notification deep links, and the chat's reading position preserved when the layout switches. Requires iOS 16.4 or later.
+- The desktop window can shrink to 480px and stay usable: the right panel closes first and the sidebar collapses after it, the composer toolbar keeps to one row, pickers keep working as popovers, and tool approvals fit a compact single line. A narrow window no longer falls into the mobile sheet layout.
+
+### Changed
+
+- Chat replies, reasoning traces and file previews render on a new WASM-accelerated markdown engine, with a lightweight fallback for older WebViews. Code highlighting is faster and shares one theme across chat and diffs; mermaid diagrams get a rebuilt viewer with zoom, fullscreen and PNG/SVG export; wide tables scroll instead of overflowing; safe inline HTML in replies renders again.
+- Permission modes read by color at a glance — green auto, purple plan, orange full access — without chevrons or colored borders.
+- Operon's built-in agent follows the same standing rules as external agents — memory lookup, clickable file citations, visual replies and UI blocks — on new, restored and forked sessions, while background one-shot jobs keep their lean task-only prompts.
+
+### Fixed
+
+- A Codex apply_patch call shows the changes that were actually applied — added and deleted files included, as per-file diffs with line counts — instead of a raw JSON result, and the final result wins over the streamed input when they differ.
+- The word-diff display preference now also applies to edit/write diffs shown inside chat.
+
 ## [1.5.27] - 2026-11-19
 
 ### Added
