@@ -112,7 +112,7 @@ describe('Code Mode program parts', () => {
     // task's MCP App, lazy-loaded — static markup sees its Suspense fallback.
     expect(html).toContain('Loading scheduled task…');
     expect(html).toContain('rm -rf build');
-    expect(html).toContain('requests permission');
+    expect(html).toContain('Permission required');
     // The routine read is folded away with the source.
     expect(html).not.toContain('notes.md');
     expect(html).not.toContain('program.ts');
