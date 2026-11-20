@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.5.29] - 2026-11-20
+
+### Changed
+
+- Replies to automated events — a background task settling, a monitor notice, a workflow or spec result, a runtime steer — now hang off the notice on a thin rail instead of reading like an answer to you, and drop the copy/share row. Back-to-back automated rounds read as one timeline.
+- Phone-style typography and layouts follow the phone shell rather than the window width: a narrow desktop window keeps desktop text and code sizes, heading scale and composer placement.
+
+### Fixed
+
+- iPad: resizing the app window no longer slides the page down and leaves a dark band above it — the web view stays flush with its container.
+
 ## [1.5.28] - 2026-11-20
 
 ### Added
