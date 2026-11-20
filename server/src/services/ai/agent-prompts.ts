@@ -1,15 +1,14 @@
 import type { AnyProviderDefinition } from '@operon/agent-runtime'
 
 /**
- * Operon's standing rules for the external agents: memory use, file
- * citations and visual replies. They ride on the session's `instructions` — see
- * `withAgentPrompts` below, applied once where the providers are registered.
+ * Operon's standing rules for memory use, file citations and visual replies.
+ * External providers receive them through `withAgentPrompts`; the built-in
+ * agent composes them when the harness opens its session.
  *
  * No file IO at runtime. Update this file + rebuild to change the rules.
  */
 /**
- * File-reference formatting rule — injected alongside {@link MEMORY_RESOLVER_PROMPT}
- * into interactive runtime providers (NOT the headless memory-maintenance agent).
+ * File-reference formatting rule, shared by the app's agent providers.
  *
  * The desktop renderer turns explicit citation tokens into clickable file chips
  * that open in the side viewer and scroll to the cited line. See
@@ -161,11 +160,16 @@ export function withAgentPrompts<D extends AnyProviderDefinition>(definition: D)
       provider.createSession = (params) =>
         createSession({
           ...params,
-          instructions: [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, VISUAL_REPLY_PROMPT, UI_BLOCK_PROMPT, params.instructions?.trim()]
-            .filter(Boolean)
-            .join('\n\n'),
+          instructions: withStandingAgentInstructions(params.instructions),
         })
       return provider
     },
   }
+}
+
+/** Put the host's standing instructions before the session-specific prompt. */
+export function withStandingAgentInstructions(instructions?: string): string {
+  return [MEMORY_RESOLVER_PROMPT, FILE_REFERENCE_PROMPT, VISUAL_REPLY_PROMPT, UI_BLOCK_PROMPT, instructions?.trim()]
+    .filter(Boolean)
+    .join('\n\n')
 }

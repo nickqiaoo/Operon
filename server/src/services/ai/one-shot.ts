@@ -26,6 +26,7 @@ export async function runOneShotPrompt(options: OneShotPromptOptions): Promise<s
   const session = await manager.createStandaloneSession(options.providerId, {
     cwd: options.cwd,
     model: options.modelId,
+    ...(options.providerId === 'custom' ? { operon: { standingPrompts: false as const } } : {}),
   })
 
   try {

@@ -95,6 +95,7 @@ export async function runHeadlessMemoryAgent(params: HeadlessRunParams): Promise
     // The extraction prompt rides as session instructions — providers ignore
     // system-role messages in `messages`.
     instructions: params.systemPrompt,
+    ...(params.providerId === 'custom' ? { operon: { standingPrompts: false as const } } : {}),
   })
 
   const toolCalls: MemoryToolCallRecord[] = []

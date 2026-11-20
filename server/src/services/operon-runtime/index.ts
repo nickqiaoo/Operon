@@ -29,6 +29,7 @@ import { loadApprovedExtensions, syncApprovedExtensions } from './approved-exten
 import { resumeRuntimeSession, workspaceSessionConfig, type RestoreSetup, type SessionLimitsConfig, type SessionPermissionConfig, type WorkspaceSessionSetup } from './session-lifecycle.js'
 import { observeSession } from './passive-observer.js'
 import { getChatStorage } from '../ai/state.js'
+import { withStandingAgentInstructions } from '../ai/agent-prompts.js'
 import { ensurePluginsLoaded, pluginManager } from './plugins.js'
 import { mcpOAuthService } from './mcp-oauth.js'
 import { availableModels } from './models.js'
@@ -37,6 +38,7 @@ import { getSshEnvironment, sshSessionBindings } from '../ssh-environments.js'
 import type { SshEnvironmentProfile } from '../../../../shared/ssh-environment.js'
 
 const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6'
+const SKIP_STANDING_PROMPTS = Symbol('skipStandingPrompts')
 
 // Extra tools to merge into the default agent's toolset, on top of the builtin
 // coding tools. Empty by default, so normal chat behaviour is unchanged. The
@@ -345,25 +347,30 @@ async function buildHarness(): Promise<Harness> {
     //   (`host.resumeSession`), any bare `resumeSession(id)` — gets the host's current one for it,
     //   laid over what the session stored so its model, mode and extension parameters survive.
     //   A restore the UI drives passes its own setup in, merged the same way.
-    // The result is final and not stored: a create stores what it was asked for, a restore keeps
-    // what the session had.
+    // The result is final and not stored, so each open adds the current app prompts once, after
+    // resolving the session's own instructions.
     resolveSession: async (request) => {
-      if (request.operation === 'create' && request.origin.kind === 'extension') {
+      if (request.operation === 'fork') return
+      const requested = request.requested.config
+      const restoring = request.operation === 'restore'
+      const ssh = restoring && !requested
+        ? getChatStorage()?.findChatBySessionId(request.session.id)?.metadata?.sshEnvironment
+        : undefined
+      let config = requested ?? {}
+      if (restoring) {
+        const current = requested ?? (ssh ? await sshSessionConfig() : await restoredSessionConfig(request.session))
+        config = resolveSessionConfig(request.stored ?? {}, current)
+      } else if (request.origin.kind === 'extension') {
         const workspace = workspaceSessionConfig(await workspaceSetup(request.session.workDir))
-        return { config: resolveSessionConfig(workspace, request.requested.config ?? {}) }
+        config = resolveSessionConfig(workspace, config)
       }
-      if (request.operation !== 'restore') return
-      if (!request.requested.config) {
-        const ssh = getChatStorage()?.findChatBySessionId(request.session.id)?.metadata?.sshEnvironment
-        if (ssh) {
-          return {
-            config: resolveSessionConfig(request.stored ?? {}, await sshSessionConfig()),
-            bindings: sshSessionBindings(getSshEnvironment(ssh.id)),
-          }
-        }
+      const { agent, context } = request.requested.bindings
+      return {
+        config: config.agent !== undefined || agent !== undefined || context === SKIP_STANDING_PROMPTS
+          ? config
+          : { ...config, appendSystemPrompt: withStandingAgentInstructions(config.appendSystemPrompt) },
+        ...(ssh ? { bindings: sshSessionBindings(getSshEnvironment(ssh.id)) } : {}),
       }
-      const current = request.requested.config ?? (await restoredSessionConfig(request.session))
-      return { config: resolveSessionConfig(request.stored ?? {}, current) }
     },
     modelManager,
     // File extensions: one folder per extension under `~/.operon/data/extensions`. Nothing
@@ -459,6 +466,8 @@ async function buildHarness(): Promise<Harness> {
 export interface OperonSessionOptions {
   operon?: {
     sshEnvironment?: SshEnvironmentProfile
+    /** Dedicated one-shot jobs use their task prompt without the chat instructions. */
+    standingPrompts?: false
     /**
      * The host's own tools for this session (`bindings.extraTools`): run in process and offered
      * directly next to the built-in ones, where the other agents reach the same tools over MCP and
@@ -474,11 +483,12 @@ export interface OperonSessionOptions {
 function sessionSetup(config: SessionConfig, operon: OperonSessionOptions['operon']): RestoreSetup {
   const bindings = operon?.sshEnvironment ? sshSessionBindings(operon.sshEnvironment) : undefined
   const extraTools = operon?.tools?.length ? { extraTools: operon.tools } : undefined
+  const promptContext = operon?.standingPrompts === false ? { context: SKIP_STANDING_PROMPTS } : undefined
   return {
     config: operon?.disabledTools?.length
       ? { ...config, disabledTools: [...(config.disabledTools ?? []), ...operon.disabledTools] }
       : config,
-    ...(bindings || extraTools ? { bindings: { ...bindings, ...extraTools } } : {}),
+    ...(bindings || extraTools || promptContext ? { bindings: { ...bindings, ...extraTools, ...promptContext } } : {}),
   }
 }
 
