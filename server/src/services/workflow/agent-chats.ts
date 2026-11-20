@@ -61,8 +61,9 @@ export function chunksFromMessages(messages: readonly UIMessage[]): unknown[] {
         continue
       }
       if (part.type === INJECTED_INPUT_PART) {
-        const text = (part as { data?: { text?: unknown } }).data?.text
-        if (typeof text === 'string' && text) chunks.push({ type: 'data-steer', data: { text } })
+        const data = (part as { data?: { text?: unknown; notice?: unknown } }).data
+        // An automated notice is not a steer anyone sent.
+        if (data?.notice !== true && typeof data?.text === 'string' && data.text) chunks.push({ type: 'data-steer', data: { text: data.text } })
         continue
       }
       const tool = part as ToolLikePart
@@ -86,10 +87,10 @@ export function chunksFromSse(text: string): unknown[] {
     const body = line.slice(5).trim()
     if (!body || body === '[DONE]') continue
     try {
-      const chunk = JSON.parse(body) as { type?: string; id?: unknown; data?: { text?: unknown } }
+      const chunk = JSON.parse(body) as { type?: string; id?: unknown; data?: { text?: unknown; notice?: unknown } }
       // The live stream marks a steer the same way the saved reply does.
       if (chunk.type === INJECTED_INPUT_PART) {
-        if (typeof chunk.data?.text === 'string') chunks.push({ type: 'data-steer', data: { text: chunk.data.text } })
+        if (chunk.data?.notice !== true && typeof chunk.data?.text === 'string') chunks.push({ type: 'data-steer', data: { text: chunk.data.text } })
         continue
       }
       chunks.push(chunk)

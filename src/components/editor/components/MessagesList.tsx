@@ -1,7 +1,7 @@
 import { ConversationItem } from '@/components/ai-elements/conversation';
 import { cn } from '@/lib/utils';
 import type { UIMessage } from 'ai';
-import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { CornerDownRight } from 'lucide-react';
 import { Message, MessageContent, MessageResponse, PHONE_REPLY_TEXT_MD } from '@/components/ai-elements/message';
@@ -30,7 +30,8 @@ import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { ReplyImageGallery } from './ReplyImageGallery';
 import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
 import { foldMonitorEventRuns } from './background-notice';
-import { automatedTrigger, type AutomatedTrigger } from './automated-turn';
+import { automatedTrigger, backgroundRunFolds, type AutomatedTrigger } from './automated-turn';
+import { BackgroundRunFold } from './BackgroundRunFold';
 import type { RewindMode } from '../hooks/useRewindController';
 import { useChatDisplayStore } from '@/stores/chat-display-store';
 import { TurnWorkFold } from './TurnWorkFold';
@@ -687,6 +688,13 @@ export const MessagesList = memo(function MessagesList({
     }
     return triggers;
   }, [messages]);
+  const conciseMode = useChatDisplayStore((s) => s.conciseMode);
+  const foldsByStart = useMemo(() => {
+    const folds = new Map<number, ReturnType<typeof backgroundRunFolds>[number]>();
+    if (!conciseMode) return folds;
+    for (const fold of backgroundRunFolds(messages, (message) => automatedTriggers.get(message.id))) folds.set(fold.start, fold);
+    return folds;
+  }, [conciseMode, messages, automatedTriggers]);
   const triggerOfReplyAt = (index: number) => {
     const userId = precedingUserMessageIds[index];
     return messages[index]?.role === 'assistant' && userId != null ? automatedTriggers.get(userId) : undefined;
@@ -769,55 +777,80 @@ export const MessagesList = memo(function MessagesList({
     renderedFirstIdRef.current = messages[0]?.id;
   });
 
-  return (
-    <>
-      {messages.map((message, index) => (
-        <MessageItem
-          key={message.id}
-          message={message}
-          scrollAnchor={message.id === scrollAnchorId}
-          archivedSteers={archivedPresentation.steersByUserMessageId.get(message.id)}
-          isStreamingMessage={status === 'streaming' && index === lastMessageIndex}
-          isLastAssistantInRound={lastAssistantInRoundIds.has(message.id)}
-          isAutomatedTurn={triggerOfReplyAt(index) !== undefined}
-          automatedRail={triggerOfReplyAt(index) === 'notice'}
-          railContinues={railContinuesAt(index)}
-          deferOffscreen={index < lastMessageIndex - LIVE_TAIL_SIZE}
-          deferMount={deferredMountIdsRef.current.has(message.id)}
-          precedingUserMessageId={precedingUserMessageIds[index]}
-          isRewindedCheckpoint={rewindedCheckpoint?.messageId === precedingUserMessageIds[index]}
-          canRewindHere={
-            message.role === 'user'
-            && turnFilesByMessageId.has(message.id)
-            && rewindedCheckpoint?.messageId !== message.id
-          }
-          isLatestChangedTurn={
-            precedingUserMessageIds[index] != null && precedingUserMessageIds[index] === latestChangedTurnId
-          }
-          turnDiffFiles={
-            precedingUserMessageIds[index] != null
-              ? turnFilesByMessageId.get(precedingUserMessageIds[index]!)
-              : undefined
-          }
-          turnDiffOverlapped={
-            precedingUserMessageIds[index] != null && overlappedTurnIds.has(precedingUserMessageIds[index]!)
-          }
-          onReviewTurn={onReviewTurn}
-          externalAgentNotificationsByTaskId={externalAgentNotificationsByMessageId.get(message.id)}
-          onPermissionDecide={onPermissionDecide}
-          onCopy={handleCopy}
-          onSendTo={onSendTo}
-          onSendToTab={onSendToTab}
-          currentChatId={currentChatId}
-          availableModels={availableModels}
-          onSendToOpen={onSendToOpen}
-          onRewindToCheckpoint={onRewindToCheckpoint}
-          onUndoRewind={onUndoRewind}
-          onAnswerQuestion={onAnswerQuestion}
-          questionAnswers={questionAnswers}
-          questionAnswer={index < lastMessageIndex ? (messages[index + 1].role === 'user' ? getMessageText(messages[index + 1]) : '') : undefined}
-        />
-      ))}
-    </>
+  // `inFold`: inside a BackgroundRunFold. Those rows mount at once and skip
+  // `content-visibility`: the fold measures its content the moment it opens, and a row
+  // still waiting to mount or not yet laid out counts as its 240px placeholder, so the
+  // open animation ran to the estimate and snapped back.
+  const renderItem = (message: UIMessage, index: number, inFold = false) => (
+    <MessageItem
+      key={message.id}
+      message={message}
+      scrollAnchor={message.id === scrollAnchorId}
+      archivedSteers={archivedPresentation.steersByUserMessageId.get(message.id)}
+      isStreamingMessage={status === 'streaming' && index === lastMessageIndex}
+      isLastAssistantInRound={lastAssistantInRoundIds.has(message.id)}
+      isAutomatedTurn={triggerOfReplyAt(index) !== undefined}
+      automatedRail={triggerOfReplyAt(index) === 'notice'}
+      railContinues={railContinuesAt(index)}
+      deferOffscreen={!inFold && index < lastMessageIndex - LIVE_TAIL_SIZE}
+      deferMount={!inFold && deferredMountIdsRef.current.has(message.id)}
+      precedingUserMessageId={precedingUserMessageIds[index]}
+      isRewindedCheckpoint={rewindedCheckpoint?.messageId === precedingUserMessageIds[index]}
+      canRewindHere={
+        message.role === 'user'
+        && turnFilesByMessageId.has(message.id)
+        && rewindedCheckpoint?.messageId !== message.id
+      }
+      isLatestChangedTurn={
+        precedingUserMessageIds[index] != null && precedingUserMessageIds[index] === latestChangedTurnId
+      }
+      turnDiffFiles={
+        precedingUserMessageIds[index] != null
+          ? turnFilesByMessageId.get(precedingUserMessageIds[index]!)
+          : undefined
+      }
+      turnDiffOverlapped={
+        precedingUserMessageIds[index] != null && overlappedTurnIds.has(precedingUserMessageIds[index]!)
+      }
+      onReviewTurn={onReviewTurn}
+      externalAgentNotificationsByTaskId={externalAgentNotificationsByMessageId.get(message.id)}
+      onPermissionDecide={onPermissionDecide}
+      onCopy={handleCopy}
+      onSendTo={onSendTo}
+      onSendToTab={onSendToTab}
+      currentChatId={currentChatId}
+      availableModels={availableModels}
+      onSendToOpen={onSendToOpen}
+      onRewindToCheckpoint={onRewindToCheckpoint}
+      onUndoRewind={onUndoRewind}
+      onAnswerQuestion={onAnswerQuestion}
+      questionAnswers={questionAnswers}
+      questionAnswer={index < lastMessageIndex ? (messages[index + 1].role === 'user' ? getMessageText(messages[index + 1]) : '') : undefined}
+    />
   );
+
+  // Concise mode: a run of rounds background events started back to back folds all
+  // but its last round behind one line.
+  const items: ReactNode[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const fold = conciseMode ? foldsByStart.get(index) : undefined;
+    if (!fold) {
+      items.push(renderItem(messages[index], index));
+      continue;
+    }
+    const folded = messages.slice(fold.start, fold.end);
+    const durations = folded.map(turnDurationMs).filter((ms): ms is number => ms != null);
+    items.push(
+      <BackgroundRunFold
+        key={`background-run-${messages[fold.start].id}`}
+        rounds={fold.rounds}
+        durationMs={durations.length > 0 ? durations.reduce((sum, ms) => sum + ms, 0) : undefined}
+      >
+        {folded.map((message, offset) => renderItem(message, fold.start + offset, true))}
+      </BackgroundRunFold>,
+    );
+    index = fold.end - 1;
+  }
+
+  return <>{items}</>;
 });

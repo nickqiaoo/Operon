@@ -4,6 +4,7 @@ import {
   collectInjectedInputIds,
   findLatestTurnMessageId,
   getInjectedInput,
+  getInjectedNotice,
   groupArchivedSteers,
 } from './steer-message';
 
@@ -101,5 +102,17 @@ describe('steer message presentation', () => {
     expect(presentation.messages.map((message) => message.id)).toEqual(['user-1', 'assistant-1']);
     // A provider that cannot say when it read one still gets the old placement.
     expect(presentation.steersByUserMessageId.get('user-1')?.map((message) => message.id)).toEqual(['steer-2']);
+  });
+});
+
+describe('injected notices', () => {
+  const notice = { type: 'data-injected-input', id: 'n-1', data: { id: 'n-1', text: '<background-task-done taskId="b">done</background-task-done>', notice: true } } as UIMessage['parts'][number];
+  const steer = { type: 'data-injected-input', id: 's-1', data: { id: 's-1', text: 'adjust' } } as UIMessage['parts'][number];
+
+  it('reads a notice apart from a steer', () => {
+    expect(getInjectedNotice(notice)).toContain('background-task-done');
+    expect(getInjectedInput(notice)).toBeNull();
+    expect(getInjectedNotice(steer)).toBeNull();
+    expect(getInjectedInput(steer)).toEqual({ id: 's-1', text: 'adjust' });
   });
 });

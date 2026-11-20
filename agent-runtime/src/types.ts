@@ -327,6 +327,12 @@ export interface RuntimeInjectedInputPart {
   type: 'injected-input'
   id: string
   text: string
+  /**
+   * Not something the person sent: an automated event (a background task settling, a
+   * monitor's output) the runtime handed the agent mid-turn. It marks where the agent
+   * read it the same way, but is never the answer to a question or a queued steer.
+   */
+  notice?: true
 }
 
 export type RuntimeStreamPart = RuntimeTextStreamPart | RuntimeMessageMetadataPart | RuntimeInjectedInputPart

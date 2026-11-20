@@ -1624,8 +1624,22 @@ function ScrollTopLoader({
       }
     };
 
+    // A transcript shorter than the viewport never scrolls, so the handler above never
+    // runs and nothing older ever loads — a run of background rounds folded to one line
+    // can leave a page that short. Keep loading while there is nothing to scroll.
+    const fillViewport = () => {
+      if (el.scrollHeight <= el.clientHeight && hasMore && !loadingMore) onLoadMore();
+    };
+    fillViewport();
+    const resize = new ResizeObserver(fillViewport);
+    resize.observe(el);
+    for (const child of el.children) resize.observe(child);
+
     el.addEventListener('scroll', handleScroll, { passive: true });
-    return () => el.removeEventListener('scroll', handleScroll);
+    return () => {
+      resize.disconnect();
+      el.removeEventListener('scroll', handleScroll);
+    };
   }, [scrollRef, hasMore, loadingMore, onLoadMore]);
 
   return null;

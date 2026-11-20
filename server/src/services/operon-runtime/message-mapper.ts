@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type { AgentEvent, QuestionRequest, Usage } from 'operon-agents'
 import type { RuntimeStreamPart } from '@operon/agent-runtime'
+import { automatedNoticeText } from './transcript-text.js'
 
 /**
  * Translate the framework's `AgentEvent` stream into the aisdk `TextStreamPart`
@@ -378,6 +380,11 @@ export class OperonStreamMapper {
           if (injected) {
             push({ type: 'injected-input', ...injected })
           }
+        } else if (event.address === 'main') {
+          // An automated event the agent read mid-turn (a background command finishing
+          // while it works): placed here, between what it did before and after reading it.
+          const notice = automatedNoticeText(event)
+          if (notice) push({ type: 'injected-input', id: randomUUID(), text: notice, notice: true })
         }
         const message = event.message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown }
         if (message.role === 'assistant' && message.stopReason === 'error' && typeof message.errorMessage === 'string' && message.errorMessage.trim() && !this.errorSent) {

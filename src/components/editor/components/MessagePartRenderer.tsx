@@ -24,7 +24,7 @@ import { SpecNoticeMessage, WorkflowResultMessage, isSpecWorkflowResult, isWorkf
 import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import { BackgroundNoticeList } from './MonitorNotices';
 import { parseBackgroundNotices } from './background-notice';
-import { getInjectedInput } from './steer-message';
+import { getInjectedInput, getInjectedNotice } from './steer-message';
 import {
   ExternalAgentToolRenderer,
   extractExternalAgentTaskId,
@@ -510,6 +510,22 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
           <UserMessageText text={injected.text} />
         </MessageContent>
       </Message>
+    );
+  }
+
+  // An automated event the agent read mid-turn, where it read it: the same step
+  // line it gets when it starts a turn of its own.
+  const injectedNotice = getInjectedNotice(part);
+  if (injectedNotice) {
+    const key = `${message.id}-${partIndex}`;
+    const notices = parseBackgroundNotices(injectedNotice);
+    if (notices) return <BackgroundNoticeList key={key} notices={notices} />;
+    const steerNotice = parseSteerNotice(injectedNotice);
+    if (steerNotice) return <SteerNoticeMessage key={key} notice={steerNotice} />;
+    return (
+      <p key={key} className="whitespace-pre-wrap text-xs text-muted-foreground" data-testid="injected-notice">
+        {injectedNotice}
+      </p>
     );
   }
 

@@ -39,6 +39,8 @@ export const INJECTED_INPUT_PART = 'data-injected-input'
 export interface InjectedInputData {
   id: string
   text: string
+  /** An automated event rather than a message the person sent (see `RuntimeInjectedInputPart`). */
+  notice?: true
 }
 
 /**
@@ -47,7 +49,7 @@ export interface InjectedInputData {
  * whatever the agent said before reading it and what it said after.
  */
 export function writeInjectedInput(writer: UIMessageStreamWriter, part: RuntimeInjectedInputPart): void {
-  const data: InjectedInputData = { id: part.id, text: part.text }
+  const data: InjectedInputData = { id: part.id, text: part.text, ...(part.notice ? { notice: true as const } : {}) }
   writer.write({ type: INJECTED_INPUT_PART, id: part.id, data })
 }
 

@@ -442,6 +442,8 @@
   "editor.ask.submit": "Submit",
   "editor.ask.toolName": "Ask User",
   "editor.ask.yes": "Yes",
+  "editor.backgroundRunFold.events": "{rounds, plural, one {# background event} other {# background events}}",
+  "editor.backgroundRunFold.workedFor": "{rounds, plural, one {# background event} other {# background events}} · Worked for {duration}",
   "editor.cacheExpiry.dismiss": "Dismiss",
   "editor.cacheExpiry.noTokens": "Prompt cache expired after an hour idle — this conversation is no longer cached. Use {command} to start fresh.",
   "editor.cacheExpiry.withTokens": "Prompt cache expired after an hour idle — {tokens} tokens are no longer cached and will be re-read on your next message. Use {command} to start fresh.",

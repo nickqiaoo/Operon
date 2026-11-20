@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
-import { isAutomatedUserMessage } from './automated-turn';
+import { backgroundRunFolds, isAutomatedUserMessage } from './automated-turn';
 
 const user = (text: string, metadata?: Record<string, unknown>): UIMessage => ({
   id: 'u1',
@@ -44,5 +44,31 @@ describe('automatedTrigger', () => {
     const { automatedTrigger } = await import('./automated-turn');
     const text = '<task-notification>\n<summary>Monitor event: "ci"</summary>\n<event>ok</event>\n</task-notification>';
     expect(automatedTrigger(user(text))).toBe('notice');
+  });
+});
+
+describe('backgroundRunFolds', () => {
+  const notice = '<background-task-done taskId="b1" toolCallId="c1">\nbash: build completed (exit code 0).\n</background-task-done>';
+  const msg = (role: UIMessage['role'], text: string): UIMessage => ({ id: text, role, parts: [{ type: 'text', text }] });
+  // u = the user typed, n = a notice woke the agent, a = a reply.
+  const transcript = (shape: string) => shape.split(' ').map((kind, i) =>
+    kind === 'a' ? msg('assistant', `a${i}`) : msg('user', kind === 'n' ? `${notice}\n${i}` : `typed ${i}`));
+
+  it('keeps the last round of a run that ends the conversation in view', () => {
+    //                          0 1 2 3 4 5 6 7
+    expect(backgroundRunFolds(transcript('u a n a n a n a'))).toEqual([{ start: 2, end: 6, rounds: 2 }]);
+  });
+
+  it('folds the whole run once the user has spoken after it', () => {
+    //                          0 1 2 3 4 5 6 7 8 9
+    expect(backgroundRunFolds(transcript('n a n a u a n a n a'))).toEqual([
+      { start: 0, end: 4, rounds: 2 },
+      { start: 6, end: 8, rounds: 1 },
+    ]);
+  });
+
+  it('leaves a lone notice round alone', () => {
+    expect(backgroundRunFolds(transcript('u a n a u a'))).toEqual([]);
+    expect(backgroundRunFolds(transcript('u a n a'))).toEqual([]);
   });
 });

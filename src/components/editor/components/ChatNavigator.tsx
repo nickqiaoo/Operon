@@ -6,6 +6,7 @@ import { stripContextBlocks, stripSystemReminders } from '@/lib/context-blocks';
 import { cn } from '@/lib/utils';
 import { isSteerUserMessage } from './steer-message';
 import { extractPeerMessage } from '../utils/chatMetadata';
+import { isAutomatedUserMessage } from './automated-turn';
 
 /**
  * The turn rail: one tick per prompt, stacked down the left gutter of the
@@ -54,6 +55,13 @@ export function buildChatNavigatorEntries(messages: readonly UIMessage[]): ChatN
   for (const message of messages) {
     if (message.role === 'user') {
       if (isSteerUserMessage(message)) continue;
+      // The rail lists what was asked. A notice nobody typed (a background task settling,
+      // a workflow delivering its result) is not a prompt: no row, and the reply it woke
+      // is not read into the previous prompt's preview either.
+      if (isAutomatedUserMessage(message) && !extractPeerMessage(message)) {
+        current = undefined;
+        continue;
+      }
       // A teammate's message starts a real turn, so it earns a row — but the rail is a list
       // of prompts, and reading a teammate's report there as if the user had said it is
       // exactly the confusion the transcript card avoids. Name the sender.

@@ -109,6 +109,39 @@ describe('OperonStreamMapper retry status', () => {
   });
 });
 
+describe('OperonStreamMapper automated notices', () => {
+  // The first event a mapper sees also opens the message.
+  const mapped = (m: OperonStreamMapper, event: AgentEvent) => m.map(event).filter((part) => part.type !== 'start')
+  const settled = '<background-task-done taskId="bash-1" toolCallId="call_1">\n[system: automated event, NOT a message from the user.]\nbash: npm run ios:sync completed (exit code 0).\n</background-task-done>'
+
+  it('places a background task settling mid-turn where the agent read it', () => {
+    const m = new OperonStreamMapper()
+    const parts = mapped(m, ev('main', {
+      type: 'message.appended',
+      origin: { kind: 'background_task', taskId: 'bash-1', steerId: 'steer_1' },
+      message: { role: 'user', content: [{ type: 'text', text: settled }] },
+    }))
+    expect(parts).toEqual([{ type: 'injected-input', id: expect.any(String), text: settled, notice: true }])
+  })
+
+  it('leaves the person\'s own messages and plumbing alone', () => {
+    const m = new OperonStreamMapper()
+    const user = { role: 'user', content: [{ type: 'text', text: 'hello' }] }
+    expect(mapped(m, ev('main', { type: 'message.appended', origin: { kind: 'user' }, message: user }))).toEqual([])
+    expect(mapped(m, ev('main', { type: 'message.appended', origin: { kind: 'user_follow_up' }, message: user }))).toEqual([])
+    expect(mapped(m, ev('main', {
+      type: 'message.appended',
+      origin: { kind: 'injection', variant: 'todos' },
+      message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>\nThe task list…' }] },
+    }))).toEqual([])
+    expect(mapped(m, ev('main', {
+      type: 'message.appended',
+      origin: { kind: 'external', source: 'peer', steerId: 'pm_1', actor: 'dba' },
+      message: { role: 'user', content: [{ type: 'text', text: 'done' }] },
+    }))).toEqual([])
+  })
+})
+
 describe('OperonStreamMapper injected input boundaries', () => {
   // The framework only drains steers between steps, so `turn.step.completed` has already closed
   // the open blocks by the time the steer's `message.appended` arrives.

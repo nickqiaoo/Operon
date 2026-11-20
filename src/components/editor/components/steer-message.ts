@@ -16,10 +16,28 @@ export type InjectedInputData = { id: string; text: string };
 
 type MessagePart = UIMessage['parts'][number];
 
+type InjectedPartData = Partial<InjectedInputData> & { notice?: unknown };
+
+function injectedData(part: MessagePart): InjectedPartData | undefined {
+  if (part.type !== INJECTED_INPUT_PART || !('data' in part)) return undefined;
+  return part.data as InjectedPartData | undefined;
+}
+
+/** A follow-up the user sent, where the agent read it. Never an automated notice. */
 export function getInjectedInput(part: MessagePart): InjectedInputData | null {
-  if (part.type !== INJECTED_INPUT_PART || !('data' in part)) return null;
-  const data = part.data as Partial<InjectedInputData> | undefined;
+  const data = injectedData(part);
+  if (data?.notice === true) return null;
   return typeof data?.id === 'string' && typeof data.text === 'string' ? { id: data.id, text: data.text } : null;
+}
+
+/**
+ * An automated event the agent read mid-turn (a background task settling while it
+ * worked), at the point it read it. Marked the same way as a steer, but nobody sent
+ * it, so it is not a steer: it never answers a question or leaves the steer tray.
+ */
+export function getInjectedNotice(part: MessagePart): string | null {
+  const data = injectedData(part);
+  return data?.notice === true && typeof data.text === 'string' && data.text ? data.text : null;
 }
 
 /** Steer ids already shown inside a reply, where the agent read them. */

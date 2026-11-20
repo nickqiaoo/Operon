@@ -2286,6 +2286,8 @@
   "draftChat.checkoutFailed": "无法切换到 {branch}",
   "draftChat.worktreeFailed": "无法创建工作树",
   "editor.turnFold.workedFor": "用时 {duration}",
+  "editor.backgroundRunFold.events": "{rounds} 个后台事件",
+  "editor.backgroundRunFold.workedFor": "{rounds} 个后台事件 · 用时 {duration}",
   "editor.turnFold.worked": "已完成工作",
   "settings.appearance.section.chat": "对话",
   "settings.appearance.section.chatDesc": "对话中回复的展示方式。",
