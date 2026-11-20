@@ -68,7 +68,8 @@ export function ThinkingEffortPicker({
       className={buttonClassName}
     >
       <BrainIcon className="size-3.5" />
-      <span>{label}</span>
+      {/* Drops before the model name does (see ModelSelectorPanel). */}
+      <span className={cn(!isMobile && '@max-[380px]:sr-only')}>{label}</span>
     </PromptInputButton>
   );
 

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { useResolvedMode } from "@/hooks/useResolvedMode"
 import type { FileChange } from "./types"
 import { PIERRE_GIT_STATUS } from "./constants"
-import { FileFilterInput } from "@/components/workspace-browser/WorkspaceFileTree"
+import { FileFilterInput, TREE_NO_BOUNCE_CSS } from "@/components/workspace-browser/WorkspaceFileTree"
 
 export interface ChangedFilesTreeProps {
   files: FileChange[]
@@ -129,6 +129,7 @@ export function ChangedFilesTreeInner({
       // layer that beats Pierre's base styles.
       unsafeCSS: `
         [data-item-git-status] > [data-item-section='content'] { color: inherit; }
+        ${TREE_NO_BOUNCE_CSS}
       `,
       initialSelectedPaths: activePath != null ? [activePath] : undefined,
     }),

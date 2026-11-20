@@ -137,12 +137,15 @@ export function ModelSelectorPanel({
       aria-expanded={open}
       onClick={isMobile ? openPicker : undefined}
       disabled={disabled}
-      className={cn('gap-2', buttonClassName, !isMobile && 'min-w-0 shrink')}
+      className={cn('gap-2', buttonClassName, !isMobile && '@max-[345px]:px-2')}
     >
       <ModelIcon model={selectedModel?.id ?? ''} provider={selectedModel?.provider} size={14} />
-      <TruncatedText className={cn('min-w-0 max-w-32 truncate', isMobile && '@max-[460px]:hidden')}>
+      {/* Whole or not at all: as the composer narrows, the toolbar drops labels
+          in steps (Fast/Goal 440 → Mode 400 → Thinking 380 → this, last) rather
+          than ellipsizing the model name. */}
+      <span className={cn('whitespace-nowrap', isMobile ? '@max-[460px]:hidden' : '@max-[345px]:hidden')}>
         {selectedModel?.label ?? intl.formatMessage({ id: 'editor.model.selectPlaceholder', defaultMessage: 'Select model...' })}
-      </TruncatedText>
+      </span>
     </PromptInputButton>
   );
 

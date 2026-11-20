@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useProjectStore, Project, Workspace, WorkspaceTask, WorkspaceDiffStat } from "@/stores/project-store"
 import { useWorkspaceDiffStats } from "@/hooks/useWorkspaceDiffStats"
+import { useMediaQuery } from "@/hooks/useMediaQuery"
 import { useEditorStore } from "@/stores/editor-store"
 import type { EditorTab } from "@/types/editor"
 import { useStreamingStore } from "@/stores/streaming-store"
@@ -358,6 +359,7 @@ interface SidebarNavItemProps extends ComponentProps<"button"> {
   tooltip?: boolean
   /** Off for buttons whose hover floats a panel: the tooltip then stays keyboard-only. */
   hoverTooltip?: boolean
+  tooltipSide?: "right" | "top"
 }
 
 // One rail/row slot: 40px tall, its 4px transparent border insetting the
@@ -367,7 +369,7 @@ const navItemClassName = (active: boolean | undefined) => cn(
   active ? "bg-row-selected text-foreground hover:bg-row-selected" : "text-foreground/85 hover:bg-row-hover hover:text-foreground",
 )
 
-function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, hoverTooltip = true, className, ...props }: SidebarNavItemProps) {
+function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actionCount = 0, tooltip = true, hoverTooltip = true, tooltipSide = "right", className, ...props }: SidebarNavItemProps) {
   const total = actionCount || count
   const [tooltipOpen, setTooltipOpen] = useState(false)
 
@@ -421,7 +423,7 @@ function SidebarNavItem({ icon: Icon, label, collapsed, active, count = 0, actio
           )}
         </button>
       </TooltipTrigger>
-      {collapsed && tooltip && <TooltipContent side="right">{label}</TooltipContent>}
+      {collapsed && tooltip && <TooltipContent side={tooltipSide}>{label}</TooltipContent>}
     </Tooltip>
   )
 }
@@ -437,6 +439,10 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
   const activeLabel = intl.formatMessage({ id: "sidebar.active", defaultMessage: "Active" })
   const addRepositoryLabel = intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })
+  // Short windows (iPad landscape, a squat desktop window): the fixed nav above
+  // and below would leave the project tree a sliver, so the bottom tools fold
+  // into one row of icons. The rail keeps its column: it has no tree to protect.
+  const compactTools = useMediaQuery("(max-height: 820px)") && !collapsed
   const mainView = useNavigationStore((s) => s.main)
   const showMain = useNavigationStore((s) => s.showMain)
   const showWorkbench = useNavigationStore((s) => s.showWorkbench)
@@ -464,6 +470,23 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
   const projectsTriggerRef = useRef<HTMLButtonElement>(null)
   const projectTreeRef = useRef<HTMLDivElement>(null)
+  // Web: the machine badge (WebAuthGate) is fixed to the viewport but drawn as
+  // part of this column, so it needs this column's real width to stay inside
+  // it. Published as a CSS variable; the observer also follows the animation.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = rootRef.current
+    if (__APP_TARGET__ !== "web" || !el) return
+    const root = document.documentElement
+    const observer = new ResizeObserver(([entry]) => {
+      root.style.setProperty("--sidebar-inline-size", `${entry.contentRect.width}px`)
+    })
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty("--sidebar-inline-size")
+    }
+  }, [])
   const activeTriggerRef = useRef<HTMLButtonElement>(null)
   const activeFlyoutRef = useRef<HTMLDivElement>(null)
   const projectTreeId = useId()
@@ -609,7 +632,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   // being cut off square. The project tree keeps the full width (below) and is
   // clipped instead: reflowing it every frame would cost a layout.
   return (
-    <div className="relative flex h-full w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+    <div ref={rootRef} className="relative flex h-full w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <WorkspaceDiffStatsSync />
       {/* Titlebar cell. Canvas-coloured under a sidebar-coloured layer that
           fades with the labels: expanded it is the sidebar's grey top, while
@@ -687,9 +710,10 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       {/* Expanded: the same list sits above the projects, there whenever something is in play.
           Fixed width and clipped while the sidebar animates, like the tree below.
           Height capped so the project tree keeps most of the sidebar: ~6 rows on
-          tall windows, a proportional share on short ones. The rest scrolls. */}
+          tall windows, a proportional share on short ones. The rest scrolls.
+          It also gives way (shrink) once the tree is down to its floor below. */}
       {!collapsed && (
-        <div className="sidebar-label-fade flex max-h-[min(30%,16rem)] min-h-0 shrink-0 flex-col" style={{ width, maxWidth }}>
+        <div className="sidebar-label-fade flex max-h-[min(30%,16rem)] min-h-0 shrink flex-col [@media(max-height:820px)]:max-h-[min(20%,9rem)]" style={{ width, maxWidth }}>
           <ActiveConversations variant="section" onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} />
         </div>
       )}
@@ -708,7 +732,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
           "flex min-h-0 flex-col outline-none",
           collapsed
             ? cn(railFlyoutClassName, "py-2")
-            : "sidebar-label-fade flex-1 shrink-0",
+            // Floor: header + ~3 rows, taken from the Active list above first.
+            : "sidebar-label-fade min-h-[min(9rem,40%)] flex-1 shrink-0",
           collapsed && !floating && "invisible pointer-events-none opacity-0",
           floating && railFlyoutEnterClassName,
         )}
@@ -771,10 +796,13 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
       </div>
       {collapsed && <div className="min-h-0 flex-1" />}
 
-      {/* Keep every bottom destination directly accessible in both modes. */}
+      {/* Keep every bottom destination directly accessible in both modes.
+          Web reserves room for the machine badge (WebAuthGate): a 28px pill
+          fixed 12px above the viewport's bottom edge, which this column also
+          reaches on iPad (the shell runs under the home indicator). */}
       <nav
         aria-label="Tools and settings"
-        className={cn("relative shrink-0 space-y-1 border-t border-border/40 px-1.5 pt-2", __APP_TARGET__ === "web" ? "pb-12" : "pb-3")}
+        className={cn("relative shrink-0 space-y-1 border-t border-border/40 px-1.5 pt-2", __APP_TARGET__ === "web" ? "pb-11" : "pb-3")}
       >
         {/* The rail shows a pending update above this group. Always mounted in
             its slot, out of the layout: expanded it fades out with the labels
@@ -787,14 +815,26 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
         >
           <UpdateReadyPill variant="rail" />
         </div>
-        <SidebarNavItem icon={Network} label={intl.formatMessage({ id: "sidebar.workflow", defaultMessage: "Workflow" })} collapsed={collapsed} onClick={() => openPage({ kind: "canvas" })} />
-        <SidebarNavItem icon={Package} label={intl.formatMessage({ id: "sidebar.plugins", defaultMessage: "Plugins" })} collapsed={collapsed} onClick={() => openPage({ kind: "plugins" })} />
-        <SidebarNavItem icon={CalendarClock} label={intl.formatMessage({ id: "sidebar.schedule", defaultMessage: "Schedule" })} collapsed={collapsed} onClick={() => openPage({ kind: "schedule" })} />
-        <div className="flex items-center gap-0.5">
-          <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })} collapsed={collapsed} data-testid="settings-button"
+        {/* Compact: one row of icons — the tools, Settings, then Help at the end. */}
+        <div className={compactTools ? "flex items-center gap-0.5" : "space-y-1"}>
+        <div className={compactTools ? "contents" : "space-y-1"}>
+          <SidebarNavItem icon={Network} label={intl.formatMessage({ id: "sidebar.workflow", defaultMessage: "Workflow" })}
+            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} className={cn(compactTools && "w-10")}
+            onClick={() => openPage({ kind: "canvas" })} />
+          <SidebarNavItem icon={Package} label={intl.formatMessage({ id: "sidebar.plugins", defaultMessage: "Plugins" })}
+            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} className={cn(compactTools && "w-10")}
+            onClick={() => openPage({ kind: "plugins" })} />
+          <SidebarNavItem icon={CalendarClock} label={intl.formatMessage({ id: "sidebar.schedule", defaultMessage: "Schedule" })}
+            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} className={cn(compactTools && "w-10")}
+            onClick={() => openPage({ kind: "schedule" })} />
+        </div>
+        <div className={compactTools ? "contents" : "flex items-center gap-0.5"}>
+          <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })}
+            collapsed={collapsed || compactTools} tooltipSide={compactTools ? "top" : "right"} data-testid="settings-button"
             // min-w-10: while the sidebar closes, Help and the update button
             // overflow past the edge (and are clipped) rather than squeeze this.
-            className={cn("min-w-10", !collapsed && "flex-1")} onClick={() => openPage({ kind: "settings" })} />
+            className={cn("min-w-10", compactTools ? "w-10" : !collapsed && "flex-1")} onClick={() => openPage({ kind: "settings" })} />
+          {compactTools && <div className="min-w-0 flex-1" />}
           {!collapsed && <UpdateReadyPill className="sidebar-label-fade" />}
           {!collapsed && (
             <Tooltip delayDuration={600}>
@@ -810,6 +850,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
               <TooltipContent side="top">{intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })}</TooltipContent>
             </Tooltip>
           )}
+        </div>
         </div>
       </nav>
 

@@ -359,7 +359,7 @@ export default function App() {
         document.body
       )}
 
-    <div className={cn("overflow-hidden bg-background text-foreground", iosWorkbench ? "ios-workbench-frame" : "relative h-screen w-screen", isPageOpen && "invisible")}>
+    <div className={cn("overflow-hidden bg-background text-foreground", iosWorkbench ? "ios-workbench-shell" : "relative h-screen w-screen", isPageOpen && "invisible")}>
       {/* Main Content */}
       <AppSidebar onOpenSpec={openSpec} onOpenNotification={handleOpenNotification} onOpenChat={openChat}>
         {/* Main Content Area (Center + Right) */}

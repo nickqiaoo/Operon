@@ -7,7 +7,7 @@ export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
   if (!src) return <span className="inline-block rounded bg-muted/60 flex-shrink-0" style={{ width: size, height: size }} />;
   return (
     <img src={src} alt="" width={size} height={size}
-      className="dark:invert flex-shrink-0"
+      className="dark:invert max-w-none flex-shrink-0"
       style={{ width: size, height: size, objectFit: 'contain' }}
     />
   );
@@ -16,7 +16,9 @@ export function ProviderIcon({ id, size = 14 }: { id: string; size?: number }) {
 export function ModelIcon({ model, provider, size = 14 }: { model: string; provider?: string; size?: number }) {
   const src = modelLogoSrc(model, provider);
   if (!src) return <ProviderIcon id="endpoint" size={size} />;
-  return <img src={src} alt="" width={size} height={size} className="dark:invert shrink-0 object-contain" style={{ width: size, height: size }} />;
+  // max-w-none: preflight's `img { max-width: 100% }` would otherwise scale the
+  // logo down inside a button squeezed narrower than its content.
+  return <img src={src} alt="" width={size} height={size} className="dark:invert max-w-none shrink-0 object-contain" style={{ width: size, height: size }} />;
 }
 
 

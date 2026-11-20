@@ -369,7 +369,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
                 "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
               )}
             >
-              <AgentAvatar provider={tab.providerId} size="sm" />
+              <AgentAvatar provider={tab.providerId} size="sm" bare />
               <span className="truncate text-base text-foreground/85">{tab.title}</span>
               {tab.chatId != null && runningChatIds.has(tab.chatId) && (
                 <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />
@@ -386,7 +386,7 @@ export function MobileChatsScreen({ specId, onOpenSpecChat, keyboardOpen = false
                 "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left hover:bg-row-hover"
               )}
             >
-              <AgentAvatar provider={item.providerId} size="sm" />
+              <AgentAvatar provider={item.providerId} size="sm" bare />
               <span className="truncate text-base text-foreground/85">{item.title}</span>
               {runningChatIds.has(item.id) ? (
                 <Loader2 className="ml-auto size-4 shrink-0 animate-spin text-status-info" aria-label="Running" />

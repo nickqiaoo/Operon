@@ -814,7 +814,8 @@ function MachineBadge({
   }, [sidebarCollapsed])
   if (sidebarCollapsed) return null
   return (
-    <div className="fixed bottom-3 left-3 z-[60] text-xs">
+    // Kept inside the sidebar it is drawn as part of: 12px in from both edges.
+    <div className="fixed bottom-3 left-3 z-[60] max-w-[calc(var(--sidebar-inline-size,100vw)-1.5rem)] text-xs">
       {open && (
         <div className="mb-1.5 w-44 overflow-hidden rounded-lg border border-border/50 bg-popover/95 shadow-float backdrop-blur">
           <button
@@ -841,11 +842,11 @@ function MachineBadge({
       )}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-full border border-border/50 bg-popover/90 px-2.5 py-1.5 text-muted-foreground shadow-card backdrop-blur transition-colors hover:bg-accent-hover"
+        className="flex max-w-full items-center gap-1.5 rounded-full border border-border/50 bg-popover/90 px-2.5 py-1.5 text-muted-foreground shadow-card backdrop-blur transition-colors hover:bg-accent-hover"
       >
-        <Monitor className="h-3.5 w-3.5" />
-        <span className="max-w-[140px] truncate text-foreground">{label}</span>
-        <ChevronUp className={`h-3 w-3 transition-transform ${open ? '' : 'rotate-180'}`} />
+        <Monitor className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 max-w-[140px] truncate text-foreground">{label}</span>
+        <ChevronUp className={`h-3 w-3 shrink-0 transition-transform ${open ? '' : 'rotate-180'}`} />
       </button>
     </div>
   )

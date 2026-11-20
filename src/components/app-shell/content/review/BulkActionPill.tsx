@@ -24,7 +24,7 @@ export function BulkActionPill({
 }) {
   const isStaged = scope === "staged"
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+    <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.75rem,var(--ios-shell-safe-bottom,0px))] z-10 flex justify-center">
       <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/50 bg-background/90 p-1 shadow-float backdrop-blur">
         {isStaged ? (
           <PillButton onClick={onUnstageAll} icon={<Minus className="h-3.5 w-3.5" />}>

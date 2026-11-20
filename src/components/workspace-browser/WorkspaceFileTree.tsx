@@ -28,6 +28,20 @@ import { useResolvedMode } from "@/hooks/useResolvedMode"
  * the row. Keep the ring for keyboard navigation (`:focus-visible`) and drop it
  * when the row was focused by the pointer.
  */
+/**
+ * No rubber band at the ends, for every Pierre tree. While iOS bounces past
+ * the last row, scrollTop runs beyond rows × rowHeight − viewport, and Pierre
+ * writes it back to that maximum on every scroll event, so the bounce
+ * animation and the clamp pull against each other and the list shakes. Same
+ * fix as PullToRefresh's scroller. Not behind `(hover: none)`: an iPad that
+ * has ever seen a pointer reports hover, and it bounces all the same.
+ */
+export const TREE_NO_BOUNCE_CSS = `
+  [data-file-tree-virtualized-scroll='true'] {
+    overscroll-behavior-y: none;
+  }
+`
+
 const TREE_UNSAFE_CSS = `
   [data-type='item'][data-item-focused='true']:focus:not(:focus-visible)::before {
     outline-color: transparent;
@@ -44,18 +58,8 @@ const TREE_UNSAFE_CSS = `
       background-color: var(--trees-bg);
       --truncate-marker-background-overlay-color: transparent;
     }
-
-    /*
-     * No rubber band at the ends. While iOS bounces past the last row,
-     * scrollTop runs beyond rows × rowHeight − viewport, and Pierre writes it
-     * back to that maximum on every scroll event, so the bounce animation and
-     * the clamp pull against each other and the bottom of the list shakes.
-     * Same fix as PullToRefresh's scroller.
-     */
-    [data-file-tree-virtualized-scroll='true'] {
-      overscroll-behavior-y: none;
-    }
   }
+${TREE_NO_BOUNCE_CSS}
 `
 
 /**
