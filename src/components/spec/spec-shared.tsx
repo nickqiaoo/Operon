@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { MobileSheet } from '@/components/mobile/MobileSheet'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { api } from '@/lib/api'
 import { invalidateSpec, useSpecView } from '@/lib/spec-queries'
 import { cn } from '@/lib/utils'
@@ -636,7 +636,7 @@ export function SpecProposalBanner({ spec }: { spec: SpecView }) {
 
 /** Gate buttons: compact beside a mouse, tall and sharing the row on a phone. */
 function useGateButtonClass(): string {
-  return useIsMobile() ? 'h-10 min-w-[calc(50%-0.25rem)] flex-1 gap-1.5 text-sm' : 'h-8 gap-1.5'
+  return useIsMobileShell() ? 'h-10 min-w-[calc(50%-0.25rem)] flex-1 gap-1.5 text-sm' : 'h-8 gap-1.5'
 }
 
 /**
@@ -660,7 +660,7 @@ function GateSheet({
   onOpenChange?: (open: boolean) => void
   children: ReactNode
 }) {
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const [own, setOwn] = useState(false)
   const open = controlled ?? own
   const setOpen = onOpenChange ?? setOwn

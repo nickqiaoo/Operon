@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { ImageViewer } from '@/components/ai-elements/image-viewer';
 import { useAuthedObjectUrl } from '@/hooks/useAuthedObjectUrl';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { getImageMediaType } from '@/lib/file-preview';
 import { useFileStat, useFileUrl } from '@/lib/fs-queries';
 import { cn } from '@/lib/utils';
@@ -37,7 +37,7 @@ export function imageReadPathOf(toolPart: ToolPartLike & { state?: string }): st
  * since simply isn't shown.
  */
 export function ReadImagesRow({ paths, children }: { paths: string[]; children: ReactNode }) {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileShell();
   const openFile = useFileOpenHandler();
   if (!openFile || paths.length === 0) return <>{children}</>;
   if (isMobile) {

@@ -2,7 +2,7 @@ import { Bell } from "lucide-react"
 import { useState } from "react"
 import { useIntl } from "react-intl"
 import { MobileSheet } from "@/components/mobile/MobileSheet"
-import { useIsMobile } from "@/hooks/useIsMobile"
+import { useIsMobileShell } from "@/hooks/useIsMobile"
 import { useInboxStore } from "@/stores/inbox-store"
 import { cn } from "@/lib/utils"
 import type { Notification } from "@/types/notification"
@@ -53,7 +53,7 @@ export function MobileInboxSheet({
 export function InboxButton({ onOpenPage, onNavigate, onOpenSheet, className }: InboxButtonProps) {
   const intl = useIntl()
   const inboxLabel = intl.formatMessage({ id: "sidebar.inbox", defaultMessage: "Inbox" })
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const [sheetOpen, setSheetOpen] = useState(false)
   const action = useInboxStore((s) => s.counts.action)
   const total = useInboxStore((s) => s.counts.total)

@@ -3,7 +3,7 @@ import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { DEFAULT_VIRTUAL_FILE_METRICS } from '@pierre/diffs';
 import { useThemeStore } from '@/stores/theme-store';
 import { useReviewDisplayStore } from '@/stores/review-display-store';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { createPierreDiffOptions } from '@shared/tool-rendering/diff';
 import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider';
 import { usePreparedDiff } from '@/components/diff/usePreparedDiff';
@@ -18,7 +18,7 @@ interface FileDiffViewerProps {
 }
 
 export function FileDiffViewer({ filePath, oldContent, newContent, className }: FileDiffViewerProps) {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileShell();
   const openFile = useFileOpenHandler();
   const theme = useThemeStore((s) => s.theme);
   const wordDiff = useReviewDisplayStore((s) => s.wordDiff);

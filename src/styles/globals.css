@@ -28,6 +28,11 @@
 /* Typography includes `th` in headings; keep table headers independent. */
 @custom-variant prose-headings (& :is(h1, h2, h3, h4, h5, h6));
 
+/* Phone-shell-only styles (17px chat text etc.). Keyed to the `.mobile-shell`
+   class MobileApp puts on <html>, not to `max-md:`: the desktop App can be
+   dragged far under 768px, and a narrow desktop window is not a phone. */
+@custom-variant phone (&:where(.mobile-shell, .mobile-shell *));
+
 /* From shadcn's `shadcn/tailwind.css`: Radix marks open/closed with
    `data-state`, Base UI with bare `data-open` — the ui/ components (Trace etc.)
    are written against these two. Only these and `shimmer` are copied; that
@@ -1427,14 +1432,12 @@ samp {
   min-width: 100%;
 }
 
-/* Phone: code at arm's length reads small at 11–12px. */
-@media (max-width: 768px) {
-  .pierre-diff-file-view,
-  .dark .pierre-diff-file-view,
-  .pierre-file-preview-view {
-    --diffs-font-size: 13px;
-    --diffs-line-height: 20px;
-  }
+/* Phone: code at arm's length reads small at 11–12px. Shell, not viewport
+   width — a narrow desktop window keeps desktop code size. */
+.mobile-shell .pierre-diff-file-view,
+.mobile-shell .pierre-file-preview-view {
+  --diffs-font-size: 13px;
+  --diffs-line-height: 20px;
 }
 
 /* ── Sonner toast overrides ── */

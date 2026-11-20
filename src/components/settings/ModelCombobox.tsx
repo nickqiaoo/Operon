@@ -12,7 +12,7 @@ import { MobileSheet } from "@/components/mobile/MobileSheet"
 import { Command } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { TruncatedText } from "@/components/ui/truncated-text"
-import { useIsMobile } from "@/hooks/useIsMobile"
+import { useIsMobileShell } from "@/hooks/useIsMobile"
 import type { ProviderModelOption } from "@/lib/provider-queries"
 import { cn } from "@/lib/utils"
 
@@ -50,7 +50,7 @@ export function ModelCombobox({
   className,
 }: ModelComboboxProps) {
   const intl = useIntl()
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const [open, setOpen] = useState(false)
   const title = ariaLabel ?? intl.formatMessage({ id: "editor.model.selectTitle", defaultMessage: "Select model" })
 

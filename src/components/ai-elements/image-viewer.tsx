@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { copyImageToClipboard } from "@/lib/copy-image";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsMobileShell } from "@/hooks/useIsMobile";
 import { useNativeShellOverlay } from "@/hooks/useNativeShellOverlay";
 import { CheckIcon, CopyIcon, ImageIcon, Loader2Icon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -424,7 +424,7 @@ function ImageViewerContent({ src, filename, mobile }: ImageViewerProps & { mobi
 
 /** Shared by composer attachments and images already in the conversation. */
 export function ImageViewer(props: ImageViewerProps) {
-  const mobile = useIsMobile();
+  const mobile = useIsMobileShell();
   // Callers mount this only while open. In the packaged apps the native composer, tab bar,
   // scroll button and (for the phone's full-screen layout) top bar sit above the web view,
   // so they must step aside.

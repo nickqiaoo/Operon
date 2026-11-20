@@ -5,7 +5,7 @@ import type { DiffLineAnnotation } from "@pierre/diffs"
 import { FileDiff } from "lucide-react"
 import { useThemeStore } from "@/stores/theme-store"
 import { useEditorStore } from "@/stores/editor-store"
-import { useIsMobile } from "@/hooks/useIsMobile"
+import { useIsMobileShell } from "@/hooks/useIsMobile"
 import { cn } from "@/lib/utils"
 import {
   createPierreDiffOptions,
@@ -27,7 +27,7 @@ const getBasename = (filePath: string) => {
 
 export function DiffPreview({ path, content }: DiffPreviewProps) {
   const basename = useMemo(() => getBasename(path), [path])
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const theme = useThemeStore((s) => s.theme)
   const themeType = useMemo(() => {
     if (theme === "system") return "system" as const

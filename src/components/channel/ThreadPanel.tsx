@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './ComposerFrame'
 import type { ChannelMessage, Agent } from '@/types/channel'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { hasNativeComposer } from '@/lib/native-composer'
 import { NativeChatComposer } from '@/components/mobile/NativeChatComposer'
 
@@ -42,7 +42,7 @@ export function ThreadPanel({
 }: ThreadPanelProps) {
   const intl = useIntl()
   const [input, setInput] = useState('')
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const nativeComposer = isMobile && hasNativeComposer()
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)

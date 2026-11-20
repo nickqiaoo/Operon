@@ -1,13 +1,13 @@
 import { useEffect, useId, type RefObject } from 'react'
 import { NativeComposer, hasNativeComposer } from '@/lib/native-composer'
 import { usePageVisible } from '@/lib/page-visibility'
-import { useIsMobile } from './useIsMobile'
+import { useIsMobileShell } from './useIsMobile'
 import { useNativeShellOverlayCount } from './useNativeShellOverlay'
 
 /** Keep the existing web button as the layout anchor and click handler. */
 export function useNativeScrollButton(ref: RefObject<HTMLButtonElement | null>, visible: boolean) {
   const id = useId()
-  const mobile = useIsMobile()
+  const mobile = useIsMobileShell()
   const pageVisible = usePageVisible()
   const overlays = useNativeShellOverlayCount()
   const native = mobile && hasNativeComposer()

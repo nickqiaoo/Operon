@@ -23,7 +23,7 @@ import { getBaseUrl } from '@/lib/api-client'
 import { resolveAttachmentUrl } from '@/lib/attachments'
 import { openExternalUrl } from '@/lib/open-external'
 import { useHtmlRenderTheme } from '@/hooks/useHtmlRenderTheme'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { resultText, toolNameOf } from './TaskCreatedRenderer'
 import type { ToolPartLike } from './toolName'
 
@@ -328,8 +328,7 @@ export function HtmlRenderFrame({ visual }: { visual: HtmlRenderRef }) {
   const [fullScreen, setFullScreen] = useState(false)
   // The phone shell (same test as Root): the page already spans the screen, and
   // a dialog there runs under the native bars, so it has no full-screen view.
-  const isMobile = useIsMobile()
-  const phone = __APP_TARGET__ === 'web' && isMobile
+  const phone = useIsMobileShell()
   const [image, setImage] = useState<{ src: string; name: string } | null>(null)
   const [collapsed, setCollapsed] = useState(() => readCollapsed().includes(visual.url))
   const toggleCollapsed = (next: boolean) => {

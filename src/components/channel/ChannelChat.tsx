@@ -14,7 +14,7 @@ import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './Co
 import { useScrollActivity } from '@/hooks/useScrollActivity'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
 import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { hasNativeComposer } from '@/lib/native-composer'
 import { NativeChatComposer } from '@/components/mobile/NativeChatComposer'
 
@@ -66,7 +66,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
 
   // Phone: the composer floats over the transcript's bottom, which pads its
   // end by the composer's live height and scrolls on under its glass.
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const nativeComposer = isMobile && hasNativeComposer()
   const composerRef = useRef<HTMLDivElement>(null)
   const [composerHeight, setComposerHeight] = useState(0)
@@ -498,7 +498,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
               ref={composerRef}
               // With the keyboard down the home indicator, with it up the keyboard:
               // it covers that strip, so the two never stack (0 on desktop).
-              className="shrink-0 p-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--keyboard-height)))] max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:z-20"
+              className="shrink-0 p-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--keyboard-height)))] phone:absolute phone:inset-x-0 phone:bottom-0 phone:z-20"
             >
               {nativeComposer ? <NativeChatComposer
                 active={!showRightPanel}

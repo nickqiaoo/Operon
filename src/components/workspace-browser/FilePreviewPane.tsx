@@ -19,7 +19,7 @@ import { useLineComments, type CommentMeta } from "@/components/editor/comments/
 import { useAuthedObjectUrl } from "@/hooks/useAuthedObjectUrl"
 import { isMacPlatform } from "@/lib/shortcuts/accelerator"
 import { cn } from "@/lib/utils"
-import { useIsMobile } from "@/hooks/useIsMobile"
+import { useIsMobileShell } from "@/hooks/useIsMobile"
 import { useFilePreviewDiffStore } from "@/stores/file-preview-diff-store"
 import { ChangeNavigator, DiffBasePill } from "./DiffControls"
 import { FindBar } from "./FindBar"
@@ -181,7 +181,7 @@ export function FilePreviewPane({
     [entries, workspaceTools]
   )
   // Phone: long lines stay whole and scroll sideways (see .pierre-hscroll).
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileShell()
   const overflow = isMobile ? "scroll" : "wrap"
   const diffOptions = useMemo<FileDiffOptions<CommentMeta, undefined>>(
     () => ({

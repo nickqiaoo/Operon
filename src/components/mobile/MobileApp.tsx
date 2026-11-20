@@ -1,5 +1,5 @@
 import { contextProjectGroups } from './context-projects'
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Toaster } from "sonner"
 import { useIntl } from "react-intl"
 import { hasNativeAssistantBar, hasNativeHeaderBar, hasNativeTabBar, NativeShell, nativePlatform, nativeTopBarTakesSpace, type NativeMenuNode, type NativeTopBarHeader } from "@/lib/native"
@@ -236,7 +236,7 @@ export function MobileApp({ resumeWorkbench = false }: { resumeWorkbench?: boole
   // The phone's type is the system font, not the desktop stack (globals.css).
   // On <html> rather than this tree's root: the pages pushed over a screen are
   // portalled to <body>.
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.classList.add("mobile-shell")
     return () => document.documentElement.classList.remove("mobile-shell")
   }, [])
