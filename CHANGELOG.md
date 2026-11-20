@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [1.5.31] - 2026-11-21
+
+### Added
+
+- The sidebar is now an always-visible icon rail plus a collapsible panel. The panel opens on workspace views and steps aside on Assistant, Board and Channels, where a toggle can still peek it open.
+- Focus view in the sidebar panel: priorities first (waiting on you, unread replies, running, unread notices), then every conversation grouped by Today / Yesterday / Earlier, with Show more and Mark all read. The tray's inbox command opens it.
+- The project tree lists recent chats under each workspace — agent icon, status dot, a shimmer while running, timestamp on hover — with a short preview that expands on demand. Chats dispatched to external agents nest under the chat that sent them, with completion counts, failure marks and diff stats.
+- Phone: a New chat button inside a conversation opens the agent picker; you only leave the current chat once you pick one.
+
+### Changed
+
+- The standalone Inbox page is gone. Unread notices live in the sidebar's Focus view, and the phone inbox (web and the iOS/Android native sheets) shows the same priority rows: opening a row marks it read and it leaves the list, running chats can't be swiped away, and external-agent notices fold into their parent chat. Read notices are now kept for 7 days instead of 30.
+- Workspaces an agent created for itself no longer sit at the top level of the project tree; they hang under the chat that dispatched them.
+- Reopening a chat shows a loading state inside the panel instead of the thin progress bar at the top of the window.
+- iPad: the active editor tab keeps its close button visible on touch devices.
+
+### Fixed
+
+- Switching the composer's mode persists right away, and reopening a chat restores the last-used mode and thinking effort — a still-loading model catalog no longer resets them to the provider defaults.
+- iOS: after the system kills and reloads the web view, a stale native composer or scroll button no longer lingers over the new page; two active composers no longer fight over the native editor and make the input box disappear.
+- The sidebar panel's open/close animation no longer jumps on heavy pages, and the page's left edge stays aligned when the rail collapses.
+- Paging through workspace chat history no longer drops or repeats chats that share a timestamp.
+- Marking a notice read removes it immediately instead of waiting for the server's reply.
+
 ## [1.5.30] - 2026-11-20
 
 ### Added
