@@ -342,7 +342,7 @@ function PreviewFileStrip({
       onWheel={(e) => {
         if (scrollRef.current != null && e.deltaX === 0) scrollRef.current.scrollLeft += e.deltaY
       }}
-      className="relative flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 px-2"
+      className="relative flex h-10 shrink-0 items-center gap-1 overflow-x-auto px-2"
       style={{ scrollbarWidth: "none" }}
     >
       {openPaths.map((path, index) => {

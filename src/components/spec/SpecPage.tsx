@@ -80,7 +80,7 @@ export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusCha
   return (
     <div className="@container/spec flex h-full min-h-0 flex-col bg-background" data-testid={target ? 'spec-page' : undefined} data-spec-id={target?.taskId}>
       {target ? <>
-      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 pr-2 text-xs text-muted-foreground">
+      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 pr-2 text-xs text-muted-foreground">
         <span className="shrink-0">{project?.name ?? 'Project'}</span>
         <span className="text-muted-foreground/40">/</span>
         <SpecIcon className="size-3.5 shrink-0" />

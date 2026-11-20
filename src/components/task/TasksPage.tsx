@@ -255,7 +255,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
       {/* Toolbar — scrolls horizontally on phones so controls keep their size
           instead of getting crushed into vertical text. Not there when controlled. */}
       {!controls && (
-      <div className="h-12 flex items-center border-b border-border/40 shrink-0 bg-background">
+      <div className="h-12 flex items-center shrink-0 bg-background">
         <div className="h-full min-w-0 flex-1 flex items-center gap-2 px-4 overflow-x-auto [&>*]:shrink-0">
           <div className="flex items-center rounded-lg bg-muted/25 p-0.5">
             <ToolbarToggle
@@ -332,7 +332,7 @@ export function TasksPage({ projectFilter, onOpenWorkspace, onOpenChat, onOpenCh
             </Button>
           )}
         </div>
-        {toolbarEnd && <div className="flex h-full shrink-0 items-center gap-1 border-l border-border/40 px-2">{toolbarEnd}</div>}
+        {toolbarEnd && <div className="flex h-full shrink-0 items-center gap-1 px-2">{toolbarEnd}</div>}
       </div>
       )}
 

@@ -42,7 +42,6 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useChatHistoryList } from "@/lib/chat-queries"
 import { useProviders, type ProviderSummary } from "@/lib/provider-queries"
-import { WorkspaceTaskButton } from "./WorkspaceTaskButton"
 
 import {
   Popover,
@@ -72,7 +71,6 @@ interface EditorTabsProps {
   onCloseTab: (id: string) => void
   onNewChat: (providerId: string) => void
   onNewTerminal: (providerId: string, label: string) => void
-  onOpenChat: (chatId: string, title?: string, options?: EditorTab["options"], providerId?: string, isSubAgent?: boolean) => void
 }
 
 /**
@@ -146,27 +144,8 @@ export function EditorTabs({
   onCloseTab,
   onNewChat,
   onNewTerminal,
-  onOpenChat,
 }: EditorTabsProps) {
   const intl = useIntl()
-  const setTabChatId = useEditorStore((s) => s.setTabChatId)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId)
-
-  // Cached per workspace, so opening this right after a switch can only ever
-  // show this workspace's conversations or a skeleton — never the ones from the
-  // workspace we just left.
-  const {
-    items: historyItems,
-    hasMore: historyHasMore,
-    isInitialLoading: historyLoading,
-    isLoadingMore: historyLoadingMore,
-    loadMore: loadMoreHistory,
-  } = useChatHistoryList({
-    workspaceId: currentWorkspaceId,
-    pageSize: HISTORY_PAGE_SIZE,
-    enabled: historyOpen,
-  })
 
   // Providers backing the new-tab menu (Chat + Terminal submenus). Not fetched
   // until the "+" menu first opens; the cached list stays after it closes.
@@ -175,13 +154,6 @@ export function EditorTabs({
 
   const terminalProviders = providers.filter((p) => p.id in TERMINAL_CLI_LAUNCH)
 
-  const handleHistoryScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (!historyHasMore || historyLoadingMore) return
-    const el = e.currentTarget
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
-      loadMoreHistory()
-    }
-  }
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -192,7 +164,10 @@ export function EditorTabs({
   }
 
   return (
-    <div className="h-10 flex items-center border-b border-border/50 bg-background px-2 gap-2">
+    // No bottom line: the titlebar above has none either, and a lone line
+    // under the tabs read as a stray cut. Content below fades at its top
+    // edge instead (Conversation's scroll fade).
+    <div data-testid="editor-tab-strip" className="h-10 flex items-center bg-background px-2 gap-2">
       <div
         ref={scrollRef}
         onWheel={handleWheel}
@@ -247,7 +222,10 @@ export function EditorTabs({
           </div>
         ))}
 
-        {/* New Tab Menu Integrated in Tab List */}
+        {/* "+" follows the last tab. With no tabs there is nothing for it to
+            follow, so it is gone; the first chat starts from the pen on the
+            workspace's sidebar row (or the rail's New chat). */}
+        {tabs.length > 0 && (
         <DropdownMenu open={newTabOpen} onOpenChange={setNewTabOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -317,113 +295,156 @@ export function EditorTabs({
             </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </div>
 
-      <div className="flex items-center gap-1 shrink-0 pl-2 border-l border-border/50">
-        <WorkspaceTaskButton />
-        <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title={intl.formatMessage({ id: "editor.tabs.chatHistory", defaultMessage: "Chat history" })}
-              aria-label={intl.formatMessage({ id: "editor.tabs.chatHistory", defaultMessage: "Chat history" })}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <History className="h-4 w-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            sideOffset={6}
-            className="w-80 p-0 border-border/40 shadow-float"
+    </div>
+  )
+}
+
+/**
+ * The workspace's conversation history. Lives in the titlebar row, not the tab
+ * strip: it is about the whole workspace, and the strip is empty (no buttons)
+ * until a tab is open.
+ */
+export function ChatHistoryButton({ onOpenChat, className }: {
+  onOpenChat: (chatId: string, title?: string, options?: EditorTab["options"], providerId?: string, isSubAgent?: boolean) => void
+  className?: string
+}) {
+  const intl = useIntl()
+  const setTabChatId = useEditorStore((s) => s.setTabChatId)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const currentWorkspaceId = useEditorStore((state) => state.currentWorkspaceId)
+
+  // Cached per workspace, so opening this right after a switch can only ever
+  // show this workspace's conversations or a skeleton — never the ones from the
+  // workspace we just left.
+  const {
+    items: historyItems,
+    hasMore: historyHasMore,
+    isInitialLoading: historyLoading,
+    isLoadingMore: historyLoadingMore,
+    loadMore: loadMoreHistory,
+  } = useChatHistoryList({
+    workspaceId: currentWorkspaceId,
+    pageSize: HISTORY_PAGE_SIZE,
+    enabled: historyOpen,
+  })
+
+  const handleHistoryScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (!historyHasMore || historyLoadingMore) return
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
+      loadMoreHistory()
+    }
+  }
+
+  return (
+    <div className={cn("no-drag flex shrink-0 items-center", className)}>
+      <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-testid="chat-history-button"
+            title={intl.formatMessage({ id: "editor.tabs.chatHistory", defaultMessage: "Chat history" })}
+            aria-label={intl.formatMessage({ id: "editor.tabs.chatHistory", defaultMessage: "Chat history" })}
+            // Same 24px / 14px icon as the titlebar buttons beside it.
+            className="size-6 rounded-md text-muted-foreground hover:text-foreground"
           >
-            <div className="px-3 py-2 border-b border-border/40">
-              <span className="text-sm font-medium text-foreground"><FormattedMessage id="editor.tabs.chatHistory" defaultMessage="Chat history" /></span>
-            </div>
-            <div className="max-h-[60vh] overflow-auto code-scrollbar" onScroll={handleHistoryScroll}>
-              {historyLoading ? (
-                <div className="flex flex-col gap-1 py-1">
-                  {Array.from({ length: 6 }, (_, i) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2">
-                      <Skeleton className="size-4 shrink-0 rounded" />
-                      <Skeleton className="h-3.5 flex-1" style={{ opacity: 1 - i * 0.12 }} />
-                      <Skeleton className="h-3 w-8 shrink-0" style={{ opacity: 1 - i * 0.12 }} />
-                    </div>
-                  ))}
-                </div>
-              ) : historyItems.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-6 text-center">
-                  <FormattedMessage id="editor.history.empty" defaultMessage="No conversations yet." />
-                </div>
-              ) : (
-                <div className="flex flex-col py-1">
-                  {historyItems.map((item) => {
-                    const tabId = `chat:${item.id}`
-                    const isCanvas = item.tp === 'canvas'
-                    const isSubAgent = item.tp === 'subagent' || item.tp === 'workflow-agent'
-                    const isTeammate = item.tp === 'teammate'
-                    const logo = getHistoryLogo(item.providerId)
-                    return (
-                      <button
-                        key={item.id}
-                        className="flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-row-hover transition-colors"
-                        onClick={() => {
-                          onOpenChat(tabId, item.title, undefined, item.providerId, isSubAgent || undefined)
-                          setTabChatId(tabId, item.id)
-                          setHistoryOpen(false)
-                        }}
-                      >
-                        {isSubAgent ? (
-                          <Bot className="size-4 shrink-0 text-status-info" />
-                        ) : isTeammate ? (
-                          <Users className="size-4 shrink-0 text-status-info" />
-                        ) : isCanvas ? (
-                          <LayoutDashboard className="size-4 shrink-0 text-brand" />
-                        ) : logo ? (
-                          <img
-                            src={logo}
-                            alt="model"
-                            className="size-4 shrink-0 dark:invert"
-                          />
-                        ) : (
-                          <div className="size-4 shrink-0" aria-hidden />
-                        )}
-                        <span className="font-medium truncate min-w-0 flex-1">
-                          {item.title}
+            <History className="h-3.5 w-3.5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          sideOffset={6}
+          className="w-80 p-0 border-border/40 shadow-float"
+        >
+          <div className="px-3 py-2 border-b border-border/40">
+            <span className="text-sm font-medium text-foreground"><FormattedMessage id="editor.tabs.chatHistory" defaultMessage="Chat history" /></span>
+          </div>
+          <div className="max-h-[60vh] overflow-auto code-scrollbar" onScroll={handleHistoryScroll}>
+            {historyLoading ? (
+              <div className="flex flex-col gap-1 py-1">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2">
+                    <Skeleton className="size-4 shrink-0 rounded" />
+                    <Skeleton className="h-3.5 flex-1" style={{ opacity: 1 - i * 0.12 }} />
+                    <Skeleton className="h-3 w-8 shrink-0" style={{ opacity: 1 - i * 0.12 }} />
+                  </div>
+                ))}
+              </div>
+            ) : historyItems.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-6 text-center">
+                <FormattedMessage id="editor.history.empty" defaultMessage="No conversations yet." />
+              </div>
+            ) : (
+              <div className="flex flex-col py-1">
+                {historyItems.map((item) => {
+                  const tabId = `chat:${item.id}`
+                  const isCanvas = item.tp === 'canvas'
+                  const isSubAgent = item.tp === 'subagent' || item.tp === 'workflow-agent'
+                  const isTeammate = item.tp === 'teammate'
+                  const logo = getHistoryLogo(item.providerId)
+                  return (
+                    <button
+                      key={item.id}
+                      className="flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-row-hover transition-colors"
+                      onClick={() => {
+                        onOpenChat(tabId, item.title, undefined, item.providerId, isSubAgent || undefined)
+                        setTabChatId(tabId, item.id)
+                        setHistoryOpen(false)
+                      }}
+                    >
+                      {isSubAgent ? (
+                        <Bot className="size-4 shrink-0 text-status-info" />
+                      ) : isTeammate ? (
+                        <Users className="size-4 shrink-0 text-status-info" />
+                      ) : isCanvas ? (
+                        <LayoutDashboard className="size-4 shrink-0 text-brand" />
+                      ) : logo ? (
+                        <img
+                          src={logo}
+                          alt="model"
+                          className="size-4 shrink-0 dark:invert"
+                        />
+                      ) : (
+                        <div className="size-4 shrink-0" aria-hidden />
+                      )}
+                      <span className="font-medium truncate min-w-0 flex-1">
+                        {item.title}
+                      </span>
+                      {isSubAgent && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info/10 text-status-info shrink-0">
+                          <FormattedMessage id="editor.history.subagent" defaultMessage="Subagent" />
                         </span>
-                        {isSubAgent && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info/10 text-status-info shrink-0">
-                            <FormattedMessage id="editor.history.subagent" defaultMessage="Subagent" />
-                          </span>
-                        )}
-                        {isCanvas && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-muted text-brand shrink-0">
-                            <FormattedMessage id="editor.history.workflow" defaultMessage="Workflow" />
-                          </span>
-                        )}
-                        {isTeammate && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info/10 text-status-info shrink-0">
-                            <FormattedMessage id="editor.history.teammate" defaultMessage="Teammate" />
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-                          {formatRelativeTime(intl, item.updatedAt)}
+                      )}
+                      {isCanvas && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-muted text-brand shrink-0">
+                          <FormattedMessage id="editor.history.workflow" defaultMessage="Workflow" />
                         </span>
-                      </button>
-                    )
-                  })}
-                  {historyLoadingMore && (
-                    <div className="py-2 text-center text-xs text-muted-foreground/60">
-                      <FormattedMessage id="editor.history.loadingMore" defaultMessage="Loading more…" />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+                      )}
+                      {isTeammate && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info/10 text-status-info shrink-0">
+                          <FormattedMessage id="editor.history.teammate" defaultMessage="Teammate" />
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                        {formatRelativeTime(intl, item.updatedAt)}
+                      </span>
+                    </button>
+                  )
+                })}
+                {historyLoadingMore && (
+                  <div className="py-2 text-center text-xs text-muted-foreground/60">
+                    <FormattedMessage id="editor.history.loadingMore" defaultMessage="Loading more…" />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

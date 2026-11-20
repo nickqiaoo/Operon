@@ -92,7 +92,15 @@ export const chat = {
    */
   async openNewChat(page: Page, scriptName?: string): Promise<void> {
     if (scriptName) await setFakeScript(scriptName)
-    await page.getByTestId('new-tab-button').click()
+    const newTab = page.getByTestId('new-tab-button')
+    if (await newTab.count() === 0) {
+      // No tabs yet, so no "+": the first chat comes from the sidebar's New
+      // chat, which opens on the last-used agent.
+      await page.evaluate(() => localStorage.setItem('operon.chat.last-provider:v1', 'fake'))
+      await page.getByTestId('sidebar-new-chat').click()
+      return
+    }
+    await newTab.click()
     // "New Chat" is a submenu trigger; hover to reveal the provider options.
     await page.getByTestId('new-chat-menuitem').hover()
     await page.getByTestId('provider-option-fake').click()

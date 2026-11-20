@@ -82,7 +82,7 @@ export function CronjobPage({ request, onBack, onOpenChat }: CronjobPageProps) {
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground">
       <div className="h-10 drag-region shrink-0 bg-background" />
-      <div className="h-14 border-b border-border/40 flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-10 no-drag">
+      <div className="h-14 flex items-center justify-between px-6 bg-background/80 backdrop-blur-md sticky top-0 z-10 no-drag">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" className="-ml-2 h-8 gap-1.5 rounded-lg px-2.5 text-muted-foreground hover:text-foreground" onClick={onBack}>
             <ArrowLeft className="h-4 w-4" />

@@ -127,7 +127,7 @@ export function AssistantPage({ onOpenChat }: AssistantPageProps) {
     <div className="flex h-full flex-col bg-background">
       {/* @container/topbar: the usage bar thins out by this row's width, as in the workspace
           top bar. TitlebarRow clears the fixed sidebar toggle while the sidebar is narrow. */}
-      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4">
+      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 bg-background pr-4">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           <FormattedMessage id="mobile.tab.assistant" defaultMessage="Assistant" />
         </span>

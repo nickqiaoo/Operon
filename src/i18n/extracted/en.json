@@ -2015,7 +2015,6 @@
   "update.ready.title": "Update ready to install",
   "update.ready.tooltip": "Update v{version} ready",
   "usageBar.longUnit": "wk",
-  "usageBar.refresh": "Refresh usage",
   "usageBar.shortUnit": "5h",
   "web.auth.chooseMachine": "Choose a machine to control",
   "web.auth.deleteAccount": "Delete account",

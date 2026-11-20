@@ -1,5 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useCodexUsagePolling } from '@/components/editor/hooks/useCodexUsagePolling';
 import type { ClaudeRateLimits, CodexRateLimits, RateLimitSnapshot } from '@/components/editor/utils/chatMetadata';
@@ -18,7 +17,6 @@ import type { ClaudeRateLimits, CodexRateLimits, RateLimitSnapshot } from '@/com
 const USAGE_POLL_MS = 120_000;
 
 const claudeUsageQueryKey = ['ai', 'claude-usage'] as const;
-const codexUsageQueryKey = ['ai', 'codex-usage'] as const;
 
 /** One provider's two headline windows, already normalized to 0-100. */
 export interface ProviderUsage {
@@ -78,8 +76,6 @@ const codexUsage = (limits: CodexRateLimits | null): ProviderUsage | null => {
 
 export function useAccountUsage(): {
   providers: ProviderUsage[];
-  isRefreshing: boolean;
-  refresh: () => void;
 } {
   const claude = useQuery({
     queryKey: claudeUsageQueryKey,
@@ -95,39 +91,6 @@ export function useAccountUsage(): {
 
   const codex = useCodexUsagePolling();
 
-  const queryClient = useQueryClient();
-  const [isForcing, setIsForcing] = useState(false);
-
-  // Fetches and writes the cache directly rather than going through
-  // `refetchQueries`, for two reasons. A refetch re-runs the query's own
-  // `queryFn`, which takes no arguments and so cannot ask for `force` — and the
-  // Claude key is shared with the composer badge's query, whose `queryFn` is
-  // declared in another file, so which of the two a refetch would run is not
-  // something this hook can say. Fetching here makes both answerable.
-  const refresh = useCallback(() => {
-    if (isForcing) return;
-    setIsForcing(true);
-    void (async () => {
-      try {
-        const [claudeResult, codexResult] = await Promise.all([
-          api.aiGetClaudeUsage(true),
-          api.aiGetCodexUsage(true),
-        ]);
-        // A failed read leaves the last good number on screen: the windows are
-        // still whatever they were, and blanking the bar would report a
-        // temporary read failure as an account with no quota.
-        if (claudeResult.success) {
-          queryClient.setQueryData(claudeUsageQueryKey, claudeResult.data ?? null);
-        }
-        if (codexResult.success) {
-          queryClient.setQueryData(codexUsageQueryKey, codexResult.data ?? null);
-        }
-      } finally {
-        setIsForcing(false);
-      }
-    })();
-  }, [isForcing, queryClient]);
-
   // A provider with nothing to report is left out rather than shown empty: not
   // signed in, no CLI, or a plan without limits are all "there is no number
   // here", and a placeholder would only take space in the title bar.
@@ -135,9 +98,7 @@ export function useAccountUsage(): {
     (usage) => usage != null,
   );
 
-  return {
-    providers,
-    isRefreshing: isForcing || claude.isFetching || codex.isFetching,
-    refresh,
-  };
+  // No manual refresh: both windows poll every two minutes, which is finer
+  // than a 5-hour / weekly budget moves.
+  return { providers };
 }

@@ -26,7 +26,7 @@ export function InboxPage({ onOpenSource }: InboxPageProps) {
   return (
     <div className="flex h-full flex-col bg-background">
       {/* TitlebarRow clears the fixed sidebar toggle while the sidebar is narrow. */}
-      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-4">
+      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 bg-background pr-4">
         <span className="text-xs text-muted-foreground">
           <FormattedMessage id="sidebar.inbox" defaultMessage="Inbox" />
         </span>

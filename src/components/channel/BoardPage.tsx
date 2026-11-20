@@ -87,7 +87,7 @@ export function BoardPage({ view, onViewChange, onOpenWorkspace, onOpenChat, ini
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       {/* Same header as the Inbox beside the same sidebar. TitlebarRow clears
           the fixed sidebar toggle while the sidebar is narrow. */}
-      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-background pr-3">
+      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 bg-background pr-3">
         <span className="text-xs text-muted-foreground">
           {view === 'board'
             ? <FormattedMessage id="sidebar.board" defaultMessage="Board" />

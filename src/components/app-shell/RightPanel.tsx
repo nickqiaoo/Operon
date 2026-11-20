@@ -190,7 +190,9 @@ const RightPanelBody = memo(function RightPanelBody({ expanded, collapsed }: { e
         panelId="right"
         dragRegion
         titlebarInset={expanded}
-        className="pr-[84px]"
+        // No bottom line, like every other titlebar now: the strip and the
+        // window's top band read as one piece.
+        className="border-b-0 pr-[84px]"
       />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {visibleTabs.map((tab) => {

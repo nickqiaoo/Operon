@@ -1,4 +1,5 @@
 import { test, expect, waitForStreamIdle } from '../ci-fixtures'
+import { chat } from '../helpers'
 
 /**
  * Handwritten reference spec for the `ci` Playwright project.
@@ -13,9 +14,7 @@ import { test, expect, waitForStreamIdle } from '../ci-fixtures'
  *   4. assert structural state, not exact text
  */
 test('Fake provider responds to a message', async ({ page }) => {
-  await page.getByTestId('new-tab-button').click()
-  await page.getByTestId('new-chat-menuitem').hover()
-  await page.getByTestId('provider-option-fake').click()
+  await chat.openNewChat(page)
 
   const input = page.getByPlaceholder(
     'Ask anything, @ to mention files, / to use commands...',

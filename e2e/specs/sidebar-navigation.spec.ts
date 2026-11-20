@@ -78,9 +78,10 @@ test('navigation icons keep their size and alignment when the sidebar changes mo
     expect(icon.buttonHeight).toBe(40)
     expect(icon.x).toBe(26)
   }
-  const tabButton = await page.getByTestId('new-tab-button').boundingBox()
-  expect(tabButton).not.toBeNull()
-  expect(Math.abs(expanded[0].y - (tabButton!.y + tabButton!.height / 2))).toBeLessThanOrEqual(1)
+  // The tab strip keeps its row with no tabs open, so it is the reference.
+  const tabStrip = await page.getByTestId('editor-tab-strip').boundingBox()
+  expect(tabStrip).not.toBeNull()
+  expect(Math.abs(expanded[0].y - (tabStrip!.y + tabStrip!.height / 2))).toBeLessThanOrEqual(1)
   const selectionGap = await sidebar.getByRole('button', { name: 'New chat', exact: true }).evaluate(button => {
     const style = getComputedStyle(button)
     const header = button.closest('nav')!.previousElementSibling!.getBoundingClientRect()

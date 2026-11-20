@@ -74,14 +74,13 @@ export function LeftSidebar({
     >
       <div
         className={cn(
-          "absolute inset-y-0 left-0 flex w-full min-w-0 flex-col bg-sidebar",
+          "absolute inset-y-0 left-0 flex w-full min-w-0 flex-col sidebar-surface-fade",
           // The edge line is drawn over the content rather than taking a pixel
           // from it, so the content gets the full 52px rail (square 32px pills).
-          // Below the titlebar it is always there; through the titlebar
-          // (before:) only while expanded, fading with the labels, so the
-          // rail doesn't cut the titlebar band into a cross.
-          "after:pointer-events-none after:absolute after:top-10 after:bottom-0 after:right-0 after:w-px after:bg-border/50",
-          "before:pointer-events-none before:absolute before:top-0 before:right-0 before:z-10 before:h-10 before:w-px before:bg-border/50 before:opacity-[var(--sidebar-label-opacity,1)]",
+          // It fades with the labels: the collapsed rail is canvas-coloured
+          // (ProjectSidebar's sidebar-surface-fade) and sits on the canvas
+          // with no line, like Codex.
+          "after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:z-10 after:w-px after:bg-border/50 after:opacity-[var(--sidebar-label-opacity,1)]",
           // The rail's project preview floats out past the edge.
           !rail && "overflow-hidden"
         )}

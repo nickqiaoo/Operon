@@ -1,4 +1,3 @@
-import { RefreshCw } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import { ProviderIcon } from '@/components/editor/components/ModelSelectorPanel';
 import { usageBarTone } from '@/components/editor/components/rate-limit-tone';
@@ -83,12 +82,11 @@ function ProviderUsageItem({ usage }: { usage: ProviderUsage }) {
  *
  * Must be rendered as a real child of the title bar's drag region. `no-drag`
  * is only honored by macOS for actual children of the dragging element; a
- * floating wrapper would let clicks fall through to the drag region and the
- * refresh button would quietly stop working.
+ * floating wrapper would let clicks fall through to the drag region (the
+ * provider items carry hover titles).
  */
 export function AccountUsageBar({ className }: { className?: string }) {
-  const intl = useIntl();
-  const { providers, isRefreshing, refresh } = useAccountUsage();
+  const { providers } = useAccountUsage();
 
   if (providers.length === 0) return null;
 
@@ -106,14 +104,6 @@ export function AccountUsageBar({ className }: { className?: string }) {
       {providers.map((usage) => (
         <ProviderUsageItem key={usage.providerId} usage={usage} />
       ))}
-      <button
-        type="button"
-        onClick={refresh}
-        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
-        title={intl.formatMessage({ id: 'usageBar.refresh', defaultMessage: 'Refresh usage' })}
-      >
-        <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
-      </button>
     </div>
   );
 }

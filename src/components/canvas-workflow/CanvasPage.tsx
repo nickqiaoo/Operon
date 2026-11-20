@@ -298,7 +298,7 @@ export function CanvasPage({ onBack, onOpenChat }: CanvasPageProps) {
 
       {/* Top bar: a breadcrumb, so the workspace the list is filtered to, the
           current position, and the way back are all readable at once. */}
-      <div className="h-14 border-b border-border/40 flex items-center justify-between px-6 bg-background sticky top-0 z-10 no-drag">
+      <div className="h-14 flex items-center justify-between px-6 bg-background sticky top-0 z-10 no-drag">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"

@@ -15,7 +15,7 @@ export function PluginsPage({ request, onBack }: PluginsPageProps) {
     <div className="h-screen w-screen flex flex-col bg-background text-foreground">
       <div className="h-10 drag-region shrink-0 bg-background" />
 
-      <div className="h-14 shrink-0 border-b border-border/40 flex items-center px-6 bg-background/80 backdrop-blur-md">
+      <div className="h-14 shrink-0 flex items-center px-6 bg-background/80 backdrop-blur-md">
         <div className="flex min-w-0 items-center gap-3">
           <Button
             variant="ghost"

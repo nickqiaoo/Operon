@@ -984,6 +984,17 @@ samp {
   opacity: var(--sidebar-label-opacity, 1);
 }
 
+/* The sidebar's own surface: sidebar grey while expanded, canvas colour once
+   it is the icon rail, so the collapsed rail reads as part of the canvas
+   (like Codex) instead of a grey strip. Mixed per frame with the labels. */
+@utility sidebar-surface-fade {
+  background-color: color-mix(
+    in srgb,
+    var(--color-sidebar) calc(var(--sidebar-label-opacity, 1) * 100%),
+    var(--color-background)
+  );
+}
+
 /* The inverse, for rail-only stand-ins shown during the same animation. */
 @utility sidebar-rail-fade {
   opacity: calc(1 - var(--sidebar-label-opacity, 1));

@@ -29,7 +29,7 @@ import type { OpenChat } from "@/lib/active-conversations"
 import type { Notification } from "@/types/notification"
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog"
 import { createProjectWorkspace } from "@/lib/workspace-actions"
-import { startNewChat } from "@/lib/new-chat"
+import { startNewChat, startNewChatInWorkspace } from "@/lib/new-chat"
 import { useRailFlyout } from "./use-rail-flyout"
 import { projectSidebarEntries } from "./workspace-groups"
 
@@ -43,6 +43,7 @@ type GitWorktreeEntry = {
 interface ProjectItemProps {
   project: Project
   onSelectWorkspace: (workspaceId: number, projectId: number) => void
+  onNewChatInWorkspace: (workspaceId: number, projectId: number) => void
   activeWorkspaceId?: number | null
   onAddWorkspace: (project: Project) => void
   onTogglePin: (project: Project) => void
@@ -94,6 +95,7 @@ const buildWorkspaceInputs = (entries: GitWorktreeEntry[], fallbackRoot: string)
 const ProjectItem = memo(function ProjectItem({
   project,
   onSelectWorkspace,
+  onNewChatInWorkspace,
   activeWorkspaceId,
   onAddWorkspace,
   onTogglePin,
@@ -196,6 +198,7 @@ const ProjectItem = memo(function ProjectItem({
                   isActive={activeWorkspaceId === workspace.id}
                   stats={workspaceDiffStats?.[workspace.worktreePath]}
                   onSelect={() => onSelectWorkspace(workspace.id, project.id)}
+                  onNewChat={() => onNewChatInWorkspace(workspace.id, project.id)}
                 />
               ))}
           </div>
@@ -255,24 +258,28 @@ function useWorkspaceChatActivity(workspaceId: number) {
   return { streaming, unseen }
 }
 
-function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect }: {
+function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect, onNewChat }: {
   workspaceId: number
   label: string
   title: string
   isActive: boolean
   stats?: WorkspaceDiffStat
   onSelect: () => void
+  onNewChat: () => void
 }) {
   const { streaming, unseen } = useWorkspaceChatActivity(workspaceId)
   return (
+    // The pen is a sibling of the row button (buttons can't nest), revealed on
+    // hover / keyboard focus in the slot the diff stats and counts occupy.
+    <div className="group/workspace-row relative">
     <button
       type="button"
       onClick={onSelect}
       aria-current={isActive ? 'page' : undefined}
       title={title}
       className={cn(
-        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
-        isActive && 'bg-row-selected hover:bg-row-selected',
+        'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-6 pr-3 text-left transition-colors hover:bg-row-hover group-hover/workspace-row:bg-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
+        isActive && 'bg-row-selected hover:bg-row-selected group-hover/workspace-row:bg-row-selected',
         streaming > 0 && 'animate-shimmer-sweep',
       )}
     >
@@ -286,8 +293,27 @@ function WorkspaceRow({ workspaceId, label, title, isActive, stats, onSelect }: 
           </span>
         )}
         {streaming + unseen > 0 && <span className="shrink-0 text-[11px] tabular-nums text-status-info">{streaming + unseen}</span>}
+        {/* Room for the pen while it shows, so it never covers the name. */}
+        <span aria-hidden className="hidden w-5 shrink-0 group-hover/workspace-row:block group-has-[:focus-visible]/workspace-row:block [@media(hover:none)]:block" />
       </span>
     </button>
+    <Button
+      variant="ghost"
+      size="icon"
+      data-testid={`workspace-new-chat-${workspaceId}`}
+      className={cn(
+        "absolute right-2 top-1/2 size-5 -translate-y-1/2 rounded-md bg-transparent text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-accent-hover hover:text-foreground",
+        "group-hover/workspace-row:pointer-events-auto group-hover/workspace-row:opacity-100",
+        "focus-visible:pointer-events-auto focus-visible:opacity-100",
+        "[@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+      )}
+      onClick={onNewChat}
+      title="New chat in this workspace"
+      aria-label={`New chat in ${fileCitationsToText(label)}`}
+    >
+      <SquarePen className="size-3.5" strokeWidth={1.5} />
+    </Button>
+    </div>
   )
 }
 
@@ -330,7 +356,10 @@ interface ProjectSidebarProps {
 }
 
 // Panels floating out of the collapsed rail share one placement and surface.
-const railFlyoutClassName = "absolute bottom-2 left-[calc(100%+8px)] top-12 z-50 rounded-xl border border-border/60 bg-sidebar shadow-float"
+// A floating surface (popover), not the sidebar grey: the rail they come out
+// of is canvas-coloured now, so a grey panel read as a stray piece of sidebar.
+// Light: white like the canvas, set off by the edge + float shadow (as Codex).
+const railFlyoutClassName = "absolute bottom-2 left-[calc(100%+8px)] top-12 z-50 rounded-xl border border-border/60 bg-popover shadow-float"
 const railFlyoutEnterClassName = "animate-in fade-in-0 slide-in-from-left-1 duration-150"
 const RAIL_FLYOUT_MAX_WIDTH = "calc(100vw - 68px)"
 // Active rows carry an icon, two lines of text and a timestamp column: a bit
@@ -565,6 +594,11 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
     closePreview()
   }, [clearUnseen, setActiveWorkspace, showWorkbench, closePreview])
 
+  const handleNewChatInWorkspace = useCallback((workspaceId: number, projectId: number) => {
+    void startNewChatInWorkspace(workspaceId, projectId)
+    closePreview()
+  }, [closePreview])
+
   const handleTogglePin = useCallback((project: Project) => {
     void setProjectPinned(project.id, project.pinnedAt == null).catch((error: unknown) => {
       toast.error(error instanceof Error ? error.message : String(error))
@@ -632,14 +666,15 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   // being cut off square. The project tree keeps the full width (below) and is
   // clipped instead: reflowing it every frame would cost a layout.
   return (
-    <div ref={rootRef} className="relative flex h-full w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+    <div ref={rootRef} className="relative flex h-full w-full min-h-0 flex-col sidebar-surface-fade text-sidebar-foreground">
       <WorkspaceDiffStatsSync />
       {/* Titlebar cell. Canvas-coloured under a sidebar-coloured layer that
           fades with the labels: expanded it is the sidebar's grey top, while
           the rail (narrower than the traffic lights + toggle) leaves the
-          titlebar one white band across the window. Same /50 line as the
-          titlebars beside it, so the two meet as one. */}
-      <div className="drag-region relative h-10 shrink-0 border-b border-border/50 bg-background">
+          titlebar one white band across the window. No bottom line: the
+          workspace titlebar beside it has none either (its tab bar below
+          carries the chrome/content edge), so the band stays one piece. */}
+      <div className="drag-region relative h-10 shrink-0 bg-background">
         <div className="sidebar-label-fade pointer-events-none absolute inset-0 bg-sidebar" />
       </div>
 
@@ -779,6 +814,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
                   <ProjectItem
                     project={project}
                     onSelectWorkspace={handleSelectWorkspace}
+                    onNewChatInWorkspace={handleNewChatInWorkspace}
                     // Only one place is "current": while the Assistant is showing, no workspace is.
                     activeWorkspaceId={assistantActive || inboxActive || boardActive || channelsActive || activeSpecId != null ? null : activeWorkspaceId}
                     onAddWorkspace={handleOpenAddWorkspace}

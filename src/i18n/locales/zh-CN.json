@@ -1800,7 +1800,6 @@
   "review.pr.switchBranch": "请先切换到特性分支再创建 PR",
   "review.pr.exists": "该分支已存在一个 Pull Request",
   "settings.github.cli.installHint": "请先从 cli.github.com 安装。",
-  "usageBar.refresh": "刷新额度",
   "usageBar.shortUnit": "5小时",
   "usageBar.longUnit": "每周",
   "settings.computerUse.apps.title": "应用访问",
