@@ -203,15 +203,24 @@ export const useProjectStore = create<ProjectStore>()(
             ? state.activeWorkspaceId
             : activeProject?.workspaces[0]?.id ?? null
 
+          // Keep the array reference when nothing was dropped: ProjectItem
+          // subscribes to collapsedWorkspaceIds whole, and a fresh-but-equal
+          // array re-renders every project row on each tree refresh.
+          const collapsedProjectIds = state.collapsedProjectIds.filter((id) =>
+            fullProjects.some((project) => project.id === id)
+          )
+          const collapsedWorkspaceIds = state.collapsedWorkspaceIds.filter((id) =>
+            fullProjects.some((project) => project.workspaces.some((workspace) => workspace.id === id))
+          )
           return {
             // A live task refresh must not replace unchanged projects or rows.
             projects: replaceEqualDeep(state.projects, fullProjects),
-            collapsedProjectIds: state.collapsedProjectIds.filter((id) =>
-              fullProjects.some((project) => project.id === id)
-            ),
-            collapsedWorkspaceIds: state.collapsedWorkspaceIds.filter((id) =>
-              fullProjects.some((project) => project.workspaces.some((workspace) => workspace.id === id))
-            ),
+            collapsedProjectIds: collapsedProjectIds.length === state.collapsedProjectIds.length
+              ? state.collapsedProjectIds
+              : collapsedProjectIds,
+            collapsedWorkspaceIds: collapsedWorkspaceIds.length === state.collapsedWorkspaceIds.length
+              ? state.collapsedWorkspaceIds
+              : collapsedWorkspaceIds,
             activeProjectId: nextActiveProjectId,
             activeWorkspaceId: nextActiveWorkspaceId,
             projectsLoaded: true,
