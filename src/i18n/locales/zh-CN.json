@@ -1548,6 +1548,7 @@
   "editor.skill.noPath": "该技能没有提供文件路径。",
   "editor.skill.use": "使用技能",
   "editor.steer.archived": "{count} 条追加消息",
+  "editor.steer.attachmentsOnly": "{count, plural, other {# 个附件}}",
   "editor.steer.dismiss": "忽略",
   "editor.steer.failed": "发送失败",
   "editor.steer.retry": "重试",
@@ -2283,5 +2284,13 @@
   "draftChat.remoteBranches": "远程",
   "draftChat.creatingWorktree": "正在创建工作树…",
   "draftChat.checkoutFailed": "无法切换到 {branch}",
-  "draftChat.worktreeFailed": "无法创建工作树"
+  "draftChat.worktreeFailed": "无法创建工作树",
+  "editor.turnFold.workedFor": "用时 {duration}",
+  "editor.turnFold.worked": "已完成工作",
+  "settings.appearance.section.chat": "对话",
+  "settings.appearance.section.chatDesc": "对话中回复的展示方式。",
+  "settings.appearance.conciseMode.title": "简洁模式",
+  "settings.appearance.conciseMode.desc": "把每轮已完成回复的思考和工具调用折叠到用时下面，只显示最后的回答",
+  "settings.appearance.codeFont.title": "代码字体",
+  "settings.appearance.codeFont.desc": "代码块、行内代码和 diff 使用的字体"
 }

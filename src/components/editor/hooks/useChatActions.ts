@@ -33,10 +33,44 @@ const persistFileUrl = async (
   return (await persistBlobUrl(url, meta)) ?? url;
 };
 
-const stripAttachmentMeta = (
-  files: Array<FileUIPart & { id?: string; content?: string; asText?: boolean }>
-): Array<FileUIPart & { content?: string; asText?: boolean }> =>
-  files.map(({ id: _id, ...rest }) => rest);
+type OutgoingFile = FileUIPart & { id?: string; content?: string; asText?: boolean }
+
+/**
+ * What the composer hands the agent for a message: `asText` attachments folded
+ * into the text as quoted context, the rest as file parts with durable URLs.
+ * Shared by a new turn and a steer into the running one.
+ */
+export async function prepareOutgoingMessage(
+  text: string,
+  files: OutgoingFile[],
+): Promise<{ text: string; files: Array<FileUIPart & { content?: string }> }> {
+  const textSnippets: string[] = [];
+  const effectiveFiles: Array<FileUIPart & { content?: string }> = [];
+  for (const { id: _id, asText, ...file } of files) {
+    if (asText && typeof file.content === 'string' && file.content) {
+      // Fenced with a closing marker so the transcript can split the quote
+      // back out from what the user typed (see `parseContextBlocks`).
+      textSnippets.push(file.filename ? wrapContextBlock(file.filename, file.content) : file.content);
+    } else {
+      effectiveFiles.push(file);
+    }
+  }
+
+  const normalizedFiles = await Promise.all(
+    effectiveFiles.map(async (file) => ({
+      ...file,
+      url: await persistFileUrl(file.url, {
+        filename: file.filename,
+        mediaType: file.mediaType,
+      }),
+    }))
+  );
+
+  return {
+    text: [...textSnippets, text].filter(Boolean).join('\n\n'),
+    files: normalizedFiles,
+  };
+}
 
 export function useChatActions(
   sendMessage: (input: SendMessageInput) => Promise<void> | void,
@@ -48,48 +82,18 @@ export function useChatActions(
     attachmentsFiles: Array<FileUIPart & { id?: string; content?: string }>,
     setInput: (val: string) => void
   ) => {
-    const allFiles = (message.files && message.files.length > 0)
+    const allFiles: OutgoingFile[] = (message.files && message.files.length > 0)
       ? message.files
-      : (attachmentsFiles.length > 0 ? stripAttachmentMeta(attachmentsFiles) : []);
+      : attachmentsFiles;
 
-    // Separate asText attachments from real file attachments
-    const textSnippets: string[] = [];
-    const effectiveFiles: Array<FileUIPart & { content?: string }> = [];
-    for (const file of allFiles) {
-      const fileContent = 'content' in file ? file.content : undefined;
-      if ('asText' in file && file.asText && typeof fileContent === 'string' && fileContent) {
-        const filename = 'filename' in file ? file.filename : undefined;
-        // Fenced with a closing marker so the transcript can split the quote
-        // back out from what the user typed (see `parseContextBlocks`).
-        textSnippets.push(filename ? wrapContextBlock(filename, fileContent) : fileContent);
-      } else {
-        effectiveFiles.push(file);
-      }
-    }
-
-    // Merge text snippets with the message text
-    const combinedText = [...textSnippets, message.text].filter(Boolean).join('\n\n');
-
-    const hasText = !!combinedText.trim();
-    const hasFiles = effectiveFiles.length > 0;
-
-    if (!hasText && !hasFiles) return;
+    if (!message.text.trim() && allFiles.length === 0) return;
     setInput('');
 
-    const normalizedFiles = await Promise.all(
-      effectiveFiles.map(async (file) => ({
-        ...file,
-        url: await persistFileUrl(file.url, {
-          filename: file.filename,
-          mediaType: file.mediaType,
-        }),
-      }))
-    );
-
+    const prepared = await prepareOutgoingMessage(message.text, allFiles);
     void sendMessage(
-      hasText
-        ? { text: combinedText, files: normalizedFiles }
-        : { files: normalizedFiles }
+      prepared.text.trim()
+        ? { text: prepared.text, files: prepared.files }
+        : { files: prepared.files }
     );
   }, [sendMessage]);
 

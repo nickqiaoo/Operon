@@ -776,7 +776,7 @@ export class OpencodeRuntimeSession implements AgentSession<OpencodeSessionNativ
   private releaseHeldCompletion: (() => void) | null = null
   private readonly pendingInjections = new Map<string, { id: string; text: string }>()
 
-  async steer(content: string, options?: InjectOptions) {
+  async steer(content: AgentInput, options?: InjectOptions) {
     await this.deliverInput(content, options, 'steer')
     return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
   }

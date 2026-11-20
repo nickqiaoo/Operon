@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import type { FileUIPart } from 'ai'
 import * as aiService from '../services/ai.js'
 import { getChatStorage } from '../services/ai/state.js'
 import type { PermissionOutcome } from '../services/ai.js'
@@ -435,12 +436,13 @@ export function aiRoutes(storage: AiRouteStorage) {
 
   // POST /api/ai/inject
   router.post('/inject', async (c) => {
-    const { chatId, content, turnMessageId, messageId, mode } = await c.req.json<{
+    const { chatId, content, turnMessageId, messageId, mode, files } = await c.req.json<{
       chatId: number
       content: string
       turnMessageId?: string
       messageId?: string
       mode?: 'steer' | 'followup'
+      files?: FileUIPart[]
     }>()
     const normalizedTurnMessageId =
       typeof turnMessageId === 'string' && turnMessageId.length > 0
@@ -451,6 +453,9 @@ export function aiRoutes(storage: AiRouteStorage) {
     const result = await aiService.injectIntoChat(chatId, content, normalizedTurnMessageId, {
       messageId: normalizedMessageId,
       mode: mode === 'followup' ? 'followup' : 'steer',
+      files: Array.isArray(files)
+        ? files.filter((file): file is FileUIPart => file?.type === 'file' && typeof file.url === 'string' && typeof file.mediaType === 'string')
+        : undefined,
     })
     return c.json(result, result.success ? 200 : 400)
   })

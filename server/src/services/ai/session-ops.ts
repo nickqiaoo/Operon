@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { abortManagedChatTurn } from './chat-turn-lifecycle.js'
-import type { UIMessage } from 'ai'
+import { convertToModelMessages, type FileUIPart, type UIMessage } from 'ai'
 import { getRuntime, getSessionManager, getChatStorage, getProjectStorage } from './state.js'
 import { runSessionControl, supportsSessionControl } from './session-control.js'
 import { createSteerUserMessage } from './helpers.js'
 import { persistInjectedUserMessage } from './persistence.js'
+import { latestUserInput, normalizeUiMessagesFileAttachments } from './message-utils.js'
 import { getLiveTurn } from './live-turn-hub.js'
 import { isAgentOwnedChat } from '../channel/agent-orchestrator.js'
-import { RuntimeInjectionUnavailableError } from '@operon/agent-runtime'
+import { RuntimeInjectionUnavailableError, type AgentInput, type InputDeliveryReceipt } from '@operon/agent-runtime'
 import type { AccountRateLimitsReadResult } from '@operon/agent-runtime/codex'
 import type {
   DetailedContextUsage,
@@ -78,11 +79,14 @@ export async function injectIntoChat(
     /** Id for the steer message, chosen by the client so it can match the reply's `data-injected-input` part to it. */
     messageId?: string
     mode?: 'auto' | 'steer' | 'followup'
+    /** Attachments sent with the steer, as the composer sends them with a turn (stored attachment URLs). */
+    files?: FileUIPart[]
   },
 ): Promise<ChatInjectionResult> {
   const sessionManager = getSessionManager()
   const trimmed = content.trim()
-  if (!trimmed) {
+  const files = options?.files ?? []
+  if (!trimmed && files.length === 0) {
     return { success: false, delivery: 'not-sent', error: 'Message is empty' }
   }
 
@@ -117,16 +121,22 @@ export async function injectIntoChat(
   try {
     // The reply marks where the agent took it in with a part carrying this id.
     const steerId = options?.message?.id ?? options?.messageId ?? randomUUID()
+    const base = createSteerUserMessage(trimmed, turnMessageId, steerId, files)
+    // Attachments reach the agent the way a turn's own do: images inline, other files as path notes.
+    const input: AgentInput = files.length === 0
+      ? trimmed
+      : latestUserInput(await convertToModelMessages(normalizeUiMessagesFileAttachments([base])))
     try {
-      await deliver.call(session.runtime, trimmed, { id: steerId })
+      const receipt: InputDeliveryReceipt | undefined = await deliver.call(session.runtime, input, { id: steerId })
+      // A provider that can only steer text takes images as a followup and says so here.
+      if (receipt?.mode) mode = receipt.mode
     } catch (error) {
       // 'auto' may try the other operation only after a definite pre-send rejection.
       if (requested !== 'auto' || mode !== 'steer' || !session.runtime.followup || !(error instanceof RuntimeInjectionUnavailableError)) throw error
       mode = 'followup'
-      await session.runtime.followup(trimmed, { id: steerId })
+      await session.runtime.followup(input, { id: steerId })
     }
     accepted = true
-    const base = createSteerUserMessage(trimmed, turnMessageId, steerId)
     const generated = { ...base, metadata: { ...(base.metadata as Record<string, unknown> | undefined), deliveryMode: mode } }
     const steerMessage = options?.message
       ? { ...options.message, metadata: { ...options.message.metadata ?? {}, ...generated.metadata ?? {} } }

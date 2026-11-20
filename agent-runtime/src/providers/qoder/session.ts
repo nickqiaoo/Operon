@@ -617,7 +617,7 @@ export class QoderRuntimeSession implements AgentSession<QoderSessionNative> {
     }
   }
 
-  async steer(content: string, options?: InjectOptions) {
+  async steer(content: AgentInput, options?: InjectOptions) {
     await this.deliverInput(content, options, 'next')
     return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
   }

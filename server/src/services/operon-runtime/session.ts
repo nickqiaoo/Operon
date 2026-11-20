@@ -423,7 +423,9 @@ export class OperonRuntimeSession implements AgentSession<OperonSessionNative> {
     return answerPending({ approvals: this.pendingApprovals, questions: this.pendingQuestions }, approvalId, decision)
   }
 
-  async steer(text: string, options?: InjectOptions) {
+  async steer(text: RuntimeAgentInput, options?: InjectOptions) {
+    // The engine steers text only; input with images waits for the current run instead.
+    if (typeof text !== 'string') return this.followup(text, options)
     await this.deliverInput(text, options, 'steer')
     return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
   }

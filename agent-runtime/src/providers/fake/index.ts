@@ -151,8 +151,8 @@ class FakeRuntimeSession implements AgentSession {
     return true
   }
 
-  async steer(text: string) {
-    await this.inject(text)
+  async steer(input: AgentInput) {
+    await this.inject(inputText(input))
     return { delivery: 'accepted' as const, mode: 'steer' as const }
   }
 

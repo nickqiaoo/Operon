@@ -107,6 +107,7 @@ describe('injectIntoChat', () => {
       'Focus on edge cases',
       'user-1',
       injectedId,
+      [],
     );
     expect(persistenceMock.persistInjectedUserMessage).toHaveBeenCalledWith(
       7,
@@ -124,7 +125,48 @@ describe('injectIntoChat', () => {
     const { injectIntoChat } = await loadSessionOps();
     await injectIntoChat(7, 'result', undefined, { messageId: 'steer-abc' });
     expect(injectMessage).toHaveBeenCalledWith('result', { id: 'steer-abc' });
-    expect(helpersMock.createSteerUserMessage).toHaveBeenCalledWith('result', undefined, 'steer-abc');
+    expect(helpersMock.createSteerUserMessage).toHaveBeenCalledWith('result', undefined, 'steer-abc', []);
+  });
+
+  it('steers attached images in with the text and keeps them on the stored message', async () => {
+    const steer = vi.fn().mockResolvedValue({ delivery: 'accepted', mode: 'steer', id: 'steer-img' });
+    stateMock.getSession.mockReturnValue({
+      activeRequest: { requestId: 'request-1' }, runtime: { steer },
+    });
+    const image = { type: 'file' as const, mediaType: 'image/png', filename: 'shot.png', url: 'data:image/png;base64,iVBORw0KGgo=' };
+    const steerMessage = {
+      id: 'steer-img',
+      role: 'user' as const,
+      metadata: { steer: true },
+      parts: [image, { type: 'text' as const, text: 'Look at this' }],
+    };
+    helpersMock.createSteerUserMessage.mockReturnValue(steerMessage);
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
+    const { injectIntoChat } = await loadSessionOps();
+
+    await expect(injectIntoChat(7, 'Look at this', undefined, { messageId: 'steer-img', files: [image] }))
+      .resolves.toMatchObject({ success: true, delivery: 'accepted' });
+    expect(helpersMock.createSteerUserMessage).toHaveBeenCalledWith('Look at this', undefined, 'steer-img', [image]);
+    const [input] = steer.mock.calls[0] as [Array<{ type: string; text?: string; mediaType?: string }>];
+    expect(Array.isArray(input)).toBe(true);
+    expect(input).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'file', mediaType: 'image/png' }),
+      expect.objectContaining({ type: 'text', text: 'Look at this' }),
+    ]));
+  });
+
+  it('records a text-only engine taking images as a followup', async () => {
+    const steer = vi.fn().mockResolvedValue({ delivery: 'accepted', mode: 'followup' });
+    stateMock.getSession.mockReturnValue({
+      activeRequest: { requestId: 'request-1' }, runtime: { steer },
+    });
+    const image = { type: 'file' as const, mediaType: 'image/png', url: 'data:image/png;base64,iVBORw0KGgo=' };
+    helpersMock.createSteerUserMessage.mockReturnValue({ id: 'steer-f', role: 'user', metadata: { steer: true }, parts: [image] });
+    persistenceMock.persistInjectedUserMessage.mockReturnValue({ success: true });
+    const { injectIntoChat } = await loadSessionOps();
+
+    const result = await injectIntoChat(7, '', undefined, { files: [image] });
+    expect(result).toMatchObject({ success: true, message: { metadata: { deliveryMode: 'followup' } } });
   });
 
   it('distinguishes accepted injection from a failed transcript save', async () => {

@@ -1,4 +1,4 @@
-import type { UIMessage } from 'ai';
+import type { FileUIPart, UIMessage } from 'ai';
 
 export type SteerMessageMetadata = {
   steer: true;
@@ -42,6 +42,8 @@ export type LiveSteerItem = {
   messageId?: string;
   turnMessageId?: string;
   text: string;
+  /** Attachments sent with it, already at durable URLs so a retry sends the same ones. */
+  files?: FileUIPart[];
   status: LiveSteerStatus;
 };
 

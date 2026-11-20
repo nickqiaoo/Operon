@@ -1,19 +1,27 @@
 import { randomUUID } from 'crypto'
-import type { UIMessage } from 'ai'
+import type { FileUIPart, UIMessage } from 'ai'
 import type { ProviderDescriptor } from '@operon/agent-runtime'
 import type { AiChatRequest, AssistantContinuationState } from './types.js'
 import { getSessionManager, getProjectStorage } from './state.js'
 
 const DEFAULT_PROVIDER_ID = 'claude-code'
 
-export const createSteerUserMessage = (content: string, turnMessageId?: string, id?: string): UIMessage => ({
+export const createSteerUserMessage = (
+  content: string,
+  turnMessageId?: string,
+  id?: string,
+  files: FileUIPart[] = [],
+): UIMessage => ({
   id: id ?? randomUUID(),
   role: 'user',
   metadata: {
     steer: true,
     ...(turnMessageId ? { turnMessageId } : {}),
   },
-  parts: [{ type: 'text', text: content.trim() }],
+  parts: [
+    ...files,
+    ...(content.trim() ? [{ type: 'text' as const, text: content.trim() }] : []),
+  ],
 })
 
 export const resolveProviderId = (payload: AiChatRequest): string =>

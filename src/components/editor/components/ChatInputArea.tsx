@@ -241,7 +241,7 @@ export function ChatInputArea({
   const handleSteer = useCallback(async () => {
     if (!onSteer) return;
     const text = input.trim();
-    if (!text) return;
+    if (!text && attachments.files.length === 0) return;
 
     const prefixedText = selectedSkills.length > 0
       ? `${formatSlashCommandPrefix(selectedSkills)} ${text}`.trim()
@@ -251,7 +251,7 @@ export function ChatInputArea({
     if (floating) textareaContainerRef.current?.querySelector('textarea')?.blur();
     await onSteer(prefixedText);
     clearSkills();
-  }, [clearSkills, floating, input, onSteer, selectedSkills, textareaContainerRef]);
+  }, [attachments.files.length, clearSkills, floating, input, onSteer, selectedSkills, textareaContainerRef]);
 
   // Only offered when it can be taken with a key: not on the phone composer, not
   // while a reply runs (it would answer a turn that is about to change), and not
@@ -488,7 +488,7 @@ export function ChatInputArea({
   const compactStopVisible = composerCompact && isGenerating;
   // Steer only shows once there is something to send; while it shows it is the
   // primary action and Stop steps back to ghost, so only one button is filled.
-  const showSteer = canSteer && (steerPending || input.trim().length > 0);
+  const showSteer = canSteer && (steerPending || input.trim().length > 0 || attachments.files.length > 0);
   const submitVariant = showSteer ? 'ghost' : 'brand';
   const submitDisabled = availableModels.length === 0 || (!hasDraft && !isGenerating);
   const submitTitle = availableModels.length === 0
@@ -702,7 +702,7 @@ export function ChatInputArea({
           floating && !composerCompact && "max-h-16"
         )}
       >
-        <PromptInputTools className={cn("min-w-0 flex-1", floating ? "overflow-hidden" : "@max-[320px]:flex-wrap")}>
+        <PromptInputTools className={cn("min-w-0 flex-1", "overflow-hidden")}>
           <AttachmentButton />
 
           <ModelSelectorPanel

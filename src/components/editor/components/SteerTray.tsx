@@ -46,7 +46,13 @@ export const SteerTray = memo(function SteerTray({ items, canRetry, onRetry, onD
             )}
           </QueueItemIndicator>
           <QueueItemContent title={item.text} className="text-foreground/80">
-            {item.text}
+            {item.text || (
+              <FormattedMessage
+                id="editor.steer.attachmentsOnly"
+                defaultMessage="{count, plural, one {# attachment} other {# attachments}}"
+                values={{ count: item.files?.length ?? 0 }}
+              />
+            )}
           </QueueItemContent>
           <QueueItemDescription className={item.status === 'failed' ? 'text-status-error' : undefined}>
             {item.status === 'sending' ? (

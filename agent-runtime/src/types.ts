@@ -491,8 +491,12 @@ export interface AgentSession<Native = unknown> {
    * `injected-input` part carrying that id (see `RuntimeInjectedInputPart`).
    */
   inject?(text: string, options?: InjectOptions): Promise<void>
-  /** Strict active-execution insertion. Never interrupts, starts a run, or falls back to followup. */
-  steer?(text: string, options?: InjectOptions): Promise<InputDeliveryReceipt>
+  /**
+   * Strict active-execution insertion. Never interrupts or starts a run. Input with
+   * images goes in the same way; a provider whose engine only steers text delivers
+   * that input as a followup instead, and says so in the receipt's `mode`.
+   */
+  steer?(input: AgentInput, options?: InjectOptions): Promise<InputDeliveryReceipt>
   /** Process after the current turn. Its output remains in the current execution stream. */
   followup?(input: AgentInput, options?: InjectOptions): Promise<InputDeliveryReceipt>
   /**

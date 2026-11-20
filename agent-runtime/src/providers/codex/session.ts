@@ -21,7 +21,7 @@ import type {
   SessionPatchApplied,
 } from '../../types.js'
 import type { ModelMessage } from 'ai'
-import { toUserMessages } from '../../utils/agent-input.js'
+import { inputText, toUserMessages } from '../../utils/agent-input.js'
 import { UserFacingRuntimeError, RuntimeInjectionUnavailableError, type InjectOptions } from '../../types.js'
 import { readStreamAsAsyncIterable } from '../../utils/read-stream.js'
 import { createRuntimeLogger } from '../../logger.js'
@@ -65,6 +65,7 @@ import type {
   McpServerConfig as CodexSdkMcpServerConfig,
   ServiceTier as CodexServiceTier,
   ToolRequestUserInputHandler,
+  UserInput as CodexUserInput,
 } from './sdk/types/settings.js'
 import type {
   CodexGoal,
@@ -736,7 +737,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     return this.followups.accept(text, options)
   }
 
-  async steer(text: string, options?: InjectOptions) {
+  async steer(text: AgentInput, options?: InjectOptions) {
     await this.inject(text, options)
     return { delivery: 'accepted' as const, mode: 'steer' as const, ...(options?.id ? { id: options.id } : {}) }
   }
@@ -833,6 +834,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
 
         const cleanup = () => {
           cleanupTempFiles(tempFiles)
+          this.cleanupSteerTempFiles()
           if (threadMode === 'stateless') {
             this.codexSession = null
           }
@@ -1005,6 +1007,7 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
           emitter.emitFinish(status ?? 'stop', error ?? null)
           emitter.close()
           cleanupTempFiles(tempFiles)
+          this.cleanupSteerTempFiles()
         }
 
         const runLoop = async () => {
@@ -1325,15 +1328,39 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     return injected
   }
 
-  async inject(content: string, options?: InjectOptions): Promise<void> {
+  /** Images written to disk for steers into the running turn; removed when that turn ends. */
+  private steerTempFiles: string[] = []
+
+  private cleanupSteerTempFiles(): void {
+    if (this.steerTempFiles.length) cleanupTempFiles(this.steerTempFiles.splice(0))
+  }
+
+  async inject(content: AgentInput, options?: InjectOptions): Promise<void> {
     if (!this.codexSession) {
       throw new RuntimeInjectionUnavailableError('[CodexRuntime] No active Codex session')
     }
     this.logger.info(`Injecting follow-up into thread ${this.threadId ?? 'unknown'}`)
     const clientUserMessageId = randomUUID()
-    if (options?.id) this.pendingInjections.set(clientUserMessageId, { id: options.id, text: content })
+    const text = inputText(content)
+    if (options?.id) this.pendingInjections.set(clientUserMessageId, { id: options.id, text })
+    let inputs: string | CodexUserInput[]
+    if (typeof content === 'string') {
+      inputs = content
+    } else {
+      // Same conversion as a turn's own input, so images steer in as images.
+      const converted = convertPrompt(toUserMessages(content), DEFAULT_THREAD_MODE)
+      this.steerTempFiles.push(...converted.tempFiles)
+      inputs = converted.inputs.flatMap((input): CodexUserInput[] => {
+        switch (input.type) {
+          case 'text': return [{ type: 'text', text: input.text }]
+          case 'image': return [{ type: 'image', imageUrl: input.url }]
+          case 'localImage': return [{ type: 'localImage', path: input.path }]
+          default: return []
+        }
+      })
+    }
     try {
-      await this.codexSession.injectMessage(content, { clientUserMessageId })
+      await this.codexSession.injectMessage(inputs, { clientUserMessageId })
     } catch (error) {
       this.pendingInjections.delete(clientUserMessageId)
       throw error

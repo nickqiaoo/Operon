@@ -17,7 +17,7 @@ import type {
   SkillUpdateInput,
 } from '@/types/skill'
 import type { CanvasWorkflow, CanvasWorkflowListItem, CanvasWorkflowRun, CreateCanvasWorkflowInput, UpdateCanvasWorkflowInput } from '@/types/canvas-workflow'
-import type { UIMessage } from 'ai'
+import type { FileUIPart, UIMessage } from 'ai'
 import type { DetailedContextUsage } from '@/types/context-usage'
 import type { ClaudeRateLimits, CodexRateLimits } from '@/components/editor/utils/chatMetadata'
 import type { CodexGoal } from '@/types/goal'
@@ -518,7 +518,7 @@ export const api = {
     softPost<{ success: boolean; error?: string }>('/ai/cc/dynamic-set', payload),
   aiCompact: (payload: { chatId: number; modelId: string; providerId?: string; workspaceId?: number }) =>
     softPost<{ success: boolean; originalMessageCount?: number; newMessageCount?: number; error?: string }>('/ai/compact', payload),
-  aiInject: (payload: { chatId: number; content: string; turnMessageId?: string; messageId?: string }) =>
+  aiInject: (payload: { chatId: number; content: string; turnMessageId?: string; messageId?: string; files?: FileUIPart[] }) =>
     softPost<{ success: boolean; delivery?: 'accepted' | 'not-sent' | 'unknown'; error?: string; message?: UIMessage }>('/ai/inject', payload),
   aiSessionCleanup: (chatId: number) =>
     post<{ success: boolean }>('/ai/session/cleanup', { chatId }),

@@ -23,6 +23,7 @@ import { useConversationScroll } from '@/components/ai-elements/conversation';
 import {
   usePromptInputActions,
 } from '@/components/ai-elements/prompt-input';
+import type { PromptInputFile } from '@/components/ai-elements/prompt-input-context';
 import { api } from '@/lib/api';
 import { useEditorStore } from '@/stores/editor-store';
 import { useExternalAgentsStore } from '@/stores/external-agents-store';
@@ -58,7 +59,7 @@ import {
   lineCommentToFile,
 } from '@/stores/line-comments-store';
 import { useAnnotationSendStore } from '@/stores/annotation-send-store';
-import { useChatActions } from './hooks/useChatActions';
+import { prepareOutgoingMessage, useChatActions } from './hooks/useChatActions';
 import { useRecentDerivedState } from './hooks/useRecentDerivedState';
 import { extractContextCompaction, extractContextUsage, extractRetry } from './utils/chatMetadata';
 import { useChatIndexState } from './hooks/useChatIndexState';
@@ -965,6 +966,7 @@ function ChatPanelContent({
         content: item.text,
         turnMessageId: item.turnMessageId,
         messageId: item.messageId,
+        ...(item.files?.length ? { files: item.files } : {}),
       });
       if (!result.success && result.delivery !== 'accepted') {
         failureStatus = result.delivery === 'not-sent' ? 'failed' : 'unknown';
@@ -992,29 +994,58 @@ function ChatPanelContent({
     }
   }, [dbChatIdRef, tab?.chatId]);
 
-  const enqueueSteer = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  const enqueueSteer = useCallback(async (
+    text: string,
+    files: PromptInputFile[] = [],
+    onFilesTaken?: (taken: boolean) => void,
+  ) => {
+    if (!text.trim() && files.length === 0) return;
 
     const item: LiveSteerItem = {
       localId: `live-steer-${crypto.randomUUID()}`,
       // Chosen here rather than by the server, so the reply's marker for where
       // the agent read it can be matched to this item even before /inject answers.
       messageId: crypto.randomUUID(),
-      text: trimmed,
+      text: text.trim(),
       turnMessageId: findLatestTurnMessageId(messagesRef.current),
       status: 'sending',
     };
-
     setLiveSteers((current) => [...current, item]);
-    return submitSteerItem(item);
+    if (files.length === 0) return submitSteerItem(item);
+
+    // Attachments go up the way a turn's do (text files folded in as context,
+    // blobs uploaded) before the steer that carries them. The composer keeps
+    // them until then: clearing it revokes their blob URLs.
+    let prepared: LiveSteerItem;
+    try {
+      const outgoing = await prepareOutgoingMessage(item.text, files);
+      prepared = { ...item, text: outgoing.text.trim(), files: outgoing.files };
+    } catch (error) {
+      console.error('[ChatPanel] Steer attachments failed:', error);
+      setLiveSteers((current) => current.filter((entry) => entry.localId !== item.localId));
+      onFilesTaken?.(false);
+      return 'failed' as const;
+    }
+    onFilesTaken?.(true);
+    setLiveSteers((current) =>
+      current.map((entry) => (entry.localId === item.localId ? prepared : entry)),
+    );
+    return submitSteerItem(prepared);
   }, [submitSteerItem]);
 
   const handleSteer = useCallback(async (text: string) => {
-    if (!text.trim()) return;
+    const files = attachments.files;
+    if (!text.trim() && files.length === 0) return;
     setInput('');
-    await enqueueSteer(text);
-  }, [setInput, enqueueSteer]);
+    await enqueueSteer(text, files, (taken) => {
+      if (taken) {
+        attachments.clear();
+        return;
+      }
+      toast.error('Failed to upload attachments. Please try again.');
+      if (!getInput()) setInput(text);
+    });
+  }, [attachments, getInput, setInput, enqueueSteer]);
 
   // Answer independently of the composer's draft, attachments, and selected context.
   const handleAnswerQuestion = useCallback(async (questionKey: string, text: string) => {
@@ -1269,7 +1300,7 @@ function ChatPanelContent({
         ref={composerRef}
         style={{ '--transcript-gutter': `${transcriptGutter}px` } as CSSProperties}
         className={cn(
-          "relative w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-4 pt-0",
+          "relative w-full max-w-[min(56rem,calc(100%-2*var(--transcript-gutter,0px)))] mx-auto px-4 pb-[max(1rem,var(--ios-shell-safe-bottom,0px))] pt-0",
           // Phone: floats over the bottom of the transcript, which scrolls on
           // under its glass (the card itself is frosted; around it, nothing).
           // `absolute` also anchors the floating metrics row (see below).
