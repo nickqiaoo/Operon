@@ -205,6 +205,7 @@ export const codexPatchDiff: FakeScript = async function* ({ session }) {
   const textId = `codex-text-${session.turnIndex}`
   const toolId = `call_${session.turnIndex}_patch`
   const patchInput = {
+    status: 'inProgress',
     changes: [
       {
         path: '/tmp/example.ts',
@@ -241,7 +242,14 @@ export const codexPatchDiff: FakeScript = async function* ({ session }) {
     toolCallId: toolId,
     toolName: 'patch',
     input: patchInput,
-    output: { applied: true },
+    output: {
+      status: 'completed',
+      changes: [
+        ...patchInput.changes,
+        { path: '/tmp/plan.md', kind: { type: 'add' }, diff: '# Plan\n\n- First item\n' },
+        { path: '/tmp/old.md', kind: { type: 'delete' }, diff: '- Removed item\n' },
+      ],
+    },
     dynamic: false,
   } as RuntimeStreamPart
 

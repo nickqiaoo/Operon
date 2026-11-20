@@ -20,7 +20,7 @@ import { isMonitorTool } from '../background-notice';
 import { ReadImageLarge, imageReadPathOf } from '../ReadImages';
 import { getToolDisplayName, getToolDescription, formatToolDisplayName, unwrapToolEnvelope, type ToolPartLike } from '../toolName';
 import { normalizeToolState } from '../toolState';
-import { ToolInputDiff, useToolInputDiffStats } from '../ToolInputDiff';
+import { hasPatchChanges, ToolInputDiff, useToolInputDiffStats } from '../ToolInputDiff';
 import { extractPermissionOptions, type PermissionOutcome } from '../permission-utils';
 import { getOptimisticPermissionOutcome, type OptimisticPermissionDecision } from '../optimisticPermission';
 
@@ -97,7 +97,12 @@ export function CompactToolCall({
     ? displayInput.description.trim()
     : undefined;
 
-  const commandDescription = monitorDescription ?? getToolDescription(lowerToolName, displayInput);
+  // Codex can finish with different changes from the initial in-progress input.
+  const completedPatch = lowerToolName === 'patch' && hasPatchChanges(output) && output.status === 'completed'
+    ? output : undefined;
+  const previewInput = completedPatch ?? displayInput;
+  const patchOutputShown = completedPatch && Object.keys(completedPatch).every(key => key === 'status' || key === 'changes');
+  const commandDescription = monitorDescription ?? getToolDescription(lowerToolName, previewInput);
   const diffStats = useToolInputDiffStats(toolName, displayInput, state !== 'input-streaming');
 
   const lineProps = {
@@ -126,14 +131,14 @@ export function CompactToolCall({
         <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
         <ToolContent>
           {shouldUseDiffView ? (
-            <ToolInputDiff toolName={toolName} input={displayInput} />
+            <ToolInputDiff toolName={toolName} input={previewInput} />
           ) : (
             <ToolInput input={displayInput} />
           )}
           {/* A Read of an image: the picture, read again from disk, in place of its "[image]" result. */}
           {imagePath !== null ? (
             <ReadImageLarge path={imagePath} />
-          ) : (hasOutput || toolPart.errorText) && (
+          ) : ((hasOutput && !patchOutputShown) || toolPart.errorText) && (
             <ToolOutput output={output} errorText={toolPart.errorText} />
           )}
         </ToolContent>

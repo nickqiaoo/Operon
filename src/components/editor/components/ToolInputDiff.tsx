@@ -2,15 +2,57 @@ import { useIntl } from 'react-intl';
 import { useMemo } from 'react';
 import { countContentLines } from '@/components/diff/prepare-diff';
 import { usePreparedDiff } from '@/components/diff/usePreparedDiff';
-import { EditDiffViewer, WriteDiffViewer } from './FileDiffViewer';
+import { EditDiffViewer, FileDiffViewer, WriteDiffViewer } from './FileDiffViewer';
 import { DiffPreview } from '@/components/editor/DiffPreview';
 import { ToolInput } from '@/components/ai-elements/tool';
 import { cn } from '@/lib/utils';
 
 interface FileChange {
   path: string;
-  type: string;
+  kind?: { type: string };
+  type?: string;
   diff?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+export function hasPatchChanges(value: unknown): value is Record<string, unknown> & { changes: FileChange[] } {
+  if (!isRecord(value) || !Array.isArray(value.changes) || !value.changes.length) return false;
+  return value.changes.every((change: unknown) =>
+    isRecord(change) && typeof change.path === 'string' &&
+    (change.diff === undefined || typeof change.diff === 'string') &&
+    (change.type === undefined || typeof change.type === 'string') &&
+    (change.kind === undefined || (isRecord(change.kind) && typeof change.kind.type === 'string')),
+  );
+}
+
+function PatchFilePreview({ change }: { change: FileChange }) {
+  const { path, diff } = change;
+  const kind = change.kind?.type;
+  // Codex sends the file body for add/delete, and unified hunks for update.
+  if (diff && kind !== 'add' && kind !== 'delete') {
+    return <DiffPreview path={path} content={diff} />;
+  }
+
+  const lines = diff ? countContentLines(diff) : 0;
+  return (
+    <div className="min-w-0 space-y-2">
+      <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+        <span className="capitalize">{kind ?? change.type}</span>
+        <span className="truncate" title={path}>{path}</span>
+        {lines > 0 && (kind === 'add'
+          ? <span className="text-diff-add">+{lines}</span>
+          : <span className="text-diff-remove">-{lines}</span>)}
+      </div>
+      {diff && <FileDiffViewer
+        filePath={path}
+        oldContent={kind === 'delete' ? diff : ''}
+        newContent={kind === 'add' ? diff : ''}
+      />}
+    </div>
+  );
 }
 
 interface FileEditInput {
@@ -122,44 +164,12 @@ export function ToolInputDiff({ toolName, input, className }: ToolInputDiffProps
   }
 
   // Check if this is a Codex patch tool (file change with changes array)
-  if (lowerToolName === 'patch') {
-    const changes = input.changes as FileChange[] | undefined;
-    if (Array.isArray(changes) && changes.length > 0) {
-      const hasDiffs = changes.some((c) => c.diff);
-      return (
-        <div className={cn('space-y-3 overflow-hidden', className)}>
-          {hasDiffs ? (
-            <div className="space-y-4">
-              {changes.map((change, i) => (
-                <div key={i}>
-                  {change.diff ? (
-                    <DiffPreview path={change.path} content={change.diff} />
-                  ) : (
-                    <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
-                      <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground capitalize">
-                        {change.type}
-                      </span>
-                      {change.path}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <ul className="space-y-1">
-              {changes.map((change, i) => (
-                <li key={i} className="flex items-center gap-2 text-xs font-mono">
-                  <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground capitalize">
-                    {change.type}
-                  </span>
-                  <span className="text-muted-foreground">{change.path}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      );
-    }
+  if (lowerToolName === 'patch' && hasPatchChanges(input)) {
+    return (
+      <div className={cn('space-y-3 overflow-hidden', className)}>
+        {input.changes.map((change, i) => <PatchFilePreview key={i} change={change} />)}
+      </div>
+    );
   }
 
   return <ToolInput input={input} className={className} />;

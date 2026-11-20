@@ -29,5 +29,12 @@ for (const { script, toolName, filePathFragment } of cases) {
     // Tools render collapsed; click to expand and reveal ToolInputDiff content.
     await toolButton.click()
     await expect(page.getByText(filePathFragment).first()).toBeVisible({ timeout: 5_000 })
+    if (toolName === 'patch') {
+      const tool = page.getByTestId('tool-invocation').filter({ has: toolButton })
+      await expect(tool.locator('[data-line-type="change-addition"]').filter({ hasText: '- First item' })).toBeVisible()
+      await expect(tool.getByText('+3', { exact: true })).toBeVisible()
+      await expect(tool.locator('[data-line-type="change-deletion"]').filter({ hasText: '- Removed item' })).toBeVisible()
+      await expect(tool.getByText('"changes"', { exact: true })).toHaveCount(0)
+    }
   })
 }
