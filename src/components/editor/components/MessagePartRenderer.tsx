@@ -596,9 +596,6 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
         ) : message.role === 'user' ? (
           userText && <UserMessageText text={userText} />
         ) : (
-          /* Always the streaming renderer: Streamdown's static mode is a different tree, so
-              switching to it when the reply finished rebuilt the whole message (every block
-              re-parsed, code re-highlighted) in one blocking render. */
           <MessageResponse className={PHONE_REPLY_TEXT_MD} mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
             {question?.text ?? displayText}
           </MessageResponse>

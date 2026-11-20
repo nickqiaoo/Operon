@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 interface TocHeading {
-  /** Anchor id — rehype-slug already put this on the rendered heading. */
+  /** Anchor id on the rendered heading. */
   id: string
   text: string
   /** 0-based indent depth, normalised so the shallowest heading sits at 0. */
@@ -42,7 +42,7 @@ const CLOSE_DELAY_MS = 120
  * In the toolbar it costs none and overlaps nothing.
  *
  * Headings are read from the DOM rather than parsed out of the markdown source
- * so the ids always match whatever `rehype-slug` actually emitted — including
+ * so the ids always match what the renderer emitted — including
  * its de-duplication suffixes — and so text inside fenced code blocks is never
  * mistaken for a heading.
  */
@@ -66,41 +66,38 @@ export function MarkdownToc({
     )
   }, [contentRef])
 
-  // Collect headings once the markdown has committed to the DOM. Streamdown can
-  // take a frame or two to render, hence the short retry.
+  // The renderer loads on demand, including when this preview is first opened.
   useEffect(() => {
+    const container = contentRef.current
+    if (!container) return
     let raf = 0
-    let tries = 0
     const scan = () => {
-      const container = contentRef.current
-      const found =
-        container == null
-          ? []
-          : Array.from(container.querySelectorAll<HTMLElement>(HEADING_SELECTOR))
-              .filter((el) => el.id !== "")
-              .map((el) => ({
-                id: el.id,
-                text: (el.textContent ?? "").trim(),
-                level: Number(el.tagName.slice(1)),
-              }))
-              .filter((h) => h.text !== "")
-      if (found.length === 0 && tries++ < 10) {
-        raf = requestAnimationFrame(scan)
-        return
-      }
-      // A README that starts at `##` should still be flush left in the outline.
-      const minLevel = found.reduce((min, h) => Math.min(min, h.level), 6)
-      setHeadings(
-        found.map(({ id, text, level }) => ({
-          id,
-          text,
-          depth: Math.min(level - minLevel, 3),
+      const found = Array.from(container.querySelectorAll<HTMLElement>(HEADING_SELECTOR))
+        .filter((el) => el.id !== "")
+        .map((el) => ({
+          id: el.id,
+          text: (el.textContent ?? "").trim(),
+          level: Number(el.tagName.slice(1)),
         }))
-      )
-      setActiveId(found[0]?.id ?? null)
+        .filter((h) => h.text !== "")
+      const minLevel = found.reduce((min, h) => Math.min(min, h.level), 6)
+      const next = found.map(({ id, text, level }) => ({ id, text, depth: Math.min(level - minLevel, 3) }))
+      setHeadings((previous) => previous.length === next.length && previous.every(
+        (heading, index) => heading.id === next[index].id && heading.text === next[index].text && heading.depth === next[index].depth,
+      ) ? previous : next)
+      setActiveId((previous) => found.some(({ id }) => id === previous) ? previous : found[0]?.id ?? null)
     }
-    raf = requestAnimationFrame(scan)
-    return () => cancelAnimationFrame(raf)
+    const schedule = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(scan)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["id"] })
+    schedule()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+    }
   }, [content, contentRef])
 
   // Highlight the heading the reader is currently under.

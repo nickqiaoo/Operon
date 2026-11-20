@@ -58,7 +58,7 @@ function basename(path: string): string {
   return path.split("/").pop() || path
 }
 
-function classifyLines(text: string): { line: string; prose: boolean }[] {
+export function classifyMarkdownLines(text: string): { line: string; prose: boolean }[] {
   let openFence: string | null = null
   return text.split("\n").map((line) => {
     const marker = line.match(CODE_FENCE_LINE)?.[2]
@@ -108,7 +108,7 @@ function imagePathsInLine(line: string): string[] {
 
 /** Absolute image paths in a reply's prose, in reading order, without duplicates. */
 export function extractLocalImagePaths(text: string): string[] {
-  const paths = classifyLines(text)
+  const paths = classifyMarkdownLines(text)
     .filter(({ prose }) => prose)
     .flatMap(({ line }) => imagePathsInLine(line))
   return [...new Set(paths)]
@@ -120,7 +120,7 @@ export function extractLocalImagePaths(text: string): string[] {
  */
 export function linkLocalMarkdownImages(text: string): string {
   if (!text.includes("![")) return text
-  return classifyLines(text)
+  return classifyMarkdownLines(text)
     .map(({ line, prose }) => {
       if (!prose) return line
       return line.replace(CODE_OR_MARKDOWN_IMAGE_RE, (match, _ticks, _code, alt: string | undefined, target: string | undefined) => {

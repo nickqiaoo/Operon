@@ -1,14 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "streamdown/styles.css";
+@import "@pierre/words/styles.css" layer(components);
 
-@source "../../node_modules/streamdown/dist/*.js";
-@source "../../node_modules/@streamdown/code/dist/*.js";
-@source "../../node_modules/@streamdown/mermaid/dist/*.js";
-@source "../../node_modules/@streamdown/math/dist/*.js";
-@source "../../node_modules/@streamdown/cjk/dist/*.js";
 
-/* Keep element specificity so prose modifiers override Streamdown utilities. */
+/* Keep element specificity so prose modifiers override renderer defaults. */
 @plugin "@tailwindcss/typography" {
   target: "legacy";
 }
@@ -773,21 +768,6 @@ samp {
   -webkit-app-region: no-drag;
 }
 
-/*
- * Streamdown's fullscreen mermaid / table views put the exit button 16px from
- * the window top, inside the 40px top-bar drag strip. The OS drag region wins
- * over any z-index, so hover flickers and clicks miss. Push the button below
- * the strip. (Don't solve this with `body:has(...)`: it re-evaluates on every
- * node mermaid appends to <body> while measuring and stalls rendering.)
- */
-body > div > button[title="Exit fullscreen"] {
-  top: 3rem !important;
-}
-
-[data-streamdown="table-fullscreen"] > div > div:first-child {
-  padding-top: 3rem !important;
-}
-
 .heading-section {
   @apply text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium;
 }
@@ -817,6 +797,43 @@ body > div > button[title="Exit fullscreen"] {
   text-decoration-color: color-mix(in srgb, var(--color-link) 40%, transparent);
 }
 
+.markdown-table-scroll {
+  max-width: 100%;
+  margin-block: 1.25em;
+  overflow-x: auto;
+}
+
+.markdown-table-scroll > table {
+  display: table;
+  width: 100%;
+  margin: 0;
+  overflow: visible;
+  table-layout: auto;
+  border-collapse: collapse;
+  overflow-wrap: anywhere;
+}
+
+.markdown-table-scroll :is(th, td) {
+  /* Keep a long URL or code span from taking most of the table width. */
+  max-width: 40ch;
+  padding: 0.5em 0.6em;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.markdown-table-scroll tr > :first-child {
+  padding-inline-start: 0;
+}
+
+.markdown-table-scroll tr > :last-child {
+  padding-inline-end: 0;
+}
+
+.markdown-table-scroll tbody tr:last-child > td {
+  border-bottom: 0;
+}
+
 .prose pre {
   background-color: var(--color-muted);
   padding: 0.75rem;
@@ -824,12 +841,6 @@ body > div > button[title="Exit fullscreen"] {
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-}
-
-/* Inside streamdown code blocks, pre should be clean */
-.prose [data-streamdown="code-block-body"] pre {
-  background-color: transparent;
-  border-radius: 0;
 }
 
 .prose code {
@@ -842,6 +853,24 @@ body > div > button[title="Exit fullscreen"] {
 .prose pre code {
   background: none;
   padding: 0;
+}
+
+.prose [data-markdown="code-block"] {
+  background-color: var(--color-muted);
+  border-color: var(--color-border);
+}
+
+.prose [data-markdown="code-header"] {
+  padding: 0.25rem 0.75rem;
+  color: var(--color-muted-foreground);
+  border-color: color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+.prose [data-markdown="code-block"] pre {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border-radius: 0;
 }
 
 .prose pre::-webkit-scrollbar {
@@ -860,65 +889,6 @@ body > div > button[title="Exit fullscreen"] {
   background-clip: padding-box;
 }
 
-/* Streamdown code block: clean single-container look */
-[data-streamdown="code-block"] {
-  padding: 0 !important;
-  gap: 0 !important;
-  overflow: hidden;
-  background-color: var(--color-muted) !important;
-  border-color: var(--color-border) !important;
-}
-
-/* Code block header: compact with subtle separator. 4px + the 18px copy
-   button + 4px lands the row at ~27px; it used to be 35px, which on a one-line
-   block made the label strip nearly as tall as the code under it. */
-[data-streamdown="code-block-header"] {
-  height: auto !important;
-  padding: 0.25rem 0.5rem 0.25rem 0.75rem !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
-}
-
-/* Code block body: remove inner border, flush with container */
-[data-streamdown="code-block-body"] {
-  border: none !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-  background-color: transparent !important;
-}
-
-[data-streamdown="code-block-body"] pre {
-  padding: 0.5rem 0.75rem !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-}
-
-/* Lay the actions row exactly over the compact header so the copy button
-   centres on the language label. Streamdown positions the row absolutely inside
-   a block that clips overflow, so a negative margin would hide the button. */
-[data-streamdown="code-block"] > div:has([data-streamdown="code-block-actions"]) {
-  height: 1.5rem !important;
-  top: 0 !important;
-  right: 0 !important;
-  padding-right: 0.5rem;
-}
-
-/* Keep Streamdown's native copy control compact and visible to keyboard/touch users. */
-[data-streamdown="code-block-actions"] {
-  border: none !important;
-  background: transparent !important;
-  padding: 0 !important;
-}
-
-[data-streamdown="code-block-actions"] button {
-  padding: 0.125rem;
-  color: var(--color-muted-foreground);
-}
-
-[data-streamdown="code-block-actions"] button:hover {
-  color: var(--color-foreground);
-  background-color: var(--color-row-hover);
-}
-
 /* Find-in-file matches in the rendered markdown preview. The source view is in
    a Pierre shadow root and carries the same rules via FIND_HIGHLIGHT_CSS. */
 ::highlight(file-find-match) {
@@ -927,86 +897,6 @@ body > div > button[title="Exit fullscreen"] {
 ::highlight(file-find-current) {
   background-color: var(--find-match-current);
 }
-
-/* Project-specific Mermaid skin: match the compact code block container. */
-[data-streamdown="mermaid-block"] {
-  padding: 0 !important;
-  gap: 0 !important;
-  overflow: hidden;
-  background-color: var(--color-muted) !important;
-  border-color: var(--color-border) !important;
-}
-
-/* Header row ("mermaid" label): compact with subtle separator */
-[data-streamdown="mermaid-block"] > div:first-child {
-  height: auto !important;
-  padding: 0.375rem 0.75rem !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
-}
-
-/* Align Streamdown's absolutely positioned actions with the compact header. */
-[data-streamdown="mermaid-block"] > div:has([data-streamdown="mermaid-block-actions"]) {
-  top: 0 !important;
-  height: 1.75rem !important;
-}
-
-/* Actions cluster: no frame, no fill — plain icon buttons like the code copy button */
-[data-streamdown="mermaid-block-actions"] {
-  gap: 0.125rem;
-  padding: 0 !important;
-  border: none !important;
-  background: transparent !important;
-  backdrop-filter: none !important;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-[data-streamdown="mermaid-block"]:hover [data-streamdown="mermaid-block-actions"],
-[data-streamdown="mermaid-block-actions"]:focus-within {
-  opacity: 1;
-}
-
-[data-streamdown="mermaid-block-actions"] > button,
-[data-streamdown="mermaid-block-actions"] > div > button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.25rem;
-  border-radius: 0.375rem;
-  color: var(--color-muted-foreground);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-[data-streamdown="mermaid-block-actions"] > button:hover,
-[data-streamdown="mermaid-block-actions"] > div > button:hover {
-  color: var(--color-foreground);
-  background-color: color-mix(in srgb, var(--color-foreground) 10%, transparent);
-}
-
-/* Diagram area: flush with the container, no inner frame */
-[data-streamdown="mermaid-block"] > div:last-child {
-  border: none !important;
-  border-radius: 0 !important;
-  background-color: var(--color-background) !important;
-}
-
-/* Extra diagram spacing. min-h-28 now comes from Streamdown. */
-[data-streamdown="mermaid"] > div {
-  padding: 0.5rem 0;
-}
-
-/*
- * The rendered <svg width="100%"> sits in an auto-width flex item, so it has
- * no reference width and falls back to the SVG default of 300px. Give the
- * wrapper the full column so the diagram scales to min(column, natural width).
- */
-[data-streamdown="mermaid"] [role="img"] {
-  width: 100%;
-}
-
 
 /*
  * Edge fade for a scroll area that butts against fixed chrome (a toolbar, the

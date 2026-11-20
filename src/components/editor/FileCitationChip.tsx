@@ -88,7 +88,7 @@ export function InlineFileCode({ children, className, ...props }: HTMLAttributes
   return (
     <code
       className={cn("rounded bg-muted px-1.5 py-0.5 font-mono text-sm", className)}
-      data-streamdown="inline-code"
+      data-markdown="code"
       {...props}
     >
       {children}

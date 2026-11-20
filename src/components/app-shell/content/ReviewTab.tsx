@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Virtualizer } from "@pierre/diffs/react"
 import type { FileDiffOptions } from "@pierre/diffs"
 import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider'
-import { PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
+import { PIERRE_HIGHLIGHTER, PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { gitKeys, resolveDefaultBase, useGitRepoInvalidation, usePrForBranch, usePrRepoStatus } from "@/lib/git-queries"
@@ -86,7 +86,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
     return theme === "dark" ? ("dark" as const) : ("light" as const)
   }, [theme])
 
-  const diffOptions = useMemo<FileDiffOptions<CommentMeta>>(
+  const diffOptions = useMemo<FileDiffOptions<CommentMeta, undefined>>(
     () => ({
       diffStyle: viewMode,
       diffIndicators: "bars" as const,
@@ -100,6 +100,7 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
       disableBackground: false,
       themeType,
       theme: PIERRE_THEME,
+      preferredHighlighter: PIERRE_HIGHLIGHTER,
       unsafeCSS: DIFF_SCROLLBAR_CSS,
     }),
     [themeType, viewMode, wordDiff, wordWrap],

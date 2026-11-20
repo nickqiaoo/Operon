@@ -472,9 +472,6 @@ const MessageItem = memo(function MessageItem({
             {message.role === 'user' ? (
               <UserMessageWithContext text={getMessageText(message)} />
             ) : (
-              /* Always the streaming renderer: Streamdown's static mode is a different tree, so
-                  switching to it when the reply finished rebuilt the whole message (every block
-                  re-parsed, code re-highlighted) in one blocking render. */
               <MessageResponse className={PHONE_REPLY_TEXT_MD} mode="streaming" isAnimating={isStreamingMessage} parseIncompleteMarkdown={isStreamingMessage}>
                 {getMessageText(message)}
               </MessageResponse>

@@ -184,7 +184,7 @@ function revealRange(range: Range) {
 
 /**
  * Find-in-page scoped to one rendered file. Matches are painted with the CSS
- * Custom Highlight API, so the DOM (which Pierre and Streamdown own) is never
+ * Custom Highlight API, so the DOM (which Pierre and Words own) is never
  * touched — and re-renders of that DOM just trigger a re-scan.
  */
 export function useTextFind({ getTarget, enabled, query, options, contentKey }: UseTextFindArgs): TextFindState {
@@ -251,7 +251,7 @@ export function useTextFind({ getTarget, enabled, query, options, contentKey }: 
     const previous = lastSearchRef.current
     const changed = previous == null || search.some((value, i) => value !== previous[i])
     lastSearchRef.current = search
-    // Pierre and Streamdown render a frame after the content arrives.
+    // Pierre and Words render a frame after the content arrives.
     const raf = requestAnimationFrame(() => scan(changed))
     return () => cancelAnimationFrame(raf)
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,150 +1,31 @@
-
-import { memo, useCallback, useEffect, useMemo, useRef, type AnchorHTMLAttributes } from "react";
-import { safeCode } from "@/lib/streamdown-code";
-import { openExternalUrl } from "@/lib/open-external";
-import { cjk } from "@streamdown/cjk";
-import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
-import { Streamdown, defaultUrlTransform } from "streamdown";
-import rehypeSlug from "rehype-slug";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
-import type { PluggableList } from "unified";
+import { memo } from "react";
+import { RichMarkdown } from "@/components/ai-elements/rich-markdown";
 import { cn } from "@/lib/utils";
-import { useFileOpenHandler } from "@/lib/file-open-context";
-import { useResolvedMode } from "@/hooks/useResolvedMode";
-import { remarkFileCitations } from "@/lib/remark-file-citations";
-import { InlineFileCode } from "@/components/editor/FileCitationChip";
-
-const code = safeCode;
-
-const rehypePlugins: [typeof rehypeSlug] = [rehypeSlug];
-// File citations (【F:path†L…】) are surfaced by remarkFileCitations; clicking an
-// inline-code citation is handled by the InlineFileCode component.
-// remarkGfm must be included explicitly: passing a custom remarkPlugins array
-// replaces Streamdown's default set (which bundles gfm), so without it GFM
-// tables/strikethrough/task-lists degrade to plain paragraphs.
-const remarkPluginsBase: PluggableList = [remarkGfm, remarkFileCitations];
-const remarkPluginsWithBreaks: PluggableList = [remarkGfm, remarkFileCitations, remarkBreaks];
-
-/** Allow absolute file paths through URL sanitization. */
-const urlTransform: typeof defaultUrlTransform = (url, key, node) => {
-    if (url.startsWith("/")) return url;
-    return defaultUrlTransform(url, key, node) ?? url;
-};
-
-function MarkdownLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-    const openFile = useFileOpenHandler();
-    const handleClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
-        if (!href) return;
-
-        e.preventDefault();
-
-        if (href.startsWith("#")) {
-            const id = href.slice(1);
-            document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-            return;
-        }
-
-        if (href.startsWith("http://") || href.startsWith("https://")) {
-            openExternalUrl(href);
-            return;
-        }
-
-        // Local file path (absolute path like /Users/...)
-        if (href.startsWith("/")) {
-            const hash = href.match(/#L(\d+)/);
-            openFile?.(
-                href.split("#")[0],
-                hash ? { line: Number.parseInt(hash[1], 10) } : undefined
-            );
-        }
-    }, [href, openFile]);
-
-    if (href?.startsWith("/") && !openFile) return <span>{children}</span>;
-
-    return (
-        <a href={href} onClick={handleClick} {...props}>
-            {children}
-        </a>
-    );
-}
-
-const markdownComponents = { a: MarkdownLink, inlineCode: InlineFileCode };
-
-// Mermaid's "default" theme draws labels and arrows in near-black, which vanish
-// on the dark surface. Diagrams re-render when this object changes identity, so
-// keep one stable instance per mode.
-const mermaidOptions = {
-    light: { config: { theme: "default" as const } },
-    dark: { config: { theme: "dark" as const } },
-};
 
 export interface MarkdownRendererProps {
-    content: string;
-    className?: string;
-    /**
-     * Treat single newlines as hard line breaks (GitHub-style README rendering).
-     * Off by default so the chat renderer keeps standard CommonMark paragraph
-     * collapsing.
-     */
-    breaks?: boolean;
+  content: string;
+  className?: string;
+  /** Render single newlines as hard breaks in surfaces such as the README preview. */
+  breaks?: boolean;
 }
 
-export const MarkdownRenderer = memo(({ content, className, breaks }: MarkdownRendererProps) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const mode = useResolvedMode();
-
-    // Streamdown's mermaid pan-zoom hijacks every wheel event (preventDefault +
-    // zoom), so scrolling a document past a diagram gets stuck zooming it. Stop
-    // plain wheel events in the capture phase before they reach that listener so
-    // the page scrolls normally; ctrl+wheel (and trackpad pinch, which the
-    // browser reports with ctrlKey) still reaches it and zooms.
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-        const handleWheel = (e: WheelEvent) => {
-            if (e.ctrlKey) return;
-            if (!(e.target instanceof Element)) return;
-            if (!e.target.closest('[data-streamdown="mermaid"]')) return;
-            e.stopPropagation();
-        };
-        container.addEventListener("wheel", handleWheel, { capture: true, passive: true });
-        return () => container.removeEventListener("wheel", handleWheel, { capture: true });
-    }, []);
-
-    const remarkPlugins = useMemo<PluggableList>(
-        () => (breaks ? remarkPluginsWithBreaks : remarkPluginsBase),
-        [breaks]
-    );
-
-    return (
-        <div ref={containerRef}>
-            <Streamdown
-                className={cn(
-                    // Body typography inherits from the surrounding surface.
-                    "prose max-w-none w-full",
-                    "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",
-                    // Conversational heading scale: chat output is a reply, not a
-                    // document — headings differ from body by one step + weight,
-                    // never by poster-size type.
-                    "prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-1.5 prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-sm max-md:prose-h1:text-xl max-md:prose-h2:text-lg max-md:prose-h3:text-base max-md:prose-h4:text-base",
-                    "prose-p:leading-[1.4] prose-li:leading-[1.35] prose-p:my-0.5 prose-li:my-0",
-                    "break-words",
-                    className
-                )}
-                plugins={{ code, mermaid, math, cjk }}
-                mermaid={mermaidOptions[mode]}
-                controls={{ table: false, code: { copy: true, download: false } }}
-                rehypePlugins={rehypePlugins}
-                remarkPlugins={remarkPlugins}
-                urlTransform={urlTransform}
-                components={markdownComponents}
-            >
-                {content}
-            </Streamdown>
-        </div>
-    );
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className, breaks }: MarkdownRendererProps) {
+  return (
+    <RichMarkdown
+      mode="static"
+      citations
+      headingIds
+      breaks={breaks}
+      className={cn(
+        "prose max-w-none w-full",
+        "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",
+        "prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-1.5 prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-sm max-md:prose-h1:text-xl max-md:prose-h2:text-lg max-md:prose-h3:text-base max-md:prose-h4:text-base",
+        "prose-p:leading-[1.4] prose-li:leading-[1.35] prose-p:my-0.5 prose-li:my-0",
+        "break-words",
+        className
+      )}
+    >
+      {content}
+    </RichMarkdown>
+  );
 });
-
-MarkdownRenderer.displayName = "MarkdownRenderer";

@@ -10,15 +10,11 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace";
-import { safeCode } from "@/lib/streamdown-code";
+import { RichMarkdown } from "@/components/ai-elements/rich-markdown";
 import { cn } from "@/lib/utils";
-import { cjk } from "@streamdown/cjk";
-import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
 import { BrainIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
 
 /**
  * Reasoning, rebuilt on shadcn/ui Trace (https://ui.shadcn.com/docs/ai-elements/radix/reasoning):
@@ -37,7 +33,6 @@ interface ReasoningContextValue {
 }
 
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
-const code = safeCode;
 
 export const useReasoning = () => {
   const context = useContext(ReasoningContext);
@@ -151,13 +146,13 @@ export type ReasoningContentProps = Omit<ComponentProps<typeof TraceCollapsibleC
 
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => {
-    const { collapsible } = useReasoning();
+    const { collapsible, isStreaming } = useReasoning();
     if (!collapsible) return null;
     return (
       <TraceCollapsibleContent className={cn("text-sm", className)} {...props}>
-        <Streamdown plugins={{ code, mermaid, math, cjk }} controls={{ code: false }}>
+        <RichMarkdown isAnimating={isStreaming} codeControls={false} className="prose">
           {children}
-        </Streamdown>
+        </RichMarkdown>
       </TraceCollapsibleContent>
     );
   }

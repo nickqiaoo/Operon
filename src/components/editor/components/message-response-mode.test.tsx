@@ -8,22 +8,18 @@ import { MessagePartRenderer } from './MessagePartRenderer';
 
 const codeBlock = '```text\nAgentService → IConfigService\n```';
 
-vi.mock('streamdown', async () => {
-  const actual = await vi.importActual<typeof import('streamdown')>('streamdown');
-  return {
-    ...actual,
-    Streamdown: ({ children, mode, isAnimating, parseIncompleteMarkdown }: {
-      children?: ReactNode;
-      mode?: 'static' | 'streaming';
-      isAnimating?: boolean;
-      parseIncompleteMarkdown?: boolean;
-    }) => (
-      <div data-mode={mode} data-animating={String(isAnimating)} data-incomplete={String(parseIncompleteMarkdown)}>
-        {children}
-      </div>
-    ),
-  };
-});
+vi.mock('@/components/ai-elements/rich-markdown', () => ({
+  RichMarkdown: ({ children, mode, isAnimating, parseIncompleteMarkdown }: {
+    children?: ReactNode;
+    mode?: 'static' | 'streaming';
+    isAnimating?: boolean;
+    parseIncompleteMarkdown?: boolean;
+  }) => (
+    <div data-mode={mode} data-animating={String(isAnimating)} data-incomplete={String(parseIncompleteMarkdown)}>
+      {children}
+    </div>
+  ),
+}));
 
 function renderAssistantText(isStreamingMessage: boolean) {
   const message: UIMessage = {
@@ -54,8 +50,6 @@ function renderAssistantText(isStreamingMessage: boolean) {
 }
 
 describe('assistant message response mode', () => {
-  // Always the streaming renderer: switching to Streamdown's static mode when a
-  // reply finished swapped its whole tree and rebuilt the message.
   it.each([true, false])(
     'keeps streaming mode and flags the stream state when isStreamingMessage is %s',
     (isStreaming) => {

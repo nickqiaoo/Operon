@@ -183,7 +183,7 @@ export function FilePreviewPane({
   // Phone: long lines stay whole and scroll sideways (see .pierre-hscroll).
   const isMobile = useIsMobile()
   const overflow = isMobile ? "scroll" : "wrap"
-  const diffOptions = useMemo<FileDiffOptions<CommentMeta>>(
+  const diffOptions = useMemo<FileDiffOptions<CommentMeta, undefined>>(
     () => ({
       ...createPierreDiffOptions(themeType, "unified", overflow),
       disableFileHeader: true,

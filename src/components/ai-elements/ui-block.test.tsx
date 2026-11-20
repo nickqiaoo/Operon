@@ -1,11 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { MessageResponse } from '@/components/ai-elements/message'
+import { UiBlock } from './ui-block'
 
 const reply = [
-  'Before the chart.',
-  '',
-  '```ui',
   '<bar-chart title="Latency" max="100" unit="ms">',
   '<bar label="US" value="42"/>',
   '<bar label="EU" value="58"/>',
@@ -14,13 +11,9 @@ const reply = [
   '<node id="a" label="Client"/>',
   '<node id="b" label="Gateway" after="a"/>',
   '</flow>',
-  '```',
-  '',
-  'After the chart.',
 ].join('\n')
 
-// Through the real Streamdown: this is the path a streaming reply takes.
-const render = (text: string) => renderToStaticMarkup(<MessageResponse>{text}</MessageResponse>)
+const render = (code: string) => renderToStaticMarkup(<UiBlock code={code} />)
 
 describe('ui block in a reply', () => {
   it('draws the components, not the source', () => {
@@ -28,7 +21,6 @@ describe('ui block in a reply', () => {
     expect(html).toContain('data-ui-block')
     expect(html).toContain('Gateway')
     expect(html).not.toContain('bar-chart')
-    expect(html).toContain('After the chart.')
   })
 
   it('shows pieces only as their tags complete', () => {
@@ -47,12 +39,11 @@ describe('ui block in a reply', () => {
   })
 
   it('gives a row its declared columns before the cards arrive', () => {
-    const html = render('```ui\n<row columns="3">\n<metric label="A" value="1"/>\n')
+    const html = render('<row columns="3">\n<metric label="A" value="1"/>\n')
     expect(html).toContain('--ui-cols:3')
   })
 
   const allBlocks = [
-    '```ui',
     '<stages title="Arch">',
     '<stage icon="user" title="Browser" desc="Sends it" tags="HTTP/2,TLS"/>',
     '<group title="Backend" columns="2" note="Shared">',
@@ -74,7 +65,6 @@ describe('ui block in a reply', () => {
     '<point label="Mon" value="50"/>',
     '<point label="Tue" value="80"/>',
     '</line-chart>',
-    '```',
   ].join('\n')
 
   it('draws every block type', () => {
@@ -101,7 +91,6 @@ describe('ui block in a reply', () => {
 
   it('draws labelled arrows, item lists and tones from theme tokens', () => {
     const html = render([
-      '```ui',
       '<stages note="Either server runs the loop">',
       '<stage icon="user" title="Client"/>',
       '<arrow label="HTTP / SSE" dir="both"/>',
@@ -114,7 +103,6 @@ describe('ui block in a reply', () => {
       '<node id="a" icon="code" label="metadata.externalAgent written on the child chat" tone="purple"/>',
       '</flow>',
       '<bar-chart max="10"><bar label="x" value="3" tone="amber"/></bar-chart>',
-      '```',
     ].join('\n'))
     expect(html).toContain('data-ui-dropped="0"')
     for (const text of ['HTTP / SSE', '>Scheduler<', '>Agent loop<', 'Either server runs the loop', 'bg-chart-1/8', 'bg-chart-3/8', 'bg-brand/8', 'bg-chart-4']) {
@@ -127,13 +115,13 @@ describe('ui block in a reply', () => {
   })
 
   it('drops a tone the catalog does not know', () => {
-    const html = render('```ui\n<metric label="A" value="1" tone="#ff0000"/>\n```')
+    const html = render('<metric label="A" value="1" tone="#ff0000"/>\n```')
     expect(html).toContain('data-ui-dropped="1"')
     expect(html).not.toContain('ff0000')
   })
 
   it('does not run or echo what the catalog refuses', () => {
-    const html = render('```ui\n<metric label="A" value="1"/>\n<script>alert(1)</script>\n<img src="https://x.test/a.png"/>\n```')
+    const html = render('<metric label="A" value="1"/>\n<script>alert(1)</script>\n<img src="https://x.test/a.png"/>\n```')
     expect(html).toContain('>A<')
     expect(html).toContain('data-ui-dropped="2"')
     expect(html).not.toContain('<script')

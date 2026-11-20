@@ -1,4 +1,4 @@
-import { PIERRE_THEME } from './pierre-theme'
+import { PIERRE_HIGHLIGHTER, PIERRE_THEME } from './pierre-theme'
 
 export interface DiffStats {
   additions: number
@@ -58,6 +58,7 @@ export function createPierreDiffOptions(
     overflow,
     themeType,
     theme: PIERRE_THEME,
+    preferredHighlighter: PIERRE_HIGHLIGHTER,
     ...(overflow === 'scroll' ? { unsafeCSS: PIERRE_HSCROLL_CSS } : {}),
   }
 }
@@ -73,6 +74,7 @@ export function createPierreFileOptions(themeType: PierreDiffThemeType, overflow
     themeType,
     disableFileHeader: true,
     theme: PIERRE_THEME,
+    preferredHighlighter: PIERRE_HIGHLIGHTER,
     ...(overflow === 'scroll' ? { unsafeCSS: PIERRE_HSCROLL_CSS } : {}),
   }
 }

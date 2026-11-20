@@ -13,96 +13,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { safeCode } from "@/lib/streamdown-code";
+import { RichMarkdown, type RichMarkdownProps } from "@/components/ai-elements/rich-markdown";
 import { cn } from "@/lib/utils";
-import { openExternalUrl } from "@/lib/open-external";
-import { cjk } from "@streamdown/cjk";
-import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
+import { linkLocalMarkdownImages } from "@/lib/reply-images";
 import type { UIMessage } from "ai";
-import { useFileOpenHandler } from "@/lib/file-open-context";
-import type { AnchorHTMLAttributes, ComponentProps } from "react";
-import { createContext, memo, useCallback, useContext } from "react";
-import { Streamdown, defaultUrlTransform } from "streamdown";
-import remarkGfm from "remark-gfm";
-import { remarkFileCitations } from "@/lib/remark-file-citations";
-import { CODE_FENCE_LINE, decodeLocalPath, linkLocalMarkdownImages } from "@/lib/reply-images";
-import { InlineFileCode } from "@/components/editor/FileCitationChip";
-import { UI_BLOCK_RENDERERS } from "@/components/ai-elements/ui-block";
-import type { PluggableList } from "unified";
-
-/** Allow absolute file paths through URL sanitization */
-const messageUrlTransform: typeof defaultUrlTransform = (url, key, node) => {
-  if (url.startsWith("/")) return url;
-  return defaultUrlTransform(url, key, node) ?? url;
-};
-
-function MessageLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
-  const openFile = useFileOpenHandler();
-  const handleClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!href) return;
-    e.preventDefault();
-    if (href.startsWith("#")) {
-      const id = href.slice(1);
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-      return;
-    }
-    if (href.startsWith("http://") || href.startsWith("https://")) {
-      openExternalUrl(href);
-      return;
-    }
-    // Local file path
-    if (href.startsWith("/")) {
-      const hash = href.match(/#L(\d+)/);
-      openFile?.(
-        decodeLocalPath(href.split("#")[0]),
-        hash ? { line: Number.parseInt(hash[1], 10) } : undefined
-      );
-    }
-  }, [href, openFile]);
-
-  if (href?.startsWith("/") && !openFile) return <span>{children}</span>;
-
-  return (
-    <a href={href} onClick={handleClick} {...props}>
-      {children}
-    </a>
-  );
-}
-
-const messageComponents = { a: MessageLink, inlineCode: InlineFileCode };
-// File citations (【F:path†L…】) → clickable inline-code chips.
-// remarkGfm is required for tables/strikethrough/task-lists: passing a custom
-// remarkPlugins array replaces Streamdown's default set (which bundles gfm), so
-// we must re-add it here or GFM tables silently degrade to plain paragraphs.
-const messageRemarkPlugins: PluggableList = [remarkGfm, remarkFileCitations];
-
-const code = safeCode;
-
-function closeUnterminatedCodeFence(content: string): string {
-  let openFence: string | null = null;
-
-  for (const line of content.split("\n")) {
-    const match = line.match(CODE_FENCE_LINE);
-    if (!match) continue;
-
-    const marker = match[2];
-    if (!openFence) {
-      openFence = marker;
-      continue;
-    }
-
-    if (openFence[0] === marker[0] && marker.length >= openFence.length) {
-      openFence = null;
-    }
-  }
-
-  if (!openFence) return content;
-  if (!content.trimEnd()) return content;
-
-  const suffix = content.endsWith("\n") ? "" : "\n";
-  return `${content}${suffix}${openFence}`;
-}
+import type { ComponentProps } from "react";
+import { createContext, memo, useContext } from "react";
 
 /**
  * Message, rebuilt on shadcn/ui Message + Bubble (https://ui.shadcn.com/docs/ai-elements/radix/message):
@@ -224,7 +140,9 @@ export const MessageAction = ({
   return button;
 };
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>;
+type MessageResponseProps = Pick<
+  RichMarkdownProps, "children" | "className" | "mode" | "isAnimating" | "parseIncompleteMarkdown"
+>;
 
 /** Phone reading size for chat replies: 17px at 1.4, the iOS body size — the desktop's
  *  0.9rem at tight leading reads small at arm's length. Prose sets its own p/li leading,
@@ -233,29 +151,18 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 export const PHONE_REPLY_TEXT = "text-[17px] leading-[1.4] [&_li]:leading-[1.4] [&_p]:leading-[1.4] space-y-3!";
 export const PHONE_REPLY_TEXT_MD = "max-md:text-[17px] max-md:leading-[1.4] max-md:[&_li]:leading-[1.4] max-md:[&_p]:leading-[1.4] max-md:space-y-3!";
 
-const MessageResponseInner = ({ className, children, ...props }: MessageResponseProps) => {
-
+export const MessageResponse = memo(function MessageResponse({ className, children, ...props }: MessageResponseProps) {
   return (
-    <div>
-      <Streamdown
-        className={cn(
-          // Heading sizes are relative to the body so callers that change the body size
-          // (the assistant's 17px compact mode) keep the same one-step-up scale.
-          "prose size-full text-[0.9rem] leading-tight prose-headings:mt-3 prose-headings:mb-1 prose-h1:text-[1.25em] prose-h2:text-[1.125em] prose-h3:text-[1em] prose-h4:text-[1em] prose-p:my-0 prose-p:[&:not(:last-child)]:mb-1 space-y-2! [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-          className
-        )}
-        plugins={{ code, mermaid, math, cjk, renderers: UI_BLOCK_RENDERERS }}
-        controls={{ table: false, code: { copy: true, download: false } }}
-        remarkPlugins={messageRemarkPlugins}
-        urlTransform={messageUrlTransform}
-        components={messageComponents}
-        children={typeof children === "string" ? closeUnterminatedCodeFence(linkLocalMarkdownImages(children)) : children}
-        {...props}
-      />
-    </div>
+    <RichMarkdown
+      {...props}
+      className={cn(
+        "prose size-full text-[0.9rem] leading-tight prose-headings:mt-3 prose-headings:mb-1 prose-h1:text-[1.25em] prose-h2:text-[1.125em] prose-h3:text-[1em] prose-h4:text-[1em] prose-p:my-0 prose-p:[&:not(:last-child)]:mb-1 space-y-2! [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        className
+      )}
+      citations
+      uiBlocks
+    >
+      {linkLocalMarkdownImages(children)}
+    </RichMarkdown>
   );
-};
-
-export const MessageResponse = memo(MessageResponseInner);
-
-MessageResponse.displayName = "MessageResponse";
+});

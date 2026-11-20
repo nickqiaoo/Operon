@@ -1,12 +1,16 @@
 import { useEffect, type ReactNode } from 'react';
 import { WorkerPoolContextProvider, useWorkerPool } from '@pierre/diffs/react';
 import type { WorkerInitializationRenderOptions, WorkerPoolOptions } from '@pierre/diffs/react';
-import PierreDiffWorker from '@pierre/diffs/worker/worker.js?worker';
-import { PIERRE_THEME } from '@shared/tool-rendering/pierre-theme';
+import PierreDiffWorker from './pierre-diff.worker?worker';
+import { PIERRE_HIGHLIGHTER, PIERRE_THEME } from '@shared/tool-rendering/pierre-theme';
 import { useReviewDisplayStore } from '@/stores/review-display-store';
 
 const poolOptions: WorkerPoolOptions = { workerFactory: () => new PierreDiffWorker() };
-const highlighterOptions: WorkerInitializationRenderOptions = { theme: PIERRE_THEME, lineDiffType: 'none' };
+const highlighterOptions: WorkerInitializationRenderOptions = {
+  theme: PIERRE_THEME,
+  lineDiffType: 'none',
+  preferredHighlighter: 'shiki-js',
+};
 
 // Pierre uses a singleton pool. Every consumer must agree on its render options.
 function SyncRenderOptions() {
@@ -21,6 +25,8 @@ function SyncRenderOptions() {
 }
 
 export function DiffWorkerProvider({ children }: { children: ReactNode }) {
+  // Highlights uses its own fast main-thread path and shares one Wasm instance.
+  if (PIERRE_HIGHLIGHTER === 'highlights') return children;
   return (
     <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>
       <SyncRenderOptions />

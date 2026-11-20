@@ -29,7 +29,6 @@ import {
   ZapIcon,
   type LucideIcon,
 } from "lucide-react";
-import type { CustomRenderer, CustomRendererProps } from "streamdown";
 import { formatUiNumber, validateUi, type UiElement, type UiIconName, type UiTone } from "@/lib/ui-block/catalog";
 import { layoutFlow, type FlowLayoutNode } from "@/lib/ui-block/flow-layout";
 import { parseUi } from "@/lib/ui-block/parse";
@@ -564,7 +563,7 @@ function renderElement(element: UiElement): ReactNode {
   }
 }
 
-export function UiBlock({ code }: CustomRendererProps) {
+export function UiBlock({ code }: { code: string }) {
   const { elements, diagnostics, pending } = useMemo(() => {
     const parsed = parseUi(code);
     return { ...validateUi(parsed.nodes), pending: parsed.pending };
@@ -579,5 +578,3 @@ export function UiBlock({ code }: CustomRendererProps) {
     </UiBlockBoundary>
   );
 }
-
-export const UI_BLOCK_RENDERERS: CustomRenderer[] = [{ language: "ui", component: UiBlock }];

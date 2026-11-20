@@ -29,7 +29,7 @@ export interface CappedDiffProps {
   workspaceId?: number
   files: FileChange[]
   activePath: string | null
-  diffOptions: FileDiffOptions<CommentMeta>
+  diffOptions: FileDiffOptions<CommentMeta, undefined>
   rootPath: string
   scope: DiffScope
   refs: ReviewRefs
@@ -83,7 +83,7 @@ export function CappedDiff({
 export interface FileSectionProps {
   workspaceId?: number
   file: FileChange
-  diffOptions: FileDiffOptions<CommentMeta>
+  diffOptions: FileDiffOptions<CommentMeta, undefined>
   rootPath: string
   scope: DiffScope
   refs: ReviewRefs
@@ -156,7 +156,7 @@ export const FileSection = memo(function FileSection({
       })),
     [entries],
   )
-  const commentDiffOptions = useMemo<FileDiffOptions<CommentMeta>>(
+  const commentDiffOptions = useMemo<FileDiffOptions<CommentMeta, undefined>>(
     () => ({
       ...diffOptions,
       // Keep Pierre's VirtualizedFileDiff instance mounted and let it update
