@@ -138,3 +138,6 @@ web/public/download/*.apk
 # learning scratchpad, not project documentation — docs/ is where shared
 # material belongs.
 /study-notes/
+
+# Runtime artifacts written by external agent CLIs (e.g. Antigravity), not product skills.
+/skills/
