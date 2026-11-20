@@ -12,6 +12,7 @@ import { WebAuthGate } from './components/web/WebAuthGate'
 import { DeleteAccountPage, isDeleteAccountRoute } from './components/web/DeleteAccountPage'
 import { PwaUpdateManager } from './components/web/PwaUpdateManager'
 import { queryClient } from './lib/query-client'
+import { resetNativeComposerOnLoad } from './lib/native-composer'
 import './styles/globals.css'
 
 // The inline web bootstrap watchdog listens for this event. It cannot rely on
@@ -35,6 +36,8 @@ if (import.meta.env.DEV && import.meta.env.VITE_REACT_DEVTOOLS === '1') {
 }
 
 installOperonProbe()
+// iOS app: clear a composer a killed-and-reloaded WebView left over the page.
+resetNativeComposerOnLoad()
 initAnalytics()
 trackEvent('app_opened', { platform: navigator.platform })
 

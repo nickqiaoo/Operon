@@ -13,6 +13,7 @@ public final class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocument
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "layout", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hide", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setScrollButton", returnType: CAPPluginReturnPromise),
     ]
     private var editor: NativeComposerView?
@@ -83,12 +84,15 @@ public final class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocument
 
     @objc func layout(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            guard let editor = self?.editor, editor.owner == call.getString("id") else { call.resolve(); return }
+            // `applied: false` tells the page its anchor was dropped (another owner
+            // configured the editor since), so it can claim it again instead of
+            // deduping every later measure against an anchor UIKit never used.
+            guard let editor = self?.editor, editor.owner == call.getString("id") else { call.resolve(["applied": false]); return }
             editor.setAnchor(
                 x: CGFloat(call.getDouble("x") ?? 12), width: CGFloat(call.getDouble("width") ?? 0),
                 bottom: CGFloat(call.getDouble("bottom") ?? 8), keyboardOpen: call.getBool("keyboardOpen") ?? false
             )
-            call.resolve()
+            call.resolve(["applied": true])
         }
     }
 
@@ -98,7 +102,31 @@ public final class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocument
                 editor.endEditing(true)
                 editor.flushChange()
                 editor.removeFromSuperview()
+                // An `update` puts it back in the tree: wait there for a fresh anchor
+                // rather than reappear wherever this owner last was.
+                editor.isHidden = true
             }
+            call.resolve()
+        }
+    }
+
+    /// The page calls this once on load. Capacitor reloads the WebView in place
+    /// when iOS kills its content process (common after a while in the
+    /// background), and these views live outside it: without a reset the
+    /// previous page's composer stays on screen over whatever the new page
+    /// shows, still owned by an id nothing answers to.
+    @objc func reset(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { call.resolve(); return }
+            if let editor = self.editor {
+                editor.onEvent = nil
+                editor.endEditing(true)
+                editor.removeFromSuperview()
+            }
+            self.editor = nil
+            self.pickingOwner = nil
+            self.scrollButton?.removeFromSuperview()
+            self.scrollOwner = ""
             call.resolve()
         }
     }

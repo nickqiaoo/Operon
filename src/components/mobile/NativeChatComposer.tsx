@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { useNativeShellOverlayCount } from '@/hooks/useNativeShellOverlay'
 import { usePageVisible } from '@/lib/page-visibility'
@@ -36,6 +36,40 @@ const DEFAULT_RESTING_HEIGHT = 46
 /** The smallest height UIKit has reported: the capsule, at whatever text size this device uses. */
 let restingHeight: number | undefined
 
+/**
+ * UIKit has one editor, and whichever composer last sent `update` owns it: a
+ * `layout` from anyone else is dropped. Two composers active at once (a screen
+ * mounting while another is still up, a thread over its channel) would steal it
+ * from each other on every keystroke, and the loser's anchor never lands, so the
+ * composer it is drawn for is simply missing. Active composers line up here and
+ * only the newest talks to UIKit; when it goes, the one before it takes over.
+ */
+const claims: string[] = []
+const claimListeners = new Set<() => void>()
+function setClaim(id: string, on: boolean) {
+  const index = claims.indexOf(id)
+  if (index >= 0) claims.splice(index, 1)
+  if (on) claims.push(id)
+  for (const listener of claimListeners) listener()
+}
+function subscribeClaims(listener: () => void) {
+  claimListeners.add(listener)
+  return () => {
+    claimListeners.delete(listener)
+  }
+}
+function useOwnsEditor(id: string, active: boolean): boolean {
+  useLayoutEffect(() => {
+    if (!active) return
+    setClaim(id, true)
+    return () => setClaim(id, false)
+  }, [id, active])
+  return useSyncExternalStore(subscribeClaims, () => claims[claims.length - 1] === id, () => false)
+}
+
+/** Re-claims after UIKit dropped a layout; more than this in a row means something else keeps taking it. */
+const MAX_LAYOUT_RETRIES = 3
+
 /** The DOM keeps a spacer; UIKit owns editing, glass, hit testing and keyboard animation. */
 export function NativeChatComposer(props: NativeChatComposerProps) {
   const id = useId()
@@ -49,7 +83,8 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
   const [ready, setReady] = useState(false)
   const pageVisible = usePageVisible()
   const overlays = useNativeShellOverlayCount()
-  const active = props.active !== false && pageVisible && overlays <= (props.overlayLevel ?? 0)
+  const wantsEditor = props.active !== false && pageVisible && overlays <= (props.overlayLevel ?? 0)
+  const active = useOwnsEditor(id, wantsEditor) && wantsEditor
   const activeRef = useRef(active)
   activeRef.current = active
 
@@ -136,6 +171,8 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     // (all UIKit reads) stays put. Re-sending the same anchor would make UIKit
     // re-lay out without animation in the middle of its own grow animation.
     let sent = ''
+    let retries = 0
+    let live = true
     // UIKit ignores a `layout` for any owner but the one its last `update`
     // configured, and a `hide` takes the editor out of the tree, which only
     // `update` puts back.
@@ -159,13 +196,26 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
         const key = JSON.stringify(anchor)
         if (key === sent) return
         sent = key
+        // A dropped anchor must not stay in `sent`, or every later measure
+        // dedupes against it and the composer stays hidden for good.
+        const settle = (result: { applied?: boolean } | undefined) => {
+          if (result?.applied !== false) {
+            retries = 0
+            return
+          }
+          if (!live || sent !== key) return
+          sent = ''
+          attached.current = false
+          if (retries++ < MAX_LAYOUT_RETRIES) measure()
+        }
         if (attached.current) {
-          void NativeComposer.layout(anchor)
+          void NativeComposer.layout(anchor).then(settle).catch(console.error)
           return
         }
         attached.current = true
         void NativeComposer.update(JSON.parse(serializedRef.current) as NativeComposerState)
           .then(() => NativeComposer.layout(anchor))
+          .then(settle)
           .catch(console.error)
       })
     }
@@ -177,6 +227,7 @@ export function NativeChatComposer(props: NativeChatComposerProps) {
     window.addEventListener('resize', measure)
     measure()
     return () => {
+      live = false
       observer.disconnect()
       mutations.disconnect()
       cancelAnimationFrame(frame)
