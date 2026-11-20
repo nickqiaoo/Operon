@@ -5,6 +5,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { Dialog } from '@/components/ui/dialog';
 import { ImageViewer } from './image-viewer';
 
+// The phone viewer follows the phone shell (web target + narrow viewport), not
+// the viewport alone; these tests exercise the shell, so declare it directly.
+vi.mock('@/hooks/useIsMobile', () => ({
+  useIsMobile: () => true,
+  useIsMobileShell: () => true,
+}));
+
 // Phone layout: a 400×800 viewport showing a 2000×1000 image, so the fitted scale is 0.2.
 beforeAll(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

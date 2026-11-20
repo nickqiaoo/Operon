@@ -78,13 +78,12 @@ test('image preview: zoom, pan, reset and reopen before and after sending', asyn
   await expect(dialog.getByText('1,600 × 1,000 px')).toBeVisible()
   const controls = dialog.getByRole('group', { name: 'Image zoom controls' })
   await expect(controls).toBeVisible()
+  // A narrow desktop window is not a phone: the viewer keeps its desktop
+  // controls instead of switching to the phone shell's full-screen layout.
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(controls).toHaveCount(0)
-  await expect.poll(async () => (await dialog.boundingBox())?.width).toBe(390)
-  await expect.poll(async () => (await dialog.boundingBox())?.height).toBe(844)
+  await expect(controls).toBeVisible()
   await expect(canvas).toBeVisible()
   await expect(image).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Close image preview' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Close image preview' }).click()
   await expect(dialog).toBeHidden()
 })
