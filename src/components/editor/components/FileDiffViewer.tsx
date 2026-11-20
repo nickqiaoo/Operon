@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { DEFAULT_VIRTUAL_FILE_METRICS } from '@pierre/diffs';
 import { useThemeStore } from '@/stores/theme-store';
+import { useReviewDisplayStore } from '@/stores/review-display-store';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { createPierreDiffOptions } from '@shared/tool-rendering/diff';
 import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider';
@@ -20,6 +21,7 @@ export function FileDiffViewer({ filePath, oldContent, newContent, className }: 
   const isMobile = useIsMobile();
   const openFile = useFileOpenHandler();
   const theme = useThemeStore((s) => s.theme);
+  const wordDiff = useReviewDisplayStore((s) => s.wordDiff);
   const result = usePreparedDiff(filePath, oldContent, newContent);
   const isNewFile = oldContent.length === 0;
   const diffStyle = isNewFile || isMobile ? 'unified' : 'split';
@@ -30,7 +32,8 @@ export function FileDiffViewer({ filePath, oldContent, newContent, className }: 
   const options = useMemo(() => ({
     ...createPierreDiffOptions(theme, diffStyle, isLarge || isMobile ? 'scroll' : 'wrap'),
     disableFileHeader: true,
-  }), [theme, diffStyle, isLarge, isMobile]);
+    lineDiffType: wordDiff ? 'word' as const : 'none' as const,
+  }), [theme, diffStyle, isLarge, isMobile, wordDiff]);
   const metrics = useMemo(() => ({
     ...DEFAULT_VIRTUAL_FILE_METRICS, lineHeight, spacing: 4,
   }), [lineHeight]);
