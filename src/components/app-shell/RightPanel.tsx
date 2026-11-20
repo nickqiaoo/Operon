@@ -48,7 +48,7 @@ export function RightPanel({ className }: RightPanelProps) {
   // A skipped update may have left the state behind the ref; a new preferred
   // width (a resize drag) has to clamp against the real room.
   useLayoutEffect(() => setMaxWidth(maxWidthRef.current), [preferredWidth])
-  const width = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidth, preferredWidth))
+  const width = Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, preferredWidth))
   const setOpen = useAppShellStore((s) => s.setRightPanelOpen)
   const setWidth = useAppShellStore((s) => s.setRightPanelWidth)
   const expanded = useAppShellStore((s) => s.rightPanelExpanded)
@@ -75,10 +75,10 @@ export function RightPanel({ className }: RightPanelProps) {
       setOpen(false)
       return
     }
-    setWidth(Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(maxWidthRef.current, next)))
+    setWidth(Math.max(RIGHT_PANEL_AUTO_CLOSE_BELOW, Math.min(maxWidthRef.current, next)))
   }, [setOpen, setWidth])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen || expanded) return
 
     const parent = containerRef.current?.parentElement
@@ -89,10 +89,12 @@ export function RightPanel({ className }: RightPanelProps) {
       // Assistant / Inbox / Board hide the mounted editor with display:none.
       // A hidden layout has no usable measurement, not a new preferred width.
       if (parentWidth <= 0) return
-      const next = Math.max(
-        RIGHT_PANEL_MIN_WIDTH,
-        Math.min(RIGHT_PANEL_MAX_WIDTH, Math.floor(parentWidth - CENTER_CONTENT_MIN_WIDTH))
+      // Match the center's minimum in AppShell, including manual splits in compact windows.
+      const centerWidth = Math.min(
+        CENTER_CONTENT_MIN_WIDTH,
+        Math.max(parentWidth / 2, parentWidth - RIGHT_PANEL_MIN_WIDTH)
       )
+      const next = Math.min(RIGHT_PANEL_MAX_WIDTH, Math.floor(parentWidth - centerWidth))
       maxWidthRef.current = next
       const preferred = preferredWidthRef.current
       setMaxWidth((previous) =>
@@ -134,7 +136,7 @@ export function RightPanel({ className }: RightPanelProps) {
       style={
         expanded
           ? { opacity }
-          : { opacity, width: animatedSize }
+          : { opacity, width: animatedSize, maxWidth: "100%" }
       }
     >
       {!expanded && (

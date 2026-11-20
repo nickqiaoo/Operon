@@ -22,3 +22,9 @@ function getSnapshot() {
 export function useIsMobile() {
   return useSyncExternalStore(subscribe, getSnapshot, () => false)
 }
+
+/** Follow the phone shell selection even when an Electron window is narrow. */
+export function useIsMobileShell() {
+  const isMobile = useIsMobile()
+  return __APP_TARGET__ === "web" && isMobile
+}

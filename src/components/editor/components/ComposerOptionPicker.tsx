@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { CheckIcon, ChevronDownIcon } from 'lucide-react';
+import { CheckIcon } from 'lucide-react';
 
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
 export interface ComposerOption {
@@ -58,7 +58,7 @@ export function ComposerOptionPicker({
   open: openProp,
   onOpenChange,
 }: ComposerOptionPickerProps) {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileShell();
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
   const setOpen = (next: boolean) => {
@@ -79,7 +79,6 @@ export function ComposerOptionPicker({
       className={buttonClassName}
     >
       {children}
-      <ChevronDownIcon className={cn('size-3 opacity-50 transition-transform @max-[420px]:hidden', open && 'rotate-180')} />
     </PromptInputButton>
   );
 

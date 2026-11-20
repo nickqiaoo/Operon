@@ -16,6 +16,7 @@ interface LeftSidebarProps {
   /** Switch to the icon rail once the close animation finishes. */
   rail: boolean
   animatedWidth: MotionValue<number>
+  maxWidth?: string
   progress: MotionValue<number>
   onWidthChange: (width: number) => void
   /** Called when a resize drag shrinks the sidebar past the auto-close size. */
@@ -37,6 +38,7 @@ export function LeftSidebar({
   isOpen,
   rail,
   animatedWidth,
+  maxWidth,
   progress,
   onWidthChange,
   onClose,
@@ -45,6 +47,7 @@ export function LeftSidebar({
   const animatedLabelOpacity = useTransform(progress, labelOpacity)
   const style = {
     width: animatedWidth,
+    maxWidth,
     "--sidebar-label-opacity": animatedLabelOpacity,
   }
 

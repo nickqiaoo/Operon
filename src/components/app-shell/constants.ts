@@ -31,6 +31,8 @@ export const LEFT_SIDEBAR_MIN_WIDTH = 208
 export const LEFT_SIDEBAR_MAX_WIDTH = 480
 // Below this drag size the sidebar auto-collapses (matches the right panel).
 export const LEFT_SIDEBAR_AUTO_CLOSE_BELOW = 160
+// Keep a readable center when the project sidebar is the only side panel left.
+export const LEFT_SIDEBAR_CENTER_RESERVE = 420
 
 export const SIDE_FILE_TREE_DEFAULT_WIDTH = 260
 export const SIDE_FILE_TREE_MIN_WIDTH = 180

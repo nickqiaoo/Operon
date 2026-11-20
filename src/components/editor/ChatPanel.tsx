@@ -34,7 +34,7 @@ import {
   ContextTrigger,
 } from '@/components/ai-elements/context';
 import { MobileContextUsage } from './components/MobileContextUsage';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { useModelManagement, type SlashCommandItem } from './hooks/useModelManagement';
 import { useChatHistory } from './hooks/useChatHistory';
 import { normalizeHistoryMessages } from './hooks/useChatHistory';
@@ -157,7 +157,7 @@ function ChatPanelContent({
   const [selectorOpen, setSelectorOpen] = useState(false);
   /** Skill chosen in the session panel, handed to the composer as a chip on the next render. */
   const [pendingSkill, setPendingSkill] = useState<SlashCommandItem | null>(null);
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileShell();
   // Phone: the composer floats over the transcript, so the transcript pads its
   // end by the composer's live height (it grows with the text, a queued steer,
   // an error line) rather than stopping above it.
@@ -319,7 +319,7 @@ function ChatPanelContent({
   const {
     model, setModel, availableModels, selectedModel,
     modeOptions, currentMode, setMode, serviceTierOptions, currentServiceTier, toggleFastMode, thinkingEffortOptions,
-    modeButtonClass, slashCommands, supportsInjection, supportsGoal,
+    slashCommands, supportsInjection, supportsGoal,
     supportsDynamicSwitch, supportsContextUsage,
   } = modelManagement;
   const { sendToAvailableModels, loadGlobalModels } = useSendToModels({
@@ -1503,7 +1503,6 @@ function ChatPanelContent({
           modeOptions={modeOptions}
           currentMode={currentMode}
           setMode={handleSetMode}
-          modeButtonClass={modeButtonClass}
           supportsDynamicSwitch={canDynamicSwitch && tab?.isSubAgent !== true}
           canEditTurnSettings={(supportsDynamicSwitch || (selectedModel?.providerId ?? providerId) === 'codex') && tab?.isSubAgent !== true}
           canSteer={isGenerating && supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)}

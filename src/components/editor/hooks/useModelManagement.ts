@@ -287,17 +287,6 @@ export function useModelManagement(
   const supportsDynamicSwitch = currentProviderConfig?.supportsDynamicSwitch ?? false;
   const supportsContextUsage = currentProviderConfig?.supportsContextUsage ?? false;
 
-  const modeButtonColorClasses = [
-    '',
-    'border-blue-500/60 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300',
-    'border-purple-500/60 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300',
-    'border-orange-500/60 bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300',
-    'border-green-500/60 bg-green-500/10 text-green-600 hover:bg-green-500/20 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300',
-    'border-pink-500/60 bg-pink-500/10 text-pink-600 hover:bg-pink-500/20 hover:text-pink-700 dark:text-pink-400 dark:hover:text-pink-300',
-  ];
-  const currentModeIndex = modeOptions.findIndex((o) => o.value === currentMode);
-  const modeButtonClass = modeButtonColorClasses[currentModeIndex] ?? modeButtonColorClasses[0];
-
   const setModel = useCallback((newModel: string) => { setModelState(newModel); }, []);
 
   const setMode = useCallback(
@@ -333,7 +322,6 @@ export function useModelManagement(
     modeOptions, currentMode,
     serviceTierOptions, currentServiceTier,
     thinkingEffortOptions,
-    modeButtonClass,
     setMode,
     setServiceTier, toggleFastMode,
     commands,

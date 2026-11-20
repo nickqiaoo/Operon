@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import type { ChatStatus } from 'ai';
-import { Loader2, PaperclipIcon, Target, Zap } from 'lucide-react';
+import { Loader2, PaperclipIcon, Shield, Target, Zap } from 'lucide-react';
 import { SteerIcon } from '@/components/icons/SteerIcon';
 
 import {
@@ -57,7 +57,6 @@ interface ChatInputAreaProps {
   modeOptions: { value: string; label: string; description?: string }[];
   currentMode: string;
   setMode: (value: string) => void;
-  modeButtonClass?: string;
   serviceTierOptions: { value: string; label: string; description?: string }[];
   currentServiceTier: string;
   toggleFastMode: () => void;
@@ -116,19 +115,47 @@ function AttachmentButton({ compact = false }: { compact?: boolean }) {
   );
 }
 
-// Dot colours mirror the mode pill's colour for the same position
-// (`modeButtonColorClasses` in useModelManagement): category colours, not status.
-const MODE_DOT_CLASSES = [
-  'bg-muted-foreground/50',
-  'bg-blue-500',
-  'bg-purple-500',
-  'bg-orange-500',
-  'bg-green-500',
-  'bg-pink-500',
+const AUTO_MODE_COLORS = {
+  dot: 'bg-status-ok',
+  button: 'bg-status-ok/10 text-status-ok hover:bg-status-ok/15 hover:text-status-ok',
+};
+
+const FULL_ACCESS_MODE_COLORS = {
+  dot: 'bg-orange-500',
+  button: 'bg-orange-500/10 text-orange-700 hover:bg-orange-500/20 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300',
+};
+
+const PLAN_MODE_COLORS = {
+  dot: 'bg-purple-500',
+  button: 'bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300',
+};
+
+const DEFAULT_MODE_COLORS = [
+  { dot: 'bg-muted-foreground/50', button: '' },
+  { dot: 'bg-blue-500', button: 'bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300' },
+  PLAN_MODE_COLORS,
+  FULL_ACCESS_MODE_COLORS,
+  { dot: 'bg-green-500', button: 'bg-green-500/10 text-green-600 hover:bg-green-500/20 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300' },
+  { dot: 'bg-pink-500', button: 'bg-pink-500/10 text-pink-600 hover:bg-pink-500/20 hover:text-pink-700 dark:text-pink-400 dark:hover:text-pink-300' },
 ];
 
+function permissionModeColors(mode: string, index: number) {
+  switch (mode) {
+    case 'auto':
+      return AUTO_MODE_COLORS;
+    case 'plan':
+      return PLAN_MODE_COLORS;
+    case 'fullAccess':
+    case 'yolo':
+    case 'bypassPermissions':
+      return FULL_ACCESS_MODE_COLORS;
+    default:
+      return DEFAULT_MODE_COLORS[index] ?? DEFAULT_MODE_COLORS[0];
+  }
+}
+
 const btnCn =
-  'h-8 shrink-0 gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-muted/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted hover:text-foreground dark:hover:border-border/35';
+  'h-8 shrink-0 gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-muted/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-border/60 hover:bg-muted hover:text-foreground dark:hover:border-border/35 @max-[440px]:gap-1 @max-[440px]:has-[>svg]:px-2';
 
 export function ChatInputArea({
   input,
@@ -155,7 +182,6 @@ export function ChatInputArea({
   goalArmed = false,
   onToggleGoal,
   slashCommands,
-  modeButtonClass,
   supportsDynamicSwitch,
   canEditTurnSettings = false,
   canSteer = false,
@@ -435,10 +461,12 @@ export function ChatInputArea({
   const thinkingLabel = thinkingEffortOptions.find((o) => o.value === thinkingEffort)?.label ?? thinkingEffort;
   const modePickerOptions = modeOptions.map((option, index) => ({
     ...option,
-    icon: <span className={cn('size-2 rounded-full', MODE_DOT_CLASSES[index] ?? MODE_DOT_CLASSES[0])} />,
+    icon: <span className={cn('size-2 rounded-full', permissionModeColors(option.value, index).dot)} />,
   }));
-  const modeLabel = modeOptions.find((o) => o.value === currentMode)?.label ?? currentMode;
-  const modeDescription = modeOptions.find((o) => o.value === currentMode)?.description;
+  const currentModeIndex = modeOptions.findIndex((option) => option.value === currentMode);
+  const modeLabel = modeOptions[currentModeIndex]?.label ?? currentMode;
+  const modeDescription = modeOptions[currentModeIndex]?.description;
+  const modeButtonClass = permissionModeColors(currentMode, currentModeIndex).button;
   const steerLabel = steerPending
     ? intl.formatMessage({ id: 'editor.input.steering', defaultMessage: 'Steering...' })
     : intl.formatMessage({ id: 'editor.input.steer', defaultMessage: 'Steer' });
@@ -666,12 +694,15 @@ export function ChatInputArea({
         />
       </PromptInputBody>
       <PromptInputFooter
+        inert={composerCompact}
         className={cn(
-          "@container gap-2 overflow-hidden px-3 transition-[max-height,opacity,padding] duration-200 ease-out",
-          composerCompact ? "pointer-events-none max-h-0 pb-0 pt-0 opacity-0" : "max-h-16 pb-3 pt-1 opacity-100"
+          "@container gap-2 px-3",
+          floating && "overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-out",
+          composerCompact ? "pointer-events-none max-h-0 pb-0 pt-0 opacity-0" : "pb-3 pt-1",
+          floating && !composerCompact && "max-h-16"
         )}
       >
-        <PromptInputTools className="min-w-0 flex-1 overflow-hidden">
+        <PromptInputTools className={cn("min-w-0 flex-1", floating ? "overflow-hidden" : "@max-[320px]:flex-wrap")}>
           <AttachmentButton />
 
           <ModelSelectorPanel
@@ -709,7 +740,10 @@ export function ChatInputArea({
               disabled={isGenerating && !supportsDynamicSwitch && !canEditTurnSettings}
               buttonClassName={cn(btnCn, modeButtonClass)}
             >
-              <span className="max-w-20 truncate @max-[420px]:max-w-14">{modeLabel}</span>
+              {!floating && <Shield aria-hidden="true" className="size-3.5 @min-[400px]:hidden" />}
+              <span className={cn("max-w-20 truncate @max-[420px]:max-w-14", !floating && "@max-[400px]:sr-only")}>
+                {modeLabel}
+              </span>
             </ComposerOptionPicker>
           )}
 
@@ -722,7 +756,7 @@ export function ChatInputArea({
               className={cn(
                 btnCn,
                 fastEnabled
-                  ? 'border-status-warn/20 bg-status-warn/10 text-status-warn hover:bg-status-warn/15'
+                  ? 'bg-status-warn/10 text-status-warn hover:bg-status-warn/15'
                   : ''
               )}
               aria-label={intl.formatMessage({ id: 'editor.input.fast', defaultMessage: 'Fast' })}
@@ -744,7 +778,7 @@ export function ChatInputArea({
               className={cn(
                 btnCn,
                 goalArmed
-                  ? 'border-tint/30 bg-tint/10 text-tint hover:bg-tint/15 hover:text-tint'
+                  ? 'bg-tint/10 text-tint hover:bg-tint/15 hover:text-tint'
                   : ''
               )}
               aria-label="Goal mode"

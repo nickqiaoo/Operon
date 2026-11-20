@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react"
+import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useTransform } from "motion/react"
 import { useIntl } from "react-intl"
 import { PanelLeft } from "lucide-react"
@@ -8,8 +8,12 @@ import type { Notification } from "@/types/notification"
 import type { OpenChat } from "@/lib/active-conversations"
 import { LeftSidebar } from "./LeftSidebar"
 import {
+  CENTER_CONTENT_MIN_WIDTH,
+  LEFT_SIDEBAR_CENTER_RESERVE,
   LEFT_SIDEBAR_DEFAULT_WIDTH,
+  LEFT_SIDEBAR_MIN_WIDTH,
   LEFT_SIDEBAR_RAIL_WIDTH,
+  RIGHT_PANEL_AUTO_CLOSE_BELOW,
   SIDEBAR_TOGGLE_LEFT,
   TITLEBAR_TOGGLE_CLEARANCE,
 } from "./constants"
@@ -35,6 +39,36 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
   const sidebarCollapsed = useAppShellStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useAppShellStore((s) => s.setSidebarCollapsed)
   const [width, setWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH)
+  const previousWindowWidth = useRef(Infinity)
+  const maxWidth = __APP_TARGET__ === "electron"
+    ? `max(${LEFT_SIDEBAR_MIN_WIDTH}px, calc(100vw - ${LEFT_SIDEBAR_CENTER_RESERVE}px))`
+    : undefined
+
+  useLayoutEffect(() => {
+    if (__APP_TARGET__ !== "electron") return
+
+    const handleWindowResize = () => {
+      const windowWidth = window.innerWidth
+      const shrinking = windowWidth < previousWindowWidth.current
+      previousWindowWidth.current = windowWidth
+      if (!shrinking) return
+
+      const shell = useAppShellStore.getState()
+      const sidebarWidth = shell.sidebarCollapsed ? LEFT_SIDEBAR_RAIL_WIDTH : width
+      const splitMinWidth = sidebarWidth + CENTER_CONTENT_MIN_WIDTH + RIGHT_PANEL_AUTO_CLOSE_BELOW
+      if (shell.rightPanelOpen && !shell.rightPanelExpanded && windowWidth < splitMinWidth) {
+        shell.setRightPanelOpen(false)
+      }
+      if (!shell.sidebarCollapsed && windowWidth < LEFT_SIDEBAR_MIN_WIDTH + LEFT_SIDEBAR_CENTER_RESERVE) {
+        shell.setSidebarCollapsed(true)
+      }
+    }
+
+    handleWindowResize()
+    window.addEventListener("resize", handleWindowResize)
+    return () => window.removeEventListener("resize", handleWindowResize)
+  }, [width])
+
   const { progress, collapsed: rail } = usePanelAnimation({
     size: width - LEFT_SIDEBAR_RAIL_WIDTH,
     isVisible: !sidebarCollapsed,
@@ -53,11 +87,13 @@ export const AppSidebar = memo(function AppSidebar({ onOpenSpec, onOpenNotificat
           isOpen={!sidebarCollapsed}
           rail={rail}
           animatedWidth={animatedWidth}
+          maxWidth={maxWidth}
           progress={progress}
           onWidthChange={setWidth}
           onClose={() => setSidebarCollapsed(true)}
         >
-          <ProjectSidebar onOpenSpec={onOpenSpec} onOpenNotification={onOpenNotification} onOpenChat={onOpenChat} collapsed={rail} width={width} />
+          <ProjectSidebar onOpenSpec={onOpenSpec} onOpenNotification={onOpenNotification} onOpenChat={onOpenChat}
+            collapsed={rail} width={width} maxWidth={maxWidth} />
         </LeftSidebar>
         {children}
       </div>

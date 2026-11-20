@@ -144,6 +144,59 @@ test('project sidebar space goes to the right panel without it overshooting the 
   expect(Math.abs(restored.right - withSidebar.right)).toBeLessThan(2)
 })
 
+test('narrowing the desktop window shrinks and closes the right panel before the project sidebar', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 820 })
+  const rightToggle = page.getByTestId('toggle-right-panel')
+  const leftToggle = page.getByTestId('toggle-sidebar')
+  const right = page.locator('[data-app-shell-focus-area="right-panel"]')
+  const left = page.getByTestId('left-sidebar')
+
+  await rightToggle.click()
+  await right.getByTestId('empty-panel-card-browser').click()
+  const browserTab = right.getByTestId('panel-tab')
+  await expect(browserTab).toBeVisible()
+  await expect.poll(async () => (await right.boundingBox())?.width).toBe(720)
+
+  await page.setViewportSize({ width: 1080, height: 820 })
+  await expect.poll(async () => (await right.boundingBox())?.width).toBe(496)
+  await expect(leftToggle).toHaveAttribute('aria-expanded', 'true')
+
+  await page.setViewportSize({ width: 903, height: 820 })
+  await expect(rightToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(browserTab).toBeHidden()
+  await expect(leftToggle).toHaveAttribute('aria-expanded', 'true')
+
+  await page.setViewportSize({ width: 635, height: 820 })
+  await expect.poll(async () => (await left.boundingBox())?.width).toBe(215)
+
+  await page.setViewportSize({ width: 627, height: 820 })
+  await expect(leftToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect.poll(async () => (await left.boundingBox())?.width).toBe(52)
+
+  await page.setViewportSize({ width: 480, height: 820 })
+  await expect(rightToggle).toHaveAttribute('aria-pressed', 'false')
+  await rightToggle.click()
+  await expect(browserTab).toBeVisible()
+  await expect.poll(async () => {
+    const box = await right.boundingBox()
+    return box && box.x + box.width
+  }).toBe(480)
+
+  await rightToggle.click()
+  await page.setViewportSize({ width: 1440, height: 820 })
+  await expect(rightToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(leftToggle).toHaveAttribute('aria-expanded', 'false')
+  await rightToggle.click()
+  await expect(browserTab).toBeVisible()
+  await expect.poll(async () => (await right.boundingBox())?.width).toBe(720)
+
+  await leftToggle.click()
+  await expect.poll(async () => (await left.boundingBox())?.width).toBe(224)
+  await page.setViewportSize({ width: 480, height: 820 })
+  await expect(rightToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(async () => (await left.boundingBox())?.width).toBe(52)
+})
+
 test('bottom panel toggles with the keyboard shortcut', async ({ page }) => {
   const mod = await primaryModifier(page)
 

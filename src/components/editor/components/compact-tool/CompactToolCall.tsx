@@ -147,10 +147,16 @@ export function CompactToolCall({
       {/* A pending approval is a question for the person, not a step, so it sits
           under the line as an Item rather than inside the collapsible. */}
       {needsApproval && (
-        <Confirmation approval={approval} state={state} icon={<ToolIcon toolName={toolName} className="size-4 text-muted-foreground" />}>
-          <ConfirmationTitle>
+        <Confirmation
+          approval={approval}
+          state={state}
+          icon={<ToolIcon toolName={toolName} className="size-4 text-muted-foreground" />}
+          size="xs"
+          className="@container flex-nowrap gap-1.5 px-2 py-1"
+        >
+          <ConfirmationTitle className="block w-full truncate text-xs @max-[18rem]:sr-only" title="Permission required">
             <ConfirmationRequest>
-              <FormattedMessage id="editor.confirm.requestTool" defaultMessage="The assistant requests permission to execute this tool." />
+              Approval
             </ConfirmationRequest>
             <ConfirmationAccepted>
               <CheckIcon className="size-4 text-status-ok" />
@@ -161,13 +167,17 @@ export function CompactToolCall({
               <span><FormattedMessage id="editor.confirm.rejected" defaultMessage="Rejected" /></span>
             </ConfirmationRejected>
           </ConfirmationTitle>
-          <ConfirmationActions data-testid="permission-dialog">
+          <ConfirmationActions
+            className="min-w-0 flex-nowrap justify-start gap-1 overflow-x-auto p-1"
+            data-testid="permission-dialog"
+          >
             {options.filter(o => o.tone === 'reject').map((opt, i) => (
               <ConfirmationAction
                 key={`reject-${i}`}
                 data-testid={`permission-reject-${opt.outcome}`}
                 tone="reject"
                 variant="outline"
+                className="h-9 px-2 text-xs"
                 onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
               >
                 {opt.label}
@@ -181,6 +191,7 @@ export function CompactToolCall({
                 // One solid button: the plain allow. "Allow always" and the like
                 // sit beside it as secondary so the default choice reads first.
                 variant={i === 0 ? 'default' : 'secondary'}
+                className="h-9 px-2 text-xs"
                 onClick={() => handlePermissionDecide(opt.outcome, opt.updatedInput)}
               >
                 {opt.label}

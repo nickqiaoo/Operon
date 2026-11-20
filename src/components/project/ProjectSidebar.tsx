@@ -325,6 +325,7 @@ interface ProjectSidebarProps {
   onOpenChat?: OpenChat
   collapsed?: boolean
   width?: number
+  maxWidth?: string
 }
 
 // Panels floating out of the collapsed rail share one placement and surface.
@@ -431,7 +432,7 @@ function ActiveRailButton(props: Omit<SidebarNavItemProps, "icon" | "count" | "a
   return <SidebarNavItem icon={ActiveChatsIcon} collapsed count={needs + done} actionCount={needs} {...props} />
 }
 
-export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH }: ProjectSidebarProps) {
+export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH, maxWidth }: ProjectSidebarProps) {
   const intl = useIntl()
   const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
   const activeLabel = intl.formatMessage({ id: "sidebar.active", defaultMessage: "Active" })
@@ -688,7 +689,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
           Height capped so the project tree keeps most of the sidebar: ~6 rows on
           tall windows, a proportional share on short ones. The rest scrolls. */}
       {!collapsed && (
-        <div className="sidebar-label-fade flex max-h-[min(30%,16rem)] min-h-0 shrink-0 flex-col" style={{ width }}>
+        <div className="sidebar-label-fade flex max-h-[min(30%,16rem)] min-h-0 shrink-0 flex-col" style={{ width, maxWidth }}>
           <ActiveConversations variant="section" onOpenNotification={onOpenNotification ?? noop} onOpenChat={onOpenChat ?? noop} />
         </div>
       )}
@@ -711,7 +712,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
           collapsed && !floating && "invisible pointer-events-none opacity-0",
           floating && railFlyoutEnterClassName,
         )}
-        style={collapsed ? { width, maxWidth: RAIL_FLYOUT_MAX_WIDTH } : { width }}
+        style={{ width, maxWidth: collapsed ? RAIL_FLYOUT_MAX_WIDTH : maxWidth }}
         {...panelHover}
       >
         {/* Secondary Header */}

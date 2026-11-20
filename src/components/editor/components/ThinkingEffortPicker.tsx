@@ -5,7 +5,7 @@ import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
 interface EffortOption {
@@ -45,7 +45,7 @@ export function ThinkingEffortPicker({
   disabled,
   buttonClassName,
 }: ThinkingEffortPickerProps) {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileShell();
   const committedIndex = Math.max(0, options.findIndex((option) => option.value === value));
   // While dragging, show the level under the thumb before it is committed.
   const [draftIndex, setDraftIndex] = useState(committedIndex);

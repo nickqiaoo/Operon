@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { BottomPanel } from "./BottomPanel"
-import { CENTER_CONTENT_MIN_WIDTH } from "./constants"
+import { CENTER_CONTENT_MIN_WIDTH, RIGHT_PANEL_MIN_WIDTH } from "./constants"
 import { RightPanel } from "./RightPanel"
 import { PanelTabsProvider } from "./tabs/PanelTabsProvider"
 import { useWorkflowTab } from "./useWorkflowTab"
@@ -35,7 +35,10 @@ export function AppShell({ children, className }: AppShellProps) {
   const rightTakesCenter = rightOpen && rightExpanded
   const centerStyle =
     rightOpen && !rightTakesCenter
-      ? { minWidth: CENTER_CONTENT_MIN_WIDTH }
+      ? {
+          // A manually reopened split on a narrow window can share the remaining space.
+          minWidth: `min(${CENTER_CONTENT_MIN_WIDTH}px, max(50%, calc(100% - ${RIGHT_PANEL_MIN_WIDTH}px)))`,
+        }
       : undefined
 
   return (

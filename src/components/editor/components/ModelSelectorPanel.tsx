@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { CheckIcon, ChevronDownIcon } from 'lucide-react';
+import { CheckIcon } from 'lucide-react';
 
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import { MobileSheet } from '@/components/mobile/MobileSheet';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { hasNativeTabBar, NativeShell } from '@/lib/native';
 import { cn } from '@/lib/utils';
 import { ModelIcon, ProviderIcon } from '@/components/icons/ProviderLabel';
@@ -43,7 +43,7 @@ export function ModelSelectorPanel({
   disabled,
 }: ModelSelectorPanelProps) {
   const intl = useIntl();
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileShell();
   const [open, setOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
 
@@ -137,11 +137,12 @@ export function ModelSelectorPanel({
       aria-expanded={open}
       onClick={isMobile ? openPicker : undefined}
       disabled={disabled}
-      className={cn('gap-2', buttonClassName)}
+      className={cn('gap-2', buttonClassName, !isMobile && 'min-w-0 shrink')}
     >
       <ModelIcon model={selectedModel?.id ?? ''} provider={selectedModel?.provider} size={14} />
-      <TruncatedText className="truncate max-w-32 @max-[460px]:hidden">{selectedModel?.label ?? intl.formatMessage({ id: 'editor.model.selectPlaceholder', defaultMessage: 'Select model...' })}</TruncatedText>
-      <ChevronDownIcon className={cn('size-3 opacity-50 transition-transform @max-[460px]:hidden', open && 'rotate-180')} />
+      <TruncatedText className={cn('min-w-0 max-w-32 truncate', isMobile && '@max-[460px]:hidden')}>
+        {selectedModel?.label ?? intl.formatMessage({ id: 'editor.model.selectPlaceholder', defaultMessage: 'Select model...' })}
+      </TruncatedText>
     </PromptInputButton>
   );
 

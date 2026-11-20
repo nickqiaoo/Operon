@@ -669,7 +669,7 @@ function createWindow() {
     title: isDev ? 'Operon Dev' : 'Operon',
     width: 1400,
     height: 900,
-    minWidth: 1000,
+    minWidth: 480,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 12 },
