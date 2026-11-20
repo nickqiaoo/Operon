@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [1.5.30] - 2026-11-20
+
+### Added
+
+- Steer a running turn with attachments: images reach the agent as images, text files fold in as quoted context, and the queue shows attachment-only steers. An engine that can only steer text takes them as a follow-up instead, and the reply marks it.
+- Concise mode (Settings → Appearance → Chat): a finished reply folds its thinking and tool calls behind one "Worked for 4m 47s" line, leaving only the final answer; a pending approval and published pages stay in view. Turn durations are stamped on the reply, so they read the same after a reload or on another device.
+- Code font picker (Settings → Appearance): a short list of common programming fonts, showing only the ones this device actually has (Nerd Font installs included), applied to code blocks, inline code and diffs.
+- Concise mode folds a run of background rounds — a release waiting on CI, a build, an upload, each waking the agent — behind one "N background events" line. While the run ends the conversation its last round stays in view; once you reply after it, the whole run folds.
+
+### Changed
+
+- iPad: the workbench runs to the screen's bottom edge so the sidebar's grey reaches it — no light band under the home indicator. Only controls pinned to the bottom edge clear the indicator, and they stop reserving room once the keyboard covers it.
+- Short windows (iPad landscape, a squat desktop window): the sidebar's bottom tools fold into one row of icons and the project tree keeps a minimum height, taken from the Active list first.
+- As the composer narrows, toolbar labels drop in steps — Fast/Goal, then mode, then thinking, then the model name — instead of ellipsizing the model name.
+- The web machine badge stays inside the sidebar column it belongs to, truncating rather than overflowing it.
+- Phone chat lists show the plain agent logo, without the wash and ring.
+
+### Fixed
+
+- File trees no longer shake at the end of the list on iOS/iPadOS: the review's changed-files tree gets the same no-bounce fix as the workspace file tree.
+- Provider and model logos keep their size inside a squeezed toolbar button instead of scaling down.
+- A background task that finishes while the agent is mid-turn now shows inside the reply, where the agent read it, instead of above the reply as if it had started the turn (and is no longer dropped from turns you started).
+- The chat's turn navigator lists only your own messages, not background notices.
+- A short conversation (for example one folded down to a few lines) loads its older history right away instead of waiting for a scroll that can't happen.
+
 ## [1.5.29] - 2026-11-20
 
 ### Changed
