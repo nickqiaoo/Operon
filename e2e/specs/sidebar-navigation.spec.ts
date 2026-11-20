@@ -59,6 +59,8 @@ test('the sidebar toggle stays mounted and stationary throughout the animation',
 })
 
 test('navigation icons keep their size and alignment when the sidebar changes mode', async ({ page }, testInfo) => {
+  // Tall window: at ≤820px the bottom tools fold into a compact row (its own test below).
+  await page.setViewportSize({ width: 1280, height: 900 })
   const sidebar = page.getByTestId('left-sidebar')
   const measure = () => sidebar.evaluate(element => {
     const labels = ['New chat', 'Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']
@@ -141,6 +143,7 @@ test('restoring window focus does not reopen a sidebar tooltip', async ({ page }
 })
 
 test('sidebar labels and tooltips follow live language changes', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByTestId('settings-button').click()
   await page.getByTestId('settings-tab-appearance').click()
   await page.getByTestId('settings-appearance-locale-zh-CN').click()
@@ -182,6 +185,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
 })
 
 test('collapsed sidebar keeps all navigation destinations directly accessible', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
   await collapseSidebar(page)
   const sidebar = page.getByTestId('left-sidebar')
   for (const name of ['Assistant', 'Board', 'Channels', 'Active', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
@@ -200,6 +204,27 @@ test('collapsed sidebar keeps all navigation destinations directly accessible', 
   await expandButton(page).click()
   await expect(sidebar.getByRole('button', { name: 'Workflow', exact: true })).toHaveText('Workflow')
   await expect(page.getByTestId('project-tree')).toHaveAttribute('role', 'region')
+})
+
+test('short windows fold the bottom tools into one row of icons', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const sidebar = page.getByTestId('left-sidebar')
+  const buttons = ['Workflow', 'Plugins', 'Schedule', 'Settings'].map(name =>
+    sidebar.getByRole('button', { name, exact: true }))
+  const boxes = await Promise.all(buttons.map(async button => {
+    await expect(button).toBeVisible()
+    await expect(button).toHaveText('')
+    return (await button.boundingBox())!
+  }))
+  // One row, left to right, each a 40px icon slot.
+  expect(new Set(boxes.map(box => box.y)).size).toBe(1)
+  for (let index = 1; index < boxes.length; index++) expect(boxes[index].x).toBeGreaterThan(boxes[index - 1].x)
+  for (const box of boxes) expect(box.height).toBe(40)
+  await buttons[0].hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Workflow')
+  // A tall window brings the labels back.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(buttons[0]).toHaveText('Workflow')
 })
 
 test('project preview toggles and dismisses without resizing or changing the workspace', async ({ page }) => {

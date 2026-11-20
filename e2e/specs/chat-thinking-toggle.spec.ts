@@ -47,7 +47,8 @@ test('the narrow desktop composer keeps its controls in a row below the input', 
     )
   }).toBe(true)
 
-  await expect(model.locator('span.truncate')).toBeVisible()
+  // Whole or not at all: at this width the model name shows in full, no ellipsis.
+  await expect(model.locator('span.whitespace-nowrap')).toBeVisible()
   await model.click()
   const models = page.getByTestId('model-selector-list')
   await expect(models).toBeVisible()

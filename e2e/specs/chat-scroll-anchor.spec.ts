@@ -47,6 +47,16 @@ for (const width of [390, 1280]) {
         viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
       )).toBeLessThanOrEqual(2)
       await page.evaluate(() => document.fonts.ready)
+      // Markdown renders asynchronously; rows may still resize. Wait for the
+      // height to hold still across two reads before measuring anything.
+      await page.waitForFunction(() => {
+        const viewport = document.querySelector('[data-conversation-scroller]')!
+        const state = window as Window & { __settledHeight?: number }
+        const height = viewport.scrollHeight
+        const settled = state.__settledHeight === height
+        state.__settledHeight = height
+        return settled
+      }, undefined, { polling: 200 })
       await expect(page.locator('[data-conversation-scroller]')).not.toHaveAttribute('data-autoscrolling', '')
     })
 
@@ -83,15 +93,35 @@ for (const width of [390, 1280]) {
         element.scrollTop = 1100
       })
       await expect(page.getByRole('button', { name: 'Scroll to bottom' })).toHaveAttribute('data-active', 'true')
+      // Rows near the new position lay out for real once they are close (240px
+      // placeholders until then), and scroll anchoring moves scrollTop to keep the
+      // same content in view — so it need not stay at 1100. Capture the reading
+      // position only once both it and the content height hold still.
+      await page.waitForFunction(() => {
+        const scroller = document.querySelector('[data-conversation-scroller]')!
+        const state = window as Window & { __readingPosition?: string }
+        const position = `${scroller.scrollTop}:${scroller.scrollHeight}`
+        const settled = state.__readingPosition === position
+        state.__readingPosition = position
+        return settled
+      }, undefined, { polling: 200 })
       const before = await viewport.evaluate(element => element.scrollTop)
       await page.evaluate(() => {
         window.__conversationScrollTest.grow()
         window.__conversationScrollTest.append()
       })
       await expect(page.locator('[data-message-id="main-row-50"]')).toHaveCount(1)
-      await page.waitForTimeout(300)
+      // Let the streamed paragraph and the new row finish rendering, then the
+      // reading position must still be where it was.
+      await page.waitForFunction(() => {
+        const scroller = document.querySelector('[data-conversation-scroller]')!
+        const state = window as Window & { __growSettledHeight?: number }
+        const height = scroller.scrollHeight
+        const settled = state.__growSettledHeight === height
+        state.__growSettledHeight = height
+        return settled
+      }, undefined, { polling: 200 })
       expect(await viewport.evaluate(element => element.scrollTop)).toBeCloseTo(before, 0)
-
     })
 
     test('still anchors new turns and follows replies and viewport resizing at the end', async ({ page }) => {
