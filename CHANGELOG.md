@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.5.33] - 2026-11-21
+
+### Fixed
+
+- Loading older chat history no longer replaces the newest page or leaves holes in the transcript: each page merges into the list as it is now, two scroll callbacks in one frame no longer fire two loads, and a page that lands after you switched chats is dropped.
+- A follow-up sent mid-turn shows its images right where the agent read it, even before the steer's history row has synced to this window.
+
 ## [1.5.32] - 2026-11-21
 
 ### Changed
