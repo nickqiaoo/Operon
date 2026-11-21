@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.5.32] - 2026-11-21
+
+### Changed
+
+- Account quota left the top bar for the sidebar rail: one split ring per signed-in provider, its logo in the middle — the top arc is the 5-hour window, the bottom arc the week, each filled with what is left. Resting on an arc lifts it and reads its percentage; the rings stay quiet while there is headroom and take the composer badges' amber/red as the budget runs low.
+- Help moved from the sidebar into Settings: a "Help & feedback" link pinned under the settings list.
+- The bottom panel's tab strip drops its bottom line, so the strip and the terminal read as one surface.
+
+### Fixed
+
+- A failed usage read no longer drops the provider from the rail: the last good reading stays in place while the poll retries.
+- Folding a workspace trims its chat list back to the preview, so unfolding starts short again instead of returning at full "Show more" length.
+- Folding one workspace no longer re-renders every project in the tree.
+
 ## [1.5.31] - 2026-11-21
 
 ### Added
