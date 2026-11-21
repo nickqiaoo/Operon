@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { toast, Toaster } from 'sonner'
-import { Loader2, Monitor, LogOut, RefreshCw, ChevronUp, Github } from 'lucide-react'
+import { Loader2, Monitor, LogOut, RefreshCw, Github } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { OperonMark } from './OperonMark'
@@ -31,7 +31,7 @@ import {
 } from '@/lib/web-auth'
 import { resetNodeScopedCaches } from '@/lib/node-cache-reset'
 import { syncAnalyticsIdentity } from '@/lib/analytics'
-import { useSidebarPanelShown } from '@/stores/app-shell-store'
+import { MachineActionsContext } from './MachineSwitcher'
 import { hasRemotePairing } from '@/lib/e2ee/device-store'
 import { nodeRequiresPairing } from '@/lib/e2ee/node-mode'
 import { SecurePairingCard } from './SecurePairingCard'
@@ -68,9 +68,6 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
   const theme = useThemeStore((s) => s.theme)
-  // On phones the machine control lives in the More tab instead of a floating
-  // pill (the corner badge collides with the bottom tab bar).
-  const isMobile = useIsMobile()
   // Read once per render rather than held in state: it is written before the
   // browser leaves for the provider, so by the time this component can render a
   // picker it can no longer change.
@@ -256,19 +253,13 @@ export function WebAuthGate({ children }: { children: React.ReactNode }) {
 
   if (phase === 'ready') {
     return (
-      <>
+      <MachineActionsContext.Provider value={{
+        label: getSelectedNodeLabel() ?? intl.formatMessage({ id: 'web.auth.machineFallback', defaultMessage: 'machine' }),
+        onSwitch: switchMachine,
+        onSignOut: logout,
+      }}>
         {children}
-        {!isMobile && (
-          <MachineBadge
-            label={
-              getSelectedNodeLabel() ??
-              intl.formatMessage({ id: 'web.auth.machineFallback', defaultMessage: 'machine' })
-            }
-            onSwitch={switchMachine}
-            onSignOut={logout}
-          />
-        )}
-      </>
+      </MachineActionsContext.Provider>
     )
   }
 
@@ -784,70 +775,5 @@ function AppleMark({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
       <path d="M17.05 12.54c-.02-2.2 1.8-3.26 1.88-3.31-1.02-1.5-2.62-1.7-3.19-1.73-1.36-.14-2.65.8-3.34.8-.69 0-1.75-.78-2.87-.76-1.48.02-2.84.86-3.6 2.18-1.53 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.25 2.75 2.2 1.1-.04 1.52-.71 2.85-.71 1.33 0 1.71.71 2.87.69 1.19-.02 1.94-1.08 2.66-2.14.84-1.23 1.19-2.42 1.21-2.48-.03-.01-2.32-.89-2.34-3.5M14.88 5.7c.6-.74 1.01-1.76.9-2.78-.87.04-1.93.58-2.56 1.31-.56.65-1.05 1.69-.92 2.69.97.07 1.96-.49 2.58-1.22" />
     </svg>
-  )
-}
-
-/**
- * Web-only corner pill showing which machine is being controlled, with a menu to
- * switch machines or sign out. Renders over the app (Electron never sees it).
- *
- * It's fixed to the viewport rather than rendered inside the sidebar, but it is
- * *visually* part of it — the sidebar's bottom actions reserve the room it sits
- * in (`pb-12` on web). So it has to hide with the sidebar too: left in place on
- * collapse it would float over the center column and cover the composer.
- */
-function MachineBadge({
-  label,
-  onSwitch,
-  onSignOut,
-}: {
-  label: string
-  onSwitch: () => void
-  onSignOut: () => void
-}) {
-  const intl = useIntl()
-  const [open, setOpen] = useState(false)
-  const sidebarCollapsed = !useSidebarPanelShown()
-  // Don't leave the menu hanging open for the next expand.
-  useEffect(() => {
-    if (sidebarCollapsed) setOpen(false)
-  }, [sidebarCollapsed])
-  if (sidebarCollapsed) return null
-  return (
-    // Kept inside the sidebar it is drawn as part of: 12px in from both edges.
-    <div className="fixed bottom-3 left-3 z-[60] max-w-[calc(var(--sidebar-inline-size,100vw)-1.5rem)] text-xs">
-      {open && (
-        <div className="mb-1.5 w-44 overflow-hidden rounded-lg border border-border/50 bg-popover/95 shadow-float backdrop-blur">
-          <button
-            onClick={() => {
-              setOpen(false)
-              onSwitch()
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-row-hover"
-          >
-            <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
-            {intl.formatMessage({ id: 'web.auth.switchMachine', defaultMessage: 'Switch machine' })}
-          </button>
-          <button
-            onClick={() => {
-              setOpen(false)
-              onSignOut()
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-row-hover"
-          >
-            <LogOut className="h-3.5 w-3.5 text-muted-foreground" />
-            {intl.formatMessage({ id: 'web.auth.signOut', defaultMessage: 'Sign out' })}
-          </button>
-        </div>
-      )}
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex max-w-full items-center gap-1.5 rounded-full border border-border/50 bg-popover/90 px-2.5 py-1.5 text-muted-foreground shadow-card backdrop-blur transition-colors hover:bg-accent-hover"
-      >
-        <Monitor className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 max-w-[140px] truncate text-foreground">{label}</span>
-        <ChevronUp className={`h-3 w-3 shrink-0 transition-transform ${open ? '' : 'rotate-180'}`} />
-      </button>
-    </div>
   )
 }

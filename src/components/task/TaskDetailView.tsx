@@ -50,7 +50,10 @@ import {
   TASK_STATUSES,
   isValidTaskTransition,
 } from '@/types/task'
-import type { TaskActivity, TaskDetail, TaskListItem, TaskPriority, TaskStatus, TaskSurface, UpdateTaskInput } from '@/types/task'
+import type { TaskActivity, TaskAttachment, TaskDetail, TaskListItem, TaskPriority, TaskStatus, TaskSurface, UpdateTaskInput } from '@/types/task'
+import { PendingImageStrip, TaskImageStrip, useImageUploads } from './task-attachments'
+import { TaskWorkspaceLabel, TaskWorkspaceSelect, useWorkspaceName } from './TaskWorkspaceSelect'
+import { SubtaskProposalCard, readProposal } from './SubtaskProposalCard'
 import type { Agent, AgentSession } from '@/types/channel'
 import type { LinearPublishOptions } from '@/types/integrations'
 import { AgentManageDialog } from '@/components/channel/AgentManageDialog'
@@ -166,6 +169,7 @@ export function TaskDetailView({
 
 
   const [dispatching, setDispatching] = useState(false)
+  const sharedWorkspaceName = useWorkspaceName(detail.workspaceMode === 'shared' ? detail.workspaceId : null)
   const [manageAgents, setManageAgents] = useState(false)
   const isArchived = detail.archivedAt != null
   const [editingTitle, setEditingTitle] = useState(false)
@@ -174,6 +178,16 @@ export function TaskDetailView({
   const [descDraft, setDescDraft] = useState(detail.description)
   const [commentDraft, setCommentDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const commentImages = useImageUploads()
+  // A description image is saved onto the task as soon as it is stored. The
+  // store patches optimistically, so reading it back here sees the previous upload.
+  const descImages = useImageUploads({
+    onUploaded: (attachment) => {
+      const current = useTaskStore.getState().detail
+      const base = current?.id === detail.id ? current.attachments : detail.attachments
+      updateDetail({ attachments: [...base, attachment] })
+    },
+  })
 
   const updateDetail = (updates: UpdateTaskInput) => {
     void update(detail.id, updates).catch((error) => toastTaskError(error, 'Task update failed'))
@@ -198,11 +212,13 @@ export function TaskDetailView({
 
   const sendComment = async () => {
     const body = commentDraft.trim()
-    if (!body) return
+    const attachments = commentImages.attachments
+    if ((!body && attachments.length === 0) || commentImages.uploading) return
     setSending(true)
     try {
-      await comment(detail.id, body)
+      await comment(detail.id, body, attachments)
       setCommentDraft('')
+      commentImages.clear()
     } catch (error) {
       toastTaskError(error, 'Comment failed')
     } finally {
@@ -313,7 +329,8 @@ export function TaskDetailView({
                     setEditingDesc(false)
                   }
                 }}
-                placeholder={intl.formatMessage({ id: 'task.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported)' })}
+                {...descImages.inputProps}
+                placeholder={intl.formatMessage({ id: 'task.new.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported, paste or drop images)' })}
                 className="w-full min-h-[120px] text-sm bg-muted/30 border border-border/50 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y"
               />
             ) : (
@@ -322,6 +339,8 @@ export function TaskDetailView({
                   setDescDraft(detail.description)
                   setEditingDesc(true)
                 }}
+                onDrop={descImages.inputProps.onDrop}
+                onDragOver={descImages.inputProps.onDragOver}
                 className={cn(
                   'text-sm cursor-text rounded-lg p-3 min-h-[44px] transition-colors',
                   detail.description
@@ -334,6 +353,15 @@ export function TaskDetailView({
                 ) : (
                   <span className="text-muted-foreground/40"><FormattedMessage id="task.detail.addDescription" defaultMessage="Add a description…" /></span>
                 )}
+              </div>
+            )}
+            {(detail.attachments.length > 0 || descImages.items.length > 0) && (
+              <div className={cn('flex flex-wrap items-start gap-2', detail.description && !editingDesc ? 'mt-5' : 'mt-2')}>
+                <TaskImageStrip
+                  attachments={detail.attachments}
+                  onRemove={(index) => updateDetail({ attachments: detail.attachments.filter((_, i) => i !== index) })}
+                />
+                <PendingImageStrip uploads={descImages} />
               </div>
             )}
           </div>
@@ -354,7 +382,7 @@ export function TaskDetailView({
               <div aria-hidden className="absolute left-[11px] top-2 bottom-2 w-px bg-border/50 dark:bg-border/35" />
               <div className="space-y-1">
                 {detail.activity.map((a) => (
-                  <ActivityItem key={a.id} activity={a} taskId={detail.id} />
+                  <ActivityItem key={a.id} activity={a} taskId={detail.id} agents={agents} />
                 ))}
               </div>
             </div>
@@ -368,6 +396,7 @@ export function TaskDetailView({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void sendComment()
               }}
+              {...commentImages.inputProps}
               placeholder={
                 detail.bindingId != null
                   ? intl.formatMessage({ id: 'task.detail.commentPlaceholderWake', defaultMessage: 'Leave a comment — wakes the agent… (⌘↵ to send)' })
@@ -376,12 +405,13 @@ export function TaskDetailView({
               aria-label={intl.formatMessage({ id: 'task.detail.comment', defaultMessage: 'Comment' })}
               className="w-full min-h-[72px] resize-none rounded-xl border-0 bg-muted/25 px-3.5 py-3 text-sm shadow-none outline-none transition-colors placeholder:text-muted-foreground/60 focus:bg-muted/40 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
             />
+            <PendingImageStrip uploads={commentImages} />
             <div className="flex justify-end">
               <Button
                 size="sm"
                 variant="secondary"
                 className="h-8"
-                disabled={sending || !commentDraft.trim()}
+                disabled={sending || commentImages.uploading || (!commentDraft.trim() && commentImages.attachments.length === 0)}
                 onClick={() => void sendComment()}
               >
                 <FormattedMessage id="task.detail.comment" defaultMessage="Comment" />
@@ -479,6 +509,22 @@ export function TaskDetailView({
             </Select>
             {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
           </PropertyRow>
+
+          {/* Where it runs — a spec and its tickets always get worktrees of their own. */}
+          {detail.specStage == null && detail.ticketState == null && (
+            <PropertyRow label={intl.formatMessage({ id: 'task.workspace.label', defaultMessage: 'Workspace' })}>
+              {/* Chosen before it runs: once dispatched it is a fact about the task, not a choice. */}
+              {detail.bindingId != null || isArchived ? (
+                <TaskWorkspaceLabel mode={detail.workspaceMode} workspaceName={sharedWorkspaceName} />
+              ) : (
+                <TaskWorkspaceSelect
+                  className="w-full"
+                  value={detail.workspaceMode}
+                  onChange={(workspaceMode) => updateDetail({ workspaceMode })}
+                />
+              )}
+            </PropertyRow>
+          )}
 
           <RelationRows detail={detail} />
 
@@ -1115,6 +1161,14 @@ const COMMENT_MARKDOWN_CLASS =
   'prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 ' +
   'prose-code:text-[12px] prose-pre:my-2'
 
+/** Images a person pasted into a comment (meta.attachments, written by the server). */
+function commentAttachments(a: TaskActivity): TaskAttachment[] {
+  const raw = a.meta?.attachments
+  if (!Array.isArray(raw)) return []
+  return raw.filter((x): x is TaskAttachment =>
+    !!x && typeof x === 'object' && typeof (x as TaskAttachment).url === 'string' && typeof (x as TaskAttachment).mediaType === 'string')
+}
+
 function actorLabel(a: TaskActivity, intl: IntlShape): string {
   if (a.actorType === 'system') return intl.formatMessage(ACTOR_MESSAGES.system)
   if (a.actorName === 'You') return intl.formatMessage(ACTOR_MESSAGES.You)
@@ -1161,11 +1215,13 @@ function TimelineMarker({ children, emphasis }: { children: React.ReactNode; emp
   )
 }
 
-function ActivityItem({ activity: a, taskId }: { activity: TaskActivity; taskId: number }) {
+function ActivityItem({ activity: a, taskId, agents }: { activity: TaskActivity; taskId: number; agents: Agent[] }) {
   const intl = useIntl()
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
   const absoluteTime = formatDateTime(a.createdAt)
+  const proposal = readProposal(a)
+  if (proposal) return <SubtaskProposalCard activity={a} proposal={proposal} taskId={taskId} agents={agents} />
   if (a.kind === 'comment') {
     const meta = a.meta ?? {}
     const source = meta.source === 'github_pr' ? 'GitHub' : meta.source ? 'Linear' : null
@@ -1211,27 +1267,52 @@ function ActivityItem({ activity: a, taskId }: { activity: TaskActivity; taskId:
             )}
           </div>
           <div className="px-3 py-2 text-sm text-foreground/85">
-            <MarkdownRenderer content={a.body} className={COMMENT_MARKDOWN_CLASS} />
+            {a.body.trim() && <MarkdownRenderer content={a.body} className={COMMENT_MARKDOWN_CLASS} />}
+            <TaskImageStrip attachments={commentAttachments(a)} className={a.body.trim() ? 'mt-2' : undefined} />
           </div>
         </div>
       </div>
     )
   }
 
+  const prUrl = pullRequestUrlOf(a)
   return (
     <div className="flex items-center gap-3 py-1 text-xs">
       <TimelineMarker>
-        <EventIcon activity={a} />
+        {prUrl ? <GithubIcon className="w-3 h-3" /> : <EventIcon activity={a} />}
       </TimelineMarker>
       <div className="min-w-0 flex-1 flex items-baseline gap-1.5">
         <span className="font-medium text-foreground/85 shrink-0">{actorLabel(a, intl)}</span>
-        <span className="text-muted-foreground truncate">{describeEvent(a, intl)}</span>
+        {prUrl ? (
+          <button
+            type="button"
+            onClick={() => openExternalUrl(prUrl)}
+            className="inline-flex min-w-0 items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
+          >
+            <span className="truncate">{describeEvent(a, intl)}</span>
+            <ExternalLink className="w-3 h-3 shrink-0" />
+          </button>
+        ) : (
+          <span className="text-muted-foreground truncate">{describeEvent(a, intl)}</span>
+        )}
       </div>
       <span className="shrink-0 text-muted-foreground/60 tabular-nums" title={absoluteTime}>
         {formatRelativeTime(intl, a.createdAt, { compact: true })}
       </span>
     </div>
   )
+}
+
+/**
+ * A pull-request event row (opened / pushed / closed / …) links to its PR: the
+ * opened row stores the URL, the others the PR key `owner/name#number`.
+ */
+function pullRequestUrlOf(a: TaskActivity): string | null {
+  const meta = a.meta
+  if (a.kind !== 'system' || meta?.source !== 'github_pr') return null
+  if (typeof meta.url === 'string' && /^https:\/\//.test(meta.url)) return meta.url
+  const key = typeof meta.pr === 'string' ? /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(meta.pr) : null
+  return key ? `https://github.com/${key[1]}/pull/${key[2]}` : null
 }
 
 function describeEvent(a: TaskActivity, intl: IntlShape): string {
@@ -1265,10 +1346,11 @@ function describeEvent(a: TaskActivity, intl: IntlShape): string {
       // render those through i18n and fall back to the body otherwise.
       const message = activityEventMessage(meta.event)
       if (message) {
-        const values: Record<string, string> = {}
+        const values: Record<string, string | number> = {}
         for (const [k, v] of Object.entries(meta)) {
-          if (typeof v === 'string' || typeof v === 'number') values[k] = String(v)
+          if (typeof v === 'string' || typeof v === 'number') values[k] = v
         }
+        if (meta.event === 'subtask.status') values.to = statusLabel(meta.to)
         return intl.formatMessage(message, values)
       }
       return a.body || intl.formatMessage({ id: 'task.activity.updated', defaultMessage: 'updated the task' })

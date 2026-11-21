@@ -99,7 +99,9 @@ import type {
   TaskActivity,
   TaskActivityInput,
   TaskActor,
+  TaskAttachment,
   TaskDetail,
+  TaskPullRequest,
   TaskLabel,
   TaskListItem,
   TaskPriority,
@@ -138,7 +140,39 @@ const TASK_COLUMNS =
   "(SELECT count(*) FROM json_each(sr.build) WHERE json_extract(value, '$.state') = 'blocked')" +
   ') FROM spec_runs sr WHERE sr.task_id = t.id AND json_array_length(sr.build) > 0) AS spec_progress' +
   ", (SELECT json_extract(b.value, '$.state') FROM spec_runs sr, json_each(sr.build) b " +
-  "WHERE sr.task_id = t.parent_task_id AND json_extract(b.value, '$.taskId') = t.id) AS ticket_state"
+  "WHERE sr.task_id = t.parent_task_id AND json_extract(b.value, '$.taskId') = t.id) AS ticket_state" +
+  // The latest pull request opened for it, so a card can link to it without the detail.
+  ", (SELECT json_object('externalId', ps.external_id, 'url', ps.url, 'meta', json(COALESCE(ps.meta, '{}'))) " +
+  "FROM task_surfaces ps WHERE ps.task_id = t.id AND ps.kind = 'github_pr' " +
+  'ORDER BY ps.created_at DESC, ps.id DESC LIMIT 1) AS pull_request'
+
+function parsePullRequest(raw: unknown): TaskPullRequest | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const row = JSON.parse(raw) as { externalId?: unknown; url?: unknown; meta?: Record<string, unknown> | null }
+    const meta = row.meta ?? {}
+    // external_id is owner/name#number; meta.number is set when the PR was opened.
+    const number = Number(meta.number ?? String(row.externalId ?? '').split('#')[1])
+    if (!Number.isFinite(number) || number <= 0) return null
+    return {
+      number,
+      url: typeof row.url === 'string' ? row.url : null,
+      state: meta.merged === true ? 'merged' : meta.state === 'closed' ? 'closed' : 'open',
+    }
+  } catch {
+    return null
+  }
+}
+
+function parseTaskAttachments(raw: unknown): TaskAttachment[] {
+  if (typeof raw !== 'string') return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as TaskAttachment[]) : []
+  } catch {
+    return []
+  }
+}
 
 function specProgressOf(raw: unknown): SpecProgress | null {
   if (typeof raw !== 'string') return null
@@ -1659,6 +1693,10 @@ export class SqliteStorage
     return rows.map(rowToWorkspace)
   }
 
+  setWorkspaceOriginChat(id: number, chatId: number): void {
+    this.db.prepare('UPDATE workspaces SET origin_chat_id = ?, updated_at = ? WHERE id = ?').run(chatId, Date.now(), id)
+  }
+
   deleteWorkspace(id: number): void {
     this.db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
   }
@@ -1930,16 +1968,18 @@ export class SqliteStorage
       const res = this.db
         .prepare(
           `INSERT INTO tasks (
-             project_id, number, title, description, priority,
+             project_id, number, title, description, attachments, workspace_mode, priority,
              assigned_agent_id, parent_task_id, source_channel_id, source_chat_id, source_message_id,
              blocked_by, created_by, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.projectId,
           n,
           input.title,
           input.description ?? '',
+          input.attachments?.length ? JSON.stringify(input.attachments) : null,
+          input.workspaceMode === 'shared' ? 'shared' : null,
           input.priority ?? 0,
           input.assignedAgentId ?? null,
           input.parentTaskId ?? null,
@@ -1993,7 +2033,8 @@ export class SqliteStorage
    */
   taskGetByWorkspace(workspaceId: number): Task | null {
     const row = this.db
-      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks t WHERE t.workspace_id = ? ORDER BY t.id DESC LIMIT 1`)
+      // A shared-mode task runs in a workspace it does not own (the project's main one, say).
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks t WHERE t.workspace_id = ? AND t.workspace_mode IS NOT 'shared' ORDER BY t.id DESC LIMIT 1`)
       .get(workspaceId) as Record<string, unknown> | undefined
     return row ? this.rowToTask(row) : null
   }
@@ -2063,6 +2104,8 @@ export class SqliteStorage
     }
     if (updates.title !== undefined) set('title', updates.title)
     if (updates.description !== undefined) set('description', updates.description)
+    if (updates.workspaceMode !== undefined) set('workspace_mode', updates.workspaceMode === 'shared' ? 'shared' : null)
+    if (updates.attachments !== undefined) set('attachments', updates.attachments.length ? JSON.stringify(updates.attachments) : null)
     if (updates.status !== undefined) set('status', updates.status)
     if (updates.priority !== undefined) set('priority', updates.priority)
     if (updates.assignedAgentId !== undefined) set('assigned_agent_id', updates.assignedAgentId)
@@ -2193,6 +2236,13 @@ export class SqliteStorage
       .prepare('SELECT * FROM task_activity WHERE task_id = ? AND id = ?')
       .get(taskId, activityId) as Record<string, unknown> | undefined
     return row ? this.rowToActivity(row) : null
+  }
+
+  taskUpdateActivityMeta(taskId: number, activityId: number, meta: Record<string, unknown> | null): TaskActivity | null {
+    this.db
+      .prepare('UPDATE task_activity SET meta = ? WHERE task_id = ? AND id = ?')
+      .run(meta ? JSON.stringify(meta) : null, taskId, activityId)
+    return this.taskGetActivity(taskId, activityId)
   }
 
   // ---- External surfaces (design.md §7) ----
@@ -2356,7 +2406,7 @@ export class SqliteStorage
 
   taskListChildren(parentTaskId: number): Task[] {
     const rows = this.db
-      .prepare('SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY number ASC')
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks t WHERE t.parent_task_id = ? ORDER BY t.number ASC`)
       .all(parentTaskId) as Array<Record<string, unknown>>
     return rows.map((r) => this.rowToTask(r))
   }
@@ -2616,7 +2666,10 @@ export class SqliteStorage
   notificationSettleNeedsInput(sourceKey: string | null, { markRead }: { markRead: boolean }): number[] {
     // Read rows count too: viewing the chat reads its row long before the approval
     // is answered, and the row must still stop asking once it is.
-    const clauses = ["kind = 'chat_needs_input'", 'archived_at IS NULL', markRead ? "(severity = 'action' OR read_at IS NULL)" : "severity = 'action'"]
+    // A task's row is settled by its own source only: after a restart a task can
+    // still be waiting on the human (its agent asked in a comment), a chat cannot.
+    const kinds = sourceKey == null ? "kind = 'chat_needs_input'" : "kind IN ('chat_needs_input', 'task_needs_input')"
+    const clauses = [kinds, 'archived_at IS NULL', markRead ? "(severity = 'action' OR read_at IS NULL)" : "severity = 'action'"]
     const params: unknown[] = []
     if (sourceKey != null) {
       clauses.push('source_key = ?')
@@ -2757,6 +2810,9 @@ export class SqliteStorage
       number: row.number as number,
       title: row.title as string,
       description: (row.description as string) ?? '',
+      attachments: parseTaskAttachments(row.attachments),
+      workspaceMode: row.workspace_mode === 'shared' ? 'shared' : 'new',
+      pullRequest: parsePullRequest(row.pull_request),
       status: row.status as ProjectTaskStatus,
       priority: row.priority as TaskPriority,
       assignedAgentId: (row.assigned_agent_id as number | null) ?? null,
@@ -3375,6 +3431,7 @@ export class SqliteStorage
   }
 
   updateBinding(id: number, updates: UpdateAgentBindingInput): void {
+    const prevStatus = 'status' in updates ? this.getBinding(id)?.status : undefined
     const fields: string[] = []
     const values: unknown[] = []
     const push = (col: string, value: unknown): void => {
@@ -3401,6 +3458,13 @@ export class SqliteStorage
       if (binding?.scopeKind === 'task') {
         const task = this.taskGet(Number(binding.scopeKey))
         if (task?.bindingId === id) {
+          // A task waiting on the human goes back to work when its session does —
+          // they replied (a comment, or straight in its chat) and a new turn began.
+          // An approval pending inside a running turn never passes here: that
+          // session stays active the whole time (see task-needs-input.ts).
+          if (task.status === 'needs_input' && updates.status === 'active' && prevStatus !== 'active') {
+            this.taskUpdate(task.id, { status: 'in_progress' }, { type: 'system', name: 'system' })
+          }
           broadcastTask(this, task.id)
           if (task.parentTaskId != null) broadcastTask(this, task.parentTaskId)
         }

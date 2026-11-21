@@ -10,7 +10,7 @@ import { useTaskStore } from './task-store'
 
 function task(id: number): TaskDetail {
   return {
-    id, projectId: 1, number: id, title: `Task ${id}`, description: '', status: 'todo', priority: 0,
+    id, projectId: 1, number: id, title: `Task ${id}`, description: '', attachments: [], workspaceMode: 'new', pullRequest: null, status: 'todo', priority: 0,
     assignedAgentId: null, parentTaskId: null, sourceChannelId: null, sourceMessageId: null,
     branchName: null, workspaceId: null, bindingId: null, specStage: null, blockedBy: null,
     createdBy: 'human', archivedAt: null, createdAt: 0, updatedAt: 0,

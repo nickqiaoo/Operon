@@ -288,6 +288,8 @@ export interface ProjectStorageAdapter {
   getWorkspace(id: number): Workspace | null
   listWorkspaces(projectId: number): Workspace[]
   deleteWorkspace(id: number): void
+  /** File a workspace under the conversation that dispatched work into it (it then stays out of the top of the tree). */
+  setWorkspaceOriginChat(id: number, chatId: number): void
 }
 
 export interface ChannelStorageAdapter {
@@ -348,6 +350,8 @@ export interface TaskStorageAdapter {
   taskAppendActivity(taskId: number, entry: TaskActivityInput): TaskActivity
   taskListActivity(taskId: number): TaskActivity[]
   taskGetActivity(taskId: number, activityId: number): TaskActivity | null
+  /** Replace an activity row's meta (a sub-task proposal records its outcome there). */
+  taskUpdateActivityMeta(taskId: number, activityId: number, meta: Record<string, unknown> | null): TaskActivity | null
 
   // External surfaces (Linear issue / session, GitHub PR — design.md §7)
   taskSurfaceList(taskId: number): TaskSurface[]

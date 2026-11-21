@@ -125,6 +125,8 @@ Project tasks are durable, shared records on the Taskboard. They are not channel
 
 **Status flow:** \`todo\` -> \`in_progress\` -> \`in_review\` -> \`done\`
 
+\`needs_input\` sits beside \`in_progress\`: the task cannot go on until a human answers. Approvals and questions asked through tools set it on their own. If you instead need a decision in words, post the question with \`comment_project_task\`, call \`update_project_task(status="needs_input")\` and end your turn; the task returns to \`in_progress\` when they reply.
+
 **Assignee** is independent from status — a task can be assigned or unassigned at any status except \`done\`.
 
 **Approved task workflow:**

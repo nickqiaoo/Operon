@@ -61,4 +61,22 @@ describe('buildChatChildren', () => {
     ])
     expect(childCounts(children)).toEqual({ total: 6, needsYou: 1, failed: 1, running: 1, finished: 3 })
   })
+
+  it('nests the board sub-tasks handed out from a task session, by their board status', () => {
+    const sub = (taskId: number, chatId: number, status: string) => ({
+      taskId, number: taskId, title: `Sub ${taskId}`, status, parentChatId: PARENT, chatId,
+      workspaceId: 3, providerId: 'codex', modelId: null, updatedAt: taskId,
+    })
+    const children = buildChatChildren({
+      chatId: PARENT,
+      externalAgents: [],
+      pendingByChat: new Map([[22, [approval]]]),
+      taskChildren: [sub(1, 21, 'in_progress'), sub(2, 22, 'in_progress'), sub(3, 23, 'in_review'), { ...sub(4, 24, 'done'), parentChatId: 99 }],
+    })
+    expect(children.map((c) => [c.key, c.state, c.title])).toEqual([
+      ['task:2', 'needs-you', '#2 Sub 2'],
+      ['task:1', 'running', '#1 Sub 1'],
+      ['task:3', 'done', '#3 Sub 3'],
+    ])
+  })
 })

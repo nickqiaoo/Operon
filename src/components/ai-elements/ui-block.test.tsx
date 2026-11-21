@@ -43,6 +43,13 @@ describe('ui block in a reply', () => {
     expect(html).toContain('--ui-cols:3')
   })
 
+  it('preserves explicit line breaks in flow node labels', () => {
+    const html = render(String.raw`<flow><node id="task" icon="file" label="新建任务\n写问题，可附图"/></flow>`)
+    expect(html).toContain('whitespace-pre-line')
+    expect(html).toContain('>新建任务\n写问题，可附图</span>')
+    expect(html).not.toContain(String.raw`\n`)
+  })
+
   const allBlocks = [
     '<stages title="Arch">',
     '<stage icon="user" title="Browser" desc="Sends it" tags="HTTP/2,TLS"/>',

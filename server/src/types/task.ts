@@ -5,12 +5,38 @@
 import type { BindingStatus } from './agent-binding.js'
 import type { SpecProgress, SpecStage, SpecTicketState } from './spec.js'
 
-export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
+export type TaskStatus = 'todo' | 'in_progress' | 'needs_input' | 'in_review' | 'done' | 'cancelled'
 
 /** 0 none · 1 low · 2 medium · 3 high · 4 urgent. ORDER BY priority DESC = urgent first. */
 export type TaskPriority = 0 | 1 | 2 | 3 | 4
 
 export type TaskCreatedBy = 'human' | 'agent'
+
+/**
+ * Where a dispatched task runs. `new` (the default) cuts a worktree and branch of
+ * its own, merged on Done and removed afterwards. `shared` runs in an existing
+ * workspace (the project's main one unless another is picked): no branch of its
+ * own, so Done just closes it and nothing is merged or removed.
+ */
+export type TaskWorkspaceMode = 'new' | 'shared'
+
+/** The task's latest GitHub pull request (a `github_pr` surface), for its card. */
+export interface TaskPullRequest {
+  number: number
+  url: string | null
+  state: 'open' | 'merged' | 'closed'
+}
+
+/**
+ * A file (in practice an image) attached to a task's description or a comment.
+ * `url` is a content-addressed attachment path (`/api/attachments/<sha256>`),
+ * the same shape a chat file part carries, so it can be handed to the agent as one.
+ */
+export interface TaskAttachment {
+  url: string
+  mediaType: string
+  filename?: string
+}
 
 /** Compact identity for hidden Spec agents as well as user-created agents. */
 export interface TaskAgentSummary {
@@ -26,6 +52,11 @@ export interface Task {
   number: number
   title: string
   description: string
+  /** Images attached to the description; sent to the agent with the dispatch prompt. */
+  attachments: TaskAttachment[]
+  workspaceMode: TaskWorkspaceMode
+  /** Latest pull request opened for it, if any. */
+  pullRequest: TaskPullRequest | null
   status: TaskStatus
   priority: TaskPriority
   assignedAgentId: number | null
@@ -75,6 +106,35 @@ export type TaskActivityKind =
   | 'verify'
   | 'gate'
 export type TaskActorType = 'human' | 'agent' | 'system'
+
+/**
+ * A task's agent proposes handing parts of its work to other agents
+ * (propose_subtasks). The proposal is an activity row (kind 'system',
+ * meta.event 'subtasks.proposed') that the person completes and confirms on
+ * the board: every item needs an agent and a workspace before it is created
+ * and dispatched, so nothing runs where the person did not say.
+ */
+export interface SubtaskProposalItem {
+  title: string
+  description: string
+  /** Proposed or picked; null until someone chooses. */
+  assignedAgentId: number | null
+  /** Proposed only when the person said so; null until someone chooses. */
+  workspaceMode: TaskWorkspaceMode | null
+  /** Set once confirmed: the sub-task it became, or why it could not start. */
+  taskId?: number
+  taskNumber?: number
+  error?: string
+}
+
+export type SubtaskProposalState = 'pending' | 'confirmed' | 'dismissed'
+
+export interface SubtaskProposalMeta {
+  event: 'subtasks.proposed'
+  state: SubtaskProposalState
+  items: SubtaskProposalItem[]
+  resolvedAt?: number
+}
 
 export interface TaskActivity {
   id: number
@@ -151,6 +211,8 @@ export interface CreateTaskInput {
   projectId: number
   title: string
   description?: string
+  attachments?: TaskAttachment[]
+  workspaceMode?: TaskWorkspaceMode
   priority?: TaskPriority
   assignedAgentId?: number | null
   parentTaskId?: number | null
@@ -169,6 +231,8 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   title?: string
   description?: string
+  attachments?: TaskAttachment[]
+  workspaceMode?: TaskWorkspaceMode
   status?: TaskStatus
   priority?: TaskPriority
   assignedAgentId?: number | null
@@ -219,7 +283,9 @@ export interface TaskActor {
  */
 const TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   todo: ['in_progress', 'cancelled'],
-  in_progress: ['in_review', 'done', 'todo', 'cancelled'],
+  in_progress: ['needs_input', 'in_review', 'done', 'todo', 'cancelled'],
+  // Blocked on a person; answering puts it back to work.
+  needs_input: ['in_progress', 'in_review', 'done', 'todo', 'cancelled'],
   in_review: ['done', 'in_progress', 'cancelled'],
   done: ['todo', 'in_progress'],
   cancelled: ['todo'],

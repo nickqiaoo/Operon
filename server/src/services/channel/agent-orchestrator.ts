@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import type { UIMessage } from 'ai'
+import type { FileUIPart, UIMessage } from 'ai'
 import type {
   AgentBindingStorageAdapter,
   ChannelStorageAdapter,
@@ -12,6 +12,7 @@ import type {
 } from '../../storage/interface.js'
 import type { ChannelMessage } from '../../types/channel.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
+import type { Workspace } from '../../types/project.js'
 import { emitChannelEvent, emitProjectEvent } from '../channel-bus.js'
 import { abortChat, startChat, startServerChat } from '../ai.js'
 import { resetBinding } from './binding-reset.js'
@@ -47,8 +48,9 @@ import {
 import { SURFACE_PROMPT, observeTaskChatPart, taskHasSurfaces } from '../../gateway/surfaces/task-surface-bridge.js'
 import type { RuntimeTextStreamPart } from '@operon/agent-runtime'
 import { changeBranchName, mergeChildIntoParent, type ChangeActor } from '../spec/change-branch.js'
-import type { Task, TaskStatus } from '../../types/task.js'
+import type { Task, TaskStatus, TaskWorkspaceMode } from '../../types/task.js'
 import { deliverToBinding } from '../message-router.js'
+import { activityAttachments, taskAttachmentFiles } from '../task-attachments.js'
 import {
   deliverBinding,
   handleBindingFinish as driverHandleFinish,
@@ -336,6 +338,7 @@ async function startBindingChat(
   prompt: string,
   workspaceId: number | null,
   isRecovery: boolean,
+  files: FileUIPart[] = [],
 ): Promise<number> {
   const storage = _storage
   if (!storage) throw new Error('Orchestrator not initialised')
@@ -362,11 +365,14 @@ async function startBindingChat(
     instructions += `\n\n${SURFACE_PROMPT}`
   }
 
+  const scopedTask = binding.scopeKind === 'task' ? storage.taskGet(Number(binding.scopeKey)) : null
+  const sessionTitle = scopedTask ? `#${scopedTask.number} ${scopedTask.title}` : undefined
+
   const messages: UIMessage[] = [
     {
       id: randomUUID(),
       role: 'user',
-      parts: [{ type: 'text', text: prompt }],
+      parts: [{ type: 'text', text: prompt }, ...files],
     },
   ]
 
@@ -387,6 +393,8 @@ async function startBindingChat(
       modelId: agent.model || undefined,
       modeId: agent.permissionMode || undefined,
       workspaceId: workspaceId ?? undefined,
+      // A task's session reads as the task in the tree, not as its long first prompt.
+      ...(sessionTitle ? { title: sessionTitle } : {}),
       env: resolveAgentEnv(agent),
       instructions,
       agentContext: {
@@ -719,7 +727,46 @@ export class SpecDesignChangedError extends Error {
 }
 
 /** `note`: said to the agent after the task itself (a ticket handed over from another agent, say). */
-export async function dispatchProjectTask(taskId: number, assignedAgentId: number, note?: string): Promise<void> {
+export interface DispatchWorkspaceOptions {
+  /** Saved on the task, so a later automatic start (in_progress with an assignee) runs the same way. */
+  workspaceMode?: TaskWorkspaceMode
+  /** `shared` only: which workspace; omit for the parent task's shared one, else the project's main workspace. */
+  workspaceId?: number
+}
+
+/**
+ * The workspace a shared-mode task runs in: the one asked for, else its parent's
+ * (sub-tasks of a shared task stay with it), else the project's main workspace.
+ */
+function resolveSharedWorkspace(storage: Storage, task: Task, workspaceId: number | undefined): Workspace {
+  const project = storage.getProject(task.projectId)
+  if (!project) throw new Error(`Project ${task.projectId} not found`)
+  const pick = (id: number | null | undefined) => {
+    if (id == null) return null
+    const ws = storage.getWorkspace(id)
+    return ws && ws.projectId === task.projectId ? ws : null
+  }
+  if (workspaceId != null) {
+    const ws = pick(workspaceId)
+    if (!ws) throw new Error(`Workspace ${workspaceId} is not in this task's project`)
+    return ws
+  }
+  const parent = task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
+  const fromParent = parent?.workspaceMode === 'shared' ? pick(parent.workspaceId) : null
+  if (fromParent) return fromParent
+  const fromTask = task.workspaceMode === 'shared' ? pick(task.workspaceId) : null
+  if (fromTask) return fromTask
+  const main = storage.listWorkspaces(task.projectId).find((w) => path.resolve(w.worktreePath) === path.resolve(project.rootPath))
+  if (!main) throw new Error(`Project ${project.name} has no main workspace to share — open the project once, or dispatch to a new worktree`)
+  return main
+}
+
+export async function dispatchProjectTask(
+  taskId: number,
+  assignedAgentId: number,
+  note?: string,
+  options: DispatchWorkspaceOptions = {},
+): Promise<void> {
   const storage = _storage
   if (!storage) throw new Error('Orchestrator not initialised')
 
@@ -742,13 +789,17 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
   const agent = storage.getAgent(assignedAgentId)
   if (!agent) throw new Error(`Agent ${assignedAgentId} not found`)
 
-  // Per-task worktree — independent execution agent, no shared workspace. A
-  // spec ticket cuts its own change-scoped branch `operon/task-<N>` off the
-  // spec's change branch: the design lives there, and so does every ticket
-  // merged before it.
+  // Per-task worktree — independent execution agent, no shared workspace — unless
+  // the task was sent to a shared workspace. A spec ticket always cuts its own
+  // change-scoped branch `operon/task-<N>` off the spec's change branch: the
+  // design lives there, and so does every ticket merged before it.
   const parentTask = task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
   const specParent = parentTask?.specStage != null ? parentTask : null
-  const workspace = specParent
+  const mode: TaskWorkspaceMode = specParent ? 'new' : (options.workspaceMode ?? task.workspaceMode)
+  const shared = mode === 'shared'
+  const workspace = shared
+    ? resolveSharedWorkspace(storage, task, options.workspaceId)
+    : specParent
     ? await provisionAgentWorkspace(assignedAgentId, task.projectId, {
         workspaceName: `${agent.name} · task #${task.number}`,
         branchName: changeBranchName(task.number),
@@ -759,6 +810,14 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
         suffix: `task-${task.number}`,
         workspaceName: `${agent.name} · task #${task.number}`,
       })
+
+  // A sub-task's own worktree belongs under the conversation of the parent task's
+  // agent, like the worktree of an external agent a chat dispatched: out of the
+  // top of the tree, with the sub-task's session nested under that conversation.
+  if (!shared && !specParent && parentTask?.bindingId != null && workspace.originChatId == null) {
+    const parentChatId = storage.getBinding(parentTask.bindingId)?.activeChatId
+    if (parentChatId != null) storage.setWorkspaceOriginChat(workspace.id, parentChatId)
+  }
 
   const binding = ensureTaskBinding(
     storage,
@@ -774,8 +833,10 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     {
       status: 'in_progress',
       assignedAgentId,
-      branchName: workspace.branchName,
+      // A shared workspace's branch is not this task's: Done has nothing of its own to merge.
+      branchName: shared ? null : workspace.branchName,
       workspaceId: workspace.id,
+      workspaceMode: mode,
       bindingId: binding.id,
     },
     { type: 'agent', id: assignedAgentId, name: agent.name },
@@ -784,8 +845,10 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     kind: 'dispatch',
     actorType: 'system',
     actorName: 'system',
-    body: `Dispatched to ${agent.name}`,
-    meta: { agentId: assignedAgentId, branch: workspace.branchName },
+    body: shared ? `Dispatched to ${agent.name} in shared workspace ${workspace.name}` : `Dispatched to ${agent.name}`,
+    meta: shared
+      ? { agentId: assignedAgentId, workspaceMode: 'shared', workspaceId: workspace.id, workspaceName: workspace.name }
+      : { agentId: assignedAgentId, branch: workspace.branchName },
   })
   broadcastTask(storage, taskId)
   // The first ticket under way puts the spec itself in progress.
@@ -823,14 +886,30 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
     (task.description ? `\n${task.description}\n` : '') +
     specTicketPrompt +
     readFirstPrompt +
-    `\nYou are working on branch \`${workspace.branchName}\` in a dedicated worktree — ` +
-    `this is your isolated workspace for this task. Implement it here.\n\n` +
+    (shared
+      ? `\nYou are working in the shared workspace "${workspace.name}" (\`${workspace.worktreePath}\`, ` +
+        `currently on \`${workspace.branchName}\`). It is not yours alone: the user and other agents may be ` +
+        `editing here too. Change only what this task needs, never reset, stash, check out or discard changes ` +
+        `you did not make, and do not commit unless the task asks you to.\n\n`
+      : `\nYou are working on branch \`${workspace.branchName}\` in a dedicated worktree — ` +
+        `this is your isolated workspace for this task. Implement it here.\n\n`) +
     `Report progress with comment_project_task(task: ${task.number}, body: "...") as you go — ` +
     `when you start, hit a milestone, finish, or get blocked. When your work is ready for ` +
     `human review, call update_project_task(task: ${task.number}, status: "in_review"). ` +
     `Use get_project_task(task: ${task.number}) anytime to re-read the spec and discussion.` +
+    (specParent
+      ? ''
+      : `\n\nIf the user asks for parts of this work to go to other agents, don't do those parts yourself: ` +
+        `propose them with propose_subtasks(task: ${task.number}, items: [...]) and end your turn — the user ` +
+        `confirms each sub-task's agent and workspace on the board.`) +
     (note ? `\n\n${note}` : '')
 
+  // Images on the description and on comments left before dispatch: the agent
+  // reads those comments as text (get_project_task) but can only see images sent as files.
+  const descriptionFiles = taskAttachmentFiles([
+    ...task.attachments,
+    ...storage.taskListActivity(taskId).filter((a) => a.kind === 'comment').flatMap(activityAttachments),
+  ].slice(0, 20))
   await deliverToBinding(
     storage,
     {
@@ -838,7 +917,8 @@ export async function dispatchProjectTask(taskId: number, assignedAgentId: numbe
       injectNotification: () => taskPrompt,
       wakePrompt: taskPrompt,
       ensureWorkspace: () => Promise.resolve(workspace.id),
-      startChat: (prompt, workspaceId) => startBindingChat(binding, prompt, workspaceId, false),
+      startChat: (prompt, workspaceId) => startBindingChat(binding, prompt, workspaceId, false, descriptionFiles),
+      files: descriptionFiles,
     },
     { logTag: 'TaskDispatch', debounceMs: DEBOUNCE_MS },
   )
@@ -1064,6 +1144,14 @@ export async function completeTaskAfterHumanReview(
   const task = storage.taskGet(taskId)
   if (!task) return { ok: false, reason: `Task ${taskId} not found` }
 
+  // A shared-mode task changed a workspace it does not own: nothing of its own to
+  // merge, and the workspace stays.
+  if (task.workspaceMode === 'shared' && task.specStage == null) {
+    storage.taskUpdate(taskId, { status: 'done' }, { type: actor.type, id: actor.id ?? undefined, name: actor.name })
+    broadcastTask(storage, taskId)
+    return { ok: true }
+  }
+
   // A ticket of an OperonSpec merges into the spec's change branch; a person's
   // Done is the way past its automatic review.
   const changeParent = task.parentTaskId != null ? storage.taskGet(task.parentTaskId) : null
@@ -1172,6 +1260,8 @@ export async function cleanupTaskWorktree(taskId: number): Promise<void> {
   if (!storage) return
   const task = storage.taskGet(taskId)
   if (!task || task.workspaceId == null) return
+  // Not the task's to remove: a shared workspace outlives every task run in it.
+  if (task.workspaceMode === 'shared') return
   const staleWsId = task.workspaceId
   const ws = storage.getWorkspace(staleWsId)
   const project = storage.getProject(task.projectId)
@@ -1335,7 +1425,7 @@ export async function detachTaskSession(taskId: number): Promise<void> {
   broadcastTask(storage, taskId)
 }
 
-export async function wakeTaskBinding(bindingId: number, notification: string): Promise<boolean> {
+export async function wakeTaskBinding(bindingId: number, notification: string, files: FileUIPart[] = []): Promise<boolean> {
   const storage = _storage
   if (!storage) return false
   const binding = storage.getBinding(bindingId)
@@ -1348,7 +1438,8 @@ export async function wakeTaskBinding(bindingId: number, notification: string): 
         injectNotification: () => notification,
         wakePrompt: notification,
         ensureWorkspace: () => Promise.resolve(binding.workspaceId ?? null),
-        startChat: (prompt, workspaceId) => startBindingChat(binding, prompt, workspaceId, false),
+        startChat: (prompt, workspaceId) => startBindingChat(binding, prompt, workspaceId, false, files),
+        files,
       },
       { logTag: 'TaskInbox', debounceMs: DEBOUNCE_MS },
     )

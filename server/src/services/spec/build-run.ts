@@ -51,6 +51,7 @@ import {
 import { specDesignChanged, type SpecStorage } from './spec-service.js'
 import { onAllTicketsMerged } from './review-run.js'
 import { ensureCoordinator, onCoordinatorTurnEnded, onStepFailed, wakeCoordinator } from './coordinator.js'
+import { isAutoNeedsInput } from '../task-needs-input.js'
 
 export type BuildStorage = SpecStorage &
   BuilderStorage &
@@ -550,7 +551,9 @@ export async function onTicketTurnEnded(storage: BuildStorage, taskId: number, e
   if (!found) return storage.specRunGet(taskId) ? onCoordinatorTurnEnded(storage, taskId, error) : undefined
   if (found.run.stage !== 'building' || found.entry.state !== 'building') return
   const { ticket, spec } = found
-  if (ticket.status !== 'in_progress') return
+  // An approval that was still open when the turn ended counts as at work: the
+  // implementer stopped without handing in. One it asked for itself waits on the human.
+  if (ticket.status !== 'in_progress' && !(ticket.status === 'needs_input' && isAutoNeedsInput(storage, taskId))) return
   const block = (reason: string) => blockTicket(storage, spec, taskId, reason, `Ticket #${ticket.number} stopped: ${reason}`)
   if (error) {
     await block(`Its session failed: ${error}`)

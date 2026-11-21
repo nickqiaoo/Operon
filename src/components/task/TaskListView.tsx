@@ -3,7 +3,7 @@ import { ListTodo, Archive } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { PriorityIcon, LabelChip, TaskRef, type TaskGroup } from './task-meta'
+import { PriorityIcon, LabelChip, PullRequestBadge, TaskRef, type TaskGroup } from './task-meta'
 import type { TaskListItem } from '@/types/task'
 import { SpecCardBadge, specCardBadgeShown } from '@/components/spec/spec-shared'
 import type { Agent, AgentSession } from '@/types/channel'
@@ -102,6 +102,7 @@ function TaskRow({
           badge floating mid-row whenever the row had no labels. A spec at a
           gate is waiting on the reader — on the phone this list is the only board. */}
       <div className="flex shrink-0 items-center justify-end gap-1.5 overflow-hidden md:w-60">
+        {task.pullRequest && <PullRequestBadge pr={task.pullRequest} />}
         <SpecCardBadge task={task} className="hidden md:inline-flex" />
         <span className="hidden md:contents">
           {task.labels.slice(0, 3).map((l) => (

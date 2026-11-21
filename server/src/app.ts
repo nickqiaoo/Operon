@@ -84,6 +84,8 @@ import { runMateSetupWizard } from './gateway/im/mate-setup-wizard.js'
 import { initMateOrchestrator, wakeMate, interruptMate, resetMate } from './services/channel/mate-orchestrator.js'
 import { initAiService, getSessionManager } from './services/ai.js'
 import { initOrchestrator } from './services/channel/agent-orchestrator.js'
+import { initTaskNeedsInput } from './services/task-needs-input.js'
+import { initSubtaskReports } from './services/task-subtasks.js'
 import { resetAgentSessionsOnStartup } from './services/channel/agent-recovery.js'
 import { initEmbeddingConfig } from './services/vector/embeddings.js'
 import { CheckpointStore, RewindService } from './services/rewind/index.js'
@@ -188,6 +190,8 @@ export async function createApp(deps: AppDeps) {
     console.warn(`[spec] startup sweep failed: ${error instanceof Error ? error.message : String(error)}`)
   }
   initOrchestrator(deps.storage)
+  initTaskNeedsInput(deps.storage)
+  initSubtaskReports(deps.storage)
   // A spec's build is a chain of events, not a process; a restart only cuts
   // short the reviews that were running. Pick them (and the frontier) up once
   // the providers are ready.

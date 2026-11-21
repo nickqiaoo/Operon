@@ -1246,6 +1246,7 @@ export const api = {
   taskGetByWorkspace: httpClient.taskGetByWorkspace,
   taskSetArchived: httpClient.taskSetArchived,
   taskComment: httpClient.taskComment,
+  taskResolveProposal: httpClient.taskResolveProposal,
   taskDispatch: httpClient.taskDispatch,
   taskResume: httpClient.taskResume,
 

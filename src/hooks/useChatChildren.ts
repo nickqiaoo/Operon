@@ -6,14 +6,30 @@ import { useEditorStore } from '@/stores/editor-store'
 import { useExternalAgentsStore } from '@/stores/external-agents-store'
 import { useProjectStore } from '@/stores/project-store'
 
-/** The external agents a chat started, live (see `buildChatChildren`). Both stores are pushed. */
+/**
+ * The agents a chat started, live (see `buildChatChildren`): external agents it
+ * dispatched, and — when it is a board task's session — the sub-tasks handed out
+ * from it. The stores are pushed; the sub-tasks come with the project tree.
+ */
 export function useChatChildren(chatId: number | undefined): ChatChild[] {
   const agents = useExternalAgentsStore((s) => s.agents)
   const pendingByChat = useChatPendingInputStore((s) => s.pendingByChat)
+  const projects = useProjectStore((s) => s.projects)
   return useMemo(
-    () => (chatId == null ? [] : buildChatChildren({ chatId, externalAgents: agents.values(), pendingByChat })),
-    [chatId, agents, pendingByChat],
+    () => (chatId == null ? [] : buildChatChildren({
+      chatId,
+      externalAgents: agents.values(),
+      pendingByChat,
+      taskChildren: projects.flatMap((p) => p.taskChildren ?? []),
+    })),
+    [chatId, agents, pendingByChat, projects],
   )
+}
+
+/** Sessions of board sub-tasks, by chat id: they show under their parent's session, not as rows of their own. */
+export function useTaskChildChatIds(): ReadonlySet<number> {
+  const projects = useProjectStore((s) => s.projects)
+  return useMemo(() => new Set(projects.flatMap((p) => (p.taskChildren ?? []).map((c) => c.chatId))), [projects])
 }
 
 /**

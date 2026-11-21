@@ -69,8 +69,12 @@ export function useActiveConversations({ includeInfo = false }: { includeInfo?: 
       // The assistant's agents have parentChatId 0: no lead row to fold them into.
       if (agent.parentChatId > 0 && !agent.assistantActivityId) parents.set(agent.childChatId, agent.parentChatId)
     }
+    // A board sub-task's session folds into its parent task's session the same way.
+    for (const project of projects) {
+      for (const child of project.taskChildren ?? []) parents.set(child.chatId, child.parentChatId)
+    }
     return parents
-  }, [externalAgents])
+  }, [externalAgents, projects])
 
   // A turn starting or ending moves its chat to the top of the recent list.
   const queryClient = useQueryClient()

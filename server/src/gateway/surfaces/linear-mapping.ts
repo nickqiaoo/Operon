@@ -22,6 +22,8 @@ export function pickLinearState(states: LinearWorkflowState[], status: TaskStatu
     case 'todo':
       return byType('unstarted')[0] ?? byType('backlog')[0] ?? null
     case 'in_progress':
+    // Linear has no "waiting on a person" state; the issue reads as started.
+    case 'needs_input':
       return byType('started').find((s) => !/review/i.test(s.name)) ?? byType('started')[0] ?? null
     case 'in_review':
       return byType('started').find((s) => /review/i.test(s.name)) ?? null

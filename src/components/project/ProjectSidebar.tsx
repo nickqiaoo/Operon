@@ -3,7 +3,7 @@ import { api } from "@/lib/api"
 import { CalendarClock, ChevronRight, Folder, FolderOpen, GitBranch, Hash, ListFilter, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
-import { Fragment, memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react"
+import { Fragment, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react"
 import { useIntl } from "react-intl"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -22,11 +22,12 @@ import { useNavigationStore } from "@/stores/navigation-store"
 import { trackEvent } from "@/lib/analytics"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
 import { AccountUsageRail } from "@/components/app-shell/AccountUsageRail"
+import { MachineActionsContext, MachineSwitcher } from "@/components/web/MachineSwitcher"
 import { LEFT_SIDEBAR_DEFAULT_WIDTH, LEFT_SIDEBAR_RAIL_WIDTH } from "@/components/app-shell/constants"
 import { AgentIcon, FocusConversations, RecentConversations, useActiveAttentionCounts, useChatAttention } from "@/components/active/ActiveConversations"
 import { chatIdOfTab, type ActiveGroup, type OpenChat } from "@/lib/active-conversations"
 import { childCounts, type ChatChild, type ChildState } from "@/lib/chat-children"
-import { openChildChat, useChatChildren } from "@/hooks/useChatChildren"
+import { openChildChat, useChatChildren, useTaskChildChatIds } from "@/hooks/useChatChildren"
 import { useExternalAgentsStore } from "@/stores/external-agents-store"
 import { useWorkspaceLatestChats, type ChatHistoryListItem } from "@/lib/chat-queries"
 import { formatRelativeTime } from "@/lib/format"
@@ -445,14 +446,19 @@ const ChatRow = memo(function ChatRow({ chat, workspaceId, onOpen }: {
   return <ChatWithAgents chatId={chat.id} workspaceId={workspaceId} current={current}>{row}</ChatWithAgents>
 })
 
-/** Whether a conversation has dispatched any external agent, as a boolean so rows re-render only when that flips. */
+/**
+ * Whether a conversation has dispatched any external agent, or (a board task's
+ * session) handed out sub-tasks — as a boolean so rows re-render only when that flips.
+ */
 function useHasChatChildren(chatId: number) {
-  return useExternalAgentsStore((s) => {
+  const hasAgents = useExternalAgentsStore((s) => {
     for (const agent of s.agents.values()) {
       if (agent.parentChatId === chatId && !agent.assistantActivityId) return true
     }
     return false
   })
+  const hasTasks = useProjectStore((s) => s.projects.some((p) => p.taskChildren?.some((c) => c.parentChatId === chatId)))
+  return hasAgents || hasTasks
 }
 
 /** The conversation on screen in the workbench, if any. */
@@ -589,7 +595,10 @@ function WorkspaceChats({ workspaceId, onOpenChat }: {
   onOpenChat: OpenTreeChat
 }) {
   const intl = useIntl()
-  const { chats, hasMore, expanded, isFetching, loadMore, showLess } = useWorkspaceLatestChats(workspaceId)
+  const { chats: latest, hasMore, expanded, isFetching, loadMore, showLess } = useWorkspaceLatestChats(workspaceId)
+  // A sub-task working in this (shared) workspace shows under its parent's session instead.
+  const nested = useTaskChildChatIds()
+  const chats = useMemo(() => latest.filter((chat) => !nested.has(chat.id)), [latest, nested])
   if (chats.length === 0) return null
   return (
     <div role="group" data-testid={`workspace-chats-${workspaceId}`}>
@@ -760,6 +769,7 @@ function ProjectsRailButton(props: Omit<SidebarNavItemProps, "icon" | "count" | 
 
 export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH, maxWidth }: ProjectSidebarProps) {
   const intl = useIntl()
+  const machine = useContext(MachineActionsContext)
   const projectsLabel = intl.formatMessage({ id: "sidebar.projects", defaultMessage: "Projects" })
   const focusLabel = intl.formatMessage({ id: "sidebar.focus", defaultMessage: "Focus" })
   const addRepositoryLabel = intl.formatMessage({ id: "sidebar.addRepository", defaultMessage: "Add repository" })
@@ -793,23 +803,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const [newWorkspaceProjectId, setNewWorkspaceProjectId] = useState<number | null>(null)
   const projectsTriggerRef = useRef<HTMLButtonElement>(null)
   const projectTreeRef = useRef<HTMLDivElement>(null)
-  // Web: the machine badge (WebAuthGate) is fixed to the viewport but drawn as
-  // part of this column, so it needs this column's real width to stay inside
-  // it. Published as a CSS variable; the observer also follows the animation.
-  const rootRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = rootRef.current
-    if (__APP_TARGET__ !== "web" || !el) return
-    const root = document.documentElement
-    const observer = new ResizeObserver(([entry]) => {
-      root.style.setProperty("--sidebar-inline-size", `${entry.contentRect.width}px`)
-    })
-    observer.observe(el)
-    return () => {
-      observer.disconnect()
-      root.style.removeProperty("--sidebar-inline-size")
-    }
-  }, [])
   const projectTreeId = useId()
   const { flyout, close: closeFlyout, pin: pinFlyout, holdOpen: holdFlyoutOpen, triggerHover, panelHover } = useRailFlyout()
   const flyoutOpen = collapsed && flyout !== null
@@ -965,19 +958,17 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
   const onWorkspaceView = isWorkspaceView(mainView)
   const projectsSelected = onWorkspaceView || floating
   const treeShown = !collapsed || floating
-  // Web reserves room for the machine badge (WebAuthGate): a 28px pill fixed
-  // 12px above the viewport's bottom edge, drawn across this whole column.
-  const bottomInset = __APP_TARGET__ === "web" ? "pb-11" : "pb-3"
+  const bottomInset = "pb-[max(0.75rem,var(--ios-shell-safe-bottom,0px))]"
 
   // Two columns: the icon rail, identical in both modes, and the panel beside
   // it (the project tree or the Active list), which is what collapses. The
   // panel's content keeps its full width and is clipped while it animates:
   // reflowing the tree every frame would cost a layout.
   return (
-    <div ref={rootRef} className="relative flex h-full w-full min-h-0 sidebar-surface-fade text-sidebar-foreground">
+    <div className="relative flex h-full w-full min-h-0 sidebar-surface-fade text-sidebar-foreground">
       <WorkspaceDiffStatsSync />
 
-      <div data-testid="sidebar-rail" className="flex min-h-0 shrink-0 flex-col" style={{ width: LEFT_SIDEBAR_RAIL_WIDTH }}>
+      <div data-testid="sidebar-rail" className={cn("flex min-h-0 shrink-0 flex-col", bottomInset)} style={{ width: LEFT_SIDEBAR_RAIL_WIDTH }}>
         {/* Titlebar cell: the traffic lights and the sidebar toggle sit across it. */}
         <div className="drag-region h-10 shrink-0" />
 
@@ -1017,7 +1008,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
 
         <div className="min-h-0 flex-1" />
 
-        <nav aria-label="Tools and settings" className={cn("relative shrink-0 space-y-1 px-1.5 pt-2", bottomInset)}>
+        <nav aria-label="Tools and settings" className="relative shrink-0 space-y-1 px-1.5 pt-2">
           {/* A pending update shows above this group, out of the layout. */}
           <div className="absolute bottom-full left-1.5 mb-1 w-10">
             <UpdateReadyPill variant="rail" />
@@ -1033,6 +1024,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
           <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })} collapsed={collapsed}
             data-testid="settings-button" onClick={() => openPage({ kind: "settings" })} />
         </nav>
+        {machine && <MachineSwitcher machine={machine} />}
       </div>
 
       {/* The panel. Positioned and clipping only while it is (or is becoming)

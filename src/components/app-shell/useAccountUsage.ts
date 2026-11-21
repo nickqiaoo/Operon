@@ -25,6 +25,13 @@ export interface ProviderUsage {
   shortPercent?: number;
   /** The long window (weekly on both). */
   longPercent?: number;
+  /** When each window resets, epoch ms. */
+  shortResetsAt?: number;
+  longResetsAt?: number;
+  /** Plan name as the provider reports it ('max', 'plus', …). */
+  plan?: string;
+  /** Codex credits on top of the plan, when the account has any. */
+  credits?: { unlimited: boolean; balance?: string };
 }
 
 /**
@@ -37,11 +44,26 @@ const toPercent = (value: number | undefined): number | undefined => {
   return Math.max(0, Math.min(100, value));
 };
 
+/** Providers report epoch seconds or milliseconds; anything past 2001 in ms is ms. */
+const toEpochMs = (value: number | null | undefined): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
+  return value > 1_000_000_000_000 ? value : value * 1000;
+};
+
 const claudeUsage = (limits: ClaudeRateLimits | null): ProviderUsage | null => {
-  const shortPercent = toPercent(limits?.windows?.five_hour?.utilization);
-  const longPercent = toPercent(limits?.windows?.seven_day?.utilization);
+  const short = limits?.windows?.five_hour;
+  const long = limits?.windows?.seven_day;
+  const shortPercent = toPercent(short?.utilization);
+  const longPercent = toPercent(long?.utilization);
   if (shortPercent === undefined && longPercent === undefined) return null;
-  return { providerId: 'claude-code', shortPercent, longPercent };
+  return {
+    providerId: 'claude-code',
+    shortPercent,
+    longPercent,
+    shortResetsAt: toEpochMs(short?.resetsAt),
+    longResetsAt: toEpochMs(long?.resetsAt),
+    plan: limits?.subscriptionType || undefined,
+  };
 };
 
 /** A day, in minutes — the line between "short window" and "weekly". */
@@ -71,7 +93,19 @@ const codexUsage = (limits: CodexRateLimits | null): ProviderUsage | null => {
   const shortPercent = toPercent(short?.usedPercent);
   const longPercent = toPercent(long?.usedPercent);
   if (shortPercent === undefined && longPercent === undefined) return null;
-  return { providerId: 'codex', shortPercent, longPercent };
+  const credits = plan.credits;
+  return {
+    providerId: 'codex',
+    shortPercent,
+    longPercent,
+    shortResetsAt: toEpochMs(short?.resetsAt),
+    longResetsAt: toEpochMs(long?.resetsAt),
+    plan: plan.planType ?? undefined,
+    credits:
+      credits && (credits.unlimited || credits.hasCredits)
+        ? { unlimited: credits.unlimited, balance: credits.balance ?? undefined }
+        : undefined,
+  };
 };
 
 export function useAccountUsage(): {

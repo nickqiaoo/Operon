@@ -1,5 +1,5 @@
 import type { NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
-import type { Task, TaskActivity, UpdateTaskInput } from '../types/task.js'
+import type { Task, TaskActivity, TaskAttachment, UpdateTaskInput } from '../types/task.js'
 import { isValidTaskTransition } from '../types/task.js'
 import {
   completeTaskAfterHumanReview,
@@ -10,6 +10,7 @@ import {
 import { broadcastTask } from './task-events.js'
 import { notifyTaskStatusChange } from './notification-service.js'
 import { mirrorHumanComment } from '../gateway/surfaces/surface-sync.js'
+import { taskAttachmentFiles } from './task-attachments.js'
 
 /**
  * What the user does to a board task — from the task UI (routes/task.ts), or through the personal
@@ -64,18 +65,28 @@ export async function updateTaskAsHuman(
   return { ok: true }
 }
 
-/** `actorName`: who wrote it, as given; unset reads as "You" on the task and "the human" to its agent. */
+/**
+ * `actorName`: who wrote it, as given; unset reads as "You" on the task and "the human" to its agent.
+ * `attachments`: images pasted into the comment (already sanitized); the agent receives them as files.
+ */
 export function commentOnTaskAsHuman(
   storage: HumanTaskStorage,
   task: Task,
   body: string,
   actorName?: string,
+  attachments: TaskAttachment[] = [],
 ): { activity: TaskActivity; woke: boolean } {
   const name = actorName || 'You'
-  const activity = storage.taskAppendActivity(task.id, { kind: 'comment', actorType: 'human', actorName: name, body })
+  const activity = storage.taskAppendActivity(task.id, {
+    kind: 'comment',
+    actorType: 'human',
+    actorName: name,
+    body,
+    meta: attachments.length > 0 ? { attachments } : null,
+  })
   broadcastTask(storage, task.id)
   // The same note shows up on the Linear issue, if the task has one.
-  mirrorHumanComment(task.id, name, body)
+  if (body.trim()) mirrorHumanComment(task.id, name, body)
 
   // Wake the task's agent so a human comment steers the running turn (or
   // resurrects an idle session) — the local analog of Linear's "post a
@@ -85,12 +96,16 @@ export function commentOnTaskAsHuman(
   let woke = false
   if (task.bindingId != null) {
     const commenter = actorName || 'the human'
+    const images =
+      attachments.length > 0
+        ? `${body.trim() ? '\n' : ''}(${attachments.length} image${attachments.length > 1 ? 's' : ''} attached to this comment — included with this message.)`
+        : ''
     const notification =
-      `[New comment on task #${task.number} from ${commenter}]: ${body.trim()}\n` +
+      `[New comment on task #${task.number} from ${commenter}]: ${body.trim()}${images}\n` +
       `Re-read the full task with get_project_task(task: ${task.number}) if you need context, ` +
       `then continue the work or reply with comment_project_task(task: ${task.number}, body: "...").`
     woke = true
-    void wakeTaskBinding(task.bindingId, notification).catch((err) => {
+    void wakeTaskBinding(task.bindingId, notification, taskAttachmentFiles(attachments)).catch((err) => {
       console.warn(`[Task] wake-on-comment failed for task=${task.id}:`, err)
     })
   }

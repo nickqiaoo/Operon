@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, type ReactNode, type SyntheticEvent } from 'react'
 import {
   Circle,
   CircleDot,
@@ -10,12 +10,15 @@ import {
   SignalHigh,
   AlertTriangle,
   CircleDashed,
+  CircleAlert,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { openExternalUrl } from '@/lib/open-external'
+import { GithubIcon } from '@/components/icons/GithubIcon'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import { useProjectStore } from '@/stores/project-store'
 import type { Agent, AgentSession } from '@/types/channel'
-import type { TaskStatus, TaskPriority, TaskLabel } from '@/types/task'
+import type { TaskStatus, TaskPriority, TaskLabel, TaskPullRequest } from '@/types/task'
 
 /** A grouping column/section for List & Board (by status, team, …). */
 export interface TaskGroup {
@@ -28,7 +31,10 @@ export interface TaskGroup {
 
 const STATUS_ICON: Record<TaskStatus, { Icon: typeof Circle; className: string }> = {
   todo: { Icon: Circle, className: 'text-muted-foreground/60' },
-  in_progress: { Icon: CircleDot, className: 'text-status-warn' },
+  // Amber is "waiting on you" everywhere (rail badge, Focus); working is blue,
+  // the same as the running indicator on the card.
+  in_progress: { Icon: CircleDot, className: 'text-status-info' },
+  needs_input: { Icon: CircleAlert, className: 'text-status-warn' },
   in_review: { Icon: CircleDot, className: 'text-violet-500' },
   done: { Icon: CheckCircle2, className: 'text-status-ok' },
   cancelled: { Icon: XCircle, className: 'text-muted-foreground/40' },
@@ -150,3 +156,50 @@ export function AssigneeAvatar({
   )
 }
 
+
+/* ── Pull request ── */
+
+const PR_STATE_CLASS: Record<TaskPullRequest['state'], string> = {
+  open: 'text-status-ok',
+  merged: 'text-status-info',
+  closed: 'text-muted-foreground/60',
+}
+
+const PR_STATE_LABEL: Record<TaskPullRequest['state'], string> = { open: 'Open', merged: 'Merged', closed: 'Closed' }
+
+/**
+ * The task's pull request on a card or list row: opens it on GitHub. Not a
+ * <button> — list rows already are one — and it keeps its clicks (and the press
+ * that would start a card drag) to itself.
+ */
+export function PullRequestBadge({ pr, className }: { pr: TaskPullRequest; className?: string }) {
+  const url = pr.url
+  const label = `PR #${pr.number} · ${PR_STATE_LABEL[pr.state]}`
+  const open = (e: SyntheticEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (url) openExternalUrl(url)
+  }
+  return (
+    <span
+      role={url ? 'link' : undefined}
+      tabIndex={url ? 0 : undefined}
+      title={label}
+      aria-label={label}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') open(e)
+      }}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded px-1 text-[11px] tabular-nums',
+        url && 'cursor-pointer hover:bg-accent-hover',
+        PR_STATE_CLASS[pr.state],
+        className,
+      )}
+    >
+      <GithubIcon className="h-3 w-3" />
+      <span aria-hidden>#{pr.number}</span>
+    </span>
+  )
+}

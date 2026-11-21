@@ -48,8 +48,15 @@ export async function uploadBlobUrl(
   try {
     const blob = await (await fetch(blobUrl)).blob()
     const filename = meta?.filename || 'attachment'
-    const file = new File([blob], filename, { type: meta?.mediaType || blob.type })
+    return await uploadFile(new File([blob], filename, { type: meta?.mediaType || blob.type }))
+  } catch {
+    return null
+  }
+}
 
+/** Uploads a file (a pasted or dropped image, say) to the attachment store. Null on any failure. */
+export async function uploadFile(file: File): Promise<UploadedAttachment | null> {
+  try {
     const body = new FormData()
     body.append('file', file)
 

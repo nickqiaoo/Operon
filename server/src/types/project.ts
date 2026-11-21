@@ -48,6 +48,26 @@ export interface WorkspaceTask {
   finishedTickets?: Array<{ id: number; number: number; title: string; status: string; chat: WorkspaceChat }>
 }
 
+/**
+ * A board sub-task's session, nested in the sidebar under the session of its
+ * parent task's agent (as an external agent is under the chat that dispatched
+ * it). Spec tickets are not listed: a spec shows its own.
+ */
+export interface TaskChildSession {
+  taskId: number
+  number: number
+  title: string
+  status: string
+  /** The parent task agent's conversation. */
+  parentChatId: number
+  chatId: number
+  /** Where the sub-task runs: its own worktree, or the shared workspace. */
+  workspaceId: number | null
+  providerId: string | null
+  modelId: string | null
+  updatedAt: number
+}
+
 /** A conversation the sidebar opens, in its own workspace (or the spec's, once that is gone). */
 export interface WorkspaceChat {
   providerId?: string | null

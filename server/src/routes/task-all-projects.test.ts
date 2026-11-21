@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
-import type { NotificationStorageAdapter, TaskStorageAdapter } from "../storage/interface.js"
 import type { TaskEvent } from "../services/channel-bus.js"
 import { emitTaskEvent, onTaskEvent } from "../services/channel-bus.js"
 import { taskRoutes } from "./task.js"
 
-type Storage = TaskStorageAdapter & NotificationStorageAdapter
+type Storage = Parameters<typeof taskRoutes>[0]
 
 // The board over every project asks for its tasks and labels without a projectId.
 describe("task list reads without ?projectId=", () => {

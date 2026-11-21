@@ -71,6 +71,7 @@ export const prepareChatRecord = (
 
   const createdId = chatHistoryService.createChat({
     tp: payload.tp ?? 'chat',
+    ...(payload.title ? { title: payload.title } : {}),
     workspaceId: payload.workspaceId,
     model: payload.modelId,
     providerId: payload.providerId,

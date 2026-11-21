@@ -4,7 +4,7 @@ import { withTaskExecution } from '../services/task-execution.js'
 import { subscribeWorkflowEvents } from '../services/workflow/hub.js'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
+import type { ChannelStorageAdapter, NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
 import {
   dispatchProjectTask,
   wakeTaskBinding,
@@ -15,16 +15,41 @@ import {
 import { broadcastTask } from '../services/task-events.js'
 import { onTaskEvent } from '../services/channel-bus.js'
 import { commentOnTaskAsHuman, updateTaskAsHuman } from '../services/task-human-actions.js'
+import { sanitizeTaskAttachments } from '../services/task-attachments.js'
+import {
+  SubtaskProposalError,
+  confirmSubtaskProposal,
+  dismissSubtaskProposal,
+  type ConfirmedItemInput,
+} from '../services/task-subtasks.js'
 import {
   type CreateTaskInput,
   type CreateTaskLabelInput,
   type ListTasksQuery,
   type TaskPriority,
   type TaskStatus,
+  type TaskWorkspaceMode,
   type UpdateTaskInput,
 } from '../types/task.js'
 
-const STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done', 'cancelled']
+function parseConfirmedItems(raw: unknown): ConfirmedItemInput[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item): ConfirmedItemInput[] => {
+    if (!item || typeof item !== 'object') return []
+    const { title, description, assignedAgentId, workspaceMode } = item as Record<string, unknown>
+    const mode = parseWorkspaceMode(workspaceMode)
+    if (typeof title !== 'string' || typeof assignedAgentId !== 'number' || !mode) {
+      throw new SubtaskProposalError('Every sub-task needs a title, an agent and a workspace.')
+    }
+    return [{ title, description: typeof description === 'string' ? description : '', assignedAgentId, workspaceMode: mode }]
+  })
+}
+
+function parseWorkspaceMode(raw: unknown): TaskWorkspaceMode | undefined {
+  return raw === 'new' || raw === 'shared' ? raw : undefined
+}
+
+const STATUSES: TaskStatus[] = ['todo', 'in_progress', 'needs_input', 'in_review', 'done', 'cancelled']
 
 /** `?projectId=` → that project; absent (or not a positive id) → every project, for the global board. */
 function projectScope(raw: string | undefined): number | undefined {
@@ -38,7 +63,7 @@ function projectScope(raw: string | undefined): number | undefined {
  * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
  * list reads (tasks, labels, stream) take no projectId for every project.
  */
-export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdapter) {
+export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdapter & ChannelStorageAdapter) {
   const router = new Hono()
 
   // ---- Labels (registered before /:id so 'labels' is never parsed as an id) ----
@@ -118,7 +143,11 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     if (!input.projectId || !input.title?.trim()) {
       return c.json({ error: 'projectId and title required' }, 400)
     }
-    const task = storage.taskCreate(input)
+    const task = storage.taskCreate({
+      ...input,
+      attachments: sanitizeTaskAttachments(input.attachments),
+      workspaceMode: parseWorkspaceMode(input.workspaceMode),
+    })
     broadcastTask(storage, task.id)
     return c.json({ task: storage.taskDetail(task.id) })
   })
@@ -147,6 +176,16 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     if (!existing) return c.json({ error: 'Not found' }, 404)
     const body = (await c.req.json<UpdateTaskInput & { actorName?: string }>()) ?? {}
     const { actorName, ...updates } = body
+    if (updates.attachments !== undefined) updates.attachments = sanitizeTaskAttachments(updates.attachments)
+    if (updates.workspaceMode !== undefined) {
+      const mode = parseWorkspaceMode(updates.workspaceMode)
+      if (!mode) return c.json({ error: 'workspaceMode must be "new" or "shared"' }, 400)
+      // Where a task runs is chosen before it runs; moving a live session is not this.
+      if (mode !== existing.workspaceMode && existing.bindingId != null) {
+        return c.json({ error: 'The task has already been dispatched; its workspace cannot change' }, 409)
+      }
+      updates.workspaceMode = mode
+    }
     const res = await updateTaskAsHuman(storage, existing, updates, actorName?.trim() || 'You')
     if (!res.ok) return c.json(res.body as Record<string, unknown>, res.status)
     return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)) })
@@ -174,15 +213,16 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     const id = parseInt(c.req.param('id'), 10)
     const task = storage.taskGet(id)
     if (!task) return c.json({ error: 'Not found' }, 404)
-    const body = await c.req
-      .json<{ assignedAgentId?: number }>()
-      .catch(() => ({}) as { assignedAgentId?: number })
+    type DispatchBody = { assignedAgentId?: number; workspaceMode?: unknown; workspaceId?: unknown }
+    const body = await c.req.json<DispatchBody>().catch(() => ({}) as DispatchBody)
     const agentId = body.assignedAgentId ?? task.assignedAgentId
     if (!agentId) {
       return c.json({ error: 'assignedAgentId required — task is unassigned' }, 400)
     }
+    const workspaceMode = parseWorkspaceMode(body.workspaceMode)
+    const workspaceId = typeof body.workspaceId === 'number' ? body.workspaceId : undefined
     try {
-      await dispatchProjectTask(id, agentId)
+      await dispatchProjectTask(id, agentId, undefined, { workspaceMode, workspaceId })
     } catch (e) {
       if (e instanceof TaskBlockedError || e instanceof SpecDesignChangedError) return c.json({ error: e.message }, 409)
       return c.json({ error: e instanceof Error ? e.message : 'dispatch failed' }, 500)
@@ -207,9 +247,36 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     const id = parseInt(c.req.param('id'), 10)
     const task = storage.taskGet(id)
     if (!task) return c.json({ error: 'Not found' }, 404)
-    const body = await c.req.json<{ body: string; actorName?: string }>()
-    if (!body.body?.trim()) return c.json({ error: 'body required' }, 400)
-    return c.json(commentOnTaskAsHuman(storage, task, body.body, body.actorName?.trim() || undefined))
+    const body = await c.req.json<{ body?: string; actorName?: string; attachments?: unknown }>()
+    const text = typeof body.body === 'string' ? body.body : ''
+    const attachments = sanitizeTaskAttachments(body.attachments)
+    if (!text.trim() && attachments.length === 0) return c.json({ error: 'body or attachments required' }, 400)
+    return c.json(commentOnTaskAsHuman(storage, task, text, body.actorName?.trim() || undefined, attachments))
+  })
+
+  // A sub-task proposal from the task's agent, completed and confirmed (or
+  // dismissed) by the person: each item needs an agent and a workspace.
+  router.post('/:id/proposals/:activityId', async (c) => {
+    const id = parseInt(c.req.param('id'), 10)
+    const activityId = parseInt(c.req.param('activityId'), 10)
+    const task = storage.taskGet(id)
+    if (!task) return c.json({ error: 'Not found' }, 404)
+    type ProposalBody = { action?: unknown; items?: unknown; actorName?: unknown }
+    const body = await c.req.json<ProposalBody>().catch(() => ({}) as ProposalBody)
+    const actorName = typeof body.actorName === 'string' && body.actorName.trim() ? body.actorName.trim() : 'You'
+    try {
+      if (body.action === 'dismiss') {
+        dismissSubtaskProposal(storage, task, activityId, actorName)
+      } else if (body.action === 'confirm') {
+        await confirmSubtaskProposal(storage, task, activityId, parseConfirmedItems(body.items), actorName)
+      } else {
+        return c.json({ error: 'action must be "confirm" or "dismiss"' }, 400)
+      }
+    } catch (e) {
+      if (e instanceof SubtaskProposalError) return c.json({ error: e.message }, e.status)
+      return c.json({ error: e instanceof Error ? e.message : 'proposal failed' }, 500)
+    }
+    return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)) })
   })
 
   // A comment that arrived from Linear / GitHub by someone other than the

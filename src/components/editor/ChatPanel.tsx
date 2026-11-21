@@ -802,6 +802,7 @@ function ChatPanelContent({
     // parent's long dispatch prompt ("Work in /path… You are the PLANNER…"),
     // which made every child tab read the same.
     firstUserTitle: tab?.isSubAgent ? null : firstUserTitle,
+    tabTitle: tab?.title,
     updateTabTitle,
   });
 

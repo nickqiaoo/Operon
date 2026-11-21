@@ -1,3 +1,5 @@
+import { activityAttachments } from '../task-attachments.js'
+import { proposeSubtasks, SubtaskProposalError, type ProposedItemInput } from '../task-subtasks.js'
 import type {
   AgentBindingStorageAdapter,
   ChannelStorageAdapter,
@@ -20,6 +22,7 @@ import {
   type TaskActivity,
   type TaskPriority,
   type TaskStatus,
+  type TaskWorkspaceMode,
 } from '../../types/task.js'
 import { getChatStorage } from '../ai/state.js'
 import { getProviders } from '../ai/providers.js'
@@ -29,6 +32,7 @@ import { dismissSwitchProposal, proposeSwitch, switchSpecSeat } from '../spec/sw
 import { isSpecRole, type SpecSwitch } from '../../types/spec.js'
 import { SPEC_FILES, specDir } from '../spec/files.js'
 import {
+
   addCoordinatorTicket,
   escalate,
   integrationDone,
@@ -37,6 +41,11 @@ import {
   specStatus,
   wakeCoordinator,
 } from '../spec/coordinator.js'
+
+/** Images reach the agent as files on the message that carried them, never through this text. */
+function imageNote(count: number): string {
+  return `(${count} image${count > 1 ? 's' : ''} attached — sent to you as files with the dispatch or comment message)`
+}
 
 /**
  * A tool result that carries a machine-readable payload beside the prose. The
@@ -136,6 +145,7 @@ export class TaskBoardService {
     ]
     if (detail.branchName) lines.push(`branch=${detail.branchName}`)
     lines.push('', '## Description', detail.description || '(none)')
+    if (detail.attachments.length > 0) lines.push(imageNote(detail.attachments.length))
     // A spec: where it stands and where its files are. The files themselves are
     // on the change branch; a ticket's worktree was cut from it.
     const run = this.storage.specRunGet(detail.id)
@@ -157,8 +167,9 @@ export class TaskBoardService {
       lines.push('(none)')
     } else {
       for (const activity of detail.activity) {
+        const images = activity.kind === 'comment' ? activityAttachments(activity).length : 0
         lines.push(activity.kind === 'comment'
-          ? `- ${activity.actorName}: ${activity.body}`
+          ? `- ${activity.actorName}: ${activity.body}${images > 0 ? ` ${imageNote(images)}` : ''}`
           : `- ${activity.actorName} ${describeActivity(activity)}`)
       }
     }
@@ -195,7 +206,7 @@ export class TaskBoardService {
     }
   }
 
-  dispatchTask(number: number, assignee: string, actorAgentId: number): string | ToolResult {
+  dispatchTask(number: number, assignee: string, actorAgentId: number, workspaceMode?: TaskWorkspaceMode): string | ToolResult {
     const task = this.requireTask(number)
     const assigneeName = assignee.trim().replace(/^@/, '')
     if (!assigneeName) return toolError('Assignee is required.')
@@ -208,11 +219,15 @@ export class TaskBoardService {
       )
     }
     const advance = task.status === 'todo'
+    if (workspaceMode && workspaceMode !== task.workspaceMode && task.bindingId != null) {
+      return toolError(`Task #${number} is already running in its workspace; it cannot move to a ${workspaceMode} one.`)
+    }
     this.storage.taskUpdate(
       task.id,
       {
         assignedAgentId: assigneeAgentId,
         ...(advance ? { status: 'in_progress' as TaskStatus } : {}),
+        ...(workspaceMode && task.specStage == null ? { workspaceMode } : {}),
       },
       { type: 'agent', id: actorAgentId, name: this.agentName(actorAgentId) ?? 'agent' },
     )
@@ -469,6 +484,25 @@ export class TaskBoardService {
       ...(index != null ? { index } : {}),
       ...(ticketKey ? { ticketKey } : {}),
       to: { providerId: input.provider.trim(), ...(input.model?.trim() ? { modelId: input.model.trim() } : {}) },
+    }
+  }
+
+  proposeSubtasks(number: number, items: ProposedItemInput[], agentId: number): string | ToolResult {
+    const task = this.requireTask(number)
+    const agentName = this.agentName(agentId) ?? 'agent'
+    try {
+      const { unknownAssignees } = proposeSubtasks(this.storage, task, agentId, agentName, items)
+      const unknown = unknownAssignees.length > 0
+        ? ` No agent is named ${unknownAssignees.map((n) => `@${n}`).join(', ')}; the user will pick one.`
+        : ''
+      return (
+        `Proposed ${items.length} sub-task${items.length > 1 ? 's' : ''} on #${number}.${unknown} ` +
+        'The user picks the agent and workspace for each and confirms on the board. End your turn now; ' +
+        'you will get a message when they are dispatched.'
+      )
+    } catch (err) {
+      if (err instanceof SubtaskProposalError) return toolError(err.message)
+      throw err
     }
   }
 

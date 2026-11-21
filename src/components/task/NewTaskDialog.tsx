@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useIntl, FormattedMessage } from 'react-intl'
-import { Folder } from 'lucide-react'
+import { Folder, Zap } from 'lucide-react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,9 +13,12 @@ import {
 import { useTaskStore } from '@/stores/task-store'
 import { useProjectStore } from '@/stores/project-store'
 import { PriorityIcon } from './task-meta'
+import { PendingImageStrip, useImageUploads } from './task-attachments'
+import { TaskWorkspaceSelect } from './TaskWorkspaceSelect'
+import { toastTaskError } from './task-error-toast'
 import { priorityMessage } from './task-i18n'
 import { TASK_PRIORITIES } from '@/types/task'
-import type { TaskPriority } from '@/types/task'
+import type { TaskPriority, TaskWorkspaceMode } from '@/types/task'
 import type { Agent } from '@/types/channel'
 
 interface NewTaskDialogProps {
@@ -29,6 +32,7 @@ interface NewTaskDialogProps {
 export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: NewTaskDialogProps) {
   const intl = useIntl()
   const create = useTaskStore((s) => s.create)
+  const dispatch = useTaskStore((s) => s.dispatch)
   const projects = useProjectStore((s) => s.projects)
   // A task is dispatched into a worktree of its project's repo, so it needs one.
   const [projectId, setProjectId] = useState<string>(defaultProjectId != null ? String(defaultProjectId) : '')
@@ -37,11 +41,17 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<TaskPriority>(0)
   const [assignee, setAssignee] = useState<string>('unassigned')
+  const [workspaceMode, setWorkspaceMode] = useState<TaskWorkspaceMode>('new')
   const [saving, setSaving] = useState(false)
+  const images = useImageUploads()
 
-  const submit = async () => {
+  const assignedAgentId = assignee === 'unassigned' ? null : Number(assignee)
+
+  /** `andDispatch`: start the assignee right away, in the workspace picked here. */
+  const submit = async (andDispatch = false) => {
     const t = title.trim()
-    if (!t || !projectId || savingRef.current) return
+    if (!t || !projectId || savingRef.current || images.uploading) return
+    if (andDispatch && assignedAgentId == null) return
     savingRef.current = true
     setSaving(true)
     try {
@@ -49,9 +59,15 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
         projectId: Number(projectId),
         title: t,
         description: description.trim() || undefined,
+        attachments: images.attachments.length > 0 ? images.attachments : undefined,
         priority,
-        assignedAgentId: assignee === 'unassigned' ? null : Number(assignee),
+        assignedAgentId,
+        workspaceMode,
       })
+      if (andDispatch && assignedAgentId != null) {
+        // The task exists either way; a failed start leaves it todo with its Dispatch button.
+        await dispatch(task.id, assignedAgentId).catch((error) => toastTaskError(error, 'Dispatch failed'))
+      }
       onCreated(task.id)
     } finally {
       savingRef.current = false
@@ -73,18 +89,22 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit()
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit(false)
             }}
             placeholder={intl.formatMessage({ id: 'task.new.titlePlaceholder', defaultMessage: 'Task title' })}
             className="w-full text-base font-medium bg-transparent outline-none placeholder:text-muted-foreground/40"
           />
 
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={intl.formatMessage({ id: 'task.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported)' })}
-            className="w-full min-h-[100px] text-sm bg-muted/20 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y placeholder:text-muted-foreground/40"
-          />
+          <div className="space-y-2">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              {...images.inputProps}
+              placeholder={intl.formatMessage({ id: 'task.new.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported, paste or drop images)' })}
+              className="w-full min-h-[100px] text-sm bg-muted/20 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y placeholder:text-muted-foreground/40"
+            />
+            <PendingImageStrip uploads={images} />
+          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Select value={projectId} onValueChange={setProjectId}>
@@ -131,6 +151,8 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
                 ))}
               </SelectContent>
             </Select>
+
+            <TaskWorkspaceSelect value={workspaceMode} onChange={setWorkspaceMode} />
           </div>
         </div>
 
@@ -140,15 +162,27 @@ export function NewTaskDialog({ agents, defaultProjectId, onClose, onCreated }: 
           </Button>
           <Button
             size="sm"
-            variant="secondary"
+            variant={assignedAgentId != null ? 'ghost' : 'secondary'}
             className="h-8"
-            disabled={!title.trim() || !projectId || saving}
-            onClick={() => void submit()}
+            disabled={!title.trim() || !projectId || saving || images.uploading}
+            onClick={() => void submit(false)}
           >
             {saving
               ? intl.formatMessage({ id: 'task.new.creating', defaultMessage: 'Creating…' })
               : intl.formatMessage({ id: 'task.new.create', defaultMessage: 'Create Task' })}
           </Button>
+          {assignedAgentId != null && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 gap-1.5"
+              disabled={!title.trim() || !projectId || saving || images.uploading}
+              onClick={() => void submit(true)}
+            >
+              <Zap className="h-3.5 w-3.5" />
+              {intl.formatMessage({ id: 'task.new.createAndDispatch', defaultMessage: 'Create & Dispatch' })}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

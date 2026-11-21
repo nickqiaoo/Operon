@@ -11,7 +11,8 @@ import type { TaskStatus, TaskPriority } from "@/types/task"
 export const STATUS_MESSAGES = defineMessages({
   todo: { id: "task.status.todo", defaultMessage: "Todo" },
   in_progress: { id: "task.status.in_progress", defaultMessage: "In Progress" },
-  in_review: { id: "task.status.in_review", defaultMessage: "In Review" },
+  needs_input: { id: "task.status.needs_input", defaultMessage: "Needs Input" },
+  in_review: { id: "task.status.in_review", defaultMessage: "Needs Review" },
   done: { id: "task.status.done", defaultMessage: "Done" },
   cancelled: { id: "task.status.cancelled", defaultMessage: "Cancelled" },
 }) satisfies Record<TaskStatus, MessageDescriptor>
@@ -55,6 +56,9 @@ export const ACTIVITY_EVENT_MESSAGES = defineMessages({
   "subtask.merged": { id: "task.activity.event.subtaskMerged", defaultMessage: "merged subtask #{number} into {branch}" },
   "parent.merged": { id: "task.activity.event.parentMerged", defaultMessage: "merged into parent {branch}" },
   "artifact.approved": { id: "task.activity.event.artifactApproved", defaultMessage: "approved the {kind}" },
+  "subtask.status": { id: "task.activity.event.subtaskStatus", defaultMessage: "sub-task #{subtaskNumber} moved to {to}" },
+  "subtasks.confirmed": { id: "task.activity.event.subtasksConfirmed", defaultMessage: "confirmed {count, plural, one {# sub-task} other {# sub-tasks}}" },
+  "subtasks.dismissed": { id: "task.activity.event.subtasksDismissed", defaultMessage: "dismissed the sub-task proposal" },
 })
 
 export function activityEventMessage(event: unknown): MessageDescriptor | null {

@@ -7,6 +7,7 @@ import { trackEvent } from '@/lib/analytics'
 import type {
   CreateTaskInput,
   CreateTaskLabelInput,
+  TaskAttachment,
   TaskDetail,
   TaskLabel,
   TaskListItem,
@@ -37,7 +38,7 @@ interface TaskStore {
   dispatch: (taskId: number, assignedAgentId: number) => Promise<void>
   /** Wake a dispatched task's agent in its existing session to carry on. */
   resume: (taskId: number) => Promise<void>
-  comment: (taskId: number, body: string) => Promise<void>
+  comment: (taskId: number, body: string, attachments?: TaskAttachment[]) => Promise<void>
   /** Apply a live task_upsert from the SSE stream (agent or other-window change). */
   applyUpsert: (task: TaskListItem) => void
   createLabel: (input: CreateTaskLabelInput) => Promise<TaskLabel>
@@ -238,8 +239,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (detail && detail.id === task.id) void get().openDetail(task.id)
   },
 
-  comment: async (taskId, body) => {
-    const { activity } = await api.taskComment(taskId, body)
+  comment: async (taskId, body, attachments) => {
+    const { activity } = await api.taskComment(taskId, body, attachments)
     set((s) => ({
       detail:
         s.detail && s.detail.id === taskId

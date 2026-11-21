@@ -16,6 +16,8 @@ export interface AiChatRequest {
   /** When true, the latest user message is set as an active thread goal (codex). */
   asGoal?: boolean
   tp?: ChatType
+  /** Title for the chat this request creates (a board task's session is named after its task). Ignored for an existing chat. */
+  title?: string
   skipSnapshot?: boolean
   /**
    * Which first-party agent-comm MCP servers this session gets, and the context

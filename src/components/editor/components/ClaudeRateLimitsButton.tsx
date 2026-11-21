@@ -94,19 +94,20 @@ const bindingWindow = (windows: DisplayWindow[]): DisplayWindow | null =>
     null,
   );
 
-const renderWindowBlock = (item: DisplayWindow, intl: IntlShape) => {
+const renderWindowBlock = (item: DisplayWindow, intl: IntlShape, showRemaining: boolean) => {
+  const percent = showRemaining ? 100 - item.used : item.used;
+
   return (
     <div className="space-y-2 rounded-xl bg-muted/40 px-3 py-2.5" key={item.key}>
       <div className="flex items-center justify-between gap-3 text-[11px]">
         <span className="text-muted-foreground">{item.label}</span>
         <span className="font-mono text-foreground">
-          {intl.formatMessage(
-            { id: 'editor.claude.percentUsed', defaultMessage: '{percent} used' },
-            { percent: formatPercent(item.used) },
-          )}
+          {showRemaining
+            ? intl.formatMessage({ id: 'usageRail.percentLeft', defaultMessage: '{percent}% left' }, { percent: Math.round(percent) })
+            : intl.formatMessage({ id: 'editor.claude.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(percent) })}
         </span>
       </div>
-      <Progress className="h-1.5 bg-muted/70" indicatorClassName={usageBarTone(item.used)} value={item.used} />
+      <Progress className="h-1.5 bg-muted/70" indicatorClassName={usageBarTone(item.used)} value={percent} />
       <div className="flex items-center justify-end text-[11px] text-muted-foreground">
         <span>
           {intl.formatMessage(
@@ -123,9 +124,11 @@ const renderWindowBlock = (item: DisplayWindow, intl: IntlShape) => {
 function ClaudeRateLimitsContent({
   windows,
   subscriptionType,
+  showRemaining = false,
 }: {
   windows: DisplayWindow[];
   subscriptionType?: string;
+  showRemaining?: boolean;
 }) {
   const intl = useIntl();
   return (
@@ -139,7 +142,7 @@ function ClaudeRateLimitsContent({
         </p>
       ) : null}
       {windows.length > 0 ? (
-        windows.map((item) => renderWindowBlock(item, intl))
+        windows.map((item) => renderWindowBlock(item, intl, showRemaining))
       ) : (
         <div className="rounded-lg bg-muted/35 px-3 py-3 text-sm text-muted-foreground">
           {intl.formatMessage({ id: 'editor.claude.noData', defaultMessage: 'No usage data yet.' })}
@@ -162,11 +165,11 @@ function TriggerContent({ windows }: { windows: DisplayWindow[] }) {
 const triggerClassName =
   'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs shadow-none hover:bg-accent-hover';
 
-/** Desktop Session panel: the same breakdown as the hover card, laid out in place. */
+/** Session panel: show available quota to match the sidebar. */
 export function ClaudeRateLimitsDetails({ rateLimits }: Pick<ClaudeRateLimitsButtonProps, 'rateLimits'>) {
   const windows = useMemo(() => collectWindows(rateLimits), [rateLimits]);
   if (windows.length === 0) return null;
-  return <ClaudeRateLimitsContent windows={windows} subscriptionType={rateLimits?.subscriptionType} />;
+  return <ClaudeRateLimitsContent windows={windows} subscriptionType={rateLimits?.subscriptionType} showRemaining />;
 }
 
 /** Desktop: quota summary on hover, like the context usage chip beside it. */

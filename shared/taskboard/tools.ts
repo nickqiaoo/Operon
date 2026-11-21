@@ -14,6 +14,7 @@ export const TASKBOARD_TOOLS = {
   dispatchProjectTask: 'dispatch_project_task',
   updateProjectTask: 'update_project_task',
   commentProjectTask: 'comment_project_task',
+  proposeSubtasks: 'propose_subtasks',
   startSpec: 'start_spec',
   answerSpecQuestions: 'answer_spec_questions',
   submitPullRequest: 'submit_pull_request',

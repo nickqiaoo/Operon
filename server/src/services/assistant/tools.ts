@@ -449,7 +449,7 @@ const githubPrCreate = defineTool({
   },
 })
 
-const TASK_STATUS = z.enum(['todo', 'in_progress', 'in_review', 'done', 'cancelled'])
+const TASK_STATUS = z.enum(['todo', 'in_progress', 'needs_input', 'in_review', 'done', 'cancelled'])
 const projectId = z.number().int().describe('From workspace_list')
 const taskNumber = z.number().int().describe('The task number, as in "#12"')
 

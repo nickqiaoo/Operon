@@ -20,6 +20,7 @@
 import type {
   AgentBindingStorageAdapter,
 } from '../storage/interface.js'
+import type { FileUIPart } from 'ai'
 import type { AgentBinding } from '../types/agent-binding.js'
 import { injectIntoChat } from './ai.js'
 import { debounceNotify } from './channel/debounce-manager.js'
@@ -46,6 +47,11 @@ export interface BindingDelivery {
    * MCP tool injection, drain start, and any error surfacing.
    */
   startChat: (prompt: string, workspaceId: number | null) => Promise<number>
+  /**
+   * Files (stored attachment URLs) that go with the message — injected along with
+   * the notification when active. A wake passes them itself, in its `startChat`.
+   */
+  files?: FileUIPart[]
 }
 
 export interface RouteOptions {
@@ -79,7 +85,7 @@ export async function deliverToBinding(
     const chatId = binding.activeChatId
     debounceNotify(debounceKey, debounceMs, (count) => {
       const text = delivery.injectNotification(count)
-      injectIntoChat(chatId, text, undefined, { mode: 'auto' })
+      injectIntoChat(chatId, text, undefined, { mode: 'auto', files: delivery.files })
         .then((result) => {
           if (result.delivery === 'not-sent') {
             console.warn(

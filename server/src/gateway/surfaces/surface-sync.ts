@@ -224,7 +224,10 @@ export async function applyIssueChange(change: InboundIssueChange): Promise<void
 
   if (has('stateId') && change.state) {
     const status = statusOfLinearState(change.state)
-    if (status && status !== synced.status && status !== task.status) {
+    // Linear's "started" covers needs_input too (see pickLinearState): that is
+    // the issue agreeing with the task, not someone putting it back to work.
+    const agrees = status === 'in_progress' && task.status === 'needs_input'
+    if (status && !agrees && status !== synced.status && status !== task.status) {
       await applyStatusFromLinear(task, status, actor.name, surface)
     }
   }

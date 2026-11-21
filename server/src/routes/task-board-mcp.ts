@@ -5,6 +5,7 @@
  * chat tools and does not use legacy channel-message task APIs.
  */
 
+import type { ProposedItemInput } from '../services/task-subtasks.js'
 import { Hono, type Context } from 'hono'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
@@ -49,7 +50,7 @@ const TOOLS: Tool[] = [
       properties: {
         status: {
           type: 'string',
-          enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'],
+          enum: ['todo', 'in_progress', 'needs_input', 'in_review', 'done', 'cancelled'],
           description: 'Filter by status',
         },
         priority: {
@@ -99,7 +100,7 @@ const TOOLS: Tool[] = [
   {
     name: TASKBOARD_TOOLS.dispatchProjectTask,
     description:
-      'Dispatch a task to the confirmed assignee agent. The caller is the operator; assignee is the worker name, such as "@builder" or "builder". This assigns that agent, moves a todo task to in_progress, and starts the task-scoped execution session in its dedicated worktree. Use only after the user confirms the assignee.',
+      'Dispatch a task to the confirmed assignee agent. The caller is the operator; assignee is the worker name, such as "@builder" or "builder". This assigns that agent, moves a todo task to in_progress, and starts the task-scoped execution session — by default in a dedicated new worktree. Use only after the user confirms the assignee, and pass workspace "shared" only when the user asked for the work to happen in the existing workspace.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -108,6 +109,12 @@ const TOOLS: Tool[] = [
           type: 'string',
           description: 'Agent name that should run the task, with or without @',
         },
+        workspace: {
+          type: 'string',
+          enum: ['new', 'shared'],
+          description:
+            'new (default): its own worktree and branch, merged when the user marks it done. shared: the project\'s existing main workspace, no branch of its own — only when the user asked for it.',
+        },
       },
       required: ['task', 'assignee'],
     },
@@ -115,14 +122,14 @@ const TOOLS: Tool[] = [
   {
     name: TASKBOARD_TOOLS.updateProjectTask,
     description:
-      'Update a shared project task you own on the Taskboard. You must be the assignee to change status. Use in_review when work is ready for human validation; done is a human review action.',
+      'Update a shared project task you own on the Taskboard. You must be the assignee to change status. Use in_review when work is ready for human validation; done is a human review action. Use needs_input when you cannot go on without a decision or information from the human: comment the question first, then set needs_input and end your turn — the task returns to in_progress when they reply. Approvals and questions asked through tools set needs_input on their own.',
     inputSchema: {
       type: 'object',
       properties: {
         task: { type: 'number', description: 'Task number to update' },
         status: {
           type: 'string',
-          enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'],
+          enum: ['todo', 'in_progress', 'needs_input', 'in_review', 'done', 'cancelled'],
           description: 'New status',
         },
         priority: { type: 'number', description: '0 none, 1 low, 2 medium, 3 high, 4 urgent' },
@@ -143,6 +150,40 @@ const TOOLS: Tool[] = [
         body: { type: 'string', description: 'The comment or progress text (Markdown ok)' },
       },
       required: ['task', 'body'],
+    },
+  },
+  {
+    name: TASKBOARD_TOOLS.proposeSubtasks,
+    description:
+      "For the agent working on a Taskboard task: when the user asks (usually in a comment) for parts of the work to go to other agents, propose them as sub-tasks instead of doing those parts yourself. " +
+      'Write one item per piece of work with everything its agent needs — it will not see this task or your conversation. ' +
+      'Set assignee only to an agent the user named (names from list_project_agents), and workspace only when the user said where it should run ("new" = its own worktree, "shared" = the existing workspace); leave either out otherwise, never guess. ' +
+      'The user completes and confirms the proposal on the board; you are told which sub-tasks started, and again as each reaches review or finishes. After calling this, end your turn.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'number', description: 'Your task number (the parent of the sub-tasks)' },
+        items: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 10,
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: "Short title, in the user's language" },
+              description: { type: 'string', description: 'The full brief for the agent doing it' },
+              assignee: { type: 'string', description: 'Agent the user named for it, with or without @; omit if they did not say' },
+              workspace: {
+                type: 'string',
+                enum: ['new', 'shared'],
+                description: 'Only if the user said: new = its own worktree, shared = the existing workspace',
+              },
+            },
+            required: ['title', 'description'],
+          },
+        },
+      },
+      required: ['task', 'items'],
     },
   },
   {
@@ -384,6 +425,21 @@ function buildTaskBoardMcpServer(board: TaskBoardService, agentId: number): Serv
   return withCodexElicitationFallback(server)
 }
 
+function parseProposedItems(raw: unknown): ProposedItemInput[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item): ProposedItemInput[] => {
+    if (!item || typeof item !== 'object') return []
+    const { title, description, assignee, workspace } = item as Record<string, unknown>
+    if (typeof title !== 'string') return []
+    return [{
+      title,
+      description: typeof description === 'string' ? description : '',
+      ...(typeof assignee === 'string' && assignee.trim() ? { assignee } : {}),
+      ...(workspace === 'new' || workspace === 'shared' ? { workspace } : {}),
+    }]
+  })
+}
+
 async function dispatch(
   name: string,
   args: Record<string, unknown>,
@@ -416,7 +472,12 @@ async function dispatch(
       )
 
     case TASKBOARD_TOOLS.dispatchProjectTask:
-      return board.dispatchTask(Number(args.task), String(args.assignee), agentId)
+      return board.dispatchTask(
+        Number(args.task),
+        String(args.assignee),
+        agentId,
+        args.workspace === 'shared' ? 'shared' : args.workspace === 'new' ? 'new' : undefined,
+      )
 
     case TASKBOARD_TOOLS.updateProjectTask:
       return board.update(
@@ -429,6 +490,9 @@ async function dispatch(
         },
         agentId,
       )
+
+    case TASKBOARD_TOOLS.proposeSubtasks:
+      return board.proposeSubtasks(Number(args.task), parseProposedItems(args.items), agentId)
 
     case TASKBOARD_TOOLS.commentProjectTask:
       return board.comment(Number(args.task), String(args.body), agentId)

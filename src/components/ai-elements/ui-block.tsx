@@ -214,6 +214,7 @@ function Flow({ element }: { element: ElementOf<"flow"> }) {
           </svg>
           {layout.nodes.map((node) => {
             const Icon = node.icon && STAGE_ICONS[node.icon];
+            const label = node.label.replace(/\\n/g, "\n");
             return (
               <div
                 key={node.key}
@@ -226,7 +227,7 @@ function Flow({ element }: { element: ElementOf<"flow"> }) {
                 {Icon && (
                   <Icon className={cn("h-3.5 w-3.5 flex-none", node.tone ? TONES[node.tone].icon : "text-muted-foreground")} aria-hidden />
                 )}
-                <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]" title={node.label}>{node.label}</span>
+                <span className="line-clamp-2 min-w-0 whitespace-pre-line [overflow-wrap:anywhere]" title={label}>{label}</span>
               </div>
             );
           })}

@@ -48,6 +48,23 @@ export interface WorkspaceTask {
   finishedTickets?: Array<{ id: number; number: number; title: string; status: string; chat: WorkspaceChat }>
 }
 
+/**
+ * A board sub-task's session, nested under its parent task's session in the
+ * tree — mirrors the server's TaskChildSession. Spec tickets are not listed.
+ */
+export interface TaskChildSession {
+  taskId: number
+  number: number
+  title: string
+  status: string
+  parentChatId: number
+  chatId: number
+  workspaceId: number | null
+  providerId: string | null
+  modelId: string | null
+  updatedAt: number
+}
+
 /** A conversation the sidebar opens, in its own workspace (or the spec's, once that is gone). */
 export interface WorkspaceChat {
   providerId?: string | null
@@ -65,6 +82,8 @@ export interface Project {
   workspaces: Workspace[]
   /** Specs remain available after their workspaces have been reclaimed. */
   specs?: WorkspaceTask[]
+  /** Board sub-tasks running in sessions of their own, nested under their parent task's session. */
+  taskChildren?: TaskChildSession[]
   createdAt: number
   updatedAt: number
   /**

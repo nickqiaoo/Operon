@@ -16,7 +16,7 @@ import { Archive, Ban, CornerDownRight } from 'lucide-react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { cn } from '@/lib/utils'
 import { useTaskStore } from '@/stores/task-store'
-import { PriorityIcon, LabelChip, TaskRef, type TaskGroup } from './task-meta'
+import { PriorityIcon, LabelChip, PullRequestBadge, TaskRef, type TaskGroup } from './task-meta'
 import { SpecCardBadge, specCardBadgeShown } from '@/components/spec/spec-shared'
 import type { TaskListItem } from '@/types/task'
 import type { Agent, AgentSession } from '@/types/channel'
@@ -206,6 +206,7 @@ function CardBody({ task, agents, dragging }: CardBodyProps) {
             <span className="sr-only">{blockedBy}</span>
           </span>
         )}
+        {task.pullRequest && <PullRequestBadge pr={task.pullRequest} />}
         {archived && <Archive className="w-3 h-3 text-muted-foreground/50" />}
         <span className="ml-auto">
           <SpecCardBadge task={task} />

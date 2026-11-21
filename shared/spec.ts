@@ -404,7 +404,7 @@ export interface SpecAgentRun {
 export interface SpecTicketTask {
   id: number
   number: number
-  status: 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
+  status: 'todo' | 'in_progress' | 'needs_input' | 'in_review' | 'done' | 'cancelled'
   /** The worktree its session runs in, once dispatched — where a person takes over a stuck ticket. */
   workspaceId: number | null
   /** The chats its implementer worked in, oldest first — still there after the ticket lands. */

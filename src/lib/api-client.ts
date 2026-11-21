@@ -21,6 +21,8 @@ import type {
   TaskDetail,
   TaskLabel,
   TaskActivity,
+  TaskAttachment,
+  TaskWorkspaceMode,
   CreateTaskInput as CreateProjectTaskInput,
   UpdateTaskInput as UpdateProjectTaskInput,
   CreateTaskLabelInput,
@@ -770,10 +772,10 @@ export function taskUpdate(taskId: number, updates: UpdateProjectTaskInput & { a
   })
 }
 
-export function taskComment(taskId: number, body: string, actorName?: string) {
+export function taskComment(taskId: number, body: string, attachments?: TaskAttachment[], actorName?: string) {
   return request<{ activity: TaskActivity }>(`/tasks/${taskId}/comments`, {
     method: 'POST',
-    body: JSON.stringify({ body, actorName }),
+    body: JSON.stringify({ body, actorName, attachments }),
   })
 }
 
@@ -827,10 +829,29 @@ export function inboxSetViewing(payload: { clientId: string; chatIds: number[]; 
   })
 }
 
-export function taskDispatch(taskId: number, assignedAgentId: number) {
+/** Confirm (each item with its agent and workspace) or dismiss a sub-task proposal from the task's agent. */
+export function taskResolveProposal(
+  taskId: number,
+  activityId: number,
+  body:
+    | { action: 'dismiss' }
+    | { action: 'confirm'; items: { title: string; description: string; assignedAgentId: number; workspaceMode: TaskWorkspaceMode }[] },
+) {
+  return request<{ task: TaskDetail }>(`/tasks/${taskId}/proposals/${activityId}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** `workspace`: omit to run the way the task says (its workspaceMode). */
+export function taskDispatch(
+  taskId: number,
+  assignedAgentId: number,
+  workspace?: { workspaceMode?: TaskWorkspaceMode; workspaceId?: number },
+) {
   return request<{ task: TaskDetail }>(`/tasks/${taskId}/dispatch`, {
     method: 'POST',
-    body: JSON.stringify({ assignedAgentId }),
+    body: JSON.stringify({ assignedAgentId, ...workspace }),
   })
 }
 

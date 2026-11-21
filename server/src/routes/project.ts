@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { AgentBindingStorageAdapter, ChatStorageAdapter, ProjectStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
-import type { CreateProjectInput, CreateWorkspaceInput, Workspace, WorkspaceChat, WorkspaceTask } from '../types/project.js'
+import type { CreateProjectInput, CreateWorkspaceInput, TaskChildSession, Workspace, WorkspaceChat, WorkspaceTask } from '../types/project.js'
 import type { Task } from '../types/task.js'
 import { specChatRef } from '../services/spec/chats.js'
 import { RewindService } from '../services/rewind/index.js'
@@ -34,10 +34,39 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
       finishedTickets,
     }
   }
+  // Sub-tasks whose session nests under their parent task's session in the tree.
+  const taskChildrenOf = (tasks: Task[]): TaskChildSession[] => {
+    const byId = new Map(tasks.map((t) => [t.id, t]))
+    const chatIdOf = (t: Task) => (t.bindingId != null ? storage.getBinding(t.bindingId)?.activeChatId ?? null : null)
+    const out: TaskChildSession[] = []
+    for (const t of tasks) {
+      const parent = t.parentTaskId != null ? byId.get(t.parentTaskId) : undefined
+      if (!parent || parent.specStage != null || t.archivedAt != null) continue
+      const chatId = chatIdOf(t)
+      const parentChatId = chatIdOf(parent)
+      if (chatId == null || parentChatId == null) continue
+      const meta = storage.getChatMeta(chatId)
+      out.push({
+        taskId: t.id,
+        number: t.number,
+        title: t.title,
+        status: t.status,
+        parentChatId,
+        chatId,
+        workspaceId: t.workspaceId,
+        providerId: meta?.providerId ?? t.assignedAgent?.provider ?? null,
+        modelId: t.assignedAgent?.model ?? null,
+        updatedAt: t.updatedAt,
+      })
+    }
+    return out
+  }
+
   const workspacesOf = (projectId: number): (Workspace & { task?: WorkspaceTask })[] => {
     const owners = new Map<number, WorkspaceTask>()
     for (const t of storage.taskList({ projectId, includeArchived: true })) {
-      if (t.workspaceId == null) continue
+      // A shared-mode task works in a workspace it does not own.
+      if (t.workspaceId == null || t.workspaceMode === 'shared') continue
       const binding = t.bindingId != null ? storage.getBinding(t.bindingId) : null
       const chat = chatOf(binding?.activeChatId, t.workspaceId)
       owners.set(t.workspaceId, {
@@ -67,17 +96,21 @@ export function projectRoutes(storage: ProjectStorageAdapter & AgentBindingStora
     const projects = storage.listProjects()
     if (c.req.query('include') !== 'workspaces') return c.json({ projects })
     return c.json({
-      projects: projects.map((project) => ({
+      projects: projects.map((project) => {
+        const tasks = storage.taskList({ projectId: project.id, includeArchived: true })
+        return {
         ...project,
         workspaces: workspacesOf(project.id),
+        taskChildren: taskChildrenOf(tasks),
         // Keep specs discoverable after completion reclaims their workspaces.
-        specs: storage.taskList({ projectId: project.id, includeArchived: true })
+        specs: tasks
           .filter((task) => task.specStage != null)
           .map((task) => ({
             id: task.id, number: task.number, title: task.title, status: task.status,
             parentTaskId: task.parentTaskId, specStage: task.specStage, archivedAt: task.archivedAt,
           })),
-      })),
+        }
+      }),
     })
   })
 

@@ -24,6 +24,7 @@ const m = defineMessages({
   subAgentAsked: { id: "inbox.n.subAgentAsked", defaultMessage: "Sub-agent {origin} asked you a question" },
   subAgentWaiting: { id: "inbox.n.subAgentWaiting", defaultMessage: "Sub-agent {origin} is waiting for approval · {tool}" },
   taskReview: { id: "inbox.n.taskReview", defaultMessage: "Ready for review · #{number}" },
+  taskNeedsInput: { id: "inbox.n.taskNeedsInput", defaultMessage: "Needs your input · #{number}" },
   taskDone: { id: "inbox.n.taskDone", defaultMessage: "Done · #{number}" },
   taskCancelled: { id: "inbox.n.taskCancelled", defaultMessage: "Cancelled · #{number}" },
   approvalNeeded: { id: "inbox.n.approvalNeeded", defaultMessage: "Approval needed: {name}" },
@@ -36,7 +37,7 @@ const m = defineMessages({
   aDevice: { id: "inbox.n.aDevice", defaultMessage: "A device" },
 })
 
-const TASK_VERBS = { "Ready for review": m.taskReview, Done: m.taskDone, Cancelled: m.taskCancelled } as const
+const TASK_VERBS = { "Needs your input": m.taskNeedsInput, "Ready for review": m.taskReview, Done: m.taskDone, Cancelled: m.taskCancelled } as const
 
 function localizeTitle(n: Notification, intl: IntlShape): string {
   const t = n.title
@@ -66,10 +67,11 @@ function localizeBody(n: Notification, intl: IntlShape): string | null {
       if (r) return intl.formatMessage(m.waitingApproval, { tool: r[1] })
       return b
     }
+    case "task_needs_input":
     case "task_in_review":
     case "task_done":
     case "task_failed": {
-      const r = /^(Ready for review|Done|Cancelled) · #(\d+)$/.exec(b)
+      const r = /^(Needs your input|Ready for review|Done|Cancelled) · #(\d+)$/.exec(b)
       if (r) return intl.formatMessage(TASK_VERBS[r[1] as keyof typeof TASK_VERBS], { number: r[2] })
       return b
     }

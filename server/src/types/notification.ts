@@ -6,6 +6,8 @@ export type NotificationKind =
   | 'chat_complete'
   | 'chat_needs_input'
   | 'task_in_review'
+  /** A task's agent is blocked on the user (approval, question, a decision it asked for). */
+  | 'task_needs_input'
   | 'task_done'
   | 'task_failed'
   | 'sdd_gate'

@@ -1,5 +1,6 @@
 import type { ExternalAgentView } from '@shared/external-agent'
 import type { PendingInputSummary } from '@shared/pending-input'
+import type { TaskChildSession } from '@/stores/project-store'
 
 /**
  * The external agents one conversation started (`parentChatId`), as one list for
@@ -44,6 +45,16 @@ export interface ChatChildrenInput {
   chatId: number
   externalAgents: Iterable<ExternalAgentView>
   pendingByChat: ReadonlyMap<number, PendingInputSummary[]>
+  /** Board sub-tasks whose parent task's agent runs in this chat (they nest like external agents). */
+  taskChildren?: Iterable<TaskChildSession>
+}
+
+/** A sub-task's board status, read as the state of an agent the parent handed work to. */
+function taskChildState(status: string, pending: readonly PendingInputSummary[]): ChildState {
+  if (pending.length > 0 || status === 'needs_input') return 'needs-you'
+  if (status === 'in_progress' || status === 'todo') return 'running'
+  if (status === 'cancelled') return 'stopped'
+  return 'done'
 }
 
 function childState(view: ExternalAgentView, pending: readonly PendingInputSummary[]): ChildState {
@@ -83,6 +94,22 @@ export function buildChatChildren(input: ChatChildrenInput): ChatChild[] {
       detail: state === 'failed' ? view.error : undefined,
       pending,
       at: view.updatedAt,
+    })
+  }
+  for (const task of input.taskChildren ?? []) {
+    if (task.parentChatId !== input.chatId) continue
+    const pending = input.pendingByChat.get(task.chatId) ?? []
+    children.push({
+      key: `task:${task.taskId}`,
+      agentId: `task:${task.taskId}`,
+      childChatId: task.chatId,
+      providerId: task.providerId ?? '',
+      modelId: task.modelId ?? undefined,
+      workspaceId: task.workspaceId ?? undefined,
+      title: `#${task.number} ${task.title}`,
+      state: taskChildState(task.status, pending),
+      pending,
+      at: task.updatedAt,
     })
   }
   return children.sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || (b.at ?? 0) - (a.at ?? 0))

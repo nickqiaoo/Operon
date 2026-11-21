@@ -14,7 +14,7 @@ import { useTaskStore } from './task-store'
 
 function task(id: number, parentTaskId: number | null = null, archivedAt: number | null = null): TaskDetail {
   return {
-    id, projectId: 1, number: id, title: `Task ${id}`, description: '', status: 'todo', priority: 0,
+    id, projectId: 1, number: id, title: `Task ${id}`, description: '', attachments: [], workspaceMode: 'new', pullRequest: null, status: 'todo', priority: 0,
     assignedAgentId: null, parentTaskId, sourceChannelId: null, sourceMessageId: null,
     branchName: null, workspaceId: null, bindingId: null, specStage: null, blockedBy: null,
     createdBy: 'human', archivedAt, createdAt: 0, updatedAt: 0,

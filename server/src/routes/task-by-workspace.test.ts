@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import type { NotificationStorageAdapter, TaskStorageAdapter } from "../storage/interface.js"
 import type { Task } from "../types/task.js"
 import { taskRoutes } from "./task.js"
 
-type Storage = TaskStorageAdapter & NotificationStorageAdapter
+type Storage = Parameters<typeof taskRoutes>[0]
 
 function routesWith(taskGetByWorkspace: (workspaceId: number) => Task | null) {
   return taskRoutes({ taskGetByWorkspace: vi.fn(taskGetByWorkspace) } as unknown as Storage)

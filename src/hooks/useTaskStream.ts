@@ -6,9 +6,27 @@ import type { TaskListItem } from '@/types/task'
 
 type TaskStreamEvent = { type: 'task_upsert'; task: TaskListItem }
 
+/** Sub-task sessions already asked about once, so one that will never nest (no parent session) is not re-read on every update. */
+const seenChildSessions = new Set<string>()
+
+/** A board sub-task's row in the tree's nested sessions changed, or it just got a session that may nest. */
+function taskChildChanged(task: TaskListItem, project: Project | undefined): boolean {
+  if (task.parentTaskId == null) return false
+  const nested = project?.taskChildren?.find((entry) => entry.taskId === task.id)
+  if (nested) return nested.status !== task.status || nested.title !== task.title || task.archivedAt != null
+  if (task.bindingId == null) return false
+  const key = `${task.id}:${task.bindingId}`
+  if (seenChildSessions.has(key)) return false
+  seenChildSessions.add(key)
+  return true
+}
+
 /** Ignore execution-only updates; the tree only needs navigation metadata. */
 export function taskChangesProjectTree(task: TaskListItem, projects: readonly Project[]): boolean {
   const project = projects.find((entry) => entry.id === task.projectId)
+  if (taskChildChanged(task, project)) return true
+  // A shared-workspace task never owns its workspace, so it has no workspace row to change.
+  if (task.workspaceMode === 'shared') return false
   const workspace = project?.workspaces.find((entry) => entry.task?.id === task.id)
   const previous = workspace?.task ?? project?.specs?.find((entry) => entry.id === task.id)
   if (task.specStage == null && task.workspaceId == null && !previous) return false

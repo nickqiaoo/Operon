@@ -56,7 +56,7 @@ export function notify(storage: NotificationStorageAdapter, input: NotifyInput):
 
 /**
  * Emit an inbox notification for a task status transition, if the new status is
- * one the user cares about (agent finished → in_review, or a task closing out →
+ * one the user cares about (agent blocked → needs_input, agent finished → in_review, or a task closing out →
  * done / cancelled). No-op for todo/in_progress or a same-status write. The
  * caller passes the pre-update status so we only fire on a real transition.
  */
@@ -71,6 +71,11 @@ export function notifyTaskStatusChange(
   let severity: NotificationSeverity
   let verb: string
   switch (newStatus) {
+    case 'needs_input':
+      kind = 'task_needs_input'
+      severity = 'action'
+      verb = 'Needs your input'
+      break
     case 'in_review':
       kind = 'task_in_review'
       severity = 'action'

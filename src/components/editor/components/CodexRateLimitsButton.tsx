@@ -118,10 +118,11 @@ const getTriggerUsedPercent = (snapshots: RateLimitSnapshot[]): number | null =>
   return windowValue ? normalizePercentValue(windowValue.usedPercent) : null;
 };
 
-const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: IntlShape) => {
+const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: IntlShape, showRemaining: boolean) => {
   if (!windowValue) return null;
 
   const usedPercent = normalizePercentValue(windowValue.usedPercent);
+  const percent = showRemaining ? 100 - usedPercent : usedPercent;
 
   return (
     <div className="space-y-2 rounded-xl bg-muted/40 px-3 py-2.5">
@@ -130,10 +131,12 @@ const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: Intl
           {formatWindowLabel(windowValue.windowDurationMins, intl)}
         </span>
         <span className="font-mono text-foreground">
-          {intl.formatMessage({ id: 'editor.codex.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(usedPercent) })}
+          {showRemaining
+            ? intl.formatMessage({ id: 'usageRail.percentLeft', defaultMessage: '{percent}% left' }, { percent: Math.round(percent) })
+            : intl.formatMessage({ id: 'editor.codex.percentUsed', defaultMessage: '{percent} used' }, { percent: formatPercent(percent) })}
         </span>
       </div>
-      <Progress className="h-1.5 bg-muted/70" indicatorClassName={usageBarTone(usedPercent)} value={usedPercent} />
+      <Progress className="h-1.5 bg-muted/70" indicatorClassName={usageBarTone(usedPercent)} value={percent} />
       <div className="flex items-center justify-end gap-3 text-[11px] text-muted-foreground">
         <span>{intl.formatMessage({ id: 'editor.codex.resets', defaultMessage: 'Resets {time}' }, { time: formatResetTime(windowValue.resetsAt, intl) })}</span>
       </div>
@@ -142,7 +145,7 @@ const renderWindowBlock = (windowValue: RateLimitSnapshot['primary'], intl: Intl
 };
 
 /** Shared hover-card / sheet body — each limit with its windows. */
-function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] }) {
+function CodexRateLimitsContent({ snapshots, showRemaining = false }: { snapshots: RateLimitSnapshot[]; showRemaining?: boolean }) {
   const intl = useIntl();
   return (
     <div className="space-y-2.5">
@@ -171,8 +174,8 @@ function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] 
                 </div>
               ) : null}
             </div>
-            {renderWindowBlock(snapshot.primary, intl)}
-            {renderWindowBlock(snapshot.secondary, intl)}
+            {renderWindowBlock(snapshot.primary, intl, showRemaining)}
+            {renderWindowBlock(snapshot.secondary, intl, showRemaining)}
           </div>
         ))
       ) : (
@@ -187,11 +190,11 @@ function CodexRateLimitsContent({ snapshots }: { snapshots: RateLimitSnapshot[] 
 const triggerClassName =
   'h-8 gap-2 rounded-full border-border/60 bg-background/70 px-3 text-xs text-muted-foreground shadow-none hover:bg-accent-hover hover:text-foreground';
 
-/** Desktop Session panel: the same breakdown as the hover card, laid out in place. */
+/** Session panel: show available quota to match the sidebar. */
 export function CodexRateLimitsDetails({ account, rateLimits }: Omit<CodexRateLimitsButtonProps, 'className'>) {
   const snapshots = useMemo(() => collectSnapshots(rateLimits), [rateLimits]);
   if (!account && snapshots.length === 0) return null;
-  return <CodexRateLimitsContent snapshots={snapshots} />;
+  return <CodexRateLimitsContent snapshots={snapshots} showRemaining />;
 }
 
 function TriggerContent({ usedPercent }: { usedPercent: number | null }) {

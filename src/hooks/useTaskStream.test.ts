@@ -22,7 +22,7 @@ vi.mock('@/stores/project-store', () => ({
 import { taskChangesProjectTree, useTaskStream } from './useTaskStream'
 
 const task: TaskListItem = {
-  id: 25, projectId: 1, number: 25, title: 'Reading time', description: '',
+  id: 25, projectId: 1, number: 25, title: 'Reading time', description: '', attachments: [], workspaceMode: 'new', pullRequest: null,
   status: 'in_progress', priority: 0, assignedAgentId: null, parentTaskId: null,
   sourceChannelId: null, sourceMessageId: null, branchName: 'spec-25', workspaceId: 2,
   bindingId: null, specStage: 'grounding', blockedBy: null, createdBy: 'agent',
@@ -121,5 +121,20 @@ describe('global task navigation sync', () => {
     expect(taskChangesProjectTree({ ...task, workspaceId: null }, [project])).toBe(true)
     expect(taskChangesProjectTree({ ...task, id: 26, workspaceId: 3 }, [project])).toBe(true)
     expect(taskChangesProjectTree({ ...task, id: 26, specStage: null, workspaceId: null }, [project])).toBe(false)
+  })
+
+  it('ignores shared-workspace tasks, and refreshes once for a sub-task session that may nest', () => {
+    const shared = { ...task, id: 30, specStage: null, workspaceMode: 'shared' as const, workspaceId: 2 }
+    expect(taskChangesProjectTree(shared, [project])).toBe(false)
+    const child = { ...task, id: 31, specStage: null, parentTaskId: 30, workspaceId: 9, bindingId: 4 }
+    expect(taskChangesProjectTree(child, [project])).toBe(true)
+    // Once asked about, an unlisted session does not re-read the tree on every update.
+    expect(taskChangesProjectTree({ ...child, workspaceMode: 'shared' }, [project])).toBe(false)
+    const nested: Project = {
+      ...project,
+      taskChildren: [{ taskId: 31, number: 31, title: child.title, status: 'in_progress', parentChatId: 1, chatId: 2, workspaceId: 9, providerId: null, modelId: null, updatedAt: 0 }],
+    }
+    expect(taskChangesProjectTree({ ...child, workspaceMode: 'shared' }, [nested])).toBe(false)
+    expect(taskChangesProjectTree({ ...child, workspaceMode: 'shared', status: 'in_review' }, [nested])).toBe(true)
   })
 })
