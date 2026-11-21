@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.5.34] - 2026-11-22
+
+### Added
+
+- Taskboard tasks can ask for input. Approvals and questions move the task to Needs Input, with an inbox notification and automatic return to In Progress when the agent resumes.
+- Agents can propose subtasks for you to confirm or dismiss. Task comments support attachments, and task details show linked pull requests.
+- When dispatching a task, choose whether to reuse the project workspace or create a dedicated one.
+
+### Changed
+
+- The sidebar account usage rings show more detail for each provider's limits.
+- The web machine switcher is available from the project sidebar.
+
+### Fixed
+
+- Task chats are positioned under their parent tasks in the conversation tree.
+- Chat history loading and message rendering handle more edge cases when a conversation updates.
+
 ## [1.5.33] - 2026-11-21
 
 ### Fixed
