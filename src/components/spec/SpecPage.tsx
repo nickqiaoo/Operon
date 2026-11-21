@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/icons/ProviderLabel'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SessionPanelToggle } from '@/components/app-shell/TopBarControls'
-import { AccountUsageBar } from '@/components/app-shell/AccountUsageBar'
 import { useAppShellStore } from '@/stores/app-shell-store'
 import { useEditorStore } from '@/stores/editor-store'
 import { ReviewTab } from '@/components/app-shell/content/ReviewTab'
@@ -80,14 +79,13 @@ export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusCha
   return (
     <div className="@container/spec flex h-full min-h-0 flex-col bg-background" data-testid={target ? 'spec-page' : undefined} data-spec-id={target?.taskId}>
       {target ? <>
-      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 pr-2 text-xs text-muted-foreground">
+      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 pr-2 text-xs text-muted-foreground">
         <span className="shrink-0">{project?.name ?? 'Project'}</span>
         <span className="text-muted-foreground/40">/</span>
         <SpecIcon className="size-3.5 shrink-0" />
         <span className="shrink-0">Spec {spec ? `#${spec.taskNumber}` : ''}</span>
         {spec && <span className="min-w-0 truncate text-foreground/80">{fileCitationsToText(spec.title)}</span>}
         <div className="flex-1" />
-        <AccountUsageBar className="shrink-0 pr-0.5" />
         <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
         {!rightPanelOpen && <div className="w-[50px] shrink-0" aria-hidden="true" />}
       </TitlebarRow>

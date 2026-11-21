@@ -11,10 +11,15 @@ export function useCodexUsagePolling(enabled = true, isGenerating = false) {
     queryKey: ['ai', 'codex-usage'],
     queryFn: async (): Promise<CodexRateLimits | null> => {
       const result = await api.aiGetCodexUsage();
-      return result.success ? (result.data ?? null) : null;
+      // A failed read throws instead of resolving to null: React Query then
+      // keeps the last good reading (and retries soon), where a null would
+      // overwrite it and drop the provider from the rail until the next poll.
+      if (!result.success) throw new Error(result.error ?? 'Codex usage unavailable');
+      return result.data ?? null;
     },
     enabled,
-    retry: false,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(5_000 * 2 ** attempt, 30_000),
     staleTime: USAGE_POLL_MS,
     refetchInterval: enabled ? USAGE_POLL_MS : false,
     refetchIntervalInBackground: false,

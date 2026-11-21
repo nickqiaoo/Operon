@@ -1,5 +1,6 @@
 declare const __ENABLE_MEMORY__: boolean
-import { FileJson, FileText, Keyboard, Bell } from "lucide-react"
+import { FileJson, FileText, Keyboard, Bell, CircleHelp, ExternalLink } from "lucide-react"
+import { openExternalUrl } from "@/lib/open-external"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { ArrowLeft, Palette, Server, Brain, Plug, Sparkles, Cpu, MessageSquare, MessageCircle, Github, Cloud, Globe, MonitorCog, Puzzle } from "lucide-react"
 import { LinearIcon } from "@/components/icons/LinearIcon"
@@ -201,6 +202,22 @@ export function SettingsPage({ onBack, initialTab }: SettingsPageProps) {
                             </div>
                         </div>
                     )}
+                </div>
+                {/* Help leaves the app for the docs, so it sits apart from the
+                    tabs, pinned under the list rather than scrolled with it. */}
+                <div className="shrink-0 border-t border-border/40 px-4 py-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+                    <button
+                        type="button"
+                        data-testid="settings-help-link"
+                        onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")}
+                        className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left text-muted-foreground hover:bg-row-hover hover:text-foreground"
+                    >
+                        <CircleHelp className="h-4 w-4" />
+                        <span className="flex-1">
+                            <FormattedMessage id="settings.help" defaultMessage="Help & feedback" />
+                        </span>
+                        <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                    </button>
                 </div>
             </div>
 

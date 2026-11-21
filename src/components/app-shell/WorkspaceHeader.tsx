@@ -1,5 +1,4 @@
 import { memo, useCallback, useMemo } from "react"
-import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { SessionPanelToggle } from "@/components/app-shell/TopBarControls"
 import { ChatHistoryButton, EditorTabs } from "@/components/editor/EditorTabs"
@@ -56,7 +55,7 @@ export const WorkspaceHeader = memo(function WorkspaceHeader() {
   return (
     <>
       {/* The header reserves room for the persistent panel controls at the window edge. */}
-      <div className="@container/topbar drag-region h-10 flex items-center bg-background shrink-0">
+      <div className="drag-region h-10 flex items-center bg-background shrink-0">
         <TitlebarRow className="flex flex-1 min-w-0 items-center gap-2 pr-4 text-xs text-muted-foreground font-normal">
           {/* Both names truncate: without it the workspace pill wraps
               onto a second line, outgrows the h-10 row and collides with
@@ -79,18 +78,11 @@ export const WorkspaceHeader = memo(function WorkspaceHeader() {
             </>
           )}
         </TitlebarRow>
-        {/* Account quota for every signed-in provider. A real child
-            of the drag row (not a floating overlay) so macOS honors
-            its `no-drag`; it sits before the panel toggles because it
-            is read, not operated. */}
-        {/* Refresh, Session and the panel toggles read as one row of
-            24px buttons 2px apart (as in the right panel's strip). */}
-        <AccountUsageBar className="shrink-0 pr-0.5" />
         {/* Workspace-wide, so they sit with the titlebar controls rather than
-            on the tab strip (which has no buttons until a tab is open). */}
-        {/* ml-2.5 + the usage bar's pr-0.5 = the 12px gap between its own
-            items, so the history button sits one step off the last number. */}
-        <div className="no-drag ml-2.5 mr-1 flex shrink-0 items-center gap-0.5">
+            on the tab strip (which has no buttons until a tab is open). Refresh,
+            Session and the panel toggles read as one row of 24px buttons 2px
+            apart (as in the right panel's strip). */}
+        <div className="no-drag mr-1 flex shrink-0 items-center gap-0.5">
           <WorkspaceTaskButton />
           <ChatHistoryButton onOpenChat={openChatTab} />
         </div>

@@ -81,9 +81,14 @@ export function useAccountUsage(): {
     queryKey: claudeUsageQueryKey,
     queryFn: async (): Promise<ClaudeRateLimits | null> => {
       const result = await api.aiGetClaudeUsage();
-      return result.success ? (result.data ?? null) : null;
+      // A failed read throws instead of resolving to null: React Query then
+      // keeps the last good reading (and retries soon), where a null would
+      // overwrite it and drop the provider from the rail until the next poll.
+      if (!result.success) throw new Error(result.error ?? 'Claude usage unavailable');
+      return result.data ?? null;
     },
-    retry: false,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(5_000 * 2 ** attempt, 30_000),
     staleTime: USAGE_POLL_MS,
     refetchInterval: USAGE_POLL_MS,
     refetchIntervalInBackground: false,

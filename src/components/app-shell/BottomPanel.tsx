@@ -101,6 +101,9 @@ export function BottomPanel({ className }: BottomPanelProps) {
         >
           <TabBar
             panelId="bottom"
+            // No bottom line, same as the right panel: the panel's own top
+            // border already separates it, the strip and terminal read as one.
+            className="border-b-0"
             accessory={
               <button
                 type="button"

@@ -63,7 +63,7 @@ test('navigation icons keep their size and alignment when the sidebar changes mo
   await page.setViewportSize({ width: 1280, height: 900 })
   const sidebar = page.getByTestId('left-sidebar')
   const measure = () => sidebar.evaluate(element => {
-    const labels = ['New chat', 'Assistant', 'Board', 'Channels', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings', 'Help']
+    const labels = ['New chat', 'Assistant', 'Board', 'Channels', 'Projects', 'Workflow', 'Plugins', 'Schedule', 'Settings']
     return labels.map(label => {
       const button = element.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
       const icon = button.querySelector('svg')!.getBoundingClientRect()
@@ -152,7 +152,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await page.getByTestId('settings-back-button').click()
   const sidebar = page.getByTestId('left-sidebar')
   // The rail is icons in both modes: the names live in aria-label and tooltip.
-  for (const label of ['助理', '看板', '频道', '工作流', '插件', '定时任务', '设置', '帮助']) {
+  for (const label of ['助理', '看板', '频道', '工作流', '插件', '定时任务', '设置']) {
     await expect(sidebar.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
   await sidebar.getByRole('button', { name: '看板', exact: true }).hover()
@@ -161,7 +161,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await expect(page.getByTestId('toggle-sidebar')).toHaveAttribute('aria-label', '收起侧栏')
   await page.getByTestId('toggle-sidebar').click()
   await expect(page.getByTestId('toggle-sidebar')).toHaveAttribute('aria-label', '展开侧栏')
-  await expect(sidebar.getByRole('button', { name: '帮助', exact: true })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: '设置', exact: true })).toBeVisible()
   await sidebar.getByRole('button', { name: '项目', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '项目', exact: true })).toBeVisible()
   await expect(page.getByTestId('project-tree').getByRole('button', { name: '添加仓库', exact: true })).toBeVisible()
@@ -173,7 +173,7 @@ test('sidebar labels and tooltips follow live language changes', async ({ page }
   await page.getByTestId('settings-tab-appearance').click()
   await page.getByTestId('settings-appearance-locale-en').click()
   await page.getByTestId('settings-back-button').click()
-  for (const label of ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings', 'Help']) {
+  for (const label of ['Assistant', 'Board', 'Channels', 'Workflow', 'Plugins', 'Schedule', 'Settings']) {
     await expect(sidebar.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
   await expect(page.getByTestId('project-tree').getByText('Projects', { exact: true })).toBeVisible()
@@ -208,7 +208,7 @@ test('collapsed sidebar keeps all navigation destinations directly accessible', 
 test('the rail keeps one column of icons on short windows', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 })
   const sidebar = page.getByTestId('left-sidebar')
-  const buttons = ['Workflow', 'Plugins', 'Schedule', 'Settings', 'Help'].map(name =>
+  const buttons = ['Workflow', 'Plugins', 'Schedule', 'Settings'].map(name =>
     sidebar.getByRole('button', { name, exact: true }))
   const boxes = await Promise.all(buttons.map(async button => {
     await expect(button).toBeVisible()

@@ -4,7 +4,6 @@ import { AlertCircle, Loader2, Settings } from "lucide-react"
 import { FormattedMessage, useIntl } from "react-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { AccountUsageBar } from "@/components/app-shell/AccountUsageBar"
 import { FileOpenProvider } from "@/lib/file-open-context"
 import { openPluginsPage, openSettingsTab } from "@/lib/open-settings"
 import { useAssistantStore } from "@/stores/assistant-store"
@@ -125,15 +124,11 @@ export function AssistantPage({ onOpenChat }: AssistantPageProps) {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* @container/topbar: the usage bar thins out by this row's width, as in the workspace
-          top bar. TitlebarRow clears the fixed sidebar toggle while the sidebar is narrow. */}
-      <TitlebarRow className="@container/topbar drag-region flex h-10 shrink-0 items-center gap-2 bg-background pr-4">
+      {/* TitlebarRow clears the fixed sidebar toggle while the sidebar is narrow. */}
+      <TitlebarRow className="drag-region flex h-10 shrink-0 items-center gap-2 bg-background pr-4">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           <FormattedMessage id="mobile.tab.assistant" defaultMessage="Assistant" />
         </span>
-        {/* Account quota, same as the workspace top bar: it is the app's, not a workspace's.
-            A real child of this drag row so its `no-drag` holds. */}
-        <AccountUsageBar className="shrink-0" />
       </TitlebarRow>
 
       <FileOpenProvider value={openFileRef}>

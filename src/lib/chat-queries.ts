@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChatStatus } from 'ai'
 import type { SubagentTranscript } from '@shared/background-tasks'
@@ -133,6 +133,21 @@ export function useWorkspaceLatestChats(workspaceId: number) {
     refetchInterval: 60_000,
   })
   const chats = useMemo(() => dedupeById(query.data?.pages.flatMap((page) => page.items) ?? []), [query.data])
+  type WorkspaceLatestData = NonNullable<typeof query.data>
+
+  const showLess = useCallback(() => {
+    queryClient.setQueryData<WorkspaceLatestData>(
+      chatHistoryKeys.workspaceLatest(workspaceId),
+      (data) => data && data.pages.length > 1
+        ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+        : data,
+    )
+  }, [queryClient, workspaceId])
+
+  // "Show more" is for this look at the list only: folding the workspace
+  // unmounts the list, and the pages it loaded stay in the cache — so the next
+  // unfold would come back at full length. Trim back to the preview on the way out.
+  useEffect(() => showLess, [showLess])
 
   return {
     chats,
@@ -140,9 +155,7 @@ export function useWorkspaceLatestChats(workspaceId: number) {
     expanded: chats.length > WORKSPACE_CHAT_PREVIEW_SIZE,
     isFetching: query.isFetching,
     loadMore: () => void query.fetchNextPage({ cancelRefetch: false }),
-    showLess: () => queryClient.setQueryData<NonNullable<typeof query.data>>(queryKey, (data) =>
-      data && { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) },
-    ),
+    showLess,
   }
 }
 

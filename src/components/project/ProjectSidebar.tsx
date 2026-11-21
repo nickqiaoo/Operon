@@ -1,7 +1,6 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
-import { openExternalUrl } from "@/lib/open-external"
-import { CalendarClock, ChevronRight, CircleHelp, Folder, FolderOpen, GitBranch, Hash, ListFilter, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
+import { CalendarClock, ChevronRight, Folder, FolderOpen, GitBranch, Hash, ListFilter, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
 import { Fragment, memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react"
@@ -22,6 +21,7 @@ import { useInboxStore } from "@/stores/inbox-store"
 import { useNavigationStore } from "@/stores/navigation-store"
 import { trackEvent } from "@/lib/analytics"
 import { UpdateReadyPill } from "@/components/update/UpdateReadyPill"
+import { AccountUsageRail } from "@/components/app-shell/AccountUsageRail"
 import { LEFT_SIDEBAR_DEFAULT_WIDTH, LEFT_SIDEBAR_RAIL_WIDTH } from "@/components/app-shell/constants"
 import { AgentIcon, FocusConversations, RecentConversations, useActiveAttentionCounts, useChatAttention } from "@/components/active/ActiveConversations"
 import { chatIdOfTab, type ActiveGroup, type OpenChat } from "@/lib/active-conversations"
@@ -119,18 +119,6 @@ const ProjectItem = memo(function ProjectItem({
   const hiddenSpecIds = useProjectStore((s) => s.hiddenSpecIds)
   const shownSpecIds = useProjectStore((s) => s.shownSpecIds)
   const entries = projectSidebarEntries(project, shownSpecIds, hiddenSpecIds)
-  const collapsedWorkspaceIds = useProjectStore((s) => s.collapsedWorkspaceIds)
-  const setWorkspaceCollapsed = useProjectStore((s) => s.setWorkspaceCollapsed)
-  // A click on the workspace you are in folds / unfolds its conversations; on
-  // another one it goes there, unfolding it if it was folded.
-  const handleWorkspaceClick = (workspaceId: number, workspaceCollapsed: boolean) => {
-    if (activeWorkspaceId === workspaceId) {
-      setWorkspaceCollapsed(workspaceId, !workspaceCollapsed)
-      return
-    }
-    if (workspaceCollapsed) setWorkspaceCollapsed(workspaceId, false)
-    onSelectWorkspace(workspaceId, project.id)
-  }
   return (
     <Collapsible
       open={!collapsed}
@@ -208,28 +196,18 @@ const ProjectItem = memo(function ProjectItem({
           <div className="pb-1">
             {[...entries.workspaces]
               .sort((a, b) => Number(isMainCheckout(b, project)) - Number(isMainCheckout(a, project)))
-              .map((workspace) => {
-                const workspaceCollapsed = collapsedWorkspaceIds.includes(workspace.id)
-                return (
-                  <Fragment key={workspace.id}>
-                    <WorkspaceRow
-                      workspaceId={workspace.id}
-                      label={workspace.name}
-                      title={workspace.worktreePath}
-                      isActive={activeWorkspaceId === workspace.id}
-                      expanded={!workspaceCollapsed}
-                      stats={workspaceDiffStats?.[workspace.worktreePath]}
-                      onSelect={() => handleWorkspaceClick(workspace.id, workspaceCollapsed)}
-                      onNewChat={() => {
-                        // A new chat lands in this list, so show it.
-                        if (workspaceCollapsed) setWorkspaceCollapsed(workspace.id, false)
-                        onNewChatInWorkspace(workspace.id, project.id)
-                      }}
-                    />
-                    {!workspaceCollapsed && <WorkspaceChats workspaceId={workspace.id} onOpenChat={onOpenChat} />}
-                  </Fragment>
-                )
-              })}
+              .map((workspace) => (
+                <WorkspaceEntry
+                  key={workspace.id}
+                  workspace={workspace}
+                  projectId={project.id}
+                  isActive={activeWorkspaceId === workspace.id}
+                  stats={workspaceDiffStats?.[workspace.worktreePath]}
+                  onSelectWorkspace={onSelectWorkspace}
+                  onNewChatInWorkspace={onNewChatInWorkspace}
+                  onOpenChat={onOpenChat}
+                />
+              ))}
           </div>
         )}
         {entries.specs.length > 0 && (
@@ -244,6 +222,52 @@ const ProjectItem = memo(function ProjectItem({
         )}
       </CollapsibleContent>
     </Collapsible>
+  )
+})
+
+/**
+ * One workspace row plus its conversations. It subscribes to its own folded
+ * flag (a boolean), so folding one workspace re-renders just this entry rather
+ * than every project in the tree.
+ */
+const WorkspaceEntry = memo(function WorkspaceEntry({ workspace, projectId, isActive, stats, onSelectWorkspace, onNewChatInWorkspace, onOpenChat }: {
+  workspace: Workspace
+  projectId: number
+  isActive: boolean
+  stats?: WorkspaceDiffStat
+  onSelectWorkspace: ProjectItemProps["onSelectWorkspace"]
+  onNewChatInWorkspace: ProjectItemProps["onNewChatInWorkspace"]
+  onOpenChat: ProjectItemProps["onOpenChat"]
+}) {
+  const collapsed = useProjectStore((s) => s.collapsedWorkspaceIds.includes(workspace.id))
+  const setWorkspaceCollapsed = useProjectStore((s) => s.setWorkspaceCollapsed)
+  return (
+    <>
+      <WorkspaceRow
+        workspaceId={workspace.id}
+        label={workspace.name}
+        title={workspace.worktreePath}
+        isActive={isActive}
+        expanded={!collapsed}
+        stats={stats}
+        onSelect={() => {
+          // A click on the workspace you are in folds / unfolds its conversations;
+          // on another one it goes there, unfolding it if it was folded.
+          if (isActive) {
+            setWorkspaceCollapsed(workspace.id, !collapsed)
+            return
+          }
+          if (collapsed) setWorkspaceCollapsed(workspace.id, false)
+          onSelectWorkspace(workspace.id, projectId)
+        }}
+        onNewChat={() => {
+          // A new chat lands in this list, so show it.
+          if (collapsed) setWorkspaceCollapsed(workspace.id, false)
+          onNewChatInWorkspace(workspace.id, projectId)
+        }}
+      />
+      {!collapsed && <WorkspaceChats workspaceId={workspace.id} onOpenChat={onOpenChat} />}
+    </>
   )
 })
 
@@ -998,6 +1022,8 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
           <div className="absolute bottom-full left-1.5 mb-1 w-10">
             <UpdateReadyPill variant="rail" />
           </div>
+          {/* Account quota rings: app-level status, so it heads the app-level group. */}
+          <AccountUsageRail className="pb-1" />
           <SidebarNavItem icon={Network} label={intl.formatMessage({ id: "sidebar.workflow", defaultMessage: "Workflow" })} collapsed={collapsed}
             onClick={() => openPage({ kind: "canvas" })} />
           <SidebarNavItem icon={Package} label={intl.formatMessage({ id: "sidebar.plugins", defaultMessage: "Plugins" })} collapsed={collapsed}
@@ -1006,8 +1032,6 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
             onClick={() => openPage({ kind: "schedule" })} />
           <SidebarNavItem icon={Settings} label={intl.formatMessage({ id: "sidebar.settings", defaultMessage: "Settings" })} collapsed={collapsed}
             data-testid="settings-button" onClick={() => openPage({ kind: "settings" })} />
-          <SidebarNavItem icon={CircleHelp} label={intl.formatMessage({ id: "sidebar.help", defaultMessage: "Help" })} collapsed={collapsed}
-            onClick={() => openExternalUrl("https://github.com/Nickqiaoo/Operon")} />
         </nav>
       </div>
 
