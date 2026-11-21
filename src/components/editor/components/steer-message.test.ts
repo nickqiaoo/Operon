@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { UIMessage } from 'ai';
+import type { FileUIPart, UIMessage } from 'ai';
 import {
   collectInjectedInputIds,
+  collectSteerAttachments,
   findLatestTurnMessageId,
   getInjectedInput,
   getInjectedNotice,
@@ -114,5 +115,28 @@ describe('injected notices', () => {
     expect(getInjectedInput(notice)).toBeNull();
     expect(getInjectedNotice(steer)).toBeNull();
     expect(getInjectedInput(steer)).toEqual({ id: 's-1', text: 'adjust' });
+  });
+});
+
+describe('collectSteerAttachments', () => {
+  const image: FileUIPart = { type: 'file', url: '/api/attachments/abc', mediaType: 'image/png', filename: 'image.png' };
+
+  it('takes the images of a steer the reply shows in place', () => {
+    const steer: UIMessage = {
+      id: 'steer-1',
+      role: 'user',
+      metadata: { steer: true, turnMessageId: 'turn-1' },
+      parts: [image, { type: 'text', text: 'look at this' }],
+    };
+    const plain: UIMessage = { id: 'turn-1', role: 'user', parts: [image, { type: 'text', text: 'hi' }] };
+    const byId = collectSteerAttachments([plain, steer]);
+    expect(byId.get('steer-1')).toEqual([image]);
+    // An ordinary user message draws its own attachments.
+    expect(byId.has('turn-1')).toBe(false);
+  });
+
+  it('falls back to what this surface sent while the steer row has not loaded', () => {
+    const live = new Map([['steer-2', [image]]]);
+    expect(collectSteerAttachments([], live).get('steer-2')).toEqual([image]);
   });
 });

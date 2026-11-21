@@ -1134,6 +1134,23 @@ function ChatPanelContent({
     }
     return ids.join('\n');
   }, [messages]);
+  // A follow-up leaves the tray the moment the reply shows it, but its persisted row
+  // (which holds its images) only arrives with the next history sync: until then the
+  // reply's bubble takes its files from here.
+  const [sentSteerFiles, setSentSteerFiles] = useState<ReadonlyMap<string, readonly FileUIPart[]>>(() => new Map());
+  useEffect(() => {
+    const unseen = liveSteers.filter(
+      (item): item is LiveSteerItem & { messageId: string; files: FileUIPart[] } =>
+        !!item.messageId && !!item.files?.length && !sentSteerFiles.has(item.messageId),
+    );
+    if (unseen.length === 0) return;
+    setSentSteerFiles((current) => {
+      const next = new Map(current);
+      for (const item of unseen) next.set(item.messageId, item.files);
+      return next;
+    });
+  }, [liveSteers, sentSteerFiles]);
+
   useEffect(() => {
     if (!readSteerIds) return;
     const read = new Set(readSteerIds.split('\n'));
@@ -1144,8 +1161,8 @@ function ChatPanelContent({
   }, [readSteerIds]);
 
   const handleLoadMoreHistory = useCallback(() => {
-    chatLoadMore(messages);
-  }, [chatLoadMore, messages]);
+    void chatLoadMore();
+  }, [chatLoadMore]);
 
   // Server-delivered child results do not appear in this tab's local steer tray.
   // Subscribe only to the derived flag, then reconcile history when its turn ends.
@@ -1306,6 +1323,7 @@ function ChatPanelContent({
               externalAgentNotificationsByTaskId={externalAgentNotificationsByTaskId}
               onAnswerQuestion={!isGenerating || (supportsInjection && !!(tab?.chatId ?? dbChatIdRef.current)) ? handleAnswerQuestion : undefined}
               questionAnswers={questionAnswers}
+              liveSteerAttachments={sentSteerFiles}
             />
             </ChatProviderIdContext.Provider>
             </ChatDbIdContext.Provider>

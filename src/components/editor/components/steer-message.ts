@@ -53,6 +53,24 @@ export function collectInjectedInputIds(messages: readonly UIMessage[]): Set<str
   return ids;
 }
 
+/**
+ * Files sent with each follow-up, by steer message id: the persisted steer rows
+ * (hidden once the reply shows them in place), then `live` — what this surface sent
+ * this turn, before those rows reach it.
+ */
+export function collectSteerAttachments(
+  messages: readonly UIMessage[],
+  live?: ReadonlyMap<string, readonly FileUIPart[]>,
+): Map<string, readonly FileUIPart[]> {
+  const byId = new Map<string, readonly FileUIPart[]>(live ?? []);
+  for (const message of messages) {
+    if (!getSteerMessageMetadata(message)) continue;
+    const files = message.parts.filter((part): part is FileUIPart => part.type === 'file');
+    if (files.length > 0) byId.set(message.id, files);
+  }
+  return byId;
+}
+
 export type LiveSteerStatus = 'sending' | 'sent' | 'failed' | 'unknown';
 
 export type LiveSteerItem = {

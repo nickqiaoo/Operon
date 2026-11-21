@@ -25,6 +25,7 @@ import { SteerNoticeMessage, parseSteerNotice } from './SteerNoticeMessage';
 import { BackgroundNoticeList } from './MonitorNotices';
 import { parseBackgroundNotices } from './background-notice';
 import { getInjectedInput, getInjectedNotice } from './steer-message';
+import { InjectedSteerMessage } from './InjectedSteerMessage';
 import {
   ExternalAgentToolRenderer,
   extractExternalAgentTaskId,
@@ -504,13 +505,7 @@ export function MessagePartRenderer(props: MessagePartRendererProps) {
   // the reply says above it was written without it, what follows takes it in.
   const injected = getInjectedInput(part);
   if (injected) {
-    return (
-      <Message key={`${message.id}-${partIndex}`} from="user" data-testid="injected-steer">
-        <MessageContent>
-          <UserMessageText text={injected.text} />
-        </MessageContent>
-      </Message>
-    );
+    return <InjectedSteerMessage key={`${message.id}-${partIndex}`} injected={injected} />;
   }
 
   // An automated event the agent read mid-turn, where it read it: the same step

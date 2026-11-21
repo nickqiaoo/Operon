@@ -55,7 +55,7 @@ export const normalizeHistoryMessages = async (messages: UIMessage[]): Promise<U
 
 export function useChatHistory(
   dbChatId: number | undefined,
-  setMessages: (messages: UIMessage[]) => void,
+  setMessages: (messages: UIMessage[] | ((current: UIMessage[]) => UIMessage[])) => void,
   timestamp?: number
 ) {
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -69,6 +69,8 @@ export function useChatHistory(
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** Synchronous twin of `loadingMore`: two scroll / resize callbacks in one frame both saw the state false. */
+  const loadingMoreRef = useRef(false);
   const setMessagesRef = useRef(setMessages);
   const nextCursorRef = useRef<number | undefined>(undefined);
   const dbChatIdRef = useRef(dbChatId);
@@ -139,34 +141,41 @@ export function useChatHistory(
     };
   }, [dbChatId, timestamp]);
 
-  const loadMore = useCallback(async (currentMessages: UIMessage[]) => {
+  const loadMore = useCallback(async () => {
     const chatId = dbChatIdRef.current;
-    if (!chatId || !hasMore || loadingMore) return;
+    if (!chatId || !hasMore || loadingMoreRef.current) return;
 
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       const cursor = nextCursorRef.current;
       const result = await api.chatHistoryGet(chatId, { before: cursor, limit: CHAT_PAGE_SIZE });
       const rawMessages: UIMessage[] = result?.messages ?? [];
       const normalized = await normalizeHistoryMessages(rawMessages);
+      // Switched to another conversation while the page was in flight.
+      if (dbChatIdRef.current !== chatId) return;
       setHasMore(result?.hasMore ?? false);
       nextCursorRef.current = result?.nextCursor;
-      // Prepend older messages, dropping any that overlap the current list
-      // (page boundaries can re-return a message → duplicate id).
-      const currentIds = new Set(currentMessages.map((m) => m.id));
-      const overlap = normalized.filter((m) => currentIds.has(m.id)).map((m) => m.id);
-      if (overlap.length) {
-        console.warn('[useChatHistory] loadMore page overlapped current messages (deduped):', overlap, 'cursor', cursor);
-      }
-      const olderUnique = normalized.filter((m) => !currentIds.has(m.id));
-      const merged = [...olderUnique, ...currentMessages];
-      setMessagesRef.current(merged);
+      // Merged into the list as it is NOW, not as the caller saw it: useChat hands
+      // components a throttled copy, so right after the first page lands the caller
+      // can still be holding `[]` — prepending to that replaced the newest page with
+      // the older one, and every page after it left a hole in the transcript.
+      setMessagesRef.current((current) => {
+        // Page boundaries can re-return a message → duplicate id.
+        const currentIds = new Set(current.map((m) => m.id));
+        const olderUnique = normalized.filter((m) => !currentIds.has(m.id));
+        if (olderUnique.length < normalized.length) {
+          console.warn('[useChatHistory] loadMore page overlapped current messages (deduped), cursor', cursor);
+        }
+        return olderUnique.length > 0 ? [...olderUnique, ...current] : current;
+      });
     } catch (err) {
       console.error('[useChatHistory] Failed to load more:', err);
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [hasMore, loadingMore]);
+  }, [hasMore]);
 
   return { historyLoaded, loadedModel, loadedProviderId, loadedThinkingLevel, loadedModeId, loadedUpdatedAt, loadedSshEnvironment, hasMore, loadingMore, loadMore };
 }

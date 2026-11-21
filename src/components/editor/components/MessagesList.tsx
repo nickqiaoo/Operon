@@ -1,6 +1,6 @@
 import { ConversationItem } from '@/components/ai-elements/conversation';
 import { cn } from '@/lib/utils';
-import type { UIMessage } from 'ai';
+import type { FileUIPart, UIMessage } from 'ai';
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { CornerDownRight } from 'lucide-react';
@@ -28,7 +28,8 @@ import type { SendToModel } from '../SendToButton';
 import { segmentMessageParts, type Segment } from './compact-tool/segmentParts';
 import { ToolCallGroup } from './compact-tool/ToolCallGroup';
 import { ReplyImageGallery } from './ReplyImageGallery';
-import { findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
+import { collectSteerAttachments, findLatestTurnMessageId, groupArchivedSteers } from './steer-message';
+import { SteerAttachmentsContext } from './InjectedSteerMessage';
 import { foldMonitorEventRuns } from './background-notice';
 import { automatedTrigger, backgroundRunFolds, type AutomatedTrigger } from './automated-turn';
 import { BackgroundRunFold } from './BackgroundRunFold';
@@ -184,6 +185,8 @@ interface MessagesListProps {
   /** Send the user's answer to a question the agent asked. */
   onAnswerQuestion?: (questionKey: string, text: string) => void;
   questionAnswers?: Readonly<Record<string, string>>;
+  /** Files of the follow-ups this surface sent this turn, by steer message id (before their rows load). */
+  liveSteerAttachments?: ReadonlyMap<string, readonly FileUIPart[]>;
 }
 
 interface MessageItemProps {
@@ -595,6 +598,7 @@ export const MessagesList = memo(function MessagesList({
   externalAgentNotificationsByTaskId,
   onAnswerQuestion,
   questionAnswers,
+  liveSteerAttachments,
 }: MessagesListProps) {
   // Guard against duplicate message ids in the source array (a history + live
   // merge can produce them). Dedupe by id — keeping each id's first position
@@ -620,6 +624,10 @@ export const MessagesList = memo(function MessagesList({
   const archivedPresentation = useMemo(
     () => groupArchivedSteers(dedupedMessages),
     [dedupedMessages],
+  );
+  const steerAttachments = useMemo(
+    () => collectSteerAttachments(dedupedMessages, liveSteerAttachments),
+    [dedupedMessages, liveSteerAttachments],
   );
   // Rounds a turn's diff hangs off: their user message must stay its own row.
   const turnMessageIds = useMemo(
@@ -852,5 +860,5 @@ export const MessagesList = memo(function MessagesList({
     index = fold.end - 1;
   }
 
-  return <>{items}</>;
+  return <SteerAttachmentsContext.Provider value={steerAttachments}>{items}</SteerAttachmentsContext.Provider>;
 });
