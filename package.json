@@ -64,7 +64,7 @@
     "test:e2e:ci": "OPERON_TEST_MODE=fake PLAYWRIGHT_CI=1 playwright test --project=ci",
     "test:e2e:real": "OPERON_TEST_MODE=real playwright test --project=ci",
     "test-server": "tsx server/src/test-server.ts",
-    "test-renderer": "OPERON_SKIP_ELECTRON=1 vite --host 127.0.0.1 --port 4101 --strictPort",
+    "test-renderer": "OPERON_SKIP_ELECTRON=1 OPERON_VITE_CACHE_DIR=node_modules/.vite-e2e vite --host 127.0.0.1 --port 4101 --strictPort",
     "check:optional-deps": "node scripts/check-optional-deps.mjs"
   },
   "dependencies": {

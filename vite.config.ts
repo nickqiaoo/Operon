@@ -31,6 +31,9 @@ const warnUnlessKnown = (warning: RollupLog, warn: LoggingFunction): void => {
 }
 
 export default defineConfig({
+  // e2e's test-renderer sets its own dir so it never shares (or clobbers) the
+  // dev server's pre-bundled deps in node_modules/.vite.
+  cacheDir: process.env.OPERON_VITE_CACHE_DIR || 'node_modules/.vite',
   define: {
     __ENABLE_MEMORY__: enableMemory,
     __APP_TARGET__: JSON.stringify(buildTarget),

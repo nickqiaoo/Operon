@@ -19,6 +19,11 @@ const CI_SERVER_PORT = Number(process.env.PW_CI_SERVER_PORT ?? 4100)
 const TEST_SERVER_HOME = join(tmpdir(), 'operon-e2e-home')
 mkdirSync(TEST_SERVER_HOME, { recursive: true })
 
+// Locally a server already on the port was reused by default, so a stale vite
+// left over from an earlier run (or another worktree) served old code and specs
+// failed or passed against it. Start fresh unless asked: PW_REUSE_SERVER=1.
+const REUSE_SERVER = process.env.PW_REUSE_SERVER === '1'
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
@@ -74,7 +79,7 @@ export default defineConfig({
             GIT_COMMITTER_EMAIL: 'e2e@operon.invalid',
           },
           url: `http://127.0.0.1:${CI_SERVER_PORT}/api/health`,
-          reuseExistingServer: !process.env.CI,
+          reuseExistingServer: REUSE_SERVER,
           timeout: 60_000,
           stdout: 'pipe',
           stderr: 'pipe',
@@ -82,7 +87,7 @@ export default defineConfig({
         {
           command: 'npm run test-renderer',
           url: `http://127.0.0.1:${CI_RENDERER_PORT}`,
-          reuseExistingServer: !process.env.CI,
+          reuseExistingServer: REUSE_SERVER,
           timeout: 120_000,
           stdout: 'pipe',
           stderr: 'pipe',
