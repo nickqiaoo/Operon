@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.5.35] - 2026-11-22
+
+### Added
+
+- GitHub pull request and issue links render as compact chips in Markdown.
+- The Taskboard MCP tool returns long task details in numbered pages.
+
+### Changed
+
+- Task details link directly to their conversation and workspace, including tasks dispatched to a shared workspace.
+- Channel messages and threads have a more consistent layout, and empty channels show an explicit Add agents button.
+
+### Fixed
+
+- Task conversations show their associated task even when it runs in a shared workspace.
+
 ## [1.5.34] - 2026-11-22
 
 ### Added
