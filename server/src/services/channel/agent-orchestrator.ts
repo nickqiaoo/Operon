@@ -872,20 +872,18 @@ export async function dispatchProjectTask(
       `and anything that departs from the design. Then move the ticket to in_review — a separate reviewer reads that ` +
       `report against your diff, and either merges the ticket or sends its points back to you here.\n`
     : ''
-  // A ticket already gets its forced pre-read above; every other task needs its
-  // own, because a comment left BEFORE dispatch lives only in the activity feed
-  // (never inlined into this prompt) and is only guaranteed to be seen if the
-  // agent reads the task first. get_project_task always renders `## Activity`.
-  const readFirstPrompt = specParent
-    ? ''
-    : `\nBefore you start coding, call get_project_task(task: ${task.number}) to read the full ` +
-      `task — its description and the discussion/comments left before dispatch may carry ` +
-      `requirements not repeated here. Don't begin until you've read it.\n`
+  // The prompt names the task and leaves its content to get_project_task: a
+  // description or discussion can run long, and the tool pages through it
+  // instead of landing all of it in one message. Comments left before dispatch
+  // live only there, so the read is not optional.
+  const readFirstPrompt =
+    `\nBefore you start, read the task with get_project_task(task: ${task.number}) — its description ` +
+    `and the discussion on it are not repeated here. Long tasks come back in pages: keep calling it ` +
+    `with the offset it gives you until you have read everything, then start.\n`
   const taskPrompt =
     `You've been assigned task #${task.number}: ${task.title}\n` +
-    (task.description ? `\n${task.description}\n` : '') +
-    specTicketPrompt +
     readFirstPrompt +
+    specTicketPrompt +
     (shared
       ? `\nYou are working in the shared workspace "${workspace.name}" (\`${workspace.worktreePath}\`, ` +
         `currently on \`${workspace.branchName}\`). It is not yours alone: the user and other agents may be ` +
@@ -1366,38 +1364,6 @@ export async function restoreSpecWorktree(taskId: number): Promise<boolean> {
  * fresh one with the notification as the prompt. Returns false if it couldn't
  * be woken.
  */
-/**
- * Pick an assigned task back up in its existing session — after an Operon
- * restart killed the turn, or when the agent stopped before the task was done.
- * The session keeps its history; the prompt only says where to restart from.
- */
-export async function resumeProjectTask(taskId: number): Promise<boolean> {
-  const storage = _storage
-  if (!storage) throw new Error('Orchestrator not initialised')
-  const task = storage.taskGet(taskId)
-  if (!task) throw new Error(`Task ${taskId} not found`)
-  if (task.bindingId == null) throw new Error(`Task #${task.number} has never been dispatched`)
-  const binding = storage.getBinding(task.bindingId)
-  if (binding?.status === 'active') return false
-  const woke = await wakeTaskBinding(
-    task.bindingId,
-    `Your work on task #${task.number} stopped before it was finished (Operon restarted or the last turn ended). ` +
-      `Continue from the current state of your worktree — check \`git status\` and the task's activity first, ` +
-      `don't redo what is already there.`,
-  )
-  if (woke) {
-    storage.taskAppendActivity(taskId, {
-      kind: 'system',
-      actorType: 'human',
-      actorName: 'You',
-      body: 'Resumed the agent',
-      meta: { event: 'task.resumed' },
-    })
-    broadcastTask(storage, taskId)
-  }
-  return woke
-}
-
 /** Stop a task's running turn; its session stays, to be woken again. False when nothing was running. */
 export function stopTaskSession(taskId: number): boolean {
   const storage = _storage

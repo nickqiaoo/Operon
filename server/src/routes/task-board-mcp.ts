@@ -67,10 +67,14 @@ const TOOLS: Tool[] = [
   {
     name: TASKBOARD_TOOLS.getProjectTask,
     description:
-      "Read one shared project task in full: description, labels, assignee, branch, and activity feed. Use this before working on a Taskboard task.",
+      "Read one shared project task: description, labels, assignee, branch, and activity feed. Use this before working on a Taskboard task. A long task comes back one page at a time, with numbered lines, where each section starts, and the offset to pass for the next page; keep reading until it says End of task.",
     inputSchema: {
       type: 'object',
-      properties: { task: { type: 'number', description: 'Task number, e.g. 42' } },
+      properties: {
+        task: { type: 'number', description: 'Task number, e.g. 42' },
+        offset: { type: 'number', description: 'Line to start from (1-based), as given by the previous page. Default 1.' },
+        limit: { type: 'number', description: 'Most lines to return (default 200, max 1000). A page also stops at about 12,000 characters.' },
+      },
       required: ['task'],
     },
   },
@@ -456,7 +460,10 @@ async function dispatch(
       })
 
     case TASKBOARD_TOOLS.getProjectTask:
-      return board.get(Number(args.task))
+      return board.get(Number(args.task), {
+        offset: typeof args.offset === 'number' ? args.offset : undefined,
+        limit: typeof args.limit === 'number' ? args.limit : undefined,
+      })
 
     case TASKBOARD_TOOLS.listProjectAgents:
       return board.listAgents()

@@ -8,6 +8,8 @@ import { lazy, memo, Suspense, useLayoutEffect, useMemo, useRef, useState } from
 import { CITATION_TOKEN_RE, parseCitationPath } from "@/lib/file-citation";
 import { useMarkdownLinkHandler } from "@/lib/markdown-links";
 import { FileCitationChip } from "@/components/editor/FileCitationChip";
+import { matchGithubLink, type GithubLinkRef } from "@/lib/github-links";
+import { GithubLinkChip } from "./github-link-chip";
 import { hasInlineMarkdownHtml, prepareMarkdownHtml, restoreInlineHtml } from "@/lib/markdown-html";
 import type { RichMarkdownProps } from "./rich-markdown";
 import { UiBlock } from "./ui-block";
@@ -49,14 +51,38 @@ function citeInlineCode(html: string) {
   return match?.[0] === content ? citationSlot(match[0], match[1], match[2], match[3]) : html;
 }
 
+const anchorPattern = /^<a\b[^>]*\bhref="([^"]*)"[^>]*>([^<]*)<\/a>$/;
+
+function decodeEntities(text: string) {
+  return text.replace(encodedEntities, (_, entity: string) => entities[entity]);
+}
+
+function safeDecodeUri(url: string) {
+  try { return decodeURI(url); } catch { return url; }
+}
+
+/** A bare GitHub PR / issue URL (link text = the URL) becomes a chip; a written `[text](url)` stays a link. */
+function githubAnchor(html: string) {
+  const anchor = anchorPattern.exec(html);
+  if (!anchor) return html;
+  const href = safeDecodeUri(decodeEntities(anchor[1]));
+  const text = decodeEntities(anchor[2]);
+  if (href !== text) return html;
+  const match = matchGithubLink(text);
+  if (!match) return html;
+  const data = escapeHtml(JSON.stringify(match.ref));
+  return '<span ' + slotAttribute + '="github" data-slot-value="' + data + '"></span>' + escapeHtml(match.rest);
+}
+
 function softBreaks(html: string) {
   return html.replace(/<br\b[^>]*>\n|\n/g, (part) => part === "\n" ? "<br>\n" : part);
 }
 
-function createComponents(citations: boolean, breaks: boolean, inlineHtml: boolean): Components {
+function createComponents(citations: boolean, breaks: boolean, inlineHtml: boolean, githubLinks: boolean): Components {
   const components: Components = {
     table: (html) => '<div class="markdown-table-scroll">' + html + '</div>',
   };
+  if (githubLinks) components.a = githubAnchor;
   if (citations) components.inlineCode = citeInlineCode;
   const format = (html: string) => formatInlineText(html, citations, inlineHtml);
   if (citations || inlineHtml) {
@@ -104,7 +130,7 @@ const Words = memo(Markdown);
 
 export default function WordsMessageMarkdown({
   children, className, uiBlocks = false, citations = false, headingIds = false,
-  breaks = false, codeControls: showControls = true, ...stream
+  breaks = false, codeControls: showControls = true, githubLinks = false, ...stream
 }: RichMarkdownProps) {
   const root = useRef<HTMLDivElement>(null);
   const onClick = useMarkdownLinkHandler();
@@ -112,7 +138,10 @@ export default function WordsMessageMarkdown({
   const slotsRef = useRef<Slot[]>([]);
   const source = useMemo(() => prepareMarkdownHtml(children), [children]);
   const inlineHtml = hasInlineMarkdownHtml(source);
-  const components = useMemo(() => createComponents(citations, breaks, inlineHtml), [citations, breaks, inlineHtml]);
+  const components = useMemo(
+    () => createComponents(citations, breaks, inlineHtml, githubLinks),
+    [citations, breaks, inlineHtml, githubLinks],
+  );
 
   useLayoutEffect(() => {
     const scope = root.current;
@@ -134,7 +163,7 @@ export default function WordsMessageMarkdown({
       const value = host.dataset.slotValue ?? "";
       const key = kind + ":" + index;
       const old = previous[index];
-      const container = old?.key === key ? old.container : document.createElement(kind === "citation" ? "span" : "div");
+      const container = old?.key === key ? old.container : document.createElement(kind === "citation" || kind === "github" ? "span" : "div");
       // Words owns the placeholder. The nested portal container is kept alive
       // when an updated pending block causes Words to replace its children.
       if (container.parentNode !== host) host.append(container);
@@ -167,6 +196,7 @@ const MarkdownSlot = memo(function MarkdownSlot({ slot, controls }: { slot: Slot
     const ref = JSON.parse(slot.value) as { path: string; line: number; endLine?: number };
     return <FileCitationChip {...ref} />;
   }
+  if (slot.kind === "github") return <GithubLinkChip link={JSON.parse(slot.value) as GithubLinkRef} />;
   const { source, incomplete } = JSON.parse(slot.value) as { source: string; incomplete: boolean };
   if (slot.kind === "ui") return <UiBlock code={source} />;
   if (slot.kind === "mermaid") {

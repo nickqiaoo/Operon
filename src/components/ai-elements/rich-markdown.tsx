@@ -12,6 +12,8 @@ export interface RichMarkdownProps {
   headingIds?: boolean;
   breaks?: boolean;
   codeControls?: boolean;
+  /** Bare GitHub PR / issue URLs render as chips (see `GithubLinkChip`). */
+  githubLinks?: boolean;
 }
 
 const PortableMarkdown = lazy(() => import("./portable-markdown"));

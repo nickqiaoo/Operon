@@ -8,17 +8,24 @@ import { lazy, Suspense } from "react";
 import { InlineFileCode } from "@/components/editor/FileCitationChip";
 import { useMarkdownLinkHandler } from "@/lib/markdown-links";
 import { remarkFileCitations } from "@/lib/remark-file-citations";
+import { matchGithubLink } from "@/lib/github-links";
+import { GithubLinkChip } from "./github-link-chip";
 import type { RichMarkdownProps } from "./rich-markdown";
 import { UiBlock } from "./ui-block";
 
 const MermaidBlock = lazy(() => import("./mermaid-block"));
 
 export default function PortableMarkdown({
-  children, className, uiBlocks, citations, headingIds, breaks, codeControls = true,
+  children, className, uiBlocks, citations, headingIds, breaks, codeControls = true, githubLinks,
 }: RichMarkdownProps) {
   const onClick = useMarkdownLinkHandler();
   const components: Components = {
-    a: ({ node: _node, ...props }) => <a data-markdown="a" {...props} />,
+    a: ({ node: _node, ...props }) => {
+      const text = typeof props.children === "string" ? props.children : null;
+      const match = githubLinks && text != null && text === props.href ? matchGithubLink(text) : null;
+      if (match && !match.rest) return <GithubLinkChip link={match.ref} />;
+      return <a data-markdown="a" {...props} />;
+    },
     table: ({ node: _node, ...props }) => (
       <div className="markdown-table-scroll">
         <table {...props} />

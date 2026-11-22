@@ -1244,11 +1244,11 @@ export const api = {
   taskCreate: httpClient.taskCreate,
   taskUpdate: httpClient.taskUpdate,
   taskGetByWorkspace: httpClient.taskGetByWorkspace,
+  taskGetByChat: httpClient.taskGetByChat,
   taskSetArchived: httpClient.taskSetArchived,
   taskComment: httpClient.taskComment,
   taskResolveProposal: httpClient.taskResolveProposal,
   taskDispatch: httpClient.taskDispatch,
-  taskResume: httpClient.taskResume,
 
   // --- Notification inbox ---
   inboxList: httpClient.inboxList,

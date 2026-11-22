@@ -373,12 +373,20 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
           <button
             type="button"
             onClick={onManageMembers}
-            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-full px-1.5 py-1 hover:bg-row-hover"
+            className="flex h-7 items-center gap-2 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground"
             title={intl.formatMessage({ id: 'channel.manageMembers', defaultMessage: 'Manage members' })}
           >
             <MemberStack agents={memberAgents} />
-            {memberAgents.length === 0 && <Users className="w-3.5 h-3.5" />}
-            <span className="font-medium tabular-nums">{memberAgents.length}</span>
+            {memberAgents.length === 0 ? (
+              <>
+                <Users className="w-3.5 h-3.5" />
+                <span className="font-medium">
+                  <FormattedMessage id="channel.addAgents" defaultMessage="Add agents" />
+                </span>
+              </>
+            ) : (
+              <span className="font-medium tabular-nums">{memberAgents.length}</span>
+            )}
           </button>
           {onClose && (
             <button
@@ -410,7 +418,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   </div>
                 ) : (
                   <div
-                    className="py-4 max-w-4xl mx-auto px-2 md:px-4"
+                    className="mx-auto max-w-4xl px-2 pb-6 pt-2 md:px-4"
                     style={isMobile ? { paddingBottom: `${composerHeight + 16}px` } : undefined}
                   >
                     {loadingMore && (
@@ -442,8 +450,8 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                     {[...typingAgentIds].map((agentId) => {
                       const agent = agents.find((a) => a.id === agentId)
                       return (
-                        <div key={agentId} className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground/60">
-                          <AgentAvatar provider={agent?.provider} size="sm" />
+                        <div key={agentId} className="flex items-center gap-3 px-2 pt-4 text-xs text-muted-foreground/70 md:px-3">
+                          <AgentAvatar provider={agent?.provider} size="sm" className="size-7" />
                           <span>
                             <FormattedMessage
                               id="channel.typing"

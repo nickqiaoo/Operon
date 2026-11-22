@@ -49,3 +49,30 @@ describe("GET /by-workspace/:workspaceId", () => {
     expect(taskDetail).not.toHaveBeenCalled()
   })
 })
+
+describe("GET /by-chat/:chatId", () => {
+  function routesFor(binding: { scopeKind: string; scopeKey: string } | null) {
+    const task = { id: 19, number: 19, title: "issue" } as Task
+    const taskGet = vi.fn((id: number) => (id === 19 ? task : null))
+    const routes = taskRoutes({ getBindingByActiveChatId: vi.fn(() => binding), taskGet } as unknown as Storage)
+    return { routes, task, taskGet }
+  }
+
+  it("returns the task a dispatched chat works on, shared workspace or not", async () => {
+    const { routes, task } = routesFor({ scopeKind: "task", scopeKey: "19" })
+    const response = await routes.request("/by-chat/501")
+    expect(await response.json()).toEqual({ task })
+  })
+
+  it("answers null for a chat that is not a task's", async () => {
+    const { routes, taskGet } = routesFor({ scopeKind: "channel", scopeKey: "3" })
+    const response = await routes.request("/by-chat/501")
+    expect(await response.json()).toEqual({ task: null })
+    expect(taskGet).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-numeric chat id", async () => {
+    const { routes } = routesFor(null)
+    expect((await routes.request("/by-chat/abc")).status).toBe(400)
+  })
+})

@@ -94,6 +94,8 @@ const RAIL_WIDTH = 24;
 const ROW_HEIGHT = 12;
 /** A turn becomes "current" once its top passes this far into the viewport. */
 const ACTIVE_LINE_OFFSET = 96;
+/** Within this many px of the end counts as scrolled to the bottom (fractional scrollTop). */
+const AT_BOTTOM_EPSILON = 4;
 /** Horizontal padding the reading column reserves on each side (`px-4`). */
 const CONTENT_PADDING = 16;
 /** Tick length by distance from the active turn (last value covers the tail). */
@@ -131,10 +133,15 @@ export const ChatNavigator = memo(function ChatNavigator({
     const offsets = offsetsRef.current;
     if (!scrollEl || offsets.length === 0) return;
 
-    const line = scrollEl.scrollTop + ACTIVE_LINE_OFFSET;
+    // At the bottom the last turn is current: a short closing turn sits wholly
+    // in view, its top well below the line, so the line alone never reaches it
+    // and the rail stayed on the one before.
+    const atBottom = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - AT_BOTTOM_EPSILON;
+    const line = atBottom ? Number.POSITIVE_INFINITY : scrollEl.scrollTop + ACTIVE_LINE_OFFSET;
     let next = 0;
     for (let index = 0; index < offsets.length; index += 1) {
-      if (offsets[index] <= line) next = index;
+      // Infinity: an entry not in the DOM yet, never the current one.
+      if (Number.isFinite(offsets[index]) && offsets[index] <= line) next = index;
     }
     setActiveIndex(next);
   }, [scrollRef]);

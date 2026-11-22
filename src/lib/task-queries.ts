@@ -5,6 +5,28 @@ export const taskKeys = {
   all: ['task'] as const,
   detail: (taskId: number) => ['task', 'detail', taskId] as const,
   assignableAgents: ['task', 'assignable-agents'] as const,
+  byWorkspace: (workspaceId: number) => ['task', 'by-workspace', workspaceId] as const,
+  byChat: (chatId: number) => ['task', 'by-chat', chatId] as const,
+}
+
+/** The task a dispatched worktree belongs to; null for a workspace made by hand. */
+export function useTaskByWorkspace(workspaceId: number | null) {
+  return useQuery({
+    queryKey: taskKeys.byWorkspace(workspaceId ?? 0),
+    queryFn: async () => (await api.taskGetByWorkspace(workspaceId!)).task ?? null,
+    enabled: workspaceId != null,
+    staleTime: 60_000,
+  })
+}
+
+/** The task a dispatched conversation works on (shared workspace included); null otherwise. */
+export function useTaskByChat(chatId: number | null) {
+  return useQuery({
+    queryKey: taskKeys.byChat(chatId ?? 0),
+    queryFn: async () => (await api.taskGetByChat(chatId!)).task ?? null,
+    enabled: chatId != null,
+    staleTime: 60_000,
+  })
 }
 
 export function useTask(taskId: number) {

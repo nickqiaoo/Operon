@@ -42,6 +42,58 @@ import {
   wakeCoordinator,
 } from '../spec/coordinator.js'
 
+/** Where a get_project_task page starts (1-based line) and how many lines it may hold. */
+export interface TaskPageRequest {
+  offset?: number
+  limit?: number
+}
+
+/** Lines per page unless the agent asks for fewer (or more, up to the cap). */
+const TASK_PAGE_LINES = 200
+const TASK_PAGE_MAX_LINES = 1000
+/** Characters per page whatever the line count, so one call never floods the context. */
+const TASK_PAGE_CHARS = 12_000
+/** A longer line (a description pasted without breaks) is cut into lines of this width. */
+const TASK_LINE_WIDTH = 2_000
+
+/**
+ * One page of a task's text. A task that fits is returned untouched; a longer one
+ * comes back a page at a time with line numbers fixed across calls, where its
+ * sections start, and the offset to pass for the next page.
+ */
+export function pageTaskText(text: string, taskNumber: number, page: TaskPageRequest = {}): string {
+  const lines = text.split('\n').flatMap((line) => {
+    if (line.length <= TASK_LINE_WIDTH) return [line]
+    const parts: string[] = []
+    for (let i = 0; i < line.length; i += TASK_LINE_WIDTH) parts.push(line.slice(i, i + TASK_LINE_WIDTH))
+    return parts
+  })
+  const offset = Math.max(1, Math.floor(page.offset ?? 1))
+  const limit = Math.min(TASK_PAGE_MAX_LINES, Math.max(1, Math.floor(page.limit ?? TASK_PAGE_LINES)))
+  if (offset === 1 && lines.length <= limit && text.length <= TASK_PAGE_CHARS) return text
+  if (offset > lines.length) return `Task #${taskNumber} has ${lines.length} lines; offset ${offset} is past the end.`
+
+  const shown: string[] = []
+  let chars = 0
+  for (let n = offset; n <= lines.length && shown.length < limit; n++) {
+    const line = lines[n - 1]
+    if (shown.length > 0 && chars + line.length > TASK_PAGE_CHARS) break
+    shown.push(`${n}\t${line}`)
+    chars += line.length + 1
+  }
+  const last = offset + shown.length - 1
+  const sections = lines
+    .map((line, i) => (line.startsWith('## ') ? `${line.slice(3)} L${i + 1}` : null))
+    .filter((x): x is string => x != null)
+  const footer = [
+    `[Task #${taskNumber}: lines ${offset}–${last} of ${lines.length}.${sections.length ? ` Sections: ${sections.join(', ')}.` : ''}]`,
+    last < lines.length
+      ? `[More below — call get_project_task(task: ${taskNumber}, offset: ${last + 1}) to continue.]`
+      : '[End of task.]',
+  ]
+  return [...shown, '', ...footer].join('\n')
+}
+
 /** Images reach the agent as files on the message that carried them, never through this text. */
 function imageNote(count: number): string {
   return `(${count} image${count > 1 ? 's' : ''} attached — sent to you as files with the dispatch or comment message)`
@@ -134,7 +186,7 @@ export class TaskBoardService {
     return `## Tasks (${tasks.length})\n` + tasks.map((t) => this.formatRow(t)).join('\n')
   }
 
-  async get(number: number): Promise<string> {
+  async get(number: number, page: TaskPageRequest = {}): Promise<string> {
     const detail = this.storage.taskDetail(this.requireTask(number).id)
     if (!detail) throw new Error(`Task #${number} not found.`)
     const assignee = detail.assignedAgentId ? `@${this.agentName(detail.assignedAgentId)}` : 'unassigned'
@@ -173,7 +225,7 @@ export class TaskBoardService {
           : `- ${activity.actorName} ${describeActivity(activity)}`)
       }
     }
-    return lines.join('\n')
+    return pageTaskText(lines.join('\n'), detail.number, page)
   }
 
   /** A direct workspace chat — the only board session allowed to create plain tasks. */

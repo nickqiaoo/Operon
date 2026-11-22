@@ -4,11 +4,10 @@ import { withTaskExecution } from '../services/task-execution.js'
 import { subscribeWorkflowEvents } from '../services/workflow/hub.js'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { ChannelStorageAdapter, NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
+import type { AgentBindingStorageAdapter, ChannelStorageAdapter, NotificationStorageAdapter, TaskStorageAdapter } from '../storage/interface.js'
 import {
   dispatchProjectTask,
   wakeTaskBinding,
-  resumeProjectTask,
   TaskBlockedError,
   SpecDesignChangedError,
 } from '../services/channel/agent-orchestrator.js'
@@ -63,7 +62,7 @@ function projectScope(raw: string | undefined): number | undefined {
  * the convention used elsewhere (e.g. /api/agents/:id/stop?projectId=). The
  * list reads (tasks, labels, stream) take no projectId for every project.
  */
-export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdapter & ChannelStorageAdapter) {
+export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdapter & ChannelStorageAdapter & Pick<AgentBindingStorageAdapter, 'getBindingByActiveChatId'>) {
   const router = new Hono()
 
   // ---- Labels (registered before /:id so 'labels' is never parsed as an id) ----
@@ -163,6 +162,19 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
     return c.json({ task: storage.taskGetByWorkspace(workspaceId) })
   })
 
+  /**
+   * "Which task was this conversation dispatched for?" — the chat-level answer
+   * for a task that runs in a workspace it does not own (shared mode), where
+   * /by-workspace has nothing to say. `{ task: null }` for any other chat.
+   */
+  router.get('/by-chat/:chatId', (c) => {
+    const chatId = parseInt(c.req.param('chatId'), 10)
+    if (!Number.isFinite(chatId)) return c.json({ error: 'Invalid chatId' }, 400)
+    const binding = storage.getBindingByActiveChatId(chatId)
+    const taskId = binding?.scopeKind === 'task' ? parseInt(binding.scopeKey, 10) : NaN
+    return c.json({ task: Number.isFinite(taskId) ? storage.taskGet(taskId) : null })
+  })
+
   router.get('/:id', (c) => {
     const id = parseInt(c.req.param('id'), 10)
     const detail = storage.taskDetail(id)
@@ -228,19 +240,6 @@ export function taskRoutes(storage: TaskStorageAdapter & NotificationStorageAdap
       return c.json({ error: e instanceof Error ? e.message : 'dispatch failed' }, 500)
     }
     return c.json({ task: withTaskExecution(storage, storage.taskDetail(id)) })
-  })
-
-  // Pick a dispatched task back up in its own session (after a restart killed
-  // the turn, or the agent stopped short). A live session is left alone.
-  router.post('/:id/resume', async (c) => {
-    const id = parseInt(c.req.param('id'), 10)
-    if (!storage.taskGet(id)) return c.json({ error: 'Not found' }, 404)
-    try {
-      const woke = await resumeProjectTask(id)
-      return c.json({ woke, task: withTaskExecution(storage, storage.taskDetail(id)) })
-    } catch (e) {
-      return c.json({ error: e instanceof Error ? e.message : 'resume failed' }, 409)
-    }
   })
 
   router.post('/:id/comments', async (c) => {

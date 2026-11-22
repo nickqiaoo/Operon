@@ -758,6 +758,11 @@ export function taskGetByWorkspace(workspaceId: number) {
   return request<{ task: Task | null }>(`/tasks/by-workspace/${workspaceId}`)
 }
 
+/** The task a dispatched conversation works on, or null for any other chat. */
+export function taskGetByChat(chatId: number) {
+  return request<{ task: Task | null }>(`/tasks/by-chat/${chatId}`)
+}
+
 export function taskCreate(input: CreateProjectTaskInput) {
   return request<{ task: TaskDetail }>(`/tasks`, {
     method: 'POST',
@@ -853,11 +858,6 @@ export function taskDispatch(
     method: 'POST',
     body: JSON.stringify({ assignedAgentId, ...workspace }),
   })
-}
-
-/** Pick a dispatched task back up in its own agent session (after a restart, or a turn that stopped short). */
-export function taskResume(taskId: number) {
-  return request<{ woke: boolean; task: TaskDetail }>(`/tasks/${taskId}/resume`, { method: 'POST' })
 }
 
 export function taskLabelList(projectId: number | null) {

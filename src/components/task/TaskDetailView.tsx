@@ -1,5 +1,5 @@
 import { TaskAssigneeAvatar } from './TaskExecutionIndicator'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import {
   ArrowLeft,
   Bot,
@@ -18,7 +18,6 @@ import {
   Sparkles,
   Settings2,
   Hash,
-  Play,
   Ban,
   Eye,
   EyeOff,
@@ -38,8 +37,12 @@ import {
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
+import { GithubLinkProvider, type GithubLinkInfo } from '@/components/ai-elements/github-link-chip'
+import { AgentAvatar } from '@/components/icons/AgentAvatar'
+import { githubLinkKey } from '@/lib/github-links'
 import { useIntl, FormattedMessage, type IntlShape } from 'react-intl'
 import { useTaskStore } from '@/stores/task-store'
+import { useScrollActivity } from '@/hooks/useScrollActivity'
 import { useProjectStore } from '@/stores/project-store'
 import { useChannelStore } from '@/stores/channel-store'
 import { StatusIcon, PriorityIcon, LabelChip, TaskRef } from './task-meta'
@@ -83,6 +86,40 @@ const INLINE_INPUT =
   'h-7 text-sm bg-muted/30 rounded-md px-2.5 outline-none border border-transparent ' +
   'focus:border-border/60 focus:bg-muted/40 placeholder:text-muted-foreground/40 transition-colors'
 
+/**
+ * Every value in the properties column has this one shape: a full-width 32px
+ * row whose text lines up with its label. Hover brightens the text and icons
+ * instead of filling a box — any fill has a width, and with short values it
+ * either leaves an empty slab beside the word (full width) or makes the rows
+ * ragged (content width). Keyboard focus still gets the fill.
+ */
+const FIELD = 'group flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm text-foreground/85 transition-colors'
+const FIELD_BUTTON =
+  `${FIELD} cursor-pointer outline-none hover:text-foreground focus-visible:bg-row-hover ` +
+  '[&_.text-muted-foreground]:transition-colors hover:[&_.text-muted-foreground]:text-foreground'
+/** A Select trigger in that shape: no border, fill or shadow, and its chevron only on hover. */
+const FIELD_TRIGGER =
+  `${FIELD_BUTTON} justify-start border-transparent bg-transparent py-0 shadow-none hover:bg-transparent disabled:opacity-100 ` +
+  '[&>svg:last-child]:ml-auto [&>svg:last-child]:opacity-0 [&>svg:last-child]:transition-opacity hover:[&>svg:last-child]:opacity-50 ' +
+  'focus-visible:[&>svg:last-child]:opacity-50 data-[state=open]:[&>svg:last-child]:opacity-50'
+/** The actions under the properties: the same rows, quieter until hovered. */
+const ACTION_BUTTON = `${FIELD_BUTTON} text-muted-foreground`
+
+/** What the assignee's session in the task worktree is doing, under the picker. */
+const EXECUTION_STATUS_MESSAGES = {
+  active: { id: 'task.detail.session.active', defaultMessage: 'Working' },
+  idle: { id: 'task.detail.session.idle', defaultMessage: 'Session idle' },
+  offline: { id: 'task.detail.session.offline', defaultMessage: 'Session offline' },
+  completed: { id: 'task.detail.session.completed', defaultMessage: 'Session finished' },
+} as const
+
+/** Grow a textarea to its content (a no-op beside field-sizing, the fallback without it). */
+function autoGrow(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
 /** The assignee picker's last item: opens the agents instead of picking one. */
 const MANAGE_AGENTS = '__manage_agents'
 
@@ -106,7 +143,7 @@ export function TaskDetailPlaceholder({
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 text-muted-foreground hover:text-foreground rounded-full h-7 px-2.5"
+          className="gap-1.5 text-muted-foreground hover:text-foreground rounded-lg h-7 px-2.5"
           onClick={onClose}
         >
           <ArrowLeft className="h-4 w-4" />
@@ -148,8 +185,6 @@ export function TaskDetailView({
   const update = useTaskStore((s) => s.update)
   const comment = useTaskStore((s) => s.comment)
   const dispatch = useTaskStore((s) => s.dispatch)
-  const resume = useTaskStore((s) => s.resume)
-  const [resuming, setResuming] = useState(false)
   const allTasks = useTaskStore((s) => s.tasks)
   const openDetail = useTaskStore((s) => s.openDetail)
   const parentTask = detail.parentTaskId != null ? allTasks.find((t) => t.id === detail.parentTaskId) : undefined
@@ -168,8 +203,18 @@ export function TaskDetailView({
   const setSpecHidden = useProjectStore((s) => s.setSpecHidden)
 
 
+  // The scrollbars show only while scrolling: the pointer rests inside these
+  // columns, so a hover-revealed bar would never go away.
+  const pageScrollRef = useRef<HTMLDivElement>(null)
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+  const propertiesScrollRef = useRef<HTMLDivElement>(null)
+  useScrollActivity(pageScrollRef)
+  useScrollActivity(contentScrollRef)
+  useScrollActivity(propertiesScrollRef)
   const [dispatching, setDispatching] = useState(false)
-  const sharedWorkspaceName = useWorkspaceName(detail.workspaceMode === 'shared' ? detail.workspaceId : null)
+  const workspaceName = useWorkspaceName(detail.workspaceId)
+  // The Workspace row opens the workspace itself; a spec and its tickets have no such row.
+  const hasWorkspaceRow = detail.specStage == null && detail.ticketState == null
   const [manageAgents, setManageAgents] = useState(false)
   const isArchived = detail.archivedAt != null
   const [editingTitle, setEditingTitle] = useState(false)
@@ -226,6 +271,8 @@ export function TaskDetailView({
     }
   }
 
+  const githubLinks = useMemo(() => githubLinkInfo(detail.surfaces, intl), [detail.surfaces, intl])
+
   const statusOptions = TASK_STATUSES.filter((s) => isValidTaskTransition(detail.status, s))
   const assigneeName = detail.assignedAgentId
     ? detail.assignedAgent?.name ?? agents.find((agent) => agent.id === detail.assignedAgentId)?.name ?? intl.formatMessage({ id: 'task.detail.unknownAgent', defaultMessage: 'Unknown' })
@@ -235,14 +282,15 @@ export function TaskDetailView({
   return (
     // Phones stack the panels into one vertical scroll; md+ keeps the two-column
     // layout where each column scrolls independently.
-    <div className="flex flex-col md:flex-row h-full overflow-y-auto md:overflow-hidden">
+    <GithubLinkProvider value={githubLinks}>
+    <div ref={pageScrollRef} className="transcript-scrollbar flex flex-col md:flex-row h-full overflow-y-auto md:overflow-hidden">
       {/* Left: content */}
       <div className="flex flex-col min-w-0 md:flex-1 md:min-h-0">
         <div className="h-11 flex items-center gap-2 px-4 border-b border-border/40 shrink-0 sticky top-0 z-10 bg-background md:static">
           <Button
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-muted-foreground hover:text-foreground rounded-full h-7 px-2.5"
+            className="gap-1.5 text-muted-foreground hover:text-foreground rounded-lg h-7 px-2.5"
             onClick={onClose}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -281,7 +329,7 @@ export function TaskDetailView({
           )}
         </div>
 
-        <div className="min-w-0 md:flex-1 md:overflow-y-auto md:min-h-0 px-3 py-4 md:px-6 md:py-5">
+        <div ref={contentScrollRef} className="transcript-scrollbar min-w-0 md:flex-1 md:overflow-y-auto md:min-h-0 px-3 py-4 md:px-6 md:py-5">
           {/* Reading width, centered: the column keeps a text-friendly measure and splits leftover space evenly on wide windows. */}
           <div className="mx-auto w-full max-w-3xl space-y-6">
           {/* Title */}
@@ -298,7 +346,7 @@ export function TaskDetailView({
                   setEditingTitle(false)
                 }
               }}
-              className="w-full text-xl font-semibold bg-transparent outline-none border-b border-border/50 pb-1"
+              className="-mx-2 block w-[calc(100%+1rem)] text-xl font-semibold bg-transparent outline-none border-b border-border/50 px-2 pb-1"
             />
           ) : (
             <h1
@@ -306,7 +354,7 @@ export function TaskDetailView({
                 setTitleDraft(detail.title)
                 setEditingTitle(true)
               }}
-              className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-row-hover rounded px-1 -mx-1"
+              className="text-xl font-semibold leading-snug [overflow-wrap:anywhere] cursor-text hover:bg-row-hover rounded-lg px-2 -mx-2"
             >
               {detail.title}
             </h1>
@@ -314,7 +362,7 @@ export function TaskDetailView({
 
           {/* Description */}
           <div>
-            <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70 mb-2">
+            <div className="heading-section mb-1.5">
               <FormattedMessage id="task.detail.description" defaultMessage="Description" />
             </div>
             {editingDesc ? (
@@ -331,7 +379,13 @@ export function TaskDetailView({
                 }}
                 {...descImages.inputProps}
                 placeholder={intl.formatMessage({ id: 'task.new.descriptionPlaceholder', defaultMessage: 'Add a description… (markdown supported, paste or drop images)' })}
-                className="w-full min-h-[120px] text-sm bg-muted/30 border border-border/50 rounded-lg p-3 outline-none focus:border-tint/40 focus:ring-1 focus:ring-tint/10 resize-y"
+                // Edits in place: same box and text as the read view, a faint fill
+                // the only sign of editing, and it grows with the text instead of
+                // scrolling inside a bordered box. The ref sizes it where
+                // field-sizing is missing (older WebKit).
+                ref={autoGrow}
+                onInput={(e) => autoGrow(e.currentTarget)}
+                className="-mx-2 block w-[calc(100%+1rem)] min-h-24 resize-none overflow-hidden rounded-lg border-0 bg-row-hover px-2 py-1.5 text-sm leading-relaxed text-foreground shadow-none outline-none field-sizing-content placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               />
             ) : (
               <div
@@ -342,21 +396,23 @@ export function TaskDetailView({
                 onDrop={descImages.inputProps.onDrop}
                 onDragOver={descImages.inputProps.onDragOver}
                 className={cn(
-                  'text-sm cursor-text rounded-lg p-3 min-h-[44px] transition-colors',
+                  'text-sm cursor-text rounded-lg transition-colors',
+                  // Bleeds sideways only, so the text lines up with the heading
+                  // and the hover fill never reaches up into it.
                   detail.description
-                    ? 'text-foreground -m-3 hover:bg-row-hover'
-                    : 'border border-dashed border-border/50 hover:border-border/60 hover:bg-row-hover'
+                    ? 'text-foreground -mx-2 px-2 py-1.5 hover:bg-row-hover'
+                    : 'min-h-10 border border-dashed border-border/50 px-3 py-2.5 hover:border-border/60 hover:bg-row-hover'
                 )}
               >
                 {detail.description ? (
-                  <MarkdownRenderer content={detail.description} />
+                  <MarkdownRenderer content={detail.description} githubLinks />
                 ) : (
                   <span className="text-muted-foreground/40"><FormattedMessage id="task.detail.addDescription" defaultMessage="Add a description…" /></span>
                 )}
               </div>
             )}
             {(detail.attachments.length > 0 || descImages.items.length > 0) && (
-              <div className={cn('flex flex-wrap items-start gap-2', detail.description && !editingDesc ? 'mt-5' : 'mt-2')}>
+              <div className={cn('flex flex-wrap items-start gap-2', 'mt-3')}>
                 <TaskImageStrip
                   attachments={detail.attachments}
                   onRemove={(index) => updateDetail({ attachments: detail.attachments.filter((_, i) => i !== index) })}
@@ -374,7 +430,7 @@ export function TaskDetailView({
 
           {/* Activity — timeline, oldest first, composer pinned at the end */}
           <div>
-            <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70 mb-3">
+            <div className="heading-section mb-3">
               <FormattedMessage id="task.detail.activity" defaultMessage="Activity" />
             </div>
             <div className="relative">
@@ -423,14 +479,14 @@ export function TaskDetailView({
       </div>
 
       {/* Right: properties — sidebar at md+, full-width section below on phones */}
-      <div className="w-full md:w-60 shrink-0 border-border/40 border-t md:border-t-0 md:border-l md:overflow-y-auto">
+      <div ref={propertiesScrollRef} className="transcript-scrollbar w-full md:w-60 shrink-0 border-border/40 border-t md:border-t-0 md:border-l md:overflow-y-auto">
         <div className="p-4 space-y-5">
           <PropertyRow label={intl.formatMessage({ id: 'task.detail.statusLabel', defaultMessage: 'Status' })}>
             <Select
               value={detail.status}
               onValueChange={(v) => updateDetail({ status: v as TaskStatus })}
             >
-              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-row-hover">
+              <SelectTrigger size="sm" className={FIELD_TRIGGER}>
                 <span className="flex items-center gap-2">
                   <StatusIcon status={detail.status} />
                   <span className="text-sm">{intl.formatMessage(STATUS_MESSAGES[detail.status])}</span>
@@ -454,7 +510,7 @@ export function TaskDetailView({
               value={String(detail.priority)}
               onValueChange={(v) => updateDetail({ priority: Number(v) as TaskPriority })}
             >
-              <SelectTrigger className="h-8 bg-muted/30 border-transparent hover:bg-row-hover">
+              <SelectTrigger size="sm" className={FIELD_TRIGGER}>
                 <span className="flex items-center gap-2">
                   <PriorityIcon priority={detail.priority} />
                   <span className="text-sm">{intl.formatMessage(priorityMessage(detail.priority))}</span>
@@ -485,8 +541,8 @@ export function TaskDetailView({
                 })
               }}
             >
-              <SelectTrigger className="h-8 w-full min-w-0 max-w-full bg-muted/30 border-transparent hover:bg-row-hover disabled:opacity-100">
-                <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <SelectTrigger size="sm" className={cn(FIELD_TRIGGER, 'max-w-full')}>
+                <span className="flex min-w-0 items-center gap-2 overflow-hidden">
                   <TaskAssigneeAvatar task={detail} agents={agents} />
                   <span className="min-w-0 truncate text-sm" title={assigneeName}>
                     {assigneeName}
@@ -508,17 +564,37 @@ export function TaskDetailView({
               </SelectContent>
             </Select>
             {manageAgents && <AgentManageDialog open onClose={() => setManageAgents(false)} />}
+            {/* The agent's session in the task worktree (not a channel session of
+                the same agent). Absent until dispatched. */}
+            {detail.specStage == null && detail.assignedAgentId && detail.executionStatus && (
+              <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                    detail.executionStatus === 'active' && 'bg-status-info animate-pulse',
+                    detail.executionStatus === 'idle' && 'bg-accent-green',
+                    detail.executionStatus === 'offline' && 'bg-muted-foreground/40',
+                  )}
+                />
+                {intl.formatMessage(EXECUTION_STATUS_MESSAGES[detail.executionStatus])}
+              </div>
+            )}
           </PropertyRow>
 
           {/* Where it runs — a spec and its tickets always get worktrees of their own. */}
-          {detail.specStage == null && detail.ticketState == null && (
+          {hasWorkspaceRow && (
             <PropertyRow label={intl.formatMessage({ id: 'task.workspace.label', defaultMessage: 'Workspace' })}>
               {/* Chosen before it runs: once dispatched it is a fact about the task, not a choice. */}
               {detail.bindingId != null || isArchived ? (
-                <TaskWorkspaceLabel mode={detail.workspaceMode} workspaceName={sharedWorkspaceName} />
+                <TaskWorkspaceLabel
+                  mode={detail.workspaceMode}
+                  workspaceName={workspaceName}
+                  className={detail.workspaceId && onOpenWorkspace ? FIELD_BUTTON : FIELD}
+                  onOpen={detail.workspaceId && onOpenWorkspace ? () => onOpenWorkspace(detail.workspaceId!) : undefined}
+                />
               ) : (
                 <TaskWorkspaceSelect
-                  className="w-full"
+                  className={FIELD_TRIGGER}
                   value={detail.workspaceMode}
                   onChange={(workspaceMode) => updateDetail({ workspaceMode })}
                 />
@@ -538,7 +614,7 @@ export function TaskDetailView({
 
           {detail.surfaces.some((s) => s.kind === 'github_pr') && (
             <PropertyRow label={intl.formatMessage({ id: 'task.surfaces.githubLabel', defaultMessage: 'GitHub' })}>
-              <div className="space-y-1.5">
+              <div className="space-y-0.5">
                 {detail.surfaces
                   .filter((s) => s.kind === 'github_pr')
                   .map((s) => (
@@ -550,25 +626,16 @@ export function TaskDetailView({
 
           {detail.branchName && (
             <PropertyRow label={intl.formatMessage({ id: 'task.detail.branchLabel', defaultMessage: 'Branch' })}>
-              <div className="flex items-center gap-1.5 text-xs font-mono text-foreground/80 bg-muted/30 rounded-md px-2 py-1.5">
-                <GitBranch className="w-3 h-3 shrink-0 text-muted-foreground" />
-                <span className="truncate">{detail.branchName}</span>
+              <div className={cn(FIELD, 'font-mono text-xs')} title={detail.branchName}>
+                <GitBranch className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{detail.branchName}</span>
               </div>
             </PropertyRow>
           )}
 
-          {detail.workspaceId && onOpenWorkspace && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="w-full gap-2 h-8 hover:bg-row-hover"
-              onClick={() => onOpenWorkspace(detail.workspaceId!)}
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <FormattedMessage id="task.detail.openWorkspace" defaultMessage="Open Workspace" />
-            </Button>
-          )}
-
+          {/* Actions: the one that starts work leads as the filled button; the
+              rest sit under it, left-aligned like the rows above. */}
+          <div className="space-y-1 border-t border-border/40 pt-4">
           {/* Dispatch — start (or restart) the assigned agent in the task worktree.
               Shown whenever the task is assigned and has no live execution session,
               regardless of status — so a task that reached in_progress without ever
@@ -582,7 +649,7 @@ export function TaskDetailView({
               <Button
                 size="sm"
                 variant="secondary"
-                className="w-full gap-2 h-8"
+                className="h-8 w-full gap-1.5"
                 disabled={dispatching || openBlockers.length > 0}
                 onClick={async () => {
                   if (detail.assignedAgentId == null) return
@@ -596,7 +663,7 @@ export function TaskDetailView({
                   }
                 }}
               >
-                <Zap className="w-3.5 h-3.5" />
+                {dispatching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                 {dispatching
                   ? intl.formatMessage({ id: 'task.detail.dispatching', defaultMessage: 'Dispatching…' })
                   : detail.bindingId != null
@@ -606,7 +673,7 @@ export function TaskDetailView({
             )}
 
           {openBlockers.length > 0 && detail.executionStatus !== 'active' && detail.executionStatus !== 'idle' && (
-            <p className="text-xs text-muted-foreground">
+            <p className="px-2 pb-1 text-xs text-muted-foreground">
               <FormattedMessage
                 id="task.detail.waitingOnBlockers"
                 defaultMessage="Starts once {tasks} {count, plural, one {is} other {are}} done."
@@ -615,100 +682,42 @@ export function TaskDetailView({
             </p>
           )}
 
-          {/* Resume — the agent has a session here but nothing is running: Operon
-              restarted mid-turn, or the agent stopped before the task was done. */}
-          {detail.status === 'in_progress' &&
-            detail.specStage == null &&
-            detail.bindingId != null &&
-            detail.executionStatus === 'idle' &&
-            agents.some((a) => a.id === detail.assignedAgentId) && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full gap-2 h-8"
-              disabled={resuming}
-              onClick={async () => {
-                setResuming(true)
-                try {
-                  await resume(detail.id)
-                } catch (error) {
-                  toastTaskError(error, 'Resume failed')
-                } finally {
-                  setResuming(false)
-                }
-              }}
-            >
-              {resuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-              <FormattedMessage id="task.detail.resume" defaultMessage="Resume" />
-            </Button>
-          )}
-
-          {/* Execution session status — the agent running IN the task worktree,
-              not a channel session of the same agent. Absent until dispatched. */}
-          {detail.specStage == null && detail.assignedAgentId && detail.executionStatus && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
-              <Bot className="w-3.5 h-3.5" />
-              <span>{agents.find((a) => a.id === detail.assignedAgentId)?.name}</span>
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1',
-                  detail.executionStatus === 'active' && 'text-status-info',
-                  detail.executionStatus === 'idle' && 'text-status-ok',
-                )}
-              >
-                <span
-                  className={cn(
-                    'w-1.5 h-1.5 rounded-full',
-                    detail.executionStatus === 'active' && 'bg-status-info animate-pulse',
-                    detail.executionStatus === 'idle' && 'bg-accent-green',
-                    detail.executionStatus === 'offline' && 'bg-muted-foreground/40',
-                  )}
-                />
-                {detail.executionStatus}
-              </span>
-            </div>
+          {!hasWorkspaceRow && detail.workspaceId && onOpenWorkspace && (
+            <button type="button" className={ACTION_BUTTON} onClick={() => onOpenWorkspace(detail.workspaceId!)}>
+              <ExternalLink className="h-3.5 w-3.5" />
+              <FormattedMessage id="task.detail.openWorkspace" defaultMessage="Open Workspace" />
+            </button>
           )}
 
           {detail.specStage != null && !isArchived && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="w-full gap-2 h-8 text-muted-foreground hover:text-foreground hover:bg-row-hover"
-              onClick={() => setSpecHidden(detail.id, !specHidden)}
-            >
-              {specHidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            <button type="button" className={ACTION_BUTTON} onClick={() => setSpecHidden(detail.id, !specHidden)}>
+              {specHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
               {specHidden ? 'Show in sidebar' : 'Hide from sidebar'}
-            </Button>
+            </button>
           )}
 
           {/* Archive — retire the task from the board (or restore it). */}
-          <div className="pt-2 mt-2 border-t border-border/40">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="w-full gap-2 h-8 text-muted-foreground hover:text-foreground hover:bg-row-hover"
-              onClick={() => {
-                void setArchived(detail.id, !isArchived).catch((error) =>
-                  toastTaskError(error, isArchived ? 'Unarchive failed' : 'Archive failed'),
-                )
-              }}
-            >
-              {isArchived ? (
-                <>
-                  <ArchiveRestore className="w-3.5 h-3.5" />
-                  <FormattedMessage id="task.detail.unarchive" defaultMessage="Unarchive" />
-                </>
-              ) : (
-                <>
-                  <Archive className="w-3.5 h-3.5" />
-                  <FormattedMessage id="task.detail.archive" defaultMessage="Archive" />
-                </>
-              )}
-            </Button>
+          <button
+            type="button"
+            className={ACTION_BUTTON}
+            onClick={() => {
+              void setArchived(detail.id, !isArchived).catch((error) =>
+                toastTaskError(error, isArchived ? 'Unarchive failed' : 'Archive failed'),
+              )
+            }}
+          >
+            {isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+            {isArchived ? (
+              <FormattedMessage id="task.detail.unarchive" defaultMessage="Unarchive" />
+            ) : (
+              <FormattedMessage id="task.detail.archive" defaultMessage="Archive" />
+            )}
+          </button>
           </div>
         </div>
       </div>
     </div>
+    </GithubLinkProvider>
   )
 }
 
@@ -777,8 +786,8 @@ function RelationRows({ detail }: { detail: TaskDetail }) {
 
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70">
+    <div className="space-y-1">
+      <div className="heading-section px-2">
         {label}
       </div>
       {children}
@@ -821,11 +830,11 @@ function LabelPicker({ detail }: { detail: TaskDetail }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="w-full flex flex-wrap items-center gap-1 min-h-8 rounded-md bg-muted/30 hover:bg-row-hover px-2 py-1.5 transition-colors">
+        <button className={cn(FIELD_BUTTON, 'h-auto min-h-8 flex-wrap gap-1 py-1')}>
           {detail.labels.length > 0 ? (
             detail.labels.map((l) => <LabelChip key={l.id} label={l} />)
           ) : (
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground/50">
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
               <Tag className="w-3.5 h-3.5" />
               <FormattedMessage id="task.detail.addLabels" defaultMessage="Add labels" />
             </span>
@@ -907,8 +916,8 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[11px] uppercase font-semibold tracking-wider text-foreground/70">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="heading-section">
           <FormattedMessage id="task.detail.subtasks" defaultMessage="Sub-tasks" />
           {children.length > 0 && (
             <span className="ml-1.5 text-muted-foreground/40 tabular-nums">
@@ -918,7 +927,8 @@ function SubtasksSection({ detail }: { detail: TaskDetail }) {
         </div>
         <button
           onClick={() => setAdding((v) => !v)}
-          className="text-muted-foreground/60 hover:text-foreground transition-colors"
+          aria-label={intl.formatMessage({ id: 'task.detail.addSubtaskButton', defaultMessage: 'Add sub-task' })}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -1045,7 +1055,7 @@ function SurfacesBlock({ detail }: { detail: TaskDetail }) {
   // One row: the issue. The agent session lives on that same Linear page, so
   // it gets no row of its own; pull requests have their own block.
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-0.5">
       {detail.surfaces
         .filter((s) => s.kind === 'linear_issue')
         .map((s) => (
@@ -1060,10 +1070,10 @@ function SurfacesBlock({ detail }: { detail: TaskDetail }) {
           }}
         >
           <PopoverTrigger asChild>
-            <Button size="sm" variant="ghost" className="w-full gap-2 h-8 justify-start text-xs">
-              <LinearIcon className="w-3.5 h-3.5" />
+            <button type="button" className={cn(FIELD_BUTTON, 'text-muted-foreground hover:text-foreground')}>
+              <LinearIcon className="w-3.5 h-3.5 shrink-0" />
               <FormattedMessage id="task.surfaces.publish" defaultMessage="Publish to Linear" />
-            </Button>
+            </button>
           </PopoverTrigger>
           <PopoverContent
             align="start"
@@ -1110,6 +1120,30 @@ function SurfacesBlock({ detail }: { detail: TaskDetail }) {
   )
 }
 
+/** The word SurfaceRow puts after a PR: nothing while open, `merged` / `closed` after. */
+function pullRequestStateLabel(meta: Record<string, unknown>, intl: IntlShape): string | null {
+  return meta.merged
+    ? intl.formatMessage({ id: 'task.surfaces.state.merged', defaultMessage: 'merged' })
+    : meta.state === 'closed'
+      ? intl.formatMessage({ id: 'task.surfaces.state.closed', defaultMessage: 'closed' })
+      : null
+}
+
+/** The task's PRs, for the GitHub chips in its description and comments. */
+function githubLinkInfo(surfaces: TaskSurface[], intl: IntlShape): GithubLinkInfo {
+  const states: Record<string, string> = {}
+  let repo: string | undefined
+  for (const s of surfaces) {
+    if (s.kind !== 'github_pr') continue
+    const key = /^([\w.-]+)\/([\w.-]+)#(\d+)$/.exec(s.externalId)
+    if (!key) continue
+    repo ??= `${key[1]}/${key[2]}`
+    const state = pullRequestStateLabel(s.meta ?? {}, intl)
+    if (state) states[githubLinkKey(key[1], key[2], Number(key[3]))] = state
+  }
+  return { repo, states }
+}
+
 function SurfaceRow({ surface: s }: { surface: TaskSurface }) {
   const intl = useIntl()
   const meta = s.meta ?? {}
@@ -1123,11 +1157,7 @@ function SurfaceRow({ surface: s }: { surface: TaskSurface }) {
     const n = meta.number ?? s.externalId.split('#')[1]
     label = `PR #${String(n ?? '')}`
     // Open is the normal case and says nothing; only merged / closed is worth a word.
-    state = meta.merged
-      ? intl.formatMessage({ id: 'task.surfaces.state.merged', defaultMessage: 'merged' })
-      : meta.state === 'closed'
-        ? intl.formatMessage({ id: 'task.surfaces.state.closed', defaultMessage: 'closed' })
-        : null
+    state = pullRequestStateLabel(meta, intl)
   }
   // Same shape as the Linear row: label, then the link icon right next to it.
   const Brand = s.kind === 'github_pr' ? GithubIcon : LinearIcon
@@ -1135,20 +1165,19 @@ function SurfaceRow({ surface: s }: { surface: TaskSurface }) {
     <>
       <Brand className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
       <span className="truncate">{label}</span>
-      {state && <span className="text-muted-foreground/60 shrink-0">· {state}</span>}
+      {state && <span className="text-muted-foreground shrink-0">· {state}</span>}
       {s.url && <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />}
     </>
   )
-  const cn_ = 'flex items-center gap-1.5 w-full text-xs text-foreground/80 bg-muted/30 rounded-md px-2 py-1.5'
   if (s.url) {
     const url = s.url
     return (
-      <button type="button" className={cn(cn_, 'hover:bg-secondary-hover text-left')} onClick={() => openExternalUrl(url)}>
+      <button type="button" className={FIELD_BUTTON} onClick={() => openExternalUrl(url)}>
         {inner}
       </button>
     )
   }
-  return <div className={cn_}>{inner}</div>
+  return <div className={FIELD}>{inner}</div>
 }
 
 /**
@@ -1226,6 +1255,8 @@ function ActivityItem({ activity: a, taskId, agents }: { activity: TaskActivity;
     const meta = a.meta ?? {}
     const source = meta.source === 'github_pr' ? 'GitHub' : meta.source ? 'Linear' : null
     const forwardable = meta.actor === 'other' && meta.sent !== true
+    // An agent's comment wears its avatar, as it does on the assignee picker.
+    const commentAgent = a.actorType === 'agent' && a.actorId != null ? agents.find((x) => x.id === a.actorId) : undefined
     const sendToAgent = async () => {
       setSending(true)
       try {
@@ -1238,15 +1269,23 @@ function ActivityItem({ activity: a, taskId, agents }: { activity: TaskActivity;
       }
     }
     return (
-      <div className="flex items-start gap-3 py-2">
-        <TimelineMarker emphasis>
-          <ActorIcon activity={a} />
-        </TimelineMarker>
-        <div className="min-w-0 flex-1 rounded-lg border border-border/50 dark:border-border/35 bg-popover shadow-card">
-          <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5 text-xs">
-            <span className="font-medium text-foreground/85">{actorLabel(a, intl)}</span>
+      // No card: the rail and the avatar already set each comment apart, and a
+      // border + fill + shadow + header rule around every one turned the feed
+      // into a stack of boxes. Name, source and time head the body, which sits
+      // under the name.
+      <div className="flex items-start gap-3 py-2.5">
+        {commentAgent ? (
+          <AgentAvatar provider={commentAgent.provider} size="sm" className="relative z-[1] ring-4 ring-background" />
+        ) : (
+          <TimelineMarker emphasis>
+            <ActorIcon activity={a} />
+          </TimelineMarker>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex h-6 items-center gap-2 text-xs">
+            <span className="font-medium text-foreground/90">{actorLabel(a, intl)}</span>
             {source && (
-              <span className="rounded px-1.5 py-0.5 text-[10px] bg-muted/40 text-muted-foreground border border-border/40">
+              <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {source}
               </span>
             )}
@@ -1266,8 +1305,8 @@ function ActivityItem({ activity: a, taskId, agents }: { activity: TaskActivity;
               </Button>
             )}
           </div>
-          <div className="px-3 py-2 text-sm text-foreground/85">
-            {a.body.trim() && <MarkdownRenderer content={a.body} className={COMMENT_MARKDOWN_CLASS} />}
+          <div className="mt-0.5 text-sm text-foreground/90">
+            {a.body.trim() && <MarkdownRenderer content={a.body} className={COMMENT_MARKDOWN_CLASS} githubLinks />}
             <TaskImageStrip attachments={commentAttachments(a)} className={a.body.trim() ? 'mt-2' : undefined} />
           </div>
         </div>

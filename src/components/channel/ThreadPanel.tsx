@@ -4,9 +4,9 @@ import { ArrowLeft, X } from 'lucide-react'
 import { AgentAvatar, UserAvatar } from '@/components/icons/AgentAvatar'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/lib/format'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
+import { providerNameColor } from './ChannelMessageItem'
 import { COMPOSER_TEXTAREA_CLASS, ComposerFrame, ComposerSendButton } from './ComposerFrame'
 import type { ChannelMessage, Agent } from '@/types/channel'
 import { useIsMobileShell } from '@/hooks/useIsMobile'
@@ -95,23 +95,32 @@ export function ThreadPanel({
             </span>
           )}
         </div>
-        <Button variant="ghost" size="icon" className="hidden h-5 w-5 rounded-md text-muted-foreground hover:text-foreground md:inline-flex" onClick={onClose}>
-          <X className="w-3.5 h-3.5" />
-        </Button>
+        <button
+          type="button"
+          onClick={onClose}
+          title={intl.formatMessage({ id: 'common.close', defaultMessage: 'Close' })}
+          aria-label={intl.formatMessage({ id: 'common.close', defaultMessage: 'Close' })}
+          className="-mr-1.5 hidden size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary-hover hover:text-foreground md:flex"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="p-4 space-y-3">
+        <div className="space-y-4 p-4">
           {/* Root message */}
           <MessageBubble message={rootMessage} agents={agents} isRoot />
 
           {replies.length > 0 && (
-            <div className="text-xs text-muted-foreground/60 font-medium py-1">
-              <FormattedMessage
-                id="channel.message.replyCount"
-                defaultMessage="{count, plural, one {# reply} other {# replies}}"
-                values={{ count: replies.length }}
-              />
+            <div className="flex items-center gap-3 text-xs font-medium text-muted-foreground/70">
+              <span className="shrink-0">
+                <FormattedMessage
+                  id="channel.message.replyCount"
+                  defaultMessage="{count, plural, one {# reply} other {# replies}}"
+                  values={{ count: replies.length }}
+                />
+              </span>
+              <span className="h-px flex-1 bg-border/50 dark:bg-border/35" />
             </div>
           )}
 
@@ -124,8 +133,8 @@ export function ThreadPanel({
           {[...typingAgentIds].map((agentId) => {
             const agent = agents.find((a) => a.id === agentId)
             return (
-              <div key={agentId} className="flex items-center gap-2 text-xs text-muted-foreground/60">
-                <AgentAvatar provider={agent?.provider} size="sm" />
+              <div key={agentId} className="flex items-center gap-2.5 text-xs text-muted-foreground/70">
+                <AgentAvatar provider={agent?.provider} size="sm" className="size-7" />
                 <span>
                   <FormattedMessage
                     id="channel.typing"
@@ -170,24 +179,35 @@ export function ThreadPanel({
 }
 
 function MessageBubble({ message, agents, isRoot = false }: { message: ChannelMessage; agents: Agent[]; isRoot?: boolean }) {
+  const intl = useIntl()
   const isAgent = message.senderType === 'agent'
+  const isSystem = message.senderType === 'system'
   const agent = isAgent && message.senderId ? agents.find((a) => a.id === message.senderId) : null
 
+  if (isSystem) {
+    return <div className="text-center text-xs text-muted-foreground/70">{message.content}</div>
+  }
+
+  const name = isAgent
+    ? (agent?.name ?? message.senderName)
+    : intl.formatMessage({ id: 'channel.message.you', defaultMessage: 'You' })
+
   return (
-    <div className={cn('min-w-0', isRoot && 'pb-3 border-b border-border/40')}>
+    <div className={cn('min-w-0', isRoot && 'pb-4 border-b border-border/40')}>
       {/* Avatar + name + time on one header row, so the body below can span the
-          full width and keep equal left/right margins (the parent's p-4) instead
-          of being inset under an avatar gutter. */}
-      <div className="flex items-center gap-2 mb-1">
-        {isAgent ? <AgentAvatar provider={agent?.provider} size="sm" /> : <UserAvatar size="sm" />}
-        <span className={cn('text-xs font-semibold', isAgent ? 'text-tint' : 'text-foreground')}>
-          {agent?.name ?? message.senderName}
+          panel's full width instead of being inset under an avatar gutter. */}
+      <div className="mb-1.5 flex items-center gap-2.5">
+        {isAgent
+          ? <AgentAvatar provider={agent?.provider} size="sm" className="size-7" />
+          : <UserAvatar size="sm" className="size-7" />}
+        <span className={cn('text-[13px] font-semibold', isAgent ? providerNameColor(agent?.provider) : 'text-foreground')}>
+          {name}
         </span>
-        <span className="text-[10px] text-muted-foreground/50">
+        <span className="text-[11px] text-muted-foreground/60 tabular-nums">
           {formatDateTime(message.createdAt, { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
-      <div className="text-sm text-foreground/90 leading-relaxed break-words">
+      <div className="text-sm leading-relaxed text-foreground break-words phone:text-base">
         <MarkdownRenderer content={message.content} />
       </div>
     </div>

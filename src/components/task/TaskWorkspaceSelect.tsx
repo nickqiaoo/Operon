@@ -1,5 +1,5 @@
 import { useIntl } from 'react-intl'
-import { FolderGit2, GitBranchPlus } from 'lucide-react'
+import { ExternalLink, FolderGit2, GitBranchPlus } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProjectStore } from '@/stores/project-store'
 import { cn } from '@/lib/utils'
@@ -45,21 +45,45 @@ export function TaskWorkspaceSelect({
 }
 
 /**
- * Where a task that already runs is running — read-only, styled like the
- * Branch row beside it. A shared one names its workspace.
+ * Where a task that already runs is running — a fact, not a choice, so it
+ * names the workspace itself (the mode is the icon and the tooltip). "New
+ * worktree" here read as an action. With `onOpen` the row opens the workspace.
  */
-export function TaskWorkspaceLabel({ mode, workspaceName }: { mode: TaskWorkspaceMode; workspaceName?: string | null }) {
+export function TaskWorkspaceLabel({
+  mode,
+  workspaceName,
+  onOpen,
+  className,
+}: {
+  mode: TaskWorkspaceMode
+  workspaceName?: string | null
+  onOpen?: () => void
+  className?: string
+}) {
   const intl = useIntl()
   const Icon = mode === 'shared' ? FolderGit2 : GitBranchPlus
-  const label = mode === 'shared'
+  const kind = mode === 'shared'
     ? intl.formatMessage({ id: 'task.workspace.shared', defaultMessage: 'Shared workspace' })
-    : intl.formatMessage({ id: 'task.workspace.new', defaultMessage: 'New worktree' })
-  const text = mode === 'shared' && workspaceName ? `${label} · ${workspaceName}` : label
+    : intl.formatMessage({ id: 'task.workspace.own', defaultMessage: 'Own worktree' })
+  const title = workspaceName ? `${kind} · ${workspaceName}` : kind
+  const content = (
+    <>
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate">{workspaceName ?? kind}</span>
+      {/* Shown on hover where there is one; touch screens keep it. */}
+      {onOpen && <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100" />}
+    </>
+  )
+  if (!onOpen) return <div className={className} title={title}>{content}</div>
   return (
-    <div className="flex items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1.5 text-xs text-foreground/80" title={text}>
-      <Icon className="h-3 w-3 shrink-0 text-muted-foreground" />
-      <span className="truncate">{text}</span>
-    </div>
+    <button
+      type="button"
+      className={className}
+      title={intl.formatMessage({ id: 'task.workspace.open', defaultMessage: 'Open {workspace}' }, { workspace: title })}
+      onClick={onOpen}
+    >
+      {content}
+    </button>
   )
 }
 

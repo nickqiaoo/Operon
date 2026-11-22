@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"
-import { motion } from "motion/react"
+import { motion, useMotionValueEvent } from "motion/react"
 import { cn } from "@/lib/utils"
 import { useAppShellStore } from "@/stores/app-shell-store"
 import { useTabsStore } from "@/stores/tabs-store"
 import { ResizeHandle } from "./ResizeHandle"
 import { usePanelAnimation } from "./use-panel-animation"
+import { rightPanelAnimatedWidth } from "./TopBarControlsReserve"
 import {
   CENTER_CONTENT_MIN_WIDTH,
   RIGHT_PANEL_AUTO_CLOSE_BELOW,
@@ -58,6 +59,11 @@ export function RightPanel({ className }: RightPanelProps) {
     size: width,
     isVisible: isOpen,
   })
+  // Headers size their reserve for the window's panel controls from this, frame by frame.
+  useMotionValueEvent(animatedSize, "change", (value) => rightPanelAnimatedWidth.set(value))
+  useLayoutEffect(() => {
+    rightPanelAnimatedWidth.set(animatedSize.get())
+  }, [animatedSize])
 
   // When the user closes the last tab, also collapse the panel itself.
   // Only fires on the > 0 → 0 transition so opening an empty panel stays open.

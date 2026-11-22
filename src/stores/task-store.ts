@@ -37,7 +37,6 @@ interface TaskStore {
   setArchived: (taskId: number, archived: boolean) => Promise<void>
   dispatch: (taskId: number, assignedAgentId: number) => Promise<void>
   /** Wake a dispatched task's agent in its existing session to carry on. */
-  resume: (taskId: number) => Promise<void>
   comment: (taskId: number, body: string, attachments?: TaskAttachment[]) => Promise<void>
   /** Apply a live task_upsert from the SSE stream (agent or other-window change). */
   applyUpsert: (task: TaskListItem) => void
@@ -209,14 +208,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   dispatch: async (taskId, assignedAgentId) => {
     const { task } = await api.taskDispatch(taskId, assignedAgentId)
-    set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
-      detail: s.detail && s.detail.id === taskId ? task : s.detail,
-    }))
-  },
-
-  resume: async (taskId) => {
-    const { task } = await api.taskResume(taskId)
     set((s) => ({
       tasks: s.tasks.map((t) => (t.id === taskId ? toListItem(task) : t)),
       detail: s.detail && s.detail.id === taskId ? task : s.detail,

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/icons/ProviderLabel'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SessionPanelToggle } from '@/components/app-shell/TopBarControls'
-import { useAppShellStore } from '@/stores/app-shell-store'
+import { TopBarControlsReserve } from '@/components/app-shell/TopBarControlsReserve'
 import { useEditorStore } from '@/stores/editor-store'
 import { ReviewTab } from '@/components/app-shell/content/ReviewTab'
 import type { Workspace } from '@/stores/project-store'
@@ -39,7 +39,6 @@ export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusCha
   const taskId = target?.taskId ?? 0
   const { spec, error } = useSpecView(taskId, undefined, visible && target != null)
   const project = useProjectStore((state) => state.projects.find((item) => item.id === target?.projectId))
-  const rightPanelOpen = useAppShellStore((state) => state.rightPanelOpen)
   const [navigation, setNavigation] = useState<Record<number, { section: Section; sessionId: number | null }>>({})
   const { section, sessionId } = navigation[taskId] ?? { section: 'overview', sessionId: null }
   const chooseSection = (next: Section) => {
@@ -86,8 +85,8 @@ export function SpecPage({ target, onOpenWorkspace, onFocusWorkspace, onFocusCha
         <span className="shrink-0">Spec {spec ? `#${spec.taskNumber}` : ''}</span>
         {spec && <span className="min-w-0 truncate text-foreground/80">{fileCitationsToText(spec.title)}</span>}
         <div className="flex-1" />
-        <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
-        {!rightPanelOpen && <div className="w-[50px] shrink-0" aria-hidden="true" />}
+        <SessionPanelToggle className="mr-0.5" />
+        <TopBarControlsReserve closed={50} open={6} />
       </TitlebarRow>
 
       {spec && <Tabs value={section} onValueChange={(value) => chooseSection(value as Section)} className="shrink-0 gap-0">

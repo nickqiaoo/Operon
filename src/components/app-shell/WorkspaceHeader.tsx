@@ -1,11 +1,11 @@
 import { memo, useCallback, useMemo } from "react"
 import { TitlebarRow } from "@/components/app-shell/TitlebarRow"
 import { SessionPanelToggle } from "@/components/app-shell/TopBarControls"
+import { TopBarControlsReserve } from "@/components/app-shell/TopBarControlsReserve"
 import { ChatHistoryButton, EditorTabs } from "@/components/editor/EditorTabs"
 import { WorkspaceTaskButton } from "@/components/editor/WorkspaceTaskButton"
 import { TERMINAL_CLI_LAUNCH } from "@/lib/terminal-clis"
 import { rememberChatProvider } from "@/lib/new-chat"
-import { useAppShellStore } from "@/stores/app-shell-store"
 import { useEditorStore } from "@/stores/editor-store"
 import { useProjectStore } from "@/stores/project-store"
 
@@ -14,7 +14,6 @@ import { useProjectStore } from "@/stores/project-store"
  * A Spec swaps this out for its own header; see SpecPage.
  */
 export const WorkspaceHeader = memo(function WorkspaceHeader() {
-  const rightPanelOpen = useAppShellStore((s) => s.rightPanelOpen)
   const projects = useProjectStore((state) => state.projects)
   const activeWorkspaceId = useProjectStore((state) => state.activeWorkspaceId)
   const tabs = useEditorStore((state) => state.tabs)
@@ -86,8 +85,8 @@ export const WorkspaceHeader = memo(function WorkspaceHeader() {
           <WorkspaceTaskButton />
           <ChatHistoryButton onOpenChat={openChatTab} />
         </div>
-        <SessionPanelToggle className={rightPanelOpen ? "mr-2" : "mr-0.5"} />
-        {!rightPanelOpen && <div className="w-[58px] shrink-0" aria-hidden="true" />}
+        <SessionPanelToggle className="mr-0.5" />
+        <TopBarControlsReserve closed={58} open={6} />
       </div>
 
       <EditorTabs

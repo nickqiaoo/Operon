@@ -11,7 +11,7 @@ type Storage = ChannelStorageAdapter & ProjectStorageAdapter & AgentBindingStora
  * On app startup: reset all non-offline app and task bindings to idle — no
  * session survives a restart, so 'active' is stale.
  * Bindings are NOT auto-woken — users can wake them manually or recoverAgentSessions resumes those with unread.
- * An interrupted task is resumed from its page (POST /tasks/:id/resume).
+ * An interrupted task picks up again when someone comments on it (the comment wakes its agent).
  */
 export function resetAgentSessionsOnStartup(storage: Storage): void {
   const bindings = [...storage.listBindings({ scopeKind: 'app' }), ...storage.listBindings({ scopeKind: 'task' })]

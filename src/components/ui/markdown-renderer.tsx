@@ -7,15 +7,18 @@ export interface MarkdownRendererProps {
   className?: string;
   /** Render single newlines as hard breaks in surfaces such as the README preview. */
   breaks?: boolean;
+  /** Bare GitHub PR / issue URLs render as chips; pair with `GithubLinkProvider` for state. */
+  githubLinks?: boolean;
 }
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className, breaks }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className, breaks, githubLinks }: MarkdownRendererProps) {
   return (
     <RichMarkdown
       mode="static"
       citations
       headingIds
       breaks={breaks}
+      githubLinks={githubLinks}
       className={cn(
         "prose max-w-none w-full",
         "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",
