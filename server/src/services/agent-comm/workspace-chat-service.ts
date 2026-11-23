@@ -21,6 +21,7 @@ import {
   openThread,
   reportThread,
   resolveThreadRoot,
+  routeChannelMentions,
   routeThreadMessage,
   type OpenThreadResult,
 } from '../channel/threads.js'
@@ -208,11 +209,15 @@ export class WorkspaceChatService implements AgentMessageSurface {
       void routeThreadMessage(this.storage, channel, message).catch((err) => {
         console.error('[workspace-chat] thread routing failed:', err)
       })
-    } else if (session?.scopeKind !== 'thread') {
+    } else {
       // Running peers get a nudge to check_messages before they reply. A thread
-      // session posting in the main channel is reporting back, which wakes and
-      // nudges nobody: the channel sessions read it with their next messages.
-      nudgeActivePeers(this.storage, channel, message)
+      // session posting in the main channel is reporting back, which nudges
+      // nobody: the channel sessions read it with their next messages.
+      if (session?.scopeKind !== 'thread') nudgeActivePeers(this.storage, channel, message)
+      // Either way, the members it @mentions are woken (bounded).
+      void routeChannelMentions(this.storage, channel, message).catch((err) => {
+        console.error('[workspace-chat] channel mention routing failed:', err)
+      })
     }
     return { status: 'sent', messageId: toShortId(message.id) }
   }

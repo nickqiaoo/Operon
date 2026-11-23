@@ -3,6 +3,7 @@ import { FormattedMessage } from 'react-intl'
 import { cn } from '@/lib/utils'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
 import type { Agent } from '@/types/channel'
+import { agentNameColor } from './agent-name-color'
 
 /**
  * Detect whether the textarea caret is currently inside an `@mention` token.
@@ -84,12 +85,12 @@ export function MentionPicker({
             }}
             className={cn(
               'w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors',
-              idx === selectedIndex ? 'bg-tint/10 text-tint' : 'text-foreground hover:bg-row-hover',
+              idx === selectedIndex ? 'bg-row-selected' : 'hover:bg-row-hover',
             )}
           >
             <AgentAvatar provider={agent.provider} size="sm" />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{agent.name}</div>
+              <div className={cn('truncate font-medium', agentNameColor(agent.id))}>{agent.name}</div>
               <div className="truncate text-[10px] text-muted-foreground/70">
                 {agent.provider} · {agent.model}
               </div>

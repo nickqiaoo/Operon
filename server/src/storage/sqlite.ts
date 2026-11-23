@@ -92,12 +92,14 @@ import type {
   ChannelAttachment,
   ChannelThread,
   ChannelThreadStatus,
+  ChannelUnread,
   CreateAgentInput,
   CreateChannelInput,
   CreateMessageInput,
   MessageSenderType,
   UpdateAgentInput,
 } from '../types/channel.js'
+import { UNREAD_CAP } from '../types/channel.js'
 import type {
   Task,
   TaskActivity,
@@ -219,6 +221,7 @@ function prepareChatStatements(db: Database.Database) {
     updateConfig: db.prepare(`
       UPDATE chats SET
         tp = COALESCE(@tp, tp),
+        title = COALESCE(@title, title),
         workspace_id = COALESCE(@workspaceId, workspace_id),
         model = COALESCE(@model, model),
         provider_id = COALESCE(@providerId, provider_id),
@@ -598,6 +601,7 @@ export class SqliteStorage
     this.chatSt.updateConfig.run({
       id: chatId,
       tp: patch.tp ?? null,
+      title: patch.title ?? null,
       workspaceId: patch.workspaceId ?? null,
       model: patch.model ?? null,
       providerId: patch.providerId ?? null,
@@ -3028,6 +3032,87 @@ export class SqliteStorage
       )
       .all(rootMessageId, lastReadId, bindingId, agentId) as Array<Record<string, unknown>>
     return rows.map(row => this.rowToChannelMessage(row))
+  }
+
+  // ---- Channel: the person's unread (cursors on channels / root messages) ----
+  // Each count walks the partial index idx_messages_agent_main / _reply from the
+  // cursor on and stops at UNREAD_CAP, so it costs at most that many index steps
+  // per channel or thread, however long the history.
+
+  listChannelUnread(): ChannelUnread[] {
+    const main = this.db
+      .prepare(
+        `SELECT c.id AS channel_id,
+                (SELECT COUNT(*) FROM (SELECT 1 FROM channel_messages m
+                  WHERE m.channel_id = c.id AND m.thread_root_id IS NULL AND m.sender_type = 'agent'
+                    AND m.id > c.human_last_read_id LIMIT ?)) AS n
+         FROM channels c`,
+      )
+      .all(UNREAD_CAP) as Array<{ channel_id: number; n: number }>
+    const byChannel = new Map<number, ChannelUnread>()
+    for (const row of main) {
+      if (row.n > 0) byChannel.set(row.channel_id, { channelId: row.channel_id, unread: row.n, threads: {} })
+    }
+    for (const row of this.threadUnreadRows(null)) {
+      let entry = byChannel.get(row.channel_id)
+      if (!entry) {
+        entry = { channelId: row.channel_id, unread: 0, threads: {} }
+        byChannel.set(row.channel_id, entry)
+      }
+      entry.threads[row.root_id] = row.n
+    }
+    return [...byChannel.values()]
+  }
+
+  getChannelUnread(channelId: number): ChannelUnread | null {
+    const channel = this.db
+      .prepare('SELECT human_last_read_id FROM channels WHERE id = ?')
+      .get(channelId) as { human_last_read_id: number } | undefined
+    if (!channel) return null
+    const { n } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM (SELECT 1 FROM channel_messages
+          WHERE channel_id = ? AND thread_root_id IS NULL AND sender_type = 'agent' AND id > ? LIMIT ?)`,
+      )
+      .get(channelId, channel.human_last_read_id, UNREAD_CAP) as { n: number }
+    const threads: Record<number, number> = {}
+    for (const row of this.threadUnreadRows(channelId)) threads[row.root_id] = row.n
+    return { channelId, unread: n, threads }
+  }
+
+  /** Threads with unread agent replies, in one channel or (null) everywhere. */
+  private threadUnreadRows(channelId: number | null): Array<{ channel_id: number; root_id: number; n: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.channel_id, r.id AS root_id,
+                (SELECT COUNT(*) FROM (SELECT 1 FROM channel_messages m
+                  WHERE m.thread_root_id = r.id AND m.sender_type = 'agent'
+                    AND m.id > r.human_thread_read_id LIMIT ?)) AS n
+         FROM channel_messages r
+         WHERE r.thread_root_id IS NULL AND r.reply_count > 0 AND (? IS NULL OR r.channel_id = ?)`,
+      )
+      .all(UNREAD_CAP, channelId, channelId) as Array<{ channel_id: number; root_id: number; n: number }>
+    return rows.filter((row) => row.n > 0)
+  }
+
+  markChannelRead(channelId: number, upTo?: number): void {
+    this.db
+      .prepare(
+        `UPDATE channels SET human_last_read_id = MAX(human_last_read_id,
+           COALESCE(?, (SELECT MAX(id) FROM channel_messages WHERE channel_id = ?), 0))
+         WHERE id = ?`,
+      )
+      .run(upTo ?? null, channelId, channelId)
+  }
+
+  markThreadRead(rootMessageId: number, upTo?: number): void {
+    this.db
+      .prepare(
+        `UPDATE channel_messages SET human_thread_read_id = MAX(human_thread_read_id,
+           COALESCE(?, (SELECT MAX(id) FROM channel_messages WHERE thread_root_id = ?), 0))
+         WHERE id = ? AND thread_root_id IS NULL`,
+      )
+      .run(upTo ?? null, rootMessageId, rootMessageId)
   }
 
   // ---- Assistant ----

@@ -69,6 +69,12 @@ export interface SubscribeSseOptions<T> {
   onParseError?: (error: unknown, raw: string) => void
   /** Called when an attempt fails or the stream drops. Default: ignore. */
   onError?: (error: unknown) => void
+  /**
+   * Called each time an attempt connects (the first one and every reconnect).
+   * Events sent while no stream was open are gone, so this is where a caller
+   * reads again whatever state those events would have kept current.
+   */
+  onOpen?: () => void
   maxRetryMs?: number
 }
 
@@ -77,6 +83,7 @@ export function subscribeSse<T>({
   onEvent,
   onParseError,
   onError,
+  onOpen,
   maxRetryMs = DEFAULT_MAX_RETRY_MS,
 }: SubscribeSseOptions<T>): SseSubscription {
   let closed = false
@@ -150,6 +157,7 @@ export function subscribeSse<T>({
         throw new Error(`SSE request failed: ${response.status} ${response.statusText}`)
       }
       connectedAt = Date.now()
+      if (!closed && self === attempt) onOpen?.()
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()

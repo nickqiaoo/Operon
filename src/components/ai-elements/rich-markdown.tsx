@@ -1,5 +1,5 @@
-import { canUseWASM } from "@pierre/diffs";
 import { lazy, memo, Suspense } from "react";
+import type { MarkdownMention } from "@/lib/markdown-mentions";
 
 export interface RichMarkdownProps {
   children: string;
@@ -14,18 +14,17 @@ export interface RichMarkdownProps {
   codeControls?: boolean;
   /** Bare GitHub PR / issue URLs render as chips (see `GithubLinkChip`). */
   githubLinks?: boolean;
+  /** `@name` for these names renders highlighted (channel members). */
+  mentions?: readonly MarkdownMention[];
 }
 
-const PortableMarkdown = lazy(() => import("./portable-markdown"));
-const WordsMarkdown = lazy(() =>
-  import("./words-message-markdown").catch(() => import("./portable-markdown"))
-);
+// Words (WASM) is the only renderer; every supported runtime can load WASM.
+const WordsMarkdown = lazy(() => import("./words-message-markdown"));
 
 export const RichMarkdown = memo(function RichMarkdown(props: RichMarkdownProps) {
-  const Renderer = canUseWASM() ? WordsMarkdown : PortableMarkdown;
   return (
     <Suspense>
-      <Renderer {...props} />
+      <WordsMarkdown {...props} />
     </Suspense>
   );
 });

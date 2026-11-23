@@ -101,6 +101,8 @@ export class CodexRuntimeProvider implements RuntimeProviderFactory<SessionOptio
         sessionResume: true,
         goal: true,
         sideChat: true,
+        // Mid-turn switches go through `turn/settings/update` (see `CodexRuntimeSession.set`).
+        dynamicSwitch: true,
       },
     }
   }

@@ -10,6 +10,8 @@ import { ProjectAgentDialog } from "@/components/channel/AgentMenu"
 import { AgentManageDialog } from "@/components/channel/AgentManageDialog"
 import { AgentAvatar } from "@/components/icons/AgentAvatar"
 import type { Agent } from "@/types/channel"
+import { UNREAD_CAP } from "@/types/channel"
+import { attentionOf, hasUnread, useChannelUnreadMap } from "@/lib/channel-queries"
 import { TasksPage, type GroupBy, type TaskViewControls } from "@/components/task/TasksPage"
 import { STATUS_MESSAGES, priorityMessage } from "@/components/task/task-i18n"
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/types/task"
@@ -71,6 +73,7 @@ export function MobileChannelScreen({
   const [controls, setControls] = useState<TaskViewControls>(DEFAULT_CONTROLS)
 
   const channels = useChannelStore((s) => s.channels)
+  const unreadByChannel = useChannelUnreadMap()
   const activeChannelId = useChannelStore((s) => s.activeChannelId)
   const setActiveChannel = useChannelStore((s) => s.setActiveChannel)
   const loadAgents = useChannelStore((s) => s.loadAgents)
@@ -421,17 +424,31 @@ export function MobileChannelScreen({
                 {projectFilter == null && (
                   <div className="px-3 pb-1 pt-3 text-[13px] font-medium text-muted-foreground/80 first:pt-1">{project.name}</div>
                 )}
-                {list.map((channel) => (
-                  <button
-                    key={channel.id}
-                    type="button"
-                    onClick={() => setActiveChannel(channel.id)}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-secondary-hover"
-                  >
-                    <Hash className="size-4 shrink-0 text-muted-foreground/60" />
-                    <span className="truncate text-base text-foreground/85">{channel.name}</span>
-                  </button>
-                ))}
+                {list.map((channel) => {
+                  const entry = unreadByChannel.get(channel.id)
+                  const attention = attentionOf(entry)
+                  const unread = hasUnread(entry) || attention > 0
+                  const mainCount = entry?.unread ?? 0
+                  return (
+                    <button
+                      key={channel.id}
+                      type="button"
+                      onClick={() => setActiveChannel(channel.id)}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left hover:bg-secondary-hover"
+                    >
+                      <Hash className="size-4 shrink-0 text-muted-foreground/60" />
+                      <span className={cn("min-w-0 flex-1 truncate text-base", unread ? "font-semibold text-foreground" : "text-foreground/85")}>{channel.name}</span>
+                      {/* Waiting on you: amber count. Else main-timeline messages get a count; unread only in threads, a dot. */}
+                      {attention > 0 ? (
+                        <span className="min-w-5 shrink-0 rounded-full bg-accent-warm px-1.5 text-center text-xs font-medium leading-5 tabular-nums text-white">{attention > 99 ? "99+" : attention}</span>
+                      ) : mainCount > 0 ? (
+                        <span className="shrink-0 text-[13px] font-medium tabular-nums text-tint">{mainCount >= UNREAD_CAP ? "99+" : mainCount}</span>
+                      ) : unread ? (
+                        <span className="size-2 shrink-0 rounded-full bg-tint" />
+                      ) : null}
+                    </button>
+                  )
+                })}
               </Fragment>
             ))}
           </div>

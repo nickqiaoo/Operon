@@ -245,6 +245,26 @@ export interface TurnSteerParams {
   clientUserMessageId?: string;
 }
 
+/**
+ * `turn/settings/update` (experimental API): re-parameterise the turn that is
+ * running now, not future ones. Omitted / null fields stay as they are. Steps
+ * already captured and approvals already pending keep their original reviewer.
+ */
+export interface TurnSettingsUpdateParams {
+  threadId: string;
+  turnId: string;
+  approvalsReviewer?: ProtocolApprovalsReviewer | null;
+  model?: string | null;
+  effort?: string | null;
+  /** `null` clears the tier (fast off); omission leaves it unchanged. */
+  serviceTier?: ProtocolServiceTier | null;
+}
+
+export interface TurnSettingsUpdateResult {
+  /** `targetUnavailable`: the turn already ended (or never existed). */
+  status: 'applied' | 'targetUnavailable';
+}
+
 export interface TurnStartResult {
   turn: Turn;
 }

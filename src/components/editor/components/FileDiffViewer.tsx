@@ -6,7 +6,6 @@ import { useThemeStore } from '@/stores/theme-store';
 import { useReviewDisplayStore } from '@/stores/review-display-store';
 import { useIsMobileShell } from '@/hooks/useIsMobile';
 import { createPierreDiffOptions } from '@shared/tool-rendering/diff';
-import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider';
 import { usePreparedDiff } from '@/components/diff/usePreparedDiff';
 import { useFileOpenHandler } from '@/lib/file-open-context';
 import { Button } from '@/components/ui/button';
@@ -59,15 +58,13 @@ export function FileDiffViewer({ filePath, oldContent, newContent, className }: 
     className="pierre-diff-file-view rounded-lg overflow-hidden text-sm" />;
   return (
     <div className={className}>
-      <DiffWorkerProvider>
-        {isLarge ? (
-          <TouchSafeVirtualizer className="pierre-hscroll h-120 overflow-auto rounded-lg" config={{ overscrollSize: 400 }}>
-            {diff}
-          </TouchSafeVirtualizer>
-        ) : (
-          <div className={isMobile ? 'pierre-hscroll rounded-lg' : undefined}>{diff}</div>
-        )}
-      </DiffWorkerProvider>
+      {isLarge ? (
+        <TouchSafeVirtualizer className="pierre-hscroll h-120 overflow-auto rounded-lg" config={{ overscrollSize: 400 }}>
+          {diff}
+        </TouchSafeVirtualizer>
+      ) : (
+        <div className={isMobile ? 'pierre-hscroll rounded-lg' : undefined}>{diff}</div>
+      )}
     </div>
   );
 }

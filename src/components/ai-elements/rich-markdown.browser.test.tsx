@@ -15,7 +15,7 @@ const fence = '\x60'.repeat(3)
 beforeAll(async () => {
   await Promise.all([
     import('./words-message-markdown'),
-    import('./portable-markdown'),
+    import('./markdown-html-block'),
     import('./mermaid-block'),
     import('mermaid'),
   ])
@@ -101,6 +101,15 @@ test('renders duplicate heading anchors, single line breaks and sanitized HTML i
   expect(container.querySelectorAll('script')).toHaveLength(0)
   expect(container.textContent).not.toContain('forbidden')
   expect(container.querySelectorAll('[data-markdown="root"]')).toHaveLength(1)
+})
+
+test('shows HTML that would render to nothing as its text', async () => {
+  await act(async () => root.render(<MarkdownRenderer content={'<p align="center">'} />))
+  await expect.poll(() => container.textContent?.trim()).toBe('<p align="center">')
+
+  await act(async () => root.render(<MarkdownRenderer content={'<p align="center"><img src="https://example.com/logo.png"></p>'} />))
+  await expect.poll(() => container.querySelector('img')).not.toBeNull()
+  expect(container.textContent).not.toContain('<p')
 })
 
 test('offers Mermaid download, zoom and expanded view within the Words reply', async () => {

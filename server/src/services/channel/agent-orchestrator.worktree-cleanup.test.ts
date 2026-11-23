@@ -3,15 +3,28 @@ import { existsSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it as baseIt, vi } from 'vitest'
 import { SqliteStorage } from '../../storage/sqlite.js'
+
+// better-sqlite3 is built for Electron's Node; under a plain Node it does not load. Run with
+// `ELECTRON_RUN_AS_NODE=1 electron node_modules/vitest/vitest.mjs run <this file>` to cover it
+// (CI rebuilds it for Node first, so it runs there).
+const sqliteLoads = (() => {
+  try {
+    new SqliteStorage(':memory:').close()
+    return true
+  } catch {
+    return false
+  }
+})()
+const it = baseIt.skipIf(!sqliteLoads)
 import { abortChat } from '../ai.js'
 import { stopDesignRun } from '../spec/design-run.js'
 import { initOrchestrator } from './agent-orchestrator.js'
 
 vi.mock('../ai.js', () => ({ abortChat: vi.fn(), startChat: vi.fn(), startServerChat: vi.fn() }))
 vi.mock('./binding-reset.js', () => ({ resetBinding: vi.fn() }))
-vi.mock('../channel-bus.js', () => ({ emitChannelEvent: vi.fn(), emitProjectEvent: vi.fn() }))
+vi.mock('../channel-bus.js', () => ({ emitChannelEvent: vi.fn(), emitProjectEvent: vi.fn(), publishChannelUnread: vi.fn(), registerChannelAttention: vi.fn() }))
 vi.mock('../task-events.js', () => ({ broadcastTask: vi.fn() }))
 vi.mock('../message-router.js', () => ({ deliverToBinding: vi.fn() }))
 vi.mock('../rewind/index.js', () => ({ RewindService: { removeRepo: vi.fn(async () => {}) } }))

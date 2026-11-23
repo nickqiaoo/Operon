@@ -30,6 +30,9 @@ function fakeStorage() {
     getBindingByScope: () => ({ status: 'active' }),
     listBindingsForScope: () => [],
     getAgent: () => ({ name: 'luna-dev' }),
+    getChannelMessage: () => null,
+    // Agent posts publish the channel's unread for the person's sidebar.
+    getChannelUnread: () => null,
     createMessage: (input: Omit<ChannelMessage, 'id'>) => {
       const m = { ...human(nextId++, input.channelId), ...input }
       messages.push(m)

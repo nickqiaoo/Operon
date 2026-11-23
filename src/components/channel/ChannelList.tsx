@@ -9,6 +9,8 @@ import { useProjectStore } from '@/stores/project-store'
 import { isChannelsView } from '@/stores/app-shell-store'
 import { useNavigationStore } from '@/stores/navigation-store'
 import { BOARD_PROJECT_FILTER_KEY, useProjectFilter } from '@/components/project/ProjectFilterSelect'
+import { attentionOf, hasUnread, useChannelUnreadMap } from '@/lib/channel-queries'
+import { UNREAD_CAP } from '@/types/channel'
 
 interface ChannelListProps {
   /** On screen (panel out, or floating): loads the channels the first time. */
@@ -36,6 +38,7 @@ export function ChannelList({ shown, onNavigate }: ChannelListProps) {
   const showMain = useNavigationStore((s) => s.showMain)
   const [projectFilter] = useProjectFilter(BOARD_PROJECT_FILTER_KEY)
   const [creatingIn, setCreatingIn] = useState<number | null>(null)
+  const unreadByChannel = useChannelUnreadMap()
 
   // Floating out over another page, nothing may have loaded them yet. Once is
   // enough: the Channels page reloads them on every visit.
@@ -112,6 +115,12 @@ export function ChannelList({ shown, onNavigate }: ChannelListProps) {
               <div className="space-y-0.5">
                 {list.map((channel) => {
                   const active = onChannelsPage && activeChannelId === channel.id
+                  // The open channel is being read as it arrives; don't flash a count on it.
+                  // What waits on you shows even there: reading doesn't settle it.
+                  const entry = unreadByChannel.get(channel.id)
+                  const attention = attentionOf(entry)
+                  const unread = !active && hasUnread(entry)
+                  const mainCount = entry?.unread ?? 0
                   return (
                     <div key={channel.id} className="group/row relative">
                       <button
@@ -122,15 +131,38 @@ export function ChannelList({ shown, onNavigate }: ChannelListProps) {
                           'flex w-full min-w-0 items-center gap-2 rounded-lg py-1 pl-5 pr-8 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(pointer:coarse)]:py-2',
                           active
                             ? 'bg-row-selected font-semibold text-foreground'
-                            : 'font-medium text-foreground/70 hover:bg-row-hover hover:text-foreground',
+                            : unread || attention > 0
+                              ? 'font-semibold text-foreground hover:bg-row-hover'
+                              : 'font-medium text-foreground/70 hover:bg-row-hover hover:text-foreground',
                         )}
                       >
                         <Hash className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
                         <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+                        {/* Waiting on you: amber count. Else main-timeline messages get a
+                            count; unread only in threads, a dot. Hidden on hover,
+                            where the delete button takes this spot — at once, not
+                            faded: both fading in the same spot showed them overlapping
+                            for the length of the transition. */}
+                        {(attention > 0 || unread) && (
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 group-hover/row:invisible group-has-[[data-delete]:focus-visible]/row:invisible">
+                            {attention > 0 ? (
+                              <span className="block min-w-4 rounded-full bg-accent-warm px-1 text-center text-[10px] font-medium leading-4 tabular-nums text-white">
+                                {attention > 99 ? '99+' : attention}
+                              </span>
+                            ) : mainCount > 0 ? (
+                              <span className="text-[11px] font-medium tabular-nums text-tint">
+                                {mainCount >= UNREAD_CAP ? '99+' : mainCount}
+                              </span>
+                            ) : (
+                              <span className="block size-1.5 rounded-full bg-tint" />
+                            )}
+                          </span>
+                        )}
                       </button>
                       <button
                         type="button"
                         onClick={() => void remove(channel.id)}
+                        data-delete
                         className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-accent-hover hover:text-destructive focus-visible:opacity-100 group-hover/row:opacity-100"
                         title={intl.formatMessage({ id: 'channel.deleteChannel', defaultMessage: 'Delete channel' })}
                         aria-label={intl.formatMessage({ id: 'channel.deleteChannel', defaultMessage: 'Delete channel' })}

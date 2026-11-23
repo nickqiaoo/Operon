@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { api } from '@/lib/api'
+import { queryClient } from '@/lib/query-client'
+import { removeChannelUnread } from '@/lib/channel-queries'
 import type { Agent, AgentSessionStatus, Channel, ChannelMember, ChannelMessage, AgentSession, CreateAgentInput } from '@/types/channel'
 
 interface ChannelStore {
@@ -69,6 +71,8 @@ export const useChannelStore = create<ChannelStore>((set, get) => ({
 
   deleteChannel: async (id) => {
     await api.channelDelete(id)
+    // The rail's badge reads the unread cache, not this list.
+    removeChannelUnread(queryClient, id)
     set((s) => ({
       channels: s.channels.filter((c) => c.id !== id),
       activeChannelId: s.activeChannelId === id ? null : s.activeChannelId,

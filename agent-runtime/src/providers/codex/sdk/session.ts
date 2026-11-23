@@ -7,7 +7,7 @@
 
 import { CodexRpcError, type AppServerClient } from './app-server-client.js';
 import type { Session as ISession, UserInput } from './types/index.js';
-import type { ProtocolUserInput } from './protocol/index.js';
+import type { ProtocolUserInput, TurnSettingsUpdateParams } from './protocol/index.js';
 import { RuntimeInjectionUnavailableError } from '../../../types.js';
 
 /**
@@ -91,6 +91,20 @@ export class SessionImpl implements ISession {
       throw error;
     }
 
+  }
+
+  /**
+   * Re-parameterise the active turn in place (`turn/settings/update`). Returns
+   * whether Codex took it; false when no turn is running or it already ended.
+   */
+  async updateSettings(patch: Omit<TurnSettingsUpdateParams, 'threadId' | 'turnId'>): Promise<boolean> {
+    if (!this._isActive || !this._turnId) return false;
+    const result = await this.client.updateTurnSettings({
+      threadId: this.threadId,
+      turnId: this._turnId,
+      ...patch,
+    });
+    return result.status === 'applied';
   }
 
   /**

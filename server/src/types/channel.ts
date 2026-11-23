@@ -142,6 +142,27 @@ export interface WaitingSession {
   approvalIds: string[]
 }
 
+/**
+ * The person's unread in one channel: agents' messages past where they read.
+ * Counts stop at UNREAD_CAP (shown as "99+"). `threads` lists only threads with
+ * unread replies, keyed by root message id; thread replies are not in `unread`.
+ */
+export interface ChannelUnread {
+  channelId: number
+  unread: number
+  threads: Record<number, number>
+  /**
+   * Things waiting on you, which reading does not clear: each agent session
+   * (channel or thread) blocked on your approval or answer, plus each thread
+   * whose owner reported "waiting" in a reply you have not read. Absent from
+   * servers that predate it.
+   */
+  attention?: number
+}
+
+/** Counting stops here: a never-opened channel with a big backlog costs no more than this. */
+export const UNREAD_CAP = 100
+
 /** A thread as the UI sees it: the row plus which agents have a session in it, which are running, and which wait on someone. */
 export interface ChannelThreadView extends ChannelThread {
   participantAgentIds: number[]

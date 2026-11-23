@@ -33,7 +33,7 @@
 import type { AgentBindingStorageAdapter, ChannelStorageAdapter } from '../../storage/interface.js'
 import type { AgentBinding } from '../../types/agent-binding.js'
 import type { Agent, Channel, ChannelMessage, ChannelThread, ChannelThreadStatus, ChannelThreadView, WaitingSession } from '../../types/channel.js'
-import { emitChannelEvent, publishChannelMessage } from '../channel-bus.js'
+import { emitChannelEvent, publishChannelMessage, publishChannelUnread } from '../channel-bus.js'
 import { listPendingApprovals } from '../ai/chat-pending-input.js'
 import { getFollowUps, MAX_AGENT_FOLLOW_UPS, nudgeActivePeers, setFollowUps } from './peer-awareness.js'
 import { threadTarget } from './session-stream.js'
@@ -45,6 +45,8 @@ interface ThreadDelivery {
   toThreadSession(binding: AgentBinding): Promise<void>
   /** Deliver a message to every member's channel session. */
   toChannelSessions(channelId: number, message: ChannelMessage): Promise<void>
+  /** Wake one channel session for what is unread in its channel. */
+  toChannelSession(binding: AgentBinding): Promise<void>
 }
 
 let delivery: ThreadDelivery | null = null
@@ -97,13 +99,18 @@ export function onSessionInputChanged(storage: ThreadStorage, chatId: number): v
   } else if (binding.scopeKind === 'app') {
     const channelId = Number(binding.scopeKey)
     emitChannelEvent(channelId, { type: 'sessions_waiting', data: channelSessionsWaiting(storage, channelId) })
+    // The sidebar's amber count, for channels not on screen.
+    publishChannelUnread(storage, channelId)
   }
 }
 
 /** Push the thread's current state to the channel's viewers. */
 export function emitThreadUpdated(storage: ThreadStorage, rootMessageId: number): void {
   const thread = storage.getThread(rootMessageId)
-  if (thread) emitChannelEvent(thread.channelId, { type: 'thread_updated', data: threadView(storage, thread) })
+  if (!thread) return
+  emitChannelEvent(thread.channelId, { type: 'thread_updated', data: threadView(storage, thread) })
+  // Its sessions' approvals and its status feed the channel's amber count.
+  publishChannelUnread(storage, thread.channelId)
 }
 
 /**
@@ -318,8 +325,8 @@ export async function openThread(
 
 /**
  * update_thread: the owner reports the thread's state. `channelMessage` also
- * posts a message in the main channel — a report, so it wakes nobody: the
- * channel sessions read it with their next messages.
+ * posts a message in the main channel — a report, so it wakes only the members
+ * it @mentions: the other channel sessions read it with their next messages.
  */
 export function reportThread(
   storage: ThreadStorage,
@@ -350,10 +357,42 @@ export function reportThread(
       senderBindingId: input.bindingId,
     })
     publishChannelMessage(storage, message)
+    void routeChannelMentions(storage, channel, message).catch((err) => {
+      console.error('[Threads] channel mention routing failed:', err)
+    })
     channelMessageId = message.id
   }
   emitThreadUpdated(storage, thread.rootMessageId)
   return { channelMessageId }
+}
+
+/**
+ * An agent posted in the main channel: wake the channel session of each member
+ * it @mentions. Nobody else is woken — running sessions already got a nudge
+ * (`nudgeActivePeers`), idle ones read it on their next wake — so a mention is
+ * what makes an agent's message reach a member who isn't running. Bounded like
+ * every agent-to-agent wake, so agents mentioning each other can't keep each
+ * other running; a human speaking resets the count.
+ */
+export async function routeChannelMentions(storage: ThreadStorage, channel: Channel, message: ChannelMessage): Promise<void> {
+  if (message.senderType !== 'agent' || message.threadRootId != null || !delivery) return
+  for (const agent of mentionedMembers(storage, channel.id, message.content)) {
+    if (agent.id === message.senderId) continue
+    const session = ensureChannelSession(storage, channel, agent.id)
+    // Running: the nudge already told it; its turn-end re-wake picks this up.
+    if (session.status === 'active') continue
+    const n = getFollowUps(storage, session.id)
+    if (n >= MAX_AGENT_FOLLOW_UPS) {
+      console.log(`[Threads] channel mention: binding=${session.id} at follow-up limit, leaving message unread`)
+      continue
+    }
+    setFollowUps(storage, session.id, n + 1)
+    try {
+      await delivery.toChannelSession(session)
+    } catch (err) {
+      console.error(`[Threads] channel mention delivery to binding=${session.id} failed:`, err)
+    }
+  }
 }
 
 /**

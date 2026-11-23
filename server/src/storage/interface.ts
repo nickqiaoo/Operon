@@ -24,6 +24,7 @@ import type { CreateSpecRunInput, SpecRun, SpecStage, UpdateSpecRunInput } from 
 import type {
   Agent,
   Channel,
+  ChannelUnread,
   ChannelMember,
   ChannelMessage,
   ChannelThread,
@@ -352,6 +353,17 @@ export interface ChannelStorageAdapter {
   getUnreadChannelMessages(agentId: number, channelId: number): ChannelMessage[]
   /** A thread session's stream: the replies in that one thread. */
   getUnreadThreadMessages(agentId: number, rootMessageId: number): ChannelMessage[]
+
+  // The person's unread (cursors on channels / root messages). Only agents'
+  // messages count; every count stops at UNREAD_CAP.
+  /** Every channel with something unread, in the main timeline or a thread. */
+  listChannelUnread(): ChannelUnread[]
+  /** One channel's entry, or null when the channel is gone. */
+  getChannelUnread(channelId: number): ChannelUnread | null
+  /** Move the channel's cursor to `upTo` (default: its latest message); never backwards. */
+  markChannelRead(channelId: number, upTo?: number): void
+  /** Move a thread's cursor (on its root message) to `upTo` (default: its latest reply); never backwards. */
+  markThreadRead(rootMessageId: number, upTo?: number): void
 }
 
 export type TaskChangeListener = (before: Task, after: Task) => void

@@ -1,5 +1,5 @@
 import { useRef, type HTMLAttributes, type ReactNode } from 'react'
-import { FormattedMessage, useIntl } from 'react-intl'
+import { useIntl } from 'react-intl'
 import { ImagePlus, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -33,14 +33,6 @@ export function ComposerFrame({ className, floating = false, children, ...imageE
     >
       {children}
     </div>
-  )
-}
-
-export function ComposerSendError({ className }: { className?: string }) {
-  return (
-    <p role="alert" className={cn('mb-2 text-xs text-destructive', className)}>
-      <FormattedMessage id="channel.composer.sendFailed" defaultMessage="Message could not be sent" />
-    </p>
   )
 }
 

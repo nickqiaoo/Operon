@@ -36,7 +36,7 @@ export function useInboxUnread() {
 /** Fold one live inbox event into the cached unread list, so it changes without a refetch. */
 export function applyInboxEventToUnread(client: QueryClient, event: InboxEvent): void {
   const key = inboxKeys.unread()
-  if (event.type === 'counts' || client.getQueryData(key) === undefined) return
+  if (event.type === 'counts' || event.type === 'channel_unread' || client.getQueryData(key) === undefined) return
   client.setQueryData<Notification[]>(key, (current = []) => {
     switch (event.type) {
       case 'notification_upsert': {

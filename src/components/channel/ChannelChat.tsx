@@ -8,17 +8,19 @@ import { useChannelStore } from '@/stores/channel-store'
 import { useTaskStore } from '@/stores/task-store'
 import type { TaskListItem } from '@/types/task'
 import { useChannel } from '@/hooks/useChannel'
-import { useChannelThreadMap, useChannelWaitingSessions, useChannelWorkingAgents } from '@/lib/channel-queries'
+import { useAutoMarkRead, useChannelThreadMap, useChannelUnreadMap, useChannelWaitingSessions, useChannelWorkingAgents } from '@/lib/channel-queries'
 import { SessionApprovals } from './SessionApprovals'
 import { ChannelMessageItem } from './ChannelMessageItem'
 import { ChannelWorkingIndicator, useWorkingAfterReply } from './ChannelWorkingIndicator'
 import { ThreadPanel } from './ThreadPanel'
-import { COMPOSER_TEXTAREA_CLASS, ComposerAttachButton, ComposerFrame, ComposerSendButton, ComposerSendError } from './ComposerFrame'
+import { COMPOSER_TEXTAREA_CLASS, ComposerAttachButton, ComposerFrame, ComposerSendButton } from './ComposerFrame'
 import { PendingImageStrip } from '@/components/task/task-attachments'
 import { useChannelComposer } from './useChannelComposer'
 import { useScrollActivity } from '@/hooks/useScrollActivity'
 import { useScrollFade } from '@/components/ai-elements/use-scroll-fade'
 import { ResizeHandle } from '@/components/app-shell/ResizeHandle'
+import { PANEL_ANIMATION_DURATION } from '@/components/app-shell/constants'
+import { cn } from '@/lib/utils'
 import { useNativeShellOverlay } from '@/hooks/useNativeShellOverlay'
 import { useIsMobileShell } from '@/hooks/useIsMobile'
 import { hasNativeComposer } from '@/lib/native-composer'
@@ -111,10 +113,14 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     [channelMembers, agents],
   )
 
-  const { messages, threadMessages, typingAgentIds, loading, loadingMore, hasMore, loadMore, sendMessage, sendThreadReply } = useChannel({
+  const { messages, threadMessages, typingAgentIds, loading, loadingMore, hasMore, loadMore, sendMessage, sendThreadReply, retrySend, discardSend } = useChannel({
     channelId,
   })
   const threads = useChannelThreadMap(channelId)
+  // On screen, the channel and its open thread stay read; other threads keep their unread.
+  useAutoMarkRead(channelId)
+  useAutoMarkRead(channelId, threadRootId, threadRootId != null)
+  const threadUnread = useChannelUnreadMap().get(channelId)?.threads
   // Channel sessions blocked on an approval or a question; thread sessions' show in their thread.
   const { data: waitingSessions = [] } = useChannelWaitingSessions(channelId)
   // Members on a turn in the channel itself, minus those blocked on an approval
@@ -283,10 +289,10 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     setNewCount(0)
   }
 
-  const { input, setInput, images, sending, sendFailed, canSend, submit } = useChannelComposer(sendMessage)
+  const { input, setInput, images, canSend, submit } = useChannelComposer(sendMessage)
 
-  const handleSend = useCallback(async (text?: string) => {
-    if (await submit(text)) {
+  const handleSend = useCallback((text?: string) => {
+    if (submit(text)) {
       setMention((s) => ({ ...s, open: false }))
       if (isMobile) textareaRef.current?.blur()
     }
@@ -382,8 +388,21 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
 
   const handleReply = useCallback((id: number) => setThreadRootId(id), [setThreadRootId])
 
-  const rootMessage = threadRootId
-    ? messages.find((m) => m.id === threadRootId) ?? null
+  // The thread slides in and out instead of popping. Closing clears
+  // `threadRootId` at once, so the panel keeps showing the thread it had
+  // (`panelRootId`) until it has slid away, then unmounts it.
+  const threadOpen = threadRootId != null
+  const [panelRootId, setPanelRootId] = useState<number | null>(threadRootId)
+  if (threadRootId != null && panelRootId !== threadRootId) setPanelRootId(threadRootId)
+  useEffect(() => {
+    if (threadRootId != null) return
+    const timer = setTimeout(() => setPanelRootId(null), PANEL_ANIMATION_DURATION * 1000)
+    return () => clearTimeout(timer)
+  }, [threadRootId])
+  const [resizingThread, setResizingThread] = useState(false)
+
+  const rootMessage = panelRootId
+    ? messages.find((m) => m.id === panelRootId) ?? null
     : null
 
   // Fade the transcript's edges where it meets the header and the composer
@@ -411,10 +430,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
     return () => observer.disconnect()
   }, [hasTranscript])
 
-  const showRightPanel = threadRootId
   // On a phone the thread is a full-screen overlay; the native iOS tab bar
   // would otherwise sit on top of it.
-  useNativeShellOverlay(showRightPanel != null)
+  useNativeShellOverlay(threadOpen)
 
   return (
     <div className="flex h-full min-h-0">
@@ -519,6 +537,9 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                           onOpenTask={onOpenTask}
                           highlighted={flashId === msg.id}
                           thread={threads.get(msg.id)}
+                          threadUnread={msg.id === threadRootId ? 0 : (threadUnread?.[msg.id] ?? 0)}
+                          onRetrySend={retrySend}
+                          onDiscardSend={discardSend}
                         />
                       )
                     })}
@@ -580,9 +601,8 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                   <PendingImageStrip uploads={images} />
                 </div>
               )}
-              {sendFailed && <ComposerSendError className="mx-auto max-w-4xl" />}
               {nativeComposer ? <NativeChatComposer
-                active={!showRightPanel}
+                active={!threadOpen}
                 value={input}
                 onChange={(text, cursor) => {
                   setInput(text)
@@ -594,7 +614,7 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                 onFiles={images.addFiles}
                 hasContext={images.items.length > 0}
                 keepTextOnSend
-                submitting={sending || images.uploading}
+                submitting={images.uploading}
                 placeholder="Message this channel…"
                 suggestions={mention.open ? mentionMatches.map((agent) => ({ id: String(agent.id), title: agent.name, subtitle: `${agent.provider} · ${agent.model}` })) : []}
                 onAction={(action) => {
@@ -632,22 +652,36 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
 
       {/* Thread — side panel at md+, full-screen overlay on phones (a narrow
           screen can't fit the conversation and the thread side by side) */}
-      {showRightPanel && (
-        <div
-          ref={threadWrapperRef}
-          // The status-bar inset only belongs to the full-screen overlay. As a side
-          // panel it sits under the page's titlebar like the channel column, which
-          // already cleared the status bar; padding it again pushed the thread header
-          // ~24px below the channel header on iPad (desktop's inset is 0, so it hid there).
-          className="fixed inset-0 z-50 flex flex-col min-h-0 bg-background pt-[env(safe-area-inset-top)] md:relative md:z-auto md:w-[var(--thread-w)] md:shrink-0 md:bg-transparent md:pt-0"
-          style={{
-            // With the phone keyboard up, it covers the home-indicator strip, so
-            // the two insets don't stack — take whichever is taller.
-            paddingBottom: "max(env(safe-area-inset-bottom), var(--keyboard-height))",
-            "--thread-w": `${threadWidth}px`,
-          } as React.CSSProperties}
-        >
-          {/* Drag the left edge to resize (desktop only; phones show it full-screen). */}
+      {/* Always mounted so it can animate: at md+ its width runs 0 ↔ the
+          panel width (the content keeps its full width, pinned right, so it
+          doesn't reflow mid-slide); on a phone it slides in from the right
+          like a pushed page. */}
+      <div
+        ref={threadWrapperRef}
+        aria-hidden={!threadOpen}
+        // The status-bar inset only belongs to the full-screen overlay. As a side
+        // panel it sits under the page's titlebar like the channel column, which
+        // already cleared the status bar; padding it again pushed the thread header
+        // ~24px below the channel header on iPad (desktop's inset is 0, so it hid there).
+        className={cn(
+          'fixed inset-0 z-50 flex flex-col min-h-0 bg-background pt-[env(safe-area-inset-top)]',
+          'md:relative md:inset-auto md:z-auto md:w-[var(--thread-w)] md:shrink-0 md:overflow-hidden md:bg-transparent md:pt-0 md:translate-x-0',
+          'ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
+          !resizingThread && 'transition-transform md:transition-[width]',
+          !threadOpen && 'pointer-events-none translate-x-full',
+          panelRootId == null && 'invisible',
+        )}
+        style={{
+          // With the phone keyboard up, it covers the home-indicator strip, so
+          // the two insets don't stack — take whichever is taller.
+          paddingBottom: "max(env(safe-area-inset-bottom), var(--keyboard-height))",
+          transitionDuration: `${PANEL_ANIMATION_DURATION * 1000}ms`,
+          "--thread-w": threadOpen ? `${threadWidth}px` : '0px',
+          "--thread-full-w": `${threadWidth}px`,
+        } as React.CSSProperties}
+      >
+        {/* Drag the left edge to resize (desktop only; phones show it full-screen). */}
+        {threadOpen && (
           <div className="hidden md:contents">
             <ResizeHandle
               edge="left"
@@ -657,24 +691,29 @@ export function ChannelChat({ channelId, onManageMembers, mobileKeyboardOpen = f
                 return right - x
               }}
               setSize={(next) => setThreadWidth(clampThreadWidth(next))}
+              onResizingChange={setResizingThread}
             />
           </div>
-          {threadRootId && (
+        )}
+        {panelRootId != null && (
+          <div className="flex min-h-0 flex-1 flex-col md:absolute md:inset-y-0 md:right-0 md:w-[var(--thread-full-w)]">
             <ThreadPanel
-              key={threadRootId}
+              key={panelRootId}
               channelName={channel?.name ?? null}
               rootMessage={rootMessage}
-              thread={threadRootId != null ? threads.get(threadRootId) : undefined}
+              thread={threads.get(panelRootId)}
               replies={threadMessages}
               agents={agents}
               typingAgentIds={typingAgentIds}
               onClose={() => setThreadRootId(null)}
               onSendReply={sendThreadReply}
+              onRetrySend={retrySend}
+              onDiscardSend={discardSend}
               mobileKeyboardOpen={mobileKeyboardOpen}
             />
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

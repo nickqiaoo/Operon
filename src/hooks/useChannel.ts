@@ -17,6 +17,53 @@ const NO_MESSAGES: ChannelMessage[] = []
  *  the matching `typing_stop` never arrives (agent crashed, stream dropped). */
 const TYPING_TTL_MS = 30_000
 
+/**
+ * Ids for messages not yet confirmed: above any real id (a global sequence),
+ * so they sort last, and rising, so several in flight keep their order.
+ */
+const LOCAL_ID_BASE = 2 ** 52
+let nextLocalId = LOCAL_ID_BASE
+
+export function isLocalMessage(message: Pick<ChannelMessage, 'localState'>): boolean {
+  return message.localState != null
+}
+
+export function localMessage(channelId: number, threadRootId: number | null, content: string, attachments: ChannelAttachment[]): ChannelMessage {
+  nextLocalId += 1
+  return {
+    id: nextLocalId,
+    channelId,
+    threadRootId,
+    senderType: 'human',
+    senderId: null,
+    senderName: 'you',
+    content,
+    replyCount: 0,
+    lastReplyAt: null,
+    attachments,
+    createdAt: Date.now(),
+    localState: 'sending',
+  }
+}
+
+/**
+ * The saved copy of one of your messages arrived (POST answer or stream, in
+ * either order): drop the oldest local copy it stands for and keep the saved
+ * one once.
+ */
+export function confirmLocal(list: ChannelMessage[], saved: ChannelMessage, localId?: number): ChannelMessage[] {
+  let dropId = localId
+  if (dropId == null && saved.senderType === 'human') {
+    dropId = list.find((m) => m.localState === 'sending' && m.threadRootId === saved.threadRootId && m.content === saved.content)?.id
+  }
+  const rest = dropId == null ? list : list.filter((m) => m.id !== dropId)
+  return rest.some((m) => m.id === saved.id) ? rest : mergeMessages(rest, [saved])
+}
+
+function setLocalState(list: ChannelMessage[], localId: number, localState: ChannelMessage['localState']): ChannelMessage[] {
+  return list.map((m) => (m.id === localId ? { ...m, localState } : m))
+}
+
 function mergeMessages(snapshot: ChannelMessage[], live: ChannelMessage[]): ChannelMessage[] {
   const byId = new Map(snapshot.map((message) => [message.id, message]))
   for (const message of live) {
@@ -106,6 +153,11 @@ export function useChannel({ channelId }: UseChannelOptions) {
   const oldestIdRef = useRef<number | null>(null)
   const currentChannelRef = useRef(channelId)
   currentChannelRef.current = channelId
+  // Read by retrySend, so its identity doesn't change with every message.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const threadMessagesRef = useRef(threadMessages)
+  threadMessagesRef.current = threadMessages
   const hasMoreRef = useRef(false)
   const loadingMoreRef = useRef(false)
   useEffect(() => {
@@ -145,10 +197,13 @@ export function useChannel({ channelId }: UseChannelOptions) {
 
   // Load thread replies when threadRootId changes
   useEffect(() => {
-    if (!channelId || !threadRootId) {
+    if (!channelId) {
       setThreadMessages([])
       return
     }
+    // Closing keeps the replies: the panel still shows them while it slides
+    // away. Opening another thread filters them out below.
+    if (!threadRootId) return
     let cancelled = false
     setThreadMessages((prev) => prev.filter((m) => m.threadRootId === threadRootId))
     api.channelThreadReplies(channelId, threadRootId)
@@ -182,14 +237,11 @@ export function useChannel({ channelId }: UseChannelOptions) {
       const msg = event.data
       if (msg.threadRootId) {
         if (msg.threadRootId === useChannelStore.getState().threadRootId) {
-          setThreadMessages((prev) => mergeMessages(prev.filter((m) => m.threadRootId === msg.threadRootId), [msg]))
+          setThreadMessages((prev) => confirmLocal(prev.filter((m) => m.threadRootId === msg.threadRootId), msg))
         }
         updateReplyCount(msg, event.threadRoot)
       } else {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev
-          return [...prev, applyThreadActivity(msg)]
-        })
+        setMessages((prev) => confirmLocal(prev, applyThreadActivity(msg)))
       }
       // Stop typing for this agent if it's an agent message
       if (msg.senderType === 'agent' && msg.senderId) {
@@ -234,8 +286,12 @@ export function useChannel({ channelId }: UseChannelOptions) {
     const subscription = subscribeSse<ChannelEvent>({
       url: () => api.channelStreamUrl(channelId),
       onEvent: handleEvent,
-      // Thread updates missed while the stream was down: read the list again.
-      onError: () => {
+      // These queries never go stale on their own (staleTime: Infinity) — the
+      // stream keeps them current. So whatever changed while no stream was open
+      // (this channel was off screen, or the connection dropped) is read again
+      // once one is: otherwise coming back to the channel after the agents
+      // finished still shows them "working" from the cached list.
+      onOpen: () => {
         void queryClient.invalidateQueries({ queryKey: channelKeys.threads(channelId) })
         void queryClient.invalidateQueries({ queryKey: channelKeys.waiting(channelId) })
         void queryClient.invalidateQueries({ queryKey: channelKeys.working(channelId) })
@@ -254,35 +310,62 @@ export function useChannel({ channelId }: UseChannelOptions) {
     }
   }, [])
 
+  // Sending shows your message at once (like the assistant), then swaps in the
+  // saved copy; a failed send stays in place, marked, with retry and discard.
+  const postMessage = useCallback(async (local: ChannelMessage) => {
+    const channel = local.channelId
+    const body = {
+      senderType: 'human' as const,
+      senderName: 'you',
+      content: local.content,
+      ...(local.attachments && local.attachments.length > 0 ? { attachments: local.attachments } : {}),
+    }
+    const rootId = local.threadRootId
+    const setList = rootId == null ? setMessages : setThreadMessages
+    try {
+      if (rootId == null) {
+        const { message } = await api.channelMessageCreate(channel, body)
+        if (currentChannelRef.current !== channel) return
+        setMessages((prev) => confirmLocal(prev, message, local.id))
+      } else {
+        const { message, threadRoot } = await api.channelThreadReply(channel, rootId, body)
+        if (currentChannelRef.current !== channel) return
+        setThreadMessages((prev) => confirmLocal(prev, message, local.id))
+        updateReplyCount(message, threadRoot)
+      }
+    } catch (error) {
+      console.error(error)
+      if (currentChannelRef.current === channel) setList((prev) => setLocalState(prev, local.id, 'failed'))
+    }
+  }, [updateReplyCount])
+
   const sendMessage = useCallback(async (content: string, attachments: ChannelAttachment[] = []) => {
     if (!channelId) return
-    const { message } = await api.channelMessageCreate(channelId, {
-      senderType: 'human',
-      senderName: 'you',
-      content,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    })
-    if (currentChannelRef.current !== channelId) return
-    setMessages((prev) => {
-      if (prev.some((m) => m.id === message.id)) return prev
-      return [...prev, message]
-    })
-  }, [channelId])
+    const local = localMessage(channelId, null, content, attachments)
+    setMessages((prev) => [...prev, local])
+    await postMessage(local)
+  }, [channelId, postMessage])
 
   const sendThreadReply = useCallback(async (content: string, attachments: ChannelAttachment[] = []) => {
     if (!channelId || !threadRootId) return
-    const { message, threadRoot } = await api.channelThreadReply(channelId, threadRootId, {
-      senderType: 'human',
-      senderName: 'you',
-      content,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    })
-    if (currentChannelRef.current !== channelId) return
-    if (useChannelStore.getState().threadRootId === threadRootId) {
-      setThreadMessages((prev) => mergeMessages(prev.filter((m) => m.threadRootId === threadRootId), [message]))
-    }
-    updateReplyCount(message, threadRoot)
-  }, [channelId, threadRootId, updateReplyCount])
+    const local = localMessage(channelId, threadRootId, content, attachments)
+    setThreadMessages((prev) => [...prev.filter((m) => m.threadRootId === threadRootId), local])
+    await postMessage(local)
+  }, [channelId, threadRootId, postMessage])
+
+  /** Send a failed message again, where it is. */
+  const retrySend = useCallback((localId: number) => {
+    const local = [...messagesRef.current, ...threadMessagesRef.current].find((m) => m.id === localId && m.localState === 'failed')
+    if (!local) return
+    const setList = local.threadRootId == null ? setMessages : setThreadMessages
+    setList((prev) => setLocalState(prev, localId, 'sending'))
+    void postMessage(local)
+  }, [postMessage])
+
+  const discardSend = useCallback((localId: number) => {
+    setMessages((prev) => prev.filter((m) => m.id !== localId))
+    setThreadMessages((prev) => prev.filter((m) => m.id !== localId))
+  }, [])
 
   return {
     messages,
@@ -294,5 +377,7 @@ export function useChannel({ channelId }: UseChannelOptions) {
     loadMore,
     sendMessage,
     sendThreadReply,
+    retrySend,
+    discardSend,
   }
 }

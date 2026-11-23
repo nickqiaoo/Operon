@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { RichMarkdown } from "@/components/ai-elements/rich-markdown";
 import { cn } from "@/lib/utils";
+import type { MarkdownMention } from "@/lib/markdown-mentions";
 
 export interface MarkdownRendererProps {
   content: string;
@@ -9,9 +10,11 @@ export interface MarkdownRendererProps {
   breaks?: boolean;
   /** Bare GitHub PR / issue URLs render as chips; pair with `GithubLinkProvider` for state. */
   githubLinks?: boolean;
+  /** `@name` for these names renders highlighted (channel members). */
+  mentions?: readonly MarkdownMention[];
 }
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className, breaks, githubLinks }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className, breaks, githubLinks, mentions }: MarkdownRendererProps) {
   return (
     <RichMarkdown
       mode="static"
@@ -19,6 +22,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
       headingIds
       breaks={breaks}
       githubLinks={githubLinks}
+      mentions={mentions}
       className={cn(
         "prose max-w-none w-full",
         "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",

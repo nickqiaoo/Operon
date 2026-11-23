@@ -64,6 +64,23 @@ describe('subscribeSse', () => {
     sub.close()
   })
 
+  it('calls onOpen on each connect, not on a failed attempt', async () => {
+    fetchMock
+      .mockResolvedValueOnce(sseResponse([], { ok: false, status: 500 }))
+      .mockResolvedValue(sseResponse([]))
+    const onOpen = vi.fn()
+
+    const sub = subscribeSse({ url: async () => '/stream', onEvent: () => {}, onOpen })
+    await flush()
+    expect(onOpen).not.toHaveBeenCalled()
+
+    // First retry lands at 1s + 250ms jitter; the next one (after that stream ends) not before 2s more.
+    await vi.advanceTimersByTimeAsync(1_300)
+    await flush()
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    sub.close()
+  })
+
   it('reassembles a frame split across chunks', async () => {
     fetchMock.mockResolvedValue(sseResponse(['data: {"n":', '42}\n']))
     const events: unknown[] = []

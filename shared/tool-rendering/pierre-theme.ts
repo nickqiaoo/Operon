@@ -1,9 +1,9 @@
-import { canUseWASM, createCSSVariablesTheme, registerCustomTheme } from '@pierre/diffs'
+import { createCSSVariablesTheme, registerCustomTheme } from '@pierre/diffs'
 
 const themeName = 'operon-code'
 
-// Both engines keep CSS variable references so changing a preset recolors code
-// without re-tokenizing it, including worker-rendered diffs.
+// The theme keeps CSS variable references so changing a preset recolors code
+// without re-tokenizing it.
 const palette = {
   name: themeName,
   variablePrefix: '--operon-code-',
@@ -40,20 +40,8 @@ if (PIERRE_HIGHLIGHTS_THEME?.style.syntax) {
 }
 registerCustomTheme(themeName, async () => theme, 'diffs')
 
-registerCustomTheme(themeName, async () => {
-  const { createCssVariablesTheme } = await import('shiki/core')
-  const theme = createCssVariablesTheme(palette)
-  theme.tokenColors?.push(
-    { scope: 'constant.numeric', settings: { foreground: 'var(--code-syntax-number)' } },
-    { scope: ['entity.name.type', 'support.type'], settings: { foreground: 'var(--code-syntax-type)' } },
-    { scope: 'variable', settings: { foreground: 'var(--code-syntax-variable)' } },
-    { scope: 'keyword.operator', settings: { foreground: 'var(--code-syntax-operator)' } },
-    { scope: 'invalid', settings: { foreground: 'var(--code-syntax-invalid)' } },
-  )
-  return theme
-})
-
 // Keep both slots so Pierre honors themeType instead of forcing the registered
 // theme's base mode. CSS variables supply the active preset's colors in either.
 export const PIERRE_THEME = { light: themeName, dark: themeName }
-export const PIERRE_HIGHLIGHTER: 'highlights' | 'shiki-js' = canUseWASM() ? 'highlights' : 'shiki-js'
+// Highlighting always runs on Pierre's WASM `highlights` engine; every supported runtime has WASM.
+export const PIERRE_HIGHLIGHTER = 'highlights' as const

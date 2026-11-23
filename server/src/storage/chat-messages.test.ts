@@ -129,6 +129,8 @@ describe.skipIf(!opened)('chat message storage', () => {
     expect(storage.getChatMeta(chatId)).toMatchObject({ tp: 'side', model: 'm2', updatedAt: 5 })
     storage.updateChatConfig(chatId, { providerId: 'p2', thinkingLevel: 'high' })
     expect(storage.getChatMeta(chatId)).toMatchObject({ providerId: 'p2', thinkingLevel: 'high', updatedAt: 5 })
+    storage.updateChatConfig(chatId, { title: '#test · luna-dev' })
+    expect(storage.getChatMeta(chatId)).toMatchObject({ title: '#test · luna-dev', model: 'm2', updatedAt: 5 })
   })
 
   it('returns undefined for a chat that does not exist', () => {

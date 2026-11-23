@@ -5,9 +5,10 @@ import type {
   ChannelStorageAdapter,
   ProjectStorageAdapter,
 } from '../storage/interface.js'
-import { onChannelEvent, onProjectEvent, publishChannelMessage, workingAgentIds } from '../services/channel-bus.js'
+import { emitInboxEvent, onChannelEvent, onProjectEvent, publishChannelMessage, publishChannelUnread, workingAgentIds } from '../services/channel-bus.js'
 import { dropThreadSessions, routeMessageToAgents } from '../services/channel/agent-orchestrator.js'
 import { channelSessionsWaiting, ensureThreadForHumanReply, removeThreadMember, resolveThreadRoot, threadView } from '../services/channel/threads.js'
+import { listChannelUnreadWithAttention } from '../services/channel/channel-attention.js'
 import { sanitizeChannelAttachments } from '../services/channel/channel-attachments.js'
 import { resetBinding } from '../services/channel/binding-reset.js'
 import { handleChannelSlashCommand } from '../services/channel/channel-commands.js'
@@ -147,6 +148,30 @@ export function channelRoutes(storage: ChannelStorage) {
     return c.json({ channels: storage.listChannels(projectId > 0 ? projectId : undefined) })
   })
 
+  // ---- The person's unread ----
+
+  /** Every channel with unread (main timeline or threads); the sidebar's snapshot. */
+  router.get('/unread', (c) => c.json({ channels: listChannelUnreadWithAttention(storage) }))
+
+  /** Read up to `upTo` (default: the latest message). Never moves backwards. */
+  router.post('/:id/read', async (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
+    const upTo = await readUpTo(c.req.raw)
+    storage.markChannelRead(channelId, upTo)
+    publishChannelUnread(storage, channelId)
+    return c.json({ success: true })
+  })
+
+  router.post('/:id/threads/:rootId/read', async (c) => {
+    const channelId = parseInt(c.req.param('id'), 10)
+    const rootId = parseInt(c.req.param('rootId'), 10)
+    const resolved = resolveThreadRoot(storage, channelId, rootId)
+    if ('error' in resolved) return c.json({ error: resolved.error }, 404)
+    storage.markThreadRead(rootId, await readUpTo(c.req.raw))
+    publishChannelUnread(storage, channelId)
+    return c.json({ success: true })
+  })
+
   router.post('/', async (c) => {
     const input = await c.req.json<CreateChannelInput>()
     // Channel names must be unique within a project (see migration 0032):
@@ -175,6 +200,9 @@ export function channelRoutes(storage: ChannelStorage) {
     }
     await dropThreadSessions(id, null)
     storage.deleteChannel(id)
+    // Its row is gone from the unread list; every client drops its badges too
+    // (an empty entry removes it from their cache).
+    emitInboxEvent({ type: 'channel_unread', unread: { channelId: id, unread: 0, threads: {}, attention: 0 } })
     return c.json({ success: true })
   })
 
@@ -242,6 +270,11 @@ export function channelRoutes(storage: ChannelStorage) {
     const message = storage.createMessage({ ...body, content: body.content ?? '', channelId, threadRootId: null, senderBindingId: null, attachments })
     console.log(`[Channel] Message created: id=${message.id} channel=${channelId} sender=${message.senderName} type=${message.senderType}`)
     publishChannelMessage(storage, message)
+    // Writing in the channel means you have seen it up to here.
+    if (message.senderType === 'human') {
+      storage.markChannelRead(channelId, message.id)
+      publishChannelUnread(storage, channelId)
+    }
     // Intercept human slash commands (/reset) before routing — parity with IM.
     // When handled, the command is NOT forwarded to the model.
     const handled = await handleChannelSlashCommand(storage, channelId, message, (m) =>
@@ -287,6 +320,10 @@ export function channelRoutes(storage: ChannelStorage) {
       attachments,
     })
     const posted = publishChannelMessage(storage, message)
+    if (message.senderType === 'human') {
+      storage.markThreadRead(threadRootId, message.id)
+      publishChannelUnread(storage, channelId)
+    }
     // Same slash commands as the main channel; in a thread they act on the thread's sessions.
     const handled = await handleChannelSlashCommand(storage, channelId, message, (m) =>
       publishChannelMessage(storage, m),
@@ -365,4 +402,11 @@ export function channelRoutes(storage: ChannelStorage) {
   })
 
   return router
+}
+
+/** `{ upTo?: number }` from a read request; a missing or malformed body reads everything. */
+async function readUpTo(request: Request): Promise<number | undefined> {
+  const body = await request.json().catch(() => null) as { upTo?: unknown } | null
+  const upTo = body?.upTo
+  return typeof upTo === 'number' && Number.isSafeInteger(upTo) && upTo > 0 ? upTo : undefined
 }

@@ -11,11 +11,12 @@ import { FileCitationChip } from "@/components/editor/FileCitationChip";
 import { matchGithubLink, type GithubLinkRef } from "@/lib/github-links";
 import { GithubLinkChip } from "./github-link-chip";
 import { hasInlineMarkdownHtml, prepareMarkdownHtml, restoreInlineHtml } from "@/lib/markdown-html";
+import { findMention, MENTION_BASE_CLASS, mentionPattern, type MarkdownMention } from "@/lib/markdown-mentions";
 import type { RichMarkdownProps } from "./rich-markdown";
 import { UiBlock } from "./ui-block";
 
 const MermaidBlock = lazy(() => import("./mermaid-block"));
-const PortableMarkdown = lazy(() => import("./portable-markdown"));
+const MarkdownHtmlBlock = lazy(() => import("./markdown-html-block"));
 
 const code = PIERRE_HIGHLIGHTS_THEME ? createHighlightsPlugin({ theme: PIERRE_HIGHLIGHTS_THEME }) : undefined;
 const codeControls = { code: { copy: true, download: false } };
@@ -33,13 +34,32 @@ function citationSlot(token: string, rawPath: string, line: string, endLine?: st
   return '<span ' + slotAttribute + '="citation" data-slot-value="' + data + '"></span>';
 }
 
-function formatInlineText(html: string, citations: boolean, inlineHtml: boolean) {
+interface MentionMatcher {
+  pattern: RegExp;
+  mentions: readonly MarkdownMention[];
+}
+
+function mentionSpan(mentions: readonly MarkdownMention[], name: string) {
+  const className = [MENTION_BASE_CLASS, findMention(mentions, decodeEntities(name))?.className].filter(Boolean).join(" ");
+  // `&#64;` rather than "@": a tight list item is formatted again by its `li`
+  // hook after its `p` hook, and a literal "@" would be wrapped twice.
+  return '<span data-mention class="' + escapeHtml(className) + '">&#64;' + name + '</span>';
+}
+
+function formatInlineText(html: string, citations: boolean, inlineHtml: boolean, mentions: MentionMatcher | null) {
   const hasCitations = citations && html.includes("【F:");
   const hasHtml = inlineHtml && hasInlineMarkdownHtml(html);
-  if (!hasCitations && !hasHtml) return html;
+  const hasMentions = mentions != null && html.includes("@");
+  if (!hasCitations && !hasHtml && !hasMentions) return html;
+  let inLink = false;
   return html.replace(formattedTags, (part) => {
-    if (part.startsWith("<")) return part;
-    const content = hasCitations ? part.replace(citationPattern, citationSlot) : part;
+    if (part.startsWith("<")) {
+      if (/^<a\b/i.test(part)) inLink = true;
+      else if (/^<\/a>/i.test(part)) inLink = false;
+      return part;
+    }
+    let content = hasCitations ? part.replace(citationPattern, citationSlot) : part;
+    if (hasMentions && !inLink) content = content.replace(mentions.pattern, (_, name: string) => mentionSpan(mentions.mentions, name));
     return hasHtml ? restoreInlineHtml(content) : content;
   });
 }
@@ -78,14 +98,16 @@ function softBreaks(html: string) {
   return html.replace(/<br\b[^>]*>\n|\n/g, (part) => part === "\n" ? "<br>\n" : part);
 }
 
-function createComponents(citations: boolean, breaks: boolean, inlineHtml: boolean, githubLinks: boolean): Components {
+function createComponents(
+  citations: boolean, breaks: boolean, inlineHtml: boolean, githubLinks: boolean, mentions: MentionMatcher | null,
+): Components {
   const components: Components = {
     table: (html) => '<div class="markdown-table-scroll">' + html + '</div>',
   };
   if (githubLinks) components.a = githubAnchor;
   if (citations) components.inlineCode = citeInlineCode;
-  const format = (html: string) => formatInlineText(html, citations, inlineHtml);
-  if (citations || inlineHtml) {
+  const format = (html: string) => formatInlineText(html, citations, inlineHtml, mentions);
+  if (citations || inlineHtml || mentions) {
     for (const tag of textBlocks) components[tag] = format;
   }
   if (breaks) {
@@ -130,7 +152,7 @@ const Words = memo(Markdown);
 
 export default function WordsMessageMarkdown({
   children, className, uiBlocks = false, citations = false, headingIds = false,
-  breaks = false, codeControls: showControls = true, githubLinks = false, ...stream
+  breaks = false, codeControls: showControls = true, githubLinks = false, mentions, ...stream
 }: RichMarkdownProps) {
   const root = useRef<HTMLDivElement>(null);
   const onClick = useMarkdownLinkHandler();
@@ -138,9 +160,13 @@ export default function WordsMessageMarkdown({
   const slotsRef = useRef<Slot[]>([]);
   const source = useMemo(() => prepareMarkdownHtml(children), [children]);
   const inlineHtml = hasInlineMarkdownHtml(source);
+  const mentionMatcher = useMemo(() => {
+    const pattern = mentions?.length ? mentionPattern(mentions, escapeHtml) : null;
+    return pattern && mentions ? { pattern, mentions } : null;
+  }, [mentions]);
   const components = useMemo(
-    () => createComponents(citations, breaks, inlineHtml, githubLinks),
-    [citations, breaks, inlineHtml, githubLinks],
+    () => createComponents(citations, breaks, inlineHtml, githubLinks, mentionMatcher),
+    [citations, breaks, inlineHtml, githubLinks, mentionMatcher],
   );
 
   useLayoutEffect(() => {
@@ -206,6 +232,6 @@ const MarkdownSlot = memo(function MarkdownSlot({ slot, controls }: { slot: Slot
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { return <pre>{source}</pre>; }
   return typeof raw === "string"
-    ? <Suspense><PortableMarkdown citations headingIds>{raw}</PortableMarkdown></Suspense>
+    ? <Suspense><MarkdownHtmlBlock>{raw}</MarkdownHtmlBlock></Suspense>
     : null;
 });

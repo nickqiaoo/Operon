@@ -1,5 +1,6 @@
 import { fileCitationsToText } from '@/lib/file-citation'
 import { api } from "@/lib/api"
+import { attentionOf, hasUnread, useChannelUnreadMap } from "@/lib/channel-queries"
 import { CalendarClock, ChevronRight, Folder, FolderOpen, GitBranch, Hash, ListFilter, Plus, Settings, Package, Network, LayoutDashboard, MessageCircle, Pin, PinOff, SquarePen, type LucideIcon } from "lucide-react"
 import { SpecIcon } from "@/components/icons/SpecIcon"
 import { toast } from "sonner"
@@ -768,6 +769,23 @@ function ProjectsRailButton(props: Omit<SidebarNavItemProps, "icon" | "count" | 
   return <SidebarNavItem icon={Folder} count={needs + done} actionCount={needs} {...props} />
 }
 
+/**
+ * The rail's Channels button, badged like Projects: amber with the number of
+ * things waiting on you (approvals, a "waiting" thread you haven't read) when
+ * there are any, else a tint count of channels with unread agent messages. Its
+ * own component so the count's updates re-render only this button.
+ */
+function ChannelsRailButton(props: Omit<SidebarNavItemProps, "icon" | "count" | "actionCount">) {
+  const unread = useChannelUnreadMap()
+  let count = 0
+  let attention = 0
+  for (const u of unread.values()) {
+    if (hasUnread(u)) count += 1
+    attention += attentionOf(u)
+  }
+  return <SidebarNavItem icon={Hash} count={count} actionCount={attention} {...props} />
+}
+
 export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, collapsed = false, width = LEFT_SIDEBAR_DEFAULT_WIDTH, maxWidth }: ProjectSidebarProps) {
   const intl = useIntl()
   const machine = useContext(MachineActionsContext)
@@ -993,7 +1011,7 @@ export function ProjectSidebar({ onOpenSpec, onOpenNotification, onOpenChat, col
             onClick={() => { closeFlyout(); showMain({ kind: "assistant" }) }} />
           <SidebarNavItem icon={LayoutDashboard} label={intl.formatMessage({ id: "sidebar.board", defaultMessage: "Board" })} collapsed={collapsed} active={boardActive}
             onClick={() => { closeFlyout(); showMain({ kind: "board", view: "board" }); trackEvent("page_opened", { page: "board" }) }} />
-          <SidebarNavItem ref={channelsTriggerRef} icon={Hash} label={channelsLabel} collapsed={collapsed} active={channelsActive || floatingChannels}
+          <ChannelsRailButton ref={channelsTriggerRef} label={channelsLabel} collapsed={collapsed} active={channelsActive || floatingChannels}
             aria-expanded={collapsed ? floatingChannels : undefined} aria-controls={channelListId} aria-haspopup={collapsed ? "dialog" : undefined}
             tooltip={!floatingChannels} hoverTooltip={!collapsed}
             {...(collapsed ? triggerHover("channels") : {})}

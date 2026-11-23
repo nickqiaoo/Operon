@@ -74,6 +74,7 @@ import type {
   GoalUpdatedParams,
   ToolRequestUserInputParams,
   TurnError,
+  TurnSettingsUpdateParams,
   TurnStartParams,
 } from './sdk/protocol/messages.js'
 import { GOAL_CONTINUE_DELAY_MS, goalStatusToFinishReason } from './goal-status.js'
@@ -82,6 +83,9 @@ import { CodexTextStreamEmitter } from './text-stream-emitter.js'
 import { createResponseForDecision, type ApprovalResolverType } from './approval-response.js'
 import { withLocalMcpNoProxy } from './local-mcp-env.js'
 import { UNMEASURED_STEP_PERFORMANCE } from '../../stream-utils.js'
+
+/** What a switch can change on a turn that is already running. */
+type LiveTurnSettingsPatch = Omit<TurnSettingsUpdateParams, 'threadId' | 'turnId'>
 
 type ApprovalPayload =
   | import('./sdk/protocol/messages.js').CommandExecutionRequestApprovalResponse
@@ -1397,28 +1401,36 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
   }
 
   /**
-   * Store-only, and that is enough: a turn is one `startTurn` request, and its
-   * params (`model` / `effort` / `serviceTier` / `approvalPolicy`) are rebuilt from
-   * these fields on every turn — `buildSettings()` runs per stream, not once per
-   * client. So the next turn picks the new values up on its own.
+   * Stores the new values, which is all the next turn needs: a turn is one
+   * `startTurn` request whose params (`model` / `effort` / `serviceTier` /
+   * `approvalsReviewer` / sandbox) are rebuilt from these fields every time —
+   * `buildSettings()` runs per stream, not once per client.
    *
-   * Deliberately NOT paired with `features.dynamicSwitch`: a turn already in flight
-   * cannot be re-parameterised, since its request went out when it started. This is
-   * the between-turns path only, which is what spares the session a rebuild.
+   * A turn already running is re-parameterised too, through Codex's
+   * `turn/settings/update` (experimental API). That reaches the reviewer, model,
+   * effort and service tier only — a mode's sandbox and plan collaboration mode
+   * stay as the turn started, and take effect from the next turn. Approvals
+   * already pending keep the reviewer they were raised under.
    */
   async set(patch: SessionPatch): Promise<SessionPatchApplied> {
     const applied: SessionPatchApplied = []
+    const live: LiveTurnSettingsPatch = {}
     if (patch.model) {
       this.currentModelId = patch.model
       applied.push('model')
+      live.model = patch.model
     }
     if (patch.mode) {
       this.currentModeId = resolveCodexModeId(patch.mode)
       applied.push('mode')
+      live.approvalsReviewer =
+        this.nativeOptions.approvalsReviewer ?? resolveCodexModeConfig(this.currentModeId).approvalsReviewer
     }
     if (patch.effort) {
       this.currentThinkingLevel = patch.effort
       applied.push('effort')
+      const effort = mapReasoningEffort(REASONING_EFFORT_MAP[patch.effort])
+      if (effort) live.effort = effort
     }
     // Presence, not truthiness: `serviceTier: undefined` is fast mode being turned
     // off, and a truthiness check would drop it and leave the session fast forever.
@@ -1428,8 +1440,31 @@ export class CodexRuntimeSession implements AgentSession<CodexSessionNative> {
     if ('serviceTier' in patch) {
       this.currentServiceTier = patch.serviceTier
       applied.push('serviceTier')
+      live.serviceTier = patch.serviceTier ?? null
     }
+    await this.updateLiveTurn(live)
     return applied
+  }
+
+  /**
+   * Best effort: the stored values already cover the next turn, so a Codex
+   * without `turn/settings/update`, or a turn that ended in between, only means
+   * the switch waits for that turn.
+   */
+  private async updateLiveTurn(live: LiveTurnSettingsPatch): Promise<void> {
+    const session = this.codexSession
+    if (!session?.isActive() || Object.keys(live).length === 0) return
+    try {
+      const updated = await session.updateSettings(live)
+      this.logger.info(
+        updated
+          ? `Updated running turn ${session.turnId}: ${JSON.stringify(live)}`
+          : `Turn ${session.turnId} ended before its settings could change; next turn uses them`,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.logger.warn(`turn/settings/update failed, applies from the next turn: ${message}`)
+    }
   }
 
   state(): {

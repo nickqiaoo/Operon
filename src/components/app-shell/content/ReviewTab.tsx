@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { TouchSafeVirtualizer } from "@/components/diff/TouchSafeVirtualizer"
 import type { FileDiffOptions } from "@pierre/diffs"
-import { DiffWorkerProvider } from '@/components/diff/DiffWorkerProvider'
 import { PIERRE_HIGHLIGHTER, PIERRE_THEME } from "@shared/tool-rendering/pierre-theme"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -539,7 +538,6 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
   // a content row of [diff | sliding file-tree]. The tree never hosts chrome —
   // dual-hosting is what made the button strip flash on open/close.
   return (
-    <DiffWorkerProvider>
     <div className="flex h-full min-h-0 flex-col">
       <ReviewToolbar
         scope={scope}
@@ -725,6 +723,5 @@ export function ReviewTab({ tabId, rootPath, initialScope = 'unstaged', workspac
         />
       )}
     </div>
-    </DiffWorkerProvider>
   )
 }

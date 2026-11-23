@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { AgentSessionStatus, ChannelMessage, ChannelThreadView, WaitingSession } from '../types/channel.js'
+import type { AgentSessionStatus, ChannelMessage, ChannelThreadView, ChannelUnread, WaitingSession } from '../types/channel.js'
 import type { TaskListItem } from '../types/task.js'
 import type { Notification, UnreadCounts } from '../types/notification.js'
 import type { ChannelStorageAdapter } from '../storage/interface.js'
@@ -36,13 +36,39 @@ export function emitChannelEvent(channelId: number, event: ChannelEvent): void {
   bus.emit(`channel:${channelId}`, event)
 }
 
-/** Include the saved root so POST responses and stream events agree on the reply count. */
-export function publishChannelMessage(storage: Pick<ChannelStorageAdapter, 'getChannelMessage'>, message: ChannelMessage) {
+/**
+ * Include the saved root so POST responses and stream events agree on the reply count.
+ * An agent's message is unread for the person: the channel's new counts go out on
+ * the (always-open) inbox stream, so the sidebar updates for channels not on screen.
+ */
+export function publishChannelMessage(storage: Pick<ChannelStorageAdapter, 'getChannelMessage' | 'getChannelUnread'>, message: ChannelMessage) {
   const root = message.threadRootId == null ? null : storage.getChannelMessage(message.threadRootId)
   const threadRoot = root ? { id: root.id, replyCount: root.replyCount, lastReplyAt: root.lastReplyAt } : undefined
   const payload = { message, ...(threadRoot ? { threadRoot } : {}) }
   emitChannelEvent(message.channelId, { type: 'channel_message', data: message, ...(threadRoot ? { threadRoot } : {}) })
+  if (message.senderType === 'agent') publishChannelUnread(storage, message.channelId)
   return payload
+}
+
+type ChannelAttention = (channelId: number, unread: ChannelUnread) => number
+let channelAttention: ChannelAttention | null = null
+
+/**
+ * The channel service's "waiting on you" count (channel-attention.ts). Registered
+ * rather than imported: that module needs the thread helpers, which import this one.
+ */
+export function registerChannelAttention(fn: ChannelAttention): void {
+  channelAttention = fn
+}
+
+/**
+ * Send one channel's current unread to every client: after a new message or a
+ * read, an approval appearing or answered, or a thread's status changing.
+ */
+export function publishChannelUnread(storage: Pick<ChannelStorageAdapter, 'getChannelUnread'>, channelId: number): void {
+  const unread = storage.getChannelUnread(channelId)
+  if (!unread) return
+  emitInboxEvent({ type: 'channel_unread', unread: channelAttention ? { ...unread, attention: channelAttention(channelId, unread) } : unread })
 }
 
 export function onChannelEvent(
@@ -97,6 +123,8 @@ export type InboxEvent =
   | { type: 'notification_read'; ids: number[] }
   | { type: 'notification_archive'; ids: number[] }
   | ({ type: 'counts' } & UnreadCounts)
+  /** One channel's unread for the person changed (a new agent message, or read elsewhere). */
+  | { type: 'channel_unread'; unread: ChannelUnread }
 
 export function emitInboxEvent(event: InboxEvent): void {
   bus.emit('inbox', event)

@@ -8,9 +8,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { api } from '@/lib/api'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
-import { agentNameColor, ThreadStatusLabel } from './ChannelMessageItem'
+import { SendFailed, ThreadStatusLabel, useAgentMentions } from './ChannelMessageItem'
+import { agentNameColor } from './agent-name-color'
 import { SessionApprovals } from './SessionApprovals'
-import { COMPOSER_TEXTAREA_CLASS, ComposerAttachButton, ComposerFrame, ComposerSendButton, ComposerSendError } from './ComposerFrame'
+import { COMPOSER_TEXTAREA_CLASS, ComposerAttachButton, ComposerFrame, ComposerSendButton } from './ComposerFrame'
 import { PendingImageStrip } from '@/components/task/task-attachments'
 import { useChannelComposer } from './useChannelComposer'
 import { ChannelImages } from './ChannelImages'
@@ -30,6 +31,9 @@ interface ThreadPanelProps {
   typingAgentIds: Set<number>
   onClose: () => void
   onSendReply: (content: string, attachments: ChannelAttachment[]) => Promise<void>
+  /** For your reply that failed to send. */
+  onRetrySend?: (localId: number) => void
+  onDiscardSend?: (localId: number) => void
   /**
    * Phone only: the soft keyboard is up. The panel's wrapper already lifts the
    * whole column clear of it; this just re-pins the reply list to the bottom
@@ -47,10 +51,12 @@ export function ThreadPanel({
   typingAgentIds,
   onClose,
   onSendReply,
+  onRetrySend,
+  onDiscardSend,
   mobileKeyboardOpen = false,
 }: ThreadPanelProps) {
   const intl = useIntl()
-  const { input, setInput, images, sending, sendFailed, canSend, submit } = useChannelComposer(onSendReply)
+  const { input, setInput, images, canSend, submit } = useChannelComposer(onSendReply)
   const isMobile = useIsMobileShell()
   const nativeComposer = isMobile && hasNativeComposer()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -60,8 +66,8 @@ export function ThreadPanel({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [replies, mobileKeyboardOpen])
 
-  const handleSend = async (text?: string) => {
-    if (await submit(text) && isMobile) textareaRef.current?.blur()
+  const handleSend = (text?: string) => {
+    if (submit(text) && isMobile) textareaRef.current?.blur()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -154,7 +160,7 @@ export function ThreadPanel({
 
           {/* Replies */}
           {replies.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} agents={agents} />
+            <MessageBubble key={msg.id} message={msg} agents={agents} onRetrySend={onRetrySend} onDiscardSend={onDiscardSend} />
           ))}
 
           {/* Typing indicators */}
@@ -190,7 +196,6 @@ export function ThreadPanel({
           </div>
         )}
         {images.items.length > 0 && <PendingImageStrip uploads={images} className="mb-2" />}
-        {sendFailed && <ComposerSendError />}
         {nativeComposer ? (
           <NativeChatComposer
             value={input}
@@ -199,7 +204,7 @@ export function ThreadPanel({
             onFiles={images.addFiles}
             hasContext={images.items.length > 0}
             keepTextOnSend
-            submitting={sending || images.uploading}
+            submitting={images.uploading}
             placeholder="Reply in thread…"
             overlayLevel={1}
           />
@@ -318,11 +323,29 @@ function ThreadMembers({ thread, members }: { thread: ChannelThread; members: Ag
   )
 }
 
-function MessageBubble({ message, agents, isRoot = false }: { message: ChannelMessage; agents: Agent[]; isRoot?: boolean }) {
+/** Hiragana/katakana, CJK ideographs, Hangul: scripts that ink high in a Latin-metric line box. */
+const CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/
+
+/**
+ * Move the 16px icon to where the name's ink is: up 1px for CJK, which inks
+ * high; down half a pixel for Latin, whose x-height letters ink low.
+ */
+function nameNudge(name: string): string {
+  return CJK.test(name) ? '-translate-y-px' : 'translate-y-[0.5px]'
+}
+
+function MessageBubble({ message, agents, isRoot = false, onRetrySend, onDiscardSend }: {
+  message: ChannelMessage
+  agents: Agent[]
+  isRoot?: boolean
+  onRetrySend?: (localId: number) => void
+  onDiscardSend?: (localId: number) => void
+}) {
   const intl = useIntl()
   const isAgent = message.senderType === 'agent'
   const isSystem = message.senderType === 'system'
   const agent = isAgent && message.senderId ? agents.find((a) => a.id === message.senderId) : null
+  const mentions = useAgentMentions(agents)
 
   if (isSystem) {
     return <div className="text-center text-xs text-muted-foreground/70">{message.content}</div>
@@ -333,13 +356,21 @@ function MessageBubble({ message, agents, isRoot = false }: { message: ChannelMe
     : intl.formatMessage({ id: 'channel.message.you', defaultMessage: 'You' })
 
   return (
-    <div className={cn('min-w-0', isRoot && 'pb-4 border-b border-border/40')}>
+    <div className={cn('min-w-0 transition-opacity', isRoot && 'pb-4 border-b border-border/40', message.localState === 'sending' && 'opacity-60')}>
       {/* Avatar + name + time on one header row, so the body below can span the
           panel's full width instead of being inset under an avatar gutter. */}
-      <div className="mb-1.5 flex items-center gap-2.5">
+      {/* The avatar box is the icon's own size (no padding ring): a size-7 box
+          around a 16px logo left 6px of blank on each side, so the name sat
+          ~16px away and the logo was inset from the body text below.
+          The boxes are centred, but where the glyphs sit in the line box
+          depends on the script: CJK ("你") inks ~1.3px above centre, Latin
+          ("You", "luna-dev") ~0.4px below it. One fixed nudge fixed one and
+          broke the other (measured: "You" 0.66px, agent names 0.99px off),
+          so it follows the name (nameNudge). */}
+      <div className="mb-1.5 flex items-center gap-2">
         {isAgent
-          ? <AgentAvatar provider={agent?.provider} size="sm" className="size-7" />
-          : <UserAvatar size="sm" className="size-7" />}
+          ? <AgentAvatar provider={agent?.provider} size="sm" className={cn('size-4', nameNudge(name))} />
+          : <UserAvatar size="sm" className={cn('size-4', nameNudge(name))} />}
         <span className={cn('text-[13px] font-semibold', isAgent ? agentNameColor(agent?.id) : 'text-foreground')}>
           {name}
         </span>
@@ -349,11 +380,14 @@ function MessageBubble({ message, agents, isRoot = false }: { message: ChannelMe
       </div>
       {message.content.trim() && (
         <div className="text-sm leading-relaxed text-foreground break-words phone:text-base">
-          <MarkdownRenderer content={message.content} />
+          <MarkdownRenderer content={message.content} mentions={mentions} />
         </div>
       )}
       {message.attachments && message.attachments.length > 0 && (
         <ChannelImages attachments={message.attachments} className={message.content.trim() ? 'mt-2' : undefined} />
+      )}
+      {message.localState === 'failed' && (
+        <SendFailed className="pr-0" onRetry={() => onRetrySend?.(message.id)} onDiscard={() => onDiscardSend?.(message.id)} />
       )}
     </div>
   )

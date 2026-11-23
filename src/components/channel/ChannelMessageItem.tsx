@@ -1,33 +1,20 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { Check, ChevronRight, CircleAlert, Copy, MessageSquare, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/lib/format'
 import type { ChannelMessage, ChannelThread, Agent } from '@/types/channel'
+import { UNREAD_CAP } from '@/types/channel'
 import type { TaskListItem } from '@/types/task'
 import { StatusIcon, TaskRef } from '@/components/task/task-meta'
 import { ChannelImages } from './ChannelImages'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { AgentAvatar } from '@/components/icons/AgentAvatar'
+import type { MarkdownMention } from '@/lib/markdown-mentions'
+import { agentNameColor } from './agent-name-color'
 
 /** How long the copy button stays on its confirmed state. Matches the chat composer's. */
 const COPIED_RESET_MS = 1500
-
-/**
- * Agent name colors — category colors (telling members apart), so literals.
- * Picked by agent id: ids are sequential, so agents created around the same
- * time (i.e. the ones that end up in one channel) never share a color.
- */
-const AGENT_NAME_COLORS = [
-  'text-[#C2410C] dark:text-[#FB923C]', // orange
-  'text-[#047857] dark:text-[#34D399]', // emerald
-  'text-[#6D28D9] dark:text-[#A78BFA]', // violet
-  'text-[#1D4ED8] dark:text-[#60A5FA]', // blue
-  'text-[#BE185D] dark:text-[#F472B6]', // pink
-  'text-[#B45309] dark:text-[#FBBF24]', // amber
-  'text-[#0E7490] dark:text-[#22D3EE]', // cyan
-  'text-[#4D7C0F] dark:text-[#A3E635]', // lime
-] as const
 
 interface ChannelMessageItemProps {
   message: ChannelMessage
@@ -42,6 +29,11 @@ interface ChannelMessageItemProps {
   highlighted?: boolean
   /** The thread under this message, when there is one. */
   thread?: ChannelThread
+  /** Agent replies in the thread you have not read yet. */
+  threadUnread?: number
+  /** For your own message that failed to send (`localState: 'failed'`). */
+  onRetrySend?: (localId: number) => void
+  onDiscardSend?: (localId: number) => void
 }
 
 export const ChannelMessageItem = memo(function ChannelMessageItem({
@@ -53,10 +45,14 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   onOpenTask,
   highlighted,
   thread,
+  threadUnread = 0,
+  onRetrySend,
+  onDiscardSend,
 }: ChannelMessageItemProps) {
   const intl = useIntl()
   const isAgent = message.senderType === 'agent'
   const isSystem = message.senderType === 'system'
+  const mentions = useAgentMentions(agents)
 
   const agent = isAgent && message.senderId
     ? agents.find((a) => a.id === message.senderId)
@@ -126,6 +122,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
           count={message.replyCount}
           lastReplyAt={message.lastReplyAt}
           thread={thread}
+          unread={threadUnread}
           agents={agents}
           onClick={() => onReply(message.id)}
         />
@@ -169,17 +166,24 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             {formatTime(message.createdAt)}
           </span>
         )}
-        <div className="relative flex max-w-[85%] flex-col items-end md:max-w-[75%]">
-          {actions}
+        <div className={cn(
+          'relative flex max-w-[85%] flex-col items-end transition-opacity md:max-w-[75%]',
+          message.localState === 'sending' && 'opacity-60',
+        )}>
+          {/* Not saved yet: nothing to reply under or act on. */}
+          {message.localState == null && actions}
           {hasText && (
             <div className="rounded-xl bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground phone:text-base">
-              <MarkdownRenderer content={message.content} />
+              <MarkdownRenderer content={message.content} mentions={mentions} />
             </div>
           )}
           {hasImages && (
             <ChannelImages attachments={message.attachments!} align="end" className={hasText ? 'mt-1.5' : undefined} />
           )}
         </div>
+        {message.localState === 'failed' && (
+          <SendFailed onRetry={() => onRetrySend?.(message.id)} onDiscard={() => onDiscardSend?.(message.id)} />
+        )}
         <div className="flex max-w-[85%] flex-col items-end md:max-w-[75%]">{footer}</div>
       </div>
     )
@@ -211,7 +215,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
         )}
         {hasText && (
           <div className="text-sm leading-relaxed text-foreground phone:text-base">
-            <MarkdownRenderer content={message.content} />
+            <MarkdownRenderer content={message.content} mentions={mentions} />
           </div>
         )}
         {hasImages && <ChannelImages attachments={message.attachments!} className={hasText ? 'mt-1.5' : undefined} />}
@@ -221,10 +225,30 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   )
 })
 
-/** Per-agent name color, so members of a channel are easy to tell apart. */
-export function agentNameColor(agentId: number | undefined): string {
-  if (agentId == null) return 'text-tint'
-  return AGENT_NAME_COLORS[Math.abs(agentId) % AGENT_NAME_COLORS.length]
+/** Under your message when the server never took it: say so, and offer to send it again or drop it. */
+export function SendFailed({ onRetry, onDiscard, className }: { onRetry: () => void; onDiscard: () => void; className?: string }) {
+  return (
+    <div role="alert" className={cn('mt-1 flex items-center gap-1.5 pr-1 text-xs', className)}>
+      <CircleAlert className="size-3.5 shrink-0 text-status-error" />
+      <span className="text-status-error">
+        <FormattedMessage id="channel.composer.sendFailed" defaultMessage="Message could not be sent" />
+      </span>
+      <button type="button" onClick={onRetry} className="rounded-md px-1 font-medium text-foreground transition-colors hover:bg-accent-hover">
+        <FormattedMessage id="common.retry" defaultMessage="Retry" />
+      </button>
+      <button type="button" onClick={onDiscard} className="rounded-md px-1 text-muted-foreground transition-colors hover:bg-accent-hover hover:text-foreground">
+        <FormattedMessage id="common.delete" defaultMessage="Delete" />
+      </button>
+    </div>
+  )
+}
+
+/** `@name` highlights for every agent, each in its name color (same as the sender row). */
+export function useAgentMentions(agents: Agent[]): MarkdownMention[] {
+  return useMemo(
+    () => agents.map((a) => ({ name: a.name, className: agentNameColor(a.id) })),
+    [agents],
+  )
 }
 
 /** A one-line event ("Reset Claude…") between messages: a quiet rule, not a pill. */
@@ -244,8 +268,9 @@ function SystemNotice({ content }: { content: string }) {
  * missed: a small bordered row with the count in link color, who owns the
  * thread, what state it is in, and the owner's one-line summary.
  */
-function ThreadSummary({ count, lastReplyAt, thread, agents, onClick }: {
+function ThreadSummary({ count, lastReplyAt, thread, unread, agents, onClick }: {
   count: number
+  unread: number
   lastReplyAt: number | null | undefined
   thread: ChannelThread | undefined
   agents: Agent[]
@@ -268,10 +293,20 @@ function ThreadSummary({ count, lastReplyAt, thread, agents, onClick }: {
             values={{ count }}
           />
         </span>
+        {unread > 0 && (
+          <span className="flex shrink-0 items-center gap-1 font-semibold text-foreground">
+            <span className="size-1.5 rounded-full bg-tint" />
+            <FormattedMessage
+              id="channel.message.newReplies"
+              defaultMessage="{count} new"
+              values={{ count: unread >= UNREAD_CAP ? '99+' : unread }}
+            />
+          </span>
+        )}
         {owner && (
-          <span className="flex min-w-0 shrink items-center gap-1 text-foreground/85">
+          <span className="flex min-w-0 shrink items-center gap-1">
             <AgentAvatar provider={owner.provider} size="sm" className="size-4" />
-            <span className="truncate">{owner.name}</span>
+            <span className={cn('truncate font-medium', agentNameColor(owner.id))}>{owner.name}</span>
           </span>
         )}
         {thread && <ThreadStatusLabel status={thread.status} running={running} needsApproval={thread.waiting.length > 0} />}

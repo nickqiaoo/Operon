@@ -5,14 +5,14 @@
 export type UsageLevel = 'ok' | 'warn' | 'critical'
 
 export const usageLevel = (used: number): UsageLevel => {
-  if (used >= 85) return 'critical'
-  if (used >= 60) return 'warn'
+  if (used >= 90) return 'critical'
+  if (used >= 70) return 'warn'
   return 'ok'
 }
 
 /**
- * Bar fill: green while there is headroom, warm orange past the halfway-ish
- * mark, and `accent-red` when the window is nearly spent.
+ * Bar fill: green with more than 30% left, warm orange at 30% or less,
+ * and `accent-red` at 10% or less.
  *
  * All three come from the one accent ramp. `critical` used to be
  * `bg-destructive`, which is mixed to fill a button and carry white text — as a

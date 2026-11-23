@@ -16,6 +16,7 @@ const { SqliteStorage } = await import('../../storage/sqlite.js')
 const { WorkspaceChatService } = await import('../agent-comm/workspace-chat-service.js')
 const { toShortId } = await import('../agent-comm/channel-message-format.js')
 const { channelSessionsWaiting, ensureThreadForHumanReply, registerThreadDelivery, removeThreadMember, routeThreadMessage, threadView } = await import('./threads.js')
+const { MAX_AGENT_FOLLOW_UPS, setFollowUps } = await import('./peer-awareness.js')
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'operon-threads-'))
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
@@ -33,16 +34,21 @@ const storage = opened as InstanceType<typeof SqliteStorage>
 /** What the registered delivery was asked to do. */
 const toThread: AgentBinding[] = []
 const toChannel: ChannelMessage[] = []
+const toChannelSession: AgentBinding[] = []
 
 beforeEach(() => {
   toThread.length = 0
   toChannel.length = 0
+  toChannelSession.length = 0
   registerThreadDelivery({
     toThreadSession: async (b) => {
       toThread.push(b)
     },
     toChannelSessions: async (_channelId, m) => {
       toChannel.push(m)
+    },
+    toChannelSession: async (b) => {
+      toChannelSession.push(b)
     },
   })
 })
@@ -128,6 +134,22 @@ describe.skipIf(!opened)('channel threads', () => {
     expect(toThread).toHaveLength(0)
   })
 
+  it('handing a thread to an agent that already took it itself posts no second brief', async () => {
+    // A message @-ing alice asks for bob to own the work; bob's channel session
+    // opens the thread itself before alice gets to it. Alice's late hand-off
+    // must not land a "please take this" brief under bob's finished replies.
+    const { alice, bob, human, service } = setup()
+    const root = human('@alice I want bob to own this one, in a thread')
+    await service.openThread({ agentId: bob.id, message: toShortId(root.id), brief: "I'll look into it." })
+    await vi.waitFor(() => expect(toThread).toHaveLength(1))
+    toThread.length = 0
+    const late = await service.openThread({ agentId: alice.id, message: toShortId(root.id), brief: '@bob please take this.', agent: bob.name })
+    expect(late).toMatchObject({ status: 'exists', owner: bob.name })
+    expect(storage.listThreadReplies(root.id).map((m) => m.content)).toEqual(["I'll look into it."])
+    await new Promise((r) => setTimeout(r, 20))
+    expect(toThread).toHaveLength(0)
+  })
+
   it('reports which channel and thread sessions are waiting on an approval', async () => {
     const { channel, alice, bob, human, service, channelSession } = setup()
     const root = human('q')
@@ -208,6 +230,7 @@ describe.skipIf(!opened)('channel threads', () => {
     expect(storage.getUnreadChannelMessages(alice.id, channel.id).map((m) => m.content)).toEqual(['Fixed — see the thread.'])
     expect(toThread).toHaveLength(0)
     expect(toChannel).toHaveLength(0)
+    expect(toChannelSession).toHaveLength(0)
   })
 
   it('only the owner reports on a thread', async () => {
@@ -333,11 +356,57 @@ describe.skipIf(!opened)('channel threads', () => {
     storage.updateBinding(aliceThread.id, { status: 'active', activeChatId: 999 })
     toThread.length = 0
     const target = `#${channel.name}:${toShortId(root.id)}`
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < MAX_AGENT_FOLLOW_UPS + 3; i++) {
       await threadService(root.id).sendMessage({ agentId: alice.id, target, content: `@${bob.name} ping ${i}`, force: true })
     }
     await new Promise((r) => setTimeout(r, 20))
-    expect(toThread.filter((b) => b.agentId === bob.id)).toHaveLength(2)
+    expect(toThread.filter((b) => b.agentId === bob.id)).toHaveLength(MAX_AGENT_FOLLOW_UPS)
+  })
+
+  it("an agent's @mention in the main channel wakes that member's channel session, and nobody else", async () => {
+    const { channel, alice, bob, service } = setup()
+    const carol = storage.createAgent({ name: `carol${seq}`, provider: 'claude-code', model: 'sonnet' })
+    storage.addMember(channel.id, carol.id)
+    await service.sendMessage({ agentId: alice.id, target: `#${channel.name}`, content: `@${bob.name} can you take a look?` })
+    await vi.waitFor(() => expect(toChannelSession).toHaveLength(1))
+    expect(toChannelSession[0]).toMatchObject({ agentId: bob.id, scopeKind: 'app', scopeKey: String(channel.id) })
+    // Without a mention an agent's message still wakes nobody.
+    await service.sendMessage({ agentId: alice.id, target: `#${channel.name}`, content: 'noted', force: true })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(toChannelSession).toHaveLength(1)
+    expect(toChannel).toHaveLength(0)
+  })
+
+  it('main-channel mentions between agents are bounded, and a human speaking resets the count', async () => {
+    const { channel, alice, bob, channelSession, service } = setup()
+    for (let i = 0; i < MAX_AGENT_FOLLOW_UPS + 3; i++) {
+      await service.sendMessage({ agentId: alice.id, target: `#${channel.name}`, content: `@${bob.name} ping ${i}`, force: true })
+    }
+    await new Promise((r) => setTimeout(r, 20))
+    expect(toChannelSession.filter((b) => b.agentId === bob.id)).toHaveLength(MAX_AGENT_FOLLOW_UPS)
+    // What a human message does on its way to the channel sessions.
+    setFollowUps(storage, channelSession(bob.id).id, 0)
+    await service.sendMessage({ agentId: alice.id, target: `#${channel.name}`, content: `@${bob.name} again`, force: true })
+    await vi.waitFor(() => expect(toChannelSession).toHaveLength(MAX_AGENT_FOLLOW_UPS + 1))
+  })
+
+  it('a mentioned member that is running is left to its nudge, not woken again', async () => {
+    const { channel, alice, bob, channelSession, service } = setup()
+    storage.updateBinding(channelSession(bob.id).id, { status: 'active', activeChatId: 998 })
+    await service.sendMessage({ agentId: alice.id, target: `#${channel.name}`, content: `@${bob.name} fyi` })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(toChannelSession).toHaveLength(0)
+  })
+
+  it("a thread's report in the main channel wakes the members it mentions", async () => {
+    const { channel, alice, bob, human, service, threadService } = setup()
+    const root = human('fix it')
+    await service.openThread({ agentId: alice.id, message: toShortId(root.id), brief: 'Fixing.' })
+    await threadService(root.id).updateThread({
+      agentId: alice.id, status: 'done', channelMessage: `Fixed. @${bob.name} can you review?`,
+    })
+    await vi.waitFor(() => expect(toChannelSession).toHaveLength(1))
+    expect(toChannelSession[0]).toMatchObject({ agentId: bob.id, scopeKind: 'app', scopeKey: String(channel.id) })
   })
 
   it('posting under a message with no thread opens one the channel session owns, without starting anyone', async () => {

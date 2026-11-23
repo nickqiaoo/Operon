@@ -6,7 +6,9 @@
  *
  *  - `nudgeActivePeers` — an agent posted: tell every *running* peer session
  *    in the channel that new messages are waiting (steer only, debounced).
- *    Idle peers are not woken; they see it on their next wake.
+ *    Idle peers are not woken by it; they see it on their next wake. (Members
+ *    an agent @mentions in the main channel are woken — `routeChannelMentions`
+ *    in threads.ts — within the same follow-up bound.)
  *  - `selectHeldMessages` — send_message's soft gate: if others posted since
  *    the sender last read, return those instead of posting.
  *  - `planRewake` — on turn end, re-wake for unread human messages, but only a
@@ -22,7 +24,7 @@ import { cancelDebounce, debounceNotify } from './debounce-manager.js'
 import { streamOfBinding, streamTarget, unreadIn } from './session-stream.js'
 
 /** Agent-only follow-up wakes allowed before a human speaks again. */
-export const MAX_AGENT_FOLLOW_UPS = 2
+export const MAX_AGENT_FOLLOW_UPS = 5
 
 const PEER_NUDGE_DEBOUNCE_MS = 3000
 const FOLLOW_UPS_KEY = 'peerFollowUps'

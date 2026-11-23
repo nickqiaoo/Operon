@@ -9,6 +9,7 @@ import type {
   ChannelMember,
   ChannelMessage,
   ChannelThread,
+  ChannelUnread,
   ThreadRootActivity,
   WaitingSession,
   CreateMessageInput,
@@ -644,6 +645,20 @@ export function channelWorkingAgents(channelId: number) {
 
 export function channelThreadList(channelId: number) {
   return request<{ threads: ChannelThread[] }>(`/channels/${channelId}/threads`)
+}
+
+/** Every channel with unread for the person (main timeline or threads). */
+export function channelUnreadList() {
+  return request<{ channels: ChannelUnread[] }>('/channels/unread')
+}
+
+/** Read the channel up to `upTo` (default: its latest message). */
+export function channelMarkRead(channelId: number, upTo?: number) {
+  return request<{ success: boolean }>(`/channels/${channelId}/read`, { method: 'POST', body: JSON.stringify(upTo != null ? { upTo } : {}) })
+}
+
+export function channelThreadMarkRead(channelId: number, rootMessageId: number, upTo?: number) {
+  return request<{ success: boolean }>(`/channels/${channelId}/threads/${rootMessageId}/read`, { method: 'POST', body: JSON.stringify(upTo != null ? { upTo } : {}) })
 }
 
 export function channelThreadMemberRemove(channelId: number, rootMessageId: number, agentId: number) {

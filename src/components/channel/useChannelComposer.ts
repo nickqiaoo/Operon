@@ -1,36 +1,28 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useImageUploads } from '@/components/task/task-attachments'
 import type { ChannelAttachment } from '@/types/channel'
 
+/**
+ * The channel / thread composer's draft. Sending clears it at once and hands the
+ * message to `send`, which shows it in the transcript straight away and marks it
+ * there if the server never takes it (with retry) — like the assistant. Waiting
+ * for the POST before clearing left the text sitting in the box for the whole
+ * round trip, which over the relay on a phone is seconds.
+ */
 export function useChannelComposer(send: (content: string, attachments: ChannelAttachment[]) => Promise<void>) {
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
-  const [sendFailed, setSendFailed] = useState(false)
-  const submitting = useRef(false)
   const images = useImageUploads({ maxImages: 10 })
-  const canSend = !!(input.trim() || images.attachments.length) && !images.uploading && !sending
+  const canSend = !!(input.trim() || images.attachments.length) && !images.uploading
 
-  async function submit(text = input) {
+  function submit(text = input) {
     const content = text.trim()
-    if (submitting.current || images.uploading || (!content && images.attachments.length === 0)) return false
-
-    submitting.current = true
-    setSending(true)
-    setSendFailed(false)
-    try {
-      await send(content, images.attachments)
-      setInput((draft) => draft === text ? '' : draft)
-      for (const item of images.items) images.remove(item.id)
-      return true
-    } catch (error) {
-      console.error(error)
-      setSendFailed(true)
-      return false
-    } finally {
-      submitting.current = false
-      setSending(false)
-    }
+    if (images.uploading || (!content && images.attachments.length === 0)) return false
+    const attachments = images.attachments
+    setInput('')
+    for (const item of images.items) images.remove(item.id)
+    send(content, attachments).catch((error: unknown) => console.error(error))
+    return true
   }
 
-  return { input, setInput, images, sending, sendFailed, canSend, submit }
+  return { input, setInput, images, canSend, submit }
 }

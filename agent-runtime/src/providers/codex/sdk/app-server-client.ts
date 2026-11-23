@@ -21,6 +21,8 @@ import type {
   TurnStartParams,
   TurnStartResult,
   TurnSteerParams,
+  TurnSettingsUpdateParams,
+  TurnSettingsUpdateResult,
   TurnInterruptParams,
   ModelListParams,
   ModelListResult,
@@ -556,6 +558,11 @@ export class AppServerClient {
 
   async steerTurn(params: TurnSteerParams): Promise<{ turnId: string }> {
     return this.request<{ turnId: string }>('turn/steer', params);
+  }
+
+  /** Change the running turn's reviewer / model / effort / tier (experimental API). */
+  async updateTurnSettings(params: TurnSettingsUpdateParams): Promise<TurnSettingsUpdateResult> {
+    return this.request<TurnSettingsUpdateResult>('turn/settings/update', params);
   }
 
   /**

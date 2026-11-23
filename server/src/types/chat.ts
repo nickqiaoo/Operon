@@ -114,6 +114,8 @@ export interface StoredChatMessage {
 /** Chat-row fields a write may set. Fields left undefined keep their current value. */
 export interface ChatConfigPatch {
   tp?: ChatType
+  /** Rename the chat (the CreateChatInput field of the same name sets it at creation). */
+  title?: string
   workspaceId?: number
   model?: string
   providerId?: string

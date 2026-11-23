@@ -2,6 +2,8 @@
 // cross-project attention feed. Distinct from OS-notification settings
 // (src/stores/notification-store.ts).
 
+import type { ChannelUnread } from './channel'
+
 export type NotificationKind =
   | 'chat_complete'
   | 'chat_needs_input'
@@ -61,3 +63,5 @@ export type InboxEvent =
   | { type: 'notification_read'; ids: number[] }
   | { type: 'notification_archive'; ids: number[] }
   | ({ type: 'counts' } & UnreadCounts)
+  /** One channel's unread for the person changed (a new agent message, or read elsewhere). */
+  | { type: 'channel_unread'; unread: ChannelUnread }

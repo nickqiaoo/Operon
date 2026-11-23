@@ -76,6 +76,8 @@ import {
 import { formatChannelMessage } from '../agent-comm/channel-message-format.js'
 import { markReadIn, streamOfBinding, streamTarget, unreadIn, type SessionStream } from './session-stream.js'
 import { emitThreadUpdated, ensureChannelSession, onSessionInputChanged, registerThreadDelivery, routeThreadMessage } from './threads.js'
+import { initChannelAttention } from './channel-attention.js'
+import { getChatStorage } from '../ai/state.js'
 import { subscribePendingInput } from '../ai/chat-pending-input.js'
 import { resolveAgentEnv } from './agent-env.js'
 import { channelAttachmentFiles, MAX_MESSAGE_IMAGES } from './channel-attachments.js'
@@ -135,9 +137,11 @@ export function initOrchestrator(storage: Storage): void {
   // An approval or question a channel / thread session raises shows in the channel.
   _stopWatchingPendingInput?.()
   _stopWatchingPendingInput = subscribePendingInput((change) => onSessionInputChanged(storage, change.chatId))
+  initChannelAttention(storage)
   registerThreadDelivery({
     toThreadSession: (binding) => deliverBinding(storage, threadAdapter, storage.getBinding(binding.id) ?? binding),
     toChannelSessions: (channelId, message) => deliverToChannelSessions(channelId, message),
+    toChannelSession: (binding) => deliverBinding(storage, channelAdapter, storage.getBinding(binding.id) ?? binding),
   })
 }
 
@@ -607,8 +611,22 @@ async function startBindingChat(
     threadTitle = `#${channelName} thread${excerpt ? `: ${excerpt}` : ''}`
   }
 
+  // A channel session is named after where it is and who: "#test · luna-dev".
+  // Left unnamed it took its first prompt ("New messages in #test (now marked
+  // read)…"), which is what its approval notifications and the sidebar showed.
+  const channelTitle = stream?.kind === 'channel'
+    ? `#${storage.getChannel(stream.channelId)?.name ?? stream.channelId} · ${agent.name}`
+    : undefined
   const scopedTask = binding.scopeKind === 'task' ? storage.taskGet(Number(binding.scopeKey)) : null
-  const sessionTitle = scopedTask ? `#${scopedTask.number} ${scopedTask.title}` : threadTitle
+  const sessionTitle = scopedTask ? `#${scopedTask.number} ${scopedTask.title}` : (threadTitle ?? channelTitle)
+  // A title only applies when the chat is created; sessions from before this
+  // (or a channel renamed since) are brought in line here.
+  if (channelTitle && binding.activeChatId != null) {
+    const chats = getChatStorage()
+    if (chats && chats.getChatMeta(binding.activeChatId)?.title !== channelTitle) {
+      chats.updateChatConfig(binding.activeChatId, { title: channelTitle })
+    }
+  }
 
   const messages: UIMessage[] = [
     {
@@ -642,6 +660,12 @@ async function startBindingChat(
       env: resolveAgentEnv(agent),
       instructions,
       agentContext: bindingAgentContext(binding),
+    }, {
+      // A channel or thread session blocked on an approval or a question raises
+      // an inbox row (and a phone push) like a chat you started: nobody watches
+      // its own chat, and the channel may not be on screen. Task sessions have
+      // their own task_needs_input.
+      notifyInbox: binding.scopeKind === 'app' || binding.scopeKind === 'thread',
     })
   } catch (err) {
     console.error(

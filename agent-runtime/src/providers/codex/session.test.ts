@@ -6,6 +6,8 @@ import { buildThinkingLevelsFromModelInfo, mapModelInfoToDescriptor } from './mo
 import { buildConfigOverrides } from './sdk/converters/settings-merger.js'
 import type { ModelInfo } from './sdk/protocol/messages.js'
 import { CodexRuntimeSession, disabledMcpConfig } from './session.js'
+import { SessionImpl } from './sdk/session.js'
+import type { AppServerClient } from './sdk/app-server-client.js'
 import { createRuntimeContext } from '../../context.js'
 
 const ctx = createRuntimeContext()
@@ -91,6 +93,42 @@ describe('Codex permission modes', () => {
       approvalsReviewer: 'user',
       defaultPermissions: ':read-only',
     })
+  })
+})
+
+describe('Codex mid-turn switch', () => {
+  const liveSession = (status: 'applied' | 'targetUnavailable' = 'applied') => {
+    const updateTurnSettings = vi.fn(async () => ({ status }))
+    const session = new CodexRuntimeSession({ cwd: '/tmp' }, createRuntimeContext({ resolveBinary: () => '/mock/codex' }))
+    const turn = new SessionImpl({ updateTurnSettings } as unknown as AppServerClient, 'thread-1')
+    turn._setTurnId('turn-1')
+    ;(session as unknown as { codexSession: SessionImpl }).codexSession = turn
+    return { session, turn, updateTurnSettings }
+  }
+
+  it('hands the running turn the new mode reviewer', async () => {
+    const { session, updateTurnSettings } = liveSession()
+    expect(await session.set({ mode: 'approveForMe' })).toEqual(['mode'])
+    expect(updateTurnSettings).toHaveBeenCalledWith({ threadId: 'thread-1', turnId: 'turn-1', approvalsReviewer: 'auto_review' })
+    expect(session.state().currentModeId).toBe('approveForMe')
+  })
+
+  it('sends model, effort and fast-mode off along with it', async () => {
+    const { session, updateTurnSettings } = liveSession()
+    await session.set({ model: 'gpt-5.4', effort: 'xhigh', serviceTier: undefined })
+    expect(updateTurnSettings).toHaveBeenCalledWith({ threadId: 'thread-1', turnId: 'turn-1', model: 'gpt-5.4', effort: 'xhigh', serviceTier: null })
+  })
+
+  it('only stores the switch between turns, and survives Codex refusing it', async () => {
+    const idle = liveSession()
+    idle.turn._setInactive()
+    await idle.session.set({ mode: 'fullAccess' })
+    expect(idle.updateTurnSettings).not.toHaveBeenCalled()
+
+    const { session, updateTurnSettings } = liveSession()
+    updateTurnSettings.mockRejectedValueOnce(new Error('method not found'))
+    expect(await session.set({ mode: 'approveForMe' })).toEqual(['mode'])
+    expect(session.state().currentModeId).toBe('approveForMe')
   })
 })
 
