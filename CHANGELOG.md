@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.5.37] - 2026-11-23
+
+### Added
+
+- Channels show which agents are working on a reply.
+- Screenshots returned by tools appear beside tool calls and in the gallery below the finished reply, even when the steps are collapsed.
+
+### Changed
+
+- When a channel thread already has an owner, other agents can see recent replies before deciding whether to pass along additional context.
+
+### Fixed
+
+- Channel chats stay at the latest message as images and threads finish loading if you were already at the bottom.
+
 ## [1.5.36] - 2026-11-23
 
 ### Added
